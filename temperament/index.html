@@ -137,7 +137,17 @@ const C = [
 ];
 
 // ================= state =================
-const S = RH.load('temper', { done: {}, tun: {}, cur: 0, intro: 0 });
+const S = loadState();
+function loadState() {
+  let s = RH.load('temper', null);
+  if (!s || typeof s !== 'object' || Array.isArray(s)) s = {};
+  const obj = x => x && typeof x === 'object' && !Array.isArray(x) ? x : {};
+  s.done = obj(s.done); s.tun = obj(s.tun);
+  for (const k in s.done) { const v = s.done[k] | 0; if (!C[k] || v < 1) delete s.done[k]; else s.done[k] = Math.min(3, v); }
+  for (const k in s.tun) { const t = s.tun[k]; if (!C[k] || !Array.isArray(t) || t.length !== 12 || !t.every(Number.isFinite)) delete s.tun[k]; }
+  s.cur = Number.isInteger(s.cur) ? s.cur : 0; s.intro = s.intro ? 1 : 0;
+  return s;
+}
 const persist = () => { RH.save('temper', S); RH.progress('temperament', Object.keys(S.done).length / C.length); };
 const actOpen = a => a === 0 || C.filter((c, j) => c.a === a - 1 && S.done[j]).length >= Math.min(3, C.filter(c => c.a === a - 1).length - 1);
 let cur = S.cur; if (!C[cur] || !actOpen(C[cur].a)) cur = 0;
@@ -280,10 +290,23 @@ function update() {
 function updateSoft() { // during slider drag: just goals + labels
   updateGoals();
 }
-let celebTimer = null, celebFor = -1;
-// The result dialog waits until the player has stopped nudging for a moment, so it never interrupts fine-tuning.
+// Deliberate commit: stars are only awarded once the tuning has been left unchanged for SETTLE_MS with no pointer
+// held down, so dragging a slider through the target (or clicking through it) never completes a commission.
+const SETTLE_MS = 1000;
+let awardT = null, awardFor = -1, ptrDown = false, awaitUp = false;
+addEventListener('pointerdown', () => { ptrDown = true; }, true);
+const ptrUp = () => { ptrDown = false; if (awaitUp) { awaitUp = false; scheduleAward(); } };
+addEventListener('pointerup', ptrUp, true); addEventListener('pointercancel', ptrUp, true); addEventListener('blur', ptrUp);
+function scheduleAward() { clearTimeout(awardT); awaitUp = false; awardFor = cur; awardT = setTimeout(award, SETTLE_MS); }
+function award() {
+  awardT = null; if (awardFor !== cur) return;
+  if (ptrDown) { awaitUp = true; return; }
+  const stars = Math.min(...C[cur].goals.map(g => goalEval(g, tun()).stars));
+  if (!(stars > 0) || (S.done[cur] || 0) >= stars) return;
+  const first = !S.done[cur]; S.done[cur] = stars; persist(); renderSide();
+  if (first) celebrate(); else RH.toast(`Improved: ${'★'.repeat(stars)}`);
+}
 function celebrate() {
-  celebTimer = null; if (celebFor !== cur) return;
   const cm = C[cur], stars = S.done[cur], nxt = C.findIndex((x, j) => j > cur && !S.done[j] && actOpen(x.a));
   if (cm.piece) playPiece(cm.piece); else playNotes([[0, 3], [4, 4], [7, 4], [0, 5]], 2.5);
   RH.modal(`<h2>🎼 ${cm.n}</h2><p class="stars" style="font-size:26px;text-align:center">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</p><p style="text-align:center">${stars < 3 ? 'The commission is met. Tighter tuning earns more stars.' : 'Beautifully in tune.'}</p>`, nxt >= 0 ? [{ label: 'Keep tuning', value: 0 }, { label: `Next: ${C[nxt].n}`, value: 1 }] : [{ label: 'Close', value: 0 }])
@@ -293,13 +316,7 @@ function updateGoals() {
   const c = tun(), cm = C[cur], ev = cm.goals.map(g => goalEval(g, c));
   $('goals').innerHTML = ev.map(e => `<div class="g"><span>${e.label}</span><span class="${e.stars === 3 ? 'ok' : e.stars ? 'mid' : 'no'}">${e.val ?? ''} ${e.stars ? '★'.repeat(e.stars) : '✗'}</span></div>`).join('') +
     (cm.goals[0].tol ? `<div class="note" style="margin-top:4px">Thresholds for ★/★★/★★★: ${cm.goals[0].tol.map(x => x + '¢').join(' / ')}${cm.goals.length > 1 ? ' (per goal)' : ''}.</div>` : '');
-  const stars = Math.min(...ev.map(e => e.stars));
-  if (celebTimer) { clearTimeout(celebTimer); celebTimer = setTimeout(celebrate, 1600); }
-  if (stars > 0 && (S.done[cur] || 0) < stars) {
-    const first = !S.done[cur]; S.done[cur] = stars; persist(); renderSide();
-    if (first) { celebFor = cur; celebTimer = setTimeout(celebrate, 1600); }
-    else if (!celebTimer) RH.toast(`Improved: ${'★'.repeat(stars)}`);
-  }
+  scheduleAward();
 }
 
 const help = () => RH.modal(`<h2>🎹 Temperament</h2>
@@ -310,7 +327,7 @@ const help = () => RH.modal(`<h2>🎹 Temperament</h2>
 $('helpBtn').onclick = help;
 if (!S.intro) { S.intro = 1; persist(); help(); }
 render();
-window.__tm = { C, S, goalEval, PRESET, tun, ET, dev, iv, chordErr, render, setCur: i => { cur = i; render(); } };
+window.__tm = { C, S, goalEval, PRESET, tun, ET, dev, iv, beats, chordErr, render, startTuning, fromFifths, chainFrom, loadState, actOpen, SETTLE_MS, get cur() { return cur; }, setCur: i => { cur = i; render(); } };
 </script>
 </body>
 </html>

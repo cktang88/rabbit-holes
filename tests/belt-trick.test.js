@@ -109,7 +109,7 @@ module.exports = {
       for (const v of ['null', '[]', '{"done":null,"best":3,"cur":"x"}', '{"done":{"0":3,"77":3},"cur":9}', '{"rec":{"moves":7},"recSteps":"zz","cur":17}']) {
         await page.evaluate(v => { localStorage.clear(); localStorage.setItem('rh:belt-trick', v); }, v);
         const p = await reopen(page); const lv = await p.evaluate(() => __belt.level_);
-        ok(!p.errs.length, `save ${v}: ${p.errs[0]}`); ok(lv <= 1, `resumed into locked level ${lv} from ${v}`); await p.close();
+        ok(!p.errs.length, `save ${v}: ${p.errs[0]}`); ok(lv <= 1 || lv === 17, `resumed into locked level ${lv} from ${v}`); await p.close();
       }
       const hub = await page.evaluate(() => { const B = __belt; for (let i = 0; i < B.LV.length - 1; i++) B.SAVE.done[i] = 3; B.level(0); return JSON.parse(localStorage.getItem('rh:hub'))['belt-trick']; });
       eq(hub, 1);

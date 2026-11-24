@@ -70,7 +70,12 @@ const TOOLS=[
   {k:'pull', n:'Pull', d:'Drag any bead one step into free space. The chain follows behind it like a rope.', at:6},
   {k:'pivot', n:'Pivot', d:'Select a bead, then press <kbd>Q</kbd>/<kbd>E</kbd> to rotate the shorter side of the chain around it, or <kbd>W</kbd> to mirror it.', at:10},
 ];
-const SAVE=RH.load('fold', {cur:0, best:{}, folds:{}, machine:{}});
+const isObj=(o)=>o&&typeof o==='object'&&!Array.isArray(o);
+let SAVE=RH.load('fold', null); if (!isObj(SAVE)) SAVE={cur:0, best:{}, folds:{}, machine:{}};
+for (const k of ['best','folds','machine','bestFold']) if (!isObj(SAVE[k])) SAVE[k]={};
+for (const k of ['best','machine']) for (const j of Object.keys(SAVE[k])) if (!Number.isFinite(SAVE[k][j]) || SAVE[k][j]<0 || !LV[j]) delete SAVE[k][j];
+if (!Number.isInteger(SAVE.cur) || SAVE.cur<0 || SAVE.cur>=LV.length) SAVE.cur=0;
+const validFold=(P,n)=>Array.isArray(P) && P.length===n && P.every(p=>Array.isArray(p)&&p.length===2&&Number.isInteger(p[0])&&Number.isInteger(p[1])) && valid(P);
 const persist=()=>{ RH.save('fold',SAVE); RH.progress('fold', Object.keys(SAVE.best).filter(k=>stars(+k)>=1).length/LV.length); };
 
 // ===================== Geometry =====================
@@ -123,11 +128,11 @@ function pivot(i, kind){ if (!toolOn('pivot')||i<0) return; const n=pos.length; 
 function commit(P){ hist.push(pos); if (hist.length>500) hist.shift(); fut=[]; pos=P; afterChange(); }
 function afterChange(){
   const {c}=contacts(); SAVE.folds[li]=pos; const prev=SAVE.best[li]||0;
-  if (c>prev){ SAVE.best[li]=c; SAVE.bestFold=SAVE.bestFold||{}; SAVE.bestFold[li]=pos.map(p=>p.slice()); const t=target(); if (t && c>=t && prev<t) celebrate(c,t); }
+  if (c>prev){ SAVE.best[li]=c; SAVE.bestFold[li]=pos.map(p=>p.slice()); const t=target(); if (t && c>=t && prev<t) celebrate(c,t); }
   persist(); renderRight(); renderLevels();
 }
 function target(){ const L=LV[li]; return L.exact? optimum(li) : L.best ?? SAVE.machine[li]; }
-function stars(i){ const L=LV[i]; const b=SAVE.best[i]||0; const t= L.exact? optimum(i) : L.best ?? SAVE.machine[i]; if (!t) return b>0?1:0; const f=b/t; return f>=1?3 : f>=0.9?2 : f>=0.7?1 : 0; }
+function stars(i){ const L=LV[i]; const b=SAVE.best[i]||0; const t= L.exact? optimum(i) : L.best ?? SAVE.machine[i]; if (!t) return 0; const f=b/t; return f>=1?3 : f>=0.9?2 : f>=0.7?1 : 0; }
 function celebrate(c,t){ burst=1; RH.toast(c>t? `🧬 ${c} contacts. That beats the best known (${t})!` : `🧬 ${c} contacts: you matched the best known fold.`, 4000); }
 // exact optimum for warm-ups via DFS
 const optCache={};
@@ -140,15 +145,23 @@ function optimum(i){ if (optCache[i]!=null) return optCache[i]; const S=LV[i].se
       P.push([x,y]); used.add(kk); rec(c+add); P.pop(); used.delete(kk); } };
   rec(0); return optCache[i]=best; }
 // machine opponent: simulated annealing with pull moves
-function machineFold(S, ms){ const n=S.length; let P=[...Array(n)].map((_,i)=>[i,0]); let cur=contacts(P,S).c, best=cur; const r=RH.rng(S.length*31+S.charCodeAt(3)); const t0=performance.now(); let T=2.0;
-  const save=pos;
-  while (performance.now()-t0<ms){ for (let it=0; it<400; it++){ const i=r.int(n); const p=P[i]; const d=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]][r.int(8)]; const t=[p[0]+d[0],p[1]+d[1]];
-      pos=P; const Q=tryMoveRaw(P,i,t); if (!Q) continue; const c=contacts(Q,S).c; if (c>=cur || r()<Math.exp((c-cur)/T)){ P=Q; cur=c; if (c>best) best=c; } }
-    T=Math.max(0.15, T*0.97); }
-  pos=save; return best; }
-function tryMoveRaw(P0,i,t){ const n=P0.length; const m=new Set(P0.map(p=>key(p[0],p[1]))); if (m.has(key(t[0],t[1]))) return null;
+// The search runs in small slices so the page never freezes; it never touches the player's chain.
+function makeMachine(S){ const n=S.length; let P=[...Array(n)].map((_,i)=>[i,0]); let cur=contacts(P,S).c; const r=RH.rng(S.length*31+S.charCodeAt(3)); let T=2.0;
+  const M={best:cur, bestP:P, batches:0, step(){ for (let it=0; it<400; it++){ const i=r.int(n); const p=P[i]; const d=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]][r.int(8)]; const t=[p[0]+d[0],p[1]+d[1]];
+      const Q=tryMoveRaw(P,i,t,r); if (!Q) continue; const c=contacts(Q,S).c; if (c>=cur || r()<Math.exp((c-cur)/T)){ P=Q; cur=c; if (c>M.best){ M.best=c; M.bestP=Q; } } }
+    T=Math.max(0.15, T*0.97); M.batches++; } };
+  return M; }
+function machineFold(S, ms){ const M=makeMachine(S); const t0=performance.now(); while (performance.now()-t0<ms) M.step(); return M.best; }
+const machineRuns={};
+function machineFoldAsync(i, ms){ if (machineRuns[i]) return; const M=makeMachine(LV[i].seq); let spent=0; machineRuns[i]=M;
+  const slice=()=>{ const t0=performance.now(); do M.step(); while (performance.now()-t0<20); spent+=performance.now()-t0;
+    if (spent<ms) { setTimeout(slice,0); return; }
+    delete machineRuns[i]; SAVE.machine[i]=M.best; persist(); renderLevels();
+    if (li===i){ renderRight(); RH.toast(`The computer found a fold with ${M.best} contacts. Your move.`); } };
+  setTimeout(slice,0); }
+function tryMoveRaw(P0,i,t,r=Math.random){ const n=P0.length; const m=new Set(P0.map(p=>key(p[0],p[1]))); if (m.has(key(t[0],t[1]))) return null;
   const nb=[i>0?P0[i-1]:null, i<n-1?P0[i+1]:null]; if (adj(t,P0[i]) && nb.every(q=>!q||adj(q,t))){ const P=P0.map(p=>p.slice()); P[i]=t; return P; }
-  return pullMove(P0,i,t, Math.random()<0.5?1:-1); }
+  return pullMove(P0,i,t, r()<0.5?1:-1); }
 // ===================== Rendering =====================
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d'); let cell=30, ox=0, oy=0, drag=null, burst=0, hover=-1;
 function fit(){ const r=cv.getBoundingClientRect(); cv.width=r.width*devicePixelRatio; cv.height=r.height*devicePixelRatio; }
@@ -198,7 +211,7 @@ function undo(){ if (!hist.length) return; fut.push(pos); pos=hist.pop(); afterC
 function redo(){ if (!fut.length) return; hist.push(pos); pos=fut.pop(); afterChange(); }
 document.getElementById('undo').onclick=undo; document.getElementById('redo').onclick=redo;
 document.getElementById('unfold').onclick=()=>{ commit(seq.split('').map((_,i)=>[i,0])); center(); };
-document.getElementById('loadBest').onclick=()=>{ const b=SAVE.bestFold?.[li]; if (b){ commit(b.map(p=>p.slice())); center(); } };
+document.getElementById('loadBest').onclick=()=>{ const b=SAVE.bestFold[li]; if (validFold(b,seq.length)){ commit(b.map(p=>p.slice())); center(); } };
 
 // ===================== UI =====================
 function unlocked(i){ if (i===0) return true; if (stars(i-1)>=1) return true; if (stars(i)>=1) return true;
@@ -220,9 +233,9 @@ function renderRight(){
   document.getElementById('hint').innerHTML = `Orange = H (oily, wants to hide) · blue = P (happy in water) · drag beads to fold · drag empty space to pan · scroll to zoom · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo`;
 }
 function open(i){
-  li=i; SAVE.cur=i; persist(); const L=LV[i]; seq=L.seq; pos=(SAVE.folds[i]||seq.split('').map((_,k)=>[k,0])).map(p=>p.slice()); if (!valid(pos)||pos.length!==seq.length) pos=seq.split('').map((_,k)=>[k,0]);
+  li=i; SAVE.cur=i; persist(); const L=LV[i]; seq=L.seq; pos=validFold(SAVE.folds[i],seq.length)? SAVE.folds[i].map(p=>p.slice()) : seq.split('').map((_,k)=>[k,0]);
   hist=[]; fut=[]; sel=-1; center(); renderRight(); renderLevels();
-  if (L.machine && SAVE.machine[i]==null){ setTimeout(()=>{ SAVE.machine[i]=machineFold(seq, 900+seq.length*25); persist(); if (li===i){ renderRight(); RH.toast(`The computer found a fold with ${SAVE.machine[i]} contacts. Your move.`); } }, 50); }
+  if (L.machine && SAVE.machine[i]==null) machineFoldAsync(i, 900+seq.length*25);
 }
 fit(); window.addEventListener('resize',()=>{ fit(); });
 open(Math.min(SAVE.cur||0, LV.length-1)); requestAnimationFrame(draw);
