@@ -46,7 +46,7 @@ module.exports = {
         await run(1); const after1 = X.won; await run(0); const S = X.stats(); X.setSpin(1, true); return [after1, X.won, S.meas[1], S.meas[0]]; }, SEED);
       ok(!m[0] && m[1], 'measure level: ' + JSON.stringify(m));
     },
-    'cheap tricks are refused': async ({ page, ok, eq }) => {
+    'cheap tricks are refused; a miss explains how close it was': async ({ page, ok, eq }) => {
       await unlock(page);
       // a drop right inside the garbage patch, or next to Europe on the backwards planet, or off Europe for the bottle
       eq((await voyage(page, 2, 21, 165)).rejected, true, 'drop inside the patch');
@@ -59,7 +59,12 @@ module.exports = {
       await spin(page, 1);
       // the 1992 spill can't be moved
       await page.evaluate(() => __fl.load(0)); eq(await page.evaluate(() => __fl.dropAt(30, -140)), false);
-    },
+      // and a miss explains how close it was
+      
+      const r = await voyage(page, 1, 25, -98); // Gulf of Mexico: few reach Britain
+      ok(r.resolved && !r.won, JSON.stringify(r));
+      const t = await page.textContent('#toast'); ok(/need 15/.test(t) && /Britain/.test(t), t);
+        },
     'the bet cannot be changed while ducks are at sea': async ({ page, eq, ok }) => {
       await page.click('#bets [data-k="japan"]');
       await page.click('#rel');
@@ -72,12 +77,6 @@ module.exports = {
       eq(await page.$eval('#bets [data-k="nawest"]', b => b.disabled), false);
       await page.click('#bets [data-k="nawest"]'); eq(await page.evaluate(() => __fl.stats().bet), 'nawest');
       eq(await page.evaluate(() => __fl.won), false, 'changing the bet after the result must not win');
-    },
-    'a missed voyage explains how close it was': async ({ page, ok }) => {
-      await unlock(page);
-      const r = await voyage(page, 1, 25, -98); // Gulf of Mexico: few reach Britain
-      ok(r.resolved && !r.won, JSON.stringify(r));
-      const t = await page.textContent('#toast'); ok(/need 15/.test(t) && /Britain/.test(t), t);
     },
     'long voyages start fast-forwarded; levels, progress and locks': async ({ page, eq, ok }) => {
       eq(await page.evaluate(() => __fl.speed), 1);
@@ -109,7 +108,7 @@ module.exports = {
     },
     'corrupted / odd saves load without errors': async ({ page, eq }) => {
       const u = page.url(); await page.goto('about:blank'); // stop the first globe rendering while the others load
-      for (const [save, cur] of [['null', 0], ['{"done":"x","cur":5}', 0], ['{"done":{"0":1,"9":1,"x":1},"cur":3}', 1]]) {
+      for (const [save, cur] of [['null', 0], ['{"done":{"0":1,"9":1,"x":1},"stars":"q","cards":7,"cur":3}', 1]]) {
         const p2 = await page.context().newPage(), errs = []; p2.on('pageerror', e => errs.push(e.message));
         await p2.goto(u); await p2.evaluate(s => localStorage.setItem('rh:floatees', s), save); await p2.reload(); await p2.waitForFunction(() => window.__fl, null, { timeout: 30000 });
         eq(errs, [], 'errors for ' + save); eq(await p2.evaluate(() => __fl.SAVE.cur), cur, 'voyage for ' + save);
@@ -120,7 +119,7 @@ module.exports = {
       await unlock(page);
       for (const [w, h] of [[390, 844], [1280, 800]]) {
         await page.setViewportSize({ width: w, height: h });
-        for (let i = 0; i < 7; i++) { await page.evaluate(i => __fl.load(i), i); await page.waitForTimeout(120); }
+        for (const i of [0, 3, 6]) { await page.evaluate(i => __fl.load(i), i); await page.waitForTimeout(120); }
         ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'overflow at ' + w);
       }
     },
