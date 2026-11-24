@@ -96,7 +96,7 @@ module.exports = {
       ok(/By ear/.test(await page.textContent('#goal')), 'by-ear goal');
       ok(await page.isVisible('#hum')); await page.click('#hum');
       // the target canvas shows a sealed note, not the figure: its centre pixel is wax red
-      const px = await page.evaluate(() => Array.from(document.getElementById('target').getContext('2d').getImageData(100, 110, 1, 1).data));
+      const px = await page.evaluate(() => Array.from(document.getElementById('target').getContext('2d').getImageData(112, 132, 1, 1).data));
       ok(px[0] > 120 && px[1] < 90, 'sealed note pixel ' + px);
       const t = await page.evaluate(() => { const t = __ch.curTarget(); __ch.setFreq(t.f); return t.id; });
       await page.waitForFunction(id => __ch.SAVE.solved[id], t, { timeout: 7000 });

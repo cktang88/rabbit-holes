@@ -40,7 +40,7 @@ const RH_CATALOG = [
   { id: 'watershed', k: 'erosion river rain terrain canyon delta 3d', em: '💧', t: 'Watershed', round: 3, time: '20-min', diff: 1, tags: ['earth', 'physics', 'simulation', 'pretty', 'sandbox'],
     d: 'A 3D landscape with real hydraulic erosion. Place springs and summon rain, then watch rivers carve canyons, build deltas and drown villages.' },
   { id: 'gridlock', k: 'traffic roads braess cars city tolls', em: '🚦', t: 'Gridlock', round: 3, time: '20-min', diff: 2, tags: ['maths', 'economics', 'emergence', 'wait-what', 'quick'],
-    d: 'Selfish drivers, real equilibrium traffic. Adding a road can make everyone slower. Close roads and set tolls to fix eleven cities.' },
+    d: 'Selfish drivers, real equilibrium traffic. Adding a road can make everyone slower. Close roads and set tolls to fix ten cities.' },
   { id: 'ruin', k: 'gambling coin bet kelly ergodicity money', em: '🎲', t: 'Ruin', round: 3, time: '20-min', diff: 1, tags: ['maths', 'economics', 'simulation', 'wait-what', 'quick'],
     d: 'A coin game that pays +5% on average and still bankrupts almost everyone. A thousand glowing fortunes, the Kelly bet, pooling, Shannon\'s demon and the martingale.' },
   { id: 'snowfall', k: 'snowflake ice crystal snow winter', em: '❄️', t: 'Snowfall', round: 3, time: '20-min', diff: 1, tags: ['physics', 'art', 'emergence', 'simulation', 'pretty', 'sandbox'],
