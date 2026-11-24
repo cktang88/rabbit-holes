@@ -9,7 +9,8 @@
 <style>
   :root{--ink:#f3e6cc;--dim:#b9a27e;--honey:#f2b544;--good:#9bd06b;--bad:#e8684a;--chip:rgba(38,24,12,.86);--edge:rgba(255,214,150,.16)}
   html,body{height:100%;overflow:hidden;background:#1d130b;font-family:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;color:var(--ink)}
-  #cv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:default}
+  #cv,#cvb{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:default}
+  #cvb{pointer-events:none}
   #vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(20,10,0,0) 45%,rgba(20,10,0,.45) 100%)}
   .chip{position:fixed;background:var(--chip);border:1px solid var(--edge);border-radius:16px;box-shadow:0 16px 40px -18px rgba(0,0,0,.8);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
   .fell{font-family:"IM Fell English",Georgia,serif}
@@ -90,6 +91,7 @@
 </style>
 </head>
 <body>
+<canvas id="cvb" aria-hidden="true"></canvas>
 <canvas id="cv"></canvas>
 <div id="vig"></div>
 <div id="hud" class="chip">
@@ -207,8 +209,11 @@ function stepDay(w, h) {
   const d = w.day, wx = w.weather, S = seasonal(LAY_T, d), F = seasonal(FLOW_T, d) * wx;
   const adults = adultsOf(h), { na, nurses, foragers } = castes(h, d);
   const c = cellsOf(h), totalBrood = sum(h.WB) + sum(h.DB);
-  const load = loadOf(h), dwv = 1 + 2 * clamp((load - 2) / 9, 0, 1);
   const mo = monthOf(d);
+  // syrup fed too late in autumn stays thin and damp in the comb → dysentery over winter
+  const dys = h.damp > 2500 && mo >= 4 && mo <= 8 ? 1 + clamp((h.damp - 2500) / 5000, 0, 1.5) : 1;
+  if (dys > 1.3 && !h.dysLogged) { h.dysLogged = 1; logEv(h, w, 'dysentery: late syrup never ripened — fouled combs, bees dying in the cold', 'bad'); }
+  const load = loadOf(h), dwv = (1 + 2 * clamp((load - 2) / 9, 0, 1)) * dys;
   // ---- queen laying ----
   let layW = 0, layD = 0;
   if (h.q.st === 'laying') {
@@ -251,7 +256,7 @@ function stepDay(w, h) {
   }
   h.A[0] = emW * (1 - pW);
   const wm = (mo >= 2 && mo <= 6) ? 1 / 170 : mo === 7 ? .012 : mo === 8 ? .03 : .06;
-  h.W = h.W * (1 - wm * (1 + 3 * clamp((load - 2) / 8, 0, 1))) + emW * pW;
+  h.W = h.W * (1 - wm * dys * (1 + 3 * clamp((load - 2) / 8, 0, 1))) + emW * pW;
   // ---- forage & stores ----
   const nectarIn = foragers * F * (h.disturbed ? .7 : 1);
   let toS = 0;
@@ -259,7 +264,14 @@ function stepDay(w, h) {
   if (h.supers > 0 && sf > 0) toS = Math.min(nectarIn * .88, sf * M.NECTAR_G);
   let toB = Math.min(nectarIn - toS, Math.max(0, c.free * .5) * M.NECTAR_G);
   h.sN += toS; h.bbN += toB;
-  if (h.feedSyrup > 0) { const x = Math.min(h.feedSyrup, 1500); h.feedSyrup -= x; const xs = h.supers && sf > 0 && F > .02 ? x * .45 : 0; h.sH += xs * .8; h.taint += xs * .8; h.bbH += (x - xs) * .8; }
+  if (h.damp) h.damp *= mo >= 8 || mo <= 2 ? .97 : .997;
+  if (h.feedSyrup > 0) {
+    // bees take syrup down quickly only while it's warm; from May it is taken slowly and can't be ripened
+    const cold = mo >= 4 && mo <= 7, x = Math.min(h.feedSyrup, cold ? (mo === 4 ? 700 : 300) : 1500); h.feedSyrup -= x;
+    if (cold) h.damp = (h.damp || 0) + x * .8;
+    if (mo >= 5 && mo <= 6) h.feedSyrup *= .97; /* much of a mid-winter feed simply ferments in the feeder */
+    const xs = h.supers && sf > 0 && F > .02 ? x * .45 : 0; h.sH += xs * .8; h.taint += xs * .8; h.bbH += (x - xs) * .8; }
+  else h.dysLogged = h.damp > 2500 ? h.dysLogged : 0;
   // ripen 3:1
   const rb = h.bbN * M.RIPEN, rs = h.sN * M.RIPEN;
   h.bbN -= rb; h.bbH += rb / 3; h.sN -= rs; h.sH += rs / 3;
@@ -427,9 +439,10 @@ const ACT = {
   requeen: { n: 'Requeen', ic: '♛', tip: 'Introduce a young mated queen in a cage (≈5 days to release). Young queens rarely swarm.',
     ok: () => true,
     go(w, h) { const lw = h.q.st === 'lw'; h.q = { st: 'intro', age: 0, qual: .92, t: lw ? 9 : 5 }; h.qc = []; h.cups = 0; h.imp *= .5; h.noneDays = 0; logEv(h, w, `requeened with a young mated queen${lw ? ' (laying workers: slow acceptance)' : ''}`, 'good'); return 'New queen introduced in a cage with a candy plug.'; } },
-  feed: { n: 'Feed syrup', ic: '⚗', tip: '6 kg of sugar syrup. Builds stores; stimulates spring laying. Syrup that ends up in supers spoils show honey.',
-    ok: () => true,
-    go(w, h) { h.feedSyrup = (h.feedSyrup || 0) + 6000; h.feedT = 10; logEv(h, w, `fed 6 kg syrup (stores ${storesKg(h).toFixed(1)} kg)`, 'info'); return 'Feeder filled with 6 kg of syrup.' + (h.supers && seasonal(FLOW_T, w.day) > .05 ? ' With supers on, some will be stored above.' : ''); } },
+  feed: { n: 'Feed syrup', ic: '⚗', tip: '6 kg of sugar syrup, one feeder a week. Builds stores; stimulates spring laying. Feed by April: syrup given in late autumn/winter is not ripened and stays damp (dysentery). Syrup in supers spoils show honey.',
+    ok: (h, w) => h.fedWk !== w.week || 'The feeder is already full this week.',
+    go(w, h) { h.fedWk = w.week; const mo = monthOf(w.day); if (mo >= 4 && mo <= 7) { h.feedSyrup = (h.feedSyrup || 0) + 6000; h.feedT = 10; logEv(h, w, `fed 6 kg syrup in ${MONTHS_L[mo]} — too cold to ripen it`, 'warn'); return 'Feeder filled — but in this cold the bees take it slowly and cannot ripen it. Thin stores mean dysentery. Feed earlier in autumn.'; }
+      h.feedSyrup = (h.feedSyrup || 0) + 6000; h.feedT = 10; logEv(h, w, `fed 6 kg syrup (stores ${storesKg(h).toFixed(1)} kg)`, 'info'); return 'Feeder filled with 6 kg of syrup.' + (h.supers && seasonal(FLOW_T, w.day) > .05 ? ' With supers on, some will be stored above.' : ''); } },
   oa: { n: 'Oxalic acid', ic: '☁', tip: 'Kills ~97% of mites riding on bees — but none sealed in brood. Broodless = near-total kill. Harsh on bees if repeated within weeks.',
     ok: () => true,
     go(w, h) {
@@ -629,7 +642,10 @@ function externalSigns(w, h) {
 //#SCEN-END
 // ===================== GAME / RENDER =====================
 const $ = id => document.getElementById(id);
-const cv = $('cv'), ctx = cv.getContext('2d', { alpha: false });
+// two layers: #cvb holds the inspection's static picture (backdrop, frame, comb, cells), redrawn only when it
+// changes; #cv (transparent) carries everything that moves. Outside inspection #cv paints the whole scene.
+const cv = $('cv'), cvb = $('cvb'), mctx = cv.getContext('2d'), bctx = cvb.getContext('2d', { alpha: false });
+let ctx = mctx, SHK = [0, 0];
 const TAU = Math.PI * 2, SQ3 = Math.sqrt(3);
 let dpr = 1, VW = 0, VH = 0, T = 0;
 const SAVE = RH.load('swarm', { done: {}, cur: 0 });
@@ -802,7 +818,7 @@ const BEE = (() => {
 })();
 
 // ---------- layout ----------
-function resize() { dpr = FX.fit(cv, 2); VW = cv.width / dpr; VH = cv.height / dpr; }
+function resize() { dpr = FX.fit(cv, 2); FX.fit(cvb, 2); VW = cv.width / dpr; VH = cv.height / dpr; drawInspect.layerKey = ''; }
 addEventListener('resize', () => { resize(); measurePads(); });
 if (window.ResizeObserver) new ResizeObserver(() => resize()).observe(cv);
 const isMobile = () => VW < 860;
@@ -845,7 +861,9 @@ function startScenario(i) {
   renderUI(); banner(SC.n, dateStr(W.day, 1));
   if (!startScenario.resuming) autosave();
 }
-function onModelEvent(h, txt, kind) { if (kind === 'swarm' && !ff) { /* handled by ff */ } }
+// "until something happens": any warning the model logs (cups, cells, starving, queenless, dysentery…) stops the run
+function onModelEvent(h, txt, kind) { if (ff && ff.until && !ff.hit && (kind === 'warn' || kind === 'bad' || kind === 'swarm')) ff.hit = `${h.name}: ${txt}`; }
+const signsNow = () => new Set(W.hives.flatMap(h => externalSigns(W, h)));
 function weeklyNote() {
   const m = monthOf(W.day), lines = [`<b>Week ${W.week} · ${dateStr(W.day)}.</b> ${MONTH_NOTE[m]} Next week looks ${weatherWord(W.nextWeather)}.`];
   for (const h of W.hives) for (const s of externalSigns(W, h)) lines.push(`<span class="${/dead|failing|crawling|very light|roar/.test(s) ? 'badn' : 'warn'}">${s}</span>`);
@@ -1166,12 +1184,6 @@ function drawSwarm(dt) {
 // ---------- inspection scene ----------
 function drawInspect(dt) {
   const h = hive(), b = curB(), si = sideIdx(), fg = frameGeom();
-  // backdrop: warm blurred apiary
-  const bk = 'ib' + VW + 'x' + VH + 'x' + dpr;
-  if (drawInspect.key !== bk) { drawInspect.key = bk; const c = drawInspect.bg = document.createElement('canvas'); c.width = Math.ceil(VW * dpr); c.height = Math.ceil(VH * dpr); const g2 = c.getContext('2d', { alpha: false }); g2.scale(dpr, dpr); const g = g2.createRadialGradient(VW / 2, VH * .4, 50, VW / 2, VH / 2, Math.max(VW, VH) * .8); g.addColorStop(0, '#5a3b1c'); g.addColorStop(1, '#1d120a'); g2.fillStyle = g; g2.fillRect(0, 0, VW, VH); }
-  ctx.drawImage(drawInspect.bg, -12, -12, VW + 24, VH + 24); // a little oversize so screen-shake never shows an edge
-  // the open box below (top bars)
-  drawStrip(h, fg);
   // parallax from pointer
   const px = ((ptr.mx ?? VW / 2) - VW / 2) / VW, py = ((ptr.my ?? VH / 2) - VH / 2) / VH;
   const lift = (1 - insp.pull) * (fg.portrait ? VH : VH * .9);
@@ -1180,14 +1192,14 @@ function drawInspect(dt) {
   const fgo = { ...fg, cx: snap(fg.cx + px * 10), cy: snap(fg.cy + py * 8 + lift) };
   insp.fg = fgo;
   const sp = Math.max(.2, fg.s * dpr);
-  const comb = combCanvas(b, si, sp);
-  ctx.save(); ctx.translate(fgo.cx, fgo.cy); ctx.rotate(fgo.rot); ctx.scale(fg.s, fg.s);
-  // wooden frame + its soft shadow: pre-rendered once per scale (shadowBlur every frame is very costly)
-  const fl = frameLayer(sp); ctx.drawImage(fl.c, fl.x, fl.y, fl.w, fl.h);
-  ctx.drawImage(comb, -CW / 2, -CH / 2, CW, CH);
-  ctx.translate(-CW / 2, -CH / 2);
-  // queen cells & cups
-  for (const o of b.over[si] || []) drawQCell(o);
+  // static layer: only repainted when the frame, side, comb contents, position or shake change
+  const lk = [VW, VH, dpr, si, insp.box, insp.frame, b.ver, h.supers, fgo.cx, fgo.cy, SHK[0].toFixed(1), SHK[1].toFixed(1), PAD.bot, PAD.top].join('|');
+  if (drawInspect.layerKey !== lk) {
+    drawInspect.layerKey = lk; drawInspect.layerDraws = (drawInspect.layerDraws || 0) + 1;
+    ctx = bctx; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.translate(SHK[0], SHK[1]);
+    try { drawInspectStatic(h, b, si, fg, fgo, sp); } finally { ctx = mctx; }
+  }
+  ctx.save(); ctx.translate(fgo.cx, fgo.cy); ctx.rotate(fgo.rot); ctx.scale(fg.s, fg.s); ctx.translate(-CW / 2, -CH / 2);
   // queen
   const q = insp.queen;
   if (q) drawQueen(q, dt);
@@ -1205,8 +1217,6 @@ function drawInspect(dt) {
   // label
   if (insp.label) { insp.label.t -= dt; if (insp.label.t <= 0) insp.label = null; else drawLabel(insp.label, fgo); }
   ctx.restore();
-  // hands holding the lugs
-  drawHands(fgo);
   // smoke
   ctx.save();
   ctx.fillStyle = 'rgb(226,218,200)';
@@ -1226,6 +1236,25 @@ function drawInspect(dt) {
   ctx.fillStyle = '#e9d8b6'; ctx.font = '11px "Space Grotesk",sans-serif'; ctx.textAlign = 'left'; ctx.fillText(ag > .7 ? 'Bees: furious' : ag > .5 ? 'Bees: testy' : 'Bees: calm', mx, my - 5);
   // hint
   if (insp.hint && insp.pull > .9 && !fg.portrait) { ctx.font = 'italic 17px "IM Fell English",Georgia,serif'; ctx.textAlign = 'center'; ctx.fillStyle = `rgba(251,231,184,${.6 + .4 * Math.sin(T * 3)})`; ctx.fillText('Puff of smoke first — then brush the bees aside to read the comb', VW / 2, fg.cy - (fg.portrait ? CW : CH) * fg.s / 2 - 46); }
+}
+function drawInspectStatic(h, b, si, fg, fgo, sp) {
+  // backdrop: warm blurred apiary
+  const bk = 'ib' + VW + 'x' + VH + 'x' + dpr;
+  if (drawInspect.key !== bk) { drawInspect.key = bk; const c = drawInspect.bg = document.createElement('canvas'); c.width = Math.ceil(VW * dpr); c.height = Math.ceil(VH * dpr); const g2 = c.getContext('2d', { alpha: false }); g2.scale(dpr, dpr); const g = g2.createRadialGradient(VW / 2, VH * .4, 50, VW / 2, VH / 2, Math.max(VW, VH) * .8); g.addColorStop(0, '#5a3b1c'); g.addColorStop(1, '#1d120a'); g2.fillStyle = g; g2.fillRect(0, 0, VW, VH); }
+  ctx.drawImage(drawInspect.bg, -12, -12, VW + 24, VH + 24); // a little oversize so screen-shake never shows an edge
+  // the open box below (top bars)
+  drawStrip(h, fg);
+  const comb = combCanvas(b, si, sp);
+  ctx.save(); ctx.translate(fgo.cx, fgo.cy); ctx.rotate(fgo.rot); ctx.scale(fg.s, fg.s);
+  // wooden frame + its soft shadow: pre-rendered once per scale (shadowBlur every frame is very costly)
+  const fl = frameLayer(sp); ctx.drawImage(fl.c, fl.x, fl.y, fl.w, fl.h);
+  ctx.drawImage(comb, -CW / 2, -CH / 2, CW, CH);
+  ctx.translate(-CW / 2, -CH / 2);
+  // queen cells & cups
+  for (const o of b.over[si] || []) drawQCell(o);
+  ctx.restore();
+  // hands holding the lugs
+  drawHands(fgo);
 }
 function drawStrip(h, fg) {
   // top-down view of the open box: ten top bars, the current one lifted
@@ -1395,10 +1424,10 @@ function drawEnd(dt) {
 }
 
 // ---------- fast-forward a week ----------
-function nextWeek(n = 1) {
+function nextWeek(n = 1, until = false) {
   if (!W || ff || view === 'end') return;
   if (view === 'inspect') closeHive(1);
-  ff = { left: n, day: 0, acc: 0, dayDur: n > 1 ? .07 : .2, pause: 0 };
+  ff = { left: n, day: 0, acc: 0, dayDur: n > 1 ? (until ? .05 : .07) : .2, pause: 0, until, hit: null, sig0: until ? signsNow() : null };
   beginWeek(W); FX.sfx('whoosh'); renderUI();
 }
 function tickFF(dt) {
@@ -1412,6 +1441,8 @@ function tickFF(dt) {
       endWeek(W); weeklyNote(); autosave();
       if (W.sc.free && monthOf(W.day) === 8 && W.day % 365 < 250 + 7 && W.day % 365 >= 243) yearLedger();
       if (checkEnd()) { ff = null; return; }
+      if (ff.until && !ff.hit) { for (const sg of signsNow()) if (!ff.sig0.has(sg)) { ff.hit = sg; break; } }
+      if (ff.until && ff.hit) { const msg = ff.hit; ff = null; FX.sfx('chime', 3); toast('Stopped — ' + msg); renderUI(); return; }
       if (--ff.left <= 0) { ff = null; FX.sfx('chime', 2); renderUI(); return; }
       beginWeek(W);
     }
@@ -1420,12 +1451,61 @@ function tickFF(dt) {
   updateHud();
 }
 function yearLedger() { const kg = cleanKg(W); banner('1 September', `Year ${Math.round((W.day - SC.start) / 365)}: ${alive(W).length} colonies, ${kg.toFixed(0)} kg of honey all told`, 3200); }
-// floats are rounded to 5 significant figures: the run save stays well under the localStorage quota
+// ---------- compact autosave (v2) ----------
+// localStorage is shared by every game on this origin, so a run is packed small: cohort arrays as Float32 base64,
+// history as quantized Uint16 columns (weekly for the last half-year, monthly before that, two years at most),
+// only the most recent log lines, and every other float rounded to 5 significant figures.
 const saveNum = (k, v) => typeof v === 'number' && !Number.isInteger(v) ? +v.toPrecision(5) : v;
-function autosave() { try { const o = { sc: SC.id, w: { ...W, sc: null, onEvent: null, swarmEvents: [] } }; localStorage.setItem('rh:swarm-run', JSON.stringify(o, saveNum)); } catch (e) {} }
+const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode.apply(null, u8.subarray(i, i + 8192)); return btoa(s); };
+const unb64 = str => { const s = atob(str), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
+const HK = ['adults', 'nurses', 'foragers', 'winter', 'brood', 'drone', 'honey', 'superH', 'nectar', 'imp', 'cong', 'load', 'mites', 'flow'];
+const HS = [.25, .25, .25, .25, .25, .25, 100, 100, 100, 1e4, 1e4, 100, .25, 1e4];
+const HIVE_SKIP = new Set(['A', 'WB', 'DB', 'hist', 'log', '_ent', '_top', 'disturbed']);
+function packHist(H) {
+  if (!H.length) return null;
+  const last = H[H.length - 1].d, pick = [];
+  for (let i = H.length - 1; i >= 0; i--) { const s = H[i], age = last - s.d, prev = pick.length ? pick[pick.length - 1].d : 1e9; if (age > 730) break; if (prev - s.d >= (age <= 182 ? 7 : 30) || !pick.length) pick.push(s); }
+  if (pick[pick.length - 1] !== H[0] && last - H[0].d <= 730) pick.push(H[0]);
+  pick.reverse();
+  const n = pick.length, u = new Uint16Array(n * (HK.length + 1)), d0 = pick[0].d;
+  pick.forEach((s, j) => { u[j] = s.d - d0; HK.forEach((k, f) => { u[(f + 1) * n + j] = clamp(Math.round((s[k] || 0) * HS[f]), 0, 65535); }); });
+  return { d0, n, u: b64(new Uint8Array(u.buffer)) };
+}
+function unpackHist(o) {
+  if (!o) return [];
+  const u = new Uint16Array(unb64(o.u).buffer), n = o.n, out = [];
+  for (let j = 0; j < n; j++) { const s = { d: o.d0 + u[j] }; HK.forEach((k, f) => { s[k] = u[(f + 1) * n + j] / HS[f]; }); out.push(s); }
+  return out;
+}
+function packWorld(w) {
+  const o = {};
+  for (const k in w) if (!['hives', 'sc', 'onEvent', 'swarmEvents'].includes(k)) o[k] = w[k];
+  o.hives = w.hives.map(h => {
+    const p = {}; for (const k in h) if (!HIVE_SKIP.has(k)) p[k] = h[k];
+    const f = new Float32Array(M.A_LEN + M.WB_LEN + M.DB_LEN); f.set(h.A, 0); f.set(h.WB, M.A_LEN); f.set(h.DB, M.A_LEN + M.WB_LEN);
+    p.coh = b64(new Uint8Array(f.buffer)); p.hist = packHist(h.hist);
+    p.log = h.log.slice(-14).map(e => [e.d, e.wk, e.kind, e.txt]); p.logN = h.log.length;
+    return p;
+  });
+  return o;
+}
+function unpackWorld(o) {
+  const w = { ...o };
+  w.hives = o.hives.map(p => {
+    const h = { ...p }, f = new Float32Array(unb64(p.coh).buffer);
+    h.A = Array.from(f.subarray(0, M.A_LEN)); h.WB = Array.from(f.subarray(M.A_LEN, M.A_LEN + M.WB_LEN)); h.DB = Array.from(f.subarray(M.A_LEN + M.WB_LEN));
+    h.hist = unpackHist(p.hist);
+    h.log = (p.logN > p.log.length ? [{ d: p.log.length ? p.log[0][0] : o.day, wk: p.log.length ? p.log[0][1] : 0, kind: 'info', txt: `(${p.logN - p.log.length} earlier entries not kept)` }] : []).concat(p.log.map(([d, wk, kind, txt]) => ({ d, wk, kind, txt })));
+    delete h.coh; delete h.logN; return h;
+  });
+  return w;
+}
+function autosave() { try { localStorage.setItem('rh:swarm-run', JSON.stringify({ v: 2, sc: SC.id, w: packWorld(W) }, saveNum)); } catch (e) {} }
 function resume() {
   try { const o = JSON.parse(localStorage.getItem('rh:swarm-run') || 'null'); if (!o) return false; const i = SCEN.findIndex(s => s.id === o.sc); if (i < 0) return false;
-    startScenario.resuming = 1; startScenario(i); startScenario.resuming = 0; Object.assign(W, o.w); W.sc = SCEN[i]; W.onEvent = onModelEvent; if (SC.tutorial) W.tut = W.tut || { found: {}, wrong: 0, driven: 0 }; notes.push({ html: `<i>Resumed at week ${W.week}.</i>` }); renderUI(); return true; } catch (e) { return false; }
+    const ws = o.v === 2 ? unpackWorld(o.w) : { ...o.w, swarmEvents: [] }; // v1 (plain JSON) saves migrate on load, re-saved compact below
+    startScenario.resuming = 1; startScenario(i); startScenario.resuming = 0; Object.assign(W, ws); W.sc = SCEN[i]; W.onEvent = onModelEvent; W.swarmEvents = []; if (SC.tutorial) W.tut = W.tut || { found: {}, wrong: 0, driven: 0 }; notes.push({ html: `<i>Resumed at week ${W.week}.</i>` }); renderUI();
+    if (o.v !== 2) autosave(); return true; } catch (e) { return false; }
 }
 
 // ---------- particles (UI bursts) ----------
@@ -1456,14 +1536,14 @@ function renderUI() {
     const al = W.hives.map((h, i) => [h, i]).filter(x => x[0].alive);
     html += al.length <= 4 ? al.map(([h, i]) => `<button class="b ghost" data-open="${i}">Open ${h.name}</button>`).join('') : `<span class="fell" style="font-size:14px;padding:0 6px">Tap a hive to open it</span>`;
     html += `<button class="b ${W.actsLeft === 0 ? 'pulse' : ''}" id="tWeek" ${ff ? 'disabled' : ''}>Next week ▸</button>`;
-    if (SC.long || SC.weeks >= 20) html += `<button class="b ghost" id="tSkip" ${ff ? 'disabled' : ''} title="Four weeks at once">▸▸ 4 weeks</button>`;
+    if (SC.long || SC.weeks >= 20) html += `<button class="b ghost" id="tSkip" ${ff ? 'disabled' : ''} title="Four weeks at once">▸▸ 4 weeks</button><button class="b ghost" id="tUntil" ${ff ? 'disabled' : ''} title="Run on (up to 26 weeks) until the notes or the colonies show something new">▸▸ Until something happens</button>`;
   } else html += `<button class="b ghost" id="tRetry">Try again</button>` + (simOn ? '' : '');
   html += `<button class="b ghost ${simOn ? 'on' : ''}" id="tSim" title="Model curves (V)">Sim view</button><button class="b ghost" id="notesBtn">Notes</button>`;
   tr.innerHTML = html;
   tr.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openHive(+b.dataset.open));
   const on = (id, f) => { const e = $(id); if (e) e.onclick = f; };
   on('tSmoke', smokePuff); on('tPrev', () => changeFrame(-1)); on('tNext', () => changeFrame(1)); on('tFlip', () => changeFrame(0, 1)); on('tClose', () => closeHive());
-  on('tWeek', () => nextWeek(1)); on('tSkip', () => nextWeek(4)); on('tRetry', () => startScenario(SCI));
+  on('tWeek', () => nextWeek(1)); on('tSkip', () => nextWeek(4)); on('tUntil', () => nextWeek(26, true)); on('tRetry', () => startScenario(SCI));
   on('tSim', () => { simOn = !simOn; renderUI(); }); on('notesBtn', () => $('notes').classList.toggle('open'));
   // interventions
   const ac = $('acts');
@@ -1490,8 +1570,9 @@ function frame(now) {
   if (document.hidden) return;
   if (FX.frozen()) dt = 0;
   T += dt;
+  const [sx, sy] = FX.shakeOffset(10); SHK[0] = sx; SHK[1] = sy;
+  if (view === 'inspect') { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height); }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const [sx, sy] = FX.shakeOffset(10);
   ctx.translate(sx, sy);
   if (!W) return;
   tickFF(dt);
@@ -1517,7 +1598,7 @@ window.__bee = {
   act(id, hi = 0) { curHive = hi; try { return applyAct(W, W.hives[hi], id); } catch (e) { return 'ERR ' + e.message; } finally { renderUI(); checkEnd(); } },
   state: (i = 0) => summary(i), hives: () => W.hives.map((h, i) => summary(i)), world: () => W, result: () => result, view: () => view,
   open(i = 0) { openHive(i); return view; }, close() { closeHive(); }, frame(f, side = 0, box = 0) { if (!insp) return; insp.box = box; insp.frame = f; insp.side = side; insp.pull = 1; spawnBees(); }, smoke: smokePuff,
-  sim(on = true) { simOn = on; renderUI(); }, next: nextWeek, identify(t) { tutHit(t); return W.tut; },
+  sim(on = true) { simOn = on; renderUI(); }, next: nextWeek, ff: () => ff, identify(t) { tutHit(t); return W.tut; },
   cellAt(f, side, r, c, box = 0) { if (!insp) openHive(curHive); const b = insp.boxes[box]; const i = (f * 2 + side) * PER + r * COLS + c; return b.type[i]; },
   cellScreen(r, c) { const fg = insp.fg || frameGeom(); return toScreen(cellX(c, r), cellY(r), fg); },
   queenScreen() { if (!insp || !insp.queen) return null; const fg = insp.fg || frameGeom(); return toScreen(insp.queen.x, insp.queen.y, fg); },
