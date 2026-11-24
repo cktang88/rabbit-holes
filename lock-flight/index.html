@@ -9,6 +9,9 @@
 <style>
   html,body{height:100%;overflow:hidden;background:#f3eee4;font-family:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;overscroll-behavior:none}
   #cv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  /* sky and vignette live in CSS so the compositor paints them, not the canvas, every frame */
+  #sky{position:fixed;inset:0;background:linear-gradient(#dfeaee,#f3eee4)}
+  #vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(60,40,20,0) 55%,rgba(60,40,20,.16) 100%)}
   .chip{position:fixed;background:rgba(255,253,248,.86);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(40,36,30,.08);border-radius:16px;color:#2a2622;box-shadow:0 12px 32px -14px rgba(60,40,20,.35)}
   #hud{top:16px;left:16px;padding:12px 16px;width:340px}
   #hud .home{color:#8a8175;font-size:12px;text-decoration:none}
@@ -104,10 +107,11 @@
     #queue{bottom:62px}
     #banner{font-size:28px;width:90vw}
   }
+  @media (max-width:420px){#tools{gap:3px;padding:4px}.tool{padding:7px 8px;font-size:12.5px;gap:3px}}
 </style>
 </head>
 <body>
-<canvas id="cv"></canvas>
+<div id="sky"></div><canvas id="cv"></canvas><div id="vig"></div>
 <div id="hud" class="chip">
   <div class="hrow"><a class="home" href="../index.html">← Rabbit Holes</a><button id="lvBtn" class="chip">☰</button></div>
   <h1 id="title">Lock Flight</h1>
@@ -150,7 +154,7 @@ const bt = (t, d, o = {}) => ({ t, d, ...o });
 const pat = (s, t0, gap) => [...s].map((c, i) => bt(t0 + i * gap, c === '+' || c === 'V' || c === 'F' ? 1 : -1, { vip: c === 'V' || c === 'v', per: c === 'F' || c === 'f' ? 240 : 0 }));
 
 const LV = [
-  { n: 'One Lock', story: 'A boat wants to climb. <b>Tap the chamber</b> to fill it from the pound above, then <b>tap the top gate</b>. Gates only open when the water on both sides is level.',
+  { n: 'One Lock', story: 'A boat wants to climb. <b>Tap the bottom gate</b> to let it in, <b>tap the chamber</b> to fill it from the pound above, then <b>tap the top gate</b>. Gates only open when the water on both sides is level.',
     seq: [R(160), K(1), S(230, 8)], feed: .3, boats: [bt(1, 1)], goal: 1, time: 150, wpb: 1.05, wait: 25, hint: 1 },
   { n: 'Two-Way Traffic', story: 'Boats now come from both ends, and the summit holds only a few lockfuls. Every fill is water lost downhill. Watch what the chamber is doing when each boat leaves it.',
     seq: [R(160), K(1), S(230, 5)], feed: .55, boats: [bt(1, 1), bt(2, -1), bt(50, 1), bt(52, -1), bt(105, -1), bt(106, 1), bt(160, 1), bt(161, -1)], goal: 8, time: 420, wpb: .6, wait: 45, hint: 1 },
@@ -187,7 +191,7 @@ const LV = [
   { n: 'Agua Clara', story: 'Panama, 2016: three chambers in a row, each with <b>three water-saving basins</b>. Gatun Lake is also Panama\'s drinking water, so the canal is metered.',
     seq: [R(170), ...stair(3, 1, { ponds: 3 }), S(260, 18)], feed: .5, draw: .35, boats: pat('+-+-+V+-+-', 1, 45), goal: 10, time: 1500, wpb: .7, wait: 200, keeper: 'on', policy: 'BATCH', picks: 1 },
   { n: 'Panama', story: 'Atlantic to Pacific over Gatun Lake. A drought is forecast. Endless mode: keep ships moving for as long as the lake lasts. Deliver 20 to clear.',
-    seq: [R(170), ...stair(3, 1, { ponds: 3 }), S(300, 40), ...stair(3, -1, { ponds: 3 }), R(170)], feed: 1.3, draw: .3, boats: pat('+-+-V-+F-+', 1, 50), goal: 20, time: 0, endless: 1, wpb: .8, wait: 220, keeper: 'on', policy: 'BATCH', picks: 1,
+    seq: [R(170), ...stair(3, 1, { ponds: 3 }), S(300, 40), ...stair(3, -1, { ponds: 3 }), R(170)], feed: 1.3, draw: .3, boats: pat('+-+-V-+F-+', 1, 50), goal: 20, time: 0, endless: 1, wpb: 1.3, wait: 220, keeper: 'on', policy: 'BATCH', picks: 1,
     events: [{ t: 700, type: 'drought' }] },
 ];
 
@@ -266,7 +270,7 @@ function build(Lv, extra) {
   for (let i = 0; i < B.length; i++) if (B[i].kind === 'ch') {
     const chs = []; while (i < B.length && B[i].kind === 'ch') chs.push(i++);
     const u = { id: U.length, chs, L: chs[0] - 1, R: chs[chs.length - 1] + 1, policy: Lv.policy || 'FIFO', lastDir: 0, run: 0, pending: 0, k: { phase: 'idle', boats: [], dir: 0, t: 0, step: 0 } };
-    u.cap = B[chs[0]].cap; chs.forEach(c => B[c].unit = u); U.push(u); i--;
+    u.cap = B[chs[0]].cap; u.rchs = [...chs].reverse(); chs.forEach(c => B[c].unit = u); U.push(u); i--;
   }
   sIdx = B.findIndex(b => b.kind === 'summit');
   // weir (bywash) targets: the next lower pound on each side
@@ -276,7 +280,10 @@ function build(Lv, extra) {
   }
 }
 
+let endT = 0;
 function load(i, opts = {}) {
+  clearTimeout(endT); clearTimeout(banner.h);
+  document.querySelectorAll('.modal-bg').forEach(e => e.remove()); // a stale win/lose card never outlives its level
   LI = i; SAVE.cur = i; persist(); L = LV[i];
   const extra = opts.extra ?? null;
   L.Aover = opts.A || 0; build(L, extra);
@@ -602,7 +609,7 @@ function keeperStep(u) {
     // adopt a boat already inside (left there by manual play, or by switching the keeper off and on mid-lockage)
     const stray = boats.find(b => b.state === 'canal' && u.chs.includes(b.b));
     if (stray) {
-      const sd = stray.dir, order = sd > 0 ? u.chs : [...u.chs].reverse();
+      const sd = stray.dir, order = sd > 0 ? u.chs : u.rchs;
       k.dir = sd; k.boats = boats.filter(b => b.state === 'canal' && b.b === stray.b && b.dir === sd).map(b => b.id);
       k.phase = 'transit'; k.step = order.indexOf(stray.b); k.t = T;
       return;
@@ -613,7 +620,7 @@ function keeperStep(u) {
     if (pick.dir === u.lastDir) u.run++; else u.run = 1;
     k.dir = pick.dir; k.boats = pick.boats.map(b => b.id); k.phase = 'prep'; k.t = T; k.step = 0;
   }
-  const dir = k.dir, chs = dir > 0 ? u.chs : [...u.chs].reverse(), outI = dir > 0 ? u.L : u.R, eg = Math.min(outI, chs[0]);
+  const dir = k.dir, chs = dir > 0 ? u.chs : u.rchs, outI = dir > 0 ? u.L : u.R, eg = Math.min(outI, chs[0]);
   if (k.phase === 'prep') {
     if (!k.boats.every(id => { const b = boatById(id); return b && b.state === 'canal' && b.b === outI; })) { k.phase = 'idle'; k.boats = []; return; }
     if (prepare(u, dir, chs, outI)) { if (G[eg].o >= 1) { k.phase = 'enter'; k.t = T; } else if (!G[eg].want) requestOpen(eg, true); }
@@ -730,6 +737,7 @@ function checkEnd() {
   if (ledger.flood > .5) return lose('The towpath flooded', 'Water spilled over the lock side. In a staircase, never empty a chamber into one that is already full.');
   if (state === 'play' && delivered >= L.goal) return win();
   if (state === 'play' && L.time && T >= L.time) return lose('Out of time', `${delivered} of ${L.goal} boats got through.`);
+  if (L.endless && boats.length >= 16) return lose('The canal is jammed', `${boats.length} ships are waiting and the queue reaches the sea. Keep the locks working.`);
 }
 
 // ================= win / lose =================
@@ -743,13 +751,15 @@ function ledgerHtml() {
   <span>Average wait (★ ≤ ${fmtT(L.wait)})</span><b>${fmtT(aw)}</b>
   <span>Summit water left</span><b>${usable().toFixed(1)} lockfuls</b></div>`;
 }
+const PW = 300, PH = 184; // ~8 KB per snapshot, 18 of them fit easily in localStorage
 function photograph() {
   draw(performance.now()); // make sure the canvas shows this moment, even if the win came between frames
-  const c = document.createElement('canvas'); c.width = 360; c.height = 220; const x = c.getContext('2d');
-  const k = Math.max(360 / cv.width, 220 / cv.height); const w = cv.width * k, h = cv.height * k;
-  x.drawImage(cv, (360 - w) / 2, (220 - h) / 2, w, h);
-  x.fillStyle = 'rgba(255,230,190,.12)'; x.fillRect(0, 0, 360, 220);
-  try { return c.toDataURL('image/jpeg', .72); } catch (e) { return ''; }
+  const c = document.createElement('canvas'); c.width = PW; c.height = PH; const x = c.getContext('2d');
+  const k = Math.max(PW / cv.width, PH / cv.height); const w = cv.width * k, h = cv.height * k;
+  const [c1, c2] = skyAt(tod), sg = x.createLinearGradient(0, (PH - h) / 2, 0, (PH + h) / 2); sg.addColorStop(0, c1); sg.addColorStop(1, c2); x.fillStyle = sg; x.fillRect(0, 0, PW, PH);
+  x.drawImage(cv, (PW - w) / 2, (PH - h) / 2, w, h);
+  x.fillStyle = 'rgba(255,230,190,.12)'; x.fillRect(0, 0, PW, PH);
+  try { return c.toDataURL('image/jpeg', .62); } catch (e) { return ''; }
 }
 function win() {
   const st = stars();
@@ -760,7 +770,7 @@ function win() {
   for (let i = 0; i < 160; i++) spawnP(FX.lerp(B[0].x0, B[B.length - 1].x1, Math.random()), maxZ + Math.random() * 3, 140, Math.random() * 6.28, 40, 2, 1.4);
   if (L.endless) state = 'endless'; else state = 'won';
   const unlock = { 8: 'Side ponds', 10: 'Back-pump', 11: 'Reservoir', 12: 'Inclined plane', 15: 'Wide chambers' }[LI];
-  setTimeout(() => RH.modal(`<h2 style="margin:0">${L.n}</h2><div class="stars">${'★'.repeat(st)}<s>${'★'.repeat(3 - st)}</s></div>
+  endT = setTimeout(() => RH.modal(`<h2 style="margin:0">${L.n}</h2><div class="stars">${'★'.repeat(st)}<s>${'★'.repeat(3 - st)}</s></div>
     ${ph ? `<div class="photo"><img src="${ph}" alt=""><span>${L.n} · day ${Math.floor(T / 600) + 1}</span></div>` : ''}${AHA[LI] ? `<p class="aha">${AHA[LI].aha}</p>` : ''}${waterChart(false)}${ledgerHtml()}
     ${unlock ? `<p style="margin:10px 0 0;font-size:13px">New at the yard: <b>${unlock}</b>. You can take it to later levels.</p>` : ''}`,
     L.endless ? [{ label: 'Keep going', value: 'k' }] : [{ label: 'Replay', value: 'r' }, { label: LI < LV.length - 1 ? 'Next' : 'Done', value: 'n' }]).then(v => {
@@ -772,7 +782,7 @@ function lose(title, msg) {
   const endless = state === 'endless';
   state = 'lost'; FX.sfx('fail'); FX.shake(.5); FX.sfx('boom');
   const A = AHA[LI] || {};
-  setTimeout(() => RH.modal(`<h2 style="margin:0 0 6px">${endless ? 'Final score: ' + delivered : title}</h2><p style="margin:0;color:#5b544b">${msg}</p>${A.tip && !endless ? `<p class="tip">Hint: ${A.tip}</p>` : ''}${endless ? '' : waterChart(true)}${ledgerHtml()}`,
+  endT = setTimeout(() => RH.modal(`<h2 style="margin:0 0 6px">${endless ? 'Final score: ' + delivered : title}</h2><p style="margin:0;color:#5b544b">${msg}</p>${A.tip && !endless ? `<p class="tip">Hint: ${A.tip}</p>` : ''}${endless ? '' : waterChart(true)}${ledgerHtml()}`,
     [{ label: 'Levels', value: 'l' }, { label: 'Try again', value: 'r' }]).then(v => { if (v === 'r') load(LI, { extra: pickUp }); else { $('lvBox').classList.add('open'); } }), 600);
 }
 function startLevel(i) {
@@ -917,17 +927,19 @@ function buildTerrain() {
 const SKY = [[0, '#f4d9bd', '#f6e9d6'], [.12, '#dfeaee', '#f3eee4'], [.7, '#e4ecec', '#f3eee4'], [.82, '#f2c39b', '#f0dcc6'], [.9, '#3b3f63', '#5a5470'], [1, '#1f2742', '#2c3150']];
 function skyAt(t) { for (let i = 1; i < SKY.length; i++) if (t <= SKY[i][0]) { const a = SKY[i - 1], b = SKY[i], k = (t - a[0]) / (b[0] - a[0]); return [mix(a[1], b[1], k), mix(a[2], b[2], k)]; } return [SKY[5][1], SKY[5][2]]; }
 function mix(a, b, k) { const p = parseInt(a.slice(1), 16), q = parseInt(b.slice(1), 16); const r = (p >> 16) + (((q >> 16) - (p >> 16)) * k), gg = ((p >> 8) & 255) + ((((q >> 8) & 255) - ((p >> 8) & 255)) * k), bb = (p & 255) + (((q & 255) - (p & 255)) * k); return `rgb(${r | 0},${gg | 0},${bb | 0})`; }
-let tod = 0, night = 0;
+let tod = 0, night = 0, skyK = -1, frameNo = 0;
 const fs = n => Math.round(n * dpr) + 'px "Space Grotesk",ui-sans-serif,system-ui,sans-serif';
 function draw(now) {
+  frameNo++;
   if (terrainDirty) buildTerrain();
   const t = now / 1000;
   const day = L.endless ? 900 : Math.max(300, L.time || 600);
   tod = (T / day) % 1; tod = L.endless ? tod : Math.min(.999, T / day);
   night = tod < .82 ? 0 : Math.min(1, (tod - .82) / .1);
-  const [c1, c2] = skyAt(tod);
+  const sk = (tod * 240) | 0;
+  if (skyK !== sk) { skyK = sk; const [c1, c2] = skyAt(tod); $('sky').style.background = `linear-gradient(${c1},${c2})`; }
   g.setTransform(1, 0, 0, 1, 0, 0);
-  const sg = g.createLinearGradient(0, 0, 0, H); sg.addColorStop(0, c1); sg.addColorStop(1, c2); g.fillStyle = sg; g.fillRect(0, 0, W, H);
+  g.clearRect(0, 0, W, H);
   // sun / moon
   const sunA = Math.PI * (1 - tod * 1.05), sunX = W * (.5 + .42 * Math.cos(sunA)), sunY = H * (.62 - .5 * Math.sin(sunA));
   g.fillStyle = night > .4 ? 'rgba(240,236,220,.9)' : 'rgba(255,214,150,.75)'; g.beginPath(); g.arc(sunX, sunY, 22 * dpr, 0, 6.283); g.fill();
@@ -955,7 +967,6 @@ function draw(now) {
   drawHint(t);
   drawFloats();
   g.setTransform(1, 0, 0, 1, 0, 0);
-  drawVignette();
   drawMinimap(t);
 }
 // ----- minimap: a strip under the canal whenever the flight is wider than the screen (Caen Hill on a phone) -----
@@ -981,11 +992,6 @@ function drawMinimap(t) {
 }
 function miniHit(px, py) { const m = mini; return m && px >= m.x0 && px <= m.x1 && py >= m.y0 - 6 * dpr && py <= m.y0 + m.h + 6 * dpr; }
 function miniJump(px) { const m = mini, wx = wx0 + (px - m.x0) / m.w * (wx1 - wx0); cam.ox = (area.l + area.r) / 2 - wx * cam.s; cam.user = 1; clampCam(); }
-let vig = null;
-function drawVignette() {
-  if (!vig || vig.w !== W || vig.h !== H) { vig = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .45, W / 2, H / 2, Math.max(W, H) * .8); vig.addColorStop(0, 'rgba(60,40,20,0)'); vig.addColorStop(1, 'rgba(60,40,20,.16)'); vig.w = W; vig.h = H; }
-  g.fillStyle = vig; g.fillRect(0, 0, W, H);
-}
 function waterCol(b) { return b.inf ? '#4f9fbd' : b.kind === 'summit' ? '#3f97c2' : '#4aa3c7'; }
 function drawWater(b, t) {
   const top = Math.min(lev(b), bankTop(b) + .3), x0 = sx(b.inf && b.i === 0 ? b.x0 - 1600 : b.x0), x1 = sx(b.inf && b.i === B.length - 1 ? b.x1 + 1600 : b.x1);
@@ -1116,13 +1122,17 @@ function drawCrew(t) {
   g.strokeStyle = '#2a2622'; g.lineWidth = 1.2 * dpr; g.beginPath(); g.moveTo(xs, y - 3 * s); g.lineTo(xs - 2 * s + walk * s * .5, y); g.moveTo(xs, y - 3 * s); g.lineTo(xs + 2 * s - walk * s * .5, y); g.stroke();
   if (crew.t > 0 && Math.random() < .4) spawnP(crew.x, top + .3, 40, Math.random() * 3, 60, 2, .4);
 }
+// one pre-rendered warm glow, stamped with drawImage instead of a new radial gradient per boat per frame
+const glow = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,206,118,1)'); gr.addColorStop(1, 'rgba(255,206,118,0)'); x.fillStyle = gr; x.fillRect(0, 0, 64, 64); return c; })();
 function drawLights(t) {
   g.globalCompositeOperation = 'lighter';
-  for (const bt of boats) if (bt.state !== 'done') { const X = sx(bt.x + bt.dir * BL / 2), Y = sy(bt.y) - 6 * cam.s; const r = 14 * cam.s; const gr = g.createRadialGradient(X, Y, 0, X, Y, r); gr.addColorStop(0, `rgba(255,210,122,${.5 * night})`); gr.addColorStop(1, 'rgba(255,210,122,0)'); g.fillStyle = gr; g.fillRect(X - r, Y - r, r * 2, r * 2); }
-  if (sIdx >= 0) { const s = B[sIdx], X = sx(s.x0 + 37), Y = sy(bankTop(s) + .55), r = 22 * cam.s; const gr = g.createRadialGradient(X, Y, 0, X, Y, r); gr.addColorStop(0, `rgba(255,200,110,${.6 * night})`); gr.addColorStop(1, 'rgba(255,200,110,0)'); g.fillStyle = gr; g.fillRect(X - r, Y - r, r * 2, r * 2); }
-  g.globalCompositeOperation = 'source-over';
+  g.globalAlpha = .5 * night;
+  for (const bt of boats) if (bt.state !== 'done') { const X = sx(bt.x + bt.dir * BL / 2), Y = sy(bt.y) - 6 * cam.s, r = 14 * cam.s; g.drawImage(glow, X - r, Y - r, r * 2, r * 2); }
+  if (sIdx >= 0) { const s = B[sIdx], X = sx(s.x0 + 37), Y = sy(bankTop(s) + .55), r = 22 * cam.s; g.globalAlpha = .6 * night; g.drawImage(glow, X - r, Y - r, r * 2, r * 2); }
+  g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
 }
-function unitLabelPos(u) { const a = B[u.chs[0]], b = B[u.chs[u.chs.length - 1]]; const top = Math.max(...u.chs.map(i => B[i].hi + (B[i].ponds.length ? 2.0 : .4))); return { x: (a.x0 + b.x1) / 2, z: top + 1.1 }; }
+function unitLabelPos(u) { return u.lp || (u.lp = unitLabelPos0(u)); }
+function unitLabelPos0(u) { const a = B[u.chs[0]], b = B[u.chs[u.chs.length - 1]]; const top = Math.max(...u.chs.map(i => B[i].hi + (B[i].ponds.length ? 2.0 : .4))); return { x: (a.x0 + b.x1) / 2, z: top + 1.1 }; }
 function drawUnitLabels() {
   g.font = fs(10.5); g.textAlign = 'center';
   for (const u of U) {
@@ -1140,14 +1150,16 @@ function drawFloats() {
     const k = f.t / 3.2; if (k >= 1) continue;
     g.globalAlpha = k < .1 ? k * 10 : 1 - Math.max(0, (k - .6) / .4);
     const X = sx(f.x), Y = sy(f.z) - k * 18 * dpr;
-    g.font = fs(10.5); const w = g.measureText(f.text).width + 14 * dpr;
+    g.font = fs(10.5); if (f.dpr !== dpr) { f.w = g.measureText(f.text).width; f.dpr = dpr; } const w = f.w + 14 * dpr;
     g.fillStyle = 'rgba(255,253,248,.9)'; rr(X - w / 2, Y - 13 * dpr, w, 19 * dpr, 9 * dpr); g.fill();
     g.fillStyle = f.col; g.fillText(f.text, X, Y + 1 * dpr);
   }
   g.globalAlpha = 1;
 }
 // hint: pulse the next useful thing to tap (tutorial levels, manual mode)
-function hintTarget() {
+let hintMemo = null, hintFrame = -1;
+function hintTarget() { if (hintFrame !== frameNo) { hintFrame = frameNo; hintMemo = hintTarget0(); } return hintMemo; }
+function hintTarget0() {
   if (keeperOn || !hintOn || state !== 'play') return null;
   const live = boats.filter(b => b.state === 'canal').sort((a, b) => a.pri - b.pri);
   for (const bt of live) {
@@ -1332,7 +1344,7 @@ function hud() {
   if (innerWidth < 760 && T > 20 && !hud.auto) { hud.auto = 1; setMini(true); } // phones: fold the story away once play is under way
   setText('vD', `${delivered}/${L.goal}`);
   setText('vT', L.time ? fmtT(L.time - T) : fmtT(T));
-  $('stT').querySelector('span').textContent = L.time ? 'time left' : 'elapsed';
+  if (ui.stT !== !!L.time) { ui.stT = !!L.time; $('stT').querySelector('span').textContent = L.time ? 'time left' : 'elapsed'; }
   const w = wpb(); setText('vW', isFinite(w) ? w.toFixed(2) : '–'); setCls('stW', 'stat' + (isFinite(w) ? (w <= L.wpb ? ' ok' : ' bad') : ''));
   const aw = avgWait(); setText('vA', fmtT(aw)); setCls('stA', 'stat' + (isFinite(aw) ? (aw <= L.wait ? ' ok' : ' bad') : ''));
   const us = usable(), cap = capacity(), sV = sIdx >= 0 ? Math.max(0, (lev(B[sIdx]) - (B[sIdx].nom - .55)) * B[sIdx].A) : 0;
@@ -1389,8 +1401,9 @@ window.__lock = {
     boats: boats.map(b => ({ id: b.id, dir: b.dir, b: b.b, x: b.x, state: b.state, water: b.water, wait: b.wait, grounded: b.grounded })),
     units: U.map(u => ({ chs: u.chs, policy: u.policy, phase: u.k.phase })), receipts: receipts.slice() }),
   view: () => ({ ...cam, W, H, dpr }),
+  bench: (n = 200, flush) => { const t0 = performance.now(); for (let i = 0; i < n; i++) { draw(performance.now()); if (flush) g.getImageData(0, 0, 1, 1); } const t1 = performance.now(); for (let i = 0; i < n; i++) step(DT); return { draw: (t1 - t0) / n, step: (performance.now() - t1) / n }; },
   perf: reset => { const r = { ...PERF }; if (reset) { PERF.step = PERF.draw = PERF.frames = PERF.steps = 0; } return r; },
-  hint: () => { const h0 = hintOn; hintOn = true; const h = hintTarget(); hintOn = h0; return h; },
+  hint: () => { const h0 = hintOn; hintOn = true; const h = hintTarget0(); hintOn = h0; return h; },
   scr: (x, z) => [sx(x) / dpr, sy(z) / dpr],
   unitPos: ui => { const p = unitLabelPos(U[ui]); return [sx(p.x) / dpr, sy(p.z) / dpr]; },
 };
