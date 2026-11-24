@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Polarizer</title>
+<link rel="stylesheet" href="../shared/common.css">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  html,body{height:100%;overflow:hidden;background:#05060c;font-family:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;color:#eef0ff}
+  #cv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  .chip{position:fixed;background:rgba(14,16,32,.62);backdrop-filter:blur(14px);border:1px solid rgba(160,170,255,.14);border-radius:18px;box-shadow:0 16px 40px -18px rgba(0,0,0,.8)}
+  #hud{top:16px;left:16px;padding:14px 18px;width:340px}
+  #hud .home{color:#8f95c0;font-size:12px;text-decoration:none}
+  #hud h1{margin:4px 0;font-size:24px;letter-spacing:-.02em}
+  #story{font-size:14px;line-height:1.5;color:#c8cbea}
+  #story b{color:#fff}
+  #goal{margin-top:10px;padding:9px 12px;border-radius:12px;background:rgba(150,160,255,.07);border:1px solid rgba(150,160,255,.22);font-size:13px;line-height:1.45}
+  #goal.ok{border-color:#5fd38d;background:rgba(95,211,141,.12)}
+  #levels{top:16px;right:16px;padding:8px;width:220px}
+  #levels h4{margin:4px 8px 6px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#8f95c0}
+  .lv{padding:6px 10px;border-radius:9px;font-size:13px;cursor:pointer;display:flex;justify-content:space-between}
+  .lv:hover{background:rgba(255,255,255,.06)} .lv.cur{background:rgba(150,160,255,.2)} .lv.lock{opacity:.3;pointer-events:none}
+  #tray{bottom:16px;left:50%;transform:translateX(-50%);padding:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 32px)}
+  .pc{border:1px solid transparent;background:rgba(255,255,255,.06);color:#eef0ff;font:inherit;font-size:12px;border-radius:10px;padding:7px 10px;cursor:grab;display:flex;gap:6px;align-items:center}
+  .pc.on{border-color:#a9b0ff;background:rgba(169,176,255,.18)}
+  .pc i{font-style:normal;background:#a9b0ff;color:#0b0d20;border-radius:7px;padding:0 5px;font-weight:700}
+  .b{border:0;background:#a9b0ff;color:#0b0d20;font:inherit;font-weight:700;font-size:13px;border-radius:10px;padding:8px 12px;cursor:pointer}
+  .b.ghost{background:rgba(255,255,255,.08);color:#eef0ff;font-weight:500}
+  #sel{bottom:84px;left:50%;transform:translateX(-50%);padding:10px 14px;display:none;align-items:center;gap:10px;font-size:13px}
+  #sel input{width:200px;accent-color:#a9b0ff}
+  #toast{position:fixed;top:36%;left:50%;transform:translate(-50%,-50%) scale(.85);opacity:0;font-size:40px;font-weight:700;letter-spacing:-.02em;pointer-events:none;transition:opacity .35s,transform .6s cubic-bezier(.3,1.6,.5,1);text-align:center;text-shadow:0 6px 40px rgba(0,0,0,.9);max-width:660px}
+  #toast.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  #toast small{display:block;font-size:15px;font-weight:400;color:#c8cbea;margin-top:8px;line-height:1.5}
+  @media (max-width:900px){#levels{display:none}#hud{width:calc(100vw - 32px);max-height:38vh;overflow:auto}}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="hud" class="chip"><a class="home" href="../index.html">← Rabbit Holes</a><h1 id="title">Polarizer</h1><div id="story"></div><div id="goal"></div></div>
+<div id="levels" class="chip"></div>
+<div id="tray" class="chip"></div>
+<div id="sel" class="chip"><span id="selName"></span><input type="range" id="selR" min="0" max="180" step="1"><b id="selV"></b><button class="b ghost" id="selDel">Remove</button></div>
+<div id="toast"></div>
+<script src="../shared/common.js"></script>
+<script src="../shared/fx.js"></script>
+<script>
+'use strict';
+// ================= quantum optics on a grid =================
+// A photon's state = complex amplitude on every beam segment, for each of two polarisations (H, V).
+// Probabilities are |amplitude|². Splitters make superpositions, and paths that meet again interfere.
+const GW = 15, GH = 9, DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // right, down, left, up
+const cx = (a, b) => [a, b], cadd = (a, b) => [a[0] + b[0], a[1] + b[1]], cmul = (a, b) => [a[0] * b[0] - a[1] * b[1], a[0] * b[1] + a[1] * b[0]], csc = (a, s) => [a[0] * s, a[1] * s], cabs2 = a => a[0] * a[0] + a[1] * a[1];
+const I = [0, 1], R = s => [s, 0];
+// mirror orientation '/' (m=0) or '\' (m=1)
+const reflect = (d, m) => m === 0 ? [3, 2, 1, 0][d] : [1, 0, 3, 2][d];
+function simulate(lv, parts) {
+  const at = {}; [...lv.fixed, ...parts].forEach(p => at[p.x + ',' + p.y] = p);
+  const hits = {}, segs = [];
+  // queue of beams: position, direction, polarisation amplitudes [H, V]
+  let q = lv.sources.map(s => ({ x: s.x, y: s.y, d: s.d, h: R(Math.cos(s.pol * Math.PI / 180)), v: R(Math.sin(s.pol * Math.PI / 180)) }));
+  let guard = 0;
+  while (q.length && guard++ < 4000) {
+    const nq = [];
+    for (const b of q) {
+      const p2 = cabs2(b.h) + cabs2(b.v); if (p2 < 1e-6) continue;
+      let x = b.x + DIRS[b.d][0], y = b.y + DIRS[b.d][1];
+      segs.push({ x0: b.x, y0: b.y, x1: x, y1: y, h: b.h, v: b.v });
+      if (x < 0 || y < 0 || x >= GW || y >= GH) continue;
+      const c = at[x + ',' + y];
+      const go = (d, h, v) => nq.push({ x, y, d, h, v });
+      if (!c) { go(b.d, b.h, b.v); continue; }
+      const t = c.t;
+      if (t === 'mirror') go(reflect(b.d, c.m), csc(b.h, -1), csc(b.v, -1));
+      else if (t === 'bs') { const s = Math.SQRT1_2; go(b.d, csc(b.h, s), csc(b.v, s)); go(reflect(b.d, c.m), csc(cmul(b.h, I), s), csc(cmul(b.v, I), s)); }
+      else if (t === 'pbs') { go(b.d, b.h, [0, 0]); go(reflect(b.d, c.m), [0, 0], b.v); } // H passes, V reflects
+      else if (t === 'pol') { const a = c.a * Math.PI / 180, cs = Math.cos(a), sn = Math.sin(a), proj = cadd(csc(b.h, cs), csc(b.v, sn)); go(b.d, csc(proj, cs), csc(proj, sn)); }
+      else if (t === 'hwp') { const a = 2 * c.a * Math.PI / 180, cs = Math.cos(a), sn = Math.sin(a); go(b.d, cadd(csc(b.h, cs), csc(b.v, sn)), cadd(csc(b.h, sn), csc(b.v, -cs))); }
+      else if (t === 'phase') { const ph = c.a * Math.PI / 180, e = [Math.cos(ph), Math.sin(ph)]; go(b.d, cmul(b.h, e), cmul(b.v, e)); }
+      else if (t === 'det' || t === 'bomb' || t === 'block') {
+        const k = c.id || (x + ',' + y), e = (hits[k] ||= { h: [0, 0], v: [0, 0], c });
+        e.h = cadd(e.h, b.h); e.v = cadd(e.v, b.v); // amplitudes arriving at the same detector add up (they interfere)
+      } else go(b.d, b.h, b.v);
+    }
+    q = nq;
+  }
+  const out = {}; for (const k in hits) out[k] = { p: cabs2(hits[k].h) + cabs2(hits[k].v), c: hits[k].c };
+  return { segs, hits: out };
+}
+
+// ================= levels =================
+const S0 = (x, y, pol = 0, d = 0) => ({ x, y, d, pol });
+const P = (t, x, y, a = 0, m = 0, o = {}) => ({ t, x, y, a, m, ...o });
+const LV = [
+  { n: 'Crossed Filters', sources: [S0(1, 4)], fixed: [P('pol', 4, 4, 0, 0, { lock: 1 }), P('pol', 10, 4, 90, 0, { lock: 1 }), P('det', 13, 4, 0, 0, { id: 'D' })], tray: { pol: 1 },
+    story: 'A polarising filter only lets through light vibrating along its axis. Two filters at 90° block <b>everything</b>. So adding a <b>third</b> filter can only make it darker. Right?',
+    goal: 'Get at least <b>20%</b> of the photons to the detector by adding one filter.', test: H => (H.D || 0) >= .2,
+    lesson: 'A filter doesn\'t just block: it <b>re-prepares</b> the photon at its own angle. At 45° half get through, then half of those get through the last filter: 25%. Quantum measurement changes what it measures.' },
+  { n: 'The Staircase', sources: [S0(1, 4)], fixed: [P('pol', 12, 4, 90, 0, { lock: 1 }), P('det', 13, 4, 0, 0, { id: 'D' })], tray: { pol: 7 },
+    story: 'Horizontal light, a vertical filter. Each extra filter is a chance to lose photons, but each one also turns the polarisation a little.',
+    goal: 'Get at least <b>70%</b> of the light through the vertical filter.', test: H => (H.D || 0) >= .7,
+    lesson: 'With N filters each turning 90°/N, the light that gets through approaches 100% as N grows. Watching a photon often enough drags it along: this is the idea behind the quantum Zeno effect.' },
+  { n: 'A Better Way', sources: [S0(1, 4)], fixed: [P('pol', 12, 4, 90, 0, { lock: 1 }), P('det', 13, 4, 0, 0, { id: 'D' })], tray: { hwp: 1 },
+    story: 'A <b>half-wave plate</b> is a crystal that rotates polarisation without absorbing anything. Rotate its axis to θ and light polarised at 0° comes out at 2θ.',
+    goal: 'Get at least <b>95%</b> of the light through.', test: H => (H.D || 0) >= .95,
+    lesson: 'Absorbing filters measure. Wave plates transform. The second kind is the one quantum computers use.' },
+  { n: 'Sorting Hat', sources: [S0(1, 4, 45)], fixed: [P('det', 13, 4, 0, 0, { id: 'H' }), P('det', 7, 8, 0, 0, { id: 'V' })], tray: { pbs: 1 },
+    story: 'These photons are polarised at 45°. A <b>polarising beam splitter</b> sends horizontal light straight on and reflects vertical light sideways. Which way does a 45° photon go?',
+    goal: 'Split the beam so <b>both</b> detectors get at least 40%.', test: H => (H.H || 0) >= .4 && (H.V || 0) >= .4,
+    lesson: 'Each single photon goes one way or the other, completely at random, 50:50. Fire photons to watch the dice roll.' },
+  { n: 'Interferometer', sources: [S0(1, 2)], fixed: [P('bs', 3, 2, 0, 1, { lock: 1 }), P('mirror', 3, 6, 0, 1, { lock: 1 }), P('mirror', 10, 2, 0, 1, { lock: 1 }), P('bs', 10, 6, 0, 1, { lock: 1 }), P('det', 13, 6, 0, 0, { id: 'D1' }), P('det', 10, 8, 0, 0, { id: 'D2' })], tray: { phase: 1 },
+    story: 'A <b>Mach–Zehnder interferometer</b>: the first half-mirror splits each photon into two paths, and the second recombines them. Detector D2 never clicks: the two paths cancel there. A <b>phase plate</b> delays one path.',
+    goal: 'Send <b>every</b> photon to D2 instead (at least 95%).', test: H => (H.D2 || 0) >= .95,
+    lesson: 'A single photon takes both paths and interferes with itself. Shift one path by half a wavelength and it switches exit.' },
+  { n: 'Which Path?', sources: [S0(1, 2)], fixed: [P('bs', 3, 2, 0, 1, { lock: 1 }), P('mirror', 3, 6, 0, 1, { lock: 1 }), P('mirror', 10, 2, 0, 1, { lock: 1 }), P('bs', 10, 6, 0, 1, { lock: 1 }), P('det', 13, 6, 0, 0, { id: 'D1' }), P('det', 10, 8, 0, 0, { id: 'D2' })], tray: { hwp: 1 }, noBlock: 1,
+    story: 'Again D2 is dark. Now <b>label</b> one path by turning its photons\' polarisation vertical. Nothing is blocked, and nobody looks at the label.',
+    goal: 'Get at least <b>45%</b> to D2 without blocking either path.', test: H => (H.D2 || 0) >= .45,
+    lesson: 'If the two paths are distinguishable even in principle, they cannot interfere. The information alone changes the outcome.' },
+  { n: 'Quantum Eraser', sources: [S0(1, 2)], fixed: [P('bs', 3, 2, 0, 1, { lock: 1 }), P('mirror', 3, 6, 0, 1, { lock: 1 }), P('mirror', 10, 2, 0, 1, { lock: 1 }), P('hwp', 6, 2, 45, 0, { lock: 1 }), P('bs', 10, 6, 0, 1, { lock: 1 }), P('det', 13, 6, 0, 0, { id: 'D1' }), P('det', 10, 8, 0, 0, { id: 'D2' })], tray: { pol: 2 },
+    story: 'One path is labelled vertical and the other horizontal, so there\'s no interference: both detectors get 50%. Can you <b>erase</b> the label after the beams recombine?',
+    goal: 'Make <b>D2 dark</b> again (≤ 3%) while D1 still gets at least 20%.', test: H => (H.D2 || 0) <= .03 && (H.D1 || 0) >= .2,
+    lesson: 'A diagonal filter scrambles the labels. Among the photons that pass it, which-path information is gone, and interference comes back.' },
+  { n: 'The Bomb Tester', sources: [S0(1, 2)], fixed: [P('bs', 3, 2, 0, 1, { lock: 1 }), P('mirror', 3, 6, 0, 1, { lock: 1 }), P('mirror', 10, 2, 0, 1, { lock: 1 }), P('bs', 10, 6, 0, 1, { lock: 1 }), P('det', 13, 6, 0, 0, { id: 'D1' }), P('det', 10, 8, 0, 0, { id: 'D2' })], tray: { bomb: 1 }, fire: 1,
+    story: 'A bomb triggers if a single photon touches it. Put it in one arm of the interferometer. When D2 clicks, you <b>know the bomb is there</b>, yet no photon touched it. (Elitzur & Vaidman, 1993.)',
+    goal: 'Place the bomb in an arm, then fire photons. Get <b>10 D2 clicks</b>: bombs detected without being touched.', test: (H, F) => (F.D2 || 0) >= 10,
+    lesson: 'Interaction-free measurement: the bomb is detected by the photon that <b>didn\'t</b> go its way. With quantum Zeno tricks, the success rate can approach 100%.' },
+  { n: 'Lab Sandbox', sources: [S0(1, 4)], fixed: [P('det', 13, 4, 0, 0, { id: 'D1' }), P('det', 13, 7, 0, 0, { id: 'D2' }), P('det', 7, 8, 0, 0, { id: 'D3' })], tray: { pol: 4, hwp: 3, bs: 2, pbs: 2, mirror: 6, phase: 2, bomb: 1 }, free: 1, fire: 1,
+    story: 'Everything in the drawer. Build your own experiments.', goal: 'No goal.', test: () => false, lesson: '' },
+];
+
+// ================= state =================
+const SAVE = RH.load('polarizer', { done: {}, cur: 0 });
+const persist = () => { RH.save('polarizer', SAVE); RH.progress('polarizer', Object.keys(SAVE.done).length / (LV.length - 1)); };
+let L, parts = [], sel = null, tool = null, Rz, fires = {}, flashes = [], won = false;
+const $ = id => document.getElementById(id);
+function load(i) { SAVE.cur = i; persist(); L = LV[i]; parts = []; sel = null; tool = null; fires = {}; won = false; $('title').textContent = L.n; $('story').innerHTML = L.story; renderGoal(); renderLevels(); renderTray(); recompute(); fit(); }
+function recompute() { Rz = simulate(L, parts); }
+const used = t => parts.filter(p => p.t === t).length;
+
+// ================= drawing =================
+const cv = $('cv'), g = cv.getContext('2d'); let W = 1, H = 1, dpr = 1, cell = 50, ox = 0, oy = 0;
+function fit() { dpr = FX.fit(cv); W = cv.width; H = cv.height; const wide = innerWidth > 900, left = wide ? 380 * dpr : 16 * dpr, right = wide ? 250 * dpr : 16 * dpr, top = wide ? 30 * dpr : innerHeight * .4 * dpr, bot = 150 * dpr; cell = Math.min((W - left - right) / GW, (H - top - bot) / GH); ox = left + (W - left - right - cell * GW) / 2; oy = top + (H - top - bot - cell * GH) / 2; }
+addEventListener('resize', () => L && fit());
+const C = (x, y) => [ox + (x + .5) * cell, oy + (y + .5) * cell];
+function polHue(h, v) { // orientation of the polarisation ellipse → hue (0° red … 90° cyan)
+  const a = .5 * Math.atan2(2 * (h[0] * v[0] + h[1] * v[1]), cabs2(h) - cabs2(v)); return ((a * 180 / Math.PI + 180) % 180) * 2; }
+function drawPart(p, now) {
+  const [x, y] = C(p.x, p.y), s = cell * .38;
+  g.save(); g.translate(x, y); g.lineCap = 'round';
+  const glow = (col, w = 3) => { g.strokeStyle = col; g.lineWidth = w * dpr; g.shadowColor = col; g.shadowBlur = 10 * dpr; };
+  if (p.t === 'mirror' || p.t === 'bs' || p.t === 'pbs') { g.rotate(p.m === 0 ? -Math.PI / 4 : Math.PI / 4); glow(p.t === 'mirror' ? '#dfe6ff' : p.t === 'bs' ? 'rgba(200,215,255,.7)' : '#ffb3f0', p.t === 'mirror' ? 5 : 3); if (p.t !== 'mirror') g.setLineDash([5 * dpr, 4 * dpr]); g.beginPath(); g.moveTo(-s * 1.1, 0); g.lineTo(s * 1.1, 0); g.stroke(); if (p.t === 'pbs') { g.setLineDash([]); g.strokeStyle = 'rgba(255,179,240,.35)'; g.strokeRect(-s * .8, -s * .8, s * 1.6, s * 1.6); } }
+  else if (p.t === 'pol' || p.t === 'hwp') {
+    g.fillStyle = p.t === 'pol' ? 'rgba(120,130,170,.25)' : 'rgba(255,210,122,.18)'; g.strokeStyle = p.t === 'pol' ? '#9aa3d6' : '#ffd27a'; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(0, 0, s, 0, 7); g.fill(); g.stroke();
+    g.rotate(-p.a * Math.PI / 180); glow(p.t === 'pol' ? '#e8ebff' : '#ffd27a', 2.5); g.beginPath(); g.moveTo(-s * .8, 0); g.lineTo(s * .8, 0); g.stroke(); if (p.t === 'pol') for (const k of [-.5, 0, .5]) { g.lineWidth = 1 * dpr; g.beginPath(); g.moveTo(-s * .6, k * s * .6); g.lineTo(s * .6, k * s * .6); g.stroke(); }
+  } else if (p.t === 'phase') { g.fillStyle = 'rgba(130,255,200,.18)'; g.strokeStyle = '#82ffc8'; g.lineWidth = 2 * dpr; g.fillRect(-s * .4, -s, s * .8, s * 2); g.strokeRect(-s * .4, -s, s * .8, s * 2); g.fillStyle = '#82ffc8'; g.font = `${10 * dpr}px JetBrains Mono`; g.textAlign = 'center'; g.fillText(p.a + '°', 0, s + 12 * dpr); }
+  else if (p.t === 'det') { const hit = Rz.hits[p.id]?.p || 0, pulse = flashes.find(f => f.id === p.id && now - f.t < 250); g.fillStyle = pulse ? '#fff' : `rgba(255,${120 + 135 * hit},${80 + 100 * hit},${.35 + hit * .65})`; g.shadowColor = '#ffb26b'; g.shadowBlur = (8 + hit * 30) * dpr; g.beginPath(); g.roundRect(-s, -s, s * 2, s * 2, 6 * dpr); g.fill(); g.shadowBlur = 0; g.fillStyle = '#0b0d20'; g.font = `700 ${11 * dpr}px Space Grotesk`; g.textAlign = 'center'; g.fillText(p.id, 0, -2 * dpr); g.font = `${10 * dpr}px JetBrains Mono`; g.fillText(Math.round(hit * 100) + '%', 0, 11 * dpr); if (fires[p.id]) { g.fillStyle = '#fff'; g.fillText('×' + fires[p.id], 0, s + 12 * dpr); } }
+  else if (p.t === 'bomb') { const hit = Rz.hits[p.x + ',' + p.y]?.p || 0; g.fillStyle = '#2a1a1a'; g.strokeStyle = '#ff5a5a'; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(0, 0, s * .9, 0, 7); g.fill(); g.stroke(); g.fillStyle = '#ff5a5a'; g.font = `${s}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('💣', 0, 1); if (fires.boom) { g.fillStyle = '#fff'; g.font = `${10 * dpr}px JetBrains Mono`; g.fillText('💥×' + fires.boom, 0, s + 12 * dpr); } }
+  if (sel === p) { g.shadowBlur = 0; g.setLineDash([4 * dpr, 4 * dpr]); g.strokeStyle = '#a9b0ff'; g.lineWidth = 1.5 * dpr; g.strokeRect(-cell * .48, -cell * .48, cell * .96, cell * .96); }
+  g.restore();
+}
+function draw(now) {
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  const bg = g.createRadialGradient(W * .55, H * .45, 0, W * .55, H * .45, Math.max(W, H) * .7); bg.addColorStop(0, '#11142a'); bg.addColorStop(1, '#03040a'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  // optical table holes
+  g.fillStyle = 'rgba(160,170,255,.09)'; for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) { const [px, py] = C(x, y); g.beginPath(); g.arc(px, py, 1.6 * dpr, 0, 7); g.fill(); }
+  // beams: brightness = probability, colour = polarisation angle
+  g.globalCompositeOperation = 'lighter'; g.lineCap = 'round';
+  for (const s of Rz.segs) {
+    const p = cabs2(s.h) + cabs2(s.v); if (p < .003) continue;
+    const [x0, y0] = C(s.x0, s.y0), [x1, y1] = C(s.x1, s.y1), hue = polHue(s.h, s.v), shimmer = .85 + .15 * Math.sin(now / 120 + s.x0 + s.y0);
+    g.strokeStyle = `hsla(${hue},95%,62%,${Math.min(1, p * 1.1) * shimmer * .35})`; g.lineWidth = (6 + 10 * p) * dpr; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+    g.strokeStyle = `hsla(${hue},100%,85%,${Math.min(1, p * 1.3) * shimmer})`; g.lineWidth = (1 + 2.2 * p) * dpr; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+  }
+  g.globalCompositeOperation = 'source-over';
+  // source
+  for (const s of L.sources) { const [x, y] = C(s.x, s.y); g.fillStyle = '#1a1d36'; g.strokeStyle = '#a9b0ff'; g.lineWidth = 2 * dpr; g.beginPath(); g.roundRect(x - cell * .45, y - cell * .3, cell * .7, cell * .6, 6 * dpr); g.fill(); g.stroke(); g.fillStyle = `hsl(${(s.pol * 2) % 360},95%,70%)`; g.beginPath(); g.arc(x + cell * .2, y, 4 * dpr, 0, 7); g.fill(); }
+  [...L.fixed, ...parts].forEach(p => drawPart(p, now));
+  // flying photons for the "fire" animation
+  for (const f of photons) { const k = Math.min(1, (now - f.t) / 500), [x0, y0] = C(L.sources[0].x, L.sources[0].y), [x1, y1] = C(f.x, f.y); g.fillStyle = '#fff'; g.shadowColor = '#fff'; g.shadowBlur = 16 * dpr; g.beginPath(); g.arc(x0 + (x1 - x0) * k, y0 + (y1 - y0) * k, 3.5 * dpr, 0, 7); g.fill(); g.shadowBlur = 0; }
+  photons = photons.filter(f => now - f.t < 500);
+  particles.update(1 / 60); particles.draw(g);
+}
+let photons = [];
+const particles = FX.particles();
+
+// ================= input =================
+const cellAt = e => { const r = cv.getBoundingClientRect(), x = ((e.clientX - r.left) * dpr - ox) / cell, y = ((e.clientY - r.top) * dpr - oy) / cell; return [Math.floor(x), Math.floor(y)]; };
+const occupied = (x, y) => [...L.fixed, ...parts].find(p => p.x === x && p.y === y) || L.sources.find(s => s.x === x && s.y === y);
+cv.addEventListener('pointerdown', e => {
+  const [x, y] = cellAt(e); if (x < 0 || y < 0 || x >= GW || y >= GH) return;
+  const hit = occupied(x, y);
+  if (hit && parts.includes(hit)) {
+    if (sel === hit && (hit.t === 'mirror' || hit.t === 'bs' || hit.t === 'pbs')) { hit.m ^= 1; FX.sfx('click'); recompute(); } // tap again to flip
+    sel = hit; showSel(); return;
+  }
+  if (hit) { sel = null; showSel(); return; }
+  if (tool) {
+    const max = L.tray[tool] || 0; if (used(tool) >= max) { FX.sfx('fail'); return; }
+    const p = P(tool, x, y, tool === 'pol' ? 45 : tool === 'hwp' ? 22 : tool === 'phase' ? 90 : 0, 1);
+    parts.push(p); sel = p; FX.sfx('place'); FX.shake(.08); recompute(); renderTray(); showSel(); check(); return;
+  }
+  sel = null; showSel();
+});
+function showSel() {
+  const el = $('sel');
+  if (!sel) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  const angled = sel.t === 'pol' || sel.t === 'hwp' || sel.t === 'phase';
+  $('selName').textContent = { pol: 'Polariser axis', hwp: 'Wave-plate axis', phase: 'Phase delay', mirror: 'Mirror: tap it again to flip', bs: 'Half mirror: tap again to flip', pbs: 'Polarising splitter: tap again to flip', bomb: 'Bomb', block: 'Blocker' }[sel.t];
+  $('selR').style.display = angled ? '' : 'none'; $('selV').style.display = angled ? '' : 'none';
+  $('selR').max = sel.t === 'phase' ? 360 : 180; $('selR').value = sel.a; $('selV').textContent = sel.a + '°';
+}
+$('selR').oninput = () => { sel.a = +$('selR').value; $('selV').textContent = sel.a + '°'; if (sel.a % 15 === 0) FX.sfx('tick'); recompute(); check(); };
+$('selDel').onclick = () => { parts = parts.filter(p => p !== sel); sel = null; showSel(); FX.sfx('pop'); recompute(); renderTray(); };
+addEventListener('keydown', e => { if (!sel) return; const st = e.shiftKey ? 1 : 5; if (e.key === 'ArrowRight' || e.key === 'ArrowUp') sel.a = Math.min(+$('selR').max, sel.a + st); else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') sel.a = Math.max(0, sel.a - st); else return; e.preventDefault(); showSel(); recompute(); check(); });
+
+// ================= firing single photons =================
+function fire(n) {
+  const outs = Object.entries(Rz.hits).map(([k, v]) => [k, v.p, v.c]), total = outs.reduce((a, o) => a + o[1], 0);
+  let delay = 0;
+  for (let i = 0; i < n; i++) setTimeout(() => {
+    let r = Math.random(), res = null; for (const o of outs) { r -= o[1]; if (r <= 0) { res = o; break; } }
+    if (!res) { FX.sfx('tick'); return; } // absorbed by a filter or lost off the table
+    const [k, , c] = res;
+    if (c.t === 'bomb') { fires.boom = (fires.boom || 0) + 1; FX.sfx('boom'); FX.shake(.5); const [x, y] = C(c.x, c.y); particles.burst(x, y, { n: 60, color: ['#ff5a5a', '#ffb26b', '#fff'], speed: 380 * dpr, life: .8 }); }
+    else { fires[k] = (fires[k] || 0) + 1; flashes.push({ id: k, t: performance.now() }); FX.sfx('chime', k.charCodeAt(k.length - 1)); photons.push({ x: c.x, y: c.y, t: performance.now() }); }
+    check();
+  }, delay += 90);
+}
+
+// ================= UI =================
+const NAMES = { pol: '⊘ Polariser', hwp: '◐ Wave plate', bs: '⟋ Half mirror', pbs: '⧄ Polarising splitter', mirror: '╱ Mirror', phase: '▯ Phase plate', bomb: '💣 Bomb', block: '■ Blocker' };
+function renderTray() {
+  $('tray').innerHTML = Object.entries(L.tray).map(([t, n]) => `<button class="pc ${tool === t ? 'on' : ''}" data-t="${t}">${NAMES[t]} <i>${n - used(t)}</i></button>`).join('') +
+    (L.fire ? `<button class="b" id="f1">Fire 1 photon</button><button class="b" id="f20">Fire 20</button>` : `<button class="b ghost" id="f20">Fire 20 photons</button>`) + `<button class="b ghost" id="rst">Reset</button>`;
+  $('tray').querySelectorAll('[data-t]').forEach(b => b.onclick = () => { tool = tool === b.dataset.t ? null : b.dataset.t; FX.sfx('click'); renderTray(); });
+  if ($('f1')) $('f1').onclick = () => fire(1); $('f20').onclick = () => fire(20);
+  $('rst').onclick = () => { load(SAVE.cur); FX.sfx('pop'); };
+}
+function renderGoal() { const ok = SAVE.done[SAVE.cur]; $('goal').className = ok ? 'ok' : ''; $('goal').innerHTML = (ok ? '✓ ' : '🎯 ') + L.goal + (tool ? '' : '<br><span style="color:#8f95c0;font-size:12px">Pick a part below, then click an empty spot on the table. Click a part to adjust it.</span>'); }
+function renderLevels() {
+  const maxOpen = (() => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; })();
+  $('levels').innerHTML = '<h4>Experiments</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${i > maxOpen && !SAVE.done[i] && !l.free ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><span>${SAVE.done[i] ? '✓' : ''}</span></div>`).join('');
+  $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { FX.sfx('click'); load(+el.dataset.i); });
+}
+function toast(big, small, ms = 7000) { const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : ''); t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms); }
+function check() {
+  if (won || L.free) return;
+  const H = {}; for (const k in Rz.hits) H[k] = Rz.hits[k].p;
+  if (L.test(H, fires)) { won = true; SAVE.done[SAVE.cur] = 1; persist(); FX.sfx('win'); FX.shake(.25); particles.burst(cv.width / 2, cv.height / 2, { n: 120, color: ['#a9b0ff', '#ffffff', '#ffb3f0'], speed: 460 * dpr, life: 1 }); toast('✓ ' + L.n, L.lesson); renderGoal(); renderLevels(); }
+}
+let last = performance.now();
+function frame(now) { requestAnimationFrame(frame); draw(now); }
+load(Math.min(SAVE.cur || 0, LV.length - 1));
+requestAnimationFrame(frame);
+window.__pz = { LV, load, simulate, addPart: (t, x, y, a = 0, m = 1) => { parts.push(P(t, x, y, a, m)); recompute(); check(); }, hits: () => Rz.hits, fire, get fires() { return fires; }, get parts() { return parts; } };
+</script>
+</body>
+</html>
