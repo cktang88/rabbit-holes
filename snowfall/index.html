@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Snowfall</title>
+<link rel="stylesheet" href="../shared/common.css">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  html,body{height:100%;overflow:hidden;background:#060b18;font-family:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;color:#e8f1ff}
+  #sky{position:fixed;inset:0;width:100%;height:100%}
+  .chip{position:fixed;background:rgba(14,24,48,.55);backdrop-filter:blur(14px);border:1px solid rgba(160,200,255,.12);border-radius:18px;box-shadow:0 16px 40px -18px rgba(0,0,0,.8)}
+  #hud{top:16px;left:16px;padding:14px 18px;width:330px}
+  #hud .home{color:#8ea3c4;font-size:12px;text-decoration:none}
+  #hud h1{font-family:Fraunces,Georgia,serif;font-weight:700;margin:4px 0;font-size:28px;letter-spacing:-.01em}
+  #story{font-size:14px;line-height:1.5;color:#bcd0ee}
+  #story b{color:#fff}
+  .btn{border:0;background:#cfe6ff;color:#0b1a33;font:inherit;font-weight:700;border-radius:12px;padding:10px 16px;cursor:pointer;transition:transform .08s}
+  .btn:active{transform:scale(.95)} .btn.ghost{background:rgba(255,255,255,.08);color:#e8f1ff;font-weight:500}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  #padBox{right:16px;bottom:16px;padding:12px}
+  #pad{width:260px;height:200px;border-radius:12px;display:block;cursor:crosshair;touch-action:none}
+  .padLbl{display:flex;justify-content:space-between;font-size:11px;color:#8ea3c4;margin-top:6px}
+  #mode{top:16px;right:16px;padding:6px;display:flex;gap:4px}
+  #mode button{border:0;background:transparent;color:#bcd0ee;font:inherit;font-size:13px;padding:8px 12px;border-radius:10px;cursor:pointer}
+  #mode button.on{background:rgba(207,230,255,.18);color:#fff}
+  #side{top:70px;right:16px;padding:12px;width:280px;max-height:calc(100vh - 330px);overflow:auto}
+  #side h4{margin:2px 4px 8px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#8ea3c4;font-weight:600}
+  .cat{display:flex;gap:10px;align-items:center;padding:6px;border-radius:10px;font-size:13px}
+  .cat img,.cat .sil{width:44px;height:44px;border-radius:8px;background:#0b1530;flex:0 0 auto}
+  .cat .sil{display:flex;align-items:center;justify-content:center;color:#3a4d73;font-size:22px}
+  .cat.got{background:rgba(207,230,255,.06)}
+  .cat small{display:block;color:#8ea3c4;font-size:11px}
+  .tg{display:flex;gap:8px;align-items:center;padding:6px;border-radius:10px;cursor:pointer;font-size:13px}
+  .tg:hover{background:rgba(255,255,255,.06)} .tg.cur{background:rgba(207,230,255,.16)} .tg.lock{opacity:.35;pointer-events:none}
+  .tg img{width:40px;height:40px;border-radius:8px;background:#0b1530}
+  .stars{color:#ffd27a}
+  #status{bottom:16px;left:16px;padding:12px 16px;font-size:14px;min-width:260px}
+  #status b{font-size:22px}
+  #toast{position:fixed;top:40%;left:44%;transform:translate(-50%,-50%) scale(.85);opacity:0;font-family:Fraunces,Georgia,serif;font-size:44px;font-weight:700;pointer-events:none;transition:opacity .35s,transform .6s cubic-bezier(.3,1.6,.5,1);text-align:center;text-shadow:0 6px 40px rgba(0,10,30,.9)}
+  #toast.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  #toast small{display:block;font-family:"Space Grotesk",sans-serif;font-size:16px;font-weight:400;color:#bcd0ee;margin-top:6px}
+  @media (max-width:860px){#side{display:none}#hud{width:calc(100vw - 32px)}#pad{width:200px;height:150px}#status{bottom:auto;top:200px}}
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+<div id="hud" class="chip"><a class="home" href="../index.html">← Rabbit Holes</a><h1>❄️ Snowfall</h1><div id="story"></div><div class="row" id="btns"></div></div>
+<div id="mode" class="chip"><button data-m="free" class="on">Collect</button><button data-m="copy">Copy a flake</button><button data-m="gallery">Gallery</button></div>
+<div id="side" class="chip"></div>
+<div id="padBox" class="chip"><canvas id="pad"></canvas><div class="padLbl"><span>denser vapour →</span><span>faster freezing ↑</span></div></div>
+<div id="status" class="chip"></div>
+<div id="toast"></div>
+<script src="../shared/common.js"></script>
+<script src="../shared/fx.js"></script>
+<script>
+'use strict';
+// ================= Reiter's snow crystal model (2005) =================
+// Hexagonal cells hold water. Cells that are ice, or touch ice, are "receptive": they keep their water and gain gamma each step.
+// Elsewhere water diffuses. A cell freezes when its water reaches 1. Two numbers decide the shape:
+//   beta  = background vapour density, gamma = vapour added at the crystal surface.
+const N = 181, C = N >> 1, NN = N * N, RMAX = C - 8;
+const s = new Float32Array(NN), u = new Float32Array(NN), v = new Float32Array(NN), un = new Float32Array(NN), fr = new Uint8Array(NN), born = new Uint16Array(NN);
+const NB = [1, -1, N, -N, N - 1, -N + 1];
+const hexDist = k => { const q = k % N - C, r = (k / N | 0) - C; return (Math.abs(q) + Math.abs(r) + Math.abs(q + r)) / 2; };
+const DIST = new Float32Array(NN); for (let k = 0; k < NN; k++) DIST[k] = hexDist(k);
+let beta = .4, gamma = .001, R = 0, steps = 0, growing = false, sched = [];
+function seed() { s.fill(0); fr.fill(0); born.fill(0); R = 0; steps = 0; sched = []; for (let k = 0; k < NN; k++) s[k] = beta; s[C * N + C] = 1; fr[C * N + C] = 1; }
+function step() {
+  // only work inside the active disc: everything beyond R+12 is untouched background
+  const lim = Math.min(C - 1, R + 14);
+  for (let y = C - lim; y <= C + lim; y++) for (let x = C - lim; x <= C + lim; x++) {
+    const k = y * N + x; if (DIST[k] > lim) continue;
+    let rec = fr[k]; if (!rec) for (let d = 0; d < 6; d++) if (fr[k + NB[d]]) { rec = 1; break; }
+    if (rec) { u[k] = 0; v[k] = s[k] + gamma; } else { u[k] = s[k]; v[k] = 0; }
+  }
+  for (let y = C - lim; y <= C + lim; y++) for (let x = C - lim; x <= C + lim; x++) {
+    const k = y * N + x; if (DIST[k] > lim) continue;
+    if (DIST[k] > lim - 1) { un[k] = beta; continue; }
+    let a = 0; for (let d = 0; d < 6; d++) a += u[k + NB[d]];
+    un[k] = u[k] + .5 * (a / 6 - u[k]);
+  }
+  for (let y = C - lim; y <= C + lim; y++) for (let x = C - lim; x <= C + lim; x++) {
+    const k = y * N + x; if (DIST[k] > lim) continue;
+    s[k] = un[k] + v[k];
+    if (!fr[k] && s[k] >= 1) { fr[k] = 1; born[k] = steps; if (DIST[k] > R) R = DIST[k]; }
+  }
+  steps++;
+}
+// a growth schedule is a list of [stepsFromStart, beta, gamma]; replaying it reproduces the flake exactly
+function replay(sc, maxR = RMAX) { const b0 = beta, g0 = gamma; beta = sc[0][1]; gamma = sc[0][2]; seed(); let i = 0; while (R < maxR && steps < 9000) { while (i + 1 < sc.length && steps >= sc[i + 1][0]) { i++; beta = sc[i][1]; gamma = sc[i][2]; } step(); } beta = b0; gamma = g0; return fr.slice(); }
+
+// ================= shape analysis =================
+function analyse(mask = fr) {
+  let n = 0, inner = 0, innerHex = 0, outer = 0, outerHex = 0, Rm = 0;
+  for (let k = 0; k < NN; k++) if (mask[k] && DIST[k] > Rm) Rm = DIST[k];
+  for (let k = 0; k < NN; k++) { const d = DIST[k]; if (d > Rm) continue; const inr = d <= Rm * .45; if (inr) innerHex++; else outerHex++; if (mask[k]) { n++; if (inr) inner++; else outer++; } }
+  const hex = 3 * Rm * (Rm + 1) + 1;
+  return { fill: n / hex, inner: inner / innerHex, outer: outer / outerHex, R: Rm };
+}
+const FORMS = [
+  { id: 'plate', n: 'Hexagonal plate', d: 'A solid six-sided plate. Slow, steady growth with plenty of vapour.', test: a => a.fill > .6 },
+  { id: 'sectored', n: 'Sectored plate', d: 'Ridges run from the centre to each corner, like a pie cut in six.', test: a => a.fill > .42 && a.fill <= .6 && a.inner > .6 },
+  { id: 'broad', n: 'Broad branches', d: 'Six wide arms with flat, plate-like faces.', test: a => a.fill > .32 && a.fill <= .42 },
+  { id: 'stellar', n: 'Stellar dendrite', d: 'The classic snowflake: six arms with side branches.', test: a => a.fill > .25 && a.fill <= .32 },
+  { id: 'fern', n: 'Fernlike dendrite', d: 'Feathery arms dense with side branches, like ferns. The largest snowflakes are this type.', test: a => a.fill <= .25 },
+  { id: 'platearms', n: 'Plate with arms', d: 'Started as a plate, then the air turned moist and arms shot out of each corner.', test: a => a.inner > .75 && a.outer < .35 },
+  { id: 'tips', n: 'Dendrite with plate tips', d: 'Grew as a star, then calmer air capped every arm with a little plate.', test: a => a.inner < .45 && a.outer > a.inner + .08 },
+];
+// ================= copy puzzles =================
+// schedules in pad coordinates: [stepsFromStart, padX, padY]
+const TARGETS = [
+  { n: 'Steady star', sc: [[0, .5, .33]] },
+  { n: 'Fat plate', sc: [[0, 1, .5]] },
+  { n: 'Fern', sc: [[0, 0, 0]] },
+  { n: 'Sectored plate', sc: [[0, .25, 1]] },
+  { n: 'Broad star', sc: [[0, 1, .5], [12, .5, .33]] },
+  { n: 'Plate, then arms', sc: [[0, 1, .5], [22, 0, 0]] },
+  { n: 'Fern with caps', sc: [[0, 0, 0], [900, 1, .5]] },
+  { n: 'Three seasons', sc: [[0, 1, .5], [15, .5, .33], [450, 1, 1]] },
+];
+const scParams = sc => sc.map(([t, x, y]) => [t, ...ptToParams({ x, y })]);
+
+// ================= state =================
+const SAVE = RH.load('snowfall', { got: {}, gallery: [], copies: {}, mode: 'free', intro: 0 });
+const persist = () => { RH.save('snowfall', SAVE); RH.progress('snowfall', (Object.keys(SAVE.got).length + Object.keys(SAVE.copies).length) / (FORMS.length + TARGETS.length)); };
+let mode = SAVE.mode || 'free', target = 0, targetMask = null;
+
+// ================= rendering =================
+const $ = id => document.getElementById(id);
+const sky = $('sky'), g = sky.getContext('2d');
+const off = document.createElement('canvas'); off.width = off.height = 360; const og = off.getContext('2d'), img = og.createImageData(360, 360);
+let dpr = 1, W = 1, H = 1;
+function resize() { dpr = FX.fit(sky, 1.5); W = sky.width; H = sky.height; }
+addEventListener('resize', resize); resize();
+// map a pixel of the 360² render to axial hex coordinates (pointy-top layout)
+const PX = new Int32Array(360 * 360);
+(() => { const sc = 360 / (N * .95); for (let py = 0; py < 360; py++) for (let px = 0; px < 360; px++) { const x = (px - 180) / sc, y = (py - 180) / sc; const r = y / (Math.sqrt(3) / 2), q = x - r / 2; const rq = Math.round(q), rr = Math.round(r); PX[py * 360 + px] = (rr + C) >= 0 && (rr + C) < N && (rq + C) >= 0 && (rq + C) < N ? (rr + C) * N + (rq + C) : -1; } })();
+function renderFlake(mask, ghost) {
+  const d = img.data;
+  for (let i = 0; i < 360 * 360; i++) {
+    const k = PX[i], o = i * 4;
+    if (k < 0) { d[o + 3] = 0; continue; }
+    if (mask[k]) {
+      // thickness and age give the ice its relief: ridges glow, fresh edges are bright
+      const th = Math.min(1.6, s[k]) - 1, age = steps ? 1 - born[k] / steps : 0;
+      const nx = (s[k + 1] || 1) - (s[k - 1] || 1), ny = (s[k + N] || 1) - (s[k - N] || 1), lit = Math.max(0, Math.min(1, .55 + (nx - ny) * 2.2 + th * .9));
+      d[o] = 150 + 105 * lit; d[o + 1] = 190 + 65 * lit; d[o + 2] = 235 + 20 * lit; d[o + 3] = 170 + 85 * Math.min(1, .3 + age);
+    } else if (ghost && ghost[k]) { d[o] = 255; d[o + 1] = 200; d[o + 2] = 120; d[o + 3] = 60; }
+    else { d[o + 3] = 0; }
+  }
+  og.putImageData(img, 0, 0);
+}
+function thumb(mask) { renderFlake(mask); const c = document.createElement('canvas'); c.width = c.height = 96; const cg = c.getContext('2d'); cg.fillStyle = '#0b1530'; cg.fillRect(0, 0, 96, 96); cg.drawImage(off, 0, 0, 96, 96); return c.toDataURL('image/png'); }
+// bokeh snow in the background
+const flakes = Array.from({ length: 140 }, () => ({ x: Math.random(), y: Math.random(), r: Math.random(), v: .02 + Math.random() * .05, ph: Math.random() * 6 }));
+function draw(now) {
+  const t = now / 1000;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  const bg = g.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#081129'); bg.addColorStop(.6, '#0c1838'); bg.addColorStop(1, '#16244a'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  for (const f of flakes) { f.y += f.v / 60; if (f.y > 1.05) { f.y = -.05; f.x = Math.random(); } const x = (f.x + Math.sin(t * .3 + f.ph) * .02) * W, y = f.y * H, rr = (1 + f.r * 3.5) * dpr; g.fillStyle = `rgba(200,220,255,${.08 + f.r * .18})`; g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill(); }
+  const size = Math.min(W * .62, H * .86), cx = W * (innerWidth > 860 ? .47 : .5), cy = H * .52;
+  const [sx, sy] = FX.shakeOffset(8 * dpr);
+  // glow, then crisp flake; slow rotation like a falling crystal
+  g.save(); g.translate(cx + sx, cy + sy); g.rotate(Math.sin(t * .15) * .06);
+  g.globalCompositeOperation = 'lighter'; g.filter = `blur(${14 * dpr}px)`; g.globalAlpha = .55; g.drawImage(off, -size / 2, -size / 2, size, size);
+  g.filter = 'none'; g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.imageSmoothingEnabled = true; g.drawImage(off, -size / 2, -size / 2, size, size);
+  g.restore();
+  particles.update(1 / 60); particles.draw(g);
+}
+const particles = FX.particles();
+
+// ================= conditions pad =================
+const pad = $('pad'), pg = pad.getContext('2d'); let padD = 1;
+const BMIN = .3, BMAX = .97, GMIN = .00005, GMAX = .006;
+let padPt = { x: .2, y: .4 };
+function ptToParams(p) { return [BMIN + (BMAX - BMIN) * p.x, Math.exp(Math.log(GMIN) + (Math.log(GMAX) - Math.log(GMIN)) * p.y)]; }
+function paramsToPt(b, gm) { return { x: (b - BMIN) / (BMAX - BMIN), y: (Math.log(gm) - Math.log(GMIN)) / (Math.log(GMAX) - Math.log(GMIN)) }; }
+let padBg = null;
+function drawPad() {
+  padD = FX.fit(pad); const w = pad.width, h = pad.height;
+  if (!padBg) { // colour the pad by the shape each region tends to make (precomputed coarse map)
+    padBg = document.createElement('canvas'); padBg.width = w; padBg.height = h; const c = padBg.getContext('2d');
+    const gr = c.createLinearGradient(0, h, w, 0); gr.addColorStop(0, '#1a2c5c'); gr.addColorStop(.5, '#2a4f86'); gr.addColorStop(1, '#6fa8d8'); c.fillStyle = gr; c.fillRect(0, 0, w, h);
+    c.fillStyle = 'rgba(255,255,255,.55)'; c.font = `${11 * padD}px Space Grotesk`; c.textAlign = 'center';
+    [['ferns', .13, .15], ['stars', .62, .3], ['broad arms', .15, .7], ['sectored', .38, .9], ['plates', .9, .5]].forEach(([n, x, y]) => c.fillText(n, x * w, (1 - y) * h));
+  }
+  pg.drawImage(padBg, 0, 0);
+  // the path you steered during this fall
+  pg.strokeStyle = 'rgba(255,255,255,.7)'; pg.lineWidth = 2 * padD; pg.beginPath();
+  sched.forEach(([, b, gm], i) => { const p = paramsToPt(b, gm); i ? pg.lineTo(p.x * w, (1 - p.y) * h) : pg.moveTo(p.x * w, (1 - p.y) * h); }); pg.stroke();
+  pg.fillStyle = '#fff'; pg.shadowColor = '#cfe6ff'; pg.shadowBlur = 12 * padD; pg.beginPath(); pg.arc(padPt.x * w, (1 - padPt.y) * h, 7 * padD, 0, 7); pg.fill(); pg.shadowBlur = 0;
+}
+let padDrag = false;
+const padSet = e => { const r = pad.getBoundingClientRect(); padPt = { x: FX.clamp((e.clientX - r.left) / r.width, 0, 1), y: FX.clamp(1 - (e.clientY - r.top) / r.height, 0, 1) }; [beta, gamma] = ptToParams(padPt); if (growing) sched.push([steps, beta, gamma]); };
+pad.addEventListener('pointerdown', e => { padDrag = true; pad.setPointerCapture(e.pointerId); padSet(e); FX.sfx('tick'); });
+pad.addEventListener('pointermove', e => { if (padDrag) padSet(e); });
+pad.addEventListener('pointerup', () => { padDrag = false; });
+
+// ================= game flow =================
+function release() {
+  [beta, gamma] = ptToParams(padPt); seed(); sched = [[0, beta, gamma]]; growing = true; FX.sfx('whoosh'); renderSide();
+}
+function land() {
+  growing = false;
+  const a = analyse(), mask = fr.slice();
+  FX.sfx('chime', 5); FX.shake(.2);
+  particles.burst(W * .47, H * .52, { n: 90, color: ['#ffffff', '#cfe6ff', '#9fd0ff'], speed: 420 * dpr, life: 1.2, size: 2.5 * dpr });
+  if (mode === 'copy') {
+    let inter = 0, uni = 0; for (let k = 0; k < NN; k++) { const a1 = mask[k], b1 = targetMask[k]; if (a1 && b1) inter++; if (a1 || b1) uni++; }
+    const iou = inter / uni, stars = iou >= .85 ? 3 : iou >= .72 ? 2 : iou >= .58 ? 1 : 0;
+    if (stars > (SAVE.copies[target] || 0)) { SAVE.copies[target] = stars; persist(); }
+    toast(stars ? '★'.repeat(stars) + '☆'.repeat(3 - stars) : 'Not quite', `${Math.round(iou * 100)}% overlap with “${TARGETS[target].n}”. ${stars < 3 ? 'The conditions at each moment shape a different ring of the crystal.' : 'A perfect twin.'}`);
+  } else {
+    const found = FORMS.filter(f => f.test(a));
+    const fresh = found.filter(f => !SAVE.got[f.id]);
+    const th = thumb(mask);
+    fresh.forEach(f => SAVE.got[f.id] = th);
+    SAVE.gallery.unshift({ th, sc: sched.slice(0, 40), name: found[0]?.n || 'Irregular crystal', fill: a.fill });
+    SAVE.gallery = SAVE.gallery.slice(0, 40); persist();
+    toast(found.length ? found.map(f => f.n).join(' · ') : 'An irregular crystal', fresh.length ? `New in your catalogue! (${Object.keys(SAVE.got).length}/${FORMS.length})` : `${Math.round(a.fill * 100)}% solid. Steer the pad while it falls to change its shape.`);
+    if (fresh.length) FX.sfx('win');
+  }
+  renderSide(); renderStatus();
+}
+function toast(big, small, ms = 3600) { const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : ''); t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms); }
+
+function renderSide() {
+  const el = $('side');
+  if (mode === 'free') el.innerHTML = '<h4>Catalogue of crystals</h4>' + FORMS.map(f => SAVE.got[f.id] ? `<div class="cat got"><img src="${SAVE.got[f.id]}"><div>${f.n}<small>${f.d}</small></div></div>` : `<div class="cat"><div class="sil">?</div><div style="color:#6f83a8">Undiscovered<small>${f.d}</small></div></div>`).join('');
+  else if (mode === 'copy') el.innerHTML = '<h4>Copy these flakes</h4>' + TARGETS.map((t, i) => `<div class="tg ${i === target ? 'cur' : ''} ${i > 0 && !SAVE.copies[i - 1] && !SAVE.copies[i] ? 'lock' : ''}" data-i="${i}"><img src="${targetThumbs[i] || ''}"><div>${i + 1}. ${t.n}<br><span class="stars">${'★'.repeat(SAVE.copies[i] || 0)}${'☆'.repeat(3 - (SAVE.copies[i] || 0))}</span></div></div>`).join('');
+  else el.innerHTML = '<h4>Your snowflakes</h4>' + (SAVE.gallery.length ? `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">${SAVE.gallery.map(f => `<img title="${f.name}" src="${f.th}" style="width:100%;border-radius:8px">`).join('')}</div>` : '<div class="cat">No snowflakes yet.</div>');
+  el.querySelectorAll('.tg').forEach(t => t.onclick = () => { target = +t.dataset.i; FX.sfx('click'); loadTarget(); renderSide(); });
+}
+const targetThumbs = [];
+function loadTarget() { targetMask = replay(scParams(TARGETS[target].sc)); seed(); renderStatus(); }
+function renderStatus() {
+  const a = analyse();
+  $('status').innerHTML = growing ? `Falling… <b>${Math.round(R / RMAX * 100)}%</b> grown` : mode === 'copy' ? `Target: <b>${TARGETS[target].n}</b><br><span style="color:#8ea3c4">The orange ghost is the flake to copy.</span>` : `<span style="color:#8ea3c4">Set the cloud conditions, then release a crystal.</span>`;
+  $('story').innerHTML = mode === 'copy' ? 'Each flake records the weather it fell through: the centre grew first and the tips grew last. Match the ghost by changing conditions at the right moments.' :
+    'Every snowflake is a record of its fall. Drag the <b>cloud conditions</b> (bottom right) before and <i>during</i> the fall. Each region of the cloud grows a different kind of ice. Change conditions mid-fall to grow crystals with two personalities.';
+  $('btns').innerHTML = `<button class="btn" id="rel">${growing ? '…' : '❄ Release a crystal'}</button>`;
+  $('rel').onclick = () => { if (!growing) release(); };
+}
+document.querySelectorAll('#mode button').forEach(b => b.onclick = () => { mode = b.dataset.m; SAVE.mode = mode; persist(); document.querySelectorAll('#mode button').forEach(x => x.classList.toggle('on', x === b)); FX.sfx('click'); if (mode === 'copy') loadTarget(); else { targetMask = null; } renderSide(); renderStatus(); });
+
+// ================= loop =================
+function loop(now) {
+  requestAnimationFrame(loop);
+  if (growing) { const per = R < 20 ? 10 : 24; for (let i = 0; i < per && growing; i++) { step(); if (R >= RMAX || steps > 9000) land(); } if (steps % 40 === 0) renderStatus(); }
+  renderFlake(fr, mode === 'copy' ? targetMask : null);
+  draw(now); drawPad();
+}
+// precompute target thumbnails lazily, one per frame, so the page starts instantly
+let tq = 0; (function warm() { if (tq < TARGETS.length) { targetThumbs[tq] = thumb(replay(scParams(TARGETS[tq].sc))); tq++; if (mode === 'copy') renderSide(); setTimeout(warm, 30); } else { seed(); if (mode === 'copy') loadTarget(); } })();
+document.querySelectorAll('#mode button').forEach(x => x.classList.toggle('on', x.dataset.m === mode));
+[beta, gamma] = ptToParams(padPt); seed(); renderSide(); renderStatus();
+requestAnimationFrame(loop);
+window.__snow = { FORMS, TARGETS, scParams, replay, analyse, ptToParams, release, get R() { return R; }, get growing() { return growing; }, setPad: (x, y) => { padPt = { x, y }; [beta, gamma] = ptToParams(padPt); } };
+</script>
+</body>
+</html>
