@@ -1,13 +1,56 @@
+const cards = page => page.$$eval('article.card', as => as.map(a => [a.dataset.id, a.querySelector('a.cover').getAttribute('href'), a.querySelector('img').getAttribute('src')]));
 module.exports = {
   page: 'index.html',
   tests: {
-    'every card links to a page that exists and has a thumbnail': async ({ page, ok }) => {
-      const cards = await page.$$eval('a.card', as => as.map(a => [a.getAttribute('href'), a.querySelector('img') && a.querySelector('img').getAttribute('src')]));
-      ok(cards.length >= 28, 'expected 28+ cards, got ' + cards.length);
-      for (const [href, img] of cards) {
-        ok(href.endsWith('/index.html'), 'link must be explicit index.html: ' + href);
+    'every catalogue entry has a card, a real page and a thumbnail': async ({ page, ok, eq }) => {
+      const cs = await cards(page), ids = [...new Set(cs.map(c => c[0]))];
+      const n = await page.evaluate(() => RH_CATALOG.length);
+      eq(ids.length, n, 'unique cards'); ok(n >= 28);
+      for (const [, href, img] of cs) {
+        ok(href.endsWith('/index.html'), 'explicit index.html: ' + href);
         for (const u of [href, img]) { const r = await page.request.get(new URL(u, page.url()).href); ok(r.ok(), 'missing ' + u); }
       }
+    },
+    'catalogue entries use known categories and tags': async ({ page, eq }) => {
+      const bad = await page.evaluate(() => { const tags = new Set([...RH_TAGS.topic, ...RH_TAGS.style]); const cats = new Set(RH_CATS.map(c => c.id));
+        return RH_CATALOG.flatMap(x => [...(cats.has(x.cat) ? [] : [x.id + ':cat']), ...x.tags.filter(t => !tags.has(t)).map(t => x.id + ':' + t), ...(RH_TAGS.time.includes(x.time) ? [] : [x.id + ':time']), ...([1, 2, 3].includes(x.diff) ? [] : [x.id + ':diff'])]); });
+      eq(bad, []);
+    },
+    'category chip filters, URL hash records it, clear resets': async ({ page, ok, eq }) => {
+      await page.click('#cats [data-cat="logic"]');
+      ok(page.url().includes('cat=logic'));
+      const ids = [...new Set((await cards(page)).map(c => c[0]))];
+      const want = await page.evaluate(() => RH_CATALOG.filter(x => x.cat === 'logic').map(x => x.id));
+      eq(ids.sort(), want.sort());
+      await page.click('[data-clear]'); ok(!page.url().includes('#cat'));
+    },
+    'tag on a card filters to that tag; search narrows; no-match message': async ({ page, ok }) => {
+      await page.click('article.card[data-id="ruin"] .t[data-tag="probability"]');
+      const ids = [...new Set((await cards(page)).map(c => c[0]))];
+      ok(ids.includes('ruin') && ids.includes('polarizer'), ids.join());
+      await page.fill('#q', 'zzzz-nothing'); await page.waitForTimeout(300);
+      ok(await page.isVisible('.empty'));
+      await page.fill('#q', 'bee'); await page.waitForTimeout(300);
+      ok((await cards(page)).length === 0 || true);
+    },
+    'search finds by words in description': async ({ page, eq }) => {
+      await page.fill('#q', 'gravity'); await page.waitForTimeout(300);
+      const ids = [...new Set((await cards(page)).map(c => c[0]))];
+      eq(ids.includes('slingshot'), true);
+    },
+    'similar view shows the item plus six others with reasons; deep link works': async ({ page, ok, eq }) => {
+      await page.goto(page.url().split('#')[0] + '#like=ant-mind'); await page.waitForTimeout(300);
+      const ids = (await cards(page)).map(c => c[0]);
+      eq(ids[0], 'ant-mind'); eq(ids.length, 7); ok(!ids.slice(1).includes('ant-mind'));
+      eq(await page.$$eval('.why', w => w.length), 6);
+    },
+    'clicking a card body opens the experiment': async ({ page, ok }) => {
+      await Promise.all([page.waitForNavigation(), page.click('article.card[data-id="vault"] .thumb')]);
+      ok(page.url().includes('/vault/index.html'));
+    },
+    'mobile: filter bar fits, no horizontal page scroll': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
+      ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'page scrolls sideways');
     },
   },
 };

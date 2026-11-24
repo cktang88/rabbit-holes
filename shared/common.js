@@ -52,3 +52,17 @@ const RH = (() => {
 
   return { save, load, wipe, toast, modal, rng, hashStr, fmt, progress };
 })();
+
+// On experiment pages, add a small "more like this" link beside the "← Rabbit Holes" home link.
+// It opens the hub's similar-experiments view for this page (index.html#like=<folder>).
+(() => {
+  const add = () => {
+    const home = document.querySelector('a.home[href="../index.html"]'); if (!home || home.nextElementSibling?.classList.contains('rh-like')) return;
+    const id = location.pathname.split('/').filter(Boolean).slice(-2, -1)[0]; if (!id) return;
+    const a = document.createElement('a'); a.className = 'rh-like'; a.href = '../index.html#like=' + encodeURIComponent(id); a.textContent = innerWidth < 640 ? '≈' : '≈ more like this'; a.setAttribute('aria-label', 'More experiments like this one'); a.title = 'Experiments like this one';
+    a.style.cssText = 'margin-left:8px;font-size:.85em;opacity:.65;color:inherit;text-decoration:none;white-space:nowrap';
+    a.onmouseenter = () => a.style.opacity = 1; a.onmouseleave = () => a.style.opacity = .65;
+    home.after(a);
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', add); else add();
+})();
