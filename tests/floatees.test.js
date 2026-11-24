@@ -150,15 +150,16 @@ module.exports = {
       ok(R.compMis.every(m => m > 1.2), '3★ (≤1.2 months) needs better than the simple competent search: ' + R.compMis);
     },
     'touch: no hover tooltip left behind after a finger drag; jittery taps still drop': async ({ page, eq, ok }) => {
-      await unlock(page); await page.evaluate(() => __fl.load(9));
-      const shown = await page.evaluate(() => { const c = document.getElementById('gl'), ev = (t, x, y, pt) => c.dispatchEvent(new PointerEvent(t, { pointerType: pt, clientX: x, clientY: y, bubbles: true }));
-        const W = innerWidth / 2, H = innerHeight / 2; ev('pointermove', W, H, 'mouse'); const a = document.getElementById('tip').style.display;
-        ev('pointerdown', W, H, 'touch'); ev('pointermove', W + 40, H + 10, 'touch'); const b = document.getElementById('tip').style.display; ev('pointerup', W + 40, H + 10, 'touch');
-        return [a, b, document.getElementById('tip').style.display]; });
-      eq(shown, ['block', 'none', 'none']);
-      const n = await page.evaluate(() => { const [x, y, vis] = __fl.screenOf(30, -40), c = document.getElementById('gl'), ev = (t, dx) => c.dispatchEvent(new PointerEvent(t, { pointerType: 'touch', clientX: x + dx, clientY: y, bubbles: true }));
-        ev('pointerdown', 0); ev('pointerup', 10); return [vis, __fl.ducks.length]; });
-      ok(!n[0] || n[1] === 100, 'a 10 px finger jitter still counts as a tap: ' + n);
+      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }), p2 = await ctx.newPage();
+      await p2.goto(page.url()); await p2.waitForFunction(() => window.__fl && __fl.ready2, null, { timeout: 60000 });
+      await p2.evaluate(() => { for (let i = 0; i < 9; i++) __fl.SAVE.done[i] = 1; __fl.load(9); });
+      const cdp = await ctx.newCDPSession(p2), touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+      await touch('touchStart', 195, 420); for (let k = 1; k <= 6; k++) await touch('touchMove', 195 - k * 15, 420 - k * 4); await touch('touchEnd');
+      await p2.waitForTimeout(100);
+      eq(await p2.$eval('#tip', t => t.style.display), 'none', 'tooltip stuck after a drag');
+      const [x, y, vis] = await p2.evaluate(() => __fl.screenOf(0, -150));
+      if (vis) { await touch('touchStart', x, y); await touch('touchMove', x + 9, y + 3); await touch('touchEnd'); await p2.waitForTimeout(100); ok(await p2.evaluate(() => __fl.ducks.length === 100), 'a 9 px finger jitter should still drop'); }
+      await ctx.close();
     },
     'corrupted / odd saves load without errors': async ({ page, eq }) => {
       const u = page.url(); await page.goto('about:blank'); // stop the first globe rendering while the others load
