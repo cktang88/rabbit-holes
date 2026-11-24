@@ -10,6 +10,7 @@
   :root{--ink:#f3e6cc;--dim:#b9a27e;--honey:#f2b544;--good:#9bd06b;--bad:#e8684a;--chip:rgba(38,24,12,.86);--edge:rgba(255,214,150,.16)}
   html,body{height:100%;overflow:hidden;background:#1d130b;font-family:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;color:var(--ink)}
   #cv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:default}
+  #vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(20,10,0,0) 45%,rgba(20,10,0,.45) 100%)}
   .chip{position:fixed;background:var(--chip);border:1px solid var(--edge);border-radius:16px;box-shadow:0 16px 40px -18px rgba(0,0,0,.8);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
   .fell{font-family:"IM Fell English",Georgia,serif}
   #hud{top:14px;left:14px;width:330px;padding:12px 16px;max-height:calc(100vh - 160px);overflow:auto}
@@ -90,6 +91,7 @@
 </head>
 <body>
 <canvas id="cv"></canvas>
+<div id="vig"></div>
 <div id="hud" class="chip">
   <a class="home" href="../index.html">← Rabbit Holes</a>
   <h1>Swarm Season</h1>
@@ -627,7 +629,7 @@ function externalSigns(w, h) {
 //#SCEN-END
 // ===================== GAME / RENDER =====================
 const $ = id => document.getElementById(id);
-const cv = $('cv'), ctx = cv.getContext('2d');
+const cv = $('cv'), ctx = cv.getContext('2d', { alpha: false });
 const TAU = Math.PI * 2, SQ3 = Math.sqrt(3);
 let dpr = 1, VW = 0, VH = 0, T = 0;
 const SAVE = RH.load('swarm', { done: {}, cur: 0 });
@@ -774,7 +776,10 @@ function combCanvas(b, side, scalePx) {
     const t = b.type[o + j], pp = b.par[o + j]; if (e.type[j] === t && e.par[j] === pp) continue;
     const r = j / COLS | 0, col = j % COLS, x = cellX(col, r) * scalePx, y = cellY(r) * scalePx;
     if (e.type[j] !== 255) { g.save(); g.translate(x, y); hexPath(g, rp * 1.06); g.fillStyle = bg; g.fill(); g.restore(); }
-    g.drawImage(spriteFor(t, pp), x - hs, y - hs); e.type[j] = t; e.par[j] = pp; combStats.cells++;
+    g.drawImage(spriteFor(t, pp), x - hs, y - hs);
+    // the old full-comb light-to-shadow wash, baked per cell (light at the top bar, darker toward the bottom)
+    const k = r / (ROWS - 1); g.save(); g.translate(x, y); hexPath(g, rp * 1.02); g.fillStyle = k < .3 ? `rgba(255,240,200,${(.08 * (1 - k / .3)).toFixed(3)})` : `rgba(40,20,5,${(.18 * (k - .3) / .7).toFixed(3)})`; g.fill(); g.restore();
+    e.type[j] = t; e.par[j] = pp; combStats.cells++;
   }
   e.ver = b.ver; return e.c;
 }
@@ -1029,18 +1034,17 @@ const SKY = [['#f7c873', '#e98f4a'], ['#f0b866', '#d98447'], ['#d9a36a', '#9e6a4
 const fly = { pts: [] };
 function drawApiary(dt) {
   const m = monthOf(W.day), sk = SKY[m];
-  ctx.fillStyle = grad('sky' + m + ':' + VH, () => { const g = ctx.createLinearGradient(0, 0, 0, VH); g.addColorStop(0, sk[1]); g.addColorStop(.62, sk[0]); g.addColorStop(.63, '#7b8a4a'); g.addColorStop(1, '#3d3a1c'); return g; });
-  ctx.fillRect(0, 0, VW, VH);
   const gy = VH * (isMobile() ? .68 : .74);
+  // static scenery (sky, hills, scrub, ground, clover, swarm tree) is painted once per month/size into an offscreen layer
+  const flow = seasonal(FLOW_T, W.day), nf = Math.round(flow * 500), bgKey = m + '|' + VW + '|' + VH + '|' + nf + '|' + dpr;
+  if (!drawApiary.bg || drawApiary.key !== bgKey) { drawApiary.key = bgKey; drawApiary.bg = paintScenery(m, gy, nf, sk); }
+  ctx.drawImage(drawApiary.bg, -12, -12, VW + 24, VH + 24);
   // sun
   const dayF = ff ? (ff.acc / ff.dayDur) : .45;
   const sunA = Math.PI * (1 - dayF), sx = VW / 2 + Math.cos(sunA) * VW * .42, sy = gy - Math.sin(sunA) * VH * .5;
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, VW, gy - 62); ctx.clip();
   ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = grad('sun', () => { const sg = ctx.createRadialGradient(0, 0, 0, 0, 0, 90); sg.addColorStop(0, 'rgba(255,244,200,.95)'); sg.addColorStop(.25, 'rgba(255,220,140,.5)'); sg.addColorStop(1, 'rgba(255,200,120,0)'); return sg; });
-  ctx.translate(sx, sy); ctx.fillRect(-90, -90, 180, 180); ctx.translate(-sx, -sy); ctx.globalCompositeOperation = 'source-over';
-  // static scenery (hills, scrub, ground, clover, swarm tree) is painted once per month/size into an offscreen layer
-  const flow = seasonal(FLOW_T, W.day), nf = Math.round(flow * 500), bgKey = m + '|' + VW + '|' + VH + '|' + nf + '|' + dpr;
-  if (!drawApiary.bg || drawApiary.key !== bgKey) { drawApiary.key = bgKey; drawApiary.bg = paintScenery(m, gy, nf); }
-  ctx.drawImage(drawApiary.bg, 0, 0, VW, VH);
+  ctx.translate(sx, sy); ctx.fillRect(-90, -90, 180, 180); ctx.restore();
   // hives
   const L = hiveLayout();
   L.forEach((p, i) => drawHive(W.hives[i], p, i));
@@ -1050,9 +1054,11 @@ function drawApiary(dt) {
   if (ff) { const k = Math.max(0, -Math.sin(dayF * TAU)) * .45; if (k > 0) { ctx.globalAlpha = k; ctx.fillStyle = 'rgb(12,16,34)'; ctx.fillRect(0, 0, VW, VH); ctx.globalAlpha = 1; } }
   drawSwarm(dt);
 }
-function paintScenery(m, gy, nf) {
-  const c = document.createElement('canvas'); c.width = Math.ceil(VW * dpr); c.height = Math.ceil(VH * dpr);
-  const ctx = c.getContext('2d'); ctx.scale(dpr, dpr);
+function paintScenery(m, gy, nf, sk) {
+  const c = document.createElement('canvas'); c.width = Math.ceil((VW + 24) * dpr); c.height = Math.ceil((VH + 24) * dpr);
+  const ctx = c.getContext('2d', { alpha: false }); ctx.scale(dpr, dpr); ctx.translate(12, 12);
+  const g = ctx.createLinearGradient(0, 0, 0, VH); g.addColorStop(0, sk[1]); g.addColorStop(.62, sk[0]); g.addColorStop(.63, '#7b8a4a'); g.addColorStop(1, '#3d3a1c');
+  ctx.fillStyle = g; ctx.fillRect(-12, -12, VW + 24, VH + 24);
   // hills & bush
   const hill = (yy, amp, col, ph) => { ctx.beginPath(); ctx.moveTo(0, VH); for (let x = 0; x <= VW; x += 16) ctx.lineTo(x, yy - Math.sin(x * .004 + ph) * amp - Math.sin(x * .011 + ph * 2) * amp * .4); ctx.lineTo(VW, VH); ctx.fill(); };
   ctx.fillStyle = m >= 5 && m <= 7 ? '#5d6a63' : '#6f7b48'; hill(gy - 70, 28, 0, 1.3);
@@ -1063,7 +1069,7 @@ function paintScenery(m, gy, nf) {
   const gg = ctx.createLinearGradient(0, gy, 0, VH); gg.addColorStop(0, m >= 5 && m <= 7 ? '#5f6b45' : '#7e8f3e'); gg.addColorStop(1, '#3a3a1a'); ctx.fillStyle = gg; ctx.fillRect(0, gy, VW, VH - gy);
   for (let i = 0; i < nf; i++) { const x = (i * 97.13) % VW, y = gy + 8 + ((i * 53.7) % (VH - gy - 8)); ctx.fillStyle = i % 5 ? 'rgba(255,252,240,.8)' : 'rgba(240,180,200,.8)'; ctx.beginPath(); ctx.arc(x, y, 1.6 + (y - gy) / 140, 0, TAU); ctx.fill(); }
   // swarm tree (right)
-  const tx = VW * .9, ty = gy - VH * .28;
+  const tx = VW * .9, ty = gy - VH * .17; // low enough that the hanging swarm clears the notes chip
   ctx.strokeStyle = '#3a2614'; ctx.lineWidth = 12; ctx.beginPath(); ctx.moveTo(tx, gy); ctx.lineTo(tx - 6, ty); ctx.stroke(); ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(tx - 4, ty + 30); ctx.lineTo(tx - 70, ty + 10); ctx.stroke();
   ctx.fillStyle = m >= 4 && m <= 7 ? 'rgba(80,90,60,.8)' : 'rgba(70,96,40,.9)'; for (let k = 0; k < 7; k++) { ctx.beginPath(); ctx.arc(tx - 40 + Math.cos(k) * 46, ty - 20 + Math.sin(k * 1.7) * 26, 34, 0, TAU); ctx.fill(); }
   return c;
@@ -1102,6 +1108,27 @@ function drawHive(h, p, i) {
   if (!dead && view === 'apiary' && !ff && (W.actsLeft > 0)) { const pul = .5 + .5 * Math.sin(T * 4 + i); ctx.strokeStyle = `rgba(242,181,68,${.25 + pul * .4})`; ctx.lineWidth = 2; ctx.strokeRect(x0 - 8, top - 2, w + 16, p.y - top + 2); }
 }
 
+// ---------- cached inspection layers ----------
+const ATLAS = new Map();
+function beeAtlas(kind, sc) {
+  const key = kind + sc.toFixed(3); let a = ATLAS.get(key); if (a) return a;
+  if (ATLAS.size > 8) ATLAS.clear();
+  const spr = BEE[kind], L = BEE.L[kind] * sc, Wd = BEE.Wd[kind] * sc, S = Math.ceil(Math.hypot(L, Wd)) + 2;
+  a = []; for (let k = 0; k < 32; k++) { const c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d'); g.translate(S / 2, S / 2); g.rotate(k / 32 * TAU); g.drawImage(spr, -L / 2, -Wd / 2, L, Wd); a.push(c); }
+  ATLAS.set(key, a); return a;
+}
+function frameLayer(sp) {
+  if (frameLayer.v && frameLayer.v.sp === sp) return frameLayer.v;
+  const x = -CW / 2 - 70 - 40, y = -CH / 2 - 34 - 40, w = CW + 140 + 80, h = CH + 58 + 100;
+  const c = document.createElement('canvas'); c.width = Math.ceil(w * sp); c.height = Math.ceil(h * sp);
+  const g = c.getContext('2d'); g.scale(sp, sp); g.translate(-x, -y);
+  const wood = (x, y, w, hh) => { const gr = g.createLinearGradient(x, y, x, y + hh); gr.addColorStop(0, '#c99a5e'); gr.addColorStop(1, '#94633a'); g.fillStyle = gr; g.fillRect(x, y, w, hh); g.strokeStyle = 'rgba(90,55,25,.35)'; g.lineWidth = .8; for (let k = 0; k < 3; k++) { g.beginPath(); g.moveTo(x, y + hh * (k + 1) / 4); g.lineTo(x + w, y + hh * (k + 1) / 4 + 1); g.stroke(); } };
+  g.shadowColor = 'rgba(0,0,0,.55)'; g.shadowBlur = 30 * sp; g.shadowOffsetY = 12 * sp;
+  wood(-CW / 2 - 16, -CH / 2 - 34, CW + 32, CH + 58); g.shadowColor = 'transparent';
+  wood(-CW / 2 - 70, -CH / 2 - 34, CW + 140, 22); // top bar with lugs
+  return frameLayer.v = { c, x, y, w: c.width / sp, h: c.height / sp, sp };
+}
+
 // ---------- particle pools & a save/restore-free transform helper ----------
 const SMOKE = Array.from({ length: 140 }, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 0, life: 0, age: 0 })); SMOKE.k = 0;
 const FLY = Array.from({ length: 40 }, () => ({ x: 0, y: 0, vx: 0, vy: 0, t: 0, life: 0 }));
@@ -1122,7 +1149,7 @@ function launchSwarm(h) {
 function drawSwarm(dt) {
   if (!swarmP.active) return;
   const S = swarmP; S.t += dt; const t = S.t;
-  const tx = VW * .9 - 50, ty = VH * (isMobile() ? .68 : .74) - VH * .28 + 30;
+  const tx = VW * .9 - 50, ty = VH * (isMobile() ? .68 : .74) - VH * .17 + 30;
   const k = clamp((t - 1.5) / 2, 0, 1), k2 = clamp((t - 4.6) / 1.6, 0, 1);
   const cx = FX.lerp(S.src.x, tx, FX.ease.inOutCubic(k)) + k2 * VW * .6, cy = FX.lerp(S.src.y - 120, ty, FX.ease.inOutCubic(k)) - k2 * VH * .4;
   ctx.fillStyle = '#2a1708'; ctx.beginPath();
@@ -1140,24 +1167,24 @@ function drawSwarm(dt) {
 function drawInspect(dt) {
   const h = hive(), b = curB(), si = sideIdx(), fg = frameGeom();
   // backdrop: warm blurred apiary
-  ctx.fillStyle = grad('ib' + VW + 'x' + VH, () => { const g = ctx.createRadialGradient(VW / 2, VH * .4, 50, VW / 2, VH / 2, Math.max(VW, VH) * .8); g.addColorStop(0, '#5a3b1c'); g.addColorStop(1, '#1d120a'); return g; }); ctx.fillRect(0, 0, VW, VH);
+  const bk = 'ib' + VW + 'x' + VH + 'x' + dpr;
+  if (drawInspect.key !== bk) { drawInspect.key = bk; const c = drawInspect.bg = document.createElement('canvas'); c.width = Math.ceil(VW * dpr); c.height = Math.ceil(VH * dpr); const g2 = c.getContext('2d', { alpha: false }); g2.scale(dpr, dpr); const g = g2.createRadialGradient(VW / 2, VH * .4, 50, VW / 2, VH / 2, Math.max(VW, VH) * .8); g.addColorStop(0, '#5a3b1c'); g.addColorStop(1, '#1d120a'); g2.fillStyle = g; g2.fillRect(0, 0, VW, VH); }
+  ctx.drawImage(drawInspect.bg, -12, -12, VW + 24, VH + 24); // a little oversize so screen-shake never shows an edge
   // the open box below (top bars)
   drawStrip(h, fg);
   // parallax from pointer
   const px = ((ptr.mx ?? VW / 2) - VW / 2) / VW, py = ((ptr.my ?? VH / 2) - VH / 2) / VH;
   const lift = (1 - insp.pull) * (fg.portrait ? VH : VH * .9);
-  const fgo = { ...fg, cx: fg.cx + px * 10, cy: fg.cy + py * 8 + lift, rot: fg.rot + px * .015 };
+  // parallax is a pure translation snapped to device pixels, so the cached comb blits 1:1 (no resampling)
+  const snap = v => Math.round(v * dpr) / dpr;
+  const fgo = { ...fg, cx: snap(fg.cx + px * 10), cy: snap(fg.cy + py * 8 + lift) };
   insp.fg = fgo;
   const sp = Math.max(.2, fg.s * dpr);
   const comb = combCanvas(b, si, sp);
   ctx.save(); ctx.translate(fgo.cx, fgo.cy); ctx.rotate(fgo.rot); ctx.scale(fg.s, fg.s);
-  // wooden frame
-  const wood = (x, y, w, hh) => { ctx.fillStyle = grad('wood' + y + ':' + hh, () => { const gr = ctx.createLinearGradient(x, y, x, y + hh); gr.addColorStop(0, '#c99a5e'); gr.addColorStop(1, '#94633a'); return gr; }); ctx.fillRect(x, y, w, hh); ctx.strokeStyle = 'rgba(90,55,25,.35)'; ctx.lineWidth = .8; for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.moveTo(x, y + hh * (k + 1) / 4); ctx.lineTo(x + w, y + hh * (k + 1) / 4 + 1); ctx.stroke(); } };
-  ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 12;
-  wood(-CW / 2 - 16, -CH / 2 - 34, CW + 32, CH + 58); ctx.shadowColor = 'transparent';
-  wood(-CW / 2 - 70, -CH / 2 - 34, CW + 140, 22); // top bar with lugs
+  // wooden frame + its soft shadow: pre-rendered once per scale (shadowBlur every frame is very costly)
+  const fl = frameLayer(sp); ctx.drawImage(fl.c, fl.x, fl.y, fl.w, fl.h);
   ctx.drawImage(comb, -CW / 2, -CH / 2, CW, CH);
-  ctx.fillStyle = grad('combShade', () => { const sh = ctx.createLinearGradient(0, -CH / 2, 0, CH / 2); sh.addColorStop(0, 'rgba(255,240,200,.08)'); sh.addColorStop(1, 'rgba(40,20,5,.18)'); return sh; }); ctx.fillRect(-CW / 2, -CH / 2, CW, CH);
   ctx.translate(-CW / 2, -CH / 2);
   // queen cells & cups
   for (const o of b.over[si] || []) drawQCell(o);
@@ -1166,10 +1193,13 @@ function drawInspect(dt) {
   if (q) drawQueen(q, dt);
   // bees
   updateBees(dt, q);
-  const bm = ctx.getTransform();
+  // bees: pre-rotated sprites at device scale, blitted unrotated at whole-pixel positions
+  const bm = ctx.getTransform(), atW = beeAtlas('worker', sp), atD = beeAtlas('drone', sp), NA = atW.length;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   for (const be of insp.bees) {
-    const spr = BEE[be.kind], L = BEE.L[be.kind], Wd = BEE.Wd[be.kind];
-    setXf(bm, be.x, be.y, be.a, 1); ctx.drawImage(spr, -L / 2, -Wd / 2, L, Wd);
+    const at = be.kind === 'drone' ? atD : atW, X = bm.a * be.x + bm.c * be.y + bm.e, Y = bm.b * be.x + bm.d * be.y + bm.f;
+    let k = Math.round((be.a + fgo.rot) / TAU * NA) % NA; if (k < 0) k += NA;
+    const spr = at[k]; ctx.drawImage(spr, (X - spr.width / 2) | 0, (Y - spr.height / 2) | 0);
   }
   ctx.setTransform(bm);
   // label
@@ -1470,8 +1500,7 @@ function frame(now) {
   else drawApiary(dt);
   if (simOn) drawSim();
   ps.update(dt); ps.draw(ctx);
-  // vignette
-  ctx.fillStyle = grad('vg' + VW + 'x' + VH, () => { const vg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * .35, VW / 2, VH / 2, Math.max(VW, VH) * .75); vg.addColorStop(0, 'rgba(20,10,0,0)'); vg.addColorStop(1, 'rgba(20,10,0,.45)'); return vg; }); ctx.fillRect(-20, -20, VW + 40, VH + 40);
+  // (the vignette is a static CSS overlay: no full-screen gradient fill per frame)
 }
 
 // ---------- debug / test handle ----------

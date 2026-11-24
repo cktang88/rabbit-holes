@@ -558,7 +558,7 @@ const persist = () => { RH.save('belt-trick', SAVE); RH.progress('belt-trick', O
 let L, LI = 0, sel = 0, won = false, intro = false, S = {}, bet = null, golf = null, waiter = null, glitchT = 0, lastMsg = '';
 
 function loadLevel(i, opt = {}) {
-  LI = i; L = LV[i]; SAVE.cur = i; persist();
+  LI = i; L = LV[i]; SAVE.cur = i; persist(); clearTimeout(toast.h); $('toast').classList.remove('on');
   queue = []; cur = null; relax.on = false; userMoves = []; axesUsed = new Set(); yawAcc = 0; won = false; sel = L.objs ? L.objs[0] : 0; recording = null;
   clearWorld(); const cam = (L.setup === 'mech' ? SETUPS.mech(L.kind === 'sat') : SETUPS[L.setup]());
   bet = L.kind === 'bet' ? { right: 0, tries: 0, phase: 'idle', seq: null } : null;
@@ -612,7 +612,6 @@ function resetState() { // put the level back to its start (no intro animation)
   if (L.start && !bet) { L.start.forEach(t => enqueue(t, false)); flushQueue(); }
   if (waiter) Object.assign(waiter, { spill: 0, bumpT: 1.5, bump: null, t: 0, started: false, done: false });
   if (MECH) Object.assign(MECH, { phi: 0, theta: 0, running: false, broken: false, t: 0, hold: false, maxTw: 0 });
-  if (golf) golf.strokes = 0;
   wake(500); renderCtrl(); renderGoal();
 }
 function userMove(tok) {
@@ -725,7 +724,7 @@ function renderCtrl() {
   c.querySelectorAll('[data-m]').forEach(b => b.onpointerdown = e => { e.preventDefault(); FX.sfx('click'); userMove(b.dataset.m); });
   c.querySelectorAll('[data-sel]').forEach(b => b.onclick = () => { sel = +b.dataset.sel; FX.sfx('tick'); renderCtrl(); });
   if ($('rx')) $('rx').onclick = () => { if (busy()) return; startRelax(); };
-  if ($('rst')) $('rst').onclick = () => { FX.sfx('pop'); if (golf) { golf.strokes = 0; } resetState(); won = won && !L.free ? won : false; };
+  if ($('rst')) $('rst').onclick = () => { FX.sfx('pop'); if (golf && golf.matched) return; if (golf && golf.strokes) msg('Ball back on the tee. Strokes still count.'); resetState(); won = won && !L.free ? won : false; };
   if ($('next')) $('next').onclick = () => { FX.sfx('pop'); loadLevel(LI + 1); };
   if ($('run')) $('run').onclick = () => { if (MECH.broken || MECH.theta > 0 && !MECH.running) { MECH.phi = MECH.theta = 0; MECH.broken = false; MECH.maxTw = 0; } MECH.running = !MECH.running; FX.sfx(MECH.running ? 'whoosh' : 'click'); renderCtrl(); wake(300); };
   if ($('hold')) { const hb = $('hold'); hb.onpointerdown = e => { e.preventDefault(); setHold(true); }; hb.onpointerup = hb.onpointerleave = hb.onpointercancel = () => setHold(false); }
@@ -777,7 +776,7 @@ canvas.addEventListener('pointermove', e => {
   if (!drag.on || e.pointerId !== drag.id) return; const o = drag.o;
   if (o.kind === 'tray') { // sideways = turn about the vertical, up/down = tilt
     const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly; drag.lx = e.clientX; drag.ly = e.clientY;
-    rotateBy(o, [0, 1, 0], dx * .012); V3.set(1, 0, 0).applyQuaternion(camera.quaternion); V3.y = 0; V3.normalize(); rotateBy(o, [V3.x, 0, V3.z], dy * .006); return; }
+    rotateBy(o, Y_UP, dx * .012); if (Math.abs(dy) > 1.5) { V3.set(1, 0, 0).applyQuaternion(camera.quaternion); V3.y = 0; V3.normalize(); wAx[0] = V3.x; wAx[1] = 0; wAx[2] = V3.z; rotateBy(o, wAx, dy * .006); } if (waiter) waiter.tilting = Math.abs(dy) > Math.abs(dx); return; }
   const p = arcVec(e.clientX, e.clientY, [0, 0, 0]), a = drag.last, ax = [a[1] * p[2] - a[2] * p[1], a[2] * p[0] - a[0] * p[2], a[0] * p[1] - a[1] * p[0]], s = Math.hypot(...ax), ang = Math.atan2(s, a[0] * p[0] + a[1] * p[1] + a[2] * p[2]) * 1.7;
   drag.last = p; if (s < 1e-9) return; V3.set(ax[0] / s, ax[1] / s, ax[2] / s).applyQuaternion(camera.quaternion); rotateBy(o, [V3.x, V3.y, V3.z], ang);
 });
@@ -813,6 +812,7 @@ $('lens').onclick = () => coda();
 // Waiter, mechanisms, glitch
 // ======================================================================
 let meterT = 0; const meterDue = () => { const n = performance.now(); if (n - meterT < 90) return false; meterT = n; return true; };
+const Y_UP = [0, 1, 0], wUp = [0, 0, 0], wAx = [0, 0, 0];
 function stepWaiter(dt) {
   const w = waiter, o = OBJ[0]; if (!w || won) return;
   RIB[0].relaxIter(6, RIB[0].length() - RIB[0].dmin() > .4 ? 1e-3 : 0); // the arm is a muscle: it relaxes continuously
@@ -820,7 +820,9 @@ function stepWaiter(dt) {
   // customers bump the tray
   w.bumpT -= dt; if (w.bumpT <= 0) { const hard = L.time ? 1.5 : 1; w.bumpT = (1.4 + Math.random() * 1.4) / hard; const a = Math.random() * TAU; w.bump = { ax: [Math.cos(a), 0, Math.sin(a)], ang: (5 + Math.random() * 7) * hard * D2R, t: 0 }; if (!window.__belt.calm) FX.sfx('place'); else w.bump = null; }
   if (w.bump) { const b = w.bump, k0 = b.t; b.t = Math.min(1, b.t + dt / .25); rotateBy(o, b.ax, b.ang * (FX.ease.outCubic(b.t) - FX.ease.outCubic(k0))); if (b.t >= 1) w.bump = null; }
-  const up = qrot(o.q, [0, 1, 0]), tilt = Math.acos(FX.clamp(up[1], -1, 1)) / D2R;
+  // the waiter's wrist levels the tray on its own (a bump tilted about the view axis can't be fixed by an up/down drag)
+  const up = qrot(o.q, Y_UP, wUp); let tilt = Math.acos(FX.clamp(up[1], -1, 1)) / D2R;
+  if (tilt > .3 && !(drag.on && w.tilting)) { wAx[0] = -up[2]; wAx[1] = 0; wAx[2] = up[0]; rotateBy(o, wAx, tilt * D2R * (1 - Math.exp(-.7 * dt))); qrot(o.q, Y_UP, up); tilt = Math.acos(FX.clamp(up[1], -1, 1)) / D2R; }
   if (tilt > 9) { w.spill += (tilt - 9) * dt * 2.2; if (Math.random() < .5) { const p = qrot(o.q, [0, .45, 0]); burst(p[0], p[1], p[2], 1, '#c07030', 1.5, .5); } }
   const late = L.time && w.t > L.time;
   if (w.spill >= 100 || late) { FX.sfx('fail'); FX.shake(.5); toast(late ? 'Too slow' : 'Splash!', late ? 'The customer left.' : 'Coffee everywhere. Try smaller drags.', 2000); resetState(); return; }
