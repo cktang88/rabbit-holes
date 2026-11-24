@@ -123,6 +123,16 @@ module.exports = {
       await page.evaluate(() => { for (let i = 0; i < 10; i++) __rh.scan(true); });
       eq(await page.isDisabled('#autoBtn'), false); await page.click('#autoBtn'); eq(await page.evaluate(() => __rh.auto), true);
     },
+    'landscape phone: dish fills the screen; panels are drawers; edge buttons make soups and scan': async ({ page, eq, ok }) => {
+      await dismiss(page); await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(300);
+      const open = (id) => page.evaluate((id) => { const r = document.getElementById(id).getBoundingClientRect(); return r.right > 5 && r.left < innerWidth - 5; }, id);
+      eq([await open('left'), await open('right')], [false, false]);
+      await page.click('.drawerBtn[data-drawer="right"]'); await page.waitForTimeout(350); eq(await open('right'), true);
+      await page.click('.drawerBtn[data-drawer="left"]'); await page.waitForTimeout(350); eq([await open('left'), await open('right')], [true, false]);
+      await page.mouse.click(700, 200); await page.waitForTimeout(350); eq(await open('left'), false, 'tapping the dish closes the drawer');
+      const s0 = await page.evaluate(() => __rh.S.scans); await page.click('#scanBtn2'); eq(await page.evaluate(() => __rh.S.scans), s0 + 1);
+      await page.evaluate(() => { __rh.tick(30); }); await page.click('#soupBtn2'); eq(await page.evaluate(() => __rh.gen), 0);
+    },
     'phone layout: no horizontal scroll and the dish is visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(150);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, w: document.getElementById('world').getBoundingClientRect() }));

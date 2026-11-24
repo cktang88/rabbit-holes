@@ -294,6 +294,19 @@ module.exports = {
         return { hit: N.hitWire(mid.x, mid.y), sag: mid.y - straight.y, o1, o0, anim: Object.keys(N.wireAnim).length }; }, { SOL, BUILD_SRC });
       eq(r.hit, 2); ok(r.sag >= 0); eq(r.o1, [0]); eq(r.o0, [1]); ok(r.anim > 0, 'propagation animation queued');
     },
+    'touch: two-finger pinch zooms the board about the fingers; Fit frames the whole board': async ({ page, ok }) => {
+      await dismissModals(page); await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
+      const cdp = await page.context().newCDPSession(page); await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      const box = await page.locator('#cv').boundingBox(); const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+      const z0 = await page.evaluate(() => __nand.view.z);
+      const pts = (d) => [{ x: cx - d, y: cy, id: 1 }, { x: cx + d, y: cy, id: 2 }];
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pts(40) });
+      for (const d of [60, 80, 100, 120]) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pts(d) });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      const z1 = await page.evaluate(() => __nand.view.z); ok(z1 > z0 * 2.2, `zoomed ${z0} -> ${z1}`);
+      ok(await page.evaluate(() => __nand.circ.comps.length === 0 && __nand.SAVE.cur === 0), 'pinch did not edit the circuit');
+      await page.click('#fitBtn'); const z2 = await page.evaluate(() => __nand.view.z); ok(z2 < z1, 'fit zooms back out');
+    },
     'phone layout: no horizontal scroll and the canvas is usable': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect() }));

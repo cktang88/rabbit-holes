@@ -66,18 +66,62 @@
   .modal{background:var(--grain),linear-gradient(#ecdfc0,#dccaa0);color:var(--ink);border:0;border-radius:1px;box-shadow:0 20px 60px #000;font-size:16px}
   .modal h2{font-family:"IM Fell English SC",serif;font-weight:400;font-size:30px;margin:0 0 8px}
   .modal .dim{color:#6b5636}
-  @media (max-width:760px){body{height:auto;min-height:100vh;overflow:auto}main{flex-direction:column}#side{width:auto;max-height:170px;border-right:0;border-bottom:3px solid #2a1a0c}#wrap{height:auto;aspect-ratio:32/20.5;flex:none}.topbar{flex-wrap:wrap}.hint{display:none}}
+
+  #cv{touch-action:none}
+  .piece{touch-action:none}
+  #dock{display:flex;flex-direction:column}
+  #rotBar{display:flex;align-items:center;gap:6px;padding:6px 12px;background:linear-gradient(#1a100a,#0b0704);border-top:1px solid #3d2a18}
+  #rotBar button{min-width:44px;min-height:32px;padding:2px 8px}
+  #rotLbl{flex:1;text-align:center;font-style:italic;color:#d0b090;font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #libBtn{display:none}
+  #scrim{display:none}
+  @media (pointer:coarse){#rotBar button,#info button{min-height:44px}.piece{min-height:56px}}
+  /* phones: the bench takes the screen; the notebook slides in from the left */
+  @media (max-width:760px),(max-height:500px){
+    body{height:100vh;height:100dvh;min-height:0;overflow:hidden}
+    .topbar{padding:4px 10px;gap:8px;flex-wrap:nowrap}
+    .topbar h1{font-size:20px}
+    #totals{display:none}
+    main{flex-direction:row}
+    #side{position:fixed;left:0;top:0;bottom:0;width:min(300px,84vw);max-height:none;z-index:60;transform:translateX(-105%);transition:transform .25s;border-right:3px solid #2a1a0c;border-bottom:0}
+    body.drawer #side{transform:none}
+    body.drawer #scrim{display:block;position:fixed;inset:0;background:#000a;z-index:55}
+    #libBtn{display:inline-block}
+    #info{padding:6px 12px}
+    #info h2{font-size:19px}
+    #info .story{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14px;line-height:1.35;cursor:pointer}
+    #info .story.open{display:block}
+    .tg{font-size:13px;gap:8px}
+    #wrap{flex:1;height:auto;aspect-ratio:auto;min-height:0}
+    #tray{min-height:0;padding:6px 10px;flex-wrap:nowrap;overflow-x:auto}
+    .hint{display:none}
+    #rotBar{padding:4px 8px;gap:4px}
+  }
+  /* landscape phones: dock becomes a column beside the bench */
+  @media (max-height:500px) and (min-width:600px){
+    #stage{display:grid;grid-template-columns:1fr 150px;grid-template-rows:auto 1fr;min-height:0}
+    #info{grid-column:1/-1;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    #info .row{flex:1}
+    #info .story{display:none}
+    #info .tg{margin:0}
+    #wrap{grid-row:2;grid-column:1}
+    #dock{grid-row:2;grid-column:2;min-height:0;overflow-y:auto;border-left:3px solid #120a04}
+    #rotBar{flex-wrap:wrap;justify-content:center;border-top:0}
+    #rotBar button{flex:1 1 40%}
+    #rotLbl{order:-1;flex:1 1 100%;white-space:normal;font-size:12px}
+    #tray{flex-direction:column;flex-wrap:nowrap;overflow:visible;border-top:0;flex:1}
+  }
 </style>
 <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&display=swap" rel="stylesheet">
 </head>
 <body>
 <div class="topbar"><a class="home" href="../index.html">← Rabbit Holes</a><h1>Opticks</h1><span class="spacer"></span><span class="dim small" id="totals"></span><button id="helpBtn">?</button></div>
-<main>
+<main><div id="scrim"></div>
   <div id="side"></div>
   <div id="stage">
     <div id="info"></div>
     <div id="wrap"><canvas id="cv"></canvas><div class="hint">Drag pieces from the tray onto the bench · drag to move · scroll or <kbd>Q</kbd>/<kbd>E</kbd> to rotate (hold <kbd>Shift</kbd> for fine) · arrow keys nudge · <kbd>Delete</kbd> or double-click returns a piece</div></div>
-    <div id="tray"></div>
+    <div id="dock"><div id="rotBar" role="group" aria-label="Turn the selected piece"><button data-rot="-3" aria-label="Turn left 3 degrees">⟲ 3°</button><button data-rot="-0.25" aria-label="Turn left a quarter degree">⟲ ¼°</button><span id="rotLbl">Tap a piece to turn it</span><button data-rot="0.25" aria-label="Turn right a quarter degree">¼° ⟳</button><button data-rot="3" aria-label="Turn right 3 degrees">3° ⟳</button><button id="retBtn" aria-label="Return the piece to the box">Return</button></div><div id="tray"></div></div>
   </div>
 </main>
 <script src="../shared/common.js"></script>
@@ -376,10 +420,12 @@ function render() {
     h += `<div class="lv ${i === cur ? 'cur' : ''} ${chOpen(l.c) ? '' : 'locked'}" data-i="${i}"><span><i class="no">${ROMAN(i + 1)}.</i> ${l.n}</span><span class="st">${S.done[i] ? 'Q.E.D.' : ''}</span></div>`;
   });
   $('side').innerHTML = h + '<div class="note" style="margin:14px 6px;font-size:12px;color:var(--dim)">Finish two-thirds of a chapter to open the next.</div>';
-  $('side').querySelectorAll('.lv').forEach(el => el.onclick = () => { const i = +el.dataset.i; if (chOpen(L[i].c)) loadLevel(i); });
+  $('side').querySelectorAll('.lv').forEach(el => el.onclick = () => { const i = +el.dataset.i; if (chOpen(L[i].c)) { document.body.classList.remove('drawer'); loadLevel(i); } });
   $('totals').textContent = `${Object.keys(S.done).length} of ${L.length} experiments confirmed`;
-  $('info').innerHTML = `<div class="row" style="justify-content:space-between"><h2>${lv.n}</h2><div class="row"><button id="clearBtn">Clear bench</button></div></div><div class="story">${lv.s}</div><div class="tg" id="tg"></div>`;
+  $('info').innerHTML = `<div class="row" style="justify-content:space-between"><h2>${lv.n}</h2><div class="row"><button id="libBtn" aria-label="Open the notebook of experiments">Experiments</button><button id="clearBtn">Clear bench</button></div></div><div class="story" title="Tap to read">${lv.s}</div><div class="tg" id="tg"></div>`;
   $('clearBtn').onclick = () => { placed = []; sel = -1; save(); renderTray(); recompute(); };
+  $('libBtn').onclick = () => document.body.classList.add('drawer');
+  document.querySelector('#info .story').onclick = e => e.currentTarget.classList.toggle('open');
   renderTray(); resize();
 }
 function renderTray() {
@@ -399,16 +445,33 @@ function renderTray() {
   updateStatus();
 }
 function save() { S.layouts[cur] = placed.map(p => ({ ...p })); persist(); }
-function resize() { const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1; cv.width = r.width * dpr; cv.height = r.height * dpr; const s = Math.min(cv.width / BW, cv.height / BH); view = { s, ox: (cv.width - BW * s) / 2, oy: (cv.height - BH * s) / 2 }; draw(); }
+function resize() {
+  const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1; cv.width = r.width * dpr; cv.height = r.height * dpr;
+  const rot = cv.height > cv.width * 1.15, w = rot ? BH : BW, h = rot ? BW : BH, s = Math.min(cv.width / w, cv.height / h);
+  view = { s, rot, ox: (cv.width - w * s) / 2, oy: (cv.height - h * s) / 2 }; draw();
+}
+// world -> canvas pixels. In a tall (portrait) canvas the bench is turned a quarter turn clockwise.
+const VT = () => view.rot ? [0, view.s, -view.s, 0, view.ox + BH * view.s, view.oy] : [view.s, 0, 0, view.s, view.ox, view.oy];
 addEventListener('resize', resize);
-const toW = e => { const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1; return [((e.clientX - r.left) * dpr - view.ox) / view.s, ((e.clientY - r.top) * dpr - view.oy) / view.s]; };
+const toW = e => { const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1, px = (e.clientX - r.left) * dpr, py = (e.clientY - r.top) * dpr;
+  return view.rot ? [(py - view.oy) / view.s, BH - (px - view.ox) / view.s] : [(px - view.ox) / view.s, (py - view.oy) / view.s]; };
 function moveTo(e) { if (!drag) return; const [x, y] = toW(e), p = placed[drag.i]; p.x = Math.round((x - drag.dx) * 4) / 4; p.y = Math.round((y - drag.dy) * 4) / 4; recompute(); }
-function pick(x, y) {
-  for (let i = placed.length - 1; i >= 0; i--) { const p = placed[i]; if (Math.hypot(p.x - x, p.y - y) < Math.max(1.2, (p.L ?? SIZE[p.t] ?? 3) / 2)) return i; }
+function pick(x, y, touch) {
+  for (let i = placed.length - 1; i >= 0; i--) { const p = placed[i]; if (Math.hypot(p.x - x, p.y - y) < Math.max(touch ? 1.8 : 1.2, (p.L ?? SIZE[p.t] ?? 3) / 2)) return i; }
   return -1;
 }
-cv.addEventListener('pointerdown', e => { const [x, y] = toW(e), i = pick(x, y); sel = i; if (i >= 0) { drag = { i, dx: x - placed[i].x, dy: y - placed[i].y }; cv.setPointerCapture(e.pointerId); } draw(); updateStatus(); });
+cv.addEventListener('pointerdown', e => { const [x, y] = toW(e), i = pick(x, y, e.pointerType === 'touch'); sel = i; if (i >= 0) { drag = { i, dx: x - placed[i].x, dy: y - placed[i].y }; cv.setPointerCapture(e.pointerId); } draw(); updateStatus(); });
 addEventListener('pointermove', e => { if (drag) moveTo(e); });
+function turnSel(d) { const p = placed[sel]; if (!p) return; p.a = +(p.a + d).toFixed(2); tickSfx(); save(); recompute(); }
+let rotHold = 0;
+document.querySelectorAll('#rotBar [data-rot]').forEach(b => {
+  const d = +b.dataset.rot, stop = () => { clearTimeout(rotHold); clearInterval(rotHold); rotHold = 0; };
+  b.addEventListener('pointerdown', e => { e.preventDefault(); turnSel(d); stop(); rotHold = setTimeout(() => { rotHold = setInterval(() => turnSel(d), 90); }, 380); });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, stop));
+  b.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); turnSel(d); } });
+});
+$('retBtn').onclick = () => { if (sel < 0) return; placed.splice(sel, 1); sel = -1; save(); renderTray(); recompute(); };
+$('scrim').onclick = () => document.body.classList.remove('drawer');
 const endDrag = () => {
   if (!drag) return;
   const p = placed[drag.i];
@@ -443,7 +506,12 @@ function recompute() {
   clearTimeout(winT); winT = 0;
   if (solvedNow() && !drag && !S.done[cur]) { winT = setTimeout(() => { winT = 0; if (solvedNow() && !drag) win(); }, SETTLE); updateStatus(); }
 }
+function updateRotBar() {
+  const p = placed[sel], on = !!p; document.querySelectorAll('#rotBar button').forEach(b => b.disabled = !on);
+  $('rotLbl').textContent = on ? `${pieceName(p)} · ${p.a}°` : 'Tap a piece to turn it';
+}
 function updateStatus() {
+  updateRotBar();
   if (!R || R.lv !== cur || !$('tg')) return;
   $('tg').innerHTML = L[cur].targets.map((t, i) => `<span class="${R.checks[i].ok ? 'ok' : ''}">${R.checks[i].ok ? '✓' : '○'} Target ${i + 1}${t.l ? ' (' + (Array.isArray(t.l) ? 'colours' : colourName(t.l)) + (t.only ? ' only' : '') + ')' : ''}${t.par != null ? ' · parallel' : ''}${t.width ? ` · width ${((t.width[0] + t.width[1]) / 2).toFixed(0)}` : ''}: ${R.checks[i].msg}</span>`).join('') + (winT ? '<span class="ok"> · Hold it there…</span>' : '') + (placed[sel] ? `<span class="dim"> · ${pieceName(placed[sel])} at ${placed[sel].a}°</span>` : '');
 }
@@ -495,25 +563,27 @@ function drawPiece(c, p, selected, lw = 1 / view.s) {
 }
 // ---- the room: an oak bench in a darkened chamber, drawn once per resize ----
 let benchCv = null;
-function buildBench() {
+function buildBench() { // drawn in world units through the view transform, so it turns with the bench
   benchCv = document.createElement('canvas'); benchCv.width = cv.width; benchCv.height = cv.height;
-  const b = benchCv.getContext('2d'), w = cv.width, h = cv.height, { s, ox, oy } = view, W = BW * s, H = BH * s, r = RH.rng('oak');
+  const b = benchCv.getContext('2d'), w = cv.width, h = cv.height, s = view.s, r = RH.rng('oak');
   b.fillStyle = '#060403'; b.fillRect(0, 0, w, h);
-  const gr = b.createLinearGradient(0, oy, 0, oy + H); gr.addColorStop(0, '#2e1c0f'); gr.addColorStop(.5, '#3a2413'); gr.addColorStop(1, '#24150a');
-  b.fillStyle = gr; b.fillRect(ox, oy, W, H);
-  b.save(); b.beginPath(); b.rect(ox, oy, W, H); b.clip();
+  b.setTransform(...VT());
+  const gr = b.createLinearGradient(0, 0, 0, BH); gr.addColorStop(0, '#2e1c0f'); gr.addColorStop(.5, '#3a2413'); gr.addColorStop(1, '#24150a');
+  b.fillStyle = gr; b.fillRect(0, 0, BW, BH);
+  b.save(); b.beginPath(); b.rect(0, 0, BW, BH); b.clip();
   for (let i = 0; i < 220; i++) { // grain
-    const y = oy + r() * H, amp = 1 + r() * 4, fr = .002 + r() * .01, ph = r() * 9;
-    b.strokeStyle = r() < .6 ? `rgba(12,6,2,${.15 + r() * .25})` : `rgba(140,92,48,${.05 + r() * .08})`; b.lineWidth = .6 + r() * 1.6;
-    b.beginPath(); for (let x = ox; x <= ox + W; x += 8) { const yy = y + Math.sin(x * fr + ph) * amp + Math.sin(x * fr * 3.1 + ph) * amp * .3; x === ox ? b.moveTo(x, yy) : b.lineTo(x, yy); } b.stroke();
+    const y = r() * BH, amp = (1 + r() * 4) / s, fr = (.002 + r() * .01) * s, ph = r() * 9;
+    b.strokeStyle = r() < .6 ? `rgba(12,6,2,${.15 + r() * .25})` : `rgba(140,92,48,${.05 + r() * .08})`; b.lineWidth = (.6 + r() * 1.6) / s;
+    b.beginPath(); for (let x = 0; x <= BW + .3; x += 8 / s) { const yy = y + Math.sin(x * fr + ph) * amp + Math.sin(x * fr * 3.1 + ph) * amp * .3; x === 0 ? b.moveTo(x, yy) : b.lineTo(x, yy); } b.stroke();
   }
-  for (let k = 1; k < 4; k++) { b.fillStyle = '#0c0703'; b.fillRect(ox, oy + H * k / 4 - 1, W, 2); } // plank seams
-  for (let i = 0; i < 6; i++) { const kx = ox + r() * W, ky = oy + r() * H, kr = 4 + r() * 10; const kg = b.createRadialGradient(kx, ky, 0, kx, ky, kr * 2.5); kg.addColorStop(0, '#120803cc'); kg.addColorStop(1, '#12080300'); b.fillStyle = kg; b.fillRect(kx - kr * 3, ky - kr * 3, kr * 6, kr * 6); } // knots
+  for (let k = 1; k < 4; k++) { b.fillStyle = '#0c0703'; b.fillRect(0, BH * k / 4 - 1 / s, BW, 2 / s); } // plank seams
+  for (let i = 0; i < 6; i++) { const kx = r() * BW, ky = r() * BH, kr = (4 + r() * 10) / s; const kg = b.createRadialGradient(kx, ky, 0, kx, ky, kr * 2.5); kg.addColorStop(0, '#120803cc'); kg.addColorStop(1, '#12080300'); b.fillStyle = kg; b.fillRect(kx - kr * 3, ky - kr * 3, kr * 6, kr * 6); } // knots
   b.restore();
+  b.strokeStyle = '#8a6a3a'; b.lineWidth = Math.max(1 / s, .06); b.strokeRect(0, 0, BW, BH); // brass edging
+  b.fillStyle = '#b08a4a'; for (let x = 0; x <= BW; x++) b.fillRect(x - .5 / s, 0, 1 / s, x % 4 ? .18 : .4); // a ruler along the far edge
+  b.setTransform(1, 0, 0, 1, 0, 0);
   const vg = b.createRadialGradient(w / 2, h / 2, Math.min(w, h) * .25, w / 2, h / 2, Math.max(w, h) * .75); vg.addColorStop(0, '#0000'); vg.addColorStop(1, '#000d');
   b.fillStyle = vg; b.fillRect(0, 0, w, h);
-  b.strokeStyle = '#8a6a3a'; b.lineWidth = Math.max(1, s * .06); b.strokeRect(ox, oy, W, H); // brass edging
-  b.fillStyle = '#b08a4a'; for (let x = 0; x <= BW; x++) b.fillRect(ox + x * s - .5, oy, 1, s * (x % 4 ? .18 : .4)); // a ruler along the far edge
 }
 // ---- dust motes: they only show where the light passes ----
 const motes = Array.from({ length: 140 }, (_, i) => { const r = RH.rng('mote' + i); return { x: r() * BW, y: r() * BH, vx: (r() - .5) * .25, vy: (r() - .5) * .18, z: .4 + r() * .8 }; });
@@ -541,9 +611,9 @@ function draw() {
   if (!R || R.lv !== cur) return;
   const lv = L[cur];
   g.setTransform(1, 0, 0, 1, 0, 0);
-  if (!benchCv || benchCv.width !== cv.width || benchCv.height !== cv.height || benchCv.s !== view.s) { buildBench(); benchCv.s = view.s; }
+  if (!benchCv || benchCv.width !== cv.width || benchCv.height !== cv.height || benchCv.s !== view.s || benchCv.rot !== view.rot) { buildBench(); benchCv.s = view.s; benchCv.rot = view.rot; }
   g.drawImage(benchCv, 0, 0);
-  g.setTransform(view.s, 0, 0, view.s, view.ox, view.oy);
+  g.setTransform(...VT());
   // light falling on the wood: a warm wash under every beam
   g.globalCompositeOperation = 'lighter'; g.lineCap = 'round';
   for (const p of R.paths) { g.strokeStyle = wlColor(p.l, .05 * Math.min(1, p.I * 3)); g.lineWidth = .9; g.beginPath(); g.moveTo(p.x1, p.y1); g.lineTo(p.x2, p.y2); g.stroke(); }
@@ -607,7 +677,7 @@ const help = () => RH.modal(`<h2>Opticks</h2>
 $('helpBtn').onclick = help;
 render(); loadLevel(cur);
 if (!S.intro) { S.intro = 1; persist(); help(); }
-window.__opt = { L, trace, checkTarget, loadLevel, cleanSave, trayOf, chOpen, SETTLE, get R() { return R; }, get cur() { return cur; }, get sel() { return sel; }, set sel(v) { sel = v; }, get placed() { return placed; }, set placed(v) { placed = v; }, recompute, S };
+window.__opt = { get view() { return view; }, toW, VT, turnSel, L, trace, checkTarget, loadLevel, cleanSave, trayOf, chOpen, SETTLE, get R() { return R; }, get cur() { return cur; }, get sel() { return sel; }, set sel(v) { sel = v; }, get placed() { return placed; }, set placed(v) { placed = v; }, recompute, S };
 </script>
 </body>
 </html>

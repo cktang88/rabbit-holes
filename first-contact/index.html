@@ -107,25 +107,46 @@
   .modal{background:repeating-linear-gradient(var(--paper) 0 48px,var(--bar) 48px 96px);color:var(--ink);border:0;border-radius:0;box-shadow:0 20px 60px #000;font-family:"Courier Prime",monospace}
   .modal h2{font-family:"VT323",monospace;font-weight:400;font-size:34px;color:#1d3a1f}
   .modal .dim{color:#555}
-  @media (max-width:760px){
-    body{height:auto;min-height:100vh;overflow:auto}
-    .topbar{flex-wrap:wrap}
-    #chapters{flex-wrap:wrap}
+  #lexBtn,#nbTools,#scrim{display:none}
+  /* phones: the printout fills the screen; the lexicon corkboard slides in from the right */
+  @media (max-width:760px),(max-height:500px){
+    body{height:100vh;height:100dvh;overflow:hidden}
+    .topbar{flex-wrap:wrap;padding:4px 8px;gap:6px}
+    .topbar h1{font-size:22px}
+    #species,#glossBtn,#newBtn{display:none}
+    #lexBtn{display:inline-block}
+    #chapters{order:5;flex:1 1 100%;flex-wrap:nowrap;overflow-x:auto;gap:4px}
+    #chapters button{min-width:36px;min-height:34px;flex:0 0 auto}
     main{flex-direction:column}
-    #feed{padding:10px 4px 30px;overflow:visible}
+    #feed{padding:8px 4px 30px;overflow:auto;flex:1;min-height:0}
     .sheet{padding:14px 30px 24px}
-    #nb{width:auto;border-left:0;border-top:6px solid #5a3e22;max-height:60vh}
+    #nb{display:none;position:fixed;right:0;top:0;bottom:0;width:min(360px,88vw);z-index:60;border-left:6px solid #5a3e22;box-shadow:-10px 0 30px #000}
+    body.lex #nb{display:flex}
+    body.lex #scrim{display:block;position:fixed;inset:0;background:#000a;z-index:55}
+    #nbTools{display:flex;gap:6px;padding:10px 12px 0}
+    #nbTools button{flex:1;min-height:38px}
     .tx{flex-wrap:wrap}
     .tx .pic{width:100%;max-width:200px;height:auto;aspect-ratio:17/11}
+    .ctl button{min-height:40px;min-width:48px}
+    .palette .key svg{width:32px;height:32px}
+    .palette{max-height:190px}
   }
+  @media (max-height:500px) and (min-width:600px){
+    #chapters{order:0;flex:0 1 auto}
+    .topbar h1{font-size:18px}
+    .chapterHead h2{font-size:24px}
+  }
+  @media (pointer:coarse){.palette .key{min-width:44px;min-height:44px}#chapters button{min-height:40px}}
 </style>
 <link href="https://fonts.googleapis.com/css2?family=VT323&family=Courier+Prime:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 </head>
 <body>
-<div class="topbar"><a class="home" href="../index.html">← Rabbit Holes</a><h1>FIRST CONTACT</h1><div id="chapters"></div><span class="spacer"></span><span class="dim small" id="species"></span><button id="glossBtn">Gloss: on</button><button id="hintBtn">SETI hint</button><button id="newBtn">New signal</button></div>
+<div class="topbar"><a class="home" href="../index.html">← Rabbit Holes</a><h1>FIRST CONTACT</h1><div id="chapters"></div><span class="spacer"></span><span class="dim small" id="species"></span><button id="glossBtn">Gloss: on</button><button id="hintBtn">SETI hint</button><button id="newBtn">New signal</button><button id="lexBtn" aria-label="Open the lexicon">Lexicon</button></div>
 <main>
-  <div id="feed"></div>
+  <div id="feed" data-play></div>
+  <div id="scrim"></div>
   <div id="nb">
+    <div id="nbTools"><button id="nbClose" aria-label="Close the lexicon">Close</button><button id="nbGloss">Gloss</button><button id="nbNew">New signal</button></div>
     <div style="padding:12px 12px 6px"><b>LEXICON</b><div class="dim small">Click any glyph to see every place it appears. Pencil your guess on its card; your notes print under the glyphs. When they acknowledge a reply, the symbols you used are confirmed in green.<br>Confidence: ? guess · ~ likely · ✓ sure</div></div>
     <div id="nbList"></div>
   </div>
@@ -494,10 +515,18 @@ async function ending(){
   <li>They have ${L.eyes} eye${L.eyes>1?'s':''} and ${L.legs} legs, and they moved from planet ${L.oldHome} when their star swelled.</li></ul>
   <p class="dim">Every new signal is a different species with a different grammar, number base and history. Want to decode another?</p>`, [{label:'Stay here',value:0},{label:'Receive a new signal',value:1}]).then(v=>{ if(v) newSignal(true); });
 }
+const phone=()=>matchMedia('(max-width:760px),(max-height:500px)').matches;
+const lex=(open)=>document.body.classList.toggle('lex',open);
+document.getElementById('lexBtn').onclick=()=>lex(true);
+document.getElementById('nbClose').onclick=()=>lex(false);
+document.getElementById('scrim').onclick=()=>lex(false);
+document.getElementById('nbGloss').onclick=()=>document.getElementById('glossBtn').click();
+document.getElementById('nbNew').onclick=()=>{ lex(false); document.getElementById('newBtn').click(); };
 function focusGlyph(w){
+  if (phone()) lex(true); // on a phone the lexicon is a drawer: tapping a glyph opens it at that card
   document.querySelectorAll('.g.hl,.nbRow.hl').forEach(e=>e.classList.remove('hl'));
   document.querySelectorAll(`#feed .g[data-w="${w}"]`).forEach(e=>e.classList.add('hl'));
-  const row=document.querySelector(`.nbRow[data-w="${w}"]`); if(row){ row.classList.add('hl'); row.scrollIntoView({block:'nearest'}); row.querySelector('input').focus(); }
+  const row=document.querySelector(`.nbRow[data-w="${w}"]`); if(row){ row.classList.add('hl'); row.scrollIntoView({block:'nearest'}); if (!matchMedia('(pointer:coarse)').matches) row.querySelector('input').focus(); }
 }
 function renderNotebook(){
   const confs=['?','~','✓'];

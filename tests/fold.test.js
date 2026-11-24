@@ -130,6 +130,14 @@ module.exports = {
       eq(await page.locator('#photos .photo').count(), 1); ok(/Warm-up 1 — 1 contacts/.test(await page.textContent('#photos')));
       await page.evaluate(() => { const F = __fold; F.undo(); F.redo(); }); eq(await page.locator('#photos .photo').count(), 1, 'no second photo for the same record');
     },
+    'landscape phone: levels live in a drawer that opens from the Levels button and closes on pick': async ({ page, eq, ok }) => {
+      await dismiss(page); await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(300);
+      const vis = () => page.evaluate(() => { const r = document.getElementById('left').getBoundingClientRect(); return r.right > 5; });
+      eq(await vis(), false); await page.click('#lvBtn'); await page.waitForTimeout(350); eq(await vis(), true);
+      await page.evaluate(() => { __fold.SAVE.best[0] = 1; __fold.open(0); }); await page.click('#lvBtn'); await page.waitForTimeout(350);
+      await page.click('#levels .lv[data-i="1"]'); await page.waitForTimeout(350); eq(await vis(), false); eq(await page.evaluate(() => __fold.li), 1);
+      const st = await page.locator('#cv').boundingBox(); ok(st.width * st.height > 0.45 * 844 * 390, 'stage ' + st.width + 'x' + st.height);
+    },
     'phone layout: no horizontal scroll, canvas is large enough': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect() }));

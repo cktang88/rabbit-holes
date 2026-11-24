@@ -79,12 +79,36 @@
     #sel input[type=range]{flex:1;min-width:120px;width:auto}
     #toast{top:8px;font-size:17px}
   }
+  #storyT{display:none;margin-left:auto;font-size:11px;padding:4px 8px}
+  #hud h1{display:flex;align-items:center;gap:6px}
+  /* phones: the notes fold away behind a button, controls get finger-sized, and in landscape the panel sits beside the board */
+  @media (max-width:900px),(max-height:500px){
+    #storyT{display:inline-block}
+    #hud:not(.story) #story{display:none}
+    #hud{padding:8px 12px}
+    #hud .home{font-size:11px}
+    .pc,.b{min-height:34px}
+    #lvSel{min-height:34px}
+    #sel input[type=range]{min-height:30px}
+    #toast{font-size:16px;padding:10px 34px 14px 14px}
+  }
+  @media (max-height:500px) and (min-width:560px){
+    #levels{display:none} #lvSel{display:block}
+    #hud{top:6px;left:6px;right:auto;width:270px;max-height:calc(100vh - 70px);overflow:auto}
+    #hud h1{font-size:17px;margin:0 0 4px}
+    #goal{font-size:11.5px;margin-top:4px;padding:6px 8px}
+    #tray{left:284px;right:6px;bottom:6px;transform:none;max-width:none;padding:5px 8px;gap:4px}
+    #sel{left:6px;right:auto;width:270px;transform:none;bottom:6px!important;padding:4px 8px;gap:4px}
+    #sel input[type=range]{width:120px}
+    #hud.selon{max-height:calc(100vh - 120px)}
+    .pc,.b{font-size:10.5px;padding:4px 7px;min-height:30px}
+  }
   @media (prefers-reduced-motion:reduce){#toast,#toast.on{transition:opacity .2s}}
 </style>
 </head>
 <body>
 <canvas id="cv"></canvas>
-<div id="hud" class="chip"><a class="home" href="../index.html">← Rabbit Holes</a><h1 id="title">Polarizer</h1><select id="lvSel" aria-label="Experiment"></select><div id="story"></div><div id="goal"></div></div>
+<div id="hud" class="chip"><a class="home" href="../index.html">← Rabbit Holes</a><h1><span id="title">Polarizer</span><button class="b ghost" id="storyT" aria-expanded="false">Notes</button></h1><select id="lvSel" aria-label="Experiment"></select><div id="story"></div><div id="goal"></div></div>
 <div id="levels" class="chip"></div>
 <div id="tray" class="chip"></div>
 <div id="sel" class="chip"><span id="selName"></span><input type="range" id="selR" min="0" max="180" step="5" aria-label="Angle"><input type="number" id="selN" min="0" max="180" step="1" aria-label="Angle in degrees"><b id="selV">°</b><button class="b ghost" id="selDel">Remove</button></div>
@@ -218,9 +242,10 @@ function fit() {
   dpr = FX.fit(cv, 2); W = cv.width; H = cv.height;
   const tray = $('tray').getBoundingClientRect(), hud = $('hud').getBoundingClientRect();
   let l, r, t, b;
-  if (narrow()) { l = 6; r = innerWidth - 6; t = hud.bottom + 6; b = tray.top - 62; } // keep room for the angle panel above the tray
+  if (innerHeight <= 500 && innerWidth >= 560) { l = hud.right + 6; r = innerWidth - 6; t = 6; b = tray.top - 6; } // landscape phone: board beside the notes
+  else if (narrow()) { l = 6; r = innerWidth - 6; t = hud.bottom + 6; b = tray.top - 62; } // keep room for the angle panel above the tray
   else { l = 380; r = innerWidth - 250; t = 30; b = Math.min(innerHeight - 150, tray.top - 70); }
-  cell = Math.max(8, Math.min((r - l) / GW, (b - t) / GH)) * dpr; ox = (l + r) / 2 * dpr - cell * GW / 2; oy = (t + b) / 2 * dpr - cell * GH / 2;
+  cell = Math.max(8, Math.min((r - l) / (GW + .9), (b - t) / (GH + .9))) * dpr; ox = (l + r) / 2 * dpr - cell * GW / 2; oy = (t + b) / 2 * dpr - cell * GH / 2; // leave room for the board's rim
   // the lab bench and the black anodised breadboard (M6 holes on a 25 mm pitch) are static: bake once per layout
   bgC.width = W; bgC.height = H; bakeBench();
   $('sel').style.bottom = (innerHeight - tray.top + 8) + 'px';
@@ -442,7 +467,7 @@ addEventListener('pointermove', e => { if (drag && drag.mode === 'new' && !drag.
 addEventListener('pointerup', dragEnd);
 addEventListener('pointercancel', () => { if (drag && drag.mode === 'rot') { sliding = false; settle(); } drag = null; need = true; });
 function showSel() {
-  const el = $('sel'); need = true;
+  const el = $('sel'); need = true; $('hud').classList.toggle('selon', !!sel);
   if (!sel) { el.style.display = 'none'; return; }
   el.style.display = 'flex';
   const angled = sel.t === 'pol' || sel.t === 'hwp' || sel.t === 'phase';
@@ -540,6 +565,7 @@ function toast(big, small, ms = 9000, extra = '') {
   clearTimeout(toast.h); toast.h = setTimeout(hideToast, ms);
 }
 $('toast').onclick = hideToast;
+$('storyT').onclick = () => { const on = $('hud').classList.toggle('story'); $('storyT').setAttribute('aria-expanded', on); $('storyT').textContent = on ? 'Hide' : 'Notes'; fit(); };
 function check() {
   if (won || L.free) return;
   const H = {}; for (const k in Rz.hits) H[k] = Rz.hits[k].p;

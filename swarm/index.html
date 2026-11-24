@@ -130,6 +130,20 @@
     #simbar{top:auto;bottom:58px}
     #banner{font-size:30px}
     #toastS{top:auto;bottom:150px}
+    /* phones: a slimmer masthead (the scenario picker names the page), finger-sized cards */
+    #hud h1{display:none}
+    #scSel{margin:4px 0 2px;min-height:34px;padding:2px 6px}
+    #date{margin-top:2px;font-size:14px;padding-right:96px}
+    #pips{position:absolute;top:8px;right:12px;margin:0}
+    #goal ul{line-height:1.2}
+    .b{min-height:40px;min-width:40px}
+  }
+  @media (max-width:860px) and (max-height:520px) and (orientation:landscape){
+    #hud,body.insp #hud{right:auto;width:250px;max-height:calc(100vh - 66px);top:6px;left:6px}
+    #date{padding-right:0} #pips{position:static;margin-top:6px}
+    #tray{left:auto;right:6px;max-width:calc(100vw - 270px)}
+    #acts{left:auto;right:6px;bottom:56px;max-width:calc(100vw - 270px);max-height:40vh}
+    #notes{left:auto;right:6px;width:min(420px,calc(100vw - 270px));bottom:56px;max-height:60vh}
   }
 </style>
 </head>
@@ -876,13 +890,14 @@ function resize() { dpr = FX.fit(cv, 2); FX.fit(cvb, 2); VW = cv.width / dpr; VH
 addEventListener('resize', () => { resize(); measurePads(); });
 if (window.ResizeObserver) new ResizeObserver(() => resize()).observe(cv);
 const isMobile = () => VW < 860;
+const isLand = () => isMobile() && VH < 520 && VW > VH; // landscape phone: journal column on the left
 // measure the floating chips so the comb never hides under them
 const PAD = { top: 70, bot: 150, left: 0 };
 function measurePads() {
   const hud = $('hud').getBoundingClientRect(), tr = $('tray').getBoundingClientRect(), ac = $('acts').getBoundingClientRect();
   const mob = isMobile();
-  PAD.top = mob ? hud.bottom + 6 : 40;
-  PAD.left = mob ? 0 : hud.right + 10;
+  PAD.top = isLand() ? 10 : mob ? hud.bottom + 6 : 40;
+  PAD.left = isLand() || !mob ? hud.right + 10 : 0;
   PAD.bot = VH - Math.min(tr.top, ac.height ? ac.top : tr.top) + 74;
 }
 function frameGeom() {
@@ -903,7 +918,7 @@ const unlockedUpTo = () => { if (SAVE.done.show) return SCEN.length - 1; let u =
 function persist() { RH.save('swarm', SAVE); const n = SCEN.filter(s => !s.free && SAVE.done[s.id]).length; RH.progress('swarm', n / 12); }
 
 // ---------- scenario lifecycle ----------
-let notes = [];
+let notes = [], notesUnread = false;
 function startScenario(i) {
   SCI = i; SC = SCEN[i]; SAVE.cur = i; persist();
   W = mkWorld(SC); W.onEvent = onModelEvent; curHive = 0; result = null; insp = null; ff = null; endAnim = null; view = 'apiary';
@@ -911,7 +926,7 @@ function startScenario(i) {
   notes = [{ html: SC.intro }];
   document.body.classList.remove('insp'); $('result').style.display = 'none';
   swarmP.n = 0; combCache.clear();
-  if (isMobile()) $('notes').classList.add('open');
+  notesUnread = true; // on phones the notes wait behind the Notes button (which glows) instead of covering the apiary
   renderUI(); banner(SC.n, dateStr(W.day, 1));
   if (!startScenario.resuming) autosave();
 }
@@ -921,7 +936,7 @@ const signsNow = () => new Set(W.hives.flatMap(h => externalSigns(W, h)));
 function weeklyNote() {
   const m = monthOf(W.day), lines = [`<b>Week ${W.week} · ${dateStr(W.day)}.</b> ${MONTH_NOTE[m]} Next week looks ${weatherWord(W.nextWeather)}.`];
   for (const h of W.hives) for (const s of externalSigns(W, h)) lines.push(`<span class="${/dead|failing|crawling|very light|roar/.test(s) ? 'badn' : 'warn'}">${s}</span>`);
-  notes.push({ html: lines.join(' '), wk: 1 }); if (notes.length > 8) notes.splice(1, 1);
+  notes.push({ html: lines.join(' '), wk: 1 }); if (notes.length > 8) notes.splice(1, 1); notesUnread = true;
 }
 function checkEnd() {
   const r = judge(W); if (!r) return false;
@@ -1099,9 +1114,9 @@ function brush(px, py, dx, dy) {
 
 // ---------- apiary scene ----------
 function hiveLayout() {
-  const n = W.hives.length, mob = isMobile(), gy = VH * (mob ? .68 : .74);
-  const u = Math.min(mob ? 38 : 58, VW / (n + 1) * .42);
-  return W.hives.map((h, i) => ({ x: VW * (i + 1) / (n + 1), y: gy, u }));
+  const n = W.hives.length, mob = isMobile(), land = isLand(), gy = VH * (land ? .7 : mob ? .68 : .74), x0 = land ? $('hud').getBoundingClientRect().right : 0, span = VW - x0;
+  const u = Math.min(mob ? 38 : 58, span / (n + 1) * .42);
+  return W.hives.map((h, i) => ({ x: x0 + span * (i + 1) / (n + 1), y: gy, u }));
 }
 function hiveAt(px, py) { if (!W) return -1; const L = hiveLayout(); for (let i = 0; i < L.length; i++) { const p = L[i], h = W.hives[i], ht = (1 + h.supers * .6 + .35) * p.u * 1.25; if (Math.abs(px - p.x) < p.u * 1.1 && py < p.y + 8 && py > p.y - ht - 12) return i; } return -1; }
 const SKY = [['#f7c873', '#e98f4a'], ['#f0b866', '#d98447'], ['#d9a36a', '#9e6a4a'], ['#c79a72', '#7d5a4a'], ['#9aa0a6', '#5f6670'], ['#8d97a3', '#4d5866'], ['#8f9aa6', '#4f5a68'], ['#a9b2b4', '#6f7c80'], ['#bfd0cf', '#d8b98a'], ['#cfe0d8', '#e9c58a'], ['#e3dcb0', '#f0b46a'], ['#f8d48a', '#ee9a4e']];
@@ -1587,7 +1602,7 @@ function renderUI() {
   // tray
   const tr = $('tray'); let html = '';
   if (view === 'inspect') {
-    html += `<button class="b ghost ${insp && insp.hint ? 'pulse' : ''}" id="tSmoke" title="Smoke (S)">💨<span class="lbl"> Smoke</span></button><button class="b ghost" id="tPrev" title="Previous frame (←)">◂</button><button class="b ghost" id="tFlip" title="Turn frame over (F)">⟲<span class="lbl"> Turn</span></button><button class="b ghost" id="tNext" title="Next frame (→)">▸</button><button class="b" id="tClose">Close up</button>`;
+    html += `<button class="b ghost ${insp && insp.hint ? 'pulse' : ''}" id="tSmoke" title="Smoke (S)">💨<span class="lbl"> Smoke</span></button><button class="b ghost" id="tPrev" title="Previous frame (←)">◂</button><button class="b ghost" id="tFlip" title="Turn frame over (F)">⟲<span class="lbl"> Turn</span></button><button class="b ghost" id="tNext" title="Next frame (→)">▸</button><button class="b" id="tClose" aria-label="Close up">Close<span class="lbl"> up</span></button>`;
   } else if (view === 'apiary') {
     const al = W.hives.map((h, i) => [h, i]).filter(x => x[0].alive);
     html += al.length <= (isMobile() ? 1 : 4) ? al.map(([h, i]) => `<button class="b ghost" data-open="${i}"><span class="lbl">Open </span>${h.name}</button>`).join('') : isMobile() ? '' : `<span class="fell" style="font-size:14px;padding:0 6px">Tap a hive to open it</span>`;
@@ -1595,13 +1610,13 @@ function renderUI() {
     // every multi-week scenario gets the fast-forwards: quiet weeks are waiting, not decisions (a warning stops the run)
     if (!SC.tutorial) html += (SC.long || SC.weeks >= 20 ? `<button class="b ghost" id="tSkip" ${ff ? 'disabled' : ''} title="Four weeks at once">▸▸<span class="lbl"> 4 weeks</span></button>` : '') + `<button class="b ghost" id="tUntil" ${ff ? 'disabled' : ''} title="Run on (up to 26 weeks) until the notes or the colonies show something new">⏭<span class="lbl"> Until something happens</span></button>`;
   } else html += `<button class="b ghost" id="tRetry">Try again</button>` + (simOn ? '' : '');
-  html += `<button class="b ghost ${simOn ? 'on' : ''}" id="tSim" title="Model curves (V)">Sim view</button><button class="b ghost" id="notesBtn">Notes</button>`;
+  html += `<button class="b ghost ${simOn ? 'on' : ''}" id="tSim" title="Model curves (V)" aria-label="Sim view">📈<span class="lbl"> Sim view</span></button><button class="b ghost ${notesUnread && !$('notes').classList.contains('open') ? 'pulse' : ''}" id="notesBtn">Notes${notesUnread && !$('notes').classList.contains('open') ? ' •' : ''}</button>`;
   tr.innerHTML = html;
   tr.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openHive(+b.dataset.open));
   const on = (id, f) => { const e = $(id); if (e) e.onclick = f; };
   on('tSmoke', smokePuff); on('tPrev', () => changeFrame(-1)); on('tNext', () => changeFrame(1)); on('tFlip', () => changeFrame(0, 1)); on('tClose', () => closeHive());
   on('tWeek', () => nextWeek(1)); on('tSkip', () => nextWeek(4)); on('tUntil', () => nextWeek(26, true)); on('tRetry', () => startScenario(SCI));
-  on('tSim', () => { simOn = !simOn; renderUI(); }); on('notesBtn', () => $('notes').classList.toggle('open'));
+  on('tSim', () => { simOn = !simOn; renderUI(); }); on('notesBtn', () => { $('notes').classList.toggle('open'); notesUnread = false; renderUI(); });
   // interventions
   const ac = $('acts');
   if (view === 'inspect' && SC.allowed.length) {

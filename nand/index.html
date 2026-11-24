@@ -92,6 +92,7 @@
   #result .fail{color:#b3261e;font-weight:600} #result .ok{color:#1d6e35;font-weight:600}
   #scope{display:block;width:100%;height:120px;border:7px solid #2a2a2a;border-radius:10px;box-shadow:inset 0 0 20px #000,0 0 0 1px #000,0 3px 0 #000;margin:4px 0 8px;background:#061109}
   .hud .pill{background:rgba(6,32,20,.75);border:1px solid #ecebdf;border-radius:0;color:#ecebdf;font-size:12px;letter-spacing:.06em}
+  @media (max-width:760px), (max-height:520px){ .hud button,#palette button{min-height:36px;min-width:40px} #stage .help{display:none} }
   .help{color:#cfe3cf;font-size:11px;letter-spacing:.02em;background:rgba(6,32,20,.6);padding:3px 6px}
   #delBtn{box-shadow:0 3px 0 #5e5641}
   .modal-bg{background:rgba(3,18,10,.72)}
@@ -126,7 +127,7 @@
   </div>
   <div id="stage">
     <canvas id="cv"></canvas>
-    <div class="hud"><span class="pill" id="gatePill">0 NAND</span><span class="pill" id="parPill"></span><button id="delBtn" title="Delete the selected part or wire">🗑 Delete</button></div>
+    <div class="hud"><span class="pill" id="gatePill">0 NAND</span><span class="pill" id="parPill"></span><button id="fitBtn" title="Fit the whole board on screen">Fit</button><button id="delBtn" title="Delete the selected part or wire">🗑 Delete</button></div>
     <div class="help">Drag from a port to a port to wire · click an input pin to toggle it · drag empty space to pan · scroll to zoom · right-click a part or wire to delete</div>
   </div>
   <div id="soft">
@@ -329,7 +330,7 @@ function loadCircuit(){
   inVals = lv().ins.map(()=>0); simState = {}; vals = {};
   // fit both pin columns on narrow screens (phones), full size otherwise
   const cw=cv.getBoundingClientRect().width||1000; const z=Math.max(.35,Math.min(1,(cw-40)/(W_OUT+200)));
-  view = {x:110*z+(z<1?6:0),y:40,z};
+  view = {x:110*z+(z<1?6:0),y:40,z}; if (cw<760) requestAnimationFrame(()=>{ if (circ) fitView(); });
   settle();
 }
 function saveCircuit(){ SAVE.circuits[lv().id] = circ; persist(); }
@@ -706,8 +707,17 @@ function delComp(c){ SND.unplug(); circ.comps=circ.comps.filter(x=>x!==c); circ.
 function delSelected(){ if (selComp) delComp(selComp); else if (selWire>=0 && selWire<circ.wires.length){ circ.wires.splice(selWire,1); selWire=-1; afterEdit(); } }
 function updDel(){ document.getElementById('delBtn').classList.toggle('on', !!selComp || selWire>=0); }
 document.getElementById('delBtn').onclick=delSelected;
+document.getElementById('fitBtn').onclick=fitView;
+// Two fingers: pinch to zoom and pan together (cancels whatever the first finger started).
+const ptrs=new Map(); let pinch=null;
+function pinchState(){ const [a,b]=[...ptrs.values()]; return {d:Math.max(10,Math.hypot(a.x-b.x,a.y-b.y)), m:{x:(a.x+b.x)/2, y:(a.y+b.y)/2}}; }
+function fitView(){ const r=cv.getBoundingClientRect(); const l=lv(); let x0=W_IN-100, x1=W_OUT+100, y0=0, y1=Math.max(pinY(l.ins.length-1,l.ins.length), pinY(l.outs.length-1,l.outs.length))+70;
+  for (const c of circ.comps){ const s=compSize(c); x0=Math.min(x0,c.x-20); x1=Math.max(x1,c.x+s.w+20); y0=Math.min(y0,c.y-20); y1=Math.max(y1,c.y+s.h+20); }
+  const z=Math.max(.3,Math.min(1.6,Math.min((r.width-16)/(x1-x0),(r.height-56)/(y1-y0)))); view={z, x:(r.width-(x1-x0)*z)/2-x0*z, y:46+((r.height-56)-(y1-y0)*z)/2-y0*z}; draw(); }
 cv.addEventListener('pointerdown', e=>{ touchPtr = e.pointerType==='touch'; if (touchPtr) e.preventDefault();
-  const r=cv.getBoundingClientRect(); const [wx,wy]=s2w(e.clientX-r.left,e.clientY-r.top);
+  const r=cv.getBoundingClientRect();
+  if (touchPtr){ ptrs.set(e.pointerId,{x:e.clientX-r.left,y:e.clientY-r.top}); if (ptrs.size>=2){ if (drag && drag.kind==='comp'){ drag.c.x=drag.x0; drag.c.y=drag.y0; } drag=null; const ps=pinchState(); pinch={...ps, z0:view.z, vx:view.x, vy:view.y}; return; } }
+  const [wx,wy]=s2w(e.clientX-r.left,e.clientY-r.top);
   if (e.button===2){
     const c=hitComp(wx,wy); if (c){ delComp(c); return; }
     const wi=hitWire(wx,wy); if (wi>=0){ circ.wires.splice(wi,1); selWire=-1; afterEdit(); } return;
@@ -728,12 +738,17 @@ cv.addEventListener('pointerdown', e=>{ touchPtr = e.pointerType==='touch'; if (
   drag={kind:'pan',sx:e.clientX,sy:e.clientY,vx:view.x,vy:view.y};
 });
 window.addEventListener('pointermove', e=>{
+  if (ptrs.has(e.pointerId)){ const r=cv.getBoundingClientRect(); ptrs.set(e.pointerId,{x:e.clientX-r.left,y:e.clientY-r.top});
+    if (pinch && ptrs.size>=2){ const ps=pinchState(); const z=Math.max(.3,Math.min(2.5,pinch.z0*ps.d/pinch.d)); const wx=(pinch.m.x-pinch.vx)/pinch.z0, wy=(pinch.m.y-pinch.vy)/pinch.z0;
+      view.z=z; view.x=ps.m.x-wx*z; view.y=ps.m.y-wy*z; draw(); return; } }
   if(!drag) return; const r=cv.getBoundingClientRect(); const [wx,wy]=s2w(e.clientX-r.left,e.clientY-r.top);
   if (drag.kind==='comp'){ drag.c.x=Math.round((wx-drag.ox)/6)*6; drag.c.y=Math.round((wy-drag.oy)/6)*6; draw(); }
   else if (drag.kind==='wire'){ drag.m={x:wx,y:wy}; draw(); }
   else if (drag.kind==='pan'){ view.x=drag.vx+e.clientX-drag.sx; view.y=drag.vy+e.clientY-drag.sy; draw(); }
 });
-window.addEventListener('pointerup', e=>{
+const ptrUp=(e)=>{ ptrs.delete(e.pointerId); if (ptrs.size<2) pinch=null; };
+window.addEventListener('pointercancel', e=>{ ptrUp(e); drag=null; });
+window.addEventListener('pointerup', e=>{ ptrUp(e);
   if(!drag) return; const r=cv.getBoundingClientRect(); const [wx,wy]=s2w(e.clientX-r.left,e.clientY-r.top);
   if (drag.kind==='wire'){ const q=hitPort(wx,wy); if (q) connect(drag.p,q); draw(); }
   if (drag.kind==='comp'){ if (drag.c.x===drag.x0 && drag.c.y===drag.y0){ selComp = selComp===drag.c? null : drag.c; selWire=-1; updDel(); draw(); } else saveCircuit(); }
@@ -915,7 +930,7 @@ document.getElementById('runBtn').onclick=()=>{
 window.__nand = { L, SW, TYPES, HINTS, genTests, runTests, settle, outputs, gateCount, assemble, newCpu, stepCpu, showCircuit, showSoft, paletteFor, unlocked, softUnlocked, stars, registerChips, persist,
   get SAVE(){ return SAVE; }, get circ(){ return circ; }, set circ(c){ circ=c; nextId=c.comps.reduce((m,x)=>Math.max(m,x.id),0)+1; },
   get unstable(){ return unstable; }, get selWire(){ return selWire; }, set selWire(v){ selWire=v; }, get selComp(){ return selComp; }, get softOn(){ return softOn; }, get softCur(){ return softCur; },
-  get view(){ return view; }, get packaging(){ return packaging; }, wirePts, bezPt, hitWire, get wireAnim(){ return wireAnim; }, liveSettle, setInputs(v){ inVals=v.slice(); }, reset(){ simState={}; vals={}; }, pinY, compSize, portPos };
+  get view(){ return view; }, fitView, get packaging(){ return packaging; }, wirePts, bezPt, hitWire, get wireAnim(){ return wireAnim; }, liveSettle, setInputs(v){ inVals=v.slice(); }, reset(){ simState={}; vals={}; }, pinY, compSize, portPos };
 // ======================= Boot =======================
 registerChips();
 if (!unlocked(SAVE.cur)) SAVE.cur=0;

@@ -69,7 +69,28 @@
   .bits button{font-family:"IM Fell English",serif;padding:2px 0}
   .bits button.on{background:#3b2a1a;color:#f6eed8;border-color:#3b2a1a}
   #center{background:#2a1d12 radial-gradient(circle at 50% 46%,#6b4a2a 0,#3a2715 45%,#20150c 75%)}
-  #world{border:0;image-rendering:auto;cursor:zoom-in;max-width:none;max-height:none;border-radius:50%}
+  #world{position:absolute;inset:0;width:100%;height:100%;border:0;image-rendering:auto;cursor:zoom-in;max-width:none;max-height:none;touch-action:manipulation}
+  #behav,#log{z-index:1;pointer-events:none}
+  .edge{display:none}
+  .drawerBtn{display:none}
+  @media (max-width:760px){
+    #center{min-height:0;height:68vh;padding:0}
+    .bits{grid-template-columns:22px repeat(9,1fr)}
+    .bits button,.filter button,.tabs button,#left button,#right button{min-height:34px}
+    .edge{display:flex;position:absolute;right:8px;bottom:8px;gap:6px;z-index:2}
+  }
+  @media (max-height:520px) and (min-width:600px){
+    body{height:100vh;overflow:hidden}
+    main{flex-direction:row;position:relative;overflow:hidden}
+    #center{flex:1;height:auto;min-height:0;padding:0}
+    #left,#right{position:absolute;top:0;bottom:0;z-index:5;width:min(360px,88vw);transform:translateX(-105%);transition:transform .25s;box-shadow:8px 0 24px rgba(0,0,0,.5)}
+    #left{left:0} #right{right:0;left:auto;transform:translateX(105%)}
+    body.drawer-left #left, body.drawer-right #right{transform:none}
+    .topbar{padding:4px 10px} .topbar h1{font-size:18px} #totals{display:none}
+    .drawerBtn{display:inline-block;min-height:34px}
+    .edge{display:flex;position:absolute;right:8px;bottom:8px;gap:6px;z-index:2}
+    .bits button,.filter button,.tabs button,#left button,#right button{min-height:34px}
+  }
   #behav{color:#f1e3c0;font-family:"IM Fell English SC",serif;font-size:15px;text-shadow:0 1px 3px #000}
   #log{color:#f1e3c0;font-family:"IM Fell English",serif;font-style:italic;font-size:15px;text-shadow:0 1px 3px #000}
   .panel{background:#f6eed8;border:1px solid #3b2a1a;border-radius:0;box-shadow:3px 3px 0 rgba(59,42,26,.25)}
@@ -103,7 +124,7 @@
 </style>
 </head>
 <body>
-<div class="topbar"><a class="home" href="../index.html">← Rabbit Holes</a><h1>Rule Hunter</h1><span class="spacer"></span><span class="dim small" id="totals"></span></div>
+<div class="topbar"><a class="home" href="../index.html">← Rabbit Holes</a><h1>Rule Hunter</h1><span class="spacer"></span><span class="dim small" id="totals"></span><button class="drawerBtn" data-drawer="left">Rule &amp; dish</button><button class="drawerBtn" data-drawer="right">Field guide</button></div>
 <main>
   <div id="left">
     <div>
@@ -128,7 +149,7 @@
     </div>
     <div class="panel small" id="ruleInfo"></div>
   </div>
-  <div id="center"><div id="behav"></div><canvas id="world"></canvas><div id="log"></div></div>
+  <div id="center"><div id="behav"></div><canvas id="world"></canvas><div id="log"></div><div class="edge"><button class="primary" id="soupBtn2">New soup</button><button id="scanBtn2">Scan</button></div></div>
   <div id="right">
     <div class="tabs"><button data-t="guide" class="on">Field guide</button><button data-t="bounty">Bounties</button><button data-t="map">Rule map</button></div>
     <div class="pane on" id="p-guide"><div class="filter" id="filt"></div><div id="guide"></div></div>
@@ -181,16 +202,20 @@ const off=document.createElement('canvas'); off.width=W; off.height=H; const ocx
 const img=ocx.createImageData(W,H); let age=new Uint16Array(W*H);
 const reduceMotion = typeof matchMedia==='function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 let dish={size:0, sq:0, x0:0, y0:0}, lensMark=null;
-function layoutDish(){ const r=cv.parentElement.getBoundingClientRect(); const size=Math.max(200, Math.floor(Math.min(r.width*.96, r.height*.9))); const d=Math.min(2,devicePixelRatio||1);
-  if (dish.size!==size){ cv.style.width=cv.style.height=size+'px'; cv.width=cv.height=size*d; }
-  const sq=size*.70; dish={size, sq, x0:(size-sq)/2, y0:(size-sq)/2, d}; }
+// The canvas is the whole microscope field; the dish sits in the middle of it.
+function layoutDish(){ const r=cv.parentElement.getBoundingClientRect(); const cw=Math.max(200,r.width|0), ch=Math.max(200,r.height|0); const d=Math.min(2,devicePixelRatio||1);
+  if (cv.width!==cw*d || cv.height!==ch*d){ cv.width=cw*d; cv.height=ch*d; }
+  const size=Math.floor(Math.min(cw*.98, ch*.98)); const ox=(cw-size)/2, oy=(ch-size)/2; const sq=size*.70;
+  dish={size, sq, ox, oy, cw, ch, x0:ox+(size-sq)/2, y0:oy+(size-sq)/2, d}; }
 function draw(){
   const dd=img.data;
   for (let i=0;i<W*H;i++){ const on=grid[i]; age[i]= on? Math.min(age[i]+1,60) : 0;
     const a=age[i]; const k=i*4;
     if (on){ const t=Math.min(1,a/14); dd[k]=170-t*112|0; dd[k+1]=58-t*24|0; dd[k+2]=30-t*10|0; dd[k+3]=255; } else dd[k+3]=0; }
   ocx.putImageData(img,0,0);
-  layoutDish(); const {size,sq,x0,y0,d}=dish; const c=size/2; cx.setTransform(d,0,0,d,0,0); cx.clearRect(0,0,size,size);
+  layoutDish(); const {size,sq,d,ox,oy,cw,ch}=dish; const x0=dish.x0-ox, y0=dish.y0-oy; const c=size/2;
+  cx.setTransform(d,0,0,d,0,0); const bg=cx.createRadialGradient(cw/2,ch/2,size*.2,cw/2,ch/2,Math.max(cw,ch)*.7); bg.addColorStop(0,'#6b4a2a'); bg.addColorStop(.5,'#3a2715'); bg.addColorStop(1,'#1a110a'); cx.fillStyle=bg; cx.fillRect(0,0,cw,ch);
+  cx.setTransform(d,0,0,d,d*ox,d*oy);
   // glass dish shadow and rim
   const sh=cx.createRadialGradient(c+6,c+10,size*.36,c+6,c+10,size*.52); sh.addColorStop(0,'rgba(40,25,10,.45)'); sh.addColorStop(1,'rgba(40,25,10,0)'); cx.fillStyle=sh; cx.fillRect(0,0,size,size);
   cx.save(); cx.beginPath(); cx.arc(c,c,size*.47,0,7); cx.clip();
@@ -198,7 +223,7 @@ function draw(){
   cx.globalAlpha=.06; cx.fillStyle='#5a3a14'; for (let i=0;i<70;i++){ const a=i*2.399, rr=Math.sqrt(i/70)*size*.45; cx.beginPath(); cx.arc(c+Math.cos(a)*rr, c+Math.sin(a)*rr, 2+(i%5), 0, 7); cx.fill(); } cx.globalAlpha=1;
   cx.strokeStyle='rgba(90,60,20,.25)'; cx.lineWidth=1; cx.strokeRect(x0-1,y0-1,sq+2,sq+2); // cover slip
   cx.imageSmoothingEnabled=false; cx.drawImage(off, x0, y0, sq, sq);
-  if (lensMark){ const age2=(performance.now()-lensMark.t)/1600; if (age2<1){ cx.strokeStyle=`rgba(40,25,10,${1-age2})`; cx.lineWidth=2; cx.setLineDash([4,3]); cx.beginPath(); cx.arc(lensMark.x,lensMark.y,lensMark.r*(1+age2*.3),0,7); cx.stroke(); cx.setLineDash([]); } else lensMark=null; }
+  if (lensMark){ const age2=(performance.now()-lensMark.t)/1600; if (age2<1){ cx.strokeStyle=`rgba(40,25,10,${1-age2})`; cx.lineWidth=2; cx.setLineDash([4,3]); cx.beginPath(); cx.arc(lensMark.x-ox,lensMark.y-oy,lensMark.r*(1+age2*.3),0,7); cx.stroke(); cx.setLineDash([]); } else lensMark=null; }
   // lens vignette and glass highlight
   const vg=cx.createRadialGradient(c,c,size*.3,c,c,size*.48); vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(50,30,10,.45)'); cx.fillStyle=vg; cx.fillRect(0,0,size,size);
   cx.restore();
@@ -485,6 +510,11 @@ document.getElementById('mutBtn').onclick=()=>{ const r={...S.rule}; const k=Mat
 document.getElementById('rndBtn').onclick=()=>{ const R=()=>Math.random(); let b=0,s=0; for(let i=1;i<9;i++) if(R()<(i<=4?0.35:0.18)) b|=1<<i; for(let i=0;i<9;i++) if(R()<0.35) s|=1<<i; if(!b) b=8; setRule({b,s}); soup(); };
 document.getElementById('lifeBtn').onclick=()=>{ setRule({b:8,s:12}); soup(); };
 document.getElementById('soupBtn').onclick=soup;
+document.getElementById('soupBtn2').onclick=()=>{ soup(); };
+document.getElementById('scanBtn2').onclick=()=>scan();
+// landscape phones: side panels become drawers behind labelled buttons; tapping the dish closes them
+document.querySelectorAll('.drawerBtn').forEach(b=>b.onclick=()=>{ const k='drawer-'+b.dataset.drawer; const on=!document.body.classList.contains(k); document.body.classList.remove('drawer-left','drawer-right'); if (on) document.body.classList.add(k); });
+document.getElementById('center').addEventListener('pointerdown',()=>document.body.classList.remove('drawer-left','drawer-right'));
 document.getElementById('playBtn').onclick=()=>{ running=!running; document.getElementById('playBtn').textContent=running?'⏸':'▶'; };
 document.getElementById('stepBtn').onclick=()=>{ running=false; document.getElementById('playBtn').textContent='▶'; tick(1); draw(); };
 document.getElementById('scanBtn').onclick=()=>scan();

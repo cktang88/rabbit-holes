@@ -133,6 +133,18 @@ module.exports = {
         const early = [!!A.winFx, A.winFx && A.winFx.segs.length, window.__lastModal]; await new Promise(res => setTimeout(res, 2100)); return { early, late: window.__lastModal }; });
       ok(r.early[0] && r.early[1] > 50 && r.early[2] === null, JSON.stringify(r.early)); ok(/colony thrives/.test(r.late), 'modal after the bloom');
     },
+    'phones: portrait turns the map on its side, touch maps back to the right cell, and the panel lives in a drawer': async ({ page, ok, eq }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
+      const r = await page.evaluate(() => { const A = window.__ant, cv = document.getElementById('cv'), rc = cv.getBoundingClientRect(), c = A.cell;
+        const cx = rc.left + rc.width / 2, cy = rc.top + rc.height / 2; const toS = (x, y) => [cx - (y * c - A.H * c / 2), cy + (x * c - A.W * c / 2)];
+        const [sx, sy] = toS(50, 30); const back = A.toCell({ clientX: sx, clientY: sy });
+        const sideHidden = getComputedStyle(document.getElementById('side')).visibility; document.getElementById('drawerBtn').click(); const sideOpen = getComputedStyle(document.getElementById('side')).visibility;
+        return { rot: A.rotated, back, area: rc.width * rc.height / (390 * 844), sideHidden, sideOpen }; });
+      eq(r.rot, true); ok(Math.abs(r.back[0] - 50) < 0.01 && Math.abs(r.back[1] - 30) < 0.01, JSON.stringify(r.back)); ok(r.area > 0.45, 'map area ' + r.area);
+      eq([r.sideHidden, r.sideOpen], ['hidden', 'visible']);
+      await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(300);
+      eq(await page.evaluate(() => [window.__ant.rotated, document.body.classList.contains('drawer')]), [false, false]);
+    },
     'mobile layout: no horizontal scroll and the map is fully visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
       const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect().toJSON() }));
