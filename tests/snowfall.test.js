@@ -85,6 +85,26 @@ module.exports = {
       const l = await page.evaluate(() => __snow.sounding[0]);
       ok(Math.abs(l.T + 5.5) <= .5 && l.s >= .85, JSON.stringify(l));
     },
+    'regression (iPhone): a touch drag on the diagram moves the one dot; it never stamps new layers or leaves old dots behind': async ({ page, ok, eq }) => {
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
+      await page.waitForTimeout(300); await page.evaluate(() => { __snow.startCase(0); document.getElementById('pad').scrollIntoView(); });
+      const r = await page.locator('#pad').boundingBox(), p0 = [r.x + r.width * .1, r.y + r.height * .8];
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: p0[0], y: p0[1] }] });
+      for (let i = 1; i <= 20; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: r.x + r.width * (.1 + .035 * i), y: r.y + r.height * (.8 - .035 * i) }] });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      eq(await page.evaluate(() => __snow.sounding.length), 1, 'a drag added layers');
+      const left = await page.evaluate(([x, y]) => { const c = document.getElementById('pad'), b = c.getBoundingClientRect(), k = c.width / b.width, d = c.getContext('2d').getImageData((x - b.left) * k | 0, (y - b.top) * k | 0, 1, 1).data; return [d[0], d[1], d[2]]; }, p0);
+      ok(!(left[0] > 220 && left[1] > 190 && left[2] < 170), 'the dot was left behind where the drag began: ' + left);
+      const s = await page.evaluate(() => __snow.sounding[0]); ok(s.T < -8 && s.s > .7, 'dot did not follow the finger: ' + JSON.stringify(s));
+    },
+    'crystals are grown by Reiter\'s automaton, a ring per layer: plates are solid, ferns are lacy, and a plate-then-fern flake shows both': async ({ page, ok }) => {
+      const r = await page.evaluate(async () => { const S = __snow, fill = l => { const x = S.crystalFor(l); while (!x.done) x.run(500); let n = 0, tot = 0; for (let k = 0; k < x.o.fr.length; k++) if (x.o.fr[k]) n++; return { n, R: x.o.R, steps: x.o.steps, phases: x.i }; };
+        return { plate: fill([{ T: -2, s: .3, d: 2 }]), fern: fill([{ T: -15, s: .95, d: 2 }]), both: fill([{ T: -14, s: .25, d: 3 }, { T: -14, s: .95, d: 1 }]) }; });
+      ok(r.plate.R >= 80 && r.fern.R >= 80, 'crystals did not grow to full size');
+      ok(r.plate.n > r.fern.n * 2, 'a plate should be far more solid than a fern: ' + r.plate.n + ' vs ' + r.fern.n);
+      ok(r.both.phases === 1 && r.both.n < r.plate.n && r.both.n > r.fern.n, 'two layers should leave a solid centre and lacy tips: ' + JSON.stringify(r.both));
+    },
     'phone: plates are the main surface; cases open from a drawer; no sideways scroll': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
       ok(await page.evaluate(() => document.getElementById('cv').getBoundingClientRect().height > 400), 'plates too small');
