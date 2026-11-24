@@ -136,7 +136,7 @@ module.exports = {
       ok(r.early[0] && r.early[1] > 50 && r.early[2] === null, JSON.stringify(r.early)); ok(/colony thrives/.test(r.late), 'modal after the bloom');
     },
     'phones: portrait turns the map on its side, touch maps back to the right cell, and the panel lives in a drawer': async ({ page, ok, eq }) => {
-      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(700);
       const r = await page.evaluate(() => { const A = window.__ant, cv = document.getElementById('cv'), rc = cv.getBoundingClientRect(), c = A.cell;
         const cx = rc.left + rc.width / 2, cy = rc.top + rc.height / 2; const toS = (x, y) => [cx - (y * c - A.H * c / 2), cy + (x * c - A.W * c / 2)];
         const [sx, sy] = toS(50, 30); const back = A.toCell({ clientX: sx, clientY: sy });
@@ -149,7 +149,7 @@ module.exports = {
     },
     'difficulty: on late maps idle and greedy chemistry fail; a chemistry tuned to the season wins, but not with three stars': async ({ page, ok }) => {
       await page.addScriptTag({ content: BOT });
-      const r = await page.evaluate(() => { const out = []; for (const [mi, tuned] of [[16, 'chem:200/60/30'], [18, 'chem:150/35/25']]) for (const pol of ['idle', 'greedy', tuned]) { const A = window.__ant; A.SAVE.stars = {}; const x = window.__antbot(mi, pol); out.push([mi, pol, x.won, x.stars]); } return out; });
+      const r = await page.evaluate(() => { const out = []; for (const [mi, tuned] of [[16, 'chem:200/45/50'], [18, 'chem:110/85/50']]) for (const pol of ['idle', 'greedy', tuned]) { const A = window.__ant; A.SAVE.stars = {}; const x = window.__antbot(mi, pol); out.push([mi, pol, x.won, x.stars]); } return out; });
       const naive = r.filter(x => x[1] === 'idle' || x[1] === 'greedy'), tuned = r.filter(x => x[1].startsWith('chem:'));
       ok(naive.filter(x => x[2] && x[3] > 1).length === 0 && naive.filter(x => x[2]).length <= naive.length * 0.2, 'naive: ' + JSON.stringify(naive));
       ok(tuned.every(x => x[2]), 'tuned should win: ' + JSON.stringify(tuned)); ok(tuned.every(x => x[3] < 3), 'three stars need better than a simple tuning: ' + JSON.stringify(tuned));

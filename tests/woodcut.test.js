@@ -58,7 +58,7 @@ module.exports = {
         return out; });
       ok(r.naive / r.naiveRuns >= .8, `naive bots got 2★+ in ${r.naiveRuns - r.naive}/${r.naiveRuns} late runs`);
       ok(r.competent.every(s => s === 3), 'competent plan: ' + r.competent);
-      ok(r.simple3 <= 4, `light-to-dark (minus spares) still 3★ on ${r.simple3}/7 late prints`);
+      ok(r.simple3 <= 1, `light-to-dark (minus spares) still 3★ on ${r.simple3}/7 late prints`);
       ok(r.spares === 7, 'every late commission has a spare tin');
     },
     'colour compositing: transparent multiplies, dark opaque covers, light opaque ghosts, dense covers, fountain blends': async ({ page, ok, near }) => {

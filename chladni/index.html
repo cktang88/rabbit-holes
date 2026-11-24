@@ -196,7 +196,7 @@ function field(k) {
 //   f = f₀ · √(Σ h³·C / ΣC) / √(Σ h·K / ΣK)
 // where C is where the mode BENDS (curvature²) and K where it MOVES (amplitude²). Thin a bending region and the note drops;
 // thin a region that only moves (a free edge, an antinode) and it rises. Every scrape is permanent.
-const TG = 6, TUNE = [
+const TG = 6, NU = .3, TUNE = [
   { n: 'A lower twin', story: 'A customer wants the two look-alike figures pulled apart: lower the <b>(0,2)+</b> figure by 4% but keep its twin <b>(0,2)−</b> where it is.', track: ['s02p', 's02m'], mult: [.96, 1], tol: .008, budget: 14 },
   { n: 'Split the pair', story: 'Lower the <b>(1,2)+</b> figure by 3%, but the <b>(0,2)−</b> figure must not move. Where does one bend while the other only moves?', track: ['s02m', 's12p'], mult: [1, .97], tol: .006, budget: 14 },
   { n: 'Master plate', story: '<b>Master commission.</b> Three notes at once: <b>(0,2)+</b> down 3%, <b>(1,2)−</b> down 2%, <b>(0,3)+</b> unchanged. Scraping helps one and spoils another.', track: ['s02p', 's12m', 's03p'], mult: [.97, .98, 1], tol: .005, budget: 16, master: 1 },
@@ -206,7 +206,8 @@ const tuneOn = () => SAVE.mode === 'tune' && plate === 'square' && tune;
 function tuneMaps() { // per-mode curvature and motion maps on the thickness grid (computed once)
   const P = PLATES.square; if (P.tmaps) return P.tmaps;
   const S = 48, d = 1 / S; P.tmaps = P.modes.map(md => { const C = new Float64Array(TG * TG), K = new Float64Array(TG * TG);
-    for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const x = (i + .5) / S, y = (j + .5) / S, z = md.z(x, y), lap = (md.z(x + d, y) + md.z(x - d, y) + md.z(x, y + d) + md.z(x, y - d) - 4 * z) / (d * d), c = ((j * TG / S) | 0) * TG + ((i * TG / S) | 0); C[c] += lap * lap; K[c] += z * z; }
+    for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const x = (i + .5) / S, y = (j + .5) / S, z = md.z(x, y), zxx = (md.z(x + d, y) + md.z(x - d, y) - 2 * z) / (d * d), zyy = (md.z(x, y + d) + md.z(x, y - d) - 2 * z) / (d * d), zxy = (md.z(x + d, y + d) - md.z(x + d, y - d) - md.z(x - d, y + d) + md.z(x - d, y - d)) / (4 * d * d), c = ((j * TG / S) | 0) * TG + ((i * TG / S) | 0);
+      C[c] += zxx * zxx + zyy * zyy + 2 * NU * zxx * zyy + 2 * (1 - NU) * zxy * zxy; K[c] += z * z; } // plate bending energy (Kirchhoff, Poisson's ratio ν) and kinetic energy
     const sc = C.reduce((a, v) => a + v, 0), sk = K.reduce((a, v) => a + v, 0); return { C: C.map(v => v / sc), K: K.map(v => v / sk) }; });
   return P.tmaps;
 }
