@@ -161,6 +161,14 @@ module.exports = {
       const r = await page.evaluate((plan) => { const out = []; for (const [mi, pol] of Object.entries(plan)) { window.__ant.SAVE.stars = {}; const w = window.__antbot(+mi, pol); window.__ant.SAVE.stars = {}; const idle = window.__antbot(+mi, 'idle'); out.push([+mi, w.won, idle.won && idle.stars > 1]); } return out; }, plan);
       for (const [mi, won, idleGood] of r) { ok(won, `map ${mi + 1}: the encoded strategy should win`); ok(!idleGood, `map ${mi + 1}: idle play should not win well`); }
     },
+    'ant mill: on Death Spiral the foragers circle a closed trail and starve; fast evaporation or a wiped gap breaks the mill': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const A = window.__ant; for (let i = 0; i < 20; i++) A.SAVE.stars[i] = 1; const rc = document.getElementById('cv').getBoundingClientRect();
+        const run = (chem, wipe) => { A.openMap(7); A.paused = true; if (chem) A.setChem(chem); let t = 0, peak = 0;
+          if (wipe){ const m = A.mill; A.strokeStart(); A.painting = -1; for (let d = -6; d <= 6; d++) A.paint({ clientX: rc.left + (m.x + m.r + d) * A.cell, clientY: rc.top + m.y * A.cell }); A.painting = 0; }
+          for (; t < 200 * 20 && !A.gameOver; t++) { A.stepWorld(0.05); if (t === 400) peak = A.millShare(); } const [v, n] = A.goalProgress(); return { won: v >= n, peak: Math.round(peak * 100), t: Math.round(t / 20), food: Math.round(A.delivered) }; };
+        return { idle: run(null), evap: run({ dep: 200, evap: 80, noise: 0 }) }; });
+      ok(!r.idle.won && r.idle.peak >= 80 && r.idle.food < 10, 'idle colony mills: ' + JSON.stringify(r.idle)); ok(r.evap.won, 'evaporation breaks the mill: ' + JSON.stringify(r.evap));
+    },
     'mobile layout: no horizontal scroll and the map is fully visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
       const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect().toJSON() }));

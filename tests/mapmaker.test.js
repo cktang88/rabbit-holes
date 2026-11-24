@@ -113,7 +113,7 @@ module.exports = {
       for (const bad of ['{bad', 'null', '[]', '{"seed":"x"}', '{"seed":12345}', '{"seed":5,"ink":"x","done":[1],"inst":"all","gold":"lots","ship":{"x":"a"}}', '{"seed":5,"ink":[[1,2],[3],"z",[null,4]],"visited":[[1,1]],"gold":1e99,"hull":-5}']) {
         await reloadWith(page, 'rh:mapmaker', bad);
         await page.waitForFunction(() => window.__map && window.__map.ship);
-        const st = await page.evaluate(() => { const S = window.__map.S; return [Array.isArray(S.ink), S.ink.every(p => p.length === 2 && p.every(Number.isFinite)), Number.isFinite(S.gold), S.hull > 0, !!S.inst.compass, window.__map.islands.length >= 1, Number.isFinite(window.__map.ship.x)]; });
+        const st = await page.evaluate(() => { const S = window.__map.S; return [Array.isArray(S.ink), S.ink.every(p => p.length >= 2 && p.every(Number.isFinite)), Number.isFinite(S.gold), S.hull > 0, !!S.inst.compass, window.__map.islands.length >= 1, Number.isFinite(window.__map.ship.x)]; });
         eq(st, [true, true, true, true, true, true, true], bad);
       }
     },
@@ -192,8 +192,8 @@ module.exports = {
       ok(r.learned >= 1, 'a current was learned'); ok(/Set and drift/.test(r.log) || r.mag < 0.5, r.log); ok(r.after < r.before || r.before < 4, `error before ${r.before.toFixed(1)}, after ${r.after.toFixed(1)}`);
     },
     'merchants sail by your chart: a good chart makes a trade route, a mischarted island sends them to open sea, an unmarked reef wrecks them': async ({ page, eq }) => {
-      const r = await page.evaluate(() => { const M = window.__map; const out = {}; const i = M.islands.findIndex(is => is.reefy);
-        const ink = (dx) => { M.S.ink = M.islands[i].coast.map(p => [p[0] + dx, p[1]]); M.hashInk(); };
+      const r = await page.evaluate(() => { const M = window.__map; M.S = M.freshSave(424242); M.boot(); const out = {}; const i = M.islands.findIndex(is => is.reefy);
+        const ink = (dx) => { const is = M.islands[i]; M.S.ink = is.coast.map(p => { const L = Math.hypot(p[0] - is.cx, p[1] - is.cy) || 1; return [p[0] + (p[0] - is.cx) / L * dx, p[1] + (p[1] - is.cy) / L * dx]; }); M.hashInk(); };
         ink(0); M.S.reefInk = {}; M.reefs.forEach((rf, k) => { M.S.reefInk[k] = [rf.x, rf.y]; }); out.good = M.merchantVoyage(i).res;
         ink(60); out.shifted = M.merchantVoyage(i).res;
         ink(0); M.S.reefInk = {}; const v = M.merchantVoyage(i).res; out.unmarked = v;
@@ -215,6 +215,16 @@ module.exports = {
       ok(naive.filter(a => a < 60).length >= 4, 'naive should fail (<60%) in at least 4/5: ' + naive);
       ok(idle.every(a => a === 0), 'idle charts nothing: ' + idle);
       ok(comp.filter(a => a >= 70).length >= 3, 'competent should chart 70%+ in most runs: ' + comp);
+    },
+    'ink drawn while the reckoning is doubtful is marked PD; the lead finds a hidden reef even in fog and marks it': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const M = window.__map; M.atPort = false; const is = M.islands[1], c = is.coast[0];
+        let x = c[0], y = c[1]; for (let k = 0; k < 300 && M.isLand(x, y); k++) { x += (c[0] - is.cx) * 0.01; y += (c[1] - is.cy) * 0.01; } x += (c[0] - is.cx) * 0.15; y += (c[1] - is.cy) * 0.15;
+        M.ship = { x, y, bx: x, by: y, h: 0, sail: 0, voyageDmg: 0 }; M.S.ink = []; M.hashInk();
+        M.nav = { dist: 0, t: 0, cells: {} }; M.ink(); const sure = M.S.ink.filter(p => p[2]).length;
+        M.S.ink = []; M.hashInk(); M.nav = { dist: 400, t: 20, cells: {} }; M.ink(); const doubtful = M.S.ink.length && M.S.ink.every(p => p[2] === 1);
+        const rf = M.reefs[0]; M.ship = { x: rf.x + 12, y: rf.y, bx: rf.x + 12, by: rf.y, h: 0, sail: 2, voyageDmg: 0 }; M.fogT = 20; M.S.reefInk = {}; const s1 = M.sound();
+        return { sure, doubtful, reef: s1.reef, marked: Object.keys(M.S.reefInk).length, sail: M.ship.sail }; });
+      eq(r.sure, 0); ok(r.doubtful, 'doubtful ink is flagged'); eq(r.reef, true); ok(r.marked >= 1); ok(r.sail <= 1, 'sounding slows the ship');
     },
     'mobile layout: no horizontal scroll, chart and sail buttons visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);

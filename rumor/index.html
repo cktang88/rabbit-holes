@@ -54,6 +54,7 @@
   #gazette .lie{color:var(--red)}
   @keyframes press{from{transform:scaleY(.2);opacity:0}}
   #person h3{margin:0 0 2px;font-size:20px}
+  .vers{margin-top:8px;font-size:13px;border-top:1px solid var(--rule);padding-top:4px} .vers summary{cursor:pointer;font-weight:700} .vers b{color:var(--red)} .vers .how{color:var(--ink2)}
   .trait{display:inline-block;font-size:12px;border:1px solid var(--ink);padding:0 6px;margin:2px 3px 0 0;font-style:italic}
   /* what they heard: a torn note */
   .heard{background:#f7f1e2;padding:10px 12px;font-size:14px;font-style:italic;margin-top:8px;box-shadow:1px 2px 4px #0003;transform:rotate(-.6deg);
@@ -160,7 +161,7 @@ const SC=[
   {act:3,n:'Trusted Voices',d:'The skeptics are on your side here. Use them. Keep the lie about <b>{T}</b> under 15%.',N:70,days:8,w:2,skeptics:3,enemy:{about:'T',start:2},goal:{type:'defend',max:15}},
   {act:3,n:'Everyone\'s Talking',d:'A very gossipy town and a lie about <b>{T}</b>. Keep it under 30%.',N:80,days:7,w:2,chatty:1,enemy:{about:'T',start:1,seed:0.06},goal:{type:'defend',max:30}},
   {act:4,n:'The Feud',d:'The heads of two families, <b>{A}</b> and <b>{B}</b>, hate each other. Each must believe something <b>good</b> about the other.',N:60,days:9,w:2,feud:1,goal:{type:'reconcile'}},
-  {act:4,n:'Good News Travels',d:'Get 50% believing something good about <b>{T}</b>. People pass on good news less often.',N:60,days:9,w:2,goal:{type:'reach',pct:50,pol:1}},
+  {act:4,n:'Good News Travels',d:'Get 42% believing something good about <b>{T}</b>. People pass on good news less often.',N:60,days:9,w:2,goal:{type:'reach',pct:42,pol:1}},
   {act:4,n:'Hero of the Docks',d:'40% must believe <b>{T}</b> <i>saved the life of</i> someone. Not just helped them.',N:60,days:9,w:2,goal:{type:'verb',pct:40,verb:9}},
   {act:4,n:'Bitter Old Feud',d:'Reconcile <b>{A}</b> and <b>{B}</b>. Their families are suspicious, and there is a skeptic in town.',N:70,days:9,w:2,feud:1,skeptics:1,goal:{type:'reconcile'}},
   {act:4,n:'Redemption',d:'Everyone already thinks <b>{T}</b> is a thief. Get 15% believing something good about them, and no more than 55% still believing the bad.',N:60,days:10,w:2,enemy:{about:'T',start:10,pre:1},goal:{type:'redeem',pct:15,max:55}},
@@ -240,17 +241,37 @@ function layout(P, r, K){
 }
 
 // ===================== Rumor model =====================
-const rText=(v)=> v.neg? `“That story about ${T.people[v.who].name} is a lie.”` : `“${T.people[v.who].name} ${VERBS[v.verb][0]} ${T.people[v.whom].name} at ${PLACES[v.place]}.”`;
+const rText=(v)=> v.neg? `“That story about ${T.people[v.who].name} is a lie.”` : `“${T.people[v.who].name} ${VERBS[v.verb][0]} ${T.people[v.whom].name}${v.place>=0? ' at '+PLACES[v.place] : ''}.”`;
 const sameV=(a,b)=> a && b && a.who===b.who && a.verb===b.verb && a.whom===b.whom && a.place===b.place && !!a.neg===!!b.neg;
+// How stories change in the retelling (Allport and Postman, 1947):
+//  sharpening: a gossip makes it worse (or a good story grander), one step at a time
+//  levelling: details drop out (the place is forgotten)
+//  assimilation: the story bends to fit the teller's grudges (the culprit becomes someone they dislike)
+//  and plain error: the victim becomes someone the teller knows
 function mutate(v, teller, r){
   const m={...v}; const k=r.int(4);
   if (v.neg) return m;
-  if (k===0 && teller.rivals.length){ const cand=teller.rivals.filter(x=>x!==v.whom); if (cand.length && VERBS[v.verb][1]<0) m.who=r.pick(cand); }
-  else if (k===1){ const pol=VERBS[v.verb][1]; const opts=VERBS.map((x,i)=>i).filter(i=>VERBS[i][1]===pol && i!==v.verb); if (r()<0.12) m.verb = r.pick(VERBS.map((x,i)=>i).filter(i=>VERBS[i][1]!==pol)); else m.verb=r.pick(opts); }
-  else if (k===2){ m.place=r.int(PLACES.length); }
-  else { const fr=teller.friends.map(f=>f[0]).filter(x=>x!==m.who); if (fr.length) m.whom=r.pick(fr); }
+  const pol=VERBS[v.verb][1], sev=VERBS[v.verb][2];
+  if (k===0 && teller.rivals.length && pol<0){ const cand=teller.rivals.filter(x=>x!==v.whom); if (cand.length){ m.who=r.pick(cand); m.how='assimilated'; } }
+  else if (k===1){ const up=VERBS.map((x,i)=>i).filter(i=>VERBS[i][1]===pol && VERBS[i][2]===sev+1);
+    if (teller.chat>0.55 && up.length){ m.verb=r.pick(up); m.how='sharpened'; } else { const side=VERBS.map((x,i)=>i).filter(i=>VERBS[i][1]===pol && i!==v.verb); m.verb=r.pick(side); m.how='garbled'; } }
+  else if (k===2){ if (m.place>=0 && r()<0.6){ m.place=-1; m.how='levelled'; } else { m.place=r.int(PLACES.length); m.how='garbled'; } }
+  else { const fr=teller.friends.map(f=>f[0]).filter(x=>x!==m.who); if (fr.length){ m.whom=r.pick(fr); m.how='garbled'; } }
   return m;
 }
+// Story genealogy: every changed version remembers the version it came from and how it changed
+let family=new Map();
+const vkey=(v)=>`${v.who}|${v.verb}|${v.whom}|${v.place}|${v.neg?1:0}`;
+function noteVersion(child, parent){ const k=vkey(child); if (!family.has(k)) family.set(k,{parent:vkey(parent), how:child.how||'changed', v:{...child}}); }
+function versionTree(){ const P=T.people, count=new Map(); for (const p of P){ if (!p.belief || p.str<0.15) continue; const k=vkey(p.belief); count.set(k,(count.get(k)||0)+1); }
+  const rows=[]; const seen=new Set();
+  const walk=(k,depth)=>{ if (seen.has(k) || depth>6) return; seen.add(k); const n=count.get(k)||0; const f=family.get(k); const v=f? f.v : null;
+    rows.push({k, depth, n, how: f? f.how : null}); for (const [ck,cf] of family) if (cf.parent===k) walk(ck, depth+1); };
+  // roots: believed versions with no recorded parent
+  const roots=[...count.keys()].filter(k=>!family.has(k)).sort((a,b)=>count.get(b)-count.get(a));
+  for (const r of roots) walk(r,0); for (const k of count.keys()) if (!seen.has(k)) walk(k,0);
+  return rows.filter(r=>r.n>0 || rows.some(q=>q.depth>r.depth)).slice(0,12); }
+function textOfKey(k){ const [who,verb,whom,place,neg]=k.split('|').map(Number); return rText({who,verb,whom,place,neg:!!neg}); }
 // All chance is seeded by the scenario, the day and everything you have whispered so far, so a Restart with the same whispers plays out the same way.
 let rngNow=RH.rng(1), actionLog=[], baseSeed='';
 const rand=()=>rngNow();
@@ -287,7 +308,7 @@ function simDay(){
       const tot=p.friends.reduce((s,f)=>s+f[1],0); let x=r()*tot, f=p.friends[0]; for (const g of p.friends){ x-=g[1]; if (x<=0){ f=g; break; } }
       const q=P[f[0]]; let v=b.v; let mutated=false;
       if (r()<0.14*(1.2-p.gull*0.4)){ const m=mutate(v,p,r); if(!sameV(m,v)){ v=m; mutated=true; } }
-      hear.changedBy= mutated? p.id : null; const ok=hear(q, v, b.s*f[1]*(p.skeptic?1.2:1)*0.95, p); hear.changedBy=null; tellings++; if (ok) newBelievers++; if (ok && mutated) changes++;
+      if (mutated) noteVersion(v, b.v); hear.changedBy= mutated? p.id : null; const ok=hear(q, v, b.s*f[1]*(p.skeptic?1.2:1)*0.95, p); hear.changedBy=null; tellings++; if (ok) newBelievers++; if (ok && mutated) changes++;
       flashes.push({a:p.id,b:q.id,t:0,ok,neg:!!v.neg,lie:!v.neg&&VERBS[v.verb][1]<0});
       if (ok && (q.role||q.skeptic||sel===q.id||mutated&&r()<0.25)) events.push(`<b>${p.name}</b> told <b>${q.name}</b>${q.role?` (${q.role})`:''}: ${rText(v)}${mutated?' <span style="color:#e8a050">(changed in the telling)</span>':''}`);
     }
@@ -343,7 +364,7 @@ function start(i, endlessSeed, variant){
   scKey = endlessSeed? 'endless' : i;
   sc = endlessSeed? endlessSpec(endlessSeed) : SC[i];
   T = buildTown(sc, endlessSeed? RH.hashStr(endlessSeed) : 1000+i*17);
-  day=1; wLeft=sc.w; sel=-1; log=[]; firstWhisper=null; flashes=[]; actionLog=[]; baseSeed=String(scKey)+':'+(endlessSeed||'')+(variant?':v'+variant:''); reseed('setup');
+  day=1; wLeft=sc.w; sel=-1; log=[]; firstWhisper=null; flashes=[]; actionLog=[]; family=new Map(); baseSeed=String(scKey)+':'+(endlessSeed||'')+(variant?':v'+variant:''); reseed('setup');
   enemy=null;
   if (sc.enemy){ const tgt = sc.enemy.about==='V'? T.cast.V : T.cast.T; enemy={target:tgt.id, src:T.cast.E.id, start:sc.enemy.start};
     if (sc.enemy.seed){ for (const p of T.people) if (p!==tgt && rand()<sc.enemy.seed){ p.belief={who:tgt.id, verb:4, whom:T.people[(p.id+3)%T.people.length].id, place:Math.floor(rand()*PLACES.length)}; p.str=0.7; p.heardFrom='someone'; } }
@@ -506,6 +527,7 @@ function renderPerson(){
 function renderGoal(){
   const st=goalStatus(); const pct=Math.min(100,st.v);
   document.getElementById('goal').innerHTML=`<b class="t">${sc.n}</b><p style="margin:6px 0">${desc()}</p><div class="bar"><div style="width:${pct}%;background:${st.ok?'#2f5d2f':st.inverse?'#b3241b':'#1b1712'}"></div><span style="left:${st.target}%"></span></div><div class="small dim" style="margin-top:4px">${st.label}</div>`;
+  const tree=versionTree(); if (tree.length) document.getElementById('goal').insertAdjacentHTML('beforeend', `<details class="vers" ${tree.length>1?'open':''}><summary>The story's family tree</summary>${tree.map(r=>`<div style="padding-left:${r.depth*14}px">${r.depth?'└ ':''}${r.how?`<i class="how">${r.how}:</i> `:''}${textOfKey(r.k)} <b>${r.n}</b></div>`).join('')}</details>`);
   document.getElementById('dayP').textContent= day>sc.days? 'Finished' : `Day ${day} of ${sc.days}`;
   document.getElementById('wP').textContent=`${wLeft} whisper${wLeft===1?'':'s'} left`;
   document.getElementById('nextDay').disabled = day>sc.days;
@@ -525,9 +547,9 @@ function renderScen(){
 function renderAll(){ renderGoal(); renderPerson(); renderScen(); }
 window.addEventListener('resize', fitView);
 start(SAVE.cur||0); requestAnimationFrame(draw);
-window.__rumor={ chainOf, lesson, starsFor, reseed, get actionLog(){ return actionLog; }, get lastStars(){ return lastStars; }, topStory, printGazette, SC, VERBS, buildTown, hear, mutate, simDay, goalStatus, goalFor, sameV, rText, pctOf, believesBad, believesGood, start, finish, endlessSpec, cleanSave, scenOpen, bestEar, esc, renderAll,
+window.__rumor={ versionTree, noteVersion, textOfKey, get family(){ return family; }, chainOf, lesson, starsFor, reseed, get actionLog(){ return actionLog; }, get lastStars(){ return lastStars; }, topStory, printGazette, SC, VERBS, buildTown, hear, mutate, simDay, goalStatus, goalFor, sameV, rText, pctOf, believesBad, believesGood, start, finish, endlessSpec, cleanSave, scenOpen, bestEar, esc, renderAll,
   get T(){ return T; }, get sc(){ return sc; }, get day(){ return day; }, set day(v){ day=v; }, get wLeft(){ return wLeft; }, get firstWhisper(){ return firstWhisper; }, get SAVE(){ return SAVE; }, get log(){ return log; }, get sel(){ return sel; }, set sel(v){ sel=v; }, get view(){ return view; } };
-if (!SAVE.intro){ SAVE.intro=1; persist(); RH.modal(`<h2>The Rumor</h2><p>Every person in this town has friends, rivals, a loose tongue or a careful one, and a sense of who to trust.</p><p>Click someone and <b>whisper</b> a story. Then let the days pass. They'll tell their friends, who tell theirs, and the story changes on the way. Names get swapped, crimes get worse, places move.</p><p>Watch who carries it. Pick your first ear well.</p>`,[{label:'Lean in'}]); }
+if (!SAVE.intro){ SAVE.intro=1; persist(); RH.modal(`<h2>The Rumor</h2><p>Every person in this town has friends, rivals, a loose tongue or a careful one, and a sense of who to trust.</p><p>Click someone and <b>whisper</b> a story. Then let the days pass. They'll tell their friends, who tell theirs, and the story changes on the way. Gossips make crimes worse, details drop out, and people pin the blame on whoever they already dislike.</p><p>Watch who carries it. Pick your first ear well.</p>`,[{label:'Lean in'}]); }
 </script>
 </body>
 </html>

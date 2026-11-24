@@ -97,6 +97,16 @@ module.exports = {
       ok(r.idle.every(x => !x), 'idle'); ok(r.planner.every(Boolean), 'planner ' + r.planner);
       ok(r.simple.every(st => st < 3), 'full-throttle stars ' + r.simple);
     },
+    'launch-date strip: for an aim, it marks the dates that arrive; the planner\'s window is among the best': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const s = window.__sling; s.openLevel('3'); const o = s.MISSIONS[3].sols[0]; const q = s.windowQuality({ ang: o.ang, dv: o.dv }); return { len: q.length, at: q[o.t0], max: Math.max(...q) }; });
+      ok(r.len === 41, 'one cell per second of window'); ok(r.at === 1 && r.max === 1, JSON.stringify(r));
+    },
+    'deep space sandbox: a seed sets the planets; unlimited computing; no stars are recorded': async ({ page, eq, ok }) => {
+      await page.evaluate(() => document.getElementById('binderBtn').click()); await page.fill('#seedIn', 'pioneer'); await page.press('#seedIn', 'Enter');
+      const r = await page.evaluate(() => { const s = window.__sling; const a = JSON.stringify(s.deepMission('pioneer').planets.map(p => p.ph)), b = JSON.stringify(s.deepMission('pioneer').planets.map(p => p.ph)), c = JSON.stringify(s.deepMission('mariner').planets.map(p => p.ph));
+        s.hold(true); s.end('win'); return { key: s.levelKey, runs: s.runsLeft, same: a === b, differ: a !== c, best: Object.keys(s.S.best).length }; });
+      eq(r.key, 'deep:pioneer'); ok(r.runs > 3); ok(r.same && r.differ); eq(r.best, 0);
+    },
     'mobile layout: no horizontal scroll and the plot is visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
       const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect().toJSON() }));

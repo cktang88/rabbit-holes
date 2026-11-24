@@ -35,6 +35,12 @@
   .meter i{position:absolute;top:-6px;width:3px;height:20px;background:var(--red)}
   .meter i::after{content:'TARGET';position:absolute;top:21px;left:-16px;font:700 8px "Barlow Condensed";letter-spacing:.12em;color:var(--red)}
   #per{font:500 13px "Barlow Condensed";letter-spacing:.04em;color:var(--ink2);margin-top:16px}#per:empty{display:none}
+  #fc{display:none;margin-top:8px;padding:7px 9px;border:2px dashed var(--navy);background:#eef2f6;font:600 14px "Barlow Condensed";letter-spacing:.03em}
+  #fc.on{display:block}#fc span{display:flex;gap:6px;align-items:center;margin-top:4px}
+  #fc input{width:70px;font:700 18px "Barlow Condensed";padding:2px 6px;border:1.5px solid var(--ink);background:#fff;color:var(--ink);border-radius:0}
+  #fc button{border:2px solid var(--ink);background:var(--ink);color:#fbf7ec;font-size:14px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 10px;cursor:pointer;min-height:32px}
+  #fc #fcSkip{background:transparent;color:var(--ink)}
+  #fcRes{font:600 13px "Barlow Condensed";letter-spacing:.04em;color:var(--navy);margin-top:4px}#fcRes:empty{display:none}
   #grade{font:600 13px "Barlow Condensed";letter-spacing:.06em;text-transform:uppercase;color:var(--navy);margin-top:6px}#grade:empty{display:none}
   #next{display:none;margin-top:14px;border:2px solid var(--ink);background:var(--ink);color:#fbf7ec;font-size:16px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 14px;cursor:pointer;box-shadow:3px 3px 0 var(--orange)}
   #next:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--orange)}
@@ -71,7 +77,7 @@
   #toll small{color:var(--ink2);font-size:12px;text-transform:none;letter-spacing:0;font-family:Barlow}
   #tollV{font:700 22px "Barlow Condensed";min-width:44px;display:inline-block;color:var(--red)}
   /* printed map key */
-  #legend{position:fixed;bottom:16px;left:16px;padding:7px 12px;font:600 12px "Barlow Condensed";letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);display:flex;gap:10px;align-items:center;background:#fbf7ec;border:1.5px solid var(--ink)}
+  #legend{position:fixed;bottom:16px;left:16px;max-width:300px;flex-wrap:wrap;row-gap:4px;padding:7px 12px;font:600 12px "Barlow Condensed";letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);display:flex;gap:10px;align-items:center;background:#fbf7ec;border:1.5px solid var(--ink)}
   #legend span{display:inline-block;width:26px;height:6px;vertical-align:middle;margin-right:4px}
   #legend em{font-style:normal;padding-right:8px;border-right:1px solid #c9bea5;color:var(--ink)}
   #toast{position:fixed;top:46%;left:50%;transform:translate(-50%,-50%) rotate(-1deg) translateY(10px);opacity:0;pointer-events:none;transition:opacity .3s,transform .4s;text-align:center;max-width:min(520px,90vw);background:#fbf7ec;border:1px solid #c9bea5;border-top:6px solid var(--red);padding:10px 18px 12px;box-shadow:2px 12px 26px -12px rgba(40,30,10,.6);font:700 30px/1.1 "Barlow Condensed";letter-spacing:.04em;text-transform:uppercase}
@@ -91,7 +97,9 @@
 <div id="hud" class="sheet"><div class="hrow"><a class="home" href="../index.html">← Rabbit Holes</a><span><button id="briefBtn" aria-expanded="false">BRIEF</button> <button id="lvBtn">CASE FILES</button></span></div>
   <div class="dept"><span>City Planning Dept.</span><span id="fileNo">Traffic study</span></div>
   <h1 id="title">Gridlock</h1><div id="story"></div>
-  <div class="big"><b id="avg">–</b><span>min average commute</span></div><div class="target" id="tgt"></div><div class="meter"><div id="bar"></div><i id="tick"></i></div><div id="per"></div><div id="grade"></div><button id="next">Next city →</button><div id="stamp"></div></div>
+  <div class="big"><b id="avg">–</b><span>min average commute</span></div><div class="target" id="tgt"></div><div class="meter"><div id="bar"></div><i id="tick"></i></div><div id="per"></div><div id="grade"></div>
+  <div id="fc"><label for="fcIn">Forecast: when drivers settle, the average will be</label><span><input id="fcIn" type="number" inputmode="decimal" step="0.5" min="1" max="200"> min <button id="fcGo">Lock</button><button id="fcSkip">Skip</button></span></div><div id="fcRes" role="status"></div>
+  <button id="next">Next city →</button><div id="stamp"></div></div>
 <div id="lvBox"><div id="levels"></div></div>
 <div id="tools"></div>
 <div id="toll"><span>Toll booth on <b id="tollName"></b></span> <input type="range" id="tollR" min="0" max="40" step="1" aria-label="Toll in dollars"> <b id="tollV"></b> <small>($1 ≈ 1 min to drivers)</small></div>
@@ -193,13 +201,27 @@ function cleanSave(raw) {
   const best = {}; if (s.best && typeof s.best === 'object') for (const k in s.best) if (/^\d+$/.test(k) && +k < LV.length && Number.isFinite(s.best[k]) && s.best[k] > 0) best[k] = s.best[k];
   const grade = {}; if (s.grade && typeof s.grade === 'object') for (const k in s.grade) if (/^\d+$/.test(k) && +k < LV.length && LV[+k].grades && Number.isInteger(s.grade[k]) && s.grade[k] >= 0) grade[k] = Math.min(LV[+k].grades.length - 1, s.grade[k]);
   for (const k in best) if (!(k in grade) && LV[+k].grades && done[k]) grade[k] = gradeIdx(+k, best[k]); // older saves kept only the average
-  return { v: 2, done, cur, best, grade };
+  const fcs = {}; if (s.fc && typeof s.fc === 'object') for (const k in s.fc) if (/^\d+$/.test(k) && +k < LV.length && s.fc[k]) fcs[k] = 1;
+  return { v: 2, done, cur, best, grade, fc: fcs };
 }
 const SAVE = cleanSave(RH.load('gridlock', null));
 const persist = () => { RH.save('gridlock', SAVE); RH.progress('gridlock', Object.keys(SAVE.done).length / LV.length); };
 let L, roads, P, tool = 'look', sel = -1, settleT = 0, won = false, shown = { avg: 0 }, homes = [];
 
+// one forecast per city visit: the first road you build or close freezes the drivers until you predict (or skip)
+const fc = { asked: false, pending: false, locked: false, guess: 0 };
+function askForecast() {
+  if (fc.asked) return; fc.asked = true; fc.pending = true; settleT = 0;
+  $('fcIn').value = ''; $('fcRes').textContent = ''; $('fc').classList.add('on'); $('fcIn').focus({ preventScroll: true });
+}
+function closeForecast(guess) { fc.pending = false; $('fc').classList.remove('on'); if (guess != null && isFinite(guess)) { fc.locked = true; fc.guess = guess; $('fcRes').textContent = `Forecast ${guess} min. Watching…`; } settleT = 0; }
+function scoreForecast(avg) {
+  fc.locked = false; const err = Math.abs(avg - fc.guess), good = err <= 1.5;
+  $('fcRes').innerHTML = `Forecast ${fc.guess} · actual ${avg.toFixed(1)} · <b>${good ? 'good call' : 'off by ' + err.toFixed(1)}</b>`;
+  if (good) { SAVE.fc[SAVE.cur] = 1; persist(); snd.till(); renderUI(); } else snd.fail();
+}
 function load(i) {
+  Object.assign(fc, { asked: false, pending: false, locked: false }); $('fc').classList.remove('on'); $('fcRes').textContent = '';
   shown.eq = NaN;
   document.body.classList.remove('playing', 'brief');
   SAVE.cur = i; persist(); L = LV[i]; won = false; settleT = 0; sel = -1; shown.avg = 0;
@@ -470,12 +492,12 @@ cv.addEventListener('pointerdown', e => {
   if (r.ghost) {
     if (!L.tools.build) return;
     if (!r.built && !canBuild(r)) { snd.fail(); toast('Over budget', L.budget ? `That costs $${r.cost}M and you have $${budgetLeft()}M left. Demolish something first.` : 'Remove a road you built first.', 1600); return; }
-    r.built = !r.built; r.built ? snd.pencil() : snd.erase(); FX.shake(.12); rebuildPaths(); renderTools(); return;
+    r.built = !r.built; r.built ? snd.pencil() : snd.erase(); FX.shake(.12); rebuildPaths(); renderTools(); askForecast(); return;
   }
   if (tool === 'close' && L.tools.close) {
     const used = roads.filter(q => q.closed).length;
     if (!r.closed && used >= L.tools.close) { snd.fail(); toast('Closure limit', `You can close ${L.tools.close} road${L.tools.close > 1 ? 's' : ''}. Reopen one first.`, 1600); return; }
-    r.closed = !r.closed; r.closed ? snd.barrier() : snd.erase(); FX.shake(r.closed ? .25 : .08); rebuildPaths(); renderTools(); return;
+    r.closed = !r.closed; r.closed ? snd.barrier() : snd.erase(); FX.shake(r.closed ? .25 : .08); rebuildPaths(); renderTools(); askForecast(); return;
   }
   if (tool === 'toll' && L.tools.toll) {
     const tolled = roads.filter(q => q.toll > 0 && q !== r).length;
@@ -507,7 +529,7 @@ function renderUI() {
   renderTools();
   if (tool !== 'toll') $('toll').style.display = 'none';
   const maxOpen = (() => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; })();
-  $('levels').innerHTML = '<h4>Case files</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${i > maxOpen && !SAVE.done[i] ? 'lock' : ''}" data-i="${i}"><span>${String(i + 1).padStart(2, '0')} · ${l.n}</span><span class="ok">${SAVE.done[i] ? savedGrade(i).toUpperCase() : ''}</span></div>`).join('');
+  $('levels').innerHTML = '<h4>Case files</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${i > maxOpen && !SAVE.done[i] ? 'lock' : ''}" data-i="${i}"><span>${String(i + 1).padStart(2, '0')} · ${l.n}</span><span class="ok">${SAVE.fc[i] ? '✎ ' : ''}${SAVE.done[i] ? savedGrade(i).toUpperCase() : ''}</span></div>`).join('');
   $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { if (el.classList.contains('lock')) return; snd.drawer(); load(+el.dataset.i); });
   $('lvBtn').textContent = `FILE ${SAVE.cur + 1}/${LV.length}`;
   $('fileNo').textContent = `Study no. ${String(SAVE.cur + 1).padStart(2, '0')} / ${LV.length}`;
@@ -516,6 +538,9 @@ function renderUI() {
   document.body.classList.toggle('canNext', !!SAVE.done[SAVE.cur] && SAVE.cur < LV.length - 1);
 }
 $('next').onclick = () => { if (SAVE.cur < LV.length - 1 && SAVE.done[SAVE.cur]) { snd.drawer(); load(SAVE.cur + 1); } };
+$('fcGo').onclick = () => { const v = parseFloat($('fcIn').value); if (!isFinite(v) || v <= 0) { $('fcIn').focus(); return; } snd.key(); closeForecast(Math.round(v * 10) / 10); };
+$('fcSkip').onclick = () => { snd.key(); closeForecast(null); };
+$('fcIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('fcGo').click(); else if (e.key === 'Escape') $('fcSkip').click(); });
 $('briefBtn').onclick = e => { e.stopPropagation(); const on = document.body.classList.toggle('brief'); $('briefBtn').setAttribute('aria-expanded', on); snd.key(); fit(); };
 $('lvBtn').onclick = e => { e.stopPropagation(); snd.drawer(); $('lvBox').classList.toggle('open'); };
 function toast(big, small, ms = 2400) { const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : ''); t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms); }
@@ -528,7 +553,7 @@ const setStyle = (id, k, v) => { const key = id + k; if (ui[key] !== v) { ui[key
 function loop(now) {
   raf = requestAnimationFrame(loop);
   const dt = Math.min(.05, (now - last) / 1000); last = now;
-  let gap = 0; for (let i = 0; i < 3; i++) gap = adjust(.004);
+  let gap = 0; if (!fc.pending) for (let i = 0; i < 3; i++) gap = adjust(.004); else { flows(); gap = 1; } // drivers wait for your forecast
   const avg = average();
   if (!isFinite(shown.eq) || Math.abs(avg - shown.eq) > .08 || gap < .02) shown.eq = avg; // ignore the drivers' last little wobbles
   shown.avg = FX.damp(shown.avg || shown.eq, shown.eq, 6, dt);
@@ -540,6 +565,7 @@ function loop(now) {
   const span = Math.max(L.target * 1.6, avg);
   setStyle('bar', 'width', Math.min(100, avg / span * 100).toFixed(1) + '%'); setStyle('bar', 'background', ok ? '#2c8a56' : '#e0663a'); setStyle('tick', 'left', (L.target / span * 100).toFixed(1) + '%');
   settleT = gap < .05 && !tollHeld ? settleT + dt : 0;
+  if (fc.locked && settleT > 1.2) scoreForecast(avg);
   if (!won && ok && settleT > 1.2) win();
   else if (won && L.grades && settleT > 1.2 && isFinite(avg) && (gradeIdx(SAVE.cur, avg, worstHome()) > (SAVE.grade[SAVE.cur] || 0) || !(SAVE.best[SAVE.cur] <= avg + 1e-6))) improve(avg); // a better plan on a graded city re-stamps the file
   spawnCars(dt); moveCars(dt); draw(now);
@@ -568,7 +594,7 @@ function improve(avg) {
 load(Math.min(SAVE.cur || 0, LV.length - 1));
 if (document.fonts) document.fonts.ready.then(() => { roads.forEach(r => r.lt = null); fit(); });
 raf = requestAnimationFrame(loop);
-window.__gl = { LV, load, cleanSave, gradeOf, gradeIdx, savedGrade, worstHome: () => worstHome(), get best() { return SAVE.best; }, get grade() { return SAVE.grade; }, budgetLeft: () => budgetLeft(), get won() { return won; }, get tool() { return tool; }, get sel() { return sel; }, roads: () => roads, average, adjust, P: () => P, rebuild: () => rebuildPaths(), view: () => ({ ...view, dpr }), labels: () => roads.map(r => [r.a + r.b, r.lx, r.ly]) };
+window.__gl = { LV, load, get fc() { return fc; }, askForecast, get forecasts() { return SAVE.fc; }, cleanSave, gradeOf, gradeIdx, savedGrade, worstHome: () => worstHome(), get best() { return SAVE.best; }, get grade() { return SAVE.grade; }, budgetLeft: () => budgetLeft(), get won() { return won; }, get tool() { return tool; }, get sel() { return sel; }, roads: () => roads, average, adjust, P: () => P, rebuild: () => rebuildPaths(), view: () => ({ ...view, dpr }), labels: () => roads.map(r => [r.a + r.b, r.lx, r.ly]) };
 </script>
 </body>
 </html>

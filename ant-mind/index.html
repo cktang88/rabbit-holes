@@ -148,7 +148,7 @@ const MAPS=[
   {n:'Picnic', g:{type:'food',n:160}, t:240, food:6, rock:0.06, dirt:0.12, big:1},
   {n:'Eight Legs', g:{type:'kill',n:1}, t:220, food:4, rock:0.06, dirt:0.08, spider:1},
   {n:'Moving Feast', g:{type:'food',n:90}, t:150, food:5, rock:0.08, dirt:0.06, moving:1, chem:{dep:160,evap:5,noise:15}},
-  {n:'The Web', g:{type:'food',n:100}, t:240, food:4, rock:0.1, dirt:0.12, spider:2},
+  {n:'Death Spiral', g:{type:'food',n:60}, t:200, food:4, rock:0.04, dirt:0, layout:'mill', chem:{dep:200,evap:0,noise:0}, season:'The foragers have started following each other in a circle. They will walk until they drop.'},
   {n:'Thunderstorm', g:{type:'food',n:100}, t:240, food:5, rock:0.06, dirt:0.1, rain:1},
   {n:'Spider Season', g:{type:'kill',n:2}, t:300, food:5, rock:0.06, dirt:0.08, spider:3},
   {n:'Neighbours', g:{type:'food',n:120}, t:260, food:6, rock:0.06, dirt:0.1, rival:1},
@@ -171,7 +171,7 @@ const NOTES=[
   'Big food is worth a strong trail. Mass recruitment, many ants on one pheromone road, is how a colony exploits a windfall.',
   'Soldier castes in Pheidole have huge heads and do little foraging. A colony pays for defence with fewer foragers.',
   'When food keeps moving, a strong, long-lasting trail is a trap: the colony keeps marching to an empty larder. Fast evaporation is how real colonies stay flexible.',
-  'Spiders that ambush trails take a steady toll on foragers. Colonies under predation forage in shorter bursts.',
+  'Army ants that lose the scent can lock into a circle, each following the one in front, until they die of exhaustion: an ant mill. The cure is forgetting: let the trail evaporate, or cut it, so the circle has nothing to follow.',
   'Rain washes pheromone away. Species that run in tandem (one leader, one follower) cope better than mass-recruiting ones.',
   'Alarm pheromones (often formic acid or simple ketones) spread fast and fade fast: a short, loud signal.',
   'Neighbouring colonies follow their own trails and fight where trails meet. Territory is a map of whose smell is strongest.',
@@ -221,7 +221,8 @@ function build(i){
   if (M.layout==='bridge'){ // one big rock between nest and food: a short way round (top) and a long way round (bottom)
     G.fill(PASS); for (let y=0;y<H;y++) for (let x=0;x<W;x++){ if (x>=40 && x<=152 && y>=22 && y<=108) G[idx(x,y)]=ROCK; if (y<2||y>H-3) G[idx(x,y)]=ROCK; }
     nests=[{x:14, y:36, team:0, hp:1}]; }
-  bridgeLog = M.layout==='bridge'? [] : null; patches=[];
+  bridgeLog = M.layout==='bridge'? [] : null; patches=[]; mill= M.layout==='mill'? {x:nests[0].x+30, y:Math.min(H-24,Math.max(24,nests[0].y)), r:16} : null;
+  if (mill) for (let y=-mill.r-4;y<=mill.r+4;y++) for (let x=-mill.r-4;x<=mill.r+4;x++){ const X=mill.x+x, Y=mill.y+y; if (X>=0&&Y>=0&&X<W&&Y<H) G[idx(X,Y)]=PASS; }
   if (M.rival) nests.push({x:W-30-rng.int(16), y:20+rng.int(H-40), team:1, hp:220*M.rival, maxhp:220*M.rival});
   for (const n of nests) for (let y=-6;y<=6;y++) for (let x=-6;x<=6;x++){ const X=n.x+x,Y=n.y+y; if(X>=0&&Y>=0&&X<W&&Y<H) G[idx(X,Y)]=PASS; }
   // dirt walls around far food in dig maps
@@ -238,9 +239,11 @@ function build(i){
   if (M.layout==='bridge'){ // yesterday's trail still runs the long way round
     const path=[[14,36],[24,60],[30,90],[34,114],[100,114],[158,114],[166,90],[172,60],[178,36]]; for (let k=0;k<path.length-1;k++){ const [x0,y0]=path[k],[x1,y1]=path[k+1], n=Math.ceil(Math.hypot(x1-x0,y1-y0)); for (let j=0;j<=n;j++){ const x=Math.round(x0+(x1-x0)*j/n), y=Math.round(y0+(y1-y0)*j/n); for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++){ const X=x+dx,Y=y+dy; if (X>=0&&Y>=0&&X<W&&Y<H&&G[idx(X,Y)]===PASS){ scent.forage[idx(X,Y)]=Math.max(scent.forage[idx(X,Y)], 1.2+1.3*(k*40+j)/360); trail.h0[idx(X,Y)]=Math.max(trail.h0[idx(X,Y)],2.5-2*(k*40+j)/360); } } } } }
   if (M.chem && !SAVE.chemSet?.[i]) setChem(M.chem); else setChem(SAVE.chem||CHEM0);
+  if (mill) for (let a=0;a<6.283;a+=0.02){ for (let dr=-1;dr<=1;dr++){ const X=Math.round(mill.x+Math.cos(a)*(mill.r+dr)), Y=Math.round(mill.y+Math.sin(a)*(mill.r+dr)); if (X>=0&&Y>=0&&X<W&&Y<H) scent.forage[idx(X,Y)]=2.5; } }
   ants=[]; enemies=[]; spiders=[];
   const startN=Math.round(45*(1+0.5*has('start')));
   for (let k=0;k<startN;k++) spawnAnt(0, k<startN*(M.spider>=2?0.3:0.12)?'soldier':'worker');
+  if (mill) ants.forEach((a,k)=>{ if (a.role!=='worker') return; const t=k/startN*6.283; a.x=mill.x+Math.cos(t)*mill.r; a.y=mill.y+Math.sin(t)*mill.r; a.a=t+Math.PI/2; a.trip=5; });
   if (nests[1]) for (let k=0;k<40*M.rival;k++) spawnAnt(1, k%4===0?'soldier':'worker');
   // spiders must stand on open ground the colony can reach, or they could never be fought (or move)
   for (let k=0;k<(M.spider||0);k++){ let x=W*0.5+rng.range(-30,40), y=rng.range(15,H-15);
@@ -355,6 +358,7 @@ function stepWorld(dt){
   // a nudge for newcomers who haven't painted anything yet
   if (!painted && mapI===0){ hintT+=dt; if (hintT>8){ hintT=-14; banner('Ants find food on their own and mark the way. Drag a scout trail from the nest to the food to speed them up.'); } }
   if (MAPS[mapI].layout==='bridge'){ hintT+=dt; if (hintT>25 && bridgeShare()<0.5){ hintT=-25; banner('The colony is stuck on yesterday\'s long trail. Faster evaporation lets it forget.'); } }
+  if (mill){ hintT+=dt; if (hintT>12 && millShare()>0.4){ hintT=-15; banner('An ant mill: they are following each other round. Let the trail evaporate, or wipe a gap in the circle.'); } }
   if (MAPS[mapI].moving){ hintT+=dt; if (hintT>30 && delivered<10){ hintT=-30; banner('Trails lead to empty larders. Try faster evaporation and more noise.'); } }
   const [gv,gn]=goalProgress(); const q=Math.floor(4*gv/gn); if (q>milestone && q<4){ milestone=q; VOICE.mark(q); banner(`${q*25}% of the goal`); }
   checkEnd();
@@ -362,7 +366,9 @@ function stepWorld(dt){
 // turn toward the strongest of three smells ahead; returns the strongest value
 function steer(ant, f, sd, turn){ const l=sense(f,ant.x,ant.y,ant.a-0.6,sd), c=sense(f,ant.x,ant.y,ant.a,sd), r=sense(f,ant.x,ant.y,ant.a+0.6,sd); const m=Math.max(l,c,r);
   if (m<=0.02) return m; if (c>=l && c>=r) return m; ant.a += l>r? -turn : turn; return m; }
-let patches=[];
+let patches=[], mill=null;
+// share of foragers walking the mill ring
+function millShare(){ if (!mill) return 0; const w=ants.filter(a=>a.team===0&&a.role==='worker'); if (!w.length) return 0; return w.filter(a=>Math.abs(Math.hypot(a.x-mill.x,a.y-mill.y)-mill.r)<3).length/w.length; }
 let trail={h0:new Float32Array(W*H), h1:new Float32Array(W*H), f1:new Float32Array(W*H)}, bridgeLog=null;
 const RIVAL_CHEM={dep:1, noise:0.35};
 // the three knobs of ant chemistry: how much pheromone a forager lays, how fast it evaporates, how much ants wander off the trail
@@ -442,7 +448,7 @@ window.__ant={ MAPS, SCENTS, UPS, build, bfs, stepWorld, goalProgress, checkEnd,
   get G(){ return G; }, get food(){ return food; }, get scent(){ return scent; }, get home(){ return home; }, get nests(){ return nests; }, get ants(){ return ants; }, get spiders(){ return spiders; },
   get gland(){ return gland; }, set gland(v){ gland=v; }, get stored(){ return stored; }, get delivered(){ return delivered; }, set delivered(v){ delivered=v; }, get kills(){ return kills; }, set kills(v){ kills=v; }, get timeLeft(){ return timeLeft; }, set timeLeft(v){ timeLeft=v; },
   get gameOver(){ return gameOver; }, get mapI(){ return mapI; }, get SAVE(){ return SAVE; }, get paused(){ return paused; }, set paused(v){ paused=v; }, get cell(){ return cell; }, get painting(){ return painting; }, set painting(v){ painting=v; }, get brush(){ return brush; }, set brush(v){ brush=v; },
-  strokeStart(){ lastP=null; strokeLen=0; }, get digMixOn(){ return digMixOn; }, get trail(){ return trail; }, get bridgeLog(){ return bridgeLog; }, bridgeShare, setChem, chemNow, get chem(){ return chem; }, NOTES, steer, get rotated(){ return rotated; }, toCell, setDrawer, get windfalls(){ return windfalls; }, get winFx(){ return winFx; }, windfall, tally, get windT(){ return windT; }, set windT(v){ windT=v; }, get rainT(){ return rainT; }, set rainT(v){ rainT=v; }, get hatchT(){ return hatchT; }, get fx(){ return fx; }, idx, W, H, PASS, ROCK, DIRT };
+  strokeStart(){ lastP=null; strokeLen=0; }, get digMixOn(){ return digMixOn; }, millShare, get mill(){ return mill; }, get trail(){ return trail; }, get bridgeLog(){ return bridgeLog; }, bridgeShare, setChem, chemNow, get chem(){ return chem; }, NOTES, steer, get rotated(){ return rotated; }, toCell, setDrawer, get windfalls(){ return windfalls; }, get winFx(){ return winFx; }, windfall, tally, get windT(){ return windT; }, set windT(v){ windT=v; }, get rainT(){ return rainT; }, set rainT(v){ rainT=v; }, get hatchT(){ return hatchT; }, get fx(){ return fx; }, idx, W, H, PASS, ROCK, DIRT };
 
 // ===================== Rendering =====================
 // ===================== Sound: soil =====================

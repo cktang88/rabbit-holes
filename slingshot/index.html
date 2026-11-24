@@ -50,6 +50,7 @@
   #gauge{width:62px;height:36px}
   #tip{position:absolute;bottom:10px;left:12px;font-size:12px;color:#9fc4dc;pointer-events:none;max-width:60%}
   #window{position:absolute;bottom:50px;left:12px;display:flex;gap:8px;align-items:center}
+  .wcol{display:flex;flex-direction:column;gap:2px} #winStrip{position:relative;display:flex;height:12px;width:180px;border:1px solid #4d7aa3;background:#061629} #winStrip i{flex:1;display:block} #winStrip b{position:absolute;top:-3px;bottom:-3px;width:2px;background:#d9ecf7}
   #ctl{position:absolute;bottom:50px;right:12px;display:flex;gap:8px} #ctl button{min-height:40px}
   #flyP{position:absolute;top:54px;left:12px;pointer-events:none;max-width:calc(100% - 24px);font-size:12px} #flyP:empty{display:none}
   .memo{border-top:1px dashed #8c8470;padding-top:6px}
@@ -107,12 +108,14 @@
       <span class="plate" id="met">T+ 00.0</span><span class="plate" id="tries"></span><span class="plate" id="dvP"></span></div>
     <div id="flyP" class="plate" aria-live="polite"></div>
     <div id="ctl"><button id="computeBtn" title="Plot the whole trajectory for this aim and launch window (C)">Compute (3)</button><button id="launchBtn" class="primary" title="Uplink the launch (Enter)">Launch</button></div>
-    <div id="window"><span class="plate">LAUNCH WINDOW <b id="winV">T+ 0.0 s</b></span><input type="range" id="winR" min="0" max="40" step="0.5" value="0" aria-label="Launch time"></div>
+    <div id="window"><span class="plate">LAUNCH WINDOW <b id="winV">T+ 0.0 s</b></span><div class="wcol"><div id="winStrip" aria-label="Launch-date strip"></div><input type="range" id="winR" min="0" max="40" step="0.5" value="0" aria-label="Launch time"></div></div>
     <div id="tip">Drag back from the probe to aim · set the window · <b>Compute</b> · <b>Launch</b> · hold during flight to burn · <kbd>R</kbd> restart</div>
     <div id="msg"></div>
     <button id="binderBtn" aria-expanded="false" aria-controls="side">Missions ☰</button>
   </div>
   <div id="side"><button id="binderClose">Close ✕</button><div class="bh">MISSION BINDER</div><div id="levels"></div>
+    <div class="sys"><div class="h">Deep space</div><div class="d">A sandbox Grand Tour: the planets wherever a seed puts them. Unlimited computing, no stars.</div>
+      <div class="row"><input id="seedIn" placeholder="seed" maxlength="32" style="width:110px" aria-label="Seed"><button id="deepBtn">Fly</button></div></div>
   </div>
 </main>
 <script src="../shared/common.js"></script>
@@ -151,7 +154,7 @@ const S = cleanSave(RH.load('sling', null));
 const persist=()=>{ RH.save('sling',S); RH.progress('slingshot', Object.keys(S.best).length/NLEV); };
 const sysUnlocked=(si)=> si===0 || [...Array(PER)].filter((_,i)=>S.best[(si-1)*PER+i]).length>=2;
 const levelOpen=(k)=>{ k=+k; if (!(Number.isInteger(k) && k>=0 && k<NLEV)) return false; const si=Math.floor(k/PER), i=k%PER; return sysUnlocked(si) && (i===0 || !!S.best[k-1] || !!S.best[k]); };
-const nextOpen=(k)=>{ for (let n=+k+1;n<NLEV;n++) if (levelOpen(n)) return n; return -1; };
+const nextOpen=(k)=>{ if (String(k).startsWith('deep:')) return -1; for (let n=+k+1;n<NLEV;n++) if (levelOpen(n)) return n; return -1; };
 if (!levelOpen(S.cur)) S.cur=0;
 
 // ===================== Physics =====================
@@ -204,17 +207,26 @@ const VOICE={
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 let L=null, levelKey='', mode='aim', lastShot=null, acc=0, probe=null, trail=[], fuel=1, tries=0, drag=null, aim=null, mouse=null, thrusting=false, simT=0, stepN=0, vis=0, winAnim=null, view={s:1,ox:0,oy:0};
 let fly=null, flyLog=[], computed=null, runsLeft=3, dvUsed=0;
+// Deep space: a sandbox Grand Tour with the planets wherever a seed puts them. No par, no stars, unlimited computing.
+function deepMission(seed){ const r=RH.rng('deep:'+seed); return {p:3, planets:[E(), PL('Venus',105,4e4,14,r()*6.283), PL('Jupiter',330,1.5e5,26,r()*6.283), PL('Saturn',440,8e4,22,r()*6.283)], target:-1, visits:[2,3], budget:20, par:0, sandbox:true}; }
 function openLevel(key){
-  levelKey=String(key); const n=+key; const M=MISSIONS[n];
+  levelKey=String(key); const deep=levelKey.startsWith('deep:'); const n=deep? 0 : +key; const M= deep? deepMission(levelKey.slice(5)) : MISSIONS[n];
   L={...M, sys:M.p, idx:n%PER, planets:M.planets.map(p=>PL(p.n,p.r,p.m,p.rad,p.ph)), t0:0};
-  tries=0; runsLeft=3; mode='aim'; aim=null; reset(); lastShot=null; renderSide();
-  document.getElementById('lvlName').textContent=`${SYSTEMS[L.sys].n} · ${n%PER+1}/${PER}`;
+  tries=0; runsLeft= deep? 99 : 3; mode='aim'; aim=null; reset(); lastShot=null; renderSide(); winQ=null; drawStrip();
+  document.getElementById('lvlName').textContent= deep? `Deep space · ${levelKey.slice(5)}` : `${SYSTEMS[L.sys].n} · ${n%PER+1}/${PER}`;
   document.getElementById('winR').value=0; updWin();
 }
 function reset(){ if (mode!=='aim' && trail.length>1) lastShot=trail.map(p=>[p[0],p[1]]); mode='aim'; thrusting=false; drag=null; acc=0; winAnim=null; trail=[]; fuel=1; dvUsed=0; simT=L.t0||0; stepN=0; vis=0; flyLog=[]; fly=null;
   const H=L.planets[0], [x,y]=bodyPos(H,simT); probe={x,y,vx:0,vy:0}; document.getElementById('msg').innerHTML=''; document.getElementById('flyP').textContent=''; updHud(); }
+// The launch-date strip (a one-row porkchop plot): for the current aim, how close the probe gets to the goal if launched at each date
+let winQ=null;
+function windowQuality(v){ const out=[]; for (let t0=0;t0<=WIN_MAX;t0+=1){ let best=0; const need=L.visits||[];
+    const r=simulate(L, v.ang, v.dv, (x,y,s,t)=>{ if (s%6) return; let q; if (L.target>=0){ const [tx,ty]=bodyPos(L.planets[L.target],t); q=1-Math.min(1,Math.hypot(tx-x,ty-y)/220); } else q=Math.min(1,Math.hypot(x-SUN.x,y-SUN.y)/520)*0.6; if (q>best) best=q; }, null, t0);
+    if (r.res==='win') best=1; else if (L.target<0) best=Math.min(0.95,best+0.2*Math.min(need.length,(r.flybys||[]).filter(f=>need.includes(f.i)).length)); out.push(best); } return out; }
+function drawStrip(){ const el=document.getElementById('winStrip'); if (!el) return; if (!winQ){ el.innerHTML=''; el.title='Aim first: the strip shows, for that aim, how close each launch date gets you.'; return; }
+  el.innerHTML=winQ.map((q,i)=>`<i style="background:rgba(${q>=1?'123,227,138':'255,138,42'},${0.12+q*0.85})" title="T+${i}: ${q>=1?'arrives':Math.round(q*100)+'%'}"></i>`).join('')+`<b style="left:${(L.t0||0)/WIN_MAX*100}%"></b>`; }
 function setWindow(t){ if (mode!=='aim' || !L) return; L.t0=Math.max(0,Math.min(WIN_MAX,+t||0)); computed=null; reset(); updWin(); }
-function updWin(){ document.getElementById('winV').textContent=`T+ ${(L.t0||0).toFixed(1)} s`; }
+function updWin(){ document.getElementById('winV').textContent=`T+ ${(L.t0||0).toFixed(1)} s`; drawStrip(); }
 function updHud(){ const left=Math.max(0,L.budget-dvUsed); document.getElementById('needle').setAttribute('transform',`rotate(${-90+(left/L.budget)*180} 31 32)`);
   document.getElementById('tries').textContent=`UPLINK ${String(tries+(mode==='aim'?1:0)).padStart(2,'0')}`; document.getElementById('met').textContent=`T+ ${String((stepN*DT).toFixed(1)).padStart(4,'0')}`;
   document.getElementById('dvP').textContent=`ΔV ${(mode==='aim'&&aim? aim.dv : dvUsed).toFixed(1)} / ${L.budget}`;
@@ -240,9 +252,8 @@ function end(res, body){
   const box=document.getElementById('msg');
   const flyHtml=flyLog.map(f=>`${f.n}: in its frame ${f.relIn.toFixed(0)}→${f.relOut.toFixed(0)}; in the Sun's ${f.helIn.toFixed(0)}→${f.helOut.toFixed(0)} <b>(${f.helOut>=f.helIn?'+':''}${(f.helOut-f.helIn).toFixed(0)})</b>`).join('<br>');
   if (res==='win'){
-    const stars=starsFor(dvUsed, tries===1, L);
-    const prev=S.best[levelKey]; const rec={stars:Math.max(stars,prev?.stars||0), dv:Math.min(dvUsed, prev?.dv??99)};
-    S.best[levelKey]=rec; persist(); renderSide();
+    const stars=L.sandbox? 0 : starsFor(dvUsed, tries===1, L);
+    if (!L.sandbox){ const prev=S.best[levelKey]; const rec={stars:Math.max(stars,prev?.stars||0), dv:Math.min(dvUsed, prev?.dv??99)}; S.best[levelKey]=rec; persist(); } renderSide();
     const why=[`✓ Arrived in ${(stepN*DT).toFixed(1)} s`, dvUsed<=L.par*1.1+0.05? `✓ Δv ${dvUsed.toFixed(1)}: within par (${L.par})` : `✗ Δv ${dvUsed.toFixed(1)}: par is ${L.par}`, tries===1? '✓ First uplink' : `✗ Uplink ${tries}: plan more, launch less`];
     box.innerHTML=`<div class="won"><span class="stamp">${stars===3?'GRAND TOUR':'ARRIVED'}</span><h2 style="margin:0 0 6px">Mission ${'★'.repeat(stars)}${'☆'.repeat(3-stars)}</h2><div class="small" style="text-align:left;line-height:1.6">${why.join('<br>')}${flyHtml?'<br>'+flyHtml:''}</div><div class="small memo" style="text-align:left;margin-top:8px"><b>JPL memo:</b> ${SYSTEMS[L.sys].memo}</div><div class="row" style="justify-content:center;margin-top:10px"><button id="again">Fly again</button>${nextOpen(levelKey)<0?'':`<button class="primary" id="nextL">Next mission →</button>`}</div></div>`;
     document.getElementById('again').onclick=reset; document.getElementById('nextL')?.addEventListener('click',()=>{ const n=nextOpen(levelKey); if (n<0) return; S.cur=n; persist(); openLevel(String(n)); });
@@ -348,18 +359,19 @@ cv.addEventListener('pointerdown', e=>{ setBinder(false); const [x,y]=toWorld(e)
   else if (mode==='fly'){ thrusting=true; }
   else if (mode==='done' && !document.querySelector('#msg button')) reset(); });
 window.addEventListener('pointermove', e=>{ const [x,y]=toWorld(e); mouse=[x,y]; if (drag) drag={x,y}; });
-const release=()=>{ thrusting=false; if (mode==='aim' && drag){ const v=aimVec(); drag=null; if (v){ aim=v; if (computed && (computed.aim.ang!==v.ang || computed.aim.dv!==v.dv)) computed=null; updHud(); } } };
+const release=()=>{ thrusting=false; if (mode==='aim' && drag){ const v=aimVec(); drag=null; if (v){ aim=v; if (computed && (computed.aim.ang!==v.ang || computed.aim.dv!==v.dv)) computed=null; winQ=windowQuality(v); drawStrip(); updHud(); } } };
 window.addEventListener('pointerup', release);
 window.addEventListener('pointercancel', ()=>{ thrusting=false; drag=null; });
 window.addEventListener('blur', ()=>{ thrusting=false; drag=null; });
 document.getElementById('winR').addEventListener('input', e=>setWindow(e.target.value));
 document.getElementById('launchBtn').onclick=()=>launch();
+document.getElementById('deepBtn').onclick=()=>{ const v=document.getElementById('seedIn').value.trim().slice(0,32)||'voyager'; openLevel('deep:'+v); setBinder(false); };
 document.getElementById('computeBtn').onclick=()=>compute();
 function setBinder(open){ document.body.classList.toggle('drawer',open); document.getElementById('binderBtn').setAttribute('aria-expanded',String(open)); }
 document.getElementById('binderBtn').onclick=()=>setBinder(!document.body.classList.contains('drawer'));
 document.getElementById('binderClose').onclick=()=>setBinder(false);
 const typing=(e)=> e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) && e.target.type!=='range';
-window.addEventListener('keydown', e=>{ if (typing(e)) return;
+window.addEventListener('keydown', e=>{ if (typing(e)){ if (e.key==='Enter' && e.target.id==='seedIn') document.getElementById('deepBtn').click(); return; }
   if (e.key==='r'||e.key==='R'){ reset(); } if (e.key==='Enter' && mode==='aim'){ launch(); } if ((e.key==='c'||e.key==='C') && mode==='aim') compute();
   if (e.key===' ' && mode==='fly'){ thrusting=true; e.preventDefault(); } });
 window.addEventListener('keyup', e=>{ if (e.key===' ') thrusting=false; });
@@ -387,7 +399,7 @@ let lastT=performance.now(), testHold=false;
 function frame(now){ const dt=(now-lastT)/1000; lastT=now; if (!testHold) tick(dt); draw(); requestAnimationFrame(frame); }
 fit(); window.addEventListener('resize', fit);
 openLevel(String(S.cur||0)); requestAnimationFrame(frame);
-window.__sling={ MISSIONS, SYSTEMS, SUN, simulate, startState, bodyPos, bodyVel, accel, flybyTracker, starsFor, cleanSave, levelOpen, nextOpen, sysUnlocked, aimVec, launch, compute, tick, liveStep, reset, openLevel, end, setWindow, DT, TMAX, THRUST, PER, NLEV, toS, toW,
+window.__sling={ windowQuality, deepMission, get winQ(){ return winQ; }, MISSIONS, SYSTEMS, SUN, simulate, startState, bodyPos, bodyVel, accel, flybyTracker, starsFor, cleanSave, levelOpen, nextOpen, sysUnlocked, aimVec, launch, compute, tick, liveStep, reset, openLevel, end, setWindow, DT, TMAX, THRUST, PER, NLEV, toS, toW,
   get S(){ return S; }, get L(){ return L; }, set L(v){ L=v; }, get mode(){ return mode; }, get probe(){ return probe; }, get dvUsed(){ return dvUsed; }, get stepN(){ return stepN; }, get simT(){ return simT; }, get aim(){ return aim; }, set aim(v){ aim=v; }, get runsLeft(){ return runsLeft; }, get computed(){ return computed; }, get flyLog(){ return flyLog; }, get tries(){ return tries; },
   get thrusting(){ return thrusting; }, set thrusting(v){ thrusting=v; }, get mouse(){ return mouse; }, set mouse(v){ mouse=v; }, get levelKey(){ return levelKey; }, get lastShot(){ return lastShot; }, get view(){ return view; }, get winAnim(){ return winAnim; },
   hold(v){ testHold=!!v; } };

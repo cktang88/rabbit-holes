@@ -59,7 +59,7 @@ module.exports = {
       }
     },
     'build/close cities: brute force finds a solution but most choices fail': async ({ page, ok }) => {
-      const r = await page.evaluate(`(() => { const out = []; for (let lv = 0; lv < __gl.LV.length; lv++) { const L = __gl.LV[lv]; if (L.tools.toll) continue;
+      const r = await page.evaluate(`(() => { const out = []; for (let lv = 0; lv < __gl.LV.length; lv++) { const L = __gl.LV[lv]; if (L.tools.toll || L.budget) continue;
         __gl.load(lv); const cand = __gl.roads().map((r, i) => [r, i]).filter(([r]) => L.tools.build ? r.ghost : !r.ghost).map(([r]) => r.a + r.b), k = L.tools.build || L.tools.close;
         const combos = [[]]; const rec = (s, c) => { if (c.length) combos.push(c.slice()); if (c.length >= k) return; for (let j = s; j < cand.length; j++) { c.push(cand[j]); rec(j + 1, c); c.pop(); } }; rec(0, []);
         let wins = 0; for (const c of combos) if (${apply}(lv, c) <= L.target) wins++; out.push([lv, wins, combos.length]); } return out; })()`);
@@ -80,10 +80,17 @@ module.exports = {
           for (const cl of [null, ...roads]) best = Math.min(best, ${apply}(10, cl ? [...plan, cl] : plan)); } return best; })()`);
       ok(best > 24 && best <= 26.2, 'best toll-free plan ' + best);
     },
+    'Two Suburbs: the best average and the fairest plan are different stamps; Zero Sum needs a road and a toll for the top': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(`(() => { const g = plan => { ${apply}(5, plan); return [__gl.average(), __gl.worstHome()]; };
+        const fast = g(['PR', 'RW']), fair = g(['PR', 'RW', 'PM']);
+        return { fast, fair, gFast: __gl.gradeOf(5, ...fast), gFair: __gl.gradeOf(5, ...fair), z1: __gl.gradeOf(6, ${apply}(6, ['QN'])), z2: __gl.gradeOf(6, ${apply}(6, ['QN', 'QM$5'])) }; })()`);
+      ok(r.fast[0] < r.fair[0] && r.fair[1] < r.fast[1], 'fast plan should beat the fair one on average and lose on the worst suburb ' + JSON.stringify(r));
+      eq([r.gFast, r.gFair, r.z1, r.z2], ['Commended', 'Masterplan', 'Commended', 'Masterplan']);
+    },
     'Your City: the budget is enforced through real clicks, and a better plan re-stamps the file': async ({ page, ok, eq }) => {
       await page.evaluate(() => { localStorage.setItem('rh:gridlock', '{}'); __gl.load(10); });
       const click = async nm => { const [x, y] = await page.evaluate(nm => { const r = __gl.roads().find(r => r.a + r.b === nm), v = __gl.view(); return [(r.lx * v.s + v.ox) / v.dpr, (r.ly * v.s + v.oy) / v.dpr]; }, nm); await page.mouse.click(x, y); };
-      await click('AC'); await click('MW'); eq(await page.evaluate(() => __gl.budgetLeft()), 0);
+      await click('AC'); await page.locator('#fcSkip').click(); await click('MW'); eq(await page.evaluate(() => __gl.budgetLeft()), 0);
       await click('QB'); eq(await page.evaluate(() => __gl.roads().find(r => r.a + r.b === 'QB').built), 0, 'built over budget');
       ok(await waitFor(page, () => __gl.won, 10000), 'pair did not win'); await page.waitForTimeout(1600);
       eq(await page.evaluate(() => __gl.gradeOf(10, __gl.best[10])), 'Commended');
@@ -144,9 +151,14 @@ module.exports = {
       await page.evaluate(() => __gl.load(2)); await page.waitForTimeout(300);
       const [x, y] = await page.evaluate(() => { const r = __gl.roads().find(r => r.a + r.b === 'CD'), v = __gl.view(); return [(r.lx * v.s + v.ox) / v.dpr, (r.ly * v.s + v.oy) / v.dpr]; }); await page.mouse.click(x, y);
       ok(await page.evaluate(() => __gl.roads().find(r => r.a + r.b === 'CD').closed), 'click did not close CD');
+      ok(await page.locator('#fc').isVisible(), 'no forecast prompt'); await page.waitForTimeout(600);
+      ok(await page.evaluate(() => !__gl.won && __gl.fc.pending), 'drivers moved before the forecast');
+      await page.locator('#fcIn').fill('65'); await page.locator('#fcGo').click();
       await page.waitForTimeout(250); ok(!(await page.evaluate(() => __gl.won)), 'won before the traffic settled');
       ok(await waitFor(page, () => __gl.won), 'never won');
       eq(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:gridlock')).done), { 2: 1 });
+      ok(await waitFor(page, () => __gl.forecasts[2] === 1), 'a good forecast is not recorded');
+      ok((await page.locator('#fcRes').textContent()).includes('good call'), 'forecast result');
       near(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).gridlock), 1 / 11, 1e-9);
     },
     'toll slider held on the answer does not win until released': async ({ page, ok }) => {
@@ -179,9 +191,9 @@ module.exports = {
     'saves: corrupted, out-of-range and v1 saves load safely': async ({ page, eq }) => {
       const r = await page.evaluate(() => [null, 5, 'x', [], { done: null, cur: 'a' }, { done: { 0: 1, 99: 1, x: 1 }, cur: 42 }, { done: { 0: 1, 1: 1, 2: 1, 3: 1, 4: 1 }, cur: 4 }, { done: { 0: 1, 1: 1, 2: 1, 3: 1 }, cur: 3 }, { v: 2, done: { 3: 1 }, cur: 3 }].map(__gl.cleanSave));
       eq(r.slice(0, 5).map(s => [s.done, s.cur]), Array(5).fill([{}, 0]));
-      eq(r[5], { v: 2, done: { 0: 1 }, cur: 0, best: {} });
-      eq(r[6], { v: 2, done: { 0: 1, 1: 1, 2: 1, 3: 1 }, cur: 3, best: {} }, 'v1 Ring Road (old 4) moves to 3');
-      eq(r[7], { v: 2, done: { 0: 1, 1: 1, 2: 1 }, cur: 2, best: {} }, 'v1 Cheonggyecheon is dropped');
+      eq(r[5], { v: 2, done: { 0: 1 }, cur: 0, best: {}, grade: {}, fc: {} });
+      eq(r[6], { v: 2, done: { 0: 1, 1: 1, 2: 1, 3: 1 }, cur: 3, best: {}, grade: {}, fc: {} }, 'v1 Ring Road (old 4) moves to 3');
+      eq(r[7], { v: 2, done: { 0: 1, 1: 1, 2: 1 }, cur: 2, best: {}, grade: {}, fc: {} }, 'v1 Cheonggyecheon is dropped');
       eq(r[8].cur, 3);
       for (const bad of ['{not json', '"str"', '{"done":7,"cur":-1}']) {
         await plant(page, bad);

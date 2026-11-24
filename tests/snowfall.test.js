@@ -1,98 +1,96 @@
-// Snowfall: the precomputed tables must match the model, every copy puzzle must be solvable by its recipe and by nothing else,
-// a live fall must replay exactly from its recorded schedule, and saves of every age must load safely.
-const plant = async (page, raw) => { await page.addInitScript(raw => localStorage.setItem('rh:snowfall', raw), raw); await page.reload(); await page.waitForTimeout(700); };
-const fall = async page => { const t0 = Date.now(); while (await page.evaluate(() => __snow.growing)) { if (Date.now() - t0 > 25000) throw new Error('fall never landed'); await page.waitForTimeout(100); } return (Date.now() - t0) / 1000; };
+// Snowfall: the Nakaya morphology map, growth records the fall in order, every case is solvable by its own sounding and not
+// at the start, the balloon budget and stars, saves, and the difficulty rule (guessing soundings fails; reading the flake works).
+const close = page => page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
+const L = (T, s, d = 2) => ({ T, s, d });
 
 module.exports = {
   page: 'snowfall/index.html',
+  ready: async page => { await page.waitForFunction(() => window.__snow); await close(page); },
   tests: {
-    'selfCheck: prototypes, targets and (every 4th) pad point replay to the stored tables': async ({ page, eq }) => {
-      eq(await page.evaluate(() => __snow.selfCheck(4)), { worst: 0, padMismatch: 0 });
+    'habit(): the real temperature sequence (plates, columns and needles, plates, stars, columns) and humidity branching': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const h = __snow.habit; return [h(-2, .2), h(-2, .9), h(-6, .2), h(-5.5, .9), h(-8.5, .9), h(-14, .2), h(-14, .5), h(-15, .9), h(-20, .9), h(-24, .2)]; });
+      eq(r, ['plate', 'sector', 'column', 'needle', 'hollow', 'plate', 'sector', 'dendrite', 'stellar', 'column']);
     },
-    'copy scoring: each recipe earns 3 stars on its own target and 0 on every other': async ({ page, eq }) => {
-      const M = await page.evaluate(() => { const T = __snow.TARGETS, masks = T.map(t => __snow.replay(t.sc)); return T.map((_, i) => masks.map(m => __snow.scoreCopy(m, i).stars)); });
-      eq(M, M.map((row, i) => row.map((_, j) => i === j ? 3 : 0)));
+    'grow(): the centre is the oldest part; plates after a column become caps; durations and humidity set proportions': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const g = __snow.grow, a = g([{ T: -6, s: .2, d: 2 }, { T: -14, s: .5, d: 2 }]), b = g([{ T: -14, s: .5, d: 2 }, { T: -6, s: .2, d: 2 }]);
+        const slow = g([{ T: -15, s: .9, d: 1 }]), fast = g([{ T: -15, s: .9, d: 3 }]), dry = g([{ T: -14, s: .2, d: 2 }]), wet = g([{ T: -14, s: .3, d: 2 }]);
+        return { aCaps: a.caps, bCaps: b.caps, aKinds: [a.ax[0].kind, a.rad[0].kind], ratio: (fast.a - .25) / (slow.a - .25), wetter: wet.a > dry.a, sameAB: __snow.similarity(a, b) }; });
+      eq([r.aCaps, r.bCaps], [true, false]); eq(r.aKinds, ['column', 'sector']); ok(Math.abs(r.ratio - 3) < 1e-9, 'growth proportional to time'); ok(r.wetter);
+      ok(r.sameAB < .9, 'the same two layers in the opposite order must not count as a match: ' + r.sameAB);
     },
-    'copy scoring: slightly-off timing still earns stars; the right forms in the wrong order do not': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const T = __snow.TARGETS, i4 = T.findIndex(t => t.n === 'Fern with plate tips'), i5 = T.findIndex(t => t.n === 'Three seasons'), i2 = T.findIndex(t => t.n === 'Plate, then arms');
-        const sc = (sc, i) => __snow.scoreCopy(__snow.replay(sc), i).stars;
-        return { late: sc([[0, .1, .1], [.84, .3, 1]], i4), early2: sc([[0, .3, 1], [.5, .1, .1]], i2),
-          reversed: sc([[0, .1, .1], [.45, .3, 1]], i2), steadyFern: sc([[0, .1, .1]], i4), steadyPlate: sc([[0, .3, 1]], i2), oneSeason: sc([[0, .1, .1], [.25, .3, 1]], i5) }; });
-      ok(r.late >= 2 && r.early2 >= 2, 'near-miss timing rejected ' + JSON.stringify(r));
-      ok(!r.reversed && !r.steadyFern && !r.steadyPlate && r.oneSeason < 2, 'wrong recipe scored ' + JSON.stringify(r));
+    'every case: its own sounding matches, the starting sounding does not, and different cases do not match each other': async ({ page, ok }) => {
+      const bad = await page.evaluate(() => { const S = __snow, out = [];
+        S.CASES.forEach((c, i) => { if (c.chamber) return;
+          if (S.scoreSounding(c, c.target[0]).score < .999) out.push(i + ' own sounding');
+          if (S.scoreSounding(c, [{ T: -10, s: .5, d: 2 }]).score >= S.MATCH) out.push(i + ' default matches');
+          S.CASES.forEach((d, j) => { if (j !== i && !d.chamber && S.scoreSounding(c, d.target[0]).score >= S.MATCH) out.push(i + ' matched by case ' + j); }); });
+        return out; });
+      ok(!bad.length, bad.join('; '));
     },
-    'scribbling all over the pad does not copy the two-change flakes': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { let seed = 11; const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647, T = __snow.TARGETS, out = [];
-        for (let k = 0; k < 5; k++) { const sc = [[0, rnd(), rnd()]]; for (let f = .05; f < 1; f += .05) sc.push([f, rnd(), rnd()]); const m = __snow.replay(sc); out.push(T.map((_, i) => __snow.judgeCopy(m, sc, i, 'frac').stars)); }
-        // every recipe stays well inside its travel allowance
-        const fair = T.every((t, i) => __snow.padTravel(t.sc, 'frac') + .5 < __snow.travelAllowance(i));
-        return { out, fair }; });
-      ok(r.fair, 'a recipe exceeds its own travel allowance');
-      for (const row of r.out) ok(row.every(s => s < 2), 'scribble scored ' + row);
+    'the cold chamber teaches the diagram: kinds you grow are labelled, four open the case files': async ({ page, ok, eq }) => {
+      ok(await page.evaluate(() => !__snow.isOpen(1)), 'case 1 open before the chamber');
+      for (const [T, s] of [[-2, .2], [-5.5, .9], [-15, .9]]) { await page.evaluate(([T, s]) => { __snow.sounding = [{ T, s, d: 2 }]; __snow.launch(); }, [T, s]); }
+      ok(await page.evaluate(() => !__snow.isOpen(1)), 'opened after three kinds');
+      await page.evaluate(() => { __snow.sounding = [{ T: -7, s: .2, d: 2 }]; __snow.launch(); });
+      eq(await page.evaluate(() => Object.keys(__snow.SAVE.seen).sort()), ['column', 'dendrite', 'needle', 'plate']);
+      ok(await page.evaluate(() => __snow.isOpen(1)), 'four kinds did not open the cases');
     },
-    'classification: steady weather only ever gives a pure form; combo forms need a switch': async ({ page, eq }) => {
-      const r = await page.evaluate(() => [[.1, .1], [.5, .5], [.3, 1], [.3, .75]].map(([x, y]) => { const m = __snow.replay([[0, x, y]]); const f = __snow.classify(m, false); return f && f.id; }));
-      eq(r, ['fern', 'stellar', 'plate', 'broad']);
-      eq(await page.evaluate(() => __snow.classify(__snow.replay([[0, .3, 1], [.45, .1, .1]]), true).id), 'platearms');
+    'balloons: each regrowth costs one; stars by balloons; running out resets the case': async ({ page, eq, ok }) => {
+      await page.evaluate(() => { const S = __snow; S.SAVE.done[0] = 1; S.startCase(4); });
+      for (let k = 0; k < 2; k++) await page.evaluate(() => { __snow.sounding = [{ T: -2, s: .2, d: 1 }]; __snow.launch(); });
+      eq(await page.evaluate(() => __snow.used), 2);
+      await page.evaluate(() => { __snow.sounding = __snow.CASES[4].target[0].map(l => ({ ...l })); __snow.launch(); });
+      await page.waitForTimeout(1200); eq(await page.evaluate(() => __snow.SAVE.done[4]), 2, 'three balloons should earn two stars');
+      ok((await page.textContent('.modal')).includes('developed'));
+      await close(page);
+      await page.evaluate(() => { const S = __snow; S.startCase(5); for (let k = 0; k < 5; k++) { S.sounding = [{ T: -2, s: .2, d: 1 }]; S.launch(); } });
+      ok(await page.evaluate(() => !__snow.SAVE.done[5]), 'solved with the wrong sounding');
+      await page.waitForTimeout(2900); eq(await page.evaluate(() => __snow.used), 0, 'balloons not refilled after the storm passed');
     },
-    'model invariants: hex symmetry, ice only grows, descriptor bounds, pad mapping': async ({ page, ok, near, eq }) => {
-      const r = await page.evaluate(() => { const { N, Sim, seed, step, desc, ptToParams } = __snow, C = N >> 1, o = Sim(); seed(o, .4, .001); let grew = true, prev = 1;
-        for (let i = 0; i < 400; i++) { step(o); let n = 0; for (let k = 0; k < o.fr.length; k++) n += o.fr[k]; if (n < prev) grew = false; prev = n; }
-        // 6-fold symmetry: rotate axial (q, r) -> (-r, q + r)
-        let asym = 0; for (let r = -40; r <= 40; r++) for (let q = -40; q <= 40; q++) { const a = (r + C) * N + q + C, q2 = -r, r2 = q + r; if (Math.abs(r2) > C || Math.abs(q2) > C) continue; if (o.fr[a] !== o.fr[(r2 + C) * N + q2 + C]) asym++; }
-        const d = desc(o.fr), z = desc(new Uint8Array(N * N));
-        return { grew, asym, ice: prev, dmin: Math.min(...d), dmax: Math.max(...d), zero: Math.max(...z), p0: ptToParams({ x: 0, y: 0 }), p1: ptToParams({ x: 1, y: 1 }) }; });
-      ok(r.grew && r.ice > 7, 'ice must only grow'); eq(r.asym, 0, 'not six-fold symmetric');
-      ok(r.dmin >= 0 && r.dmax <= 1 && r.zero === 0, 'descriptor out of range');
-      near(r.p0[0], .3, 1e-9); near(r.p0[1], .0001, 1e-9); near(r.p1[0], .55, 1e-9); near(r.p1[1], .05, 1e-9);
+    'difficulty: naive play fails': async ({ page, ok }) => {
+      const r = await page.evaluate(() => {
+        const S = __snow, late = [6, 7, 8]; let sd = 7; const R = () => (sd = (sd * 1103515245 + 12345) % 2147483648) / 2147483648;
+        const CAN = { plate: [-14, .2], sector: [-14, .5], stellar: [-20, .9], dendrite: [-15, .9], column: [-7, .2], hollow: [-8, .6], needle: [-5.5, .85] };
+        const order = cr => [...cr.rad.filter(g => !g.cap), ...cr.ax, ...cr.rad.filter(g => g.cap)];
+        const naive = [], comp = [];
+        for (const i of late) { const c = S.CASES[i], T = S.grow(c.target[0]);
+          naive.push(S.scoreSounding(c, [{ T: -10, s: .5, d: 2 }]).score >= S.MATCH);                                    // idle: the starting sounding
+          for (let run = 0; run < 10; run++) { let won = false; for (let b = 0; b < S.BALLOONS && !won; b++) {                 // random soundings
+            const snd = Array.from({ length: 1 + Math.floor(R() * 4) }, () => ({ T: -1 - R() * 24, s: R(), d: 1 + Math.floor(R() * 3) })); won = S.scoreSounding(c, snd).score >= S.MATCH; } naive.push(won); }
+          const out = (T.rad.at(-1) || T.ax.at(-1)).kind; naive.push(S.scoreSounding(c, [{ T: CAN[out][0], s: CAN[out][1], d: 3 }]).score >= S.MATCH); // one layer of the outermost habit
+          // competent: read the layers from the inside out, guess the textbook condition for each, start every duration at 2,
+          // then after each balloon fix the layer whose regrowth is most out of proportion with the specimen
+          let snd = order(T).map(g => ({ T: CAN[g.kind][0], s: CAN[g.kind][1], d: 2 })), used = 0, sc = 0;
+          while (used < S.BALLOONS) { used++; const res = S.scoreSounding(c, snd); sc = res.score; if (sc >= S.MATCH) break;
+            const ext = cr => order(cr).map(g => (g.r1 ?? g.c1) - (g.r0 ?? g.c0)), m = ext(res.mine[0]), t = ext(T); let j = -1, w = 0;
+            t.forEach((e, q) => { const lr = Math.log((m[q] || 1e-3) / e); if (Math.abs(lr) > Math.abs(w)) { w = lr; j = q; } }); if (j < 0) break;
+            const l = snd[j]; if (Math.abs(w) > .3 && w > 0 && l.d > 1) l.d--; else if (Math.abs(w) > .3 && w < 0 && l.d < 3) l.d++; else l.s = Math.max(0, Math.min(1, l.s + (w > 0 ? -.1 : .1))); }
+          comp.push(sc >= S.MATCH ? S.starsFor(used) : 0);
+        }
+        return { naive: naive.filter(Boolean).length / naive.length, comp, solver: late.map(i => S.scoreSounding(S.CASES[i], S.CASES[i].target[0]).score >= S.MATCH ? S.starsFor(1) : 0) };
+      });
+      ok(r.naive <= .2, 'naive soundings solved late cases too often: ' + r.naive);
+      ok(r.comp.every(s => s >= 1), 'reading the flake should solve every late case: ' + r.comp);
+      ok(r.comp.every(s => s < 3) && r.solver.every(s => s === 3), `three stars should need an exact reading: competent ${r.comp}, solver ${r.solver}`);
     },
-    'live fall: ~8 s, buttons locked meanwhile, recorded schedule replays the exact crystal': async ({ page, ok, eq }) => {
-      await page.evaluate(() => __snow.setPad(.3, 1)); await page.locator('#rel').click(); await page.locator('#rel').click({ force: true }).catch(() => {});
-      ok(await page.evaluate(() => __snow.growing)); ok(await page.locator('#rel').isDisabled());
-      // steer mid-fall with the real pad: drag down to the ferns
-      await page.waitForTimeout(3600); const b = await page.locator('#pad').boundingBox();
-      await page.mouse.move(b.x + b.width * .3, b.y + 4); await page.mouse.down(); await page.mouse.move(b.x + b.width * .1, b.y + b.height * .9, { steps: 5 }); await page.mouse.up();
-      await page.evaluate(() => __snow.setMode('gallery')); eq(await page.evaluate(() => __snow.mode), 'free', 'mode changed mid-fall');
-      eq(await page.evaluate(() => __snow.setTarget(3)), false);
-      const secs = 3.6 + await fall(page); ok(secs > 6 && secs < 12, 'fall took ' + secs);
-      const r = await page.evaluate(() => { const live = __snow.mask.slice(), sc = __snow.sched, rep = __snow.replay(sc, 'pad'); let diff = 0; for (let k = 0; k < live.length; k++) diff += live[k] !== rep[k]; return { diff, n: sc.length, got: Object.keys(__snow.SAVE.got), gal: __snow.SAVE.gallery.length }; });
-      eq(r.diff, 0, 'replay differs'); ok(r.n > 1, 'pad drag not recorded'); eq(r.gal, 1);
-      ok(r.got.length === 1, 'catalogue: ' + r.got);
+    'saves: old and corrupt saves load; progress stays within 1': async ({ page, eq }) => {
+      const r = await page.evaluate(() => [null, '[]', { done: { 0: 1, 3: 1 }, cur: 2 }, { v: 2, done: { 2: 7, x: 1, 99: 1 }, seen: { plate: 1, bogus: 1 }, cur: 4 }].map(__snow.cleanSave));
+      eq(r[2].done, {}); eq(r[3].done, { 2: 3 }); eq(r[3].seen, { plate: 1 }); eq(r[3].cur, 4);
+      await page.evaluate(() => { const S = __snow; S.CASES.forEach((_, i) => S.SAVE.done[i] = 3); S.sounding = [{ T: -2, s: .2, d: 2 }]; S.startCase(0); S.launch(); });
+      eq(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).snowfall), 1);
     },
-    'copy mode: the first target copied for real earns stars, unlocks the next, and Next works': async ({ page, ok, eq }) => {
-      await page.evaluate(() => __snow.setMode('copy')); await page.waitForTimeout(300);
-      eq(await page.evaluate(() => document.querySelectorAll('.tg.lock').length), 5);
-      await page.evaluate(() => document.querySelector('.tg[data-i="3"]').click()); eq(await page.evaluate(() => __snow.target), 0, 'locked target opened');
-      await page.evaluate(() => __snow.setPad(.3, .5)); await page.locator('#rel').click(); await fall(page);
-      const r = await page.evaluate(() => ({ s: __snow.lastScore.stars, c: __snow.SAVE.copies, t: __snow.SAVE.tried, hub: JSON.parse(localStorage.getItem('rh:hub')).snowfall }));
-      ok(r.s >= 2, 'steady star scored ' + r.s); eq(r.t, { 0: 1 }); ok(Math.abs(r.hub - 1 / 13) < 1e-9 || Math.abs(r.hub - 2 / 13) < 1e-9, 'progress ' + r.hub);
-      await page.locator('#nextT').click(); eq(await page.evaluate(() => __snow.target), 1);
-      // re-entering copy mode resumes at the first flake not yet copied
-      await page.evaluate(() => { __snow.setMode('free'); __snow.setMode('copy'); }); eq(await page.evaluate(() => __snow.target), 1);
+    'the pad: dragging sets temperature and humidity of the selected layer': async ({ page, ok }) => {
+      const b = await page.locator('#pad').boundingBox();
+      await page.mouse.move(b.x + b.width * (4.5 / 24), b.y + b.height * .1); await page.mouse.down(); await page.mouse.move(b.x + b.width * (4.5 / 24) + 1, b.y + b.height * .1); await page.mouse.up();
+      const l = await page.evaluate(() => __snow.sounding[0]);
+      ok(Math.abs(l.T + 5.5) <= .5 && l.s >= .85, JSON.stringify(l));
     },
-    'saves: corrupted, v1 and v2 saves load safely and migrate': async ({ page, eq, ok }) => {
-      const r = await page.evaluate(() => { const c = __snow.cleanSave;
-        return [c(null), c(7), c({ v: 2, got: null, gallery: 'x', copies: [], tried: 5, mode: 'evil' }),
-          c({ v: 2, got: { plate: { sc: [[0, 50, 200]] }, bogus: 1, fern: { sc: [[0, 'a', 1]] } }, gallery: [null, { sc: [[0, 10, 10]], k: 'pad', name: '<img onerror=x>' }, { sc: [[5, 1, 1]], k: 'pad' }, { sc: [], k: 'pad' }], copies: { 0: 3, 1: 2, 2: 3, 3: 1, 4: 2, 7: 9, x: 1 }, tried: { 5: 2 } }),
-          c({ got: { plate: 'data:image/png;base64,AAAA', stellar: 1 }, gallery: [{ sc: [[0, .4, .001], [100, .35, .01]], name: 'Old' }], copies: { 0: 3 }, intro: 1 })]; });
-      const empty = { v: 3, got: {}, gallery: [], copies: {}, tried: {}, mode: 'free', slow: 0 };
-      eq(r[0], empty); eq(r[1], empty); eq(r[2], empty);
-      eq(r[3].got, { plate: { sc: [[0, 50, 200]] }, fern: 1 }); eq(r[3].gallery, [{ sc: [[0, 10, 10]], k: 'pad', name: 'img onerror=x' }]);
-      eq(r[3].copies, { 0: 3, 1: 2, 2: 2, 5: 3 }, 'v2 copies remapped (Fern, Broad dropped)'); eq(r[3].tried, { 3: 2 });
-      eq(r[4].got, { plate: 1, stellar: 1 }); eq(r[4].gallery, [{ sc: [[0, .4, .001], [100, .35, .01]], k: 'raw', name: 'Old' }]); eq(r[4].copies, {});
-      for (const raw of ['{oops', '[]', JSON.stringify({ v: 3, mode: 'gallery', gallery: [{ sc: [[0, 1e9, -4]], k: 'pad' }, { sc: [[0, 60, 120]], k: 'pad', name: 'ok' }] })]) {
-        await plant(page, raw); await page.waitForTimeout(800); ok(await page.locator('#rel').isEnabled(), 'page broken by ' + raw);
-      }
-      eq(await page.evaluate(() => [__snow.mode, __snow.SAVE.gallery.length]), ['gallery', 1]);
-    },
-    'progress counts only real forms and copies, and never exceeds 1': async ({ page, eq }) => {
-      const all = { v: 3, got: Object.fromEntries(['plate', 'broad', 'stellar', 'fern', 'platearms', 'tips', 'seasons', 'x1', 'x2'].map(k => [k, 1])), copies: { 0: 3, 1: 3, 2: 3, 3: 3, 4: 3, 5: 3, 6: 3, 7: 3 }, tried: {}, gallery: [] };
-      await plant(page, JSON.stringify(all)); eq(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).snowfall), 1);
-      eq(await page.evaluate(() => Object.keys(__snow.SAVE.got).length), 7);
-    },
-    'phone layout: no errors switching modes': async ({ page }) => {
-      await page.setViewportSize({ width: 390, height: 844 });
-      for (const m of ['copy', 'gallery', 'free']) { await page.evaluate(m => __snow.setMode(m), m); await page.waitForTimeout(200); }
+    'phone: plates are the main surface; cases open from a drawer; no sideways scroll': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
+      ok(await page.evaluate(() => document.getElementById('cv').getBoundingClientRect().height > 400), 'plates too small');
+      await page.click('#lvlBtn'); await page.waitForTimeout(300);
+      ok(await page.evaluate(() => document.getElementById('cases').getBoundingClientRect().left >= 0), 'drawer did not open');
+      ok(await page.evaluate(() => document.documentElement.scrollWidth <= 392), 'sideways scroll');
     },
   },
 };

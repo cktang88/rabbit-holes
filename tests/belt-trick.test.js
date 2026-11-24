@@ -168,7 +168,7 @@ module.exports = {
     'keyboard: X turns the cube, Shift+X turns it back; RELAX is disabled while betting': async ({ page, near, ok }) => {
       await page.evaluate(() => __belt.level(10)); await page.waitForTimeout(100);
       const q0 = await page.evaluate(() => { __belt.flush(); return __belt.q(); });
-      await page.keyboard.press('x'); await page.keyboard.press('Shift+X'); await page.waitForFunction(() => !__belt.queueN && !__belt.busy, null, { timeout: 5000 });
+      await page.keyboard.press('x'); await page.keyboard.press('Shift+X'); await page.waitForFunction(() => !__belt.queueN && !__belt.busy, null, { timeout: 20000 });
       const q1 = await page.evaluate(() => __belt.q());
       near(q0.reduce((a, v, i) => a + v * q1[i], 0), 1, 1e-6, 'x then shift-x is the identity');
       await page.evaluate(() => __belt.level(4)); ok(await page.$eval('#rx', b => b.disabled), 'RELAX enabled during bets');

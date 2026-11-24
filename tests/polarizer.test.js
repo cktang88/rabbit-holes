@@ -10,7 +10,9 @@ const SOL = [
   [['phase', 6, 2, 180]],
   [['hwp', 6, 2, 45]],
   [['pol', 11, 6, 45], ['pol', 10, 7, 45]],
-  [['bomb', 6, 2, 0]],
+  null, // the bomb crate is played, not placed
+  [['pol', 3, 4, 22], ['pol', 6, 4, 45], ['pol', 9, 4, 68]],
+  [['hwp', 4, 4, 38], ['pbs', 7, 4, 0, 1]],
 ];
 const sim = (page, lvIdx, parts, patch) => page.evaluate(([i, parts, patch]) => {
   const X = window.__pz, lv = Object.assign({}, X.LV[i], patch || {});
@@ -71,7 +73,7 @@ module.exports = {
     },
     'Elitzur–Vaidman bomb tester: 1/4 detect, 1/4 D1, 1/2 explode (either arm)': async ({ page, near }) => {
       for (const at of [[6, 2], [3, 4], [7, 6]]) {
-        const h = await sim(page, 7, [['bomb', ...at, 0]]);
+        const h = await sim(page, 4, [['bomb', ...at, 0]]);
         const boom = Object.entries(h).filter(([k]) => k !== 'D1' && k !== 'D2').reduce((a, [, v]) => a + v, 0);
         near(h.D2, .25, 1e-9, 'D2 (bomb detected unexploded) ' + at); near(h.D1, .25, 1e-9); near(boom, .5, 1e-9);
       }
@@ -81,7 +83,7 @@ module.exports = {
         const X = window.__pz, out = [];
         const H = (i, parts) => { const h = X.simulate(X.LV[i], parts.map(([t, x, y, a = 0, m = 1]) => ({ t, x, y, a, m }))).hits, o = {}; for (const k in h) o[k] = h[k].p; return o; };
         X.LV.forEach((lv, i) => {
-          if (lv.free) return;
+          if (lv.free || lv.crate) return;
           const atStart = lv.test(H(i, []), {}), sol = SOL[i];
           let solved;
           if (lv.boomBudget) { const h = H(i, sol); solved = h.D2 > .2; } // the bomb level is won by firing; checked below
@@ -96,7 +98,7 @@ module.exports = {
         return out;
       }, SOL);
       for (const [i, atStart, solved, wrong, fits] of res) { ok(!atStart, `level ${i} solved at start`); ok(solved, `level ${i} not solved by known solution`); ok(!wrong, `level ${i} solved by default angles`); ok(fits, `level ${i} solution exceeds tray`); }
-      ok(res.length === 8);
+      ok(res.length === 9);
     },
     'staircase: 4 filters at 5° steps cannot reach 60%, 5 can': async ({ page, ok }) => {
       const four = await sim(page, 1, [['pol', 3, 4, 20], ['pol', 5, 4, 35], ['pol', 7, 4, 55], ['pol', 9, 4, 70]]);
@@ -153,28 +155,50 @@ module.exports = {
       eq(await page.evaluate(() => __pz.won), false, 'stale hold won the reloaded level');
       eq(await page.$eval('#goal', e => e.classList.contains('hold')), false);
     },
-    'bomb tester: 10 detections win with stars, 40 explosions reset the lab': async ({ page, eq, ok }) => {
-      await page.evaluate(() => { const S = __pz.SAVE; for (let i = 0; i < 7; i++) S.done[i] = 1; __pz.load(7); __pz.addPart('bomb', 6, 2); });
-      const pick = async key => page.evaluate(key => { // force Math.random so the outcome is `key`
-        const e = Object.entries(__pz.hits()); let c = 0; for (const [k, v] of e) { if (k === key) { const r = c + v.p / 2; Math.random = () => r; return; } c += v.p; }
-      }, key);
-      const boomKey = await page.evaluate(() => Object.keys(__pz.hits()).find(k => k !== 'D1' && k !== 'D2'));
-      await pick(boomKey); await page.evaluate(() => __pz.fire(40)); await page.waitForTimeout(40 * 90 + 1200);
-      eq(await page.evaluate(() => __pz.won), false);
-      eq(await page.evaluate(() => __pz.fires.boom || 0), 0, 'counters reset after 40 explosions');
-      ok(await page.$eval('#toast', t => /destroyed/i.test(t.textContent)));
-      await pick('D2'); await page.evaluate(() => __pz.fire(10)); await page.waitForTimeout(10 * 90 + 1200);
-      eq(await page.evaluate(() => __pz.won), true);
-      eq(await page.evaluate(() => __pz.SAVE.stars[7]), 3);
+    'bomb crate: certify, stamp, score; stars from the crate score; a bad crate is rejected': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { FX.setMuted(true); const X = __pz; for (let i = 0; i < 7; i++) X.SAVE.done[i] = 1; X.crateSeed(5); X.load(7); const C = X.crate, o = { dudD1: true };
+        while (!C.done) X.crateStamp(false); o.rejected = [X.won, C.score];
+        X.crateSeed(5); X.load(7); const D = X.crate; let s = 9; Math.random = () => (s = (s * 16807) % 2147483647) / 2147483647;
+        while (!D.done) { D.R = .2; const c = D.cur || []; if (c.includes('D2')) X.crateStamp(true); else if (c.length >= 6) X.crateStamp(false); else { const wasLive = D.live[D.i], res = X.crateFire(); if (!wasLive && res !== 'D1') o.dudD1 = false; } }
+        o.careful = [X.won, D.score, X.SAVE.stars[7] || 0]; return o; });
+      eq(r.rejected[0], false, 'stamping everything DUD ships mislabelled live bombs');
+      ok(r.dudD1, 'a dud only ever gives D1');
+      ok(r.careful[0] && r.careful[2] >= 1, 'a careful sorter passes: ' + r.careful);
     },
-    'deleting the bomb mid-volley stops further explosions': async ({ page, eq }) => {
-      await page.evaluate(() => { const S = __pz.SAVE; for (let i = 0; i < 7; i++) S.done[i] = 1; __pz.load(7); __pz.addPart('bomb', 6, 2); });
-      await page.evaluate(() => { const e = Object.entries(__pz.hits()); let c = 0; for (const [k, v] of e) { if (k !== 'D1' && k !== 'D2') { const r = c + v.p / 2; Math.random = () => r; } c += v.p; } __pz.fire(20); });
-      await page.waitForTimeout(200);
-      await page.evaluate(() => { __pz.select(__pz.parts[0]); document.getElementById('selDel').click(); });
-      await page.waitForTimeout(20 * 90 + 1200);
-      const booms = await page.evaluate(() => __pz.fires.boom || 0);
-      eq(booms <= 3, true, 'bombs kept exploding after removal: ' + booms);
+    'zeno crate: more passes are safer but the loop time is shared': async ({ page, ok, near }) => {
+      const r = await page.evaluate(() => { FX.setMuted(true); const X = __pz; for (let i = 0; i < 10; i++) X.SAVE.done[i] = 1; const surv = {};
+        for (const N of [1, 3, 6, 12]) { let k = 0, n = 0; for (let t = 0; t < 300; t++) { X.crateSeed(t); X.load(10); const C = X.crate; C.live.fill(true); C.N = N; C.cyclesLeft = 99; const o = X.crateFire(); n++; if (o === 'D2') k++; } surv[N] = k / n; }
+        X.crateSeed(1); X.load(10); const C = X.crate; C.N = 12; let fired = 0; for (let k = 0; k < 10 && !C.done; k++) { if (X.crateFire() !== null) fired++; if (!C.done && (C.cur || []).length) X.crateStamp(true); }
+        return { surv, fired, left: C.cyclesLeft }; });
+      near(r.surv[1], 0, .02); ok(r.surv[3] > .3 && r.surv[3] < .6, 'N=3 ' + r.surv[3]); ok(r.surv[12] > .75, 'N=12 ' + r.surv[12]); ok(r.surv[12] > r.surv[6] && r.surv[6] > r.surv[3]);
+      ok(r.fired <= 6 && r.left < 12, 'loop time runs out: ' + JSON.stringify(r));
+    },
+    'graded puzzles: stars improve with a better setting, never get worse': async ({ page, eq }) => {
+      await page.evaluate(() => { const S = __pz.SAVE; for (let i = 0; i < 8; i++) S.done[i] = 1; __pz.load(8); for (const [x, a] of [[3, 0], [6, 45], [9, 65]]) __pz.addPart('pol', x, 4, a); });
+      await page.evaluate(() => { __pz.select(__pz.parts[0]); __pz.setAngleUI(35); }); await page.waitForTimeout(1300);
+      eq(await page.evaluate(() => [__pz.won, __pz.SAVE.stars[8]]), [true, 1]);
+      await page.evaluate(() => { __pz.setAngleUI(22); __pz.select(__pz.parts[1]); __pz.setAngleUI(45); __pz.select(__pz.parts[2]); __pz.setAngleUI(68); }); await page.waitForTimeout(1300);
+      eq(await page.evaluate(() => __pz.SAVE.stars[8]), 3);
+      await page.evaluate(() => { __pz.select(__pz.parts[2]); __pz.setAngleUI(60); }); await page.waitForTimeout(1300);
+      eq(await page.evaluate(() => __pz.SAVE.stars[8]), 3);
+    },
+    'difficulty: naive play fails': async ({ page, ok }) => {
+      const R = await page.evaluate(() => { FX.setMuted(true); const X = __pz, out = { naive: 0, naiveN: 0, comp: [] }; for (let i = 0; i < 11; i++) X.SAVE.done[i] = 1;
+        const H = (i, parts) => { const h = X.simulate(X.LV[i], parts.map(([t, x, y, a = 0, m = 1]) => ({ t, x, y, a, m }))).hits, o = {}; for (const k in h) o[k] = h[k].p; return o; };
+        const gradeP = (i, parts) => { const L = X.LV[i], h = H(i, parts); return L.test(h, {}) ? L.grade(h) : 0; };
+        let s = 3; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647, snap = a => Math.round(a / 5) * 5;
+        for (let t = 0; t < 10; t++) { out.naiveN += 2; if (gradeP(8, [['pol', 3, 4, snap(rnd() * 180)], ['pol', 6, 4, snap(rnd() * 180)], ['pol', 9, 4, snap(rnd() * 180)]]) > 1) out.naive++; if (gradeP(9, [['hwp', 4, 4, snap(rnd() * 180)], ['pbs', 7, 4, 0, 1]]) > 1) out.naive++; }
+        out.naiveN += 4; if (gradeP(8, [['pol', 3, 4, 45], ['pol', 6, 4, 45], ['pol', 9, 4, 45]]) > 1) out.naive++; if (gradeP(9, [['hwp', 4, 4, 45], ['pbs', 7, 4, 0, 1]]) > 1) out.naive++; if (gradeP(8, []) > 1) out.naive++; if (gradeP(9, []) > 1) out.naive++;
+        out.comp.push(gradeP(8, [['pol', 3, 4, 25], ['pol', 6, 4, 45], ['pol', 9, 4, 65]]), gradeP(9, [['hwp', 4, 4, 35], ['pbs', 7, 4, 0, 1]]));
+        const crate = (lv, policy, seed) => { X.crateSeed(seed); X.load(lv); const C = X.crate; let s2 = seed * 7 + 1; Math.random = () => (s2 = (s2 * 16807) % 2147483647) / 2147483647; let g = 0; while (!C.done && g++ < 3000) policy(C); const fr = C.score / C.live.reduce((a, v) => a + (v ? 3 : 1), 0), S = X.LV[lv].crate.stars; return fr >= S[2] ? 3 : fr >= S[1] ? 2 : fr >= S[0] ? 1 : 0; };
+        const once = C => { if (!(C.cur || []).length) { if (X.crateFire() === 'boom' || C.done) return; } X.crateStamp((C.cur || []).includes('D2')); };
+        const plan = C => { const left = C.live.length - C.i; C.N = Math.max(1, Math.floor(C.cyclesLeft / left)); const c = C.cur || []; if (c.length) return X.crateStamp(c.includes('D2')); if (C.cyclesLeft < 1) return X.crateStamp(false); X.crateFire(); };
+        const zc = []; for (let t = 0; t < 10; t++) { out.naiveN += 2; if (crate(10, C => X.crateStamp(true), 100 + t) > 1) out.naive++; if (crate(10, once, 200 + t) > 1) out.naive++; zc.push(crate(10, plan, 300 + t)); }
+        out.zenoPass = zc.filter(g => g >= 1).length / zc.length; out.zeno3 = zc.filter(g => g === 3).length / zc.length;
+        return out; });
+      ok(R.naive / R.naiveN <= .2, `naive play earned 2★+ on ${R.naive}/${R.naiveN} late tries`);
+      ok(R.comp.every(g => g >= 1) && R.zenoPass >= .8, 'competent play passes: ' + JSON.stringify(R));
+      ok(R.comp.every(g => g < 3) && R.zeno3 <= .3, '3★ needs better than the simple competent play: ' + JSON.stringify(R));
     },
     'tactile bench: drag an optic from the drawer onto a hole, twist it by its ring, hold to win': async ({ page, ok, eq }) => {
       await page.evaluate(() => __pz.load(0));
@@ -203,7 +227,7 @@ module.exports = {
       eq(await page.evaluate(() => __pz.parts[0].a), 90); eq(await page.evaluate(() => __pz.won), false);
     },
     'carry a mount to another hole, tap a mirror twice to flip it, drag off the board to remove': async ({ page, eq }) => {
-      await page.evaluate(() => { const S = __pz.SAVE; for (let i = 0; i < 8; i++) S.done[i] = 1; __pz.load(8); __pz.addPart('mirror', 5, 4, 0, 1); __pz.addPart('pol', 3, 4, 30); });
+      await page.evaluate(() => { const S = __pz.SAVE; for (let i = 0; i < 11; i++) S.done[i] = 1; __pz.load(11); __pz.addPart('mirror', 5, 4, 0, 1); __pz.addPart('pol', 3, 4, 30); });
       let [hx, hy] = await page.evaluate(() => __pz.screenOf(3, 4)); const [tx, ty] = await page.evaluate(() => __pz.screenOf(3, 6));
       await page.mouse.move(hx, hy); await page.mouse.down(); await page.mouse.move(tx, ty, { steps: 8 }); await page.mouse.up();
       eq(await page.evaluate(() => { const p = __pz.parts.find(p => p.t === 'pol'); return [p.x, p.y, p.a]; }), [3, 6, 30]);
@@ -218,12 +242,12 @@ module.exports = {
     },
     'progress and locked levels': async ({ page, eq, ok }) => {
       const locked = await page.$$eval('#levels .lv.lock', els => els.map(e => +e.dataset.i));
-      eq(locked, [1, 2, 3, 4, 5, 6, 7]);
+      eq(locked, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
       await page.evaluate(() => __pz.load(5)); eq(await page.textContent('#title'), 'Crossed Filters', 'locked level reachable');
-      await page.evaluate(() => __pz.load(8)); eq(await page.textContent('#title'), 'Lab Sandbox', 'sandbox is always open');
+      await page.evaluate(() => __pz.load(11)); eq(await page.textContent('#title'), 'Lab Sandbox', 'sandbox is always open');
       await page.evaluate(() => { __pz.load(0); __pz.addPart('pol', 7, 4, 45); });
       eq(await page.evaluate(() => __pz.won), true);
-      const hub = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).polarizer); ok(Math.abs(hub - 1 / 8) < 1e-9, 'progress ' + hub);
+      const hub = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).polarizer); ok(Math.abs(hub - 1 / 11) < 1e-9, 'progress ' + hub);
       // replay: winning again does not change progress
       await page.evaluate(() => { __pz.load(0); __pz.addPart('pol', 7, 4, 45); });
       eq(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).polarizer), hub);
@@ -231,7 +255,7 @@ module.exports = {
     'corrupted / odd saves load without errors': async ({ page, eq, ok }) => {
       for (const [save, title] of [['null', 'Crossed Filters'], ['5', 'Crossed Filters'], ['"x"', 'Crossed Filters'], ['[1,2]', 'Crossed Filters'],
         ['{"done":"zz","stars":7,"cur":-3}', 'Crossed Filters'], ['{"cur":6}', 'Crossed Filters'], ['{"cur":"abc"}', 'Crossed Filters'],
-        ['{"done":{"0":1,"1":1},"cur":2}', 'A Better Way'], ['{"cur":8}', 'Lab Sandbox'], ['{"done":{"0":1,"99":1,"-1":1},"cur":1}', 'The Staircase'], ['{not json', 'Crossed Filters']]) {
+        ['{"done":{"0":1,"1":1},"cur":2}', 'A Better Way'], ['{"cur":11}', 'Lab Sandbox'], ['{"done":{"0":1,"99":1,"-1":1},"cur":1}', 'The Staircase'], ['{not json', 'Crossed Filters']]) {
         const { p2, errs } = await openWith(page, save);
         eq(errs, [], 'errors for ' + save); eq(await p2.textContent('#title'), title, 'level for ' + save);
         const hub = await p2.evaluate(() => JSON.parse(localStorage.getItem('rh:hub') || '{}').polarizer);
@@ -248,7 +272,7 @@ module.exports = {
     'no console errors at phone and desktop sizes; panels do not overlap the table': async ({ page, ok }) => {
       for (const [w, h] of [[390, 844], [1280, 800]]) {
         await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300);
-        for (let i = 0; i < 9; i++) await page.evaluate(i => { __pz.SAVE.done[i] = 1; __pz.load(i); }, i);
+        for (let i = 0; i < 12; i++) await page.evaluate(i => { __pz.SAVE.done[i] = 1; __pz.load(i); }, i);
         const r = await page.evaluate(() => { const hud = document.getElementById('hud').getBoundingClientRect(), tray = document.getElementById('tray').getBoundingClientRect(); return { hudB: hud.bottom, trayT: tray.top, trayR: tray.right, W: innerWidth, sw: document.documentElement.scrollWidth }; });
         ok(r.trayR <= r.W + 1 && r.sw <= r.W, `horizontal overflow at ${w}`);
         ok(r.hudB < r.trayT, `hud overlaps tray at ${w}`);

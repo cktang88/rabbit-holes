@@ -53,7 +53,7 @@ module.exports = {
         const R = window.__rumor; R.start(4); const P = R.T.people, r = RH.rng(5), bad = [];
         for (let k = 0; k < 3000; k++) { const teller = P[k % P.length]; const who = P[(k * 7) % P.length].id; let whom = P[(k * 11 + 1) % P.length].id; if (whom === who) whom = (who + 1) % P.length;
           const v = { who, verb: k % R.VERBS.length, whom, place: k % 8 }; const m = R.mutate(v, teller, r);
-          if (m.who === m.whom) bad.push('self ' + JSON.stringify(m)); if (!(m.verb >= 0 && m.verb < R.VERBS.length) || !(m.place >= 0 && m.place < 8) || !P[m.who] || !P[m.whom]) bad.push('index ' + JSON.stringify(m));
+          if (m.who === m.whom) bad.push('self ' + JSON.stringify(m)); if (!(m.verb >= 0 && m.verb < R.VERBS.length) || !(m.place >= -1 && m.place < 8) || !P[m.who] || !P[m.whom]) bad.push('index ' + JSON.stringify(m));
           const n = R.mutate({ ...v, neg: true }, teller, r); if (!R.sameV(n, { ...v, neg: true })) bad.push('neg changed'); }
         return bad;
       });
@@ -215,6 +215,19 @@ module.exports = {
           if (!w && i === 1) { for (let v = 1; v <= 8 && !w; v++){ R.start(1, null, v); const M = R.T.people[R.T.roleOf.mayor], tid = R.T.cast.T.id, cf = M.friends.map(f => R.T.people[f[0]]); while (R.day <= R.sc.days && !R.goalStatus().ok) { for (let k = 0; k < R.sc.w; k++) R.hear(cf[k % cf.length], { who: tid, verb: 4, whom: (tid + 1) % R.T.people.length, place: 0 }, 0.9, null); R.simDay(); R.day = R.day + 1; } if (R.goalStatus().ok) w++; } }
           if (!w) bad.push(i + ' ' + R.SC[i].n); } return bad; });
       ok(!bad.length, 'no winning strategy found for: ' + bad.join(', '));
+    },
+    'stories sharpen, level and assimilate as they pass, and the family tree shows which version grew from which': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const R = window.__rumor; R.start(0); const P = R.T.people, r = RH.rng(3), V = R.VERBS; const t = R.T.cast.T.id;
+        const chatty = P.find(p => p.chat > 0.6 && p.id !== t), quiet = P.find(p => p.chat < 0.4 && p.id !== t); const base = { who: t, verb: 0, whom: R.T.cast.V.id, place: 2 };
+        const hows = new Set(); let sharperUp = 0, sharperDown = 0;
+        const grudge = P.find(p => p.rivals.some(x => x !== base.whom) && p.id !== t); for (let k = 0; k < 900; k++) { const m = R.mutate(base, [chatty, quiet, grudge][k % 3], r); if (m.how) hows.add(m.how); if (m.how === 'sharpened') { if (V[m.verb][2] > V[base.verb][2]) sharperUp++; else sharperDown++; } }
+        // tree: a child version under its parent
+        P.forEach(p => p.belief = null); const child = { ...base, verb: 2, how: 'sharpened' }; R.noteVersion(child, base);
+        P.slice(0, 5).forEach(p => { p.belief = { ...base }; p.str = 1; }); P.slice(5, 8).forEach(p => { p.belief = { ...child }; p.str = 1; });
+        const tree = R.versionTree();
+        return { hows: [...hows].sort(), sharperUp, sharperDown, tree: tree.map(x => [x.depth, x.n, x.how]) }; });
+      ok(['assimilated', 'levelled', 'sharpened'].every(h => r.hows.includes(h)), JSON.stringify(r.hows)); ok(r.sharperUp > 0 && r.sharperDown === 0, 'sharpening only ever makes it worse');
+      eq(r.tree.slice(0, 2), [[0, 5, null], [1, 3, 'sharpened']]);
     },
     'mobile layout: no horizontal scroll, town and Next day visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
