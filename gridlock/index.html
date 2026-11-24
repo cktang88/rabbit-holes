@@ -27,7 +27,10 @@
   .tool:active{transform:scale(.94)}
   .tool.on{background:#2a2622;color:#fff}
   .tool i{font-style:normal;background:#e0663a;color:#fff;border-radius:8px;padding:0 6px;font-size:12px}
-  #levels{top:16px;right:16px;padding:8px;width:220px;max-height:calc(100vh - 120px);overflow:auto}
+  #lvBox #levels{top:16px;right:16px;padding:8px;width:220px;max-height:calc(100vh - 120px);overflow:auto}
+  .hrow{display:flex;justify-content:space-between;align-items:center}
+  #lvBtn{display:none;position:static;font:inherit;font-size:13px;padding:4px 10px;border-radius:10px;cursor:pointer;box-shadow:none}
+  #per{font-size:12px;color:#5b544b;margin-top:6px}#per:empty{display:none}
   #levels h4{margin:6px 10px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#8a8175}
   .lv{padding:6px 10px;border-radius:9px;font-size:13px;cursor:pointer;display:flex;justify-content:space-between}
   .lv:hover{background:#efe8dc}
@@ -35,21 +38,23 @@
   .lv.lock{opacity:.35;pointer-events:none}
   #toll{bottom:84px;left:50%;transform:translateX(-50%);padding:10px 16px;display:none;align-items:center;gap:10px;font-size:14px}
   #toll input{width:220px}
+  #toll small{color:#8a8175;font-size:11px}
   #legend{bottom:16px;left:16px;padding:8px 12px;font-size:12px;color:#5b544b;display:flex;gap:10px;align-items:center}
   #legend span{display:inline-block;width:26px;height:6px;border-radius:3px;vertical-align:middle;margin-right:4px}
   #toast{position:fixed;top:44%;left:50%;transform:translate(-50%,-50%) scale(.85);opacity:0;font-size:46px;font-weight:700;letter-spacing:-.03em;color:#2a2622;pointer-events:none;transition:opacity .3s,transform .5s cubic-bezier(.3,1.6,.5,1);text-align:center}
   #toast.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
   #toast small{display:block;font-size:16px;font-weight:400;color:#5b544b;margin-top:6px}
-  @media (max-width:760px){#hud{width:calc(100vw - 32px)}#levels{top:auto;bottom:80px;width:160px;max-height:28vh}#legend{display:none}.big b{font-size:40px}}
+  @media (max-width:900px){#lvBtn{display:block}#lvBox #levels{display:none;top:12px;right:12px;left:auto;width:230px;max-height:calc(100vh - 24px);z-index:5}#lvBox.open #levels{display:block}#legend{display:none}}
+  @media (max-width:760px){#hud{top:8px;left:8px;width:calc(100vw - 16px);padding:10px 14px}#hud h1{font-size:19px;margin:2px 0}#story{font-size:12.5px;line-height:1.35;margin:4px 0 6px}.big b{font-size:34px}.big span{font-size:12px}.meter{margin-top:6px}#tools{bottom:8px;max-width:calc(100vw - 16px)}.tool{padding:8px 11px}#toll{bottom:72px;width:calc(100vw - 16px);box-sizing:border-box;flex-wrap:wrap;justify-content:center;gap:4px 8px;padding:8px 10px}#toll input{width:150px}#toast{font-size:32px;width:90vw}}
 </style>
 </head>
 <body>
 <canvas id="cv"></canvas>
-<div id="hud" class="chip"><a class="home" href="../index.html">← Rabbit Holes</a><h1 id="title">Gridlock</h1><div id="story"></div>
-  <div class="big"><b id="avg">–</b><span>min average commute</span></div><div class="target" id="tgt"></div><div class="meter"><div id="bar"></div><i id="tick"></i></div></div>
-<div id="levels" class="chip"></div>
+<div id="hud" class="chip"><div class="hrow"><a class="home" href="../index.html">← Rabbit Holes</a><button id="lvBtn" class="chip">☰ Cities</button></div><h1 id="title">Gridlock</h1><div id="story"></div>
+  <div class="big"><b id="avg">–</b><span>min average commute</span></div><div class="target" id="tgt"></div><div class="meter"><div id="bar"></div><i id="tick"></i></div><div id="per"></div></div>
+<div id="lvBox"><div id="levels" class="chip"></div></div>
 <div id="tools" class="chip"></div>
-<div id="toll" class="chip">Toll on <b id="tollName"></b> <input type="range" id="tollR" min="0" max="40" step="1"> <b id="tollV"></b> min</div>
+<div id="toll" class="chip"><span>Toll on <b id="tollName"></b></span> <input type="range" id="tollR" min="0" max="40" step="1"> <b id="tollV"></b> <small>($1 ≈ 1 min to drivers)</small></div>
 <div id="legend" class="chip"><span style="background:#3aa58c"></span>free-flowing <span style="background:#e9a23b"></span>busy <span style="background:#d8452f"></span>jammed</div>
 <div id="toast"></div>
 <script src="../shared/common.js"></script>
@@ -107,140 +112,204 @@ const LV = [
 // ================= state =================
 const SAVE = RH.load('gridlock', { done: {}, cur: 0 });
 const persist = () => { RH.save('gridlock', SAVE); RH.progress('gridlock', Object.keys(SAVE.done).length / LV.length); };
-let L, roads, P, F, tool = 'look', sel = -1, settleT = 0, won = false, shown = { avg: 0 };
+let L, roads, P, tool = 'look', sel = -1, settleT = 0, won = false, shown = { avg: 0 }, homes = [];
 
 function load(i) {
-  SAVE.cur = i; persist(); L = LV[i]; won = false; settleT = 0; sel = -1;
+  SAVE.cur = i; persist(); L = LV[i]; won = false; settleT = 0; sel = -1; shown.avg = 0;
   roads = [...L.roads.map(r => ({ ...r })), ...(L.ghosts || []).map(r => ({ ...r, ghost: 1, built: 0 }))];
-  roads.forEach(r => { r.toll = 0; r.cars = 0; r.flowVis = 0; });
+  roads.forEach(r => { r.toll = 0; r.cars = 0; r.G = roadGeom(r); r.path = roadPath(r.G); r.lt = null; });
+  homes = Object.keys(L.nodes).filter(k => L.nodes[k][2] === 'home');
   rebuildPaths(true);
   tool = Object.keys(L.tools)[0]; cars.length = 0;
-  $('title').textContent = L.n; $('story').innerHTML = L.story;
+  const t = $('toast'); clearTimeout(toast.h); t.classList.remove('on'); // a win toast must not linger over the next city
+  $('title').textContent = L.n; $('story').innerHTML = L.story; $('toll').style.display = 'none'; $('lvBox').classList.remove('open');
+  document.body.classList.toggle('tollLv', !!L.tools.toll);
   renderUI(); fit();
 }
 const usable = r => (!r.ghost || r.built) && !r.closed;
 function rebuildPaths(reset) {
-  const old = P && !reset ? new Map(P.flat().map((p, i) => [p.key, p.f])) : null;
+  const old = P && !reset ? new Map(P.flat().map(p => [p.key, p.f])) : null;
   P = L.demand.map(dm => {
     const out = [], adj = {}; roads.forEach((r, i) => { if (usable(r)) (adj[r.a] ||= []).push(i); });
-    const dfs = (n, seen, p) => { if (out.length > 60) return; if (n === dm.d) { out.push({ e: p.slice(), key: p.join(','), f: 0 }); return; } for (const i of adj[n] || []) { const m = roads[i].b; if (seen.has(m)) continue; seen.add(m); p.push(i); dfs(m, seen, p); p.pop(); seen.delete(m); } };
+    const dfs = (n, seen, p) => { if (out.length > 60) return; if (n === dm.d) { out.push({ e: p.slice(), key: p.join(','), f: 0, c: 0 }); return; } for (const i of adj[n] || []) { const m = roads[i].b; if (seen.has(m)) continue; seen.add(m); p.push(i); dfs(m, seen, p); p.pop(); seen.delete(m); } };
     dfs(dm.o, new Set([dm.o]), []);
     // keep drivers on routes they already use; new routes start empty so the switch is visible
     let tot = 0; out.forEach(p => { p.f = old?.get(p.key) ?? 0; tot += p.f; });
-    if (tot < dm.n - 1) { const miss = dm.n - tot; if (!old || tot === 0) out.forEach(p => p.f += miss / out.length); else { const c = out.map(cost); out[c.indexOf(Math.min(...c))].f += miss; } }
+    if (tot < dm.n - 1) { const miss = dm.n - tot; if (!old || tot === 0) out.forEach(p => p.f += miss / out.length); else { flows(); let b = 0; out.forEach((p, q) => { p.c = cost(p); if (p.c < out[b].c) b = q; }); out[b].f += miss; } }
     return out;
   });
-  settleT = 0;
+  settleT = 0; layoutLabels();
 }
-function flows() { roads.forEach(r => r.cars = 0); P.forEach(ps => ps.forEach(p => p.e.forEach(i => roads[i].cars += p.f))); }
+function flows() { for (const r of roads) r.cars = 0; if (!P) return; for (const ps of P) for (const p of ps) for (const i of p.e) roads[i].cars += p.f; }
 const time = r => r.t0 + r.k * r.cars / 1000;
-const cost = p => p.e.reduce((a, i) => a + time(roads[i]) + roads[i].toll, 0);
-const ttime = p => p.e.reduce((a, i) => a + time(roads[i]), 0);
+function cost(p) { let a = 0; for (const i of p.e) { const r = roads[i]; a += time(r) + r.toll; } return a; }
+function ttime(p) { let a = 0; for (const i of p.e) a += time(roads[i]); return a; }
 // one tick of "drivers learn": a few percent of drivers on slower routes switch to the currently fastest one
 function adjust(rate) {
   flows();
   let gap = 0;
-  P.forEach(ps => {
-    if (!ps.length) return; const c = ps.map(cost), m = Math.min(...c), b = c.indexOf(m);
-    ps.forEach((p, q) => { if (q === b) return; const d = c[q] - m; if (d > 1e-6 && p.f > 0) { const mv = p.f * Math.min(.5, rate * d); p.f -= mv; ps[b].f += mv; gap = Math.max(gap, d * (p.f > 1 ? 1 : 0)); } });
-  });
+  for (const ps of P) {
+    if (!ps.length) continue; let b = 0;
+    for (let q = 0; q < ps.length; q++) { ps[q].c = cost(ps[q]); if (ps[q].c < ps[b].c) b = q; }
+    const m = ps[b].c;
+    for (let q = 0; q < ps.length; q++) { if (q === b) continue; const p = ps[q], d = p.c - m; if (d > 1e-6 && p.f > 0) { const mv = p.f * Math.min(.5, rate * d); p.f -= mv; ps[b].f += mv; if (p.f > 1 && d > gap) gap = d; } }
+  }
   flows(); return gap;
 }
-function average() { let t = 0, n = 0; P.forEach(ps => ps.forEach(p => { t += p.f * ttime(p); n += p.f; })); return n ? t / n : Infinity; }
+function average(j) { let t = 0, n = 0; P.forEach((ps, q) => { if (j != null && q !== j) return; for (const p of ps) { t += p.f * ttime(p); n += p.f; } }); return n ? t / n : Infinity; }
 
 // ================= drawing =================
 const $ = id => document.getElementById(id);
 const cv = $('cv'), g = cv.getContext('2d');
-let W = 1, H = 1, view = { s: 1, ox: 0, oy: 0 }, dpr = 1;
-function fit() { dpr = FX.fit(cv); W = cv.width; H = cv.height; const xs = Object.values(L.nodes).map(n => n[0]), ys = Object.values(L.nodes).map(n => n[1]); const bw = 1000, bh = 680, wide = innerWidth > 900, left = wide ? 360 * dpr : 0, right = wide ? 250 * dpr : 0, top = wide ? 20 * dpr : 300 * dpr, bottom = 80 * dpr;
-  const x0 = Math.min(...xs) - 70, x1 = Math.max(...xs) + 70, y0 = Math.min(...ys) - 110, y1 = Math.max(...ys) + 80; // fit the city, with room for bends and labels
-  const aw = W - left - right, ah = H - top - bottom; view.s = Math.min(aw / (x1 - x0), ah / (y1 - y0), 1.6 * dpr); view.ox = left + (aw - (x1 - x0) * view.s) / 2 - x0 * view.s; view.oy = top + (ah - (y1 - y0) * view.s) / 2 - y0 * view.s; }
-addEventListener('resize', () => L && fit());
+const bg = document.createElement('canvas'), bgc = bg.getContext('2d');
+let W = 1, H = 1, view = { s: 1, ox: 0, oy: 0 }, dpr = 1, fs = 1; // fs: world-units scale for text so labels stay legible on phones
+function fit() {
+  dpr = FX.fit(cv, 2); W = cv.width; H = cv.height;
+  // world bounds: nodes plus the extent of every (possibly bent) road
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (const [x, y] of Object.values(L.nodes)) { x0 = Math.min(x0, x - 45); x1 = Math.max(x1, x + 45); y0 = Math.min(y0, y - 45); y1 = Math.max(y1, y + 45); }
+  for (const r of roads) for (let t = 0; t <= 1; t += .05) { const [x, y] = bez(r.G, t); x0 = Math.min(x0, x - 30); x1 = Math.max(x1, x + 30); y0 = Math.min(y0, y - 30); y1 = Math.max(y1, y + 30); }
+  // reserve the screen space taken by the panels
+  const wide = innerWidth > 900, hud = $('hud').getBoundingClientRect(), tools = $('tools').getBoundingClientRect();
+  let left = 12, right = 12, top = 12, bottom = innerHeight - tools.top + 8;
+  if (wide) { left = hud.right + 12; right = innerWidth - $('lvBox').getBoundingClientRect().left + 12; }
+  else top = hud.bottom + 6;
+  if (L.tools.toll) bottom += 58;
+  left *= dpr; right *= dpr; top *= dpr; bottom *= dpr;
+  const aw = Math.max(50, W - left - right), ah = Math.max(50, H - top - bottom);
+  view.s = Math.min(aw / (x1 - x0), ah / (y1 - y0), 1.6 * dpr); view.ox = left + (aw - (x1 - x0) * view.s) / 2 - x0 * view.s; view.oy = top + (ah - (y1 - y0) * view.s) / 2 - y0 * view.s;
+  fs = Math.max(1, (11 * dpr / view.s) / 15);
+  // static background: paper gradient + grid, drawn once per resize
+  bg.width = W; bg.height = H;
+  const grd = bgc.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * .7); grd.addColorStop(0, '#f8f4ec'); grd.addColorStop(1, '#e9e1d2'); bgc.fillStyle = grd; bgc.fillRect(0, 0, W, H);
+  bgc.setTransform(view.s, 0, 0, view.s, view.ox, view.oy); bgc.strokeStyle = 'rgba(80,60,30,.05)'; bgc.lineWidth = 1 / view.s; bgc.beginPath();
+  for (let x = -400; x <= 1400; x += 40) { bgc.moveTo(x, -400); bgc.lineTo(x, 1100); }
+  for (let y = -400; y <= 1100; y += 40) { bgc.moveTo(-400, y); bgc.lineTo(1400, y); }
+  bgc.stroke(); bgc.setTransform(1, 0, 0, 1, 0, 0);
+  layoutLabels();
+}
+let fitQ = 0; addEventListener('resize', () => { if (L && !fitQ) fitQ = requestAnimationFrame(() => { fitQ = 0; fit(); }); });
 const ND = n => L.nodes[n];
+const nodeName = n => { const k = ND(n)[2]; return k === 'work' ? 'Work' : k === 'home' ? (homes.length > 1 ? 'Home ' + n : 'Home') : n; };
 function roadGeom(r) { // returns control points; parallel roads between the same pair bend apart
   const [x1, y1] = ND(r.a), [x2, y2] = ND(r.b);
   const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, len = Math.hypot(x2 - x1, y2 - y1), nx = -(y2 - y1) / len, ny = (x2 - x1) / len;
   const bend = (r.bend || 0) * 170;
   return { x1, y1, x2, y2, cx: mx + nx * bend, cy: my + ny * bend, len };
 }
+function roadPath(G) { const p = new Path2D(); p.moveTo(G.x1, G.y1); p.quadraticCurveTo(G.cx, G.cy, G.x2, G.y2); return p; }
 const bez = (G, t) => { const u = 1 - t; return [u * u * G.x1 + 2 * u * t * G.cx + t * t * G.x2, u * u * G.y1 + 2 * u * t * G.cy + t * t * G.y2]; };
 const bezD = (G, t) => { const u = 1 - t; return [2 * u * (G.cx - G.x1) + 2 * t * (G.x2 - G.cx), 2 * u * (G.cy - G.y1) + 2 * t * (G.y2 - G.cy)]; };
-function jamColor(r) { const x = r.k ? Math.min(1, (time(r) - r.t0) / Math.max(8, r.t0 + 10)) : 0; const c1 = [58, 165, 140], c2 = [233, 162, 59], c3 = [216, 69, 47]; const m = x < .5 ? c1.map((v, i) => v + (c2[i] - v) * x * 2) : c2.map((v, i) => v + (c3[i] - v) * (x - .5) * 2); return `rgb(${m.map(v => v | 0)})`; }
+const JAM = []; { const c1 = [58, 165, 140], c2 = [233, 162, 59], c3 = [216, 69, 47]; for (let i = 0; i <= 64; i++) { const x = i / 64, m = x < .5 ? c1.map((v, j) => v + (c2[j] - v) * x * 2) : c2.map((v, j) => v + (c3[j] - v) * (x - .5) * 2); JAM.push(`rgb(${m.map(v => v | 0)})`); } }
+function jamColor(r) { const x = r.k ? Math.min(1, (time(r) - r.t0) / Math.max(8, r.t0 + 10)) : 0; return JAM[(x * 64) | 0]; }
 const ORIG = ['#3a7bd5', '#c2459b', '#2f9e74', '#d98b2b'];
 
-// cars: purely visual, sampled from the current route flows
-const cars = [];
+// labels: placed once per layout change, avoiding nodes and each other
+function layoutLabels() {
+  if (!roads || !L) return;
+  g.font = `700 ${15 * fs}px Space Grotesk`;
+  const boxes = [];
+  for (const [x, y, kind] of Object.values(L.nodes)) { const rr = kind ? 36 : 16; boxes.push([x - rr, y - rr, x + rr, y + rr]); }
+  const hit = (a) => boxes.some(b => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]);
+  for (const r of roads) {
+    const tw = g.measureText(r.ghost && !r.built ? '+ build' : r.toll || L.tools.toll ? '88 min +$40' : '188 min').width + 14 * fs, th = 24 * fs;
+    let best = null;
+    outer: for (const d of [26, 40, 56, 76]) for (const t of [.5, .4, .6, .3, .7, .22, .78]) for (const side of [1, -1]) {
+      const [mx, my] = bez(r.G, t), [dx, dy] = bezD(r.G, t), nl = Math.hypot(dx, dy), off = d * fs * side, x = mx - dy / nl * off, y = my + dx / nl * off;
+      const box = [x - tw / 2, y - th / 2, x + tw / 2, y + th / 2];
+      // also keep off the road strokes themselves
+      let onRoad = false; for (const q of roads) { if (q === r) continue; for (let u = .05; u < 1; u += .05) { const [px, py] = bez(q.G, u); if (px > box[0] - 8 && px < box[2] + 8 && py > box[1] - 8 && py < box[3] + 8) { onRoad = true; break; } } if (onRoad) break; }
+      if (!onRoad && !hit(box)) { best = [x, y, box, mx, my]; break outer; }
+      if (!best) best = [x, y, box, mx, my, 1];
+    }
+    if (best[5]) { const [mx, my] = bez(r.G, .5), [dx, dy] = bezD(r.G, .5), nl = Math.hypot(dx, dy); best = [mx - dy / nl * 26 * fs, my + dx / nl * 26 * fs, null, mx, my]; best[2] = [best[0] - tw / 2, best[1] - th / 2, best[0] + tw / 2, best[1] + th / 2]; }
+    r.lx = best[0]; r.ly = best[1]; r.mx = best[3]; r.my = best[4]; boxes.push(best[2]);
+  }
+}
+
+// cars: purely visual, sampled from the current route flows; objects are pooled
+const cars = [], pool = [];
 let spawnAcc = 0;
 function spawnCars(dt) {
   spawnAcc += dt;
   const per = .025; // seconds between spawns per 1000 drivers
   while (spawnAcc > per) {
     spawnAcc -= per;
-    L.demand.forEach((dm, j) => {
-      if (Math.random() > dm.n / 4000) return;
+    for (let j = 0; j < L.demand.length; j++) {
+      const dm = L.demand[j];
+      if (Math.random() > dm.n / 4000) continue;
       const ps = P[j]; let x = Math.random() * dm.n, p = ps[0];
       for (const q of ps) { x -= q.f; if (x <= 0) { p = q; break; } }
-      if (p && cars.length < 900) cars.push({ p, j, seg: 0, t: 0, lane: (Math.random() - .5) * 6 });
-    });
+      if (p && cars.length < 900) { const c = pool.pop() || {}; c.p = p; c.j = j; c.seg = 0; c.t = 0; c.lane = (Math.random() - .5) * 6; cars.push(c); }
+    }
   }
 }
+function killCar(i) { pool.push(cars[i]); cars[i] = cars[cars.length - 1]; cars.pop(); }
 function moveCars(dt) {
   for (let i = cars.length - 1; i >= 0; i--) {
     const c = cars[i], r = roads[c.p.e[c.seg]];
-    if (!r || !usable(r)) { cars.splice(i, 1); continue; }
-    const dur = .35 + (time(r) + r.toll * 0) * .045; // seconds to drive this road on screen
+    if (!r || !usable(r)) { killCar(i); continue; }
+    const dur = .35 + time(r) * .045; // seconds to drive this road on screen
     c.t += dt / dur;
-    if (c.t >= 1) { c.t = 0; c.seg++; if (c.seg >= c.p.e.length) { cars.splice(i, 1); arrivals++; } }
+    if (c.t >= 1) { c.t = 0; c.seg++; if (c.seg >= c.p.e.length) killCar(i); }
   }
 }
-let arrivals = 0, hover = -1, pulse = 0;
+let hover = -1;
 function draw(now) {
   g.setTransform(1, 0, 0, 1, 0, 0);
-  const grd = g.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * .7); grd.addColorStop(0, '#f8f4ec'); grd.addColorStop(1, '#e9e1d2'); g.fillStyle = grd; g.fillRect(0, 0, W, H);
+  g.drawImage(bg, 0, 0);
   const [sx, sy] = FX.shakeOffset(10 * dpr);
   g.setTransform(view.s, 0, 0, view.s, view.ox + sx, view.oy + sy);
-  // paper grid
-  g.strokeStyle = 'rgba(80,60,30,.05)'; g.lineWidth = 1 / view.s;
-  for (let x = -200; x <= 1200; x += 40) { g.beginPath(); g.moveTo(x, -200); g.lineTo(x, 900); g.stroke(); }
-  for (let y = -200; y <= 900; y += 40) { g.beginPath(); g.moveTo(-200, y); g.lineTo(1200, y); g.stroke(); }
-  const maxCars = Math.max(...L.demand.map(d => d.n)) * L.demand.length;
-  roads.forEach((r, i) => {
-    const G = roadGeom(r), w = r.hw ? 16 : 11;
-    g.lineCap = 'round';
-    const path = () => { g.beginPath(); g.moveTo(G.x1, G.y1); g.quadraticCurveTo(G.cx, G.cy, G.x2, G.y2); };
+  g.lineCap = 'round';
+  const pulse = .35 + .25 * Math.sin(now / 300);
+  for (let i = 0; i < roads.length; i++) {
+    const r = roads[i], G = r.G, w = r.hw ? 16 : 11;
     if (r.ghost && !r.built) {
-      path(); g.setLineDash([2, 14]); g.lineWidth = 6; g.strokeStyle = `rgba(42,38,34,${.35 + .25 * Math.sin(now / 300)})`; g.stroke(); g.setLineDash([]);
-      const [mx, my] = bez(G, .5); g.fillStyle = '#2a2622'; g.font = '600 15px Space Grotesk'; g.textAlign = 'center'; g.fillText('+ build', mx, my - 12);
-      return;
+      g.setLineDash([2, 14]); g.lineWidth = i === hover ? 9 : 6; g.strokeStyle = `rgba(42,38,34,${pulse})`; g.stroke(r.path); g.setLineDash([]);
+      continue;
     }
     // casing
-    path(); g.lineWidth = w + 7; g.strokeStyle = i === sel || i === hover ? '#2a2622' : 'rgba(42,38,34,.85)'; g.stroke();
-    path(); g.lineWidth = w; g.strokeStyle = r.closed ? '#cfc6b6' : jamColor(r); g.stroke();
-    if (r.hw && !r.closed) { path(); g.setLineDash([10, 12]); g.lineWidth = 2; g.strokeStyle = 'rgba(255,255,255,.8)'; g.stroke(); g.setLineDash([]); }
+    g.lineWidth = w + 7; g.strokeStyle = i === sel || i === hover ? '#2a2622' : 'rgba(42,38,34,.85)'; g.stroke(r.path);
+    g.lineWidth = w; g.strokeStyle = r.closed ? '#cfc6b6' : jamColor(r); g.stroke(r.path);
+    if (r.hw && !r.closed) { g.setLineDash([10, 12]); g.lineWidth = 2; g.strokeStyle = 'rgba(255,255,255,.8)'; g.stroke(r.path); g.setLineDash([]); }
     // direction chevrons
-    for (const t of [.3, .7]) { const [px, py] = bez(G, t), [dx, dy] = bezD(G, t), a = Math.atan2(dy, dx); g.save(); g.translate(px, py); g.rotate(a); g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(-4, -4); g.lineTo(2, 0); g.lineTo(-4, 4); g.stroke(); g.restore(); }
-    // label: travel time
-    const [mx, my] = bez(G, .5), [dx, dy] = bezD(G, .5), nl = Math.hypot(dx, dy), ox = -dy / nl * 26, oy = dx / nl * 26;
-    g.font = '700 15px Space Grotesk'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    const label = r.closed ? 'closed' : `${time(r).toFixed(0)} min${r.toll ? ` +$${r.toll}` : ''}`;
-    const tw = g.measureText(label).width + 14;
-    g.fillStyle = r.closed ? '#e9e1d2' : '#fffdf8'; roundRect(mx + ox - tw / 2, my + oy - 12, tw, 24, 12); g.fill();
-    g.fillStyle = r.closed ? '#8a8175' : '#2a2622'; g.fillText(label, mx + ox, my + oy + 1);
-    if (r.closed) { g.strokeStyle = '#d8452f'; g.lineWidth = 4; g.beginPath(); g.moveTo(mx - 9, my - 9); g.lineTo(mx + 9, my + 9); g.moveTo(mx + 9, my - 9); g.lineTo(mx - 9, my + 9); g.stroke(); }
-  });
+    g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 2.5;
+    for (let t = .3; t < .8; t += .4) { const [px, py] = bez(G, t), [dx, dy] = bezD(G, t), l = Math.hypot(dx, dy), cx = dx / l, cy = dy / l; g.beginPath(); g.moveTo(px - 4 * cx + 4 * cy, py - 4 * cy - 4 * cx); g.lineTo(px + 2 * cx, py + 2 * cy); g.lineTo(px - 4 * cx - 4 * cy, py - 4 * cy + 4 * cx); g.stroke(); }
+  }
   // cars
   for (const c of cars) {
-    const r = roads[c.p.e[c.seg]]; if (!r) continue; const G = roadGeom(r), [x, y] = bez(G, c.t), [dx, dy] = bezD(G, c.t), a = Math.atan2(dy, dx);
-    g.save(); g.translate(x - Math.sin(a) * c.lane, y + Math.cos(a) * c.lane); g.rotate(a); g.fillStyle = ORIG[c.j]; roundRect(-5, -2.6, 10, 5.2, 2.4); g.fill(); g.restore();
+    const r = roads[c.p.e[c.seg]]; if (!r) continue; const G = r.G, [x, y] = bez(G, c.t), [dx, dy] = bezD(G, c.t), l = Math.hypot(dx, dy), ca = dx / l, sa = dy / l;
+    g.setTransform(view.s * ca, view.s * sa, -view.s * sa, view.s * ca, view.ox + sx + view.s * (x - sa * c.lane), view.oy + sy + view.s * (y + ca * c.lane));
+    g.fillStyle = ORIG[c.j]; g.fillRect(-5, -2.6, 10, 5.2);
+  }
+  g.setTransform(view.s, 0, 0, view.s, view.ox + sx, view.oy + sy);
+  // labels: travel time (plus toll) for each road, at precomputed collision-free spots
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  const F = `700 ${15 * fs}px Space Grotesk`; g.font = F;
+  for (let i = 0; i < roads.length; i++) {
+    const r = roads[i];
+    let label;
+    if (r.ghost && !r.built) label = '+ build';
+    else if (r.closed) label = 'closed';
+    else { const tm = Math.round(time(r)); if (r.lt !== tm || r.ltl !== r.toll) { r.lt = tm; r.ltl = r.toll; r.lab = `${tm} min${r.toll ? ` +$${r.toll}` : ''}`; r.lw = g.measureText(r.lab).width + 14 * fs; } label = r.lab; }
+    const tw = label === r.lab ? r.lw : g.measureText(label).width + 14 * fs, th = 24 * fs;
+    // a faint tether so a displaced label still reads as belonging to its road
+    if (Math.hypot(r.lx - r.mx, r.ly - r.my) > 34 * fs) { g.strokeStyle = 'rgba(42,38,34,.25)'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(r.mx, r.my); g.lineTo(r.lx, r.ly); g.stroke(); }
+    const ghost = r.ghost && !r.built;
+    g.fillStyle = ghost ? (i === hover ? '#2a2622' : 'rgba(255,253,248,.9)') : r.closed ? '#e9e1d2' : '#fffdf8'; roundRect(r.lx - tw / 2, r.ly - th / 2, tw, th, th / 2); g.fill();
+    if (ghost) { g.strokeStyle = '#2a2622'; g.lineWidth = 1.5; g.stroke(); }
+    g.fillStyle = ghost && i === hover ? '#fff' : r.closed ? '#8a8175' : '#2a2622'; g.fillText(label, r.lx, r.ly + 1);
+    if (r.closed) { g.strokeStyle = '#d8452f'; g.lineWidth = 4; g.beginPath(); g.moveTo(r.mx - 9, r.my - 9); g.lineTo(r.mx + 9, r.my + 9); g.moveTo(r.mx + 9, r.my - 9); g.lineTo(r.mx - 9, r.my + 9); g.stroke(); }
   }
   // nodes
-  for (const [k, [x, y, kind]] of Object.entries(L.nodes)) {
-    if (kind === 'work') { g.fillStyle = '#2a2622'; roundRect(x - 30, y - 30, 60, 60, 12); g.fill(); g.fillStyle = '#fffdf8'; g.font = '700 13px Space Grotesk'; g.textAlign = 'center'; g.fillText('WORK', x, y + 1); }
+  for (const k in L.nodes) {
+    const [x, y, kind] = L.nodes[k];
+    if (kind === 'work') { g.fillStyle = '#2a2622'; roundRect(x - 30, y - 30, 60, 60, 12); g.fill(); g.fillStyle = '#fffdf8'; g.font = '700 13px Space Grotesk'; g.fillText('WORK', x, y + 1); }
     else if (kind === 'home') {
       const j = L.demand.findIndex(d => d.o === k), r = 30 + 3 * Math.sin(now / 400 + j);
       g.fillStyle = ORIG[Math.max(0, j)]; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.strokeStyle = '#fffdf8'; g.lineWidth = 4; g.stroke();
-      g.fillStyle = '#fff'; g.font = '700 12px Space Grotesk'; g.textAlign = 'center'; g.fillText('HOME', x, y - 6); g.font = '500 11px Space Grotesk'; g.fillText(((L.demand[j]?.n || 0) / 1000) + 'k cars', x, y + 9);
-    } else { g.fillStyle = '#fffdf8'; g.strokeStyle = '#2a2622'; g.lineWidth = 4; g.beginPath(); g.arc(x, y, 11, 0, 7); g.fill(); g.stroke(); }
+      g.fillStyle = '#fff'; g.font = '700 12px Space Grotesk'; g.fillText(homes.length > 1 ? 'HOME ' + k : 'HOME', x, y - 6); g.font = '500 11px Space Grotesk'; g.fillText(((L.demand[j]?.n || 0) / 1000) + 'k cars', x, y + 9);
+    } else { g.fillStyle = '#fffdf8'; g.strokeStyle = '#2a2622'; g.lineWidth = 3; g.beginPath(); g.arc(x, y, 13, 0, 7); g.fill(); g.stroke(); g.fillStyle = '#2a2622'; g.font = '700 13px Space Grotesk'; g.fillText(k, x, y + 1); }
   }
 }
 function roundRect(x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
@@ -248,72 +317,91 @@ function roundRect(x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x
 // ================= input =================
 const toWorld = e => { const r = cv.getBoundingClientRect(); return [((e.clientX - r.left) * dpr - view.ox) / view.s, ((e.clientY - r.top) * dpr - view.oy) / view.s]; };
 function roadAt(x, y) {
-  let best = -1, bd = 22;
-  roads.forEach((r, i) => { const G = roadGeom(r); for (let t = 0; t <= 1; t += .02) { const [px, py] = bez(G, t), d = Math.hypot(px - x, py - y); if (d < bd) { bd = d; best = i; } } });
+  let best = -1, bd = Math.max(22, 14 * dpr / view.s);
+  roads.forEach((r, i) => { const G = r.G; for (let t = 0; t <= 1; t += .02) { const [px, py] = bez(G, t), d = Math.hypot(px - x, py - y); if (d < bd) { bd = d; best = i; } }
+    if (Math.abs(r.lx - x) < 40 * fs && Math.abs(r.ly - y) < 14 * fs) { best = i; bd = 0; } }); // labels are click targets too
   return best;
 }
-cv.addEventListener('pointermove', e => { const [x, y] = toWorld(e); hover = roadAt(x, y); cv.style.cursor = hover >= 0 && tool !== 'look' ? 'pointer' : 'default'; });
+cv.addEventListener('pointermove', e => { const [x, y] = toWorld(e); hover = roadAt(x, y); cv.style.cursor = hover >= 0 && (roads[hover].ghost ? L.tools.build : tool !== 'look') ? 'pointer' : 'default'; });
 cv.addEventListener('pointerdown', e => {
+  $('lvBox').classList.remove('open');
   const [x, y] = toWorld(e), i = roadAt(x, y); if (i < 0) return;
   const r = roads[i];
   if (r.ghost) {
     if (!L.tools.build) return;
     const used = roads.filter(q => q.ghost && q.built).length;
     if (!r.built && used >= L.tools.build) { FX.sfx('fail'); toast('Out of budget', 'Remove a road you built first.', 1400); return; }
-    r.built = !r.built; FX.sfx(r.built ? 'place' : 'pop'); FX.shake(.15); rebuildPaths(); renderUI(); return;
+    r.built = !r.built; FX.sfx(r.built ? 'place' : 'pop'); FX.shake(.15); rebuildPaths(); renderTools(); return;
   }
   if (tool === 'close' && L.tools.close) {
     const used = roads.filter(q => q.closed).length;
     if (!r.closed && used >= L.tools.close) { FX.sfx('fail'); toast('Closure limit', `You can close ${L.tools.close} road${L.tools.close > 1 ? 's' : ''}. Reopen one first.`, 1600); return; }
-    r.closed = !r.closed; FX.sfx(r.closed ? 'boom' : 'pop'); FX.shake(r.closed ? .3 : .1); rebuildPaths(); renderUI(); return;
+    r.closed = !r.closed; FX.sfx(r.closed ? 'boom' : 'pop'); FX.shake(r.closed ? .3 : .1); rebuildPaths(); renderTools(); return;
   }
   if (tool === 'toll' && L.tools.toll) {
     const tolled = roads.filter(q => q.toll > 0 && q !== r).length;
-    if (tolled >= L.tools.toll && !(r.toll > 0)) { FX.sfx('fail'); toast('Toll limit', `You can toll ${L.tools.toll} road${L.tools.toll > 1 ? 's' : ''}. Set another toll to 0 first.`, 1600); return; }
+    if (tolled >= L.tools.toll && !(r.toll > 0)) { FX.sfx('fail'); toast('Toll limit', `You can toll ${L.tools.toll} road${L.tools.toll > 1 ? 's' : ''}. Set another toll to $0 first.`, 1600); return; }
     sel = i; FX.sfx('click'); showToll(); return;
   }
 });
-function showToll() { const r = roads[sel]; $('toll').style.display = 'flex'; $('tollName').textContent = r.name || `${r.a} → ${r.b}`; $('tollR').value = r.toll; $('tollV').textContent = r.toll; }
-$('tollR').oninput = () => { const r = roads[sel]; r.toll = +$('tollR').value; $('tollV').textContent = r.toll; settleT = 0; if (r.toll % 5 === 0) FX.sfx('tick'); };
+const roadName = r => r.name ? r.name[0].toUpperCase() + r.name.slice(1) : `${nodeName(r.a)} → ${nodeName(r.b)}`;
+function showToll() { const r = roads[sel]; $('toll').style.display = 'flex'; $('tollName').textContent = roadName(r); $('tollR').value = r.toll; $('tollV').textContent = '$' + r.toll; }
+$('tollR').oninput = () => { const r = roads[sel]; r.toll = +$('tollR').value; $('tollV').textContent = '$' + r.toll; settleT = 0; r.lt = null; if (r.toll % 5 === 0) FX.sfx('tick'); renderTools(); };
 
-function renderUI() {
+function renderTools() {
   const t = [];
   if (L.tools.build) t.push(['build', '🛣️ Build', `<i>${L.tools.build - roads.filter(q => q.ghost && q.built).length}</i>`]);
   if (L.tools.close) t.push(['close', '🚧 Close', `<i>${L.tools.close - roads.filter(q => q.closed).length}</i>`]);
-  if (L.tools.toll) t.push(['toll', '💰 Toll', `<i>${L.tools.toll}</i>`]);
-  $('tools').innerHTML = t.map(([k, n, b]) => `<button class="tool ${tool === k ? 'on' : ''}" data-t="${k}">${n} ${b}</button>`).join('') + `<button class="tool" id="reset">↺ Reset</button>`;
-  $('tools').querySelectorAll('[data-t]').forEach(b => b.onpointerdown = () => { tool = b.dataset.t; FX.sfx('click'); if (tool !== 'toll') $('toll').style.display = 'none'; renderUI(); });
+  if (L.tools.toll) t.push(['toll', '💰 Toll', `<i>${L.tools.toll - roads.filter(q => q.toll > 0).length}</i>`]);
+  const html = t.map(([k, n, b]) => `<button class="tool ${tool === k ? 'on' : ''}" data-t="${k}">${n} ${b}</button>`).join('') + `<button class="tool" id="reset">↺ Reset</button>`;
+  if ($('tools').innerHTML === html) return;
+  $('tools').innerHTML = html;
+  $('tools').querySelectorAll('[data-t]').forEach(b => b.onpointerdown = () => { tool = b.dataset.t; FX.sfx('click'); if (tool !== 'toll') $('toll').style.display = 'none'; renderTools(); });
   $('reset').onclick = () => { FX.sfx('pop'); load(SAVE.cur); };
+}
+function renderUI() {
+  renderTools();
   if (tool !== 'toll') $('toll').style.display = 'none';
   const maxOpen = (() => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; })();
   $('levels').innerHTML = '<h4>Cities</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${i > maxOpen && !SAVE.done[i] ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><span>${SAVE.done[i] ? '✓' : ''}</span></div>`).join('');
   $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { FX.sfx('click'); load(+el.dataset.i); });
+  $('lvBtn').textContent = `☰ ${SAVE.cur + 1}/${LV.length}`;
 }
+$('lvBtn').onclick = e => { e.stopPropagation(); FX.sfx('click'); $('lvBox').classList.toggle('open'); };
 function toast(big, small, ms = 2400) { const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : ''); t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms); }
 
 // ================= loop =================
-let last = performance.now();
+let last = performance.now(), raf = 0;
+const ui = {};
+const setText = (id, v) => { if (ui[id] !== v) { ui[id] = v; $(id).textContent = v; } };
+const setStyle = (id, k, v) => { const key = id + k; if (ui[key] !== v) { ui[key] = v; $(id).style[k] = v; } };
 function loop(now) {
-  requestAnimationFrame(loop);
+  raf = requestAnimationFrame(loop);
   const dt = Math.min(.05, (now - last) / 1000); last = now;
   let gap = 0; for (let i = 0; i < 3; i++) gap = adjust(.004);
   const avg = average();
   shown.avg = FX.damp(shown.avg || avg, avg, 6, dt);
-  $('avg').textContent = isFinite(avg) ? shown.avg.toFixed(1) : '∞';
+  setText('avg', isFinite(avg) ? shown.avg.toFixed(1) : '∞');
   const ok = avg <= L.target + 1e-6;
-  $('tgt').className = 'target' + (ok ? ' ok' : ''); $('tgt').textContent = isFinite(avg) ? `Target: ${L.target} min or less${ok ? (gap < .05 ? '  ✓' : '  (settling…)') : ''}` : 'Some drivers can\'t reach work!';
-  const span = Math.max(L.target * 1.6, avg); $('bar').style.width = Math.min(100, avg / span * 100) + '%'; $('bar').style.background = ok ? '#2c8a56' : '#e0663a'; $('tick').style.left = (L.target / span * 100) + '%';
+  const tg = $('tgt'); const cls = 'target' + (ok ? ' ok' : ''); if (ui.cls !== cls) { ui.cls = cls; tg.className = cls; }
+  setText('tgt', isFinite(avg) ? `Target: ${L.target} min or less${ok ? (gap < .05 ? '  ✓' : '  (settling…)') : ''}` : 'Some drivers can\'t reach work!');
+  setText('per', homes.length > 1 && isFinite(avg) ? homes.map((h, j) => `Home ${h}: ${average(j).toFixed(1)} min`).join('  ·  ') : '');
+  const span = Math.max(L.target * 1.6, avg);
+  setStyle('bar', 'width', Math.min(100, avg / span * 100).toFixed(1) + '%'); setStyle('bar', 'background', ok ? '#2c8a56' : '#e0663a'); setStyle('tick', 'left', (L.target / span * 100).toFixed(1) + '%');
   settleT = gap < .05 ? settleT + dt : 0;
   if (!won && ok && settleT > 1.2) win();
   spawnCars(dt); moveCars(dt); draw(now);
 }
+// pause entirely while the tab is hidden
+document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; } else if (!raf) { last = performance.now(); raf = requestAnimationFrame(loop); } });
 function win() {
   won = true; SAVE.done[SAVE.cur] = 1; persist(); FX.sfx('win'); FX.shake(.25);
   toast('✓ ' + L.n, SAVE.cur < LV.length - 1 ? `Average commute ${average().toFixed(1)} min. Next city unlocked.` : 'Every city fixed.', 3000); renderUI();
 }
 load(Math.min(SAVE.cur || 0, LV.length - 1));
-requestAnimationFrame(loop);
-window.__gl = { LV, load, roads: () => roads, average, adjust, P: () => P, rebuild: () => rebuildPaths() };
+if (document.fonts) document.fonts.ready.then(() => { roads.forEach(r => r.lt = null); fit(); });
+raf = requestAnimationFrame(loop);
+window.__gl = { LV, load, roads: () => roads, average, adjust, P: () => P, rebuild: () => rebuildPaths(), view: () => ({ ...view, dpr }), labels: () => roads.map(r => [r.a + r.b, r.lx, r.ly]) };
 </script>
 </body>
 </html>
