@@ -86,3 +86,7 @@ Scores are 1–5 for **H**ook, **D**epth, **V**isual potential and **N**ovelty a
 5. **Low Reynolds**: shader-driven micro-world swimming.
 
 Then: Floatees, MONIAC, Polarizer, Chladni, Trail.
+
+## Status
+Built: Watershed, Gridlock, Ruin, Snowfall, Low Reynolds, Floatees, Chladni. Every one was verified by script: goals reachable, not solved at the start. The hub was also redesigned (particle-tunnel canvas, glass cards).
+Next up: Polarizer (the quantum bomb tester), MONIAC (the water computer), Trail (bike stability), Square–Cube.
