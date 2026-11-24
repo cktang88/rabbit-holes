@@ -1,7 +1,7 @@
 // Trader bots for Caravan, evaluated in the page. Exported as a string-able function body via toString().
 // policy: 'idle' | 'random' | 'obvious' | 'greedy-book' | 'greedy-live'
 function caravanBot(seed, policy) {
-  const K = window.__caravan; K.encountersOn = false; K.newCareerSeed(seed);
+  const K = window.__caravan; K.encountersOn = false; K.headless = true; K.newCareerSeed(seed);
   const C = K.C, G = K.GOODS.length, rnd = RH.rng('bot' + seed + policy);
   const sellAll = () => { for (let g = 0; g < G; g++) if (C.cargo[g] > 0) K.trade(g, -999); };
   const upkeep = () => C.camels * 0.05 + C.guards * 0.3;
@@ -40,7 +40,7 @@ function caravanBot(seed, policy) {
     }
     K.trade(best.g, best.qty); if (K.travelNow(best.to) === 'end') break;
   }
-  sellAll();
+  sellAll(); K.headless = false;
   return Math.round(K.netWorth());
 }
 module.exports = { caravanBot };
