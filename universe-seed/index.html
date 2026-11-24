@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Universe Seed</title>
+<link rel="stylesheet" href="../shared/common.css">
+<style>
+  body{display:flex;flex-direction:column;height:100vh;overflow:hidden;background:#000}
+  main{flex:1;display:flex;min-height:0}
+  #sky{flex:1;position:relative;min-width:0;cursor:pointer}
+  #sky canvas{position:absolute;inset:0;width:100%;height:100%}
+  #eraBox{position:absolute;top:14px;left:18px;pointer-events:none;max-width:60%}
+  #eraBox .t{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:#ffb547}
+  #eraBox .n{font-size:26px;font-weight:700;text-shadow:0 2px 12px #000}
+  #eraBox .f{font-size:14px;color:#c9c4b8;max-width:520px;text-shadow:0 1px 6px #000;margin-top:4px}
+  #clock{position:absolute;bottom:12px;left:18px;font-size:12px;color:#8a8f9c;pointer-events:none}
+  #side{width:400px;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .tabs{display:flex;border-bottom:1px solid var(--line)}
+  .tabs button{flex:1;border:0;border-radius:0;background:none;padding:10px 4px;color:var(--dim);font-size:13px}
+  .tabs button.on{color:var(--ink);box-shadow:inset 0 -2px var(--accent)}
+  .pane{flex:1;overflow:auto;padding:10px;display:none}
+  .pane.on{display:block}
+  .res{display:grid;grid-template-columns:1fr auto auto;gap:2px 10px;font-size:13px;padding:8px 10px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  .res .r{color:var(--dim)} .res .v{text-align:right;font-weight:600} .res .ps{text-align:right;color:var(--dim);font-size:12px}
+  .gen{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 8px;border:1px solid var(--line);border-radius:8px;margin-bottom:5px;background:var(--panel2)}
+  .gen .nm{font-weight:600;font-size:13px} .gen .d{font-size:11px;color:var(--dim)}
+  .gen button{white-space:nowrap;font-size:12px;min-width:96px}
+  .tierH{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin:12px 0 5px}
+  .locked{font-size:12px;color:var(--bad);padding:6px 8px;border:1px dashed #5a2a2a;border-radius:8px;margin-bottom:6px}
+  .codex{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .cx{border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12px;background:var(--panel2);min-height:64px}
+  .cx.got{border-color:#6b5a2a}
+  .cx b{display:block;font-size:13px;margin-bottom:2px}
+  .cx.no b{color:#444}
+  .const{margin-bottom:12px}
+  .const .opts{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+  .const .opts button{font-size:12px;padding:3px 8px}
+  .const .opts button.on{background:var(--accent);color:#1a1205}
+  .endBtn{width:100%;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="topbar"><a class="home" href="../">← Rabbit Holes</a><h1>🌌 Universe Seed</h1><span class="spacer"></span><span class="small dim" id="meta"></span></div>
+<main>
+  <div id="sky"><canvas id="cv"></canvas>
+    <div id="eraBox"><div class="t" id="eraT"></div><div class="n" id="eraN"></div><div class="f" id="eraF"></div></div>
+    <div id="clock"></div>
+  </div>
+  <div id="side">
+    <div class="res" id="res"></div>
+    <div class="tabs"><button data-t="build" class="on">Universe</button><button data-t="laws">Laws</button><button data-t="codex">Codex</button><button data-t="seeds">Seeds</button></div>
+    <div class="pane on" id="p-build"></div>
+    <div class="pane" id="p-laws"></div>
+    <div class="pane" id="p-codex"></div>
+    <div class="pane" id="p-seeds"></div>
+  </div>
+</main>
+<script src="../shared/common.js"></script>
+<script>
+// ===================== Definitions =====================
+const TIERS = [
+  {k:'E', n:'Energy',  era:'Inflation', f:'Space doubles in size every 10⁻³⁷ seconds. Everything that will ever exist is here, as raw energy. Click the void to pull more out of it.',
+    gens:[['Quantum fluctuation',10,1],['Inflaton field',150,8],['False vacuum decay',3000,60]], unlock:null},
+  {k:'Q', n:'Quarks',  era:'Quark Epoch', f:'The universe cools enough for energy to condense into matter, and a little more matter than antimatter.',
+    gens:[['Pair production',500,0.5],['Gluon soup',6000,4],['Quark–gluon plasma',80000,30]], unlock:['E',8000]},
+  {k:'N', n:'Nucleons', era:'Hadron Epoch', f:'Quarks lock together in threes: protons and neutrons. They will never be free again.',
+    gens:[['Confinement',200,0.4],['Strong binding',2500,3],['Hadron furnace',30000,22]], unlock:['Q',6000]},
+  {k:'A', n:'Atoms',  era:'Recombination', f:'380,000 years in, electrons settle around nuclei. The fog clears and light travels freely for the first time.',
+    gens:[['Recombination',150,0.4],['Cooling',2000,3],['Primordial cloud',25000,20]], unlock:['N',6000]},
+  {k:'S', n:'Stars',  era:'Cosmic Dawn', f:'Gravity gathers the gas. The cores get hot enough to ignite. Click collapsing clouds.',
+    gens:[['Collapse',200,0.1],['Stellar nursery',3000,0.8],['Starburst',40000,6]], unlock:['A',8000]},
+  {k:'M', n:'Metals', era:'Stellar Forges', f:'Stars fuse hydrogen into helium, carbon, oxygen and iron. The ones that explode scatter the elements of planets and bodies. Click red giants just before they blow.',
+    gens:[['Fusion',40,0.5],['Red giants',600,4],['Supernovae',8000,30]], unlock:['S',3000]},
+  {k:'G', n:'Galaxies', era:'Galaxies', f:'Stars fall together in their billions, wound into spirals by their own rotation.',
+    gens:[['Dark matter halo',300,0.05],['Spiral arms',5000,0.4],['Galactic merger',60000,3]], unlock:['M',30000]},
+  {k:'P', n:'Planets', era:'Worlds', f:'Leftover dust and metal clump around young stars. Rock, ice and gas giants.',
+    gens:[['Accretion',1500,0.5],['Protoplanetary disk',20000,3.75],['Solar system',250000,25]], unlock:['M',100000]},
+  {k:'L', n:'Life',  era:'Biogenesis', f:'In warm water on a rocky world, a molecule makes a copy of itself, and keeps going.',
+    gens:[['Tide pool',100,0.125],['First cell',1500,1],['Biosphere',20000,7.5]], unlock:['P',15000]},
+  {k:'I', n:'Minds', era:'Awakening', f:'Nerves, then brains, then something that looks up and asks where all this came from.',
+    gens:[['Nervous system',200,0.125],['Language',3000,1],['Culture',40000,7.5]], unlock:['L',20000]},
+  {k:'K', n:'Civilization', era:'Civilization', f:'Minds that cooperate and harness their star. How far can they go before the lights go out?',
+    gens:[['Agriculture',200,0.125],['Industry',3000,1],['Dyson swarm',40000,7.5]], unlock:['I',20000]},
+];
+const KEYS = TIERS.map(t=>t.k);
+
+// Physical constants: unlocked one per rebirth
+const CONSTS = [
+  {k:'G', n:'Gravity', d:'Strength of gravity compared with ours.', opts:[['0.1×',0.1],['0.3×',0.3],['1×',1],['3×',3],['10×',10]], def:2},
+  {k:'L', n:'Cosmological constant Λ', d:'Dark energy, which pushes space apart.', opts:[['−1 (pulls)',-1],['0',0],['0.7 (ours)',0.7],['3',3],['10',10]], def:2},
+  {k:'a', n:'Fine-structure constant α', d:'How strongly light grips charge. It sets all of chemistry.', opts:[['1/300',300],['1/137 (ours)',137],['1/80',80],['1/40',40]], def:1},
+  {k:'s', n:'Strong force', d:'The glue in atomic nuclei.', opts:[['0.9×',0.9],['1× (ours)',1],['1.05×',1.05],['1.2×',1.2]], def:1},
+  {k:'m', n:'Matter excess', d:'How much matter survived annihilation with antimatter.', opts:[['10⁻¹²',-12],['10⁻¹⁰ (ours)',-10],['10⁻⁸',-8]], def:1},
+  {k:'D', n:'Space dimensions', d:'How many directions there are to move in.', opts:[['2',2],['3 (ours)',3],['4',4]], def:1},
+];
+
+// ===================== State =====================
+function newRun(keepMeta){
+  const st = {r:{}, total:{}, gens:{}, ups:{}, tier:0, t:0, started:Date.now(), consts:{}, maxTier:0};
+  for (const k of KEYS){ st.r[k]=0; st.total[k]=0; }
+  for (const c of CONSTS) st.consts[c.k] = c.def;
+  if (keepMeta){ Object.assign(st.consts, keepMeta.nextConsts||{}); st.r.E = 1000*(keepMeta.seedUps?.start||0); }
+  return st;
+}
+let M = RH.load('us-meta', {seeds:0, totalSeeds:0, rebirths:0, codex:{}, seedUps:{}, nextConsts:{}});
+let U = RH.load('us-run', null) || newRun(M);
+const persist=()=>{ U.saved=Date.now(); RH.save('us-run',U); RH.save('us-meta',M); RH.progress('universe-seed', Object.keys(M.codex).length/CODEX.length); };
+const C = (k)=> CONSTS.find(c=>c.k===k).opts[U.consts[k]][1];
+const nonDefault = ()=> CONSTS.filter(c=>U.consts[c.k]!==c.def).length;
+
+// ===================== Physics → game modifiers =====================
+function gate(k){ // returns null if allowed, otherwise reason
+  const G=C('G'), L=C('L'), a=C('a'), s=C('s'), D=C('D');
+  if (k==='S'){ if (G<=0.1) return 'Gravity is too weak to pull gas clouds together. No star will ever ignite.'; if (L===-1 && U.t>1800) return 'The universe is collapsing back on itself.'; }
+  if (k==='M'){ if (s===0.9) return 'Without deuterium, the first step of fusion never happens. Stars glow dimly from contraction and forge nothing.'; if (G>=10) return 'Every star collapses straight into a black hole before it can fuse heavy elements.'; }
+  if (k==='G'){ if (L>=10) return 'Dark energy tears space apart faster than gravity can gather anything as big as a galaxy.'; if (L===-1) return 'Space is already falling back in. Nothing has time to spiral into galaxies.'; }
+  if (k==='P'){ if (D===4) return 'In four dimensions, orbits are unstable. Every planet spirals into its star or drifts away.'; if (G>=10) return 'Nothing survives near a black hole long enough to become a world.'; }
+  if (k==='L'){ if (a===40) return 'Electrons are held so tightly that atoms barely bond. No complex molecules can form.'; if (s===1.2) return 'Protons all paired off in the first minutes. There is no hydrogen, so no water and no life.'; if (D===2) return 'In two dimensions, a gut would cut a creature in half. Nothing complex can exist.'; }
+  if (k==='Q' || k==='N' || k==='A'){ if (k==='A' && L===-1 && U.t>2400) return 'The crunch has begun.'; }
+  return null;
+}
+function tierMult(k){
+  const G=C('G'), L=C('L'), a=C('a'), s=C('s'), m=C('m'), D=C('D');
+  let x=1;
+  const matter = m===-12? 0.15 : m===-8? 6 : 1;
+  if ('NASMGPLIK'.includes(k)) x*=matter;
+  if (k==='S') x*= G===0.3? 0.35 : G===3? 2.5 : G===10? 4 : 1;
+  if (k==='M') x*= G===3? 2 : G===0.3? 0.5 : 1;
+  if (k==='M' && s===1.05) x*=3;
+  if (k==='S' && s===1.05) x*=0.4;
+  if (k==='G') x*= L===0? 2.2 : L===3? 0.35 : 1;
+  if (k==='L') x*= a===300? 0.25 : a===80? 1.6 : 1;
+  if (k==='L' && G===3) x*=0.6;
+  if (k==='L' && s===1.05) x*=0.35;
+  if ((k==='L'||k==='I') && m===-8) x*=0.5;
+  if (k==='S' && D===2) x*=0.5;
+  // synergies
+  if (k==='S') x*= 1+Math.sqrt(U.r.G||0)/4;
+  if (k==='L') x*= 1+Math.log10(1+(U.r.P||0))/3;
+  if (k==='K') x*= 1+Math.log10(1+(U.r.I||0))/4;
+  // upgrades and meta
+  x *= Math.pow(2, U.ups[k]||0);
+  x *= Math.pow(2, M.seedUps.mem||0);
+  return x;
+}
+function genCost(t,i){ const base=TIERS[t].gens[i][1]; const n=U.gens[t+':'+i]||0; return base*Math.pow(1.15,n); }
+function costRes(t){ return t===0? 'E' : t===5||t===6? (t===5?'S':'M') : t===7? 'M' : KEYS[t-1]; }
+function rate(k){ const t=KEYS.indexOf(k); if (gate(k)) return 0; let r=0; TIERS[t].gens.forEach((g,i)=> r+= (U.gens[t+':'+i]||0)*g[2]); return r*tierMult(k); }
+function upCost(t){ const n=U.ups[KEYS[t]]||0; return TIERS[t].gens[0][1]*60*Math.pow(12,n); }
+
+// ===================== Codex =====================
+const CODEX = [];
+const cx=(n,hint,test)=>CODEX.push({id:n,n,hint,test});
+const def=(k)=>U.consts[k]===CONSTS.find(c=>c.k===k).def;
+const allDef=()=>CONSTS.every(c=>def(c.k));
+const reached=(k)=>U.maxTier>=KEYS.indexOf(k);
+cx('Our Kind of Universe','Leave the laws alone, and let minds build a civilization.',()=>allDef()&&reached('K'));
+cx('The Quiet Default','Our laws, but it ends before anything lives.',()=>allDef()&&!reached('L'));
+cx('Big Crunch','A universe that falls back in on itself.',()=>C('L')===-1);
+cx('Empty Expanse','Space flies apart too fast for structure.',()=>C('L')===10);
+cx('Lonely Galaxies','Strong dark energy, but galaxies still form.',()=>C('L')===3&&reached('G'));
+cx('Clustered','No dark energy at all, and galaxies pile up.',()=>C('L')===0&&reached('G'));
+cx('Dark Fog','Gravity too weak to light a single star.',()=>C('G')===0.1);
+cx('Slow Embers','Weak gravity: few stars, burning for a very long time.',()=>C('G')===0.3&&reached('S'));
+cx('Furnace','Strong gravity: big, hot, short-lived stars.',()=>C('G')===3&&reached('S'));
+cx('Black Hole Graveyard','Every star collapses into a black hole.',()=>C('G')===10);
+cx('Life in a Hurry','Life under fast-burning stars.',()=>C('G')===3&&reached('L'));
+cx('Patient Life','Life under weak gravity.',()=>C('G')===0.3&&reached('L'));
+cx('Chemistry-Free','Atoms that will not bond.',()=>C('a')===40);
+cx('Feeble Bonds','Life with very weak chemistry.',()=>C('a')===300&&reached('L'));
+cx('Sticky Chemistry','Life where bonds hold tight.',()=>C('a')===80&&reached('L'));
+cx('Deuterium Drought','A strong force too weak for fusion.',()=>C('s')===0.9);
+cx('Diproton Universe','Two protons can stick together. Hydrogen burns away fast.',()=>C('s')===1.05);
+cx('Hydrogen-Free','No hydrogen is left after the first minutes.',()=>C('s')===1.2);
+cx('Helium Life','Life in a diproton universe.',()=>C('s')===1.05&&reached('L'));
+cx('Sparse','Barely any matter survived.',()=>C('m')===-12);
+cx('Crowded','Far more matter than ours.',()=>C('m')===-8);
+cx('Crowded Minds','Minds in a matter-rich universe.',()=>C('m')===-8&&reached('I'));
+cx('Thin Life','Life in a matter-starved universe.',()=>C('m')===-12&&reached('L'));
+cx('Flatland','Two-dimensional space.',()=>C('D')===2);
+cx('Flatland Stars','Stars shining in two dimensions.',()=>C('D')===2&&reached('S'));
+cx('Hyperspace','Four-dimensional space.',()=>C('D')===4);
+cx('Kardashev I','A civilization that harnesses a whole planet.',()=>U.total.K>=1e3);
+cx('Kardashev II','A civilization that harnesses its star.',()=>U.total.K>=1e6);
+cx('Kardashev III','A civilization that harnesses its galaxy.',()=>U.total.K>=1e9);
+cx('Empire of the Furnace','Kardashev II under strong gravity.',()=>C('G')===3&&U.total.K>=1e6);
+cx('Speedrun','Reach civilization in under 20 minutes of cosmic play.',()=>reached('K')&&U.t<1200);
+cx('Long Night','Let one universe run for over 2 hours.',()=>U.t>=7200);
+cx('Two Changes','Life with two laws changed.',()=>nonDefault()>=2&&reached('L'));
+cx('Three Changes','Life with three laws changed.',()=>nonDefault()>=3&&reached('L'));
+cx('Everything Wrong','Change all six laws.',()=>nonDefault()===6);
+cx('Ash','End a universe before the first star.',()=>!reached('S'));
+cx('Metal Rich','Forge 10⁹ metals in one universe.',()=>U.total.M>=1e9);
+cx('Many Worlds','Form 10⁶ planets in one universe.',()=>U.total.P>=1e6);
+cx('Dense Graveyard','Black holes in a crowded universe.',()=>C('G')===10&&C('m')===-8);
+cx('Fine-Tuned','Change exactly one law and still reach minds.',()=>nonDefault()===1&&reached('I'));
+
+// ===================== Seeds (prestige) =====================
+const SEEDUPS = [
+  {k:'mem', n:'Memory of Light', d:'All production ×2 per level.', cost:l=>Math.pow(3,l)},
+  {k:'start', n:'Head Start', d:'Begin each universe with 1,000 energy per level.', cost:l=>1+l*2},
+  {k:'hand', n:'Steady Hand', d:'Rewards from clicking objects in the sky ×2 per level.', cost:l=>2*Math.pow(2,l)},
+  {k:'auto', n:'Second Nature', d:'Sky objects collect themselves every few seconds.', cost:()=>6, max:1},
+  {k:'buy', n:'Autobuilder', d:'Automatically buys the cheapest affordable thing every second.', cost:()=>10, max:1},
+];
+function seedsForRun(){ let s=0; for (let t=0;t<=U.maxTier;t++) s += (t+1); s *= 1 + Math.log10(1+U.total[KEYS[U.maxTier]]||0)/3; s *= 1+nonDefault()*0.15; return Math.floor(s); }
+
+// ===================== Sky / active play =====================
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0, targets=[], bgStars=[], particles=[], lastSpawn=0;
+function resize(){ const r=cv.getBoundingClientRect(); W=r.width; H=r.height; cv.width=W*devicePixelRatio; cv.height=H*devicePixelRatio; ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  bgStars=[...Array(900)].map(()=>({x:Math.random()*W,y:Math.random()*H,s:Math.random()*1.4+0.2,tw:Math.random()*6})); }
+function topTier(){ let t=0; for (let i=0;i<KEYS.length;i++) if (U.r[KEYS[i]]>0 || (U.gens[i+':0']||0)>0) t=i; return t; }
+function spawn(){
+  const t=Math.min(U.tier, topTier()); const kinds=['spark','spark','particle','particle','cloud','giant','galaxy','disk','cell','neuron','city'];
+  const kind=kinds[t]; if (gate(KEYS[t])) return;
+  targets.push({x:60+Math.random()*(W-120), y:90+Math.random()*(H-160), kind, t, born:performance.now(), life: kind==='giant'? 4200 : 7000, phase:Math.random()*6});
+}
+function reward(tg, quality){
+  const k=KEYS[tg.t]; const r=rate(k); const base = Math.max(r*12, TIERS[tg.t].gens[0][1]*0.3);
+  const v = base*quality*Math.pow(2,M.seedUps.hand||0);
+  add(k, v); burst(tg.x,tg.y, tg.kind); return v;
+}
+function burst(x,y,kind){ const col={spark:'#fff3c4',particle:'#ffb547',cloud:'#9ad7ff',giant:'#ff6a3a',galaxy:'#c9b7ff',disk:'#d8b48a',cell:'#5fd38d',neuron:'#ff8ad8',city:'#ffd36a'}[kind]||'#fff';
+  for (let i=0;i<26;i++){ const a=Math.random()*7, s=1+Math.random()*3; particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,col}); } }
+cv.addEventListener('click', e=>{
+  const r=cv.getBoundingClientRect(); const x=e.clientX-r.left, y=e.clientY-r.top;
+  for (let i=targets.length-1;i>=0;i--){ const tg=targets[i]; if (Math.hypot(x-tg.x,y-tg.y)<34){
+    let q=1; if (tg.kind==='giant'){ const age=(performance.now()-tg.born)/tg.life; q = age>0.7 ? 4 : age>0.45? 1.8 : 0.6; }
+    const v=reward(tg,q); floatText(x,y,'+'+RH.fmt(v)+' '+TIERS[tg.t].n.toLowerCase()+(q>=4?' · perfect!':'')); targets.splice(i,1); return; } }
+  // background click: energy
+  const v = (1 + rate('E')*0.06) * Math.pow(2,M.seedUps.hand||0); add('E', v); floatText(x,y,'+'+RH.fmt(v)+' energy'); burst(x,y,'spark');
+});
+let floats=[]; function floatText(x,y,t){ floats.push({x,y,t,life:1}); }
+function drawSky(dt){
+  const t=topTier(); const now=performance.now();
+  // background: plasma fog before recombination, then clear
+  const fog = t<3 ? 1 - (U.r.A>0? 0.5:0) : 0;
+  ctx.fillStyle = t<3? `rgb(${40+60*fog},${18+30*fog},${8})` : '#000'; ctx.fillRect(0,0,W,H);
+  if (t<3){ for (let i=0;i<80;i++){ const x=(i*97+now*0.02*(i%5))%W, y=(i*53+now*0.015*(i%7))%H; ctx.fillStyle=`rgba(255,${180+i%60},120,${0.05+0.05*Math.sin(now/600+i)})`; ctx.beginPath(); ctx.arc(x,y,40+i%30,0,7); ctx.fill(); } }
+  const nStars = U.r.S>0 || U.total.S>0 ? Math.min(900, Math.floor(60*Math.log10(1+U.total.S))) : 0;
+  for (let i=0;i<nStars;i++){ const s=bgStars[i]; ctx.fillStyle=`rgba(255,255,255,${0.35+0.35*Math.sin(now/900+s.tw)})`; ctx.fillRect(s.x,s.y,s.s,s.s); }
+  const nGal = Math.min(14, Math.floor(3*Math.log10(1+U.total.G)));
+  for (let g=0; g<nGal; g++){ const gx=(g*271%W), gy=(g*157%H); for (let i=0;i<120;i++){ const a=i*0.25+now/8000, r=i*0.45; ctx.fillStyle=`rgba(200,180,255,${0.5-i/300})`; ctx.fillRect(gx+Math.cos(a)*r, gy+Math.sin(a)*r*0.5, 1.4,1.4); } }
+  if (U.total.P>0){ const n=Math.min(40,Math.floor(6*Math.log10(1+U.total.P))); for (let i=0;i<n;i++){ const b=bgStars[(i*13)%bgStars.length]; ctx.strokeStyle='rgba(120,160,255,.25)'; ctx.beginPath(); ctx.arc(b.x,b.y,6+i%5,0,7); ctx.stroke(); } }
+  if (U.total.L>0){ const n=Math.min(30,Math.floor(5*Math.log10(1+U.total.L))); for (let i=0;i<n;i++){ const b=bgStars[(i*29)%bgStars.length]; ctx.fillStyle='rgba(95,211,141,.8)'; ctx.beginPath(); ctx.arc(b.x+5,b.y,2,0,7); ctx.fill(); } }
+  if (U.total.K>0){ const n=Math.min(60,Math.floor(8*Math.log10(1+U.total.K))); for (let i=0;i<n;i++){ const b=bgStars[(i*41)%bgStars.length]; ctx.strokeStyle='rgba(255,211,106,.55)'; ctx.beginPath(); ctx.arc(b.x,b.y,3,0,7); ctx.stroke(); } }
+  // targets
+  if (now-lastSpawn > (M.seedUps.auto? 2600:3200) && targets.length<5){ lastSpawn=now; spawn(); }
+  targets = targets.filter(tg=>{ const age=(now-tg.born)/tg.life; if (age>1){ if(tg.kind==='giant'){ burst(tg.x,tg.y,'giant'); } return false; }
+    if (M.seedUps.auto && age>0.75){ reward(tg, tg.kind==='giant'?4:1); return false; }
+    drawTarget(tg, age, now); return true; });
+  // particles & floats
+  particles = particles.filter(p=>{ p.x+=p.vx; p.y+=p.vy; p.vx*=0.96; p.vy*=0.96; p.life-=0.02; ctx.fillStyle=p.col; ctx.globalAlpha=Math.max(0,p.life); ctx.fillRect(p.x,p.y,2,2); ctx.globalAlpha=1; return p.life>0; });
+  ctx.font='13px system-ui'; ctx.textAlign='center';
+  floats = floats.filter(f=>{ f.y-=0.6; f.life-=0.015; ctx.fillStyle=`rgba(255,220,150,${f.life})`; ctx.fillText(f.t,f.x,f.y); return f.life>0; });
+}
+function drawTarget(tg, age, now){
+  const {x,y}=tg; const pulse=1+0.1*Math.sin(now/200+tg.phase);
+  ctx.save(); ctx.translate(x,y);
+  switch(tg.kind){
+    case 'spark': ctx.fillStyle='#fff6d0'; ctx.shadowColor='#ffd36a'; ctx.shadowBlur=20; ctx.beginPath(); ctx.arc(0,0,7*pulse,0,7); ctx.fill(); break;
+    case 'particle': for (let i=0;i<3;i++){ const a=now/300+i*2.1; ctx.fillStyle=['#ff5a5a','#5aff8a','#5a8aff'][i]; ctx.beginPath(); ctx.arc(Math.cos(a)*9,Math.sin(a)*9,5,0,7); ctx.fill(); } break;
+    case 'cloud': { const r=34*(1-age*0.5); const g=ctx.createRadialGradient(0,0,2,0,0,r); g.addColorStop(0,'rgba(200,230,255,.9)'); g.addColorStop(1,'rgba(80,120,200,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,r,0,7); ctx.fill(); break; }
+    case 'giant': { const r=10+age*26; ctx.fillStyle=`rgb(255,${Math.floor(160-age*110)},${Math.floor(60-age*50)})`; ctx.shadowColor='#ff4a1a'; ctx.shadowBlur=10+age*30; ctx.beginPath(); ctx.arc(0,0,r*pulse,0,7); ctx.fill(); if(age>0.7){ ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(0,0,r*pulse+6,0,7); ctx.stroke(); } break; }
+    case 'galaxy': for (let i=0;i<70;i++){ const a=i*0.3+now/1500, r=i*0.4; ctx.fillStyle=`rgba(210,190,255,${1-i/80})`; ctx.fillRect(Math.cos(a)*r,Math.sin(a)*r*0.6,2,2); ctx.fillRect(-Math.cos(a)*r,-Math.sin(a)*r*0.6,2,2); } break;
+    case 'disk': ctx.strokeStyle='#d8b48a'; ctx.lineWidth=3; ctx.beginPath(); ctx.ellipse(0,0,26,8,0.3,0,7); ctx.stroke(); ctx.fillStyle='#ffd36a'; ctx.beginPath(); ctx.arc(0,0,5,0,7); ctx.fill(); break;
+    case 'cell': ctx.fillStyle='rgba(95,211,141,.35)'; ctx.strokeStyle='#5fd38d'; ctx.beginPath(); ctx.ellipse(0,0,16*pulse,12,now/900,0,7); ctx.fill(); ctx.stroke(); ctx.fillStyle='#2a8a5a'; ctx.beginPath(); ctx.arc(3,0,4,0,7); ctx.fill(); break;
+    case 'neuron': ctx.strokeStyle='#ff8ad8'; ctx.lineWidth=1.5; for (let i=0;i<6;i++){ const a=i+now/2000; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(Math.cos(a)*22,Math.sin(a)*22); ctx.stroke(); } ctx.fillStyle='#ff8ad8'; ctx.beginPath(); ctx.arc(0,0,6*pulse,0,7); ctx.fill(); break;
+    case 'city': ctx.fillStyle='#ffd36a'; for (let i=0;i<9;i++){ ctx.globalAlpha=0.5+0.5*Math.sin(now/300+i); ctx.fillRect((i%3)*7-10,Math.floor(i/3)*7-10,4,4); } ctx.globalAlpha=1; ctx.strokeStyle='#ffd36a55'; ctx.beginPath(); ctx.arc(0,0,22,0,7); ctx.stroke(); break;
+  }
+  ctx.restore();
+}
+
+// ===================== Economy =====================
+function add(k,v){ U.r[k]+=v; U.total[k]+=v; }
+function update(dt){
+  U.t += dt;
+  for (const k of KEYS){ const r=rate(k); if (r) add(k, r*dt); }
+  // unlocks
+  for (let i=1;i<TIERS.length;i++){ const u=TIERS[i].unlock; if (U.tier<i && U.total[u[0]]>=u[1] && U.tier===i-1){ U.tier=i; U.maxTier=Math.max(U.maxTier,i); announce(i); } }
+  if (M.seedUps.buy){ autoT+=dt; if (autoT>1){ autoT=0; autoBuy(); } }
+}
+let autoT=0;
+function autoBuy(){ let best=null; for (let t=0;t<=U.tier;t++) for (let i=0;i<3;i++){ const c=genCost(t,i), res=costRes(t); if (U.r[res]>=c && !gate(KEYS[t]) && (!best||c/Math.max(1,U.r[res])<best.f)) best={t,i,f:c/Math.max(1,U.r[res])}; } if (best) buy(best.t,best.i,true); }
+function buy(t,i,quiet){ const c=genCost(t,i), res=costRes(t); if (U.r[res]<c) return; U.r[res]-=c; U.gens[t+':'+i]=(U.gens[t+':'+i]||0)+1; if(!quiet) renderBuild(); }
+function buyUp(t){ const c=upCost(t), res=KEYS[t]; if (U.r[res]<c) return; U.r[res]-=c; U.ups[res]=(U.ups[res]||0)+1; renderBuild(); }
+function announce(i){
+  const T=TIERS[i]; const g=gate(T.k);
+  RH.toast(`<b>${T.era}</b>: ${T.n.toLowerCase()} unlocked`, 3500);
+  renderEra(); renderBuild();
+  if (g) RH.toast(`⚠ ${g}`, 6000);
+}
+
+// ===================== UI =====================
+function renderEra(){ const T=TIERS[U.tier]; document.getElementById('eraT').textContent=`Era ${U.tier+1} of ${TIERS.length}`; document.getElementById('eraN').textContent=T.era; document.getElementById('eraF').textContent=T.f; }
+function renderRes(){
+  let h=''; for (let i=0;i<=U.tier;i++){ const k=KEYS[i]; const g=gate(k); h+=`<span class="r">${TIERS[i].n}</span><span class="v">${RH.fmt(U.r[k])}</span><span class="ps">${g?'blocked':'+'+RH.fmt(rate(k))+'/s'}</span>`; }
+  document.getElementById('res').innerHTML=h;
+  const mm=Math.floor(U.t/60); document.getElementById('clock').textContent=`Cosmic play time ${mm} min · ${M.rebirths} rebirth${M.rebirths===1?'':'s'}`;
+  document.getElementById('meta').textContent=`🌱 ${M.seeds} seeds · codex ${Object.keys(M.codex).length}/${CODEX.length}`;
+}
+function renderBuild(){
+  let h='';
+  for (let t=U.tier;t>=0;t--){ const T=TIERS[t], res=costRes(t); const g=gate(T.k);
+    h+=`<div class="tierH">${T.n} · built with ${TIERS[KEYS.indexOf(res)].n.toLowerCase()}</div>`;
+    if (g){ h+=`<div class="locked">⚠ ${g}</div>`; continue; }
+    T.gens.forEach((gn,i)=>{ const c=genCost(t,i); const n=U.gens[t+':'+i]||0;
+      h+=`<div class="gen"><div><div class="nm">${gn[0]} <span class="dim">×${n}</span></div><div class="d">+${RH.fmt(gn[2]*tierMult(T.k))} ${T.n.toLowerCase()}/s each</div></div><button data-b="${t}:${i}" ${U.r[res]<c?'disabled':''}>${RH.fmt(c)} ${res==='E'?'⚡':TIERS[KEYS.indexOf(res)].n.toLowerCase()}</button></div>`; });
+    const uc=upCost(t); h+=`<div class="gen"><div><div class="nm">Amplify ${T.n.toLowerCase()} <span class="dim">lv ${U.ups[T.k]||0}</span></div><div class="d">All ${T.n.toLowerCase()} production ×2</div></div><button data-u="${t}" ${U.r[T.k]<uc?'disabled':''}>${RH.fmt(uc)} ${T.n.toLowerCase()}</button></div>`;
+  }
+  h+=`<div class="tierH">The end</div><div class="dim small">Let this universe run out. Every universe ends in heat death or a crunch. You keep the codex entries it earned and <b>seeds</b> to spend on the next one.</div><button class="endBtn primary" id="endBtn" ${U.tier<3?'disabled':''}>End this universe (+${seedsForRun()} seeds)</button>${U.tier<3?'<div class="dim small">Reach Recombination first.</div>':''}`;
+  const el=document.getElementById('p-build'); const sc=el.scrollTop; el.innerHTML=h; el.scrollTop=sc;
+  el.querySelectorAll('[data-b]').forEach(b=>b.onclick=()=>{ const [t,i]=b.dataset.b.split(':').map(Number); buy(t,i); });
+  el.querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>buyUp(+b.dataset.u));
+  document.getElementById('endBtn')?.addEventListener('click', endUniverse);
+}
+function refreshButtons(){ // cheap enable/disable refresh without re-rendering
+  document.querySelectorAll('#p-build [data-b]').forEach(b=>{ const [t,i]=b.dataset.b.split(':').map(Number); b.disabled = U.r[costRes(t)]<genCost(t,i); });
+  document.querySelectorAll('#p-build [data-u]').forEach(b=>{ const t=+b.dataset.u; b.disabled = U.r[KEYS[t]]<upCost(t); });
+  const e=document.getElementById('endBtn'); if (e) e.textContent=`End this universe (+${seedsForRun()} seeds)`;
+}
+function lawsUnlocked(){ return Math.min(CONSTS.length, M.rebirths); }
+function renderLaws(){
+  const n=lawsUnlocked();
+  let h=`<p class="small dim">These are the laws of <b>this</b> universe. They're fixed once it begins. Choose the laws for your <b>next</b> universe below: one new law becomes adjustable after each rebirth.</p>`;
+  h+=`<div class="small" style="margin-bottom:10px">Current: ${CONSTS.map(c=>`${c.n.split(' ')[0]} ${c.opts[U.consts[c.k]][0]}`).join(' · ')}</div><div class="tierH">Next universe</div>`;
+  CONSTS.forEach((c,i)=>{ const locked=i>=n; const cur=M.nextConsts[c.k]??c.def;
+    h+=`<div class="const"><b>${locked?'🔒 ':''}${c.n}</b><div class="small dim">${locked? `Unlocks after rebirth ${i+1}.` : c.d}</div>${locked?'':`<div class="opts">${c.opts.map((o,j)=>`<button data-c="${c.k}" data-j="${j}" class="${cur===j?'on':''}">${o[0]}</button>`).join('')}</div>`}</div>`; });
+  const el=document.getElementById('p-laws'); el.innerHTML=h;
+  el.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{ M.nextConsts[b.dataset.c]=+b.dataset.j; persist(); renderLaws(); });
+}
+function renderCodex(){
+  document.getElementById('p-codex').innerHTML = `<p class="small dim">Each universe you end is classified. ${Object.keys(M.codex).length} of ${CODEX.length} types found.</p><div class="codex">`+CODEX.map(c=>{ const got=M.codex[c.id]; return `<div class="cx ${got?'got':'no'}"><b>${got?c.n:'? ? ?'}</b>${c.hint}${got?`<div class="dim" style="margin-top:3px">first seen in universe #${got}</div>`:''}</div>`; }).join('')+'</div>';
+}
+function renderSeeds(){
+  let h=`<p class="small dim">Seeds carry over between universes. You have <b>${M.seeds}</b>.</p>`;
+  for (const s of SEEDUPS){ const l=M.seedUps[s.k]||0; const maxed=s.max&&l>=s.max; const c=s.cost(l);
+    h+=`<div class="gen"><div><div class="nm">${s.n} <span class="dim">${s.max?'':'lv '+l}</span></div><div class="d">${s.d}</div></div><button data-s="${s.k}" ${maxed||M.seeds<c?'disabled':''}>${maxed?'owned':c+' 🌱'}</button></div>`; }
+  const el=document.getElementById('p-seeds'); el.innerHTML=h;
+  el.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{ const s=SEEDUPS.find(x=>x.k===b.dataset.s); const l=M.seedUps[s.k]||0; const c=s.cost(l); if (M.seeds<c) return; M.seeds-=c; M.seedUps[s.k]=l+1; persist(); renderSeeds(); renderRes(); });
+}
+async function endUniverse(){
+  const seeds=seedsForRun();
+  const newly = CODEX.filter(c=>!M.codex[c.id] && c.test());
+  const ok = await RH.modal(`<h2>End this universe?</h2><p>The stars burn out, black holes evaporate, and everything drifts into cold, even darkness.</p><p>You'll get <b>${seeds} seeds</b>.${newly.length? ` This universe will be recorded in the codex as: <b>${newly.map(c=>c.n).join(', ')}</b>.` : ' No new codex entries.'}</p>`,[{label:'Keep going',value:0},{label:'Let it end',value:1}]);
+  if (!ok) return;
+  M.rebirths++; M.seeds+=seeds; M.totalSeeds+=seeds;
+  for (const c of newly) M.codex[c.id]=M.rebirths;
+  U = newRun(M); persist();
+  targets=[]; renderAll();
+  RH.modal(`<h2>✨ A new Big Bang</h2><p>Universe #${M.rebirths+1} begins.${M.rebirths<=CONSTS.length? ` You can now adjust <b>${CONSTS[M.rebirths-1].n}</b> in the Laws tab for future universes.`:''}</p>`);
+}
+function renderAll(){ renderEra(); renderRes(); renderBuild(); renderLaws(); renderCodex(); renderSeeds(); }
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+b.dataset.t)); renderAll(); });
+
+// ===================== Loop =====================
+let last=performance.now(), uiT=0, saveT=0;
+function frame(now){
+  const dt=Math.min(0.25,(now-last)/1000); last=now;
+  update(dt); drawSky(dt);
+  uiT+=dt; if (uiT>0.25){ uiT=0; renderRes(); refreshButtons(); }
+  saveT+=dt; if (saveT>5){ saveT=0; persist(); }
+  requestAnimationFrame(frame);
+}
+// offline progress (capped at 8 hours)
+if (U.saved){ const off=Math.min(8*3600,(Date.now()-U.saved)/1000); if (off>30){ const before=U.r[KEYS[U.tier]]; for (let i=0;i<60;i++) update(off/60); RH.toast(`While you were away, ${Math.round(off/60)} minutes passed in this universe.`); } }
+resize(); window.addEventListener('resize', resize); renderAll(); requestAnimationFrame(frame);
+window.addEventListener('beforeunload', persist);
+if (!M.intro){ M.intro=1; persist(); RH.modal(`<h2>🌌 Universe Seed</h2><p>You are a universe a fraction of a second old. Grow it through eleven eras, from raw energy to civilizations that harness their stars.</p><p>Then end it, and start another with <b>different laws of physics</b>. Weaken gravity, remove dark energy, add a dimension. Some universes never form a star. Some are full of black holes. A few might be stranger than ours.</p><p>The codex has 40 kinds of universe to find.</p>`,[{label:'Bang'}]); }
+</script>
+</body>
+</html>
