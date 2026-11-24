@@ -32,6 +32,15 @@ Six more, dug after the first ten. They fill genres the first set didn't have: c
 | 🎹 | [Temperament](temperament/index.html) | Tune a keyboard by ear, and fail at it the way history did. | 16 commissions: pure fifths and the Pythagorean comma, just intonation and the syntonic comma, meantone's wolf, Werckmeister, Vallotti, equal temperament, then minimax temperaments for composers' chord sets. Everything is audible: you hear the beats. Star thresholds set from a numerical optimum. |
 | 🔦 | [Opticks](opticks/index.html) | Steer light through mirrors, prisms and lenses on an optical bench. | 26 experiments in 5 chapters: reflection, refraction and total internal reflection, lenses and telescopes, Newton's colour experiments and the achromatic doublet, then reflecting telescopes, solar furnaces and fibres. A real ray tracer (Snell's law, dispersion, thin lenses). Every level was authored from a working solution and checked by script. |
 
+## Round 3
+
+Round 3 started from a research sweep of random Wikipedia pages, the best interactive web toys and counterintuitive phenomena: 56 candidates in [IDEAS-3.md](IDEAS-3.md). It also has a new rule: the play surface is a canvas or WebGL scene, never DOM panels (see [PLAYBOOK.md](PLAYBOOK.md)).
+
+| | Experiment | The premise | What keeps it going |
+|---|---|---|---|
+| 💧 | [Watershed](watershed/index.html) | Sculpt a 3D landscape and let water carve it. | A real hydraulic erosion simulation (virtual-pipe water, sediment transport, rock strata, slope collapse) rendered in three.js. Ten landscapes: springs, canyons, waterfalls retreating through caprock, deltas, levees against a storm, irrigation, dams, then a sandbox. |
+| 🚦 | [Gridlock](gridlock/index.html) | Fix traffic in cities full of selfish drivers. | A Wardrop-equilibrium traffic model with drivers re-routing live. Braess's paradox (closing a road speeds everyone up), Seoul's Cheonggyecheon, Pigou tolls and congestion charges that approach the system optimum. Every city was checked by brute force for a solution. |
+
 ## How this was made
 
 Twenty ideas were drafted (see [IDEAS.md](IDEAS.md)). An independent judge scored them on hook, depth, feasibility and variety, then picked the ten (see [JUDGING.md](JUDGING.md)).

@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gridlock</title>
+<link rel="stylesheet" href="../shared/common.css">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  html,body{height:100%;overflow:hidden;background:#f3eee4;font-family:"Space Grotesk",ui-sans-serif,system-ui,sans-serif}
+  #cv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  .chip{position:fixed;background:rgba(255,253,248,.86);backdrop-filter:blur(10px);border:1px solid rgba(40,36,30,.08);border-radius:16px;color:#2a2622;box-shadow:0 12px 32px -14px rgba(60,40,20,.35)}
+  #hud{top:16px;left:16px;padding:14px 18px;width:330px}
+  #hud .home{color:#8a8175;font-size:12px;text-decoration:none}
+  #hud h1{margin:4px 0 2px;font-size:22px;letter-spacing:-.02em}
+  #story{font-size:14px;line-height:1.45;color:#5b544b;margin:6px 0 10px}
+  .big{display:flex;align-items:baseline;gap:8px}
+  .big b{font-size:52px;letter-spacing:-.04em;font-variant-numeric:tabular-nums;line-height:1}
+  .big span{color:#8a8175;font-size:14px}
+  .target{font-size:13px;color:#5b544b;margin-top:4px}
+  .target.ok{color:#2c8a56;font-weight:700}
+  .meter{height:8px;border-radius:4px;background:#e8e1d4;margin-top:10px;position:relative;overflow:visible}
+  .meter div{height:100%;border-radius:4px;background:#e0663a;transition:width .25s,background .25s}
+  .meter i{position:absolute;top:-4px;width:2px;height:16px;background:#2a2622}
+  #tools{bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:6px;padding:8px}
+  .tool{border:0;background:#efe8dc;border-radius:12px;padding:8px 14px;font:inherit;font-size:14px;color:#2a2622;cursor:pointer;display:flex;gap:6px;align-items:center;transition:transform .08s,background .15s}
+  .tool:active{transform:scale(.94)}
+  .tool.on{background:#2a2622;color:#fff}
+  .tool i{font-style:normal;background:#e0663a;color:#fff;border-radius:8px;padding:0 6px;font-size:12px}
+  #levels{top:16px;right:16px;padding:8px;width:220px;max-height:calc(100vh - 120px);overflow:auto}
+  #levels h4{margin:6px 10px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#8a8175}
+  .lv{padding:6px 10px;border-radius:9px;font-size:13px;cursor:pointer;display:flex;justify-content:space-between}
+  .lv:hover{background:#efe8dc}
+  .lv.cur{background:#2a2622;color:#fff}
+  .lv.lock{opacity:.35;pointer-events:none}
+  #toll{bottom:84px;left:50%;transform:translateX(-50%);padding:10px 16px;display:none;align-items:center;gap:10px;font-size:14px}
+  #toll input{width:220px}
+  #legend{bottom:16px;left:16px;padding:8px 12px;font-size:12px;color:#5b544b;display:flex;gap:10px;align-items:center}
+  #legend span{display:inline-block;width:26px;height:6px;border-radius:3px;vertical-align:middle;margin-right:4px}
+  #toast{position:fixed;top:44%;left:50%;transform:translate(-50%,-50%) scale(.85);opacity:0;font-size:46px;font-weight:700;letter-spacing:-.03em;color:#2a2622;pointer-events:none;transition:opacity .3s,transform .5s cubic-bezier(.3,1.6,.5,1);text-align:center}
+  #toast.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  #toast small{display:block;font-size:16px;font-weight:400;color:#5b544b;margin-top:6px}
+  @media (max-width:760px){#hud{width:calc(100vw - 32px)}#levels{top:auto;bottom:80px;width:160px;max-height:28vh}#legend{display:none}.big b{font-size:40px}}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="hud" class="chip"><a class="home" href="../index.html">← Rabbit Holes</a><h1 id="title">Gridlock</h1><div id="story"></div>
+  <div class="big"><b id="avg">–</b><span>min average commute</span></div><div class="target" id="tgt"></div><div class="meter"><div id="bar"></div><i id="tick"></i></div></div>
+<div id="levels" class="chip"></div>
+<div id="tools" class="chip"></div>
+<div id="toll" class="chip">Toll on <b id="tollName"></b> <input type="range" id="tollR" min="0" max="40" step="1"> <b id="tollV"></b> min</div>
+<div id="legend" class="chip"><span style="background:#3aa58c"></span>free-flowing <span style="background:#e9a23b"></span>busy <span style="background:#d8452f"></span>jammed</div>
+<div id="toast"></div>
+<script src="../shared/common.js"></script>
+<script src="../shared/fx.js"></script>
+<script>
+'use strict';
+// ================= traffic model =================
+// Roads are one-way. Travel time on a road = t0 + k * (cars / 1000) minutes. Highways have k = 0: they never jam.
+// Drivers are selfish: each keeps switching to whichever route is fastest for them right now (Wardrop equilibrium).
+const R = (a, b, t0, k, o = {}) => ({ a, b, t0, k, ...o });
+const LV = [
+  { n: 'Rush Hour', story: 'Two thousand people drive from <b>Home</b> to <b>Work</b> every morning on a long, slow highway. You can build one street straight across.',
+    nodes: { H: [140, 330, 'home'], J: [500, 120], W: [860, 330, 'work'] }, roads: [R('H', 'J', 15, 0, { hw: 1 }), R('J', 'W', 15, 0, { hw: 1 })], ghosts: [R('H', 'W', 10, 5)],
+    demand: [{ o: 'H', d: 'W', n: 2000 }], target: 22, tools: { build: 1 } },
+  { n: 'Detour', story: 'The town street is jammed solid. Build a bypass, but a bypass only works if it connects all the way through.',
+    nodes: { H: [140, 380, 'home'], X: [500, 150], W: [860, 380, 'work'] }, roads: [R('H', 'W', 5, 20)], ghosts: [R('H', 'X', 10, 0, { hw: 1 }), R('X', 'W', 15, 0, { hw: 1 })],
+    demand: [{ o: 'H', d: 'W', n: 2000 }], target: 26, tools: { build: 2 } },
+  { n: 'Braess\'s Paradox', story: 'Someone built a free connector between the two routes. Now everyone uses it, and everyone is slower. Each driver is choosing rationally. <b>Close one road</b> and see what happens.',
+    nodes: { A: [130, 330, 'home'], C: [500, 110], D: [500, 550], B: [870, 330, 'work'] }, roads: [R('A', 'C', 0, 10), R('C', 'B', 45, 0, { hw: 1 }), R('A', 'D', 45, 0, { hw: 1 }), R('D', 'B', 0, 10), R('C', 'D', 0, 0, { hw: 1 })],
+    demand: [{ o: 'A', d: 'B', n: 4000 }], target: 66, tools: { close: 1 } },
+  { n: 'The Decoy', story: 'A longer route around the outside gives drivers another option. One road here is making everyone slower. Only one closure is allowed, so find the right road.',
+    nodes: { A: [120, 330, 'home'], C: [440, 150], D: [440, 510], B: [780, 330, 'work'], E: [460, 640] }, roads: [R('A', 'C', 0, 10), R('C', 'B', 45, 0, { hw: 1 }), R('A', 'D', 45, 0, { hw: 1 }), R('D', 'B', 0, 10), R('C', 'D', 0, 0, { hw: 1 }), R('A', 'E', 50, 0, { hw: 1 }), R('E', 'B', 20, 0, { hw: 1 })],
+    demand: [{ o: 'A', d: 'B', n: 4000 }], target: 66, tools: { close: 1 } },
+  { n: 'Cheonggyecheon', story: 'In 2005 Seoul tore down a six-lane elevated highway and turned it back into a stream. Traffic got <b>better</b>. Here is a city with an expressway through the middle.',
+    nodes: { A: [130, 330, 'home'], C: [500, 120], D: [500, 540], B: [870, 330, 'work'] }, roads: [R('A', 'C', 5, 8), R('C', 'B', 40, 0, { hw: 1 }), R('A', 'D', 40, 0, { hw: 1 }), R('D', 'B', 5, 8), R('C', 'D', 2, 0, { hw: 1, name: 'Expressway' })],
+    demand: [{ o: 'A', d: 'B', n: 4000 }], target: 62, tools: { close: 1 } },
+  { n: 'Double Trouble', story: 'Two paradoxes in a row. Each half of the city has its own shortcut, and you can close two roads.',
+    nodes: { A: [80, 340, 'home'], C1: [270, 140], D1: [270, 540], X: [470, 340], C2: [670, 140], D2: [670, 540], B: [880, 340, 'work'] },
+    roads: [R('A', 'C1', 0, 10), R('C1', 'X', 45, 0, { hw: 1 }), R('A', 'D1', 45, 0, { hw: 1 }), R('D1', 'X', 0, 10), R('C1', 'D1', 0, 0, { hw: 1 }), R('X', 'C2', 0, 10), R('C2', 'B', 45, 0, { hw: 1 }), R('X', 'D2', 45, 0, { hw: 1 }), R('D2', 'B', 0, 10), R('C2', 'D2', 0, 0, { hw: 1 })],
+    demand: [{ o: 'A', d: 'B', n: 4000 }], target: 131, tools: { close: 2 } },
+  { n: 'Two Suburbs', story: 'Two suburbs share one jammed junction. There is budget for <b>two</b> of the four proposed roads. Some proposals do nothing at all on their own.',
+    nodes: { P: [120, 190, 'home'], Q: [120, 500, 'home'], M: [420, 350], R: [520, 120], W: [870, 350, 'work'] },
+    roads: [R('P', 'M', 4, 6), R('Q', 'M', 4, 6), R('M', 'W', 10, 4), R('P', 'W', 40, 0, { hw: 1, bend: -1 }), R('Q', 'W', 40, 0, { hw: 1, bend: 1 })],
+    ghosts: [R('P', 'R', 5, 2), R('R', 'W', 8, 6), R('Q', 'R', 20, 0, { hw: 1 }), R('M', 'R', 1, 0, { hw: 1 })],
+    demand: [{ o: 'P', d: 'W', n: 2000 }, { o: 'Q', d: 'W', n: 2000 }], target: 31, tools: { build: 2 } },
+  { n: 'Pigou\'s Toll', story: 'A highway that always takes 40 minutes, and a free street that jams. Selfish drivers pile onto the street until it is <i>also</i> 40 minutes. A <b>toll</b> nudges some drivers back onto the highway, and the people still on the street get there faster.',
+    nodes: { A: [140, 340, 'home'], B: [860, 340, 'work'], T: [500, 560] }, roads: [R('A', 'B', 40, 0, { hw: 1, bend: -1 }), R('A', 'T', 0, 10), R('T', 'B', 0, 10)],
+    demand: [{ o: 'A', d: 'B', n: 2000 }], target: 30.5, tools: { toll: 1 } },
+  { n: 'Toll the Shortcut', story: 'The city council won\'t let you close the connector. Can you make it so nobody wants to use it?',
+    nodes: { A: [130, 330, 'home'], C: [500, 110], D: [500, 550], B: [870, 330, 'work'] }, roads: [R('A', 'C', 0, 10), R('C', 'B', 45, 0, { hw: 1 }), R('A', 'D', 45, 0, { hw: 1 }), R('D', 'B', 0, 10), R('C', 'D', 0, 0, { hw: 1 })],
+    demand: [{ o: 'A', d: 'B', n: 4000 }], target: 66, tools: { toll: 1 } },
+  { n: 'Congestion Charge', story: 'Both suburbs now have every road. The best possible average, with a dispatcher assigning routes, is <b>28.7 min</b>. Selfish drivers get 30.7. With <b>two tolls</b>, get within 2% of the optimum.',
+    nodes: { P: [120, 190, 'home'], Q: [120, 500, 'home'], M: [420, 350], R: [520, 120], W: [870, 350, 'work'] },
+    roads: [R('P', 'M', 4, 6), R('Q', 'M', 4, 6), R('M', 'W', 10, 4), R('P', 'W', 40, 0, { hw: 1, bend: -1 }), R('Q', 'W', 40, 0, { hw: 1, bend: 1 }), R('P', 'R', 5, 2), R('R', 'W', 8, 6), R('Q', 'R', 20, 0, { hw: 1 }), R('M', 'R', 1, 0, { hw: 1 })],
+    demand: [{ o: 'P', d: 'W', n: 2000 }, { o: 'Q', d: 'W', n: 2000 }], target: 29.2, tools: { toll: 2 } },
+];
+
+// ================= state =================
+const SAVE = RH.load('gridlock', { done: {}, cur: 0 });
+const persist = () => { RH.save('gridlock', SAVE); RH.progress('gridlock', Object.keys(SAVE.done).length / LV.length); };
+let L, roads, P, F, tool = 'look', sel = -1, settleT = 0, won = false, shown = { avg: 0 };
+
+function load(i) {
+  SAVE.cur = i; persist(); L = LV[i]; won = false; settleT = 0; sel = -1;
+  roads = [...L.roads.map(r => ({ ...r })), ...(L.ghosts || []).map(r => ({ ...r, ghost: 1, built: 0 }))];
+  roads.forEach(r => { r.toll = 0; r.cars = 0; r.flowVis = 0; });
+  rebuildPaths(true);
+  tool = Object.keys(L.tools)[0]; cars.length = 0;
+  $('title').textContent = L.n; $('story').innerHTML = L.story;
+  renderUI(); fit();
+}
+const usable = r => (!r.ghost || r.built) && !r.closed;
+function rebuildPaths(reset) {
+  const old = P && !reset ? new Map(P.flat().map((p, i) => [p.key, p.f])) : null;
+  P = L.demand.map(dm => {
+    const out = [], adj = {}; roads.forEach((r, i) => { if (usable(r)) (adj[r.a] ||= []).push(i); });
+    const dfs = (n, seen, p) => { if (out.length > 60) return; if (n === dm.d) { out.push({ e: p.slice(), key: p.join(','), f: 0 }); return; } for (const i of adj[n] || []) { const m = roads[i].b; if (seen.has(m)) continue; seen.add(m); p.push(i); dfs(m, seen, p); p.pop(); seen.delete(m); } };
+    dfs(dm.o, new Set([dm.o]), []);
+    // keep drivers on routes they already use; new routes start empty so the switch is visible
+    let tot = 0; out.forEach(p => { p.f = old?.get(p.key) ?? 0; tot += p.f; });
+    if (tot < dm.n - 1) { const miss = dm.n - tot; if (!old || tot === 0) out.forEach(p => p.f += miss / out.length); else { const c = out.map(cost); out[c.indexOf(Math.min(...c))].f += miss; } }
+    return out;
+  });
+  settleT = 0;
+}
+function flows() { roads.forEach(r => r.cars = 0); P.forEach(ps => ps.forEach(p => p.e.forEach(i => roads[i].cars += p.f))); }
+const time = r => r.t0 + r.k * r.cars / 1000;
+const cost = p => p.e.reduce((a, i) => a + time(roads[i]) + roads[i].toll, 0);
+const ttime = p => p.e.reduce((a, i) => a + time(roads[i]), 0);
+// one tick of "drivers learn": a few percent of drivers on slower routes switch to the currently fastest one
+function adjust(rate) {
+  flows();
+  let gap = 0;
+  P.forEach(ps => {
+    if (!ps.length) return; const c = ps.map(cost), m = Math.min(...c), b = c.indexOf(m);
+    ps.forEach((p, q) => { if (q === b) return; const d = c[q] - m; if (d > 1e-6 && p.f > 0) { const mv = p.f * Math.min(.5, rate * d); p.f -= mv; ps[b].f += mv; gap = Math.max(gap, d * (p.f > 1 ? 1 : 0)); } });
+  });
+  flows(); return gap;
+}
+function average() { let t = 0, n = 0; P.forEach(ps => ps.forEach(p => { t += p.f * ttime(p); n += p.f; })); return n ? t / n : Infinity; }
+
+// ================= drawing =================
+const $ = id => document.getElementById(id);
+const cv = $('cv'), g = cv.getContext('2d');
+let W = 1, H = 1, view = { s: 1, ox: 0, oy: 0 }, dpr = 1;
+function fit() { dpr = FX.fit(cv); W = cv.width; H = cv.height; const xs = Object.values(L.nodes).map(n => n[0]), ys = Object.values(L.nodes).map(n => n[1]); const bw = 1000, bh = 680, wide = innerWidth > 900, left = wide ? 360 * dpr : 0, right = wide ? 250 * dpr : 0, top = wide ? 20 * dpr : 300 * dpr, bottom = 80 * dpr;
+  const x0 = Math.min(...xs) - 70, x1 = Math.max(...xs) + 70, y0 = Math.min(...ys) - 110, y1 = Math.max(...ys) + 80; // fit the city, with room for bends and labels
+  const aw = W - left - right, ah = H - top - bottom; view.s = Math.min(aw / (x1 - x0), ah / (y1 - y0), 1.6 * dpr); view.ox = left + (aw - (x1 - x0) * view.s) / 2 - x0 * view.s; view.oy = top + (ah - (y1 - y0) * view.s) / 2 - y0 * view.s; }
+addEventListener('resize', () => L && fit());
+const ND = n => L.nodes[n];
+function roadGeom(r) { // returns control points; parallel roads between the same pair bend apart
+  const [x1, y1] = ND(r.a), [x2, y2] = ND(r.b);
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, len = Math.hypot(x2 - x1, y2 - y1), nx = -(y2 - y1) / len, ny = (x2 - x1) / len;
+  const bend = (r.bend || 0) * 170;
+  return { x1, y1, x2, y2, cx: mx + nx * bend, cy: my + ny * bend, len };
+}
+const bez = (G, t) => { const u = 1 - t; return [u * u * G.x1 + 2 * u * t * G.cx + t * t * G.x2, u * u * G.y1 + 2 * u * t * G.cy + t * t * G.y2]; };
+const bezD = (G, t) => { const u = 1 - t; return [2 * u * (G.cx - G.x1) + 2 * t * (G.x2 - G.cx), 2 * u * (G.cy - G.y1) + 2 * t * (G.y2 - G.cy)]; };
+function jamColor(r) { const x = r.k ? Math.min(1, (time(r) - r.t0) / Math.max(8, r.t0 + 10)) : 0; const c1 = [58, 165, 140], c2 = [233, 162, 59], c3 = [216, 69, 47]; const m = x < .5 ? c1.map((v, i) => v + (c2[i] - v) * x * 2) : c2.map((v, i) => v + (c3[i] - v) * (x - .5) * 2); return `rgb(${m.map(v => v | 0)})`; }
+const ORIG = ['#3a7bd5', '#c2459b', '#2f9e74', '#d98b2b'];
+
+// cars: purely visual, sampled from the current route flows
+const cars = [];
+let spawnAcc = 0;
+function spawnCars(dt) {
+  spawnAcc += dt;
+  const per = .025; // seconds between spawns per 1000 drivers
+  while (spawnAcc > per) {
+    spawnAcc -= per;
+    L.demand.forEach((dm, j) => {
+      if (Math.random() > dm.n / 4000) return;
+      const ps = P[j]; let x = Math.random() * dm.n, p = ps[0];
+      for (const q of ps) { x -= q.f; if (x <= 0) { p = q; break; } }
+      if (p && cars.length < 900) cars.push({ p, j, seg: 0, t: 0, lane: (Math.random() - .5) * 6 });
+    });
+  }
+}
+function moveCars(dt) {
+  for (let i = cars.length - 1; i >= 0; i--) {
+    const c = cars[i], r = roads[c.p.e[c.seg]];
+    if (!r || !usable(r)) { cars.splice(i, 1); continue; }
+    const dur = .35 + (time(r) + r.toll * 0) * .045; // seconds to drive this road on screen
+    c.t += dt / dur;
+    if (c.t >= 1) { c.t = 0; c.seg++; if (c.seg >= c.p.e.length) { cars.splice(i, 1); arrivals++; } }
+  }
+}
+let arrivals = 0, hover = -1, pulse = 0;
+function draw(now) {
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  const grd = g.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * .7); grd.addColorStop(0, '#f8f4ec'); grd.addColorStop(1, '#e9e1d2'); g.fillStyle = grd; g.fillRect(0, 0, W, H);
+  const [sx, sy] = FX.shakeOffset(10 * dpr);
+  g.setTransform(view.s, 0, 0, view.s, view.ox + sx, view.oy + sy);
+  // paper grid
+  g.strokeStyle = 'rgba(80,60,30,.05)'; g.lineWidth = 1 / view.s;
+  for (let x = -200; x <= 1200; x += 40) { g.beginPath(); g.moveTo(x, -200); g.lineTo(x, 900); g.stroke(); }
+  for (let y = -200; y <= 900; y += 40) { g.beginPath(); g.moveTo(-200, y); g.lineTo(1200, y); g.stroke(); }
+  const maxCars = Math.max(...L.demand.map(d => d.n)) * L.demand.length;
+  roads.forEach((r, i) => {
+    const G = roadGeom(r), w = r.hw ? 16 : 11;
+    g.lineCap = 'round';
+    const path = () => { g.beginPath(); g.moveTo(G.x1, G.y1); g.quadraticCurveTo(G.cx, G.cy, G.x2, G.y2); };
+    if (r.ghost && !r.built) {
+      path(); g.setLineDash([2, 14]); g.lineWidth = 6; g.strokeStyle = `rgba(42,38,34,${.35 + .25 * Math.sin(now / 300)})`; g.stroke(); g.setLineDash([]);
+      const [mx, my] = bez(G, .5); g.fillStyle = '#2a2622'; g.font = '600 15px Space Grotesk'; g.textAlign = 'center'; g.fillText('+ build', mx, my - 12);
+      return;
+    }
+    // casing
+    path(); g.lineWidth = w + 7; g.strokeStyle = i === sel || i === hover ? '#2a2622' : 'rgba(42,38,34,.85)'; g.stroke();
+    path(); g.lineWidth = w; g.strokeStyle = r.closed ? '#cfc6b6' : jamColor(r); g.stroke();
+    if (r.hw && !r.closed) { path(); g.setLineDash([10, 12]); g.lineWidth = 2; g.strokeStyle = 'rgba(255,255,255,.8)'; g.stroke(); g.setLineDash([]); }
+    // direction chevrons
+    for (const t of [.3, .7]) { const [px, py] = bez(G, t), [dx, dy] = bezD(G, t), a = Math.atan2(dy, dx); g.save(); g.translate(px, py); g.rotate(a); g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(-4, -4); g.lineTo(2, 0); g.lineTo(-4, 4); g.stroke(); g.restore(); }
+    // label: travel time
+    const [mx, my] = bez(G, .5), [dx, dy] = bezD(G, .5), nl = Math.hypot(dx, dy), ox = -dy / nl * 26, oy = dx / nl * 26;
+    g.font = '700 15px Space Grotesk'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const label = r.closed ? 'closed' : `${time(r).toFixed(0)} min${r.toll ? ` +$${r.toll}` : ''}`;
+    const tw = g.measureText(label).width + 14;
+    g.fillStyle = r.closed ? '#e9e1d2' : '#fffdf8'; roundRect(mx + ox - tw / 2, my + oy - 12, tw, 24, 12); g.fill();
+    g.fillStyle = r.closed ? '#8a8175' : '#2a2622'; g.fillText(label, mx + ox, my + oy + 1);
+    if (r.closed) { g.strokeStyle = '#d8452f'; g.lineWidth = 4; g.beginPath(); g.moveTo(mx - 9, my - 9); g.lineTo(mx + 9, my + 9); g.moveTo(mx + 9, my - 9); g.lineTo(mx - 9, my + 9); g.stroke(); }
+  });
+  // cars
+  for (const c of cars) {
+    const r = roads[c.p.e[c.seg]]; if (!r) continue; const G = roadGeom(r), [x, y] = bez(G, c.t), [dx, dy] = bezD(G, c.t), a = Math.atan2(dy, dx);
+    g.save(); g.translate(x - Math.sin(a) * c.lane, y + Math.cos(a) * c.lane); g.rotate(a); g.fillStyle = ORIG[c.j]; roundRect(-5, -2.6, 10, 5.2, 2.4); g.fill(); g.restore();
+  }
+  // nodes
+  for (const [k, [x, y, kind]] of Object.entries(L.nodes)) {
+    if (kind === 'work') { g.fillStyle = '#2a2622'; roundRect(x - 30, y - 30, 60, 60, 12); g.fill(); g.fillStyle = '#fffdf8'; g.font = '700 13px Space Grotesk'; g.textAlign = 'center'; g.fillText('WORK', x, y + 1); }
+    else if (kind === 'home') {
+      const j = L.demand.findIndex(d => d.o === k), r = 30 + 3 * Math.sin(now / 400 + j);
+      g.fillStyle = ORIG[Math.max(0, j)]; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.strokeStyle = '#fffdf8'; g.lineWidth = 4; g.stroke();
+      g.fillStyle = '#fff'; g.font = '700 12px Space Grotesk'; g.textAlign = 'center'; g.fillText('HOME', x, y - 6); g.font = '500 11px Space Grotesk'; g.fillText(((L.demand[j]?.n || 0) / 1000) + 'k cars', x, y + 9);
+    } else { g.fillStyle = '#fffdf8'; g.strokeStyle = '#2a2622'; g.lineWidth = 4; g.beginPath(); g.arc(x, y, 11, 0, 7); g.fill(); g.stroke(); }
+  }
+}
+function roundRect(x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+
+// ================= input =================
+const toWorld = e => { const r = cv.getBoundingClientRect(); return [((e.clientX - r.left) * dpr - view.ox) / view.s, ((e.clientY - r.top) * dpr - view.oy) / view.s]; };
+function roadAt(x, y) {
+  let best = -1, bd = 22;
+  roads.forEach((r, i) => { const G = roadGeom(r); for (let t = 0; t <= 1; t += .02) { const [px, py] = bez(G, t), d = Math.hypot(px - x, py - y); if (d < bd) { bd = d; best = i; } } });
+  return best;
+}
+cv.addEventListener('pointermove', e => { const [x, y] = toWorld(e); hover = roadAt(x, y); cv.style.cursor = hover >= 0 && tool !== 'look' ? 'pointer' : 'default'; });
+cv.addEventListener('pointerdown', e => {
+  const [x, y] = toWorld(e), i = roadAt(x, y); if (i < 0) return;
+  const r = roads[i];
+  if (r.ghost) {
+    if (!L.tools.build) return;
+    const used = roads.filter(q => q.ghost && q.built).length;
+    if (!r.built && used >= L.tools.build) { FX.sfx('fail'); toast('Out of budget', 'Remove a road you built first.', 1400); return; }
+    r.built = !r.built; FX.sfx(r.built ? 'place' : 'pop'); FX.shake(.15); rebuildPaths(); renderUI(); return;
+  }
+  if (tool === 'close' && L.tools.close) {
+    const used = roads.filter(q => q.closed).length;
+    if (!r.closed && used >= L.tools.close) { FX.sfx('fail'); toast('Closure limit', `You can close ${L.tools.close} road${L.tools.close > 1 ? 's' : ''}. Reopen one first.`, 1600); return; }
+    r.closed = !r.closed; FX.sfx(r.closed ? 'boom' : 'pop'); FX.shake(r.closed ? .3 : .1); rebuildPaths(); renderUI(); return;
+  }
+  if (tool === 'toll' && L.tools.toll) {
+    const tolled = roads.filter(q => q.toll > 0 && q !== r).length;
+    if (tolled >= L.tools.toll && !(r.toll > 0)) { FX.sfx('fail'); toast('Toll limit', `You can toll ${L.tools.toll} road${L.tools.toll > 1 ? 's' : ''}. Set another toll to 0 first.`, 1600); return; }
+    sel = i; FX.sfx('click'); showToll(); return;
+  }
+});
+function showToll() { const r = roads[sel]; $('toll').style.display = 'flex'; $('tollName').textContent = r.name || `${r.a} → ${r.b}`; $('tollR').value = r.toll; $('tollV').textContent = r.toll; }
+$('tollR').oninput = () => { const r = roads[sel]; r.toll = +$('tollR').value; $('tollV').textContent = r.toll; settleT = 0; if (r.toll % 5 === 0) FX.sfx('tick'); };
+
+function renderUI() {
+  const t = [];
+  if (L.tools.build) t.push(['build', '🛣️ Build', `<i>${L.tools.build - roads.filter(q => q.ghost && q.built).length}</i>`]);
+  if (L.tools.close) t.push(['close', '🚧 Close', `<i>${L.tools.close - roads.filter(q => q.closed).length}</i>`]);
+  if (L.tools.toll) t.push(['toll', '💰 Toll', `<i>${L.tools.toll}</i>`]);
+  $('tools').innerHTML = t.map(([k, n, b]) => `<button class="tool ${tool === k ? 'on' : ''}" data-t="${k}">${n} ${b}</button>`).join('') + `<button class="tool" id="reset">↺ Reset</button>`;
+  $('tools').querySelectorAll('[data-t]').forEach(b => b.onpointerdown = () => { tool = b.dataset.t; FX.sfx('click'); if (tool !== 'toll') $('toll').style.display = 'none'; renderUI(); });
+  $('reset').onclick = () => { FX.sfx('pop'); load(SAVE.cur); };
+  if (tool !== 'toll') $('toll').style.display = 'none';
+  const maxOpen = (() => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; })();
+  $('levels').innerHTML = '<h4>Cities</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${i > maxOpen && !SAVE.done[i] ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><span>${SAVE.done[i] ? '✓' : ''}</span></div>`).join('');
+  $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { FX.sfx('click'); load(+el.dataset.i); });
+}
+function toast(big, small, ms = 2400) { const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : ''); t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms); }
+
+// ================= loop =================
+let last = performance.now();
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  let gap = 0; for (let i = 0; i < 3; i++) gap = adjust(.004);
+  const avg = average();
+  shown.avg = FX.damp(shown.avg || avg, avg, 6, dt);
+  $('avg').textContent = isFinite(avg) ? shown.avg.toFixed(1) : '∞';
+  const ok = avg <= L.target + 1e-6;
+  $('tgt').className = 'target' + (ok ? ' ok' : ''); $('tgt').textContent = isFinite(avg) ? `Target: ${L.target} min or less${ok ? (gap < .05 ? '  ✓' : '  (settling…)') : ''}` : 'Some drivers can\'t reach work!';
+  const span = Math.max(L.target * 1.6, avg); $('bar').style.width = Math.min(100, avg / span * 100) + '%'; $('bar').style.background = ok ? '#2c8a56' : '#e0663a'; $('tick').style.left = (L.target / span * 100) + '%';
+  settleT = gap < .05 ? settleT + dt : 0;
+  if (!won && ok && settleT > 1.2) win();
+  spawnCars(dt); moveCars(dt); draw(now);
+}
+function win() {
+  won = true; SAVE.done[SAVE.cur] = 1; persist(); FX.sfx('win'); FX.shake(.25);
+  toast('✓ ' + L.n, SAVE.cur < LV.length - 1 ? `Average commute ${average().toFixed(1)} min. Next city unlocked.` : 'Every city fixed.', 3000); renderUI();
+}
+load(Math.min(SAVE.cur || 0, LV.length - 1));
+requestAnimationFrame(loop);
+window.__gl = { LV, load, roads: () => roads, average, adjust, P: () => P, rebuild: () => rebuildPaths() };
+</script>
+</body>
+</html>
