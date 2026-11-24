@@ -38,33 +38,71 @@ module.exports = {
       const sig2 = await page.evaluate(() => window.__parish.W().R.slice(0, 300).map(window.__parish.recText).join('|'));
       ok(sig2 === r.sig, 'same seed must give the same register, spelt and abbreviated the same way');
     },
-    'answering: wrong costs a star, locked and already-answered tasks cannot be answered': async ({ page, eq, ok }) => {
-      await closeModals(page);
-      const r = await page.evaluate(async () => {
-        const P = window.__parish, c = P.COMS()[0], W = P.W(), out = {};
-        const locked = c.tasks.findIndex(k => k.dep >= 0);
-        if (locked >= 0) { P.setSel(c.tasks[locked].truth); await P.answer(locked); out.locked = P.S.prog[0][locked]; }
-        const wrongRec = W.R.find(x => x.id !== c.tasks[0].truth && x.t === W.R[c.tasks[0].truth].t);
-        P.setSel(wrongRec.id); await P.answer(0); out.wrong = P.S.wrong[0]; out.p0 = P.S.prog[0][0];
-        P.setSel(c.tasks[0].truth); await P.answer(0); out.p1 = P.S.prog[0][0];
-        await P.answer(0); out.wrongAfter = P.S.wrong[0];
+    'every decoy can be struck with a true reason; the true record never can': async ({ page, eq }) => {
+      const bad = await page.evaluate(() => {
+        const P = window.__parish, W = P.W(), out = [];
+        P.COMS().forEach((c, ci) => c.tasks.forEach((k, ti) => {
+          const K = P.KIND[k.kind], cands = P.candidates(W.R, k);
+          if (!cands.some(x => x.id === k.truth)) out.push('truth missing ' + ci + ':' + ti);
+          for (const x of cands) { const why = K.why(W.R, x, k).filter(code => K.strikes.includes(code)); if (x.id === k.truth ? why.length : !why.length) out.push(ci + ':' + ti + ':' + x.id); }
+        }));
         return out;
       });
-      if (r.locked !== undefined) eq(r.locked, 0, 'locked task answered');
-      eq(r.wrong, 1); eq(r.p0, 0); eq(r.p1, 1); eq(r.wrongAfter, 1, 're-answering an answered task');
+      eq(bad, []);
     },
-    'completing a letter gives stars from mistakes and opens it as done': async ({ page, eq }) => {
+    'striking: a true reason strikes, a false one blots once, locked tasks refuse, last entry is entered': async ({ page, eq, ok }) => {
       await closeModals(page);
       const r = await page.evaluate(async () => {
-        const P = window.__parish, c = P.COMS()[0];
-        P.S.wrong[0] = 2;
-        const pending = [];
-        for (let i = 0; i < c.tasks.length; i++) { P.setSel(c.tasks[i].truth); pending.push(P.answer(i)); }
-        await new Promise(r => setTimeout(r, 50));
-        return P.S.done[0];
+        const P = window.__parish, W = P.W(), C = P.COMS(), out = {};
+        const ci = C.findIndex((c, i) => P.tierOpen(P.tierOf(i)) && P.candidates(W.R, c.tasks[0]).length >= 3); if (ci < 0) return null;
+        P.openLetter(ci); const c = C[ci], k = c.tasks[0], K = P.KIND[k.kind];
+        const locked = c.tasks.findIndex(t => t.dep >= 0);
+        if (locked >= 0) { const t = c.tasks[locked], d = P.candidates(W.R, t).find(x => x.id !== t.truth); out.locked = d ? P.strike(locked, d.id, K.strikes[0]) : null; }
+        const decoys = P.candidates(W.R, k).filter(x => x.id !== k.truth);
+        const d0 = decoys[0], good = K.why(W.R, d0, k).find(code => K.strikes.includes(code)), badC = K.strikes.find(code => !K.why(W.R, d0, k).includes(code));
+        if (badC) { out.bad1 = P.strike(0, d0.id, badC); out.bad2 = P.strike(0, d0.id, badC); }
+        out.wrong = P.S.wrong[ci] || 0; out.truthStrike = P.strike(0, k.truth, K.strikes[0]);
+        out.good = P.strike(0, d0.id, good); out.left = P.remaining(0).length;
+        for (const d of decoys.slice(1)) P.strike(0, d.id, K.why(W.R, d, k).find(code => K.strikes.includes(code)));
+        out.prog = P.S.prog[ci][0]; out.badC = !!badC; out.wrongEnd = P.S.wrong[ci] || 0;
+        return out;
       });
-      eq(r, { stars: 2 });
+      ok(r, 'no letter with 3+ candidates in the open tier');
+      if (r.locked !== undefined) eq(r.locked, null, 'locked task struck');
+      if (r.badC) { eq(r.bad1, false); eq(r.bad2, false); eq(r.wrong, 1, 'same wrong reason charged twice'); }
+      eq(r.truthStrike, false, 'the true record was struck'); eq(r.good, true);
+      eq(r.prog, 1, 'last remaining entry should be entered'); eq(r.wrongEnd, (r.badC ? 1 : 0) + 1);
+    },
+    'real clicks: open an entry, strike it with a reason chip': async ({ page, eq, ok }) => {
+      await closeModals(page);
+      const t = await page.evaluate(() => { const P = window.__parish, W = P.W(), k = P.COMS()[P.cur].tasks[0], K = P.KIND[k.kind]; const d = P.candidates(W.R, k).find(x => x.id !== k.truth); return d ? { id: d.id, code: K.why(W.R, d, k).find(c => K.strikes.includes(c)), label: P.strikeLabel(K.why(W.R, d, k).find(c => K.strikes.includes(c)), k) } : null; });
+      if (!t) { ok(await page.locator('[data-confirm="0"]').count() === 1, 'single candidate should offer to enter it'); return; }
+      await page.locator(`.cand[data-cand="${t.id}"]`).click();
+      await page.locator(`.cand[data-cand="${t.id}"] [data-strike="${t.code}"]`).click();
+      ok(await page.locator(`.cand.struck[data-cand="${t.id}"]`).count() === 1, 'not struck');
+      ok((await page.locator(`.cand.struck[data-cand="${t.id}"] .why`).textContent()).includes(t.label));
+    },
+    'completing a letter presses a seal and gives stars from blots': async ({ page, eq }) => {
+      await closeModals(page);
+      await page.evaluate(() => {
+        const P = window.__parish, W = P.W(), c = P.COMS()[0]; P.openLetter(0); P.S.wrong[0] = 2;
+        c.tasks.forEach((k, i) => { const K = P.KIND[k.kind]; for (const d of P.candidates(W.R, k)) if (d.id !== k.truth) P.strike(i, d.id, K.why(W.R, d, k).find(x => K.strikes.includes(x))); P.confirmTask(i); });
+      });
+      eq(await page.locator('#right .letter .seal').count(), 1, 'seal');
+      await page.waitForTimeout(1500);
+      eq(await page.evaluate(() => window.__parish.S.done[0]), { stars: 2 });
       eq(await page.locator('.modal-bg').count(), 1, 'one completion modal');
+    },
+    'the next bundle opens on stars, not on letters': async ({ page, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(() => { const P = window.__parish; for (let i = 0; i < 4; i++) P.S.done[i] = { stars: 2 }; const a = P.tierOpen(1); P.S.done[4] = { stars: 1 }; const b = P.tierOpen(1); return [a, b, P.STARS_TO_OPEN]; });
+      eq(r, [false, true, 9]);
+    },
+    'saved strikes survive a reload only if the reason holds': async ({ page, eq }) => {
+      const info = await page.evaluate(() => { const P = window.__parish, W = P.W(), k = P.COMS()[0].tasks[0], K = P.KIND[k.kind]; const d = P.candidates(W.R, k).find(x => x.id !== k.truth); return { seed: P.S.seed, d: d && d.id, code: d && K.why(W.R, d, k).find(c => K.strikes.includes(c)), truth: k.truth, other: K.strikes[0] }; });
+      if (info.d == null) return;
+      await withSave(page, { seed: info.seed, intro: 1, strikes: { 0: { 0: { [info.d]: info.code, [info.truth]: info.other, 999999: 'late' } } } });
+      eq(await page.evaluate(() => window.__parish.S.strikes[0][0]), { [info.d]: info.code });
     },
     'clicking a pinned record updates the selected-record box (answers go to what you see)': async ({ page, ok }) => {
       await closeModals(page);

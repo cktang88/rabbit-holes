@@ -104,7 +104,9 @@ module.exports = {
       ok(!(await page.evaluate(() => window.__vault.S.solved[0])), 'opened instantly on release');
       await page.waitForTimeout(1100);
       ok(await page.evaluate(() => !!window.__vault.S.solved[0]), 'did not open after settling');
-      ok(await page.locator('.modal .dial').count() === 1, 'no celebration');
+      ok(await page.locator('#otext .stamp').count() === 1, 'no DECRYPTED stamp on the carbon');
+      await page.waitForTimeout(1300);
+      ok(await page.locator('.modal .stamp').count() === 1, 'no case-file modal');
     },
     'stepping with the arrow button and stopping on the answer opens it': async ({ page, ok }) => {
       await page.evaluate(() => window.__vault.openVault(0));
@@ -179,6 +181,50 @@ module.exports = {
       await page.evaluate(() => { window.__vault.openVault(10); window.__vault.openVault(11); });
       await page.click('.colx[data-p="2"]');
       eq(await page.evaluate(() => window.__vault.workOf(11).stages[0].s.pos.slice(0, 3)), [0, 1, 2]);
+    },
+    'probable word: pattern match, consistency with the board, and applying a hit': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => {
+        const X = window.__vault, P = X.probable;
+        return {
+          spaced: P('XYZZW QRS XYZZW ABCCD', 'HELLO', {}),            // XYZZW twice, ABCCD once
+          conflict: P('XYZZW ABCCD', 'HELLO', { A: 'Q' }),           // ABCCD ruled out by A->Q
+          reverse: P('XYZZW ABCCD', 'HELLO', { Q: 'H' }),            // H already used by Q: both ruled out
+          known: P('XYZZW', 'HELLO', { X: 'H', Y: 'E', Z: 'L', W: 'O' }), // nothing new to learn
+          unspaced: P('QQATTACKQQ', 'ATTACK', {}).map(x => x[0]),
+          short: P('AB CD', 'AB', {}),
+        };
+      });
+      eq(r.spaced, [['XYZZW', 2], ['ABCCD', 1]]); eq(r.conflict, [['XYZZW', 1]]); eq(r.reverse, []); eq(r.known, []);
+      eq(r.unspaced, ['ATTACK']); eq(r.short, []);
+      // through the UI on The Vizier's Letter: a real word from the message fills its letters in
+      const word = await page.evaluate(() => { const X = window.__vault; for (let j = 0; j < 4; j++) X.S.solved[j] = { stars: 3, time: 0 }; X.openVault(5); X.workOf(5).stages = [{ t: 'subst', s: { m: {} } }]; X.openVault(5);
+        return X.build(5).plain.split(/[^A-Z]+/).filter(w => w.length >= 6).sort((a, b) => b.length - a.length)[0]; });
+      await page.fill('[data-pw]', word);
+      const hits = await page.$$eval('[data-pwres] button', bs => bs.map(b => b.dataset.seg));
+      ok(hits.length >= 1, 'no hits for a word in the message');
+      const truth = await page.evaluate(w => { const X = window.__vault, b = X.build(5), k = b.keys[0].alpha, A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'; return [...w].map(c => k[A.indexOf(c)]).join(''); }, word);
+      ok(hits.includes(truth), 'true encipherment not offered');
+      await page.click(`[data-pwres] button[data-seg="${truth}"]`);
+      const m = await page.evaluate(() => window.__vault.workOf(5).stages[0].s.m);
+      ok([...truth].every((c, j) => m[c] === word[j]), 'mapping not applied');
+      ok(await page.$$eval('.sub input', is => is.filter(i => i.value).length) >= new Set(word).size, 'board not refreshed');
+    },
+    'probable-word slot only appears from The Vizier\'s Letter on': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const X = window.__vault, out = []; for (let j = 0; j < 8; j++) X.S.solved[j] = { stars: 3, time: 0 };
+        for (const i of [4, 5]) { X.workOf(i).stages = [{ t: 'subst', s: { m: {} } }]; X.openVault(i); out.push(!!document.querySelector('[data-pw]')); } return out; });
+      eq(r, [false, true]);
+    },
+    'alarm vault: when time runs out the intercept and key change, tools stay': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => {
+        const X = window.__vault, i = X.V.findIndex(v => v.alarm); X.S.solved[0] = X.S.solved[1] = { stars: 3, time: 0 };
+        X.openVault(i); const before = X.build(i).cipher; X.workOf(i).stages[0].s.k = 7; const left0 = X.alarmLeft(i);
+        for (let t = 0; t < X.V[i].alarm; t++) X.alarmTick(i);
+        return { i, left0, alarm: X.V[i].alarm, changed: X.build(i).cipher !== before, variant: X.S.variant[i], k: X.workOf(i).stages[0].s.k, t: X.workOf(i).stages[0].t, left: X.alarmLeft(i), shown: !!document.getElementById('alarm') };
+      });
+      eq(r.left0, r.alarm); ok(r.changed, 'same intercept after alarm'); eq(r.variant, 1); eq([r.t, r.k], ['shift', 0]); eq(r.left, r.alarm); ok(r.shown);
+      // a solved alarm vault never re-keys
+      const v = await page.evaluate(i => { const X = window.__vault; X.S.solved[i] = { stars: 3, time: 0 }; for (let t = 0; t < 400; t++) X.alarmTick(i); return X.S.variant[i]; }, r.i);
+      eq(v, 1);
     },
     'phone layout: no horizontal scroll, no errors': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);

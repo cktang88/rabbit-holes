@@ -104,7 +104,7 @@ const LV = [
     goal: 'Place a <b>spring</b> high on the mountain and let it find its way to the <b>sea</b>.', hint: 'Pick the spring tool, then click on the high slopes at the back.',
     gen: (x, y, n) => { const h = 34 * Math.pow(1 - y, 1.4) + 3 * fbm(n, x * 3, y * 3) + 2; return [h, h - 2.5]; },
     test: S => S.seaIn > 1, prog: S => S.seaIn },
-  { n: 'Canyon', tools: { spring: 2 }, sea: 3 speed: 3,
+  { n: 'Canyon', tools: { spring: 2 }, sea: 3, speed: 3,
     goal: 'A plateau of layered rock. Let rivers cut a <b>canyon 5 m deep</b> into the strata.', hint: 'Springs near the plateau edge cut fastest. Try 3× speed.',
     gen: (x, y, n) => { const pl = sm(.75, .55, y) * 22 + 4 + 3 * fbm(n, x * 4, y * 4); return [pl + .6, pl - .4]; },
     test: S => S.maxCut >= 5, prog: S => S.maxCut / 5 },
@@ -112,11 +112,11 @@ const LV = [
     goal: 'Fill the high basin with rain until it holds a <b>lake</b> of 400 m² that is at least 1 m deep.', hint: 'Hold the rain tool over the middle of the basin.',
     gen: (x, y, n) => { const r = Math.hypot(x - .5, y - .5); const h = 18 + 22 * sm(.18, .42, r) - 6 * sm(.25, 0, r) + 4 * fbm(n, x * 4, y * 4); return [h, h - 3]; },
     test: S => S.lakeArea >= 400, prog: S => S.lakeArea / 400 },
-  { n: 'The Falls', tools: { spring: 1 }, sea: 3 speed: 3, cam: { el: 38, az: -28, d: 275, t: [0, 8, 4] },
+  { n: 'The Falls', tools: { spring: 1 }, sea: 3, speed: 3, cam: { el: 38, az: -28, d: 275, t: [0, 8, 4] },
     goal: 'Hard caprock sits on soft stone. Rivers undercut it and the edge retreats upstream as a cliff. Make a <b>waterfall at least 4 m high</b> that has <b>cut back 6 m</b> into the upper shelf.', hint: 'Put the spring on the upper shelf, then speed time up.',
     gen: (x, y, n) => { const step = sm(.52, .5, y) * 9 + sm(.3, .05, y) * 8; const h = 6 + step + 2 * fbm(n, x * 3, y * 3) + (1 - y) * 4; return [h, h - .3]; }, hardBand: [12, 15],
     test: S => S.fall >= 4, prog: S => Math.min(S.fallH / 4, 1) * .4 + Math.min(S.retreat / 6, 1) * .6 },
-  { n: 'Delta', tools: { spring: 2, rain: 1 }, sea: 6 speed: 3, springQ: 1.3, cam: { el: 38, az: -12, d: 270, t: [0, 8, 8] },
+  { n: 'Delta', tools: { spring: 2, rain: 1 }, sea: 6, speed: 3, springQ: 1.3, cam: { el: 38, az: -12, d: 270, t: [0, 8, 8] },
     goal: 'Rivers carry sand. Where they slow down at the sea, it settles into a <b>delta</b>. Deposit 25 m³ of sediment in the sea.', hint: 'Soft soil erodes easily. Rain on the hills sends more sand downstream.',
     gen: (x, y, n) => { const h = 26 * Math.pow(1 - y, 1.2) + 5 * fbm(n, x * 3, y * 3) + 1; return [h + 3.5, h - 2]; },
     test: S => S.seaDep >= 25, prog: S => S.seaDep / 25 },
@@ -134,7 +134,7 @@ const LV = [
     goal: 'A ridge dams the valley, and the sea lies beyond it. Use a little digging to get the river <b>through</b> to the sea.', hint: 'Dig a notch where the river meets the ridge. Running water will deepen it for you.',
     gen: (x, y, n) => { const ridge = 9 * Math.exp(-Math.pow((y - .56) / .05, 2)) * (1 - .45 * Math.exp(-Math.pow((x - .62) / .1, 2))); const valley = y < .56 ? 7 * Math.min(1, Math.abs(x - .62) * 2.2) : 0; const h = .8 + 18 * sm(.52, 0, y) + valley + ridge + 1.2 * fbm(n, x * 3, y * 3) + (1 - y) * 6; return [h, h - 2.5]; },
     test: S => S.seaIn > 1, prog: S => S.seaIn },
-  { n: 'Reservoir', tools: { raise: 1, spring: 1 }, sea: 3 speed: 3, raiseBudget: 500, erodeScale: .2,
+  { n: 'Reservoir', tools: { raise: 1, spring: 1 }, sea: 3, speed: 3, raiseBudget: 500, erodeScale: .2,
     goal: 'Build a <b>dam</b> across the gorge and hold a reservoir of 400 m³ behind it.', hint: 'Raise a wall right across the gorge, low down where its floor is flat. Water held behind it counts.',
     gen: (x, y, n) => { const g = Math.abs(x - .5); const h = 5 + 22 * sm(.03, .2, g) + 18 * sm(.7, 0, y) + 2 * fbm(n, x * 4, y * 4); return [h, h - 2]; },
     test: S => S.reservoir >= 400, prog: S => S.reservoir / 400 },
@@ -166,7 +166,8 @@ function buildLevel(i) {
     const k = y * N + x, [h, r] = L.gen(x / (N - 1), y / (N - 1), n);
     B[k] = h; ROCK[k] = Math.min(r, h); HARD[k] = 1;
     if (L.hardBand && r > L.hardBand[0] && r < L.hardBand[1]) HARD[k] = .12;
-    if (L.rimLock) { const rr = Math.hypot(x / (N - 1) - .5, y / (N - 1) - .5); if (rr > L.rimLock[0] && rr < L.rimLock[1]) NOERODE[k] = 1; } // the basin rim is solid granite
+    INLAKE[k] = 1;
+    if (L.rimLock) { const rr = Math.hypot(x / (N - 1) - .5, y / (N - 1) - .5); if (rr > L.rimLock[0] && rr < L.rimLock[1]) NOERODE[k] = 1; INLAKE[k] = rr <= L.rimLock[0] ? 1 : 0; } // the basin rim is solid granite
   }
   D.fill(0); SED.fill(0); SED2.fill(0); FL.fill(0); FR.fill(0); FT.fill(0); FB.fill(0); U.fill(0); V.fill(0); DEP.fill(0);
   B0.set(B);
@@ -301,11 +302,13 @@ function thermal() { // loose soil slumps when slopes exceed the angle of repose
 // ================= stats & goals =================
 const seaInWindow = [];
 const seen = new Uint8Array(NN), bfs = new Int32Array(NN);
+// Mountain Lake: only water inside the basin rim counts (rain on the plateau outside just pools against the map edge)
+const INLAKE = new Uint8Array(NN);
 function measure() {
   if (stepped) { seaInWindow.push(seaInflowStep); if (seaInWindow.length > 60) seaInWindow.shift(); stepped = false; } // only fresh samples
   let maxCut = 0, lakeArea = 0, seaDep = 0;
   for (let k = 0; k < NN; k++) {
-    if (!SEA[k]) { const c = B0[k] - B[k]; if (c > maxCut) maxCut = c; if (D[k] > 1) lakeArea++; }
+    if (!SEA[k]) { const c = B0[k] - B[k]; if (c > maxCut) maxCut = c; if (D[k] > 1 && INLAKE[k]) lakeArea++; }
     else { const dd = B[k] - B0[k]; if (dd > 0) seaDep += dd; }
   }
   // waterfall (The Falls): flowing water dropping steeply within 3 cells, measured only where the cliff has
@@ -637,7 +640,7 @@ resize();
 raf = requestAnimationFrame(loop);
 if (!SAVE.intro) { SAVE.intro = 1; persist(); }
 const tv = new THREE.Vector3();
-window.__ws = { LV, buildLevel: i => buildLevel(i), stat: () => stat, get springs() { return springs; }, addSpring: k => { const s = { k, q: L.springQ || 1 }; springs.push(s); addSpringMesh(s); }, placeSpring, measure: () => { measure(); return stat; }, SEA, B0, ROCK, RAISED, NOSCULPT, step, B, D, N, setSpeed: s => setSpeed(s), get speed() { return speed; }, cleanSave, K, parts: { flux: () => flux(DT, G * DT, N - 1), waterStep: () => waterStep(DT, N - 1), thermal: () => { thermalTick = 2; thermal(); }, advect: () => advect(DT) }, get SED() { return SED; }, get undoN() { return undo.length; }, updateGeometry, get budget() { return budget; }, get won() { return won; }, get failed() { return failed; },
+window.__ws = { LV, buildLevel: i => buildLevel(i), stat: () => stat, get springs() { return springs; }, addSpring: k => { const s = { k, q: L.springQ || 1 }; springs.push(s); addSpringMesh(s); }, placeSpring, measure: () => { measure(); return stat; }, SEA, B0, ROCK, RAISED, NOSCULPT, step, B, D, N, setSpeed: s => setSpeed(s), get speed() { return speed; }, cleanSave, K, parts: { flux: () => flux(DT, G * DT, N - 1), waterStep: () => waterStep(DT, N - 1), thermal: () => { thermalTick = 2; thermal(); }, advect: () => advect(DT) }, get SED() { return SED; }, get undoN() { return undo.length; }, brush, updateGeometry, get budget() { return budget; }, get won() { return won; }, get failed() { return failed; },
   toScreen: (gx, gy) => { const k = Math.round(gy) * N + Math.round(gx); tv.set(gx - N / 2, B[k] * VS, gy - N / 2).project(camera); return [(tv.x + 1) / 2 * innerWidth, (1 - tv.y) / 2 * innerHeight]; },
   // test hook: a stroke exactly as the UI does it (the real sculpt() at 60 fps), moving at v cells/s along pts
   stroke: (t, pts, v = 25) => { setTool(t); undo.push({ B: B.slice(), ROCK: ROCK.slice(), RAISED: RAISED.slice(), budget: { ...budget } }); brush.active = true; const dt = 1 / 60;
