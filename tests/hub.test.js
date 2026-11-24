@@ -17,16 +17,22 @@ module.exports = {
           ...RH_TAGLIST.filter(t => RH_CATALOG.filter(x => x.tags.includes(t.id)).length < 3).map(t => t.id + ':fewer than 3 experiments')]; });
       eq(bad, []);
     },
+    'tags have subject (incl. physics, maths, simulation, language, art) and vibe groups': async ({ page, ok }) => {
+      const g = await page.evaluate(() => ({ s: RH_TAGLIST.filter(t => t.g === 'subject').map(t => t.id), v: RH_TAGLIST.filter(t => t.g === 'vibe').length }));
+      for (const t of ['physics', 'maths', 'simulation', 'language', 'art']) ok(g.s.includes(t), 'missing subject ' + t);
+      ok(g.s.length >= 10 && g.v >= 5);
+      ok(await page.evaluate(() => RH_CATALOG.every(x => x.tags.some(t => RH_TAGLIST.find(g => g.id === t).g === 'subject'))), 'every experiment needs a subject');
+    },
     'default view: one row per tag (10+), no round sections': async ({ page, ok, eq }) => {
       const n = await page.$$eval('.railsec', s => s.length); ok(n >= 10, 'rows ' + n);
       eq(await page.evaluate(() => RH_TAGLIST.length), n);
       ok(!(await page.content()).match(/Round (two|three|four)/), 'round headings still present');
     },
     'tag chips combine (AND); URL records them; clear resets': async ({ page, ok, eq }) => {
-      await page.click('#tags [data-tag="water"]'); await page.click('#tags [data-tag="pretty"]');
-      ok(page.url().includes('tags=water%2Cpretty') || page.url().includes('tags=water,pretty'), page.url());
+      await page.click('#tags [data-tag="earth"]'); await page.click('#vibes [data-tag="pretty"]');
+      ok(page.url().includes('tags=earth%2Cpretty') || page.url().includes('tags=earth,pretty'), page.url());
       const ids = [...new Set((await cards(page)).map(c => c[0]))].sort();
-      const want = await page.evaluate(() => RH_CATALOG.filter(x => x.tags.includes('water') && x.tags.includes('pretty')).map(x => x.id).sort());
+      const want = await page.evaluate(() => RH_CATALOG.filter(x => x.tags.includes('earth') && x.tags.includes('pretty')).map(x => x.id).sort());
       eq(ids, want); ok(ids.length >= 2);
       await page.click('[data-clear]'); ok(!page.url().includes('tags='));
     },
@@ -36,10 +42,10 @@ module.exports = {
       eq(ids, await page.evaluate(() => RH_CATALOG.filter(x => x.tags.includes('detective')).map(x => x.id).sort()));
     },
     'tag on a card filters to that tag; search narrows; no-match message': async ({ page, ok }) => {
-      await page.click('#tags [data-tag="quick"]');
-      await page.click('article.card[data-id="ruin"] .t[data-tag="wait-what"]');
+      await page.click('#vibes [data-tag="quick"]');
+      await page.click('article.card[data-id="ruin"] .t[data-tag="maths"]');
       const ids = [...new Set((await cards(page)).map(c => c[0]))];
-      ok(ids.includes('ruin') && ids.includes('polarizer') && ids.includes('lock-flight'), ids.join());
+      ok(ids.includes('ruin') && ids.includes('gridlock') && ids.includes('escapement') && !ids.includes('caravan'), ids.join());
       await page.fill('#q', 'zzzz-nothing'); await page.waitForTimeout(300);
       ok(await page.isVisible('.empty'));
       await page.click('#tags [data-clear]'); await page.fill('#q', 'bee'); await page.waitForTimeout(300);
