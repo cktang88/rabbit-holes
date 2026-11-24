@@ -111,6 +111,26 @@ module.exports = {
       const b = await page.evaluate(() => { const A = window.__ant; A.openMap(0); A.paused = true; for (let k = 0; k < 7 * 20; k++) A.stepWorld(0.05); return document.getElementById('banner').textContent; });
       ok(/drag from your nest/i.test(b), b);
     },
+    'windfalls: none on the first map; later maps drop food somewhere reachable, 28-95 steps from the nest': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => {
+        const A = window.__ant; A.openMap(0); A.paused = true; const first = A.windT;
+        A.SAVE.stars[0] = A.SAVE.stars[1] = 1; A.openMap(2); A.paused = true; const out = [];
+        for (let k = 0; k < 6; k++) { const before = A.food.reduce((s, v) => s + v, 0); const w = A.windfall(); const after = A.food.reduce((s, v) => s + v, 0); out.push(w ? [A.home[A.idx(w.x, w.y)], after - before] : null); }
+        A.windT = 0.01; A.stepWorld(0.05); const timed = A.windfalls.length;
+        return { first, out, timed, banner: document.getElementById('banner').textContent };
+      });
+      eq(r.first, 1e9, 'no windfalls while learning');
+      ok(r.out.every(w => w && w[0] >= 28 && w[0] <= 95 && w[1] > 0), JSON.stringify(r.out)); ok(r.timed >= 7, 'the timer drops one too'); ok(/Fresh food/.test(r.banner), r.banner);
+    },
+    'tallies: one stroke per unit, gates of five, coarser units for big numbers': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const t = window.__ant.tally; const strokes = (h) => (h.match(/M/g) || []).length; return [strokes(t(0)), strokes(t(4)), strokes(t(5)), strokes(t(12)), /×10/.test(t(120)), strokes(t(120)), /×100/.test(t(1300)), / 1300$/.test(t(1300))]; });
+      eq(r, [0, 4, 5, 12, true, 12, true, true]);
+    },
+    'a win grows the tunnel bloom first, then shows the result': async ({ page, ok }) => {
+      const r = await page.evaluate(async () => { const A = window.__ant; window.__lastModal = null; A.openMap(0); A.paused = true; A.delivered = 50; A.checkEnd();
+        const early = [!!A.winFx, A.winFx && A.winFx.segs.length, window.__lastModal]; await new Promise(res => setTimeout(res, 2100)); return { early, late: window.__lastModal }; });
+      ok(r.early[0] && r.early[1] > 50 && r.early[2] === null, JSON.stringify(r.early)); ok(/colony thrives/.test(r.late), 'modal after the bloom');
+    },
     'mobile layout: no horizontal scroll and the map is fully visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
       const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect().toJSON() }));

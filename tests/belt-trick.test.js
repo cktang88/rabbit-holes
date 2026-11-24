@@ -72,12 +72,15 @@ module.exports = {
         return { wonAfter, done5, done4, hole: B.golf.hole }; });
       eq(r, { wonAfter: false, done5: false, done4: false, hole: 0 });
     },
-    'mechanisms: only the 1:2 anti-twister survives; the satellite needs half-speed driving': async ({ page, eq }) => {
+    'mechanisms: anti-twister gear orders need +1/2 (sign and size), wrong trains snap; the satellite needs half-speed driving': async ({ page, eq }) => {
       const r = await page.evaluate(() => { const B = __belt, out = {};
-        for (const rr of [1, 2 / 3, .5, 1 / 3]) { B.level(13); B.setRatio(rr); B.run(); B.sim(12); out['g' + rr.toFixed(2)] = B.won; }
+        const tryG = o => { B.gears(o); B.run(); B.sim(10); return { k: B.gj.k, broken: B.mech.broken }; };
+        B.level(13); out.g = [tryG({ T: 24, idler: false }), tryG({ T: 18, idler: true }), tryG({ T: 24, idler: true }), tryG({ T: 30, idler: true }), tryG({ T: 36, idler: true }),
+          tryG({ A: 16, B: 24, C: 32 }), tryG({ A: 16, B: 16, C: 24 })]; out.gwon = B.won;
         for (const mode of ['never', 'always', 'alt']) { B.level(14); B.hold(true); B.sim(17, t => B.hold(mode === 'always' || (mode === 'alt' && (t % 1.2) < .6))); out[mode] = B.won; }
         return out; });
-      eq(r, { 'g1.00': false, 'g0.67': false, 'g0.50': true, 'g0.33': false, never: false, always: false, alt: true });
+      eq(r.g, [{ k: 0, broken: true }, { k: 0, broken: true }, { k: 1, broken: false }, { k: 1, broken: true }, { k: 2, broken: false }, { k: 2, broken: true }, { k: 2, broken: false }], 'gear orders');
+      eq(r.gwon, true); eq([r.never, r.always, r.alt], [false, false, true]);
     },
     'golf: optimal play scores par and a sign-wrong match does not count': async ({ page, eq, ok }) => {
       const r = await page.evaluate(async () => { const B = __belt, sl = ms => new Promise(r => setTimeout(r, ms)), out = {};

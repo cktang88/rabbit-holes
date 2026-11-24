@@ -34,6 +34,15 @@ module.exports = {
       // the result card explains the miss instead of leaving it to trial and error
       ok(r.barnHints.length && /Barn red/.test(r.barnHints[0]) && /carved too early/.test(r.barnHints[0]), 'barn hint: ' + r.barnHints); ok(r.cher < .85, 'cherries out of order passes ' + r.cher);
     },
+    'detail matters: skipping small shapes (Moon over Sea stars) fails even above 85% likeness': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const w = __wc, out = [];
+        for (const i of [1, 11, 13, 16, 17, 19]) { const n = w.LV[i].inks.length; w.load(i); for (let k = 1; k < n; k++) { w.pull(k - 1); w.carveState(k); } w.pull(n - 1); out.push({ i, lk: w.result.lk, pass: w.result.pass, miss: w.result.miss, next: !!document.querySelector('#toast [data-a="next"]') }); }
+        // Moon over Sea, everything right except the seven stars and the horizon line
+        w.load(1); const stars = w.T.regions.filter(r => r.s === 0 && r.n < 400).length; return { out, stars }; });
+      ok(r.stars >= 7, 'stars are regions: ' + r.stars);
+      for (const x of r.out) { eq(x.pass, false, `level ${x.i} passes with paper details skipped (lk ${x.lk.toFixed(2)})`); ok(x.miss >= 1); eq(x.next, false, 'next-print button offered'); }
+      ok(r.out[0].lk >= .85, 'Moon over Sea skipped stars still scores ' + r.out[0].lk);
+    },
     'colour compositing: transparent multiplies, dark opaque covers, light opaque ghosts, dense covers, fountain blends': async ({ page, ok, near }) => {
       const r = await page.evaluate(() => { const w = __wc, base = w.lin('#203040'), light = w.lin('#f0e8d0');
         const t = w.I('t', '#80c0ff', 't'), dark = w.I('d', '#202020'), lite = w.I('l', '#f8f0e0'), dense = Object.assign(w.I('g', '#f0b545'), { dense: 1 }), ft = w.I('f', '#ff0000', 'o', '#0000ff');

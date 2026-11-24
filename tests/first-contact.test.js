@@ -45,21 +45,20 @@ module.exports = {
       eq(r.SVO, ['S', 'V', 'O']); eq(r.SOV, ['S', 'O', 'V']); eq(r.VSO, ['V', 'S', 'O']);
       eq(r.past, ['Q', 'S', 'NOT', 'V', 'O', 'PAST']); eq(r.past2, ['PAST', 'S', 'V']);
     },
-    'many seeds: replies composable, and the right choice is not always in the same place': async ({ page, eq, ok }) => {
-      const pos = new Set(), bad = [];
+    'many seeds: every reply can be composed from glyphs already received; no quiz questions remain': async ({ page, eq }) => {
+      const bad = [];
       for (let seed = 1; seed <= 8; seed++) {
         await withSave(page, { seed: seed * 104729, intro: 1 });
-        const r = await page.evaluate(() => {
-          const fc = window.__fc, out = [], p = [];
+        bad.push(...await page.evaluate(() => {
+          const fc = window.__fc, out = [];
           fc.CH.forEach((c, i) => { const seen = fc.seenUpTo(i); c.qs.forEach((q, k) => {
-            if (q.type === 'compose') for (const w of q.ans) if (!seen.includes(w)) out.push(`ch${i} q${k} needs ${w}`);
-            if (q.type === 'choice') { if (!q.opts.includes(q.ans) || new Set(q.opts).size !== q.opts.length) out.push(`ch${i} q${k} opts`); p.push(q.opts.indexOf(q.ans)); }
+            if (q.type !== 'compose') out.push(`ch${i} q${k} is ${q.type}`);
+            for (const a of [q.ans, ...(q.alt || [])]) for (const w of a) if (!seen.includes(w)) out.push(`ch${i} q${k} needs ${w}`);
           }); });
-          return { out, p };
-        });
-        bad.push(...r.out); r.p.forEach(x => pos.add(x));
+          return out;
+        }));
       }
-      eq(bad, []); ok(pos.size >= 3, 'choice answers always in the same slot: ' + [...pos]);
+      eq(bad, []);
     },
     'palette lists digits first in numeric order': async ({ page, eq }) => {
       await closeModals(page);
@@ -74,6 +73,7 @@ module.exports = {
       ok(!(await page.evaluate(() => window.__fc.S.solved['0:0'])), 'too many symbols accepted');
       ok((await page.locator('.q[data-q="0"] .fb').textContent()).includes('fewer'), 'feedback');
       await page.locator('.q[data-q="0"] [data-clear]').click();
+      await page.waitForTimeout(1700); // the channel is jammed after a miss
       await compose(page, 0, ans);
       ok(await page.evaluate(() => !!window.__fc.S.solved['0:0']), 'right answer refused');
     },
@@ -84,18 +84,35 @@ module.exports = {
       await page.click('#hintBtn');
       eq(await page.locator('.q[data-q="1"] [data-compose] .g').count(), 2);
     },
-    'clicking every choice quickly does not brute-force a multiple-choice question': async ({ page, ok, eq }) => {
+    'wrong transmissions jam the channel for longer each time; sending while jammed does nothing': async ({ page, ok, eq }) => {
       await closeModals(page);
-      await page.evaluate(() => { const S = window.__fc.S; for (let k = 0; k < 2; k++) S.solved['0:' + k] = 1; window.__fc.render(); });
-      const btns = page.locator('.q[data-q="2"] [data-opt]');
-      const n = await btns.count(), ans = await page.evaluate(() => window.__fc.CH[0].qs[2].ans);
-      const order = []; for (let i = 0; i < n; i++) order.push(await btns.nth(i).getAttribute('data-opt'));
-      const wrongFirst = order.filter(o => o !== ans).concat([ans]);
-      for (const o of wrongFirst) await page.locator(`.q[data-q="2"] [data-opt="${o}"]`).click({ force: true, timeout: 500 }).catch(() => {});
-      ok(!(await page.evaluate(() => window.__fc.S.solved['0:2'])), 'rapid clicking through every option solved it');
-      await page.waitForTimeout(2700);
-      await page.locator(`.q[data-q="2"] [data-opt="${ans}"]`).click();
-      ok(await page.evaluate(() => !!window.__fc.S.solved['0:2']), 'right answer after the lockout');
+      const q = page.locator('.q[data-q="0"]'), ans = await page.evaluate(() => window.__fc.CH[0].qs[0].ans);
+      const wrong = ans[0] === 'D1' ? 'D2' : 'D1';
+      await q.locator(`[data-pw="${wrong}"]`).click(); await q.locator('[data-send]').click();
+      ok(await q.locator('[data-send]').isDisabled(), 'transmit should be jammed');
+      await page.waitForTimeout(1700);
+      await q.locator('[data-send]').click();
+      eq(await page.evaluate(() => window.__fc.lockFor('0:0')), 3000, 'second miss jams twice as long');
+      await q.locator('[data-clear]').click();
+      for (const w of ans) await q.locator(`[data-pw="${w}"]`).click();
+      await q.locator('[data-send]').click({ force: true });
+      ok(!(await page.evaluate(() => window.__fc.S.solved['0:0'])), 'accepted while jammed');
+      await page.waitForTimeout(3100);
+      await q.locator('[data-send]').click();
+      ok(await page.evaluate(() => !!window.__fc.S.solved['0:0']), 'right answer after the jam');
+    },
+    'acknowledged replies confirm their symbols; a decoded transmission confirms all of its symbols': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(async () => {
+        const fc = window.__fc, q = fc.CH[0].qs[0]; fc.solve('0:0');
+        const after1 = q.ans.every(w => fc.S.known[w]);
+        fc.solve('0:1'); fc.solve('0:2');
+        const all = fc.CH[0].tx.flatMap(t => t.words).every(w => fc.S.known[w]);
+        await new Promise(r => setTimeout(r, 1500));
+        return { after1, all, gl: document.querySelector('#feed .tx .g[data-w="D1"] .gl').textContent, decoded: !!document.querySelector('.sheet.decoded'), cards: document.querySelectorAll('.nbRow.kn').length };
+      });
+      ok(r.after1, 'reply symbols not confirmed'); ok(r.all, 'chapter symbols not confirmed');
+      eq(r.gl, '1'); ok(r.cards > 3, 'corkboard cards not confirmed');
     },
     'locked transmissions cannot be opened; finishing one unlocks the next': async ({ page, ok }) => {
       await closeModals(page);
@@ -116,7 +133,7 @@ module.exports = {
         const early = fc.S.decoded;
         CH[last].qs.forEach((q, k) => { if (k !== fin) fc.solve(last + ':' + k); });
         fc.solve(last + ':' + fin, true);
-        await new Promise(r => setTimeout(r, 700));
+        await new Promise(r => setTimeout(r, 3000)); // after the Rosetta sweep
         return [early, fc.S.decoded, document.querySelectorAll('.modal-bg').length, JSON.parse(localStorage.getItem('rh:hub'))['first-contact']];
       });
       eq(r, [0, 1, 1, 1]);

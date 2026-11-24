@@ -7,7 +7,7 @@ const SOL = [
   T(20, [20, null], 60), // Same Way Round (idler)
   T(8, [60, 10], 80), T(10, [30, 10], 40), T(10, [100, 10], [100, 10], [60, 10], 60), T(10, [10, null], 70), T(60, 10), T(10, [120, 8], 112),
   T(8, [40, 8], [40, 10], 40), T(8, [56, 8], [52, 10], 20), T(10, [90, 12], 72), T(10, [97, 10], 100), T(9, [81, 9], 45), T(8, [80, 9], [90, 10], 100),
-  T(71, [113, 50], 10), T(15, [98, 25], 113), T(89, 55), T(51, [41, 79], 98), T(8, [44, 10], [89, 13], 97), T(99, 70), T(81, [43, 114], 79), T(8, [52, 11], [85, 19], 85),
+  T(71, [113, 50], 10), T(14, [33, 19], [117, 29], 59), T(89, 55), T(17, [27, 43], 27), T(8, [44, 10], [89, 13], 97), T(9, [61, 11], [95, 31], 119),
   T(8, [60, 10], [80, 8], [60, 10], [80, 10], [30, 10], 40), // A Proper Clock
   T(10, [60, 10], [40, 10], 70), // Calendar
   T(10, [70, 12], [62, 109], 89), // Weeks and Moons
@@ -81,10 +81,10 @@ module.exports = {
       await page.waitForTimeout(1300);
       ok(!(await page.evaluate(() => window.__esc.S.done[0])), 'delivered a commission that was left');
     },
-    'acts unlock after 5; progress bounded; corrupt saves load': async ({ page, eq, ok }) => {
+    'acts unlock after 4; progress bounded; corrupt saves load': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => {
         const E = window.__esc, put = v => localStorage.setItem('rh:esc', typeof v === 'string' ? v : JSON.stringify(v)), out = {};
-        out.a = E.actOpen(1); for (let i = 0; i < 5; i++) E.S.done[i] = { stars: 3, gears: 2 }; out.b = E.actOpen(1);
+        for (let i = 0; i < 3; i++) E.S.done[i] = { stars: 3, gears: 2 }; out.a = E.actOpen(1); E.S.done[3] = { stars: 3, gears: 2 }; out.b = E.actOpen(1);
         put('x'); out.junk = Object.keys(E.loadState().done).length;
         put({ done: { 0: { stars: 9, gears: 2 }, 1: 5, 77: { stars: 3 } }, designs: { 0: { ax: [{ o: 20 }, { i: 1.5 }] }, 1: { ax: [{ o: 20 }, { i: 40 }] }, free: { ax: 'no' } }, cur: 99, freeX: 3 });
         const s = E.loadState(); out.s = [s.done, Object.keys(s.designs), s.cur, s.freeX];
@@ -92,6 +92,32 @@ module.exports = {
         return out;
       });
       eq([r.a, r.b], [false, true]); eq(r.junk, 0); eq(r.s, [{ 0: { stars: 3, gears: 2 } }, ['1'], 0, undefined]); eq(r.hub, 1);
+    },
+    'Act III twists: moon disc must be last, teeth budget, odd teeth for Venus, no Brocot table for the golden gear': async ({ page, eq }) => {
+      const r = await page.evaluate(() => {
+        const E = window.__esc, by = n => E.C.find(c => c.n === n), pr = (n, d) => E.analyse(by(n), d).problems;
+        return [
+          pr('Moon Phase', { ax: [{ o: 8 }, { i: 59, o: 8 }, { i: 32 }] }).some(p => /59-tooth disc/.test(p)),   // 59 in the wrong place
+          pr('Moon Phase', { ax: [{ o: 14 }, { i: 33, o: 19 }, { i: 117, o: 29 }, { i: 59 }] }).length,
+          pr('Sidereal Time', { ax: [{ o: 51 }, { i: 41, o: 79 }, { i: 98 }] }).some(p => /budget 120/.test(p)), // Brocot-sized gears blow the budget
+          pr('Venus', { ax: [{ o: 8 }, { i: 52, o: 11 }, { i: 85, o: 19 }, { i: 85 }] }).some(p => /even/.test(p)),
+          !!by('The Golden Gear').brocot, E.C.filter(c => c.a === 2).length, E.C.some(c => /Root Two|Euler/.test(c.n)),
+        ];
+      });
+      eq(r, [true, 0, true, true, false, 6, false]);
+    },
+    'v1 saves map onto the trimmed commission list': async ({ page, eq }) => {
+      const r = await page.evaluate(() => {
+        const E = window.__esc; localStorage.setItem('rh:esc', JSON.stringify({ done: { 0: { stars: 3, gears: 2 }, 19: { stars: 2, gears: 2 }, 21: { stars: 1, gears: 6 }, 27: { stars: 3, gears: 18 } }, designs: { 21: { ax: [{ o: 10 }, { i: 20 }] }, free: { ax: [{ o: 9 }, { i: 18 }] } }, cur: 27 }));
+        const s = E.loadState(); return [Object.keys(s.done), Object.keys(s.designs).sort(), s.cur, s.v, E.C[19].n, E.C[25].n];
+      });
+      eq(r, [['0', '19', '25'], ['19', 'free'], 25, 2, 'Venus', 'Grand Orrery']);
+    },
+    'delivery shows the swinging ticket': async ({ page, ok }) => {
+      await page.evaluate(() => { const E = window.__esc; E.open(0); E.design().ax[1].i = 40; E.update(); });
+      await page.waitForTimeout(1400);
+      ok(await page.locator('.modal .tag').count() === 1, 'no Delivered ticket');
+      ok(await page.evaluate(() => document.getElementById('cv').classList.contains('zoom')), 'no loupe zoom');
     },
     'locked commissions cannot be opened from the sidebar': async ({ page, eq }) => {
       await page.click('.cm[data-i="9"]'); eq(await page.evaluate(() => window.__esc.cur), 0);
@@ -104,7 +130,7 @@ module.exports = {
     },
     'phone layout: no horizontal scroll': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
-      for (const i of [0, 14, 27]) { await page.evaluate(i => { const E = window.__esc; for (let j = 0; j < 28; j++) E.S.done[j] = { stars: 3, gears: 2 }; E.open(i); }, i);
+      for (const i of [0, 14, 25]) { await page.evaluate(i => { const E = window.__esc; for (let j = 0; j < 26; j++) E.S.done[j] = { stars: 3, gears: 2 }; E.open(i); }, i);
         ok(await page.evaluate(() => document.documentElement.scrollWidth) <= 392, 'overflow on ' + i); }
     },
   },

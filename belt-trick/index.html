@@ -420,11 +420,25 @@ function buildMech(sat) {
   }
   const gA = new THREE.Mesh(gearGeo(12, .3), new THREE.MeshStandardMaterial({ color: '#ffc857', metalness: .7, roughness: .3 })); gA.position.set(-1.1, -1.67, .9); addExtra(gA);
   const gB = new THREE.Mesh(gearGeo(24, .6), new THREE.MeshStandardMaterial({ color: '#8a78d0', metalness: .7, roughness: .3 })); addExtra(gB);
-  MECH = { sat, carrier, rotor, gA, gB, phi: 0, theta: 0, ratio: sat ? 0 : 1, running: false, broken: false, t: 0, hold: false, maxTw: 0, cable: new Cable() };
+  const gI = new THREE.Mesh(gearGeo(8, .2), new THREE.MeshStandardMaterial({ color: '#c9a86a', metalness: .8, roughness: .3 })); gI.position.set(-1.1, -1.67, .45); gI.visible = false; addExtra(gI);
+  MECH = { sat, carrier, rotor, gA, gB, gI, phi: 0, theta: 0, ratio: sat ? 0 : 1, running: false, broken: false, t: 0, hold: false, maxTw: 0, cable: new Cable() };
   setGearB(1); MECH.cable.update(0, 0, false);
 }
+// ---------- anti-twister gear trains ----------
+let gj = null; // current workshop order: chosen wheels
+const fracStr = x => { for (let d = 1; d <= 12; d++) { const n = Math.round(x * d); if (Math.abs(n / d - x) < 1e-9) return d === 1 ? String(n) : `${n}/${d}`; } return x.toFixed(3); };
+function gearRatio(g = gj, J = L && L.jobs && L.jobs[g ? g.k : 0]) { // signed carrier:rotor speed; each external mesh reverses
+  if (!g || !J) return null;
+  if (J.stages === 2) return g.A && g.B && g.C ? (J.drv / g.A) * (g.B / g.C) : null;
+  return g.T ? (g.idler ? 1 : -1) * J.drv / g.T : null;
+}
+function applyGears() { const r = gearRatio(); if (r != null) setGearB(r); else if (MECH) MECH.ratio = null; if (MECH) { MECH.phi = MECH.theta = 0; MECH.broken = false; MECH.maxTw = 0; if (MECH.gI) MECH.gI.visible = !!(gj && gj.idler); } renderBets(); renderCtrl(); wake(300); }
+function gearJobDone() {
+  if (gj.k + 1 < L.jobs.length) { gj = { k: gj.k + 1, idler: false }; FX.sfx('chime', 3 + gj.k); burstAll('#ffd08a', 60); toast('Order delivered', `${L.jobs[gj.k].note}`, 4200); applyGears(); }
+  else winLevel(L.win);
+}
 function setGearB(ratio) { // carrier : rotor speed ratio → carrier gear has 12/ratio teeth
-  if (!MECH) return; const m = MECH, T = Math.round(12 / ratio), r = .3 * T / 12; m.ratio = ratio;
+  if (!MECH) return; const m = MECH, T = Math.max(6, Math.round(12 / Math.abs(ratio))), r = .3 * T / 12; m.ratio = ratio;
   m.gB.geometry.dispose(); m.gB.geometry = gearGeo(T, r); m.gB.position.set(-1.1 + .3 * .93 + r * .93, -1.67, .9); m.gB.visible = !m.sat; m.gA.visible = !m.sat;
 }
 
@@ -548,7 +562,11 @@ const LV = [
     story: 'Same tray, busier café. Harder bumps, and the clock is running from your first drag.', goal: '720° and home within 14 s, no spill.',
     win: ['Service!', 'Two full turns, one relaxed arm.'] },
   { n: 'Anti-Twister', setup: 'mech', kind: 'gear',
-    story: 'A rotor spins on a carrier arm. A cable feeds it power from the fixed base, <b>no slip ring</b>. Choose how fast the carrier turns compared to the rotor.', goal: 'Spin the rotor 6 full turns without snapping the cable.',
+    story: 'A rotor spins on a carrier arm. A cable feeds it power from the fixed base, <b>no slip ring</b>. Three workshop orders: build each gear train from the parts in the drawer. Every pair of meshing wheels <b>reverses</b> the direction; an <b>idler</b> wheel turns it back.',
+    goal: 'Three gear trains, each spinning the rotor 6 turns without snapping the cable.',
+    jobs: [{ drv: 12, gears: [12, 18, 24, 36], idler: 1, note: 'Order 1: choose the carrier wheel.' },
+      { drv: 18, gears: [18, 24, 30, 36, 48], idler: 1, note: 'Order 2: a bigger pinion on the rotor.' },
+      { drv: 12, gears: [16, 24, 32, 40], stages: 2, note: 'Order 3: no idler in the drawer, and no single wheel is right. Use a two-stage train: pinion → A, then B on the same shaft → carrier C.' }],
     win: ['Half speed, zero twist', 'Adams\' anti-twister: the carrier runs at half the rotor\'s speed, so the cable does a belt trick every two turns, forever.'] },
   { n: 'Satellite', setup: 'mech', kind: 'sat', time: 15,
     story: 'This satellite spins steadily. <b>Hold</b> (button, space or the screen) to drive the cable boom at the satellite\'s speed. Average half speed and the cable never twists.', goal: 'Keep the twist within ±200° for 15 s.',
@@ -575,6 +593,7 @@ function loadLevel(i, opt = {}) {
   LI = i; L = LV[i]; SAVE.cur = i; persist(); loadSeq++; clearTimeout(toast.h); $('toast').classList.remove('on');
   queue = []; cur = null; relax.on = false; userMoves = []; axesUsed = new Set(); yawAcc = 0; won = false; sel = L.objs ? L.objs[0] : 0; recording = null;
   clearWorld(); const cam = (L.setup === 'mech' ? SETUPS.mech(L.kind === 'sat') : SETUPS[L.setup]());
+  gj = L.kind === 'gear' ? { k: 0, idler: false } : null; if (gj) applyGears();
   bet = L.kind === 'bet' ? { right: 0, tries: 0, phase: 'idle', seq: null } : null;
   golf = L.kind === 'golf' ? { hole: 0, strokes: 0, total: 0, par: 0, results: [] } : null;
   waiter = L.kind === 'waiter' ? { spill: 0, bumpT: 1.5, bump: null, t: 0, started: false, done: false } : null;
@@ -720,8 +739,13 @@ function renderBets() {
   const b = $('bets'); b.innerHTML = '';
   if (bet && bet.phase === 'bet') { b.innerHTML = '<button class="b big" data-v="1">✓ It relaxes</button><button class="b big" data-v="0">✗ It stays stuck</button>'; b.querySelectorAll('button').forEach(x => x.onclick = () => placeBet(x.dataset.v === '1')); }
   if (bet && bet.seq) b.insertAdjacentHTML('afterbegin', `<div style="width:100%;font-size:12px;color:#c9bcd6">Sequence: <b style="color:#ffd08a">${bet.seq.join(' · ')}</b></div>`);
-  if (L.kind === 'gear') { b.innerHTML = '<div style="width:100%;font-size:12px;color:#c9bcd6">Carrier speed : rotor speed</div>' + [[1, '1 : 1'], [2 / 3, '2 : 3'], [1 / 2, '1 : 2'], [1 / 3, '1 : 3']].map(([r, t]) => `<button class="b ${MECH && Math.abs(MECH.ratio - r) < 1e-6 ? 'on' : ''}" data-r="${r}">${t}</button>`).join('');
-    b.querySelectorAll('[data-r]').forEach(x => x.onclick = () => { if (MECH.running) return; FX.sfx('click'); setGearB(+x.dataset.r); MECH.phi = MECH.theta = 0; MECH.broken = false; MECH.maxTw = 0; renderBets(); wake(300); }); }
+  if (L.kind === 'gear' && gj) { const J = L.jobs[gj.k], pick = (key, list) => list.map(t => `<button class="b ${gj[key] === t ? 'on' : ''}" data-g="${key}" data-t="${t}">${t}</button>`).join('');
+    const ratio = gearRatio(), rt = ratio == null ? '–' : `${ratio < 0 ? '−' : '+'}${fracStr(Math.abs(ratio))}`;
+    b.innerHTML = `<div class="gnote"><b>${J.note}</b> Pinion on the rotor: ${J.drv} teeth. Carrier : rotor = <b>${rt}</b> <span class="dim">(order ${gj.k + 1}/${L.jobs.length})</span></div>`
+      + (J.stages === 2 ? `<span class="glab">A</span>${pick('A', J.gears)}<span class="glab">B</span>${pick('B', J.gears)}<span class="glab">C</span>${pick('C', J.gears)}`
+        : `<span class="glab">carrier wheel</span>${pick('T', J.gears)}${J.idler ? `<button class="b ${gj.idler ? 'on' : ''}" data-idler="1">idler ${gj.idler ? 'in' : 'out'}</button>` : ''}`);
+    b.querySelectorAll('[data-g]').forEach(x => x.onclick = () => { if (MECH.running) return; FX.sfx('click'); gj[x.dataset.g] = +x.dataset.t; applyGears(); });
+    b.querySelectorAll('[data-idler]').forEach(x => x.onclick = () => { if (MECH.running) return; FX.sfx('click'); gj.idler = !gj.idler; applyGears(); }); }
 }
 function renderCtrl() {
   const c = $('ctrl'); let h = '';
@@ -742,7 +766,7 @@ function renderCtrl() {
   if ($('rx')) $('rx').onclick = () => { if (busy()) return; startRelax(); };
   if ($('rst')) $('rst').onclick = () => { FX.sfx('pop'); if (golf && golf.matched) return; if (golf && golf.strokes) msg('Ball back on the tee. Strokes still count.'); resetState(); won = won && !L.free ? won : false; };
   if ($('next')) $('next').onclick = () => { FX.sfx('pop'); loadLevel(LI + 1); };
-  if ($('run')) $('run').onclick = () => { if (MECH.broken || MECH.theta > 0 && !MECH.running) { MECH.phi = MECH.theta = 0; MECH.broken = false; MECH.maxTw = 0; } MECH.running = !MECH.running; FX.sfx(MECH.running ? 'whoosh' : 'click'); renderCtrl(); wake(300); };
+  if ($('run')) $('run').onclick = () => { if (gj && gearRatio() == null && !MECH.running) { msg('Fit every wheel first'); FX.sfx('fail'); return; } if (MECH.broken || MECH.theta > 0 && !MECH.running) { MECH.phi = MECH.theta = 0; MECH.broken = false; MECH.maxTw = 0; } MECH.running = !MECH.running; FX.sfx(MECH.running ? 'whoosh' : 'click'); renderCtrl(); wake(300); };
   if ($('hold')) { const hb = $('hold'); hb.onpointerdown = e => { e.preventDefault(); setHold(true); }; hb.onpointerup = hb.onpointerleave = hb.onpointercancel = () => setHold(false); }
   if ($('rec')) $('rec').onclick = () => { if (recording) { SAVE.rec = { moves: [...userMoves], steps: recording.length }; SAVE.recSteps = compressRec(recording); recording = null; persist(); toast('', `Recorded ${SAVE.rec.moves.length} moves`, 1500); } else { resetState(); recording = []; userMoves = []; } FX.sfx('click'); renderCtrl(); };
   if ($('play')) $('play').onclick = () => playRec();
@@ -852,17 +876,17 @@ function stepMech(dt) {
   const m = MECH; if (!m) return; const w = TAU / 1.5;
   if (m.running && !m.broken) {
     if (m.sat) { m.theta += w * dt; m.phi += (m.hold ? w : 0) * dt; m.t += dt; }
-    else { m.theta += w * dt; m.phi += m.ratio * w * dt; }
+    else { m.theta += w * dt; m.phi += (m.ratio || 0) * w * dt; }
     const tw = 2 * m.phi - m.theta; m.maxTw = Math.max(m.maxTw, Math.abs(tw));
-    const lim = m.sat ? 200 * D2R : 3 * Math.PI;
+    const lim = m.sat ? 200 * D2R : Math.PI; // the cable tears past half a turn of twist
     if (Math.abs(tw) > lim) { m.broken = true; m.running = false; FX.sfx('boom'); FX.shake(.6); FX.hitstop(120); burst(.9, 1.2, 0, 60, '#ff6040', 3, .8); toast('Snap!', m.sat ? 'The cable twisted too far. Drive the boom at half the satellite\'s speed on average.' : 'The cable twisted itself apart. Try another ratio.', 2600); renderCtrl(); }
-    if (!m.sat && m.theta >= 6 * TAU && !won) { m.running = false; winLevel(L.win); }
+    if (!m.sat && m.theta >= 6 * TAU && !won) { m.running = false; if (gj) gearJobDone(); else winLevel(L.win); renderCtrl(); }
     if (m.sat && m.t >= L.time && !won) { m.running = false; winLevel(L.win); }
     if (m.sat && !m.hold && m.t > 0 && Math.random() < dt * 2) FX.sfx('tick');
   }
-  m.carrier.rotation.y = m.phi; m.rotor.rotation.y = m.theta; m.gA.rotation.y = m.theta; m.gB.rotation.y = -m.phi; m.cable.update(m.phi, m.theta, m.broken);
+  m.carrier.rotation.y = m.phi; m.rotor.rotation.y = m.theta; m.gA.rotation.y = m.theta; m.gB.rotation.y = -m.phi; if (m.gI) m.gI.rotation.y = -m.theta * 1.5; m.cable.update(m.phi, m.theta, m.broken);
   const tw = (2 * m.phi - m.theta) / D2R; if (!meterDue()) return; $('meter').style.display = 'block';
-  $('meter').innerHTML = (m.sat ? `time <b>${m.t.toFixed(1)}</b> / ${L.time} s · ` : `rotor turns <b>${(m.theta / TAU).toFixed(1)}</b> / 6 · `) + `cable twist <b style="color:${Math.abs(tw) > (m.sat ? 150 : 360) ? '#ff8080' : '#9af0c0'}">${tw.toFixed(0)}°</b><div class="bar"><i style="width:${Math.min(100, Math.abs(tw) / (m.sat ? 2 : 5.4))}%"></i></div>`;
+  $('meter').innerHTML = (m.sat ? `time <b>${m.t.toFixed(1)}</b> / ${L.time} s · ` : `rotor turns <b>${(m.theta / TAU).toFixed(1)}</b> / 6 · `) + `cable twist <b style="color:${Math.abs(tw) > (m.sat ? 150 : 120) ? '#ff8080' : '#9af0c0'}">${tw.toFixed(0)}°</b><div class="bar"><i style="width:${Math.min(100, Math.abs(tw) / (m.sat ? 2 : 1.8))}%"></i></div>`;
 }
 const jitQ = new THREE.Quaternion(), tq = new THREE.Quaternion(), jitE = new THREE.Euler(), invQ = new THREE.Quaternion();
 const hideSign = () => !!(bet && (bet.phase === 'watch' || bet.phase === 'bet'));
@@ -978,7 +1002,7 @@ window.__belt = {
   get busy() { return busy() || snaps.length > 0 || !!(bet && bet.phase === "watch"); }, get won() { return won; }, get level_() { return LI; }, get par() { return L.par; }, get golf() { return golf; }, get bet() { return bet; }, get mech() { return MECH; }, get waiter() { return waiter; }, get yaw() { return yawAcc / D2R; },
   placeBet, flush: flushQueue, check, enc, decode, get queueN() { return queue.length + (cur ? 1 : 0); }, SAVE, nextBet,
   sim(sec, fn) { const dt = 1 / 60; for (let t = 0; t < sec; t += dt) { fn && fn(t); if (relax.on) stepRelax(dt, 30); if (waiter) stepWaiter(dt); if (MECH) stepMech(dt); stepSnaps(dt); stepQueue(dt); } },
-  setRatio: r => setGearB(r), run: () => { MECH.running = true; }, hold: v => { if (v && !MECH.running) MECH.running = true; MECH.hold = v; },
+  setRatio: r => setGearB(r), gears: o => { Object.assign(gj, o); applyGears(); return gearRatio(); }, get gj() { return gj && { ...gj }; }, gearRatio: () => gearRatio(), run: () => { MECH.running = true; }, hold: v => { if (v && !MECH.running) MECH.running = true; MECH.hold = v; },
   startWaiter: () => { waiter.started = true; }, calm: false, sel: i => { sel = i; },
   three: { key: () => key, hemi, rim, camera, controls, get bloom() { return bloom; }, render: () => render(), placeCamera: c => placeCamera(c), FACEmats: () => OBJ[0].mats },
   benchUpdate(n = 200) { const t0 = performance.now(); for (let k = 0; k < n; k++) for (const r of RIB) { r.dirty = true; r.update(); } return (performance.now() - t0) / n; },

@@ -26,6 +26,8 @@ module.exports = {
       await level(page, 0); eq(await page.evaluate(`${FF}(400, 0)`), 'none');
       eq(await page.evaluate(() => [__ws.placeSpring(80, 140), __ws.springs.length]), [false, 0], 'a spring by the sea was accepted');
       ok(await page.evaluate(() => __ws.placeSpring(70, 25))); const r = await page.evaluate(`${FF}(900, 0)`); ok(r.startsWith('WIN'), r);
+      await page.waitForFunction(() => __ws.won, null, { timeout: 8000 }); await page.locator('#nextLv').click();
+      eq(await page.evaluate(() => [document.getElementById('lvName').textContent, __ws.won, !!document.getElementById('nextLv')]), ['Canyon', false, false]);
       await level(page, 2); eq(await page.evaluate(`${FF}(600, 2)`), 'none', 'idle lake');
       const l = await page.evaluate(`(() => { __ws.setTool('rain'); Object.assign(__ws.brush, { active: true, x: 80, y: 80 }); const r = ${FF}(2000, 2); __ws.brush.active = false; return r; })()`);
       ok(l.startsWith('WIN'), 'rain in the basin: ' + l);
