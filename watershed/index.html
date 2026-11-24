@@ -5,65 +5,121 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Watershed</title>
 <link rel="stylesheet" href="../shared/common.css">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,500;0,600;0,700;1,500&family=Barlow:wght@400;600&display=swap" rel="stylesheet">
 <style>
-  html,body{height:100%;overflow:hidden;background:linear-gradient(#7fb2d6 0%,#bcd6e6 55%,#e8dccb 100%)}
+  /* A plaster relief model of a river basin on a wooden plinth, lit in a studio. You plan on a surveyor's clipboard. */
+  :root{--accent:#c8562b;--paper:#f4efe1;--ink:#26231e;--ink2:#5b5447;--red:#b8432a;--green:#3f7a3a;--blue:#2d6d9c;--brass:#b58a3c;--board:#7a5a3a}
+  html,body{height:100%;overflow:hidden;color:var(--ink);font-family:Barlow,"Helvetica Neue",Arial,sans-serif;
+    background:radial-gradient(70% 60% at 50% 38%,#5e5a54 0%,#36332f 55%,#1c1b19 100%)}
+  button{font-family:"Barlow Condensed",Barlow,sans-serif;border-radius:2px}
+  button:focus-visible,a:focus-visible{outline:3px solid #ffcf6b;outline-offset:2px}
   #gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
-  .chip{position:fixed;background:rgba(18,26,36,.55);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.12);border-radius:16px;color:#f4efe6;box-shadow:0 10px 30px -10px rgba(0,0,0,.45)}
-  #top{top:14px;left:14px;padding:12px 16px;max-width:360px}
-  #top .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
-  #top .mini,#lvBtn{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);color:#f4efe6;border-radius:8px;font-size:12px;padding:2px 8px;cursor:pointer}
-  #lvBtn{display:none}
-  #top.min #goal{display:none}
-  #top .t{font-family:Fraunces,Georgia,serif;font-size:24px;font-weight:700;letter-spacing:-.01em;display:flex;gap:10px;align-items:center}
-  #top .home{color:rgba(244,239,230,.6);font-size:12px;text-decoration:none}
-  #goal{font-size:14px;line-height:1.45;margin-top:6px;color:rgba(244,239,230,.9)}
-  #goal b{color:#ffd27a}
-  .bar{height:6px;border-radius:3px;background:rgba(255,255,255,.12);margin-top:10px;overflow:hidden}
-  .bar div{height:100%;width:0;background:linear-gradient(90deg,#6fd3ff,#ffd27a);transition:width .3s}
-  #tools{bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:6px;padding:8px}
-  .tool{width:62px;height:62px;border-radius:12px;border:1px solid transparent;background:rgba(255,255,255,.06);color:#f4efe6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:22px;cursor:pointer;transition:transform .08s,background .15s,border-color .15s;padding:0}
-  .tool span{font-size:10px;opacity:.75;letter-spacing:.04em}
-  .tool:hover{background:rgba(255,255,255,.12)}
-  .tool:active{transform:scale(.92)}
-  .tool.on{border-color:#ffd27a;background:rgba(255,210,122,.16)}
-  .tool[disabled]{opacity:.25;pointer-events:none}
-  .tool .n{position:absolute;margin:-40px 0 0 40px;font-size:10px;background:#ffd27a;color:#1a1205;border-radius:8px;padding:0 5px;font-weight:700}
-  #levels{top:14px;right:14px;padding:8px;display:flex;flex-direction:column;gap:3px;max-height:calc(100vh - 130px);overflow:auto;width:210px}
-  #levels .lv{padding:6px 10px;border-radius:9px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;color:rgba(244,239,230,.85)}
-  #levels .lv:hover{background:rgba(255,255,255,.08)}
-  #levels .lv.cur{background:rgba(255,210,122,.18);color:#fff}
-  #levels .lv.lock{opacity:.35;pointer-events:none}
-  #levels h4{margin:4px 10px 6px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(244,239,230,.55);font-weight:600}
-  #speed{bottom:16px;right:14px;display:flex;gap:4px;padding:6px}
-  .bsz{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:40px;font-size:11px;color:#f4efe6}
-  .bsz button{width:32px;height:20px;border-radius:6px;border:0;background:rgba(255,255,255,.1);color:#f4efe6;font-size:14px;line-height:1;cursor:pointer;padding:0}
-  .bsz button:hover{background:rgba(255,255,255,.2)}
-  #speed button{background:rgba(255,255,255,.06);border:1px solid transparent;color:#f4efe6;border-radius:9px;padding:6px 10px;font-size:13px}
-  #speed button.on{border-color:#ffd27a}
-  #hint{position:fixed;bottom:96px;max-width:calc(100vw - 32px);text-align:center;left:50%;transform:translateX(-50%);color:#1d2a36;font-size:13px;background:rgba(255,255,255,.55);padding:4px 12px;border-radius:20px;pointer-events:none;transition:opacity .4s}
-  #toast{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%) scale(.8);opacity:0;font-family:Fraunces,Georgia,serif;font-size:44px;font-weight:700;color:#fff;text-shadow:0 4px 30px rgba(0,0,0,.4);pointer-events:none;transition:opacity .35s,transform .5s cubic-bezier(.3,1.6,.5,1);text-align:center}
-  #toast.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
-  #toast small{display:block;font-family:ui-sans-serif,system-ui;font-size:16px;font-weight:400;opacity:.9;margin-top:6px}
-  #msg{position:fixed;top:18%;left:50%;transform:translateX(-50%);background:rgba(18,26,36,.75);color:#fff;padding:8px 16px;border-radius:12px;font-size:14px;pointer-events:none;opacity:0;transition:opacity .3s;text-align:center;max-width:80vw}
+  /* the surveyor's clipboard */
+  #board{position:fixed;top:14px;left:14px;width:340px;padding:30px 10px 10px;background:linear-gradient(135deg,#8a6844,#6d4e31 60%,#5d4229);border-radius:6px;box-shadow:0 18px 40px -16px rgba(0,0,0,.8),inset 0 1px 0 rgba(255,255,255,.18)}
+  #board::before{content:'';position:absolute;top:-8px;left:50%;width:120px;height:30px;margin-left:-60px;border-radius:5px 5px 10px 10px;background:linear-gradient(#e6e8ea,#9aa0a6 45%,#cfd3d7 60%,#7d838a);box-shadow:0 3px 5px rgba(0,0,0,.45)}
+  #sheet{background:repeating-linear-gradient(0deg,transparent 0 21px,rgba(45,109,156,.13) 21px 22px),linear-gradient(#fbf8ef,#f1ead7);padding:10px 12px 10px;box-shadow:0 1px 3px rgba(0,0,0,.4);max-height:calc(100vh - 170px);overflow:auto}
+  .hrow{display:flex;justify-content:space-between;align-items:center;gap:6px}
+  .hrow>span{white-space:nowrap;display:flex;gap:6px}
+  #sheet .home{color:var(--ink2);font-size:12px;text-decoration:none}
+  .place{font:600 12px "Barlow Condensed";letter-spacing:.2em;text-transform:uppercase;color:var(--red);margin-top:6px}
+  #lvName{font:700 28px/1 "Barlow Condensed";text-transform:uppercase;letter-spacing:.02em;margin:2px 0 4px}
+  #goal{font-size:14px;line-height:1.4;color:#2f2b24}
+  #goal b{color:var(--red)}
+  #first{font:italic 500 14px/1.3 "Barlow Condensed";color:var(--blue);margin-top:6px}
+  #first:empty{display:none}
+  #score{width:100%;border-collapse:collapse;margin-top:8px;font:600 15px "Barlow Condensed";letter-spacing:.02em}
+  #score td{padding:2px 2px;border-bottom:1px solid rgba(38,35,30,.18)}
+  #score td.v{text-align:right;font-variant-numeric:tabular-nums}
+  #score td.t{text-align:right;color:var(--ink2);font-weight:500;width:70px}
+  #score td.ok{width:18px;text-align:center;font-weight:700}
+  #score tr.good td.ok{color:var(--green)}#score tr.bad td.ok{color:var(--red)}#score tr.bad td.v{color:var(--red)}
+  /* the years: one tick per season, storms drawn as clouds */
+  #years{display:flex;gap:2px;margin-top:8px;align-items:flex-end;height:26px}
+  #years i{flex:1;background:#d8cfb8;height:8px;position:relative}
+  #years i.s1{height:12px}#years i.s2{height:18px;background:#9fb5c7}#years i.s3{height:26px;background:#5d86a8}
+  #years i.past{background:#6c7d52}#years i.past.fl{background:var(--red)}
+  #years i.now{outline:2px solid var(--ink);outline-offset:1px}
+  .yrl{display:flex;justify-content:space-between;font:500 11px "Barlow Condensed";letter-spacing:.1em;color:var(--ink2);text-transform:uppercase;margin-top:2px}
+  #sheet button.mini,#lvBtn,#briefBtn{background:#efe6cf;border:1px solid #8c7b58;color:var(--ink);font-size:13px;font-weight:700;letter-spacing:.1em;padding:3px 9px;cursor:pointer;text-transform:uppercase}
+  #briefBtn{display:none}
+  /* survey sites */
+  #levels{position:fixed;top:14px;right:14px;width:230px;padding:8px;background:linear-gradient(#efe6cf,#e2d5b3);border:1px solid #8c7b58;box-shadow:0 14px 30px -14px rgba(0,0,0,.8);max-height:calc(100vh - 130px);overflow:auto}
+  #levels h4{margin:2px 4px 6px;font:700 13px "Barlow Condensed";letter-spacing:.2em;text-transform:uppercase;color:var(--ink2)}
+  #levels .lv{padding:6px 8px;margin-bottom:3px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:6px;background:#fbf8ef;border:1px solid #c9b98f;border-left:5px solid var(--blue);font:600 15px "Barlow Condensed"}
+  #levels .lv small{display:block;font:500 11px "Barlow Condensed";letter-spacing:.12em;text-transform:uppercase;color:var(--ink2)}
+  #levels .lv.cur{background:var(--ink);color:#fbf8ef;border-color:var(--ink);border-left-color:var(--brass)}
+  #levels .lv.cur small{color:#d9cfb5}
+  #levels .lv.lock{opacity:.4;pointer-events:none;border-style:dashed}
+  .medals{font-size:15px;letter-spacing:1px;white-space:nowrap}
+  /* drafting tokens: the tools */
+  #tools{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:6px;padding:7px;background:linear-gradient(#3b342c,#25211c);border:1px solid #15120f;box-shadow:0 12px 26px -10px rgba(0,0,0,.8);border-radius:4px}
+  .tool{position:relative;width:62px;height:62px;border:1px solid #15120f;background:linear-gradient(#f4efe1,#dcd2b8);color:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:20px;cursor:pointer;padding:0;box-shadow:0 3px 0 #0d0b09;transition:transform .06s}
+  .tool span{font:700 12px "Barlow Condensed";letter-spacing:.1em;text-transform:uppercase}
+  .tool:active{transform:translateY(3px);box-shadow:none}
+  .tool.on{background:linear-gradient(#ffd99a,#e7a74e);border-color:#7a4a10}
+  .tool .n{position:absolute;top:-8px;right:-6px;font:700 12px "Barlow Condensed";background:var(--ink);color:#fbf8ef;padding:0 5px;font-style:normal;min-width:20px;text-align:center}
+  .tool[disabled]{opacity:.4}
+  .bsz{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:40px;font:700 13px "Barlow Condensed";color:#f4efe1}
+  .bsz button{width:36px;height:28px;border:1px solid #15120f;background:#dcd2b8;color:var(--ink);font-size:16px;line-height:1;cursor:pointer;padding:0}
+  /* the clock: plan, then run the years */
+  #speed{position:fixed;bottom:14px;right:14px;display:flex;gap:4px;padding:6px;background:linear-gradient(#3b342c,#25211c);border:1px solid #15120f;border-radius:4px}
+  #speed button{min-width:44px;height:40px;background:#dcd2b8;border:1px solid #15120f;color:var(--ink);font-size:15px;font-weight:700;letter-spacing:.06em;padding:0 8px;cursor:pointer}
+  #speed button.on{background:linear-gradient(#ffd99a,#e7a74e)}
+  #speed #go{background:var(--green);color:#fff;min-width:86px}
+  #speed #go.on{background:#2c5a29}
+  #hint{position:fixed;bottom:96px;max-width:calc(100vw - 32px);text-align:center;left:50%;transform:translateX(-50%);color:#f4efe1;font:500 15px "Barlow Condensed";letter-spacing:.04em;background:rgba(20,18,15,.7);padding:4px 12px;pointer-events:none;transition:opacity .4s}
+  #msg{position:fixed;top:16%;left:50%;transform:translateX(-50%) rotate(-1deg);background:var(--paper);color:var(--ink);border-left:6px solid var(--red);padding:7px 14px;font:600 16px "Barlow Condensed";letter-spacing:.03em;pointer-events:none;opacity:0;transition:opacity .3s;text-align:center;max-width:80vw;box-shadow:0 10px 24px -10px rgba(0,0,0,.7)}
   #msg.on{opacity:1}
-  @media (max-width:900px){#lvBtn{display:inline-block}#levels{display:none;z-index:5;top:10px;right:10px;max-height:calc(100vh - 20px)}#levels.open{display:flex}}
-  @media (max-width:760px){#top{top:8px;left:8px;right:8px;max-width:none;padding:8px 12px;border-radius:12px}#top .t{font-size:18px}#goal{font-size:12.5px;line-height:1.35;margin-top:3px}.bar{margin-top:6px}
-    #tools{bottom:8px;padding:5px;gap:3px;max-width:calc(100vw - 12px)}.tool{width:44px;height:50px;font-size:17px}.tool span{font-size:9px}.tool .n{margin:-36px 0 0 30px}.bsz{width:34px}.bsz button{width:28px}
-    #speed{bottom:74px;right:auto;left:50%;transform:translateX(-50%);padding:4px}#speed button{padding:4px 9px;font-size:12px}
-    #hint{bottom:122px;font-size:12px}#toast{font-size:30px;width:90vw}}
-  .nextLv{margin-top:8px;border:0;border-radius:10px;background:#2f8f5b;color:#fff;font:inherit;font-weight:700;padding:6px 12px;cursor:pointer}
+  /* the survey report at the end of a run */
+  #report{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(420px,92vw);max-height:88vh;overflow:auto;background:linear-gradient(#fbf8ef,#f1ead7);border:1px solid #8c7b58;box-shadow:0 30px 60px -20px rgba(0,0,0,.85);padding:16px 18px;display:none;z-index:10}
+  #report.on{display:block;animation:rin .5s cubic-bezier(.2,1.3,.4,1)}
+  @keyframes rin{from{transform:translate(-50%,-40%) rotate(3deg);opacity:0}}
+  #report h2{margin:0;font:700 26px "Barlow Condensed";text-transform:uppercase;letter-spacing:.04em}
+  #report .row{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+  #report button{border:1px solid var(--ink);background:#efe6cf;font-size:16px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:8px 14px;cursor:pointer;min-height:40px}
+  #report button.primary{background:var(--ink);color:#fbf8ef}
+  #report ul{padding-left:0;list-style:none;margin:8px 0;font:600 16px "Barlow Condensed"}
+  #report li{display:flex;gap:8px;align-items:center;padding:3px 0;border-bottom:1px dashed #c9b98f}
+  #report li.no{opacity:.45}
+  /* the brass medal: the signature moment */
+  .medal{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;font:700 14px "Barlow Condensed";color:#3b2a08;background:radial-gradient(circle at 35% 30%,#fff3c4,#d9b25a 45%,#8a6420 100%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.35),0 2px 3px rgba(0,0,0,.3);flex:none}
+  .medal.drop{animation:drop .7s cubic-bezier(.3,1.6,.5,1) both}
+  .medal.silver{background:radial-gradient(circle at 35% 30%,#fff,#bfc4c8 45%,#6d7378 100%)}
+  .medal.bronze{background:radial-gradient(circle at 35% 30%,#ffe2c4,#b8773e 45%,#6b3d18 100%)}
+  .medal.none{background:#d8cfb8;box-shadow:none;color:#8c7b58}
+  @keyframes drop{0%{transform:translateY(-60px) scale(1.6) rotate(-90deg);opacity:0}100%{transform:none;opacity:1}}
+  @media (max-width:900px){#levels{display:none;z-index:6;top:10px;right:10px;max-height:calc(100vh - 20px)}#levels.open{display:block}}
+  @media (max-width:760px){
+    #board{top:6px;left:6px;right:6px;width:auto;padding:18px 6px 6px}#board::before{top:-6px;width:80px;margin-left:-40px;height:20px}
+    #sheet{padding:6px 9px;max-height:40vh}#lvName{font-size:21px}#goal{font-size:12.5px;line-height:1.3}.place{margin-top:2px;font-size:11px}
+    #briefBtn{display:inline-block}body.playing:not(.brief) #goal,body.playing:not(.brief) #first{display:none}
+    #score{font-size:13.5px;margin-top:4px}#years{height:18px;margin-top:4px}#years i.s3{height:18px}#years i.s2{height:13px}
+    #tools{bottom:6px;left:6px;transform:none;padding:4px;gap:3px;max-width:calc(100vw - 12px)}.tool{width:46px;height:50px;font-size:16px}.tool span{font-size:10.5px}
+    #speed{bottom:66px;right:6px;padding:4px}#speed button{min-width:40px;height:40px}#speed #go{min-width:70px}
+    #hint{bottom:118px;font-size:13px}.bsz{width:36px}.bsz button{width:32px}}
+  @media (max-height:520px) and (min-width:600px){
+    #board{width:300px;top:6px;left:6px;padding:16px 6px 6px}#board::before{display:none}#sheet{max-height:calc(100vh - 30px);padding:6px 9px}#lvName{font-size:20px}#goal{font-size:12.5px}
+    #briefBtn{display:inline-block}#goal,#first{display:none}body.brief #goal,body.brief #first{display:block}
+    #tools{left:auto;right:6px;transform:none;bottom:54px;padding:4px;gap:3px}.tool{width:46px;height:46px;font-size:15px}
+    #speed{bottom:4px;right:6px;padding:3px}#speed button{height:40px}#hint{display:none}#levels{max-height:calc(100vh - 20px)}}
+  @media (pointer:coarse){#lvBtn,#briefBtn,#sheet button.mini{min-height:36px;min-width:40px}}
 </style>
 </head>
 <body>
-<canvas id="gl"></canvas>
-<div id="top" class="chip"><div class="row"><a class="home" href="../index.html">← Rabbit Holes</a><span><button id="lvBtn">☰ Levels</button> <button class="mini" id="mini" title="Collapse">–</button></span></div><div class="t">💧 <span id="lvName">Watershed</span></div><div id="goal"></div><div class="bar"><div id="prog"></div></div></div>
-<div id="levels" class="chip"></div>
-<div id="tools" class="chip"></div>
-<div id="speed" class="chip"><button data-s="0">⏸</button><button data-s="1" class="on">1×</button><button data-s="3">3×</button><button data-s="8">8×</button><button id="restart" title="Restart this landscape">↺</button><button id="mute" title="Sound">🔊</button></div>
-<div id="hint">Left-drag uses the tool · right-drag orbits · scroll zooms</div>
-<div id="msg"></div>
-<div id="toast"></div>
+<canvas id="gl" aria-label="Relief model of the river basin"></canvas>
+<div id="board"><div id="sheet">
+  <div class="hrow"><a class="home" href="../index.html">← Rabbit Holes</a><span><button id="briefBtn" aria-expanded="false">Brief</button><button id="lvBtn">Sites</button></span></div>
+  <div class="place" id="place"></div><div id="lvName">Watershed</div>
+  <div id="goal"></div><div id="first"></div>
+  <table id="score"></table>
+  <div id="years"></div><div class="yrl"><span id="yr0"></span><span id="yrNow"></span><span id="yr1"></span></div>
+</div></div>
+<div id="levels"></div>
+<div id="tools"></div>
+<div id="speed"><button id="go" data-s="1">▶ Run</button><button data-s="3" title="Fast">▶▶</button><button data-s="0" title="Pause">❚❚</button><button id="restart" title="Start this site again">↺</button><button id="mute" title="Sound">♪</button></div>
+<div id="hint">Drag on the model to use a tool · right-drag or two fingers to turn it · scroll or pinch to zoom</div>
+<div id="msg" role="status"></div>
+<div id="report" role="dialog" aria-label="Survey report"></div>
 <script src="../shared/common.js"></script>
 <script src="../shared/fx.js"></script>
 <script type="importmap">{"imports":{"three":"../shared/vendor/three/build/three.module.min.js","three/addons/":"../shared/vendor/three/addons/"}}</script>
@@ -71,6 +127,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+// ================= terrain & simulation =================
 // ================= terrain & simulation =================
 const N = 160, NN = N * N;
 const B = new Float32Array(NN), ROCK = new Float32Array(NN), D = new Float32Array(NN);
@@ -95,120 +152,159 @@ function noise2(seed) {
 }
 function fbm(n, x, y, oct = 5) { let s = 0, a = 1, f = 1, t = 0; for (let o = 0; o < oct; o++) { s += a * n(x * f, y * f); t += a; a *= .5; f *= 2; } return s / t; }
 const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const EMUL = [1, 2.5, .15]; // erosion multiplier by land use: open ground, ploughed field, forest
 
-// ================= levels =================
-// Each level builds its terrain via gen(x, y) -> [surface height, bedrock height], plus markers, a goal and a camera preset.
-// cam: { el: elevation°, az: azimuth°, d: distance, t: [x, y, z] target }
-const CAM0 = { el: 33, az: -15, d: 268, t: [0, 10, 6] };
-const LV = [
-  { n: 'First Spring', tools: { spring: 1 }, sea: 4, minSpringH: 22,
-    goal: 'Place a <b>spring</b> high on the mountain and let it find its way to the <b>sea</b>.', hint: 'Pick the spring tool, then click on the high slopes at the back.',
-    gen: (x, y, n) => { const h = 34 * Math.pow(1 - y, 1.4) + 3 * fbm(n, x * 3, y * 3) + 2; return [h, h - 2.5]; },
-    test: S => S.seaIn > 1, prog: S => S.seaIn },
-  { n: 'Canyon', tools: { spring: 2 }, sea: 3, speed: 3,
-    goal: 'A plateau of layered rock. Let rivers cut a <b>canyon 5 m deep</b> into the strata.', hint: 'Springs near the plateau edge cut fastest. Try 3× speed.',
-    gen: (x, y, n) => { const pl = sm(.75, .55, y) * 22 + 4 + 3 * fbm(n, x * 4, y * 4); return [pl + .6, pl - .4]; },
-    test: S => S.maxCut >= 5, prog: S => S.maxCut / 5 },
-  { n: 'Mountain Lake', tools: { rain: 1 }, sea: 0, cam: { el: 66, az: -8, d: 290, t: [0, 8, 6] }, brushR: { rain: 12 }, rimLock: [.33, .5],
-    goal: 'Fill the high basin with rain until it holds a <b>lake</b> of 400 m² that is at least 1 m deep.', hint: 'Hold the rain tool over the middle of the basin.',
-    gen: (x, y, n) => { const r = Math.hypot(x - .5, y - .5); const h = 18 + 22 * sm(.18, .42, r) - 6 * sm(.25, 0, r) + 4 * fbm(n, x * 4, y * 4); return [h, h - 3]; },
-    test: S => S.lakeArea >= 400, prog: S => S.lakeArea / 400 },
-  { n: 'The Falls', tools: { spring: 1 }, sea: 3, speed: 3, cam: { el: 38, az: -28, d: 275, t: [0, 8, 4] },
-    goal: 'Hard caprock sits on soft stone. Rivers undercut it and the edge retreats upstream as a cliff. Make a <b>waterfall at least 4 m high</b> that has <b>cut back 6 m</b> into the upper shelf.', hint: 'Put the spring on the upper shelf, then speed time up.',
-    gen: (x, y, n) => { const step = sm(.52, .5, y) * 9 + sm(.3, .05, y) * 8; const h = 6 + step + 2 * fbm(n, x * 3, y * 3) + (1 - y) * 4; return [h, h - .3]; }, hardBand: [12, 15],
-    test: S => S.fall >= 4, prog: S => Math.min(S.fallH / 4, 1) * .4 + Math.min(S.retreat / 6, 1) * .6 },
-  { n: 'Delta', tools: { spring: 2, rain: 1 }, sea: 6, speed: 3, springQ: 1.3, cam: { el: 38, az: -12, d: 270, t: [0, 8, 8] },
-    goal: 'Rivers carry sand. Where they slow down at the sea, it settles into a <b>delta</b>. Deposit 25 m³ of sediment in the sea.', hint: 'Soft soil erodes easily. Rain on the hills sends more sand downstream.',
-    gen: (x, y, n) => { const h = 26 * Math.pow(1 - y, 1.2) + 5 * fbm(n, x * 3, y * 3) + 1; return [h + 3.5, h - 2]; },
-    test: S => S.seaDep >= 25, prog: S => S.seaDep / 25 },
-  { n: 'Save the Village', tools: { raise: 1, dig: 1 }, sea: 3, storm: 1, raiseBudget: 220, digBudget: 160, cam: { el: 44, az: -12, d: 262, t: [0, 6, 6] },
-    goal: 'A storm is about to break over the hills. Build levees or dig channels so <b>no house floods</b>, through the storm and until the water has drained away. You can\'t build on the village itself.', hint: 'Watch where the water comes from. Wall it off or dig it a new path, upstream of the houses.',
-    gen: (x, y, n) => { const ax = .45 + .05 * Math.sin(y * 4); const v = Math.abs(x - ax); const h = 4 + 16 * Math.pow(1 - y, 1.2) * (.45 + v * 1.4) + 3 * v + 1.2 * fbm(n, x * 3, y * 3) - 2.2 * sm(.04, .01, v); return [h, h - 3]; },
-    houses: [[.6, .64], [.63, .7], [.57, .76]], stormFor: 150, calmFor: 60, stormRain: .03, erodeScale: .15,
-    test: S => S.calmT >= 60 && S.dryHouses === S.nHouses, fail: S => S.wetHouse, prog: S => S.simT / 210 },
-  { n: 'Irrigation', tools: { dig: 1 }, sea: 3, digBudget: 900, brushR: { dig: 4 }, cam: { el: 48, az: -8, d: 262, t: [0, 6, 6] },
-    goal: 'The fields sit on benches just above the river, bone dry. Dig canals so <b>all four fields</b> get water at once.', hint: 'Water can\'t flow uphill. Start each canal upstream, where the river is higher than the field. [ and ] change the brush size.',
-    gen: (x, y, n) => { const v = Math.abs(x - .5); const h = 4 + 18 * (1 - y) + 1.3 * sm(.015, .06, v) + 11 * sm(.2, .38, v) + .5 * fbm(n, x * 4, y * 4); return [h, h - 3]; },
-    fields: [[.38, .45], [.62, .55], [.38, .7], [.62, .8]], springAt: [.5, .06], springQ: 2.5,
-    test: S => S.fieldsWet === 4, prog: S => S.fieldsWet / 4 },
-  { n: 'Through the Ridge', tools: { dig: 1 }, sea: 3, digBudget: 160, springAt: [.62, .1],
-    goal: 'A ridge dams the valley, and the sea lies beyond it. Use a little digging to get the river <b>through</b> to the sea.', hint: 'Dig a notch where the river meets the ridge. Running water will deepen it for you.',
-    gen: (x, y, n) => { const ridge = 9 * Math.exp(-Math.pow((y - .56) / .05, 2)) * (1 - .45 * Math.exp(-Math.pow((x - .62) / .1, 2))); const valley = y < .56 ? 7 * Math.min(1, Math.abs(x - .62) * 2.2) : 0; const h = .8 + 18 * sm(.52, 0, y) + valley + ridge + 1.2 * fbm(n, x * 3, y * 3) + (1 - y) * 6; return [h, h - 2.5]; },
-    test: S => S.seaIn > 1, prog: S => S.seaIn },
-  { n: 'Reservoir', tools: { raise: 1, spring: 1 }, sea: 3, speed: 3, raiseBudget: 500, erodeScale: .2,
-    goal: 'Build a <b>dam</b> across the gorge and hold a reservoir of 400 m³ behind it.', hint: 'Raise a wall right across the gorge, low down where its floor is flat. Water held behind it counts.',
-    gen: (x, y, n) => { const g = Math.abs(x - .5); const h = 5 + 22 * sm(.03, .2, g) + 18 * sm(.7, 0, y) + 2 * fbm(n, x * 4, y * 4); return [h, h - 2]; },
-    test: S => S.reservoir >= 400, prog: S => S.reservoir / 400 },
-  { n: 'Sandbox', tools: { rain: 1, spring: 9, raise: 1, dig: 1 }, sea: 5, free: 1,
-    goal: 'No goal. Sculpt mountains, start storms and watch a million years of erosion in a minute.', hint: 'Try 8× speed with rain over high ground.',
+// ================= the basin commission: scenarios =================
+// Each site is a real river problem. You get a fixed number of years, a budget of works, and stakeholders who want
+// different things. Storms arrive on a schedule you can see. The erosion model decides what actually happens.
+const CAM0 = { el: 36, az: -14, d: 262, t: [0, 6, 6] };
+const valleyGen = (x, y, n) => { const ax = .45 + .05 * Math.sin(y * 4), v = Math.abs(x - ax); const h = 4 + 16 * Math.pow(1 - y, 1.2) * (.45 + v * 1.4) + 3 * v + 1.2 * fbm(n, x * 3, y * 3) - 2.2 * sm(.04, .01, v); return [h, h - 3]; };
+const SC = [
+  { id: 'levee', n: 'The Levee', place: 'Mississippi · 1927', years: 20, sea: 3, gen: valleyGen, springs: [[.45, .03, 1.2]], stormY: .45,
+    storm: y => y === 6 ? 2 : y === 14 ? 3 : y % 4 === 1 ? 1 : 0, rain: .03,
+    towns: [{ n: 'Upper Town', at: [[.6, .64], [.63, .7], [.57, .76]] }, { n: 'Lower Town', at: [[.52, .87], [.56, .9], [.6, .86]] }],
+    tools: { farm: 500, raise: 260, dig: 160 },
+    goal: 'Grow <b>{harvest} bushels</b> in 20 years, and let neither town flood <b>more than twice</b>.',
+    first: 'First: paint <b>Farm</b> on flat ground. Fields by the river get rich silt, but floods drown them.',
+    want: { harvest: 6000, floods: 2 },
+    medals: [['Goal met', S => S.goalMet], ['No town ever floods', S => S.goalMet && S.maxFloods === 0], ['And 9,000 bushels', S => S.goalMet && S.maxFloods === 0 && S.harvest >= 9000]] },
+  { id: 'loess', n: 'Loess Plateau', place: 'Yellow River · 1950s', years: 25, sea: 3, springs: [[.5, .04, 1]], stormY: .7, storm: y => y % 3 === 2 ? 2 : 1, rain: .009, cam: { el: 40, az: -10, d: 262, t: [0, 8, 6] },
+    gen: (x, y, n) => { const g = Math.abs(x - .5); const h = 5 + 22 * sm(.03, .2, g) + 18 * sm(.7, 0, y) + 3 * fbm(n, x * 4, y * 4); return [h, h - 6]; }, soft: 1.6,
+    dam: { y: .74, crest: 13 }, tools: { farm: 700, forest: 900, raise: 120 },
+    goal: 'Grow <b>{harvest} bushels</b> in 25 years while the reservoir keeps <b>{cap}%</b> of its capacity.',
+    first: 'The plateau is soft wind-blown soil. Plough it and every storm washes it into the dam. Try <b>Forest</b> on the gully sides.',
+    want: { harvest: 9000, cap: 80 },
+    medals: [['Goal met', S => S.goalMet], ['Reservoir above 90%', S => S.goalMet && S.capPct >= 90], ['And 13,000 bushels', S => S.goalMet && S.capPct >= 90 && S.harvest >= 13000]] },
+  { id: 'nile', n: 'The High Dam', place: 'Nile · 1960s', years: 30, sea: 6, springs: [[.5, .03, 1.4]], stormY: .5, storm: y => y % 5 === 3 ? 2 : 1, rain: .006, cam: { el: 40, az: -12, d: 270, t: [0, 8, 8] },
+    gen: (x, y, n) => { const v = Math.abs(x - .5), walls = 13 * sm(.03, .16, v) * sm(.22, .34, y) * sm(.6, .48, y); const h = 26 * Math.pow(1 - y, 1.2) + walls + 4 * fbm(n, x * 3, y * 3) + 1; return [h + 3.5, h - 2]; },
+    coastY: .78, waves: .35, tools: { raise: 420, dig: 160 },
+    goal: 'Dam the gorge and make <b>{power} GWh</b> in 30 years, but the delta must keep <b>{delta}%</b> of its land.',
+    first: 'A dam stores water for power, and it also traps the sand that builds the delta. Waves eat any coast that stops growing.',
+    want: { power: 300, delta: 90 },
+    medals: [['Goal met', S => S.goalMet], ['Delta keeps 100%', S => S.goalMet && S.deltaPct >= 100], ['And 500 GWh', S => S.goalMet && S.deltaPct >= 100 && S.power >= 500]] },
+  { id: 'free', n: 'Open Basin', place: 'Sandbox', years: 0, sea: 5, springs: [[.42, .05, 1], [.62, .1, .8]], stormY: .5, storm: y => y % 3 === 0 ? 2 : 1, rain: .008, free: 1, coastY: .8, waves: .2,
     gen: (x, y, n) => { const h = 30 * fbm(n, x * 2, y * 2, 6) + 18 * Math.pow(1 - y, 1.5) + 8; return [h, h - 2.2]; },
-    test: () => false, prog: () => 0 },
+    tools: { farm: 1e9, forest: 1e9, raise: 1e9, dig: 1e9 },
+    goal: 'No goal and no budget. Farm it, forest it, dam it and watch a few centuries of consequences.', first: '' },
 ];
+// fill the numbers into each goal sentence
+for (const s of SC) if (s.want) s.goal = s.goal.replace(/\{(\w+)\}/g, (_, k) => s.want[k].toLocaleString('en'));
 
-// ================= state =================
-// a corrupted or hand-edited save must not crash the page or unlock landscapes out of range
+// ================= state & saves =================
 function cleanSave(raw) {
-  const s = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}, done = {};
-  if (s.done && typeof s.done === 'object') for (const k in s.done) if (/^\d+$/.test(k) && +k < LV.length - 1 && s.done[k]) done[k] = 1; // the sandbox can't be "done"
-  return { done, cur: Number.isInteger(s.cur) && s.cur >= 0 && s.cur < LV.length ? s.cur : 0, intro: s.intro ? 1 : 0 };
+  const s = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}, medals = {};
+  // v2 saves belonged to the old ten landscapes; nothing carries over except having played
+  if (s.v === 3 && s.medals && typeof s.medals === 'object') for (const k in s.medals) if (/^\d+$/.test(k) && +k < SC.length - 1 && Number.isInteger(s.medals[k]) && s.medals[k] > 0) medals[k] = Math.min(3, s.medals[k]);
+  return { v: 3, medals, cur: s.v === 3 && Number.isInteger(s.cur) && s.cur >= 0 && s.cur < SC.length ? s.cur : 0, intro: s.intro ? 1 : 0 };
 }
 const SAVE = cleanSave(RH.load('watershed', null));
-const persist = () => { RH.save('watershed', SAVE); RH.progress('watershed', Object.keys(SAVE.done).length / (LV.length - 1)); };
-let L = null, cur = 0, tool = 'view', springs = [], houses = [], fields = [], budget = {}, stat = {}, won = false, failed = false, undo = [];
-const FALL_ROW0 = []; // per column: the row of the original cliff edge (The Falls)
-const BRUSH_DEF = { rain: 7, raise: 7, dig: 7 }, brushR = {};
+const persist = () => { RH.save('watershed', SAVE); RH.progress('watershed', Object.values(SAVE.medals).reduce((a, m) => a + m, 0) / (3 * (SC.length - 1))); };
+let L = null, cur = 0, tool = 'view', springs = [], towns = [], budget = {}, budget0 = {}, stat = {}, over = false, undo = [];
+const BRUSH_DEF = { raise: 6, dig: 5, farm: 5, forest: 6, clear: 5 }, brushR = {};
+// per-cell land use: 1 farm, 2 forest; erosion and rain multipliers follow from it
+const USE = new Uint8Array(NN), FH = new Float32Array(NN), FDEP = new Float32Array(NN), YMAX = new Float32Array(NN), INB = new Uint8Array(NN);
+let year = 0, yStep = 0, harvest = 0, power = 0, history = [], deltaLand0 = 1, cap0 = 1, lastYield = 0, farmCells = [];
+const YEAR_STEPS = 480, STORM_FRAC = .5;
 
 function buildLevel(i) {
-  cur = i; SAVE.cur = i; persist(); L = LV[i]; won = false; failed = false; springs = []; simT = 0; thermalTick = 0; /* same history -> same landscape: replays are deterministic */ seaInWindow.length = 0; seaInflowStep = 0; stepped = false; undo = [];
-  NOERODE.fill(0); NOSCULPT.fill(0); RAISED.fill(0); budget = { dig: L.digBudget ?? Infinity, raise: L.raiseBudget ?? Infinity };
-  Object.assign(brushR, BRUSH_DEF, L.brushR || {});
-  const n = noise2('ws' + i);
-  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-    const k = y * N + x, [h, r] = L.gen(x / (N - 1), y / (N - 1), n);
-    B[k] = h; ROCK[k] = Math.min(r, h); HARD[k] = 1;
-    if (L.hardBand && r > L.hardBand[0] && r < L.hardBand[1]) HARD[k] = .12;
-    INLAKE[k] = 1;
-    if (L.rimLock) { const rr = Math.hypot(x / (N - 1) - .5, y / (N - 1) - .5); if (rr > L.rimLock[0] && rr < L.rimLock[1]) NOERODE[k] = 1; INLAKE[k] = rr <= L.rimLock[0] ? 1 : 0; } // the basin rim is solid granite
-  }
+  cur = i; SAVE.cur = i; persist(); L = SC[i]; over = false; springs = []; simT = 0; thermalTick = 0; seaInWindow.length = 0; seaInflowStep = 0; stepped = false; undo = [];
+  year = 0; yStep = 0; harvest = 0; power = 0; history = []; lastYield = 0;
+  NOERODE.fill(0); NOSCULPT.fill(0); RAISED.fill(0); USE.fill(0); FH.fill(0); FDEP.fill(0); YMAX.fill(0); INB.fill(0);
+  budget = { ...L.tools }; budget0 = { ...L.tools }; delete budget.view;
+  Object.assign(brushR, BRUSH_DEF);
+  const n = noise2('ws' + L.id);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const k = y * N + x, [h, r] = L.gen(x / (N - 1), y / (N - 1), n); B[k] = h; ROCK[k] = Math.min(r, h); HARD[k] = L.soft || 1; }
   D.fill(0); SED.fill(0); SED2.fill(0); FL.fill(0); FR.fill(0); FT.fill(0); FB.fill(0); U.fill(0); V.fill(0); DEP.fill(0);
+  // the Loess site comes with an old dam across the gorge; its basin is what silts up
+  if (L.dam) { const y0 = Math.round(L.dam.y * (N - 1)); for (let y = y0 - 2; y <= y0 + 2; y++) for (let x = 0; x < N; x++) { const k = y * N + x; if (B[k] < L.dam.crest) { RAISED[k] = L.dam.crest - B[k]; B[k] = L.dam.crest; } NOERODE[k] = 1; NOSCULPT[k] = 1; }
+    // a spillway notch at the crest
+    for (let y = y0 - 2; y <= y0 + 2; y++) for (let x = 78; x <= 81; x++) B[y * N + x] = L.dam.crest - 1.2;
+    for (let y = 0; y < y0 - 2; y++) for (let x = 0; x < N; x++) if (B[y * N + x] < L.dam.crest - 1.2) INB[y * N + x] = 1; }
   B0.set(B);
-  seaLevel = L.sea; SEA.fill(0);
-  // the sea: cells below sea level connected to the bottom edge
-  const q = []; for (let x = 0; x < N; x++) { const k = (N - 1) * N + x; if (B[k] < seaLevel) { SEA[k] = 1; q.push(k); } }
-  while (q.length) { const k = q.pop(), x = k % N, y = (k / N) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue; const j = ny * N + nx; if (!SEA[j] && B[j] < seaLevel) { SEA[j] = 1; q.push(j); } } }
-  houses = (L.houses || []).map(([x, y]) => (Math.round(y * (N - 1)) * N + Math.round(x * (N - 1))));
-  for (const k of houses) { const hx = k % N, hy = (k / N) | 0; for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) if (dx * dx + dy * dy <= 25) NOSCULPT[(hy + dy) * N + hx + dx] = 1; }
-  fields = (L.fields || []).map(([x, y]) => (Math.round(y * (N - 1)) * N + Math.round(x * (N - 1))));
-  if (L.springAt) springs.push({ k: Math.round(L.springAt[1] * (N - 1)) * N + Math.round(L.springAt[0] * (N - 1)), fixed: 1, q: L.springQ || 1 });
-  // The Falls: remember where the original cliff edge is in each column (steepest drop)
-  FALL_ROW0.length = 0; if (L.hardBand) for (let x = 0; x < N; x++) { let best = 0, row = 0; for (let y = 2; y < N - 3; y++) { const dd = B[y * N + x] - B[(y + 3) * N + x]; if (dd > best) { best = dd; row = y; } } FALL_ROW0[x] = row; }
-  stat = {}; buildMarkers(); renderUI(); updateGeometry(true);
-  $('lvName').textContent = L.n; $('goal').innerHTML = L.goal; $('hint').textContent = L.hint; $('hint').style.opacity = 1;
-  $('toast').classList.remove('on'); $('levels').classList.remove('open');
-  const first = Object.keys(L.tools)[0]; setTool(first);
-  // slow geology starts at 3x (minutes of 1x erosion was a wait, not a puzzle); the storm waits for you to build first
-  setSpeed(L.storm ? 0 : Math.max(speed || 1, L.speed || 1));
-  if (L.storm) msg('Paused: the storm breaks when you press 1×. Build your defences first.', 6000);
-  frameCam();
+  seaLevel = L.sea; SEA.fill(0); floodSea();
+  towns = (L.towns || []).map(t => ({ n: t.n, cells: t.at.map(([x, y]) => Math.round(y * (N - 1)) * N + Math.round(x * (N - 1))), floods: 0, wet: false, flood: [] }));
+  for (const t of towns) for (const k of t.cells) { const hx = k % N, hy = (k / N) | 0; for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) if (dx * dx + dy * dy <= 16) NOSCULPT[(hy + dy) * N + hx + dx] = 1; }
+  for (const [x, y, q] of L.springs) springs.push({ k: Math.round(y * (N - 1)) * N + Math.round(x * (N - 1)), q, fixed: 1 });
+  deltaLand0 = Math.max(1, deltaLand()); cap0 = Math.max(1, capacity());
+  stat = {}; measure(); buildMarkers(); renderUI(); updateGeometry(true);
+  $('lvName').textContent = L.n; $('place').textContent = L.place; $('goal').innerHTML = L.goal; $('first').innerHTML = L.first || '';
+  $('report').classList.remove('on'); $('levels').classList.remove('open'); document.body.classList.remove('playing', 'brief');
+  setTool(Object.keys(L.tools)[0]); setSpeed(0); renderScore(); renderYears();
+  frameCam(); resize();
 }
+// the sea: cells below sea level connected to the bottom edge
+function floodSea() {
+  const q = []; for (let x = 0; x < N; x++) { const k = (N - 1) * N + x; if (B[k] < seaLevel && !SEA[k]) { SEA[k] = 1; q.push(k); } }
+  for (let k = 0; k < NN; k++) if (SEA[k]) q.push(k);
+  while (q.length) { const k = q.pop(), x = k % N, y = (k / N) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue; const j = ny * N + nx; if (!SEA[j] && B[j] < seaLevel) { SEA[j] = 1; q.push(j); } } }
+}
+// dry land in the coastal strip: what the delta has
+// how far each cell is from running water (the river or a canal), up to 12 cells
+const WD = new Uint8Array(NN), wq = new Int32Array(NN);
+function waterDistance() {
+  WD.fill(255); let h = 0, t = 0;
+  for (let k = 0; k < NN; k++) if (!SEA[k] && D[k] > .25) { WD[k] = 0; wq[t++] = k; }
+  while (h < t) { const k = wq[h++], d = WD[k]; if (d >= 12) continue; const x = k % N;
+    for (let q = 0; q < 4; q++) { if ((q === 0 && x === 0) || (q === 1 && x === N - 1)) continue; const j = q === 0 ? k - 1 : q === 1 ? k + 1 : q === 2 ? k - N : k + N; if (j < 0 || j >= NN || WD[j] <= d + 1) continue; WD[j] = d + 1; wq[t++] = j; } }
+}
+function deltaLand() { if (!L.coastY) return 0; let n = 0; for (let y = Math.round(L.coastY * (N - 1)); y < N; y++) for (let x = 0; x < N; x++) { const k = y * N + x; if (!SEA[k] && B[k] > seaLevel) n++; } return n; }
+// what the old reservoir can still hold below its spillway
+function capacity() { if (!L.dam) return 0; const c = L.dam.crest - 1.2; let v = 0; for (let k = 0; k < NN; k++) if (INB[k] && B[k] < c) v += c - B[k]; return v; }
 
 // ================= erosion step (virtual pipe model, Mei et al. 2007) =================
 // Hot loops are written flat (no closures, no per-cell allocations, no Math.hypot) since they run 120-1000x a second.
 let simT = 0;
-function step(rainAll) {
+function stormNow() { return !L.free || year >= 0 ? (yStep < YEAR_STEPS * STORM_FRAC ? L.storm(year) : 0) : 0; }
+function step() {
   const dt = DT, gdt = G * dt, n1 = N - 1;
   simT += dt; stepped = true; simSteps++;
-  // sources
   for (let i = 0; i < springs.length; i++) { const s = springs[i], a = 5 / 9 * dt * (s.q || 1); for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) D[s.k + dy * N + dx] += a; }
-  if (rainAll) { const a = .012 * dt * rainAll; for (let k = 0; k < NN; k++) D[k] += a; }
-  if (L.storm && simT < L.stormFor) { const ymax = (N * .42) | 0, a = (L.stormRain || .012) * dt; for (let k = 0; k < ymax * N; k++) D[k] += a; } // the storm breaks over the hills
-  if (brush.active && tool === 'rain') { const r = brush.r, cx = brush.x, cy = brush.y, y0 = Math.max(1, (cy - r) | 0), y1 = Math.min(N - 2, cy + r), x0 = Math.max(1, (cx - r) | 0), x1 = Math.min(N - 2, cx + r);
-    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const dx = x - cx, dy = y - cy, d = Math.sqrt(dx * dx + dy * dy); if (d < r) { const w = 1 - d / r; D[y * N + x] += .25 * w * Math.sqrt(w) * dt; } } }
+  const st = stormNow();
+  if (st) { const ymax = (N * L.stormY) | 0, a = L.rain * st * dt; for (let k = 0; k < ymax * N; k++) D[k] += USE[k] === 2 ? a * .35 : a; } // forest soaks up most of the rain
   flux(dt, gdt, n1);
   seaInflowStep = waterStep(dt, n1);
   advect(dt);
   thermal();
+  tick();
 }
+// the calendar: sample during the year, settle accounts at its end
+function tick() {
+  yStep++;
+  if (yStep % 30 === 0) {
+    for (const t of towns) for (const k of t.cells) if (D[k] > .4) t.wet = true;
+    for (const k of farmCells) if (D[k] > YMAX[k]) YMAX[k] = D[k];
+  }
+  if (yStep >= YEAR_STEPS) endYear();
+}
+function endYear() {
+  // harvest: fields that were not drowned yield. They need water close by (the river or a canal), they get richer
+  // with fresh flood silt, and poorer as their topsoil washes away.
+  waterDistance();
+  let y = 0;
+  for (const k of farmCells) {
+    if (YMAX[k] > .7 || SEA[k]) { YMAX[k] = 0; continue; }
+    const silt = Math.max(0, DEP[k] - FDEP[k]), lost = Math.max(0, FH[k] - B[k]), wet = WD[k] <= 4 ? 1 : WD[k] <= 9 ? .55 : .2;
+    y += wet * Math.max(0, Math.min(2, 1 + 1.5 * Math.min(1, silt * 2) - 2.5 * lost)); FDEP[k] = DEP[k]; YMAX[k] = 0;
+  }
+  lastYield = Math.round(y); harvest += lastYield;
+  let fl = []; for (const t of towns) { if (t.wet) { t.floods++; fl.push(t.n); } t.flood.push(t.wet); t.wet = false; }
+  // waves eat the coast; sand dropped by the river builds it back
+  if (L.coastY) {
+    const y0 = Math.round(L.coastY * (N - 1));
+    for (let yy = y0; yy < N - 1; yy++) for (let x = 1; x < N - 1; x++) { const k = yy * N + x; if (SEA[k] || B[k] > seaLevel + 2.5) continue;
+      if (SEA[k - 1] || SEA[k + 1] || SEA[k - N] || SEA[k + N]) { B[k] = Math.max(seaLevel - 1.2, B[k] - L.waves); if (ROCK[k] > B[k]) ROCK[k] = B[k]; } }
+    floodSea();
+    for (let k = y0 * N; k < NN; k++) if (SEA[k] && B[k] > seaLevel + .15) SEA[k] = 0;
+  }
+  const res = reservoirVolume(); power += res / 40;
+  history.push({ y: lastYield, fl, res });
+  year++; yStep = 0; measure(); renderScore(); renderYears();
+  if (fl.length) { snd.flood(); msg(`Year ${year}: ${fl.join(' and ')} flooded.`, 2600); FX.shake(.3); }
+  else if (L.storm(year - 1) >= 2) msg(`Year ${year}: the ${L.storm(year - 1) >= 3 ? 'great flood' : 'flood'} passed.`, 1800);
+  snd.season();
+  if (!L.free && year >= L.years) finish();
+}
+
 function flux(dt, gdt, n1) {
   const B_ = B, D_ = D, FL_ = FL, FR_ = FR, FT_ = FT, FB_ = FB, N_ = N;
   for (let y = 0; y < N_; y++) {
@@ -230,7 +326,7 @@ function flux(dt, gdt, n1) {
 }
 function waterStep(dt, n1) {
   // water + velocity + erosion
-  const B_ = B, D_ = D, FL_ = FL, FR_ = FR, FT_ = FT, FB_ = FB, U_ = U, V_ = V, S_ = SED, SEA_ = SEA, NE = NOERODE, R_ = ROCK, H_ = HARD, DP = DEP, RA = RAISED, N_ = N;
+  const B_ = B, D_ = D, FL_ = FL, FR_ = FR, FT_ = FT, FB_ = FB, U_ = U, V_ = V, S_ = SED, SEA_ = SEA, NE = NOERODE, R_ = ROCK, H_ = HARD, DP = DEP, RA = RAISED, US = USE, N_ = N;
   let sin = 0;
   const es = L.erodeScale ?? 1, cap0 = K.capacity, ke = K.erode * dt * 4 * es, kd = K.deposit * dt * 4, base = Math.max(0, seaLevel - .5), rh = K.rockHard, dm = K.dmax, idm = 1 / dm;
   for (let y = 0; y < N_; y++) {
@@ -254,7 +350,7 @@ function waterStep(dt, n1) {
       const cap = cap0 * sinA * sp * (d1 < dm ? d1 * idm : 1), sk = S_[k];
       if (cap > sk && !NE[k]) {
         let lowN = bl < br ? bl : br; if (bt < lowN) lowN = bt; if (bb < lowN) lowN = bb;
-        let amt = ke * (cap - sk) * (RA[k] > .3 ? .08 : 1); const m1 = bk - lowN + .5, m2 = bk - base; // never drill a pit; nothing cuts below base level
+        let amt = ke * (cap - sk) * (RA[k] > .3 ? .08 : EMUL[US[k]]); const m1 = bk - lowN + .5, m2 = bk - base; // never drill a pit; nothing cuts below base level
         if (amt > m1) amt = m1; if (amt > m2) amt = m2; if (amt < 0) amt = 0;
         const soil = bk - R_[k];
         if (amt <= soil) B_[k] = bk - amt;
@@ -300,43 +396,69 @@ function thermal() { // loose soil slumps when slopes exceed the angle of repose
   }
 }
 
+
 // ================= stats & goals =================
 const seaInWindow = [];
 const seen = new Uint8Array(NN), bfs = new Int32Array(NN);
-// Mountain Lake: only water inside the basin rim counts (rain on the plateau outside just pools against the map edge)
-const INLAKE = new Uint8Array(NN);
+// water stored by the player's dam: still water ponded against raised ground
+function reservoirVolume() {
+  let reservoir = 0; seen.fill(0); let qh = 0, qt = 0;
+  for (let k = N; k < NN - N; k++) if (RAISED[k] > .5 && !NOSCULPT[k]) for (let q = 0; q < 4; q++) { const j = q === 0 ? k - 1 : q === 1 ? k + 1 : q === 2 ? k - N : k + N; if (!seen[j] && !SEA[j] && RAISED[j] <= .5 && D[j] > .4 && U[j] * U[j] + V[j] * V[j] < .25) { seen[j] = 1; bfs[qt++] = j; } }
+  while (qh < qt) { const k = bfs[qh++]; reservoir += D[k]; const x = k % N; for (let q = 0; q < 4; q++) { if ((q === 0 && x === 0) || (q === 1 && x === N - 1)) continue; const j = q === 0 ? k - 1 : q === 1 ? k + 1 : q === 2 ? k - N : k + N; if (j < 0 || j >= NN || seen[j] || SEA[j]) continue; if (D[j] > .25 && U[j] * U[j] + V[j] * V[j] < .64) { seen[j] = 1; bfs[qt++] = j; } } }
+  return reservoir;
+}
 function measure() {
-  if (stepped) { seaInWindow.push(seaInflowStep); if (seaInWindow.length > 60) seaInWindow.shift(); stepped = false; } // only fresh samples
-  let maxCut = 0, lakeArea = 0, seaDep = 0;
-  for (let k = 0; k < NN; k++) {
-    if (!SEA[k]) { const c = B0[k] - B[k]; if (c > maxCut) maxCut = c; if (D[k] > 1 && INLAKE[k]) lakeArea++; }
-    else { const dd = B[k] - B0[k]; if (dd > 0) seaDep += dd; }
-  }
-  // waterfall (The Falls): flowing water dropping steeply within 3 cells, measured only where the cliff has
-  // retreated upstream of its original line, so the pre-existing cliff alone doesn't count
-  let fall = 0, fallH = 0, retreat = 0;
-  if (L.hardBand) for (let y = 3; y < N - 3; y++) for (let x = 3; x < N - 3; x++) {
-    const k = y * N + x; if (D[k] < .05 || U[k] * U[k] + V[k] * V[k] < .09) continue;
-    let drop = 0; for (let dy = 1; dy <= 3; dy++) for (let dx = -1; dx <= 1; dx++) { const j = k + dy * N + dx; if (D[j] > .02 && !SEA[j]) { const dd = B[k] - B[j]; if (dd > drop) drop = dd; } }
-    if (drop < 2) continue;
-    const back = FALL_ROW0[x] - y; // rows upstream of where the cliff used to be
-    if (drop > fallH) fallH = drop;
-    if (drop >= 3 && back > retreat) retreat = back;
-    if (back >= 6 && drop > fall) fall = drop;
-  }
-  // reservoir: still water ponded against the player's raised ground (not the river, not natural puddles)
-  let reservoir = 0;
-  if (L.n === 'Reservoir') {
-    seen.fill(0); let qh = 0, qt = 0;
-    for (let k = N; k < NN - N; k++) if (RAISED[k] > .5) for (let q = 0; q < 4; q++) { const j = q === 0 ? k - 1 : q === 1 ? k + 1 : q === 2 ? k - N : k + N; if (!seen[j] && !SEA[j] && RAISED[j] <= .5 && D[j] > .4 && U[j] * U[j] + V[j] * V[j] < .25) { seen[j] = 1; bfs[qt++] = j; } }
-    while (qh < qt) { const k = bfs[qh++]; reservoir += D[k]; const x = k % N; for (let q = 0; q < 4; q++) { if ((q === 0 && x === 0) || (q === 1 && x === N - 1)) continue; const j = q === 0 ? k - 1 : q === 1 ? k + 1 : q === 2 ? k - N : k + N; if (j < 0 || j >= NN || seen[j] || SEA[j]) continue; if (D[j] > .25 && U[j] * U[j] + V[j] * V[j] < .64) { seen[j] = 1; bfs[qt++] = j; } } }
-  }
-  let dryHouses = 0; for (const k of houses) if (D[k] < .4) dryHouses++;
-  let fieldsWet = 0; for (const k of fields) { let w = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) w += D[k + dy * N + dx] > .05; if (w >= 4) fieldsWet++; }
-  let si = 0; for (const v of seaInWindow) si += v; if (!seaInWindow.length) si = 0;
-  stat = { seaIn: si / Math.max(1, seaInWindow.length), maxCut, lakeArea, seaDep, reservoir, fall, fallH, retreat, dryHouses, nHouses: houses.length, wetHouse: dryHouses < houses.length, fieldsWet, simT, calmT: L.stormFor ? simT - L.stormFor : 0, stormDone: simT >= (L.stormFor || 0) };
+  const W = L.want || {}, floods = towns.map(t => t.floods), maxFloods = floods.length ? Math.max(...floods) : 0;
+  const deltaPct = L.coastY ? deltaLand() / deltaLand0 * 100 : 100, capPct = L.dam ? capacity() / cap0 * 100 : 100;
+  const spent = Object.keys(budget0).reduce((a, k) => a + (isFinite(budget0[k]) && budget0[k] < 1e8 ? (budget0[k] - budget[k]) / budget0[k] : 0), 0) / Math.max(1, Object.keys(budget0).length);
+  stat = { year, years: L.years, harvest, power: Math.round(power), floods, maxFloods, deltaPct, capPct, spent, farms: farmCells.length, forest: countUse(2), over };
+  const ok = {};
+  if (W.harvest != null) ok.harvest = harvest >= W.harvest;
+  if (W.floods != null) ok.floods = maxFloods <= W.floods;
+  if (W.cap != null) ok.cap = capPct >= W.cap;
+  if (W.power != null) ok.power = stat.power >= W.power;
+  if (W.delta != null) ok.delta = deltaPct >= W.delta;
+  stat.ok = ok; stat.goalMet = Object.values(ok).length > 0 && Object.values(ok).every(Boolean);
+  return stat;
+}
+function countUse(u) { let n = 0; for (let k = 0; k < NN; k++) if (USE[k] === u) n++; return n; }
+function finish() {
+  over = true; setSpeed(0); measure();
+  const got = L.medals.map(([label, f]) => [label, !!f(stat)]), n = got.filter(g => g[1]).length;
+  if (n > (SAVE.medals[cur] || 0)) SAVE.medals[cur] = n; persist(); renderUI();
+  const K = ['bronze', 'silver', ''];
+  $('report').innerHTML = `<h2>${n ? 'Survey report: approved' : 'Survey report: failed'}</h2><div class="place">${L.place} · after ${L.years} years</div>
+    <ul>${got.map(([label, ok], j) => `<li class="${ok ? '' : 'no'}"><span class="medal ${ok ? K[j] + ' drop' : 'none'}" style="animation-delay:${.25 + j * .35}s">${j + 1}</span>${label}</li>`).join('')}</ul>
+    <div>${reportLines()}</div>
+    <div class="row"><button id="again">Try again</button>${cur < SC.length - 1 ? `<button class="primary" id="nextSite">${n ? 'Next site' : 'Skip ahead'} →</button>` : ''}</div>`;
+  $('report').classList.add('on');
+  $('again').onclick = () => { snd.key(); buildLevel(cur); };
+  if ($('nextSite')) $('nextSite').onclick = () => { snd.key(); buildLevel(cur + 1); };
+  if (n) { celebrate(n); [0, 1, 2].slice(0, n).forEach(j => setTimeout(snd.medal, 250 + j * 350)); } else snd.flood();
+}
+function reportLines() {
+  const W = L.want || {}, r = [];
+  if (W.harvest != null) r.push(`Harvest: <b>${harvest.toLocaleString('en')}</b> bushels (goal ${W.harvest.toLocaleString('en')})`);
+  for (const t of towns) r.push(`${t.n}: flooded <b>${t.floods}</b> time${t.floods === 1 ? '' : 's'}`);
+  if (W.cap != null) r.push(`Reservoir capacity left: <b>${stat.capPct.toFixed(0)}%</b> (goal ${W.cap}%)`);
+  if (W.power != null) r.push(`Power: <b>${stat.power}</b> GWh (goal ${W.power})`);
+  if (W.delta != null) r.push(`Delta land: <b>${stat.deltaPct.toFixed(0)}%</b> of what it was (goal ${W.delta}%)`);
+  return r.join('<br>');
 }
 
+// ================= sounds: a model-maker's studio =================
+const T = o => FX.tone(o);
+const snd = {
+  key: () => { T({ noise: 1, f: 2600, q: 2, dur: .03, vol: .08 }); T({ f: 160, f2: 100, type: 'square', dur: .03, vol: .04 }); },
+  pencil: () => T({ noise: 1, f: 5200, q: 1.5, dur: .06, vol: .035 }),
+  plaster: () => T({ noise: 1, f: 700, q: .7, dur: .08, vol: .05 }),
+  season: () => T({ f: 1760, type: 'sine', dur: .05, vol: .03 }),
+  flood: () => { T({ f: 196, type: 'sine', dur: 1.2, vol: .14 }); T({ f: 233, type: 'sine', dur: 1.2, vol: .08, delay: .05 }); T({ noise: 1, f: 400, q: .5, dur: .8, vol: .06, attack: .2 }); },
+  medal: () => { T({ f: 1568, type: 'triangle', dur: .6, vol: .1 }); T({ f: 2349, type: 'sine', dur: .9, vol: .06, delay: .02 }); T({ f: 80, type: 'sine', dur: .1, vol: .15 }); },
+  fail: () => T({ f: 180, f2: 150, type: 'square', dur: .14, vol: .05 }),
+};
+
+// ================= rendering =================
 // ================= rendering =================
 const $ = id => document.getElementById(id);
 const canvas = $('gl');
@@ -346,15 +468,14 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap; renderer.shadowMap.autoUpdate = false;
 const scene = new THREE.Scene();
-const SKY = new THREE.Color('#bcd6e6');
-scene.fog = new THREE.Fog(SKY, 300, 700);
+
 const camera = new THREE.PerspectiveCamera(34, 1, .5, 2000);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true; controls.dampingFactor = .08; controls.maxPolarAngle = Math.PI * .47; controls.minDistance = 40; controls.maxDistance = 330;
 controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
 controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_ROTATE };
-scene.add(new THREE.HemisphereLight('#dfefff', '#5a4a3a', 1.1));
-const sun = new THREE.DirectionalLight('#fff1dc', 2.4); sun.position.set(-90, 140, -60); sun.castShadow = true;
+scene.add(new THREE.HemisphereLight('#f2ead8', '#3a3028', 1.0));
+const sun = new THREE.DirectionalLight('#fff1dc', 2.6); sun.position.set(-110, 150, -40); sun.castShadow = true;
 const SM = MOBILE ? 512 : 1024;
 sun.shadow.mapSize.set(SM, SM); Object.assign(sun.shadow.camera, { left: -110, right: 110, top: 110, bottom: -110, near: 10, far: 400 }); sun.shadow.bias = -.0005; sun.shadow.normalBias = .6;
 scene.add(sun);
@@ -373,12 +494,22 @@ terrain.castShadow = terrain.receiveShadow = true; terrain.scale.y = VS; scene.a
 const water = grid(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .08, metalness: .1, transparent: true, opacity: .82 }));
 water.receiveShadow = true; water.scale.y = VS; scene.add(water);
 // skirt: a dark base under the island so it reads as a diorama
-const base = new THREE.Mesh(new THREE.BoxGeometry(N, 6, N), new THREE.MeshStandardMaterial({ color: '#3b2f28', roughness: 1 })); base.position.y = -3.1; base.receiveShadow = true; scene.add(base);
-const sea = new THREE.Mesh(new THREE.PlaneGeometry(N * 6, N * 6), new THREE.MeshStandardMaterial({ color: '#2a7bb4', roughness: .15, metalness: .1, transparent: true, opacity: .55 })); sea.rotation.x = -Math.PI / 2; scene.add(sea);
+// the model sits on a walnut plinth with a brass edge, under studio light
+const wood = (() => { const c = document.createElement('canvas'); c.width = 256; c.height = 64; const x = c.getContext('2d'); x.fillStyle = '#5a3a22'; x.fillRect(0, 0, 256, 64);
+  for (let i = 0; i < 60; i++) { x.strokeStyle = `rgba(${30 + Math.random() * 40},${15 + Math.random() * 20},5,${.15 + Math.random() * .25})`; x.lineWidth = .5 + Math.random() * 2; x.beginPath(); const y = Math.random() * 64; x.moveTo(0, y); for (let s = 0; s <= 256; s += 16) x.lineTo(s, y + Math.sin(s * .03 + i) * 3); x.stroke(); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; return t; })();
+const base = new THREE.Mesh(new THREE.BoxGeometry(N + 8, 16, N + 8), new THREE.MeshStandardMaterial({ map: wood, roughness: .55, metalness: .05 })); base.position.y = -8.1; base.receiveShadow = true; scene.add(base);
+const trim = new THREE.Mesh(new THREE.BoxGeometry(N + 9, 1.2, N + 9), new THREE.MeshStandardMaterial({ color: '#b58a3c', roughness: .3, metalness: .8 })); trim.position.y = -.5; scene.add(trim);
+const sea = new THREE.Mesh(new THREE.PlaneGeometry(N, N), new THREE.MeshStandardMaterial({ color: '#2f6f9a', roughness: .12, metalness: .1, transparent: true, opacity: .72 })); sea.rotation.x = -Math.PI / 2; scene.add(sea);
+// model trees: little cones on forested ground
+const TREEMAX = 3000, treeMesh = new THREE.InstancedMesh(new THREE.ConeGeometry(.9, 2.6, 6), new THREE.MeshStandardMaterial({ color: '#2f5a2a', roughness: .8 }), TREEMAX);
+treeMesh.castShadow = true; treeMesh.count = 0; treeMesh.frustumCulled = false; scene.add(treeMesh);
+const tm4 = new THREE.Matrix4();
+function placeTrees() { let n = 0; for (let y = 1; y < N - 1; y += 2) for (let x = 1 + (y & 2 ? 1 : 0); x < N - 1; x += 2) { const k = y * N + x; if (USE[k] !== 2 || n >= TREEMAX) continue; const s = .8 + VARY[k] * .4; tm4.makeScale(s, s, s).setPosition(x - N / 2, B[k] * VS + 1.1 * s, y - N / 2); treeMesh.setMatrixAt(n++, tm4); } treeMesh.count = n; treeMesh.instanceMatrix.needsUpdate = true; }
 
 const rgb = c => { const t = new THREE.Color(c); return [t.r, t.g, t.b]; };
 const STRATA = ['#c9774a', '#e0b07a', '#a8563a', '#d99a64', '#8d4a34', '#e9c79a', '#b8683f'].map(rgb), NS = STRATA.length;
-const [cSilt, cGrass, cDry, cSand, cSnow, cMud, cField, cBed, cShallow, cDeep, cFoam] = ['#a8a070', '#6f9a4a', '#a39363', '#e6d3a3', '#f4f6f8', '#6b5a46', '#c8d45a', '#3b8fc4', '#7fd6e0', '#1f5f9a', '#ffffff'].map(rgb);
+const [cSilt, cGrass, cDry, cSand, cSnow, cMud, cField, cBed, cShallow, cDeep, cFoam, cCrop, cForest, cBare] = ['#b7ab7c', '#8fa865', '#b9a777', '#eadbb2', '#f4f6f8', '#6b5a46', '#c8d45a', '#3b8fc4', '#86c9d6', '#245f8e', '#ffffff', '#d8c35a', '#3f6a35', '#8a6a48'].map(rgb);
 const fieldMask = new Uint8Array(NN), VARY = new Float32Array(NN);
 for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) VARY[y * N + x] = .93 + (((Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1 + 1) % 1) * .1;
 function updateGeometry() {
@@ -406,7 +537,11 @@ function updateGeometry() {
     }
     let lm = lap * .12; if (lm < -.12) lm = -.12; else if (lm > .18) lm = .18; const m = VARY[k] - lm; r *= m; g *= m; b *= m;
     if (d > .06 && !sea_) { t = Math.min(.85, .25 + d * 1.2); r += (cBed[0] - r) * t; g += (cBed[1] - g) * t; b += (cBed[2] - b) * t; }
-    if (fieldMask[k]) { r += (cField[0] - r) * .65; g += (cField[1] - g) * .65; b += (cField[2] - b) * .65; }
+    // land use: crop rows on farms (brown where the topsoil has gone), dark canopy under forest
+    if (USE[k] === 1) { const lost = Math.min(1, Math.max(0, FH[k] - h) * 2), c = (x + y) % 4 < 2 ? cCrop : cField; t = .7; r += ((c[0] * (1 - lost) + cBare[0] * lost) - r) * t; g += ((c[1] * (1 - lost) + cBare[1] * lost) - g) * t; b += ((c[2] * (1 - lost) + cBare[2] * lost) - b) * t; }
+    else if (USE[k] === 2) { r += (cForest[0] - r) * .75; g += (cForest[1] - g) * .75; b += (cForest[2] - b) * .75; }
+    // painted contour lines every 2.5 m, as on a surveyor's relief model
+    const cl = h / 2.5 - Math.floor(h / 2.5); if (cl < .07 && !sea_) { r *= .78; g *= .76; b *= .72; }
     tc[k3] = r; tc[k3 + 1] = g; tc[k3 + 2] = b;
     // water surface sits just under the terrain where dry, so it disappears
     const wet = d > .08 || sea_;
@@ -420,7 +555,7 @@ function updateGeometry() {
     wn[k3] = -hx * wl; wn[k3 + 1] = wl; wn[k3 + 2] = -hy * wl;
   }
   for (const msh of [terrain, water]) { const a = msh.geometry.attributes; a.position.needsUpdate = a.color.needsUpdate = a.normal.needsUpdate = true; }
-  sea.position.y = (seaLevel - .05) * VS; sea.visible = L.sea > 0;
+  sea.position.y = (seaLevel - .05) * VS; sea.visible = L.sea > 0; placeTrees();
   for (const mk of markerMeshes) { const k = mk.userData.k; mk.position.y = B[k] * VS + (mk.userData.lift || 0); }
   renderer.shadowMap.needsUpdate = true;
 }
@@ -430,13 +565,12 @@ let markerMeshes = [];
 const houseGeo = new THREE.BoxGeometry(1.6, 1.4, 2), roofGeo = new THREE.ConeGeometry(1.5, 1.2, 4), springGeo = new THREE.CylinderGeometry(.5, .9, 1.6, 12);
 const houseMat = new THREE.MeshStandardMaterial({ color: '#f3eadb' }), roofMat = new THREE.MeshStandardMaterial({ color: '#b5483a' });
 function buildMarkers() {
-  markerMeshes.forEach(m => scene.remove(m)); markerMeshes = []; fieldMask.fill(0);
-  for (const k of houses) {
+  markerMeshes.forEach(m => scene.remove(m)); markerMeshes = [];
+  for (const k of towns.flatMap(t => t.cells)) {
     const g = new THREE.Group(), body = new THREE.Mesh(houseGeo, houseMat), roof = new THREE.Mesh(roofGeo, roofMat);
     body.position.y = .7; roof.position.y = 2; roof.rotation.y = Math.PI / 4; body.castShadow = roof.castShadow = true; g.add(body, roof);
     g.position.set(k % N - N / 2, 0, ((k / N) | 0) - N / 2); g.userData = { k, house: 1 }; scene.add(g); markerMeshes.push(g);
   }
-  for (const k of fields) for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) fieldMask[k + dy * N + dx] = 1;
   springs.forEach(addSpringMesh);
 }
 const springMat = new THREE.MeshStandardMaterial({ color: '#8fe3ff', emissive: '#3fb6ff', emissiveIntensity: 1.2, roughness: .3 });
@@ -449,7 +583,7 @@ const ring = new THREE.LineLoop(ringGeo, new THREE.LineBasicMaterial({ color: '#
 ring.frustumCulled = false; ring.renderOrder = 5; ring.visible = false; scene.add(ring);
 const hover = { on: false, x: 0, y: 0 };
 function updateRing() {
-  ring.visible = hover.on && (tool === 'rain' || tool === 'raise' || tool === 'dig'); if (!ring.visible) return;
+  ring.visible = hover.on && tool !== 'view'; if (!ring.visible) return;
   const r = brush.r;
   for (let i = 0; i < RINGN; i++) { const a = i / RINGN * Math.PI * 2, gx = hover.x + Math.cos(a) * r, gy = hover.y + Math.sin(a) * r; ringPos[i * 3] = gx - N / 2; ringPos[i * 3 + 2] = gy - N / 2; ringPos[i * 3 + 1] = (hHere(gx - N / 2, gy - N / 2) + .3) * VS; }
   ringGeo.attributes.position.needsUpdate = true;
@@ -475,8 +609,9 @@ function updateRain(dt, cx, cz, radius, on) {
   rainGeo.attributes.position.needsUpdate = true;
 }
 
+
 // ================= input =================
-const brush = { active: false, x: 0, y: 0, get r() { return brushR[tool] || 7; } };
+const brush = { active: false, x: 0, y: 0, get r() { return brushR[tool] || 6; } };
 const ray = new THREE.Raycaster(), mouse = new THREE.Vector2(), rp = new THREE.Vector3();
 function hHere(x, z) { const gx = Math.max(0, Math.min(N - 1.001, x + N / 2)), gz = Math.max(0, Math.min(N - 1.001, z + N / 2)), x0 = gx | 0, z0 = gz | 0, fx = gx - x0, fz = gz - z0, k = z0 * N + x0; return (B[k] * (1 - fx) + B[k + 1] * fx) * (1 - fz) + (B[k + N] * (1 - fx) + B[k + N + 1] * fx) * fz; }
 function pickGround(e) {
@@ -486,91 +621,119 @@ function pickGround(e) {
   return null;
 }
 function msg(text, ms = 1800) { const m = $('msg'); m.textContent = text; m.classList.add('on'); clearTimeout(msg.h); msg.h = setTimeout(() => m.classList.remove('on'), ms); }
-function placeSpring(gx, gy) {
-  const x = Math.max(3, Math.min(N - 4, Math.round(gx))), y = Math.max(3, Math.min(N - 4, Math.round(gy))), k = y * N + x, max = L.tools.spring; // keep springs off the map edge
-  if (L.minSpringH && B[k] < L.minSpringH) { FX.sfx('fail'); msg(`Too low (${B[k].toFixed(0)} m). Springs here need ground above ${L.minSpringH} m.`); return false; }
-  let moved = false;
-  if (springs.filter(s => !s.fixed).length >= max) { const old = springs.findIndex(s => !s.fixed); const m = markerMeshes.find(mm => mm.userData.spring && mm.userData.k === springs[old].k); scene.remove(m); markerMeshes.splice(markerMeshes.indexOf(m), 1); springs.splice(old, 1); moved = true; }
-  const s = { k, q: L.springQ || 1 }; springs.push(s); addSpringMesh(s); FX.sfx('pop'); renderUI();
-  if (moved) msg(max > 1 ? 'Moved your oldest spring here.' : 'Spring moved.', 1200);
-  return true;
-}
+const PAINT = { farm: 1, forest: 2, clear: 0 };
 canvas.addEventListener('pointerdown', e => {
   $('levels').classList.remove('open');
-  if (e.button !== 0 || tool === 'view') return;
+  if (e.button !== 0 || tool === 'view' || over) return;
   const g = pickGround(e); if (!g) return;
-  $('hint').style.opacity = 0;
-  if (tool === 'spring') { placeSpring(g[0], g[1]); return; }
-  if (tool === 'raise' || tool === 'dig') { undo.push({ B: B.slice(), ROCK: ROCK.slice(), RAISED: RAISED.slice(), budget: { ...budget } }); if (undo.length > 12) undo.shift(); renderUndo(); }
+  $('hint').style.opacity = 0; document.body.classList.add('playing'); document.body.classList.remove('brief'); $('first').innerHTML = '';
+  pushUndo();
   brush.active = true; brush.x = g[0]; brush.y = g[1]; hover.on = true; hover.x = g[0]; hover.y = g[1]; canvas.setPointerCapture(e.pointerId);
-  if (tool === 'rain') FX.sfx('whoosh');
 });
+function pushUndo() { undo.push({ B: B.slice(), ROCK: ROCK.slice(), RAISED: RAISED.slice(), USE: USE.slice(), FH: FH.slice(), FDEP: FDEP.slice(), budget: { ...budget } }); if (undo.length > 12) undo.shift(); renderUndo(); }
 let lastPick = 0;
 canvas.addEventListener('pointermove', e => {
-  if (!brush.active && (tool === 'view' || tool === 'spring')) return;
+  if (!brush.active && tool === 'view') return;
   const now = performance.now(); if (!brush.active && now - lastPick < 30) return; lastPick = now; // hover picking is throttled
   const g = pickGround(e); hover.on = !!g; if (g) { hover.x = g[0]; hover.y = g[1]; if (brush.active) { brush.x = g[0]; brush.y = g[1]; } }
 });
 canvas.addEventListener('pointerleave', () => { if (!brush.active) hover.on = false; });
 addEventListener('pointerup', () => { brush.active = false; });
+function rebuildFarms() { farmCells = []; for (let k = 0; k < NN; k++) if (USE[k] === 1) farmCells.push(k); }
+// paint land use under the brush: one unit of budget per cell
+function paint() {
+  const r = brush.r, cx = brush.x, cy = brush.y, want = PAINT[tool]; let changed = 0;
+  for (let y = Math.max(1, (cy - r) | 0); y <= Math.min(N - 2, cy + r); y++) for (let x = Math.max(1, (cx - r) | 0); x <= Math.min(N - 2, cx + r); x++) {
+    const dx = x - cx, dy = y - cy; if (dx * dx + dy * dy >= r * r) continue;
+    const k = y * N + x; if (NOSCULPT[k] || SEA[k] || USE[k] === want) continue;
+    if (want && (D[k] > .3 || RAISED[k] > .3)) continue; // not in the river, not on the embankments
+    if (want) { if (budget[tool] < 1) continue; budget[tool]--; } else if (USE[k]) { const t = USE[k] === 1 ? 'farm' : 'forest'; if (isFinite(budget[t])) budget[t]++; }
+    if (USE[k] && want) { const t = USE[k] === 1 ? 'farm' : 'forest'; if (isFinite(budget[t])) budget[t]++; }
+    USE[k] = want; if (want === 1) { FH[k] = B[k]; FDEP[k] = DEP[k]; }
+    changed++;
+  }
+  if (changed) { rebuildFarms(); if (Math.random() < .3) snd.pencil(); renderBudget(); }
+  else if (want && budget[tool] < 1) msg('That budget is spent. Clear some ground or undo to get it back.', 1500);
+  return changed > 0;
+}
 function sculpt(dt) {
-  if (!brush.active || (tool !== 'raise' && tool !== 'dig')) return false;
+  if (!brush.active) return false;
+  if (tool in PAINT) return paint();
+  if (tool !== 'raise' && tool !== 'dig') return false;
   const rate = 6 * dt, r = brush.r, cx = brush.x, cy = brush.y, raise = tool === 'raise'; let used = 0, left = budget[tool];
   for (let y = Math.max(1, (cy - r) | 0); y <= Math.min(N - 2, cy + r); y++) for (let x = Math.max(1, (cx - r) | 0); x <= Math.min(N - 2, cx + r); x++) {
     const dx = x - cx, dy = y - cy, dd = Math.sqrt(dx * dx + dy * dy); if (dd >= r) continue;
     const k = y * N + x; if (NOSCULPT[k]) continue;
     const w = 1 - dd / r, a = rate * w * Math.sqrt(w);
     if (left - used < a) continue;
-    if (raise) { B[k] += a; RAISED[k] += a; }
+    if (raise) { B[k] += a; RAISED[k] += a; if (USE[k]) USE[k] = 0; }
     else { const soil = B[k] - ROCK[k]; if (a <= soil) B[k] -= a; else { B[k] = ROCK[k] - (a - soil) * .5; ROCK[k] = B[k]; } RAISED[k] = Math.max(0, RAISED[k] - a); }
     used += a;
   }
-  budget[tool] -= used; if (used > 0 && Math.random() < .25) FX.sfx('tick'); renderBudget();
+  budget[tool] -= used; if (used > 0 && Math.random() < .25) snd.plaster(); renderBudget();
   if (used === 0 && isFinite(budget[tool]) && budget[tool] < 1) msg('Out of budget. Undo a stroke to get some back.', 1500);
+  if (used > 0 && raise) rebuildFarms();
   return used > 0;
 }
 
 // ================= UI =================
-const TOOLS = { view: ['🎥', 'Look'], rain: ['🌧️', 'Rain'], spring: ['⛲', 'Spring'], raise: ['⛰️', 'Raise'], dig: ['⛏️', 'Dig'] };
+const TOOLS = { view: ['◎', 'Look'], farm: ['▤', 'Farm'], forest: ['♣', 'Forest'], raise: ['▲', 'Embank'], dig: ['▼', 'Dig'], clear: ['✕', 'Clear'] };
+const TIP = { view: 'Turn and zoom the model', farm: 'Plough fields. They yield every year they are not drowned; silt makes them richer, erosion poorer.', forest: 'Plant forest. It soaks up rain and holds the soil.',
+  raise: 'Raise earth: levees along rivers, or a dam across a valley.', dig: 'Dig channels and spillways.', clear: 'Clear farms or forest (refunds the budget).' };
 function setTool(t) { tool = t; controls.mouseButtons.LEFT = t === 'view' ? THREE.MOUSE.ROTATE : null; controls.touches.ONE = t === 'view' ? THREE.TOUCH.ROTATE : null; renderUI(); }
+const fmtB = (k) => { const v = budget[k]; return !isFinite(v) || v > 1e8 ? '∞' : Math.max(0, v) | 0; };
 function renderUI() {
-  const brushy = tool === 'rain' || tool === 'raise' || tool === 'dig';
-  $('tools').innerHTML = Object.entries(TOOLS).filter(([k]) => k === 'view' || L.tools[k]).map(([k, [ic, n]]) => {
-    let badge = '';
-    if (k === 'spring') { const left = L.tools.spring - springs.filter(s => !s.fixed).length; badge = `<i class="n">${left}</i>`; if (left <= 0) n = 'Move'; }
-    if ((k === 'dig' || k === 'raise') && isFinite(budget[k])) badge = `<i class="n" data-b="${k}">${Math.max(0, budget[k]) | 0}</i>`;
-    return `<button class="tool ${tool === k ? 'on' : ''}" data-t="${k}" title="${k === 'spring' ? 'Place a spring. When none are left, clicking moves your oldest one.' : n}">${badge}${ic}<span>${n}</span></button>`;
-  }).join('')
-    + (brushy ? `<div class="bsz" title="Brush size ( [ and ] )"><button data-bs="1">+</button><span id="bsv">${brush.r}</span><button data-bs="-1">−</button></div>` : '')
-    + (L.tools.raise || L.tools.dig ? `<button class="tool" id="undo" title="Undo last stroke (Ctrl+Z)">↶<span>Undo</span></button>` : '');
-  $('tools').querySelectorAll('.tool[data-t]').forEach(b => b.onpointerdown = () => { FX.sfx('click'); setTool(b.dataset.t); });
-  $('tools').querySelectorAll('[data-bs]').forEach(b => b.onpointerdown = e => { e.preventDefault(); setBrush(+b.dataset.bs); });
-  if ($('undo')) $('undo').onpointerdown = doUndo;
+  const tl = ['view', ...Object.keys(L.tools)]; if (L.tools.farm || L.tools.forest) tl.push('clear');
+  $('tools').innerHTML = tl.map(k => { const [ic, n] = TOOLS[k];
+    const badge = budget[k] != null ? `<i class="n" data-b="${k}">${fmtB(k)}</i>` : '';
+    return `<button class="tool ${tool === k ? 'on' : ''}" data-t="${k}" title="${TIP[k]}" aria-pressed="${tool === k}">${badge}${ic}<span>${n}</span></button>`; }).join('')
+    + (tool !== 'view' ? `<div class="bsz" title="Brush size ( [ and ] )"><button data-bs="1" aria-label="Bigger brush">+</button><span id="bsv">${brush.r}</span><button data-bs="-1" aria-label="Smaller brush">−</button></div>` : '')
+    + `<button class="tool" id="undo" title="Undo last stroke (Ctrl+Z)">↶<span>Undo</span></button>`;
+  $('tools').querySelectorAll('.tool[data-t]').forEach(b => b.onclick = () => { snd.key(); setTool(b.dataset.t); });
+  $('tools').querySelectorAll('[data-bs]').forEach(b => b.onclick = e => { e.preventDefault(); setBrush(+b.dataset.bs); });
+  $('undo').onclick = doUndo;
   renderUndo();
-  $('levels').innerHTML = '<h4>Landscapes</h4>' + LV.map((l, i) => `<div class="lv ${i === cur ? 'cur' : ''} ${i > 0 && !SAVE.done[i - 1] && !SAVE.done[i] && i !== LV.length - 1 && !(i <= maxOpen()) ? 'lock' : ''}" data-i="${i}"><span>${l.n}</span><span>${SAVE.done[i] ? '✓' : ''}</span></div>`).join('');
-  $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { if (el.classList.contains('lock')) return; FX.sfx('click'); buildLevel(+el.dataset.i); });
-  $('lvBtn').textContent = `☰ ${cur + 1}/${LV.length}`;
+  $('levels').innerHTML = '<h4>Survey sites</h4>' + SC.map((l, i) => { const m = SAVE.medals[i] || 0;
+    return `<div class="lv ${i === cur ? 'cur' : ''} ${i > maxOpen() && i !== SC.length - 1 ? 'lock' : ''}" data-i="${i}" tabindex="0"><span>${l.n}<small>${l.place}</small></span><span class="medals">${l.free ? '' : '●'.repeat(m) + '○'.repeat(3 - m)}</span></div>`; }).join('');
+  $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { if (el.classList.contains('lock')) return; snd.key(); buildLevel(+el.dataset.i); });
+  $('lvBtn').textContent = `Sites ${cur + 1}/${SC.length}`;
 }
-function setBrush(d) { if (!brushR[tool]) return; brushR[tool] = Math.max(3, Math.min(16, brushR[tool] + d)); if ($('bsv')) $('bsv').textContent = brushR[tool]; FX.sfx('tick'); }
-function renderUndo() { const u = $('undo'); if (u) u.disabled = !undo.length; }
-function doUndo() { const s = undo.pop(); if (!s) return; B.set(s.B); ROCK.set(s.ROCK); RAISED.set(s.RAISED); Object.assign(budget, s.budget); FX.sfx('pop'); renderBudget(); renderUndo(); geomDirty = true; }
-const maxOpen = () => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; };
-function renderBudget() { document.querySelectorAll('[data-b]').forEach(el => el.textContent = Math.max(0, budget[el.dataset.b]) | 0); }
-let speed = 1;
-function setSpeed(s) { speed = s; document.querySelectorAll('#speed [data-s]').forEach(x => x.classList.toggle('on', +x.dataset.s === s)); }
-document.querySelectorAll('#speed [data-s]').forEach(b => b.onclick = () => { setSpeed(+b.dataset.s); FX.sfx('click'); });
-$('mute').onclick = () => { FX.setMuted(!FX.muted); $('mute').textContent = FX.muted ? '🔇' : '🔊'; };
-$('mute').textContent = FX.muted ? '🔇' : '🔊';
-$('restart').onclick = () => { FX.sfx('click'); buildLevel(cur); };
-$('mini').onclick = () => { const m = $('top').classList.toggle('min'); $('mini').textContent = m ? '+' : '–'; };
-$('lvBtn').onclick = e => { e.stopPropagation(); FX.sfx('click'); $('levels').classList.toggle('open'); };
+// a site opens once the one before has at least one medal; the sandbox is always open
+const maxOpen = () => { let m = 0; while (m < SC.length - 2 && SAVE.medals[m]) m++; return m; };
+function renderScore() {
+  const W = L.want || {}, S = stat, rows = [];
+  const row = (label, v, t, ok) => rows.push(`<tr class="${ok == null ? '' : ok ? 'good' : 'bad'}"><td>${label}</td><td class="v">${v}</td><td class="t">${t}</td><td class="ok">${ok == null ? '' : ok ? '✓' : '✗'}</td></tr>`);
+  if (L.tools.farm) row('Harvest (bu)', S.harvest.toLocaleString('en') + (lastYield ? ` <small>+${lastYield}</small>` : ''), W.harvest != null ? '≥ ' + W.harvest.toLocaleString('en') : '', W.harvest != null ? S.ok.harvest : null);
+  towns.forEach((t, j) => row(t.n + ' floods', t.floods, W.floods != null ? '≤ ' + W.floods : '', W.floods != null ? t.floods <= W.floods : null));
+  if (L.dam) row('Reservoir capacity', S.capPct.toFixed(0) + '%', W.cap != null ? '≥ ' + W.cap + '%' : '', W.cap != null ? S.ok.cap : null);
+  if (L.tools.raise && (W.power != null || L.free)) row('Power (GWh)', S.power, W.power != null ? '≥ ' + W.power : '', W.power != null ? S.ok.power : null);
+  if (L.coastY) row('Delta land', S.deltaPct.toFixed(0) + '%', W.delta != null ? '≥ ' + W.delta + '%' : '', W.delta != null ? S.ok.delta : null);
+  $('score').innerHTML = rows.join('');
+}
+function renderYears() {
+  const Y = L.free ? Math.max(20, year + 5) : L.years, from = L.free ? Math.max(0, year - 15) : 0, cells = [];
+  for (let y = from; y < from + Math.min(Y, 30); y++) { const s = L.storm(y), h = history[y]; cells.push(`<i class="s${s} ${y < year ? 'past' : ''} ${h && h.fl.length ? 'fl' : ''} ${y === year ? 'now' : ''}" title="Year ${y + 1}${s >= 3 ? ': great flood' : s >= 2 ? ': flood year' : ''}"></i>`); }
+  $('years').innerHTML = cells.join('');
+  $('yr0').textContent = 'Year ' + (from + 1); $('yrNow').textContent = over ? 'Done' : year ? `Year ${year + 1}` : 'Planning'; $('yr1').textContent = L.free ? '' : 'Year ' + L.years;
+}
+function setBrush(d) { brushR[tool] = Math.max(2, Math.min(16, (brushR[tool] || 6) + d)); if ($('bsv')) $('bsv').textContent = brushR[tool]; snd.key(); }
+function renderUndo() { const u = $('undo'); if (u) u.disabled = !undo.length || over; }
+function doUndo() { const s = undo.pop(); if (!s || over) return; B.set(s.B); ROCK.set(s.ROCK); RAISED.set(s.RAISED); USE.set(s.USE); FH.set(s.FH); FDEP.set(s.FDEP); Object.assign(budget, s.budget); rebuildFarms(); snd.plaster(); renderBudget(); renderUndo(); geomDirty = true; }
+function renderBudget() { document.querySelectorAll('[data-b]').forEach(el => el.textContent = fmtB(el.dataset.b)); }
+let speed = 0;
+function setSpeed(s) { if (over && s) return; speed = s; document.querySelectorAll('#speed [data-s]').forEach(x => x.classList.toggle('on', +x.dataset.s === s)); $('go').textContent = s ? '▶ Running' : year ? '▶ Resume' : '▶ Run'; }
+document.querySelectorAll('#speed [data-s]').forEach(b => b.onclick = () => { setSpeed(+b.dataset.s); snd.key(); if (speed) { document.body.classList.add('playing'); $('hint').style.opacity = 0; } });
+$('mute').onclick = () => { FX.setMuted(!FX.muted); $('mute').style.opacity = FX.muted ? .4 : 1; };
+$('mute').style.opacity = FX.muted ? .4 : 1;
+$('restart').onclick = () => { snd.key(); buildLevel(cur); };
+$('briefBtn').onclick = e => { e.stopPropagation(); const on = document.body.classList.toggle('brief'); $('briefBtn').setAttribute('aria-expanded', on); snd.key(); resize(); };
+$('lvBtn').onclick = e => { e.stopPropagation(); snd.key(); $('levels').classList.toggle('open'); };
 addEventListener('keydown', e => {
   if (e.key === '[') setBrush(-1); else if (e.key === ']') setBrush(1);
   else if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); doUndo(); }
+  else if (e.key === ' ' && !(e.target instanceof HTMLButtonElement)) { e.preventDefault(); setSpeed(speed ? 0 : 1); }
 });
-
-function toast(big, small, ms = 2600) { const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : ''); t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms); }
-// camera: per-level preset, pulled back and steepened on portrait screens so the whole landscape fits
+// camera: per-site preset, pulled back and steepened on portrait screens so the whole model fits
 function frameCam() {
   const c = L.cam || CAM0, a = camera.aspect, refA = 1.45;
   let d = c.d, el = c.el;
@@ -578,78 +741,79 @@ function frameCam() {
   const e = el * Math.PI / 180, z = c.az * Math.PI / 180;
   controls.target.set(...c.t);
   camera.position.set(c.t[0] + d * Math.cos(e) * Math.sin(z), c.t[1] + d * Math.sin(e), c.t[2] + d * Math.cos(e) * Math.cos(z));
-  controls.maxDistance = Math.max(330, d * 1.4); scene.fog.near = d + 60; scene.fog.far = d * 2.8;
+  controls.maxDistance = Math.max(330, d * 1.4);
   controls.update();
 }
-// keep the landscape centred in the space the panels leave free
+// keep the model centred in the space the clipboard and the trays leave free
 function resize() {
   const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h;
-  const hud = $('top').getBoundingClientRect(), lv = $('levels').getBoundingClientRect();
-  const shiftX = w > 900 ? Math.round((hud.right - (lv.width ? w - lv.left : 0)) / 2) : 0;
-  const shiftY = w <= 760 ? Math.round((hud.bottom - (h - $('speed').getBoundingClientRect().top)) / 2) : 0;
+  const hud = $('board').getBoundingClientRect(), lv = $('levels').getBoundingClientRect(), side = w > 900 || (w > h && h <= 520);
+  const shiftX = side ? Math.round((hud.right - (lv.width && w > 900 ? w - lv.left : 0)) / 2) : 0;
+  const shiftY = !side ? Math.round((hud.bottom - (h - $('speed').getBoundingClientRect().top)) / 2) : 0;
   camera.setViewOffset(w, h, -shiftX, -shiftY, w, h);
   camera.updateProjectionMatrix();
   if (L) frameCam();
 }
 addEventListener('resize', resize);
+new ResizeObserver(() => resize()).observe($('board'));
+
+// ================= the signature moment: the studio lights go golden and the model turns =================
+let glow = 0, spin = 0;
+function celebrate(n) { glow = 1; spin = n >= 2 ? 1 : .5; FX.shake(.2); }
 
 // ================= main loop =================
 // Fixed timestep: 120 sim steps per second at 1×, independent of display refresh. Steps per frame are capped
 // adaptively by measured step cost, so a slow device runs the sim slower instead of dropping frames.
 const STEP_RATE = 120, FRAME_BUDGET_MS = MOBILE ? 7 : 9;
-let last = performance.now(), acc = 0, stepCost = 1.5, measureT = 0, frameN = 0, geomDirty = true, raf = 0;
+let last = performance.now(), acc = 0, stepCost = 1.5, frameN = 0, geomDirty = true, raf = 0;
+const warm = new THREE.Color('#ffb35c'), cool = new THREE.Color('#fff1dc');
 function loop(now) {
   raf = requestAnimationFrame(loop);
   const dt = Math.min(.1, (now - last) / 1000); last = now; frameN++;
-  if (sculpt(dt)) geomDirty = true;
+  if (!over && sculpt(dt)) geomDirty = true;
   let n = 0;
-  if (speed > 0) {
+  if (speed > 0 && !over) {
     acc += dt * STEP_RATE * speed;
     const maxSteps = Math.max(1, Math.floor(FRAME_BUDGET_MS / stepCost));
     n = Math.min(Math.floor(acc), maxSteps); acc -= n; if (acc > maxSteps) acc = 0; // drop backlog rather than spiral
-    if (n) { const t0 = performance.now(); for (let i = 0; i < n; i++) step(0); stepCost += ((performance.now() - t0) / n - stepCost) * .1; geomDirty = true; }
+    if (n) { const t0 = performance.now(); for (let i = 0; i < n && !over; i++) step(); stepCost += ((performance.now() - t0) / n - stepCost) * .1; geomDirty = true; }
+    if (frameN % 15 === 0) { measure(); renderScore(); }
   }
-  measureT += dt;
-  if (measureT > .25) {
-    measureT = 0; measure();
-    const p = Math.max(0, Math.min(1, L.prog(stat))); $('prog').style.width = (p * 100) + '%';
-    if (!won && !L.free && !failed) {
-      if (L.fail && L.fail(stat)) { failed = true; FX.sfx('fail'); toast('A house flooded', 'Press ↺ to try again.', 4000); }
-      else if (L.test(stat)) win();
-    }
-  }
-  const storm = L.storm && simT < (L.stormFor || 0) && speed > 0;
-  const rainOn = (brush.active && tool === 'rain') || storm;
-  updateRain(dt, storm ? 0 : brush.x - N / 2, storm ? -48 : brush.y - N / 2, storm ? 60 : brush.r, rainOn);
-  // geometry upload is the main per-frame cost; at high sim speeds refresh every other frame
+  const storm = speed > 0 && !over && stormNow() > 0;
+  updateRain(dt, 0, -N / 2 + N * L.stormY / 2, Math.max(40, N * L.stormY * .6), storm);
   if (simSteps !== drawnSteps) geomDirty = true;
   if (geomDirty && (n <= 6 || frameN % 2 === 0)) { updateGeometry(); geomDirty = false; drawnSteps = simSteps; }
   updateRing();
+  // the celebration: warm light that fades, and a slow turn of the model
+  if (glow > 0) { glow = Math.max(0, glow - dt * .12); sun.color.copy(cool).lerp(warm, Math.min(1, glow * 1.5)); }
+  if (spin > 0) { spin = Math.max(0, spin - dt * .1); controls.autoRotate = spin > 0; controls.autoRotateSpeed = 3 * spin; } else controls.autoRotate = false;
   const [sx, sy] = FX.shakeOffset(1.2);
   controls.update(); camera.position.x += sx * .2; camera.position.y += sy * .2;
   renderer.render(scene, camera);
   camera.position.x -= sx * .2; camera.position.y -= sy * .2;
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; } else if (!raf) { last = performance.now(); raf = requestAnimationFrame(loop); } });
-function win() {
-  won = true; SAVE.done[cur] = 1; persist(); FX.sfx('win'); FX.shake(.35);
-  toast('✓ ' + L.n, cur < LV.length - 2 ? 'Next landscape unlocked.' : 'Every landscape done. The sandbox is yours.', 3200); renderUI();
-  // one tap on to the next landscape (the level list hides behind ☰ on phones)
-  if (cur < LV.length - 1) { $('goal').insertAdjacentHTML('beforeend', `<br><button id="nextLv" class="nextLv">${cur < LV.length - 2 ? 'Next landscape →' : 'Open the sandbox →'}</button>`); $('nextLv').onclick = () => { FX.sfx('click'); buildLevel(cur + 1); }; }
-}
 
-buildLevel(Math.min(SAVE.cur ?? 0, LV.length - 1));
+buildLevel(Math.min(SAVE.cur ?? 0, SC.length - 1));
 resize();
 raf = requestAnimationFrame(loop);
 if (!SAVE.intro) { SAVE.intro = 1; persist(); }
 const tv = new THREE.Vector3();
-window.__ws = { LV, buildLevel: i => buildLevel(i), stat: () => stat, get springs() { return springs; }, addSpring: k => { const s = { k, q: L.springQ || 1 }; springs.push(s); addSpringMesh(s); }, placeSpring, measure: () => { measure(); return stat; }, SEA, B0, ROCK, RAISED, NOSCULPT, step, B, D, N, setSpeed: s => setSpeed(s), get speed() { return speed; }, cleanSave, K, parts: { flux: () => flux(DT, G * DT, N - 1), waterStep: () => waterStep(DT, N - 1), thermal: () => { thermalTick = 2; thermal(); }, advect: () => advect(DT) }, get SED() { return SED; }, get undoN() { return undo.length; }, brush, get simT() { return simT; }, updateGeometry, get budget() { return budget; }, get won() { return won; }, get failed() { return failed; },
+// ================= debug / test handle =================
+window.__ws = { SC, LV: SC, buildLevel: i => buildLevel(i), stat: () => stat, measure: () => measure(), step, B, D, N, SEA, B0, ROCK, RAISED, NOSCULPT, USE, get springs() { return springs; },
+  setSpeed: s => setSpeed(s), get speed() { return speed; }, cleanSave, K, get SED() { return SED; }, brush, get simT() { return simT; }, get year() { return year; }, get over() { return over; },
+  parts: { flux: () => flux(DT, G * DT, N - 1), waterStep: () => waterStep(DT, N - 1), thermal: () => { thermalTick = 2; thermal(); }, advect: () => advect(DT) },
+  get budget() { return budget; }, setTool, get brushR() { return brushR; }, doUndo, get undoN() { return undo.length; }, reservoirVolume, deltaLand, capacity, get towns() { return towns; },
   toScreen: (gx, gy) => { const k = Math.round(gy) * N + Math.round(gx); tv.set(gx - N / 2, B[k] * VS, gy - N / 2).project(camera); return [(tv.x + 1) / 2 * innerWidth, (1 - tv.y) / 2 * innerHeight]; },
-  // test hook: a stroke exactly as the UI does it (the real sculpt() at 60 fps), moving at v cells/s along pts
-  stroke: (t, pts, v = 25) => { setTool(t); undo.push({ B: B.slice(), ROCK: ROCK.slice(), RAISED: RAISED.slice(), budget: { ...budget } }); brush.active = true; const dt = 1 / 60;
+  // a stroke exactly as the UI does it (the real sculpt()/paint() at 60 fps), moving at v cells/s along pts
+  stroke: (t, pts, v = 25) => { setTool(t); pushUndo(); brush.active = true; const dt = 1 / 60;
     for (let i = 0; i < pts.length - 1; i++) { const [x0, y0] = pts[i], [x1, y1] = pts[i + 1], n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / v / dt)); for (let f = 0; f <= n; f++) { brush.x = x0 + (x1 - x0) * f / n; brush.y = y0 + (y1 - y0) * f / n; sculpt(dt); } }
+    if (pts.length === 1) { brush.x = pts[0][0]; brush.y = pts[0][1]; sculpt(dt); }
     brush.active = false; return budget[t]; },
-  doUndo, get stepCost() { return stepCost; }, setTool, get brushR() { return brushR; } };
+  // run whole years headless (what the game loop does, without drawing)
+  runYears: n => { for (let i = 0; i < n * YEAR_STEPS && !over; i++) step(); return measure(); },
+  get stepCost() { return stepCost; } };
+
 </script>
 </body>
 </html>
