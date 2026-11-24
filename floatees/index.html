@@ -275,6 +275,12 @@ const TW = MOBILE ? 1024 : 1440, TH = TW / 2, TS = TW / 360;
 const quick = document.createElement('canvas'); quick.width = 360; quick.height = 180;
 { const g = quick.getContext('2d'), im = g.createImageData(360, 180); for (let j = 0; j < 180; j++) for (let i = 0; i < 360; i++) { const o = (j * 360 + i) * 4, l = land1(i, j), lat = 90 - j - .5, ice = Math.abs(lat) > 64; im.data[o] = l ? (ice ? 240 : 222) : 58; im.data[o + 1] = l ? (ice ? 236 : 200) : 104; im.data[o + 2] = l ? (ice ? 222 : 150) : 104; im.data[o + 3] = 255; } g.putImageData(im, 0, 0); }
 const quickTex = new THREE.CanvasTexture(quick); quickTex.colorSpace = THREE.SRGBColorSpace;
+const BS = t => { const a = Math.abs(t); return a < 1 ? (4 - 6 * a * a + 3 * a * a * a) / 6 : a < 2 ? (2 - a) ** 3 / 6 : 0; };
+function landSmooth(lat, lon) { // smooth (C²) interpolation of the 1° land mask: round coastlines instead of 1° stair steps
+  const y = 90 - lat - .5, x = lon + 180 - .5, j0 = Math.floor(y), i0 = Math.floor(x); let v = 0;
+  for (let dj = -1; dj <= 2; dj++) { const j = Math.max(0, Math.min(179, j0 + dj)), wy = BS(y - (j0 + dj)); for (let di = -1; di <= 2; di++) v += land1((((i0 + di) % 360) + 360) % 360, j) * wy * BS(x - (i0 + di)); }
+  return v * 1.5; // the B-spline smooths a 1-cell island down to 2/3: rescale so single cells still show
+}
 function landFrac(lat, lon) { const y = 90 - lat - .5, x = lon + 180 - .5, j0 = Math.max(0, Math.min(178, Math.floor(y))), i0 = Math.floor(x), fx = x - i0, fy = Math.max(0, Math.min(1, y - j0)), ia = ((i0 % 360) + 360) % 360, ib = (ia + 1) % 360; return (land1(ia, j0) * (1 - fx) + land1(ib, j0) * fx) * (1 - fy) + (land1(ia, j0 + 1) * (1 - fx) + land1(ib, j0 + 1) * fx) * fy; }
 // base layer: land colours, plus each ocean pixel's own base colour and grid cell (filled once)
 const BASE = new Uint8ClampedArray(TW * TH * 4); let OPIX = null, OGRID = null, baseReady = false;
@@ -282,7 +288,7 @@ function* paintBaseGen() {
   const opix = new Int32Array(TW * TH), ogrid = new Uint16Array(TW * TH); let no = 0;
   for (let y = 0; y < TH; y++) {
     for (let x = 0; x < TW; x++) {
-      const lat = 90 - (y + .5) / TS, lon = -180 + (x + .5) / TS, o = (y * TW + x) * 4, lf = landFrac(lat, lon);
+      const lat = 90 - (y + .5) / TS, lon = -180 + (x + .5) / TS, o = (y * TW + x) * 4, lf = Math.min(1, landSmooth(lat, lon) / 1.5 * 1.25);
       if (lf > .5) {
         const n = (Math.sin(lon * .37) * Math.cos(lat * .41) + Math.sin(lon * .11 + lat * .23)) * .25 + .5, dry = Math.min(1, Math.exp(-Math.pow((Math.abs(lat) - 24) / 10, 2)) * (.3 + n)), ice = Math.max(0, Math.min(1, (Math.abs(lat) - 62) / 8));
         // an old globe's land: parchment with pastel washes (ochre deserts, sage lowlands), ice in cream
@@ -335,28 +341,24 @@ function pump() {
   if (jobs.length) setTimeout(pump, 0);
 }
 function enqueue(job, front) { front ? jobs.unshift(job) : jobs.push(job); if (jobs.length === 1) setTimeout(pump, 0); }
-function* oceanJob(r) {
-  while (!baseReady) yield;
-  const st = yield* solveGen(r);
-  if (r === 1) VS = 260 / st.vmax; // one fixed scale: every planet feels the same wind, so speeds compare honestly
-  else while (!OCEAN[1]) yield;
-  yield* paintState(st);
-  return st;
-}
+// The current field is solved at once (it takes ~60 ms), so ducks can be dropped immediately; only the painted
+// texture is built in slices afterwards. (It used to wait for the land layer first: several seconds of "charting".)
+const runGen = it => { let r; while (!(r = it.next()).done); return r.value; };
 function ensureOcean(r, cb) {
-  if (OCEAN[r]) { cb && cb(OCEAN[r]); return; }
-  let job = jobs.find(j => j.rot === r);
-  if (!job) { job = { rot: r, cbs: [], it: oceanJob(r) }; job.done = st => { OCEAN[r] = st; job.cbs.forEach(f => f(st)); }; enqueue(job); }
-  if (cb) job.cbs.push(cb);
-  // the one asked for goes first, after the land layer and the real Earth (it sets the speed scale)
-  const pri = j => j.rot === 'base' ? 0 : j.rot === 1 ? 1 : j.rot === r ? 2 : 3;
-  jobs.sort((a, b) => pri(a) - pri(b));
+  if (!OCEAN[r]) {
+    if (r !== 1 && !OCEAN[1]) ensureOcean(1);
+    const t0 = performance.now(), st = runGen(solveGen(r)); perf.cpu[r] = +(performance.now() - t0).toFixed(1);
+    if (r === 1) VS = 260 / st.vmax; // one fixed scale: every planet feels the same wind, so speeds compare honestly
+    OCEAN[r] = st; enqueue({ rot: 'paint' + r, it: paintJob(st, r) });
+  }
+  cb && cb(OCEAN[r]);
 }
-function applyOcean(r) { const st = OCEAN[r]; CU = st.U; CV = st.V; CSP = st.SP; globe.material.map = st.tex; globe.material.needsUpdate = true; }
-const ready = new Promise(res => {
-  enqueue({ it: paintBaseGen(), rot: 'base' });
-  ensureOcean(1, () => { if (rot === 1) applyOcean(1); res(); setTimeout(() => { ensureOcean(0); ensureOcean(-1); }, 600); });
-});
+function* paintJob(st, r) { while (!baseReady) yield; yield* paintState(st); if (rot === r && CU === st.U) { globe.material.map = st.tex; globe.material.needsUpdate = true; } }
+function applyOcean(r) { const st = OCEAN[r]; CU = st.U; CV = st.V; CSP = st.SP; globe.material.map = st.tex || quickTex; globe.material.needsUpdate = true; }
+enqueue({ it: paintBaseGen(), rot: 'base' });
+ensureOcean(1); applyOcean(1);
+const ready = Promise.resolve();
+setTimeout(() => { ensureOcean(0); ensureOcean(-1); }, 2500);
 
 // matches three.js SphereGeometry's texture wrap: u = (lon + 180) / 360 runs round from the -x axis
 const toXYZ = (lat, lon, r = 1.004, out = []) => { const a = lat * Math.PI / 180, u = (lon + 180) / 360 * Math.PI * 2, ca = Math.cos(a); out[0] = -r * ca * Math.cos(u); out[1] = r * Math.sin(a); out[2] = r * ca * Math.sin(u); return out; };
@@ -645,7 +647,7 @@ const LESSON = [
 load(+SAVE.cur || 0);
 requestAnimationFrame(frame);
 const proj = new THREE.Vector3();
-window.__fl = { LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
+window.__fl = { LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
   screenOf: (lat, lon) => { proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>
