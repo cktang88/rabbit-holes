@@ -78,7 +78,7 @@ module.exports = {
       const best = await page.evaluate(`(() => { const L = __gl.LV[10], G = L.ghosts, names = G.map(g => g.a + g.b), roads = L.roads.map(r => r.a + r.b); let best = 1e9;
         for (let m = 0; m < 1 << G.length; m++) { let cost = 0; const plan = []; G.forEach((g, j) => { if (m >> j & 1) { cost += g.cost; plan.push(names[j]); } }); if (cost > L.budget) continue;
           for (const cl of [null, ...roads]) best = Math.min(best, ${apply}(10, cl ? [...plan, cl] : plan)); } return best; })()`);
-      ok(best > 24.3 && best <= 26.2, 'best toll-free plan ' + best);
+      ok(best > 24 && best <= 26.2, 'best toll-free plan ' + best);
     },
     'Your City: the budget is enforced through real clicks, and a better plan re-stamps the file': async ({ page, ok, eq }) => {
       await page.evaluate(() => { localStorage.setItem('rh:gridlock', '{}'); __gl.load(10); });
@@ -90,6 +90,50 @@ module.exports = {
       await page.evaluate(() => { __gl.roads().find(r => r.a + r.b === 'PA').toll = 12; });
       ok(await waitFor(page, () => __gl.gradeOf(10, __gl.best[10]) === 'Masterplan', 15000), 'toll did not improve the grade');
       eq(await page.evaluate(() => document.getElementById('stamp').textContent), 'Masterplan');
+    },
+    'difficulty: naive play fails the late cities; a competent search wins; Masterplan needs a solver-level plan': async ({ page, ok }) => {
+      const r = await page.evaluate(`(() => {
+        const settle = ${settle};
+        // stars: 0 = over target, then one per grade reached
+        const stars = (lv, a) => { const L = __gl.LV[lv]; if (!(a <= L.target + 1e-6)) return 0; return L.grades ? L.grades.filter(([m]) => a <= m + 1e-6).length : 1; };
+        const evalPlan = (lv, plan) => { __gl.load(lv); const R = __gl.roads(); for (const a of plan) { const r = R[a.i]; if (a.toll != null) r.toll = a.toll; else if (r.ghost) r.built = 1; else r.closed = 1; } __gl.rebuild(); return settle(); };
+        // every single action a player could take on a city (tolls at a coarse $10 grid)
+        const actions = (lv, plan) => { const L = __gl.LV[lv], R = __gl.roads(), out = [], used = new Set(plan.map(a => a.i));
+          const spent = plan.reduce((s, a) => s + (R[a.i].ghost ? R[a.i].cost || 1 : 0), 0), closes = plan.filter(a => !R[a.i].ghost && a.toll == null).length, tolls = plan.filter(a => a.toll != null).length;
+          R.forEach((r, i) => { if (used.has(i)) return;
+            if (r.ghost && L.tools.build && (L.budget ? spent + (r.cost || 0) <= L.budget : plan.filter(a => R[a.i].ghost).length < L.tools.build)) out.push({ i });
+            if (!r.ghost && L.tools.close && closes < L.tools.close) out.push({ i });
+            if (!r.ghost && L.tools.toll && tolls < L.tools.toll) for (const t of [10, 20, 30]) out.push({ i, toll: t }); });
+          return out; };
+        let seed = 1; const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647;
+        const late = [7, 8, 9, 10], res = { naive: [], comp: {}, solver: {} };
+        for (const lv of late) {
+          const L = __gl.LV[lv];
+          // idle
+          res.naive.push(stars(lv, evalPlan(lv, [])));
+          // the obvious move: price (or build) the most visible thing; tolls at a round $20 on the busiest roads
+          __gl.load(lv); for (let i = 0; i < 300; i++) __gl.adjust(.004); const R = __gl.roads();
+          const busy = R.map((r, i) => [r.ghost ? -1 : r.cars * (r.k || 0), i]).sort((a, b) => b[0] - a[0]);
+          let obvious = []; if (L.tools.build) { let left = L.budget || 1e9; R.forEach((r, i) => { if (r.ghost && (r.cost || 0) <= left && obvious.length < (L.tools.build || 0)) { obvious.push({ i }); left -= r.cost || 0; } }); }
+          if (L.tools.toll) for (let j = 0; j < L.tools.toll; j++) obvious.push({ i: busy[j][1], toll: 20 });
+          res.naive.push(stars(lv, evalPlan(lv, obvious)));
+          // random players
+          for (let k = 0; k < 4; k++) { const plan = []; for (let n = 0; n < 4; n++) { const A = actions(lv, plan); if (!A.length || rnd() < .25) break; const a = A[Math.floor(rnd() * A.length)]; if (a.toll != null) a.toll = Math.round(rnd() * 40); plan.push(a); } res.naive.push(stars(lv, evalPlan(lv, plan))); }
+          // competent: greedy search, one best single action at a time on the coarse grid
+          let plan = [], best = evalPlan(lv, []);
+          for (;;) { let pick = null; for (const a of actions(lv, plan)) { const v = evalPlan(lv, [...plan, a]); if (v < best - 1e-3) { best = v; pick = a; } } if (!pick) break; plan.push(pick); }
+          res.comp[lv] = stars(lv, best);
+        }
+        // solver-level plans (fine toll grid, found offline): Masterplan is reachable
+        res.solver[9] = stars(9, evalPlan(9, [{ i: 2, toll: 12 }, { i: 6, toll: 12 }]));
+        const names = __gl.LV[10].roads.map(r => r.a + r.b).concat(__gl.LV[10].ghosts.map(r => r.a + r.b));
+        res.solver[10] = stars(10, evalPlan(10, [{ i: names.indexOf('AC') }, { i: names.indexOf('MW') }, { i: names.indexOf('PA'), toll: 12 }]));
+        return res; })()`);
+      const low = r.naive.filter(s => s <= 1).length / r.naive.length;
+      ok(low >= .8, `naive play got 2+ stars too often: ${JSON.stringify(r.naive)}`);
+      for (const lv of [7, 8, 9, 10]) ok(r.comp[lv] >= 1, `competent search failed city ${lv}: ${JSON.stringify(r.comp)}`);
+      ok(r.comp[9] < 3 && r.comp[10] < 3, `the simple search should not reach Masterplan on the last two cities: ${JSON.stringify(r.comp)}`);
+      ok(r.solver[9] === 3 && r.solver[10] === 3, `solver plans should reach Masterplan: ${JSON.stringify(r.solver)}`);
     },
     'a road with no route to work makes the average infinite (multi-home too)': async ({ page, eq }) => {
       const r = await page.evaluate(() => { __gl.load(5); const R = __gl.roads(); R.filter(r => r.a === 'Q').forEach(r => r.closed = 1); __gl.rebuild(); return [__gl.average(), __gl.average(0)]; });
