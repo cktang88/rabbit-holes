@@ -48,3 +48,7 @@ Not shortlisted (thin or overlapping): Shell Stilts, Jwibul, Summit Spider, One 
 2. Build.
 3. Adversarial full-playthrough review by subagents.
 4. Optimisation pass by subagents.
+
+## Status
+Built, playtested and optimised: Reduction Woodcut, Lock Flight, Belt Trick, Swarm Season (all on the hub under Round four).
+Known open items: Woodcut levels 1–5 still accept most ink orders; Lock Flight levels 5, 10 and 16 don't reward a policy choice; Belt Trick's anti-twister level is shallow; Swarm's queen hunt is slow on phones.
