@@ -21,7 +21,7 @@ Every experiment is a single static page with no build step, no backend and no a
 
 ## Round 2
 
-Four more, dug after the first ten. They fill genres the first set didn't have: cryptanalysis, inductive science, mechanical design and deduction under uncertainty (see [IDEAS-2.md](IDEAS-2.md)).
+Five more, dug after the first ten. They fill genres the first set didn't have: cryptanalysis, inductive science, mechanical design, deduction under uncertainty and sound (see [IDEAS-2.md](IDEAS-2.md)).
 
 | | Experiment | The premise | What keeps it going |
 |---|---|---|---|
@@ -29,6 +29,7 @@ Four more, dug after the first ten. They fill genres the first set didn't have: 
 | ⚗️ | [Hypothesis](hypothesis/index.html) | A machine accepts some rows of shapes and rejects others. Find the law. | 60 laws from a procedural grammar across 8 tiers (presence → counting → ends → neighbours → logic → relations → implication → hidden arithmetic). You publish by predicting 8 unseen verdicts. Fewer probes earn more stars. Endless free lab. |
 | ⚙️ | [Escapement](escapement/index.html) | Cut gears for clocks, calendars and orreries. | 28 commissions: exact trains with awkward parts, then irrational astronomical ratios measured in ppm with Brocot's table, then multi-hand trains ending in the Antikythera mechanism. Each one was checked by a solver to make sure 3 stars is reachable. |
 | ⛪ | [Parish](parish/index.html) | Trace emigrants' ancestors through a village register, 1700–1799. | A simulated village of about 2,000 people becomes about 3,000 baptism, marriage and burial records, with misspelt surnames, abbreviated names, reused names of dead infants and lost years. 24 letters per parish, each checked to have exactly one deducible answer. New parish whenever you like. |
+| 🎹 | [Temperament](temperament/index.html) | Tune a keyboard by ear, and fail at it the way history did. | 16 commissions: pure fifths and the Pythagorean comma, just intonation and the syntonic comma, meantone's wolf, Werckmeister, Vallotti, equal temperament, then minimax temperaments for composers' chord sets. Everything is audible: you hear the beats. Star thresholds set from a numerical optimum. |
 
 ## How this was made
 

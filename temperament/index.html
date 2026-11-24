@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Temperament</title>
+<link rel="stylesheet" href="../shared/common.css">
+<style>
+  body{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  main{flex:1;display:flex;min-height:0}
+  #side{width:240px;border-right:1px solid var(--line);background:var(--panel);overflow:auto;padding:10px}
+  .act{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);margin:12px 4px 4px;display:flex;justify-content:space-between}
+  .act.locked{color:var(--dim)}
+  .cm{display:flex;justify-content:space-between;gap:6px;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:13px}
+  .cm:hover{background:var(--panel2)}
+  .cm.cur{background:var(--panel2);outline:1px solid var(--accent)}
+  .cm.locked{opacity:.35;cursor:default}
+  .cm .st{color:var(--accent);font-size:11px;white-space:nowrap}
+  #center{flex:1;overflow:auto;padding:14px 18px 40px;min-width:0}
+  h2{margin:0;font-size:22px}
+  .story{color:#c9c6bd;line-height:1.55;font-size:14px;max-width:860px;margin:6px 0 10px}
+  .wrap{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+  #wheel{width:440px;max-width:100%;flex:0 0 auto}
+  #wheel text{font-family:ui-sans-serif,system-ui;user-select:none}
+  #wheel .node{cursor:pointer}
+  #wheel .arc{cursor:pointer}
+  .panel{flex:1;min-width:280px}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px}
+  .box h3{margin:0 0 6px;font-size:14px}
+  .big{font-size:26px;font-weight:700;font-family:ui-monospace,monospace}
+  .ctl{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px}
+  .ctl button{padding:4px 9px;font-size:13px}
+  .goals .g{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid #1d2230;font-size:13px}
+  .ok{color:var(--good)} .no{color:var(--bad)} .mid{color:var(--accent)}
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:3px;font-family:ui-monospace,monospace;font-size:11px;text-align:center}
+  .grid div{padding:3px 0;border-radius:4px;cursor:pointer}
+  .grid .h{color:var(--dim);cursor:default}
+  .beats{font-family:ui-monospace,monospace}
+  .meter{height:10px;background:#0b0d12;border-radius:5px;overflow:hidden;margin-top:4px}
+  .meter div{height:100%;background:var(--accent);transition:width .2s}
+  .note{font-size:12px;color:var(--dim);line-height:1.45}
+  .stars{color:var(--accent);font-size:18px}
+  select{max-width:100%}
+  @media (max-width:760px){body{height:auto;min-height:100vh;overflow:auto}main{flex-direction:column}#side{width:auto;max-height:170px;border-right:0;border-bottom:1px solid var(--line)}#center{overflow:visible}.topbar{flex-wrap:wrap}.grid{font-size:9px}}
+</style>
+</head>
+<body>
+<div class="topbar"><a class="home" href="../index.html">← Rabbit Holes</a><h1>🎹 Temperament</h1><span class="spacer"></span><span class="dim small" id="totals"></span><button id="helpBtn">?</button></div>
+<main><div id="side"></div><div id="center"></div></main>
+<script src="../shared/common.js"></script>
+<script>
+'use strict';
+// ================= tuning maths =================
+const NM = ['C','C♯','D','E♭','E','F','F♯','G','G♯','A','B♭','B'];
+const KEY = ['C','C#','D','Eb','E','F','F#','G','G#','A','Bb','B'];
+const FIFTHS = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5]; // circle of fifths order
+const P5 = 1200 * Math.log2(3 / 2), M3 = 1200 * Math.log2(5 / 4), m3 = 1200 * Math.log2(6 / 5);
+const SC = 1200 * Math.log2(81 / 80), PC = 1200 * Math.log2(531441 / 524288);
+const IV = { 7: { n: 'fifth', pure: P5, ratio: [3, 2] }, 4: { n: 'major third', pure: M3, ratio: [5, 4] }, 3: { n: 'minor third', pure: m3, ratio: [6, 5] } };
+const iv = (c, i, k) => c[(i + k) % 12] + (i + k >= 12 ? 1200 : 0) - c[i];
+const dev = (c, i, k) => iv(c, i, k) - IV[k].pure;
+const freq = (c, i, oct = 4) => 261.6256 * Math.pow(2, (c[i] - 100 * i) / 1200 + i / 12 + (oct - 4));
+function beats(c, i, k) { // beat rate (Hz) of the nearest coinciding partials, low note in octave 4
+  const f1 = freq(c, i), f2 = f1 * Math.pow(2, iv(c, i, k) / 1200), [p, q] = IV[k].ratio;
+  return Math.abs(q * f2 - p * f1);
+}
+const ET = () => Array.from({ length: 12 }, (_, i) => 100 * i);
+function chordErr(c, name) {
+  const minor = name.endsWith('m'), r = KEY.indexOf(minor ? name.slice(0, -1) : name);
+  return Math.max(Math.abs(dev(c, r, 7)), Math.abs(dev(c, r, minor ? 3 : 4)), Math.abs(dev(c, (r + (minor ? 3 : 4)) % 12, minor ? 4 : 3)));
+}
+const chordLabel = n => n.replace('#', '♯').replace('b', '♭');
+// built-in temperaments: fifth deviations around the circle starting at C
+function fromFifths(devs) { // devs[j] = deviation of the j-th fifth in circle order (C-G, G-D, …, F-C)
+  const c = ET(); let x = 0;
+  for (let j = 0; j < 11; j++) { x += P5 + devs[j]; const n = FIFTHS[j + 1]; c[n] = ((x % 1200) + 1200) % 1200; }
+  return c;
+}
+// Chains of fifths built up from C (nUp steps) and down from C (nDown steps), each fifth deviating by devUp / devDown.
+function chainFrom(devUp, devDown, nUp, nDown) {
+  const c = ET(); let x = 0;
+  for (let j = 1; j <= nUp; j++) { x += P5 + devUp; c[FIFTHS[j]] = ((x % 1200) + 1200) % 1200; }
+  x = 0;
+  for (let j = 1; j <= nDown; j++) { x -= P5 + devDown; c[FIFTHS[12 - j]] = ((x % 1200) + 1200) % 1200; }
+  return c;
+}
+const PRESET = {
+  et: { n: 'Equal temperament', c: ET },
+  pyth: { n: 'Pythagorean (wolf G♯–E♭)', c: () => chainFrom(0, 0, 8, 3) },
+  mean: { n: '¼-comma meantone (wolf G♯–E♭)', c: () => chainFrom(-SC / 4, -SC / 4, 8, 3) },
+  werck: { n: 'Werckmeister III', c: () => fromFifths([-PC / 4, -PC / 4, -PC / 4, 0, 0, -PC / 4, 0, 0, 0, 0, 0]) },
+  // Vallotti: F–C–G–D–A–E–B narrowed by ⅙ Pythagorean comma, the rest pure
+  vallotti: { n: 'Vallotti', c: () => {
+    const c = chainFrom(-PC / 6, 0, 5, 0);           // C–G–D–A–E–B, each narrowed
+    let x = 1200 - (P5 - PC / 6); c[5] = x;           // F–C narrowed too
+    for (let j = 1; j <= 5; j++) { x -= P5; c[FIFTHS[11 - j]] = ((x % 1200) + 1200) % 1200; } // B♭ E♭ A♭ D♭ G♭: pure
+    return c;
+  } },
+};
+
+// ================= commissions =================
+// goal kinds: f = fifth from note, t = major third from note, ch = chords worst error, allF / allT bounds, eqF = all fifths equal
+const ACTS = ['Pythagoras', 'Sweet Thirds', 'Well-Tempered', 'Commissions'];
+const C = [
+  { a: 0, n: 'A Pure Fifth', tools: [], start: { 7: -9 }, goals: [{ k: 'f', i: 0, d: 0, tol: [2, .5, .1] }],
+    s: 'A string twice as short sounds an octave higher. Two strings in a <b>3:2</b> ratio make a <b>perfect fifth</b>, the sweetest interval after the octave. When a fifth is slightly off, the two notes <b>beat</b>: a slow wah-wah-wah that speeds up the further out of tune they are.<br><i>Click the C–G arc on the wheel, listen, and nudge G until the beating stops (0 beats per second).</i>' },
+  { a: 0, n: 'Counting Beats', tools: [], start: { 7: -7, 2: 6, 9: -8 }, goals: [{ k: 'f', i: 7, d: 0, tol: [2, .5, .1] }, { k: 'f', i: 2, d: 0, tol: [2, .5, .1] }, { k: 'f', i: 0, d: 0, tol: [2, .5, .1] }],
+    s: 'Piano tuners don\'t use meters. They count beats. Tune a chain: C–G, then G–D, then D–A, all pure. <i>Each tuning moves the upper note. Click a note on the wheel to nudge it directly.</i>' },
+  { a: 0, n: 'The Pythagorean Scale', tools: ['pure'], goals: [5, 0, 7, 2, 9, 4].map(i => ({ k: 'f', i, d: 0, tol: [1, .3, .1] })),
+    s: 'Pythagoras built his scale entirely from pure fifths: F–C–G–D–A–E–B. Six pure fifths give the seven white notes. The <b>Make pure</b> button now does the fine-tuning for you.' },
+  { a: 0, n: 'The Comma', tools: ['pure'], goals: [...[0, 7, 2, 9, 4, 11, 6, 1, 3, 10, 5].map(i => ({ k: 'f', i, d: 0, tol: [1, .3, .1] })), { k: 'wolfAt', i: 8 }],
+    s: 'Keep going round the circle. Twelve pure fifths <i>should</i> come back to C seven octaves up, but they overshoot by about a quarter of a semitone: the <b>Pythagorean comma</b>. One fifth has to absorb all of it, and it howls. Musicians called it the <b>wolf</b>. Tune 11 fifths pure and put the wolf between <b>G♯ and E♭</b>, the fifth nobody plays.' },
+  { a: 1, n: 'A Pure Third', tools: ['pure'], goals: [{ k: 't', i: 0, d: 0, tol: [2, .5, .1] }],
+    s: 'Listen to the Pythagorean major third C–E (press ▶ on the thirds grid). It is 408¢, harsh and fast-beating. Renaissance ears wanted the <b>pure third, 5:4 = 386¢</b>. Tune C–E pure.' },
+  { a: 1, n: 'Just C Major', tools: ['pure'], goals: [{ k: 'ch', list: ['C', 'F', 'G'], tol: [2, .5, .1] }], piece: [['C'], ['F'], ['G'], ['C']],
+    s: 'Make the three main chords of C major (C, F and G) perfectly pure: pure fifths and pure thirds. This is <b>just intonation</b>. Play the piece to hear how still it sounds.' },
+  { a: 1, n: 'The Syntonic Comma', tools: ['pure'], goals: [{ k: 'ch', list: ['C', 'F', 'G', 'Dm'], tol: [10, 6.5, 5.5] }], piece: [['C'], ['Dm'], ['G'], ['C'], ['F'], ['Dm'], ['G'], ['C']],
+    s: 'Now add D minor. In just C major, D–A is a fifth that is too flat by the <b>syntonic comma</b> (81:80, 21.5¢), and you can\'t fix it without spoiling something else. Make the <b>worst</b> error across C, F, G and Dm as small as possible. How should the comma be shared out?' },
+  { a: 1, n: 'Quarter-Comma Meantone', tools: ['pure', 'temper'], goals: ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb'].map(n => ({ k: 't', i: KEY.indexOf(n), d: 0, tol: [2, .5, .15] })), piece: [['C'], ['G'], ['D'], ['A'], ['E'], ['A'], ['D'], ['G'], ['C']],
+    s: 'The 1500s solution: narrow every fifth by <b>¼ of the syntonic comma</b>. Four such fifths stack to a perfectly pure major third. Make eight major thirds pure (from C, G, D, A, E, F, B♭ and E♭). The <b>Temper</b> tool narrows a fifth by a fraction of a comma.' },
+  { a: 1, n: 'Where the Wolf Sleeps', tools: ['pure', 'temper', 'presets'], goals: [{ k: 'ch', list: ['E', 'B', 'F#', 'C#m', 'G#m', 'A', 'E'], tol: [12, 7, 5.6] }], piece: [['E'], ['C#m'], ['A'], ['B'], ['G#m'], ['C#m'], ['F#'], ['B'], ['E']],
+    s: 'Meantone has a wolf too, and it\'s even bigger. A cathedral organist wants to play a piece in <b>E major</b>. Retune a meantone so that the wolf falls somewhere this piece never goes. <i>Presets: load a temperament you have already built, then adjust it.</i>' },
+  { a: 2, n: 'Werckmeister III', tools: ['pure', 'temper', 'presets'], goals: [...[0, 7, 2, 11].map(i => ({ k: 'f', i, d: -PC / 4, tol: [1, .3, .1] })), ...[9, 4, 6, 1, 8, 3, 10, 5].map(i => ({ k: 'f', i, d: 0, tol: [1, .3, .1] }))],
+    s: 'Andreas Werckmeister, 1691: spread the <b>Pythagorean</b> comma over just four fifths (C–G, G–D, D–A and B–F♯), each narrowed by ¼ of it, and leave the other eight pure. No wolf anywhere. Every key is playable, and every key sounds a little different.' },
+  { a: 2, n: 'Vallotti', tools: ['pure', 'temper', 'presets'], goals: [...[5, 0, 7, 2, 9, 4].map(i => ({ k: 'f', i, d: -PC / 6, tol: [1, .3, .1] })), ...[11, 6, 1, 8, 3, 10].map(i => ({ k: 'f', i, d: 0, tol: [1, .3, .1] }))],
+    s: 'Francesco Vallotti\'s tuning, still used for Baroque music: the six "white-note" fifths F–C–G–D–A–E–B are each narrowed by ⅙ of the Pythagorean comma, and the six others are pure.' },
+  { a: 2, n: 'Equal Temperament', tools: ['pure', 'temper', 'presets'], start: 'pyth', goals: [{ k: 'eqF', tol: [1, .3, .05] }],
+    s: 'The modern answer: share the comma equally, 1/12 to every fifth. Every key sounds the same, and none is pure. Every major third is 14¢ sharp. Make all twelve fifths the same size.' },
+  { a: 2, n: 'The Well-Tempered Clavier', tools: ['pure', 'temper', 'presets'], goals: [{ k: 'allF', tol: [8, 7, 6] }, { k: 'allT', tol: [24, 21, 18] }, { k: 'tCFG', tol: [12, 9, 6] }], piece: [['C'], ['F'], ['G'], ['C'], ['F#'], ['C#'], ['F#'], ['B'], ['E'], ['A'], ['D'], ['G'], ['C']],
+    s: 'Bach wrote preludes in all 24 keys. His keyboard had to play everywhere, but he probably liked the home keys sweeter. Every fifth within 6¢ of pure, every major third at most 18¢ sharp, and the thirds of C, F and G <b>at most 6¢ sharp</b>, better than equal temperament.' },
+  { a: 3, n: 'A Village Organ', tools: ['pure', 'temper', 'presets'], goals: [{ k: 'ch', list: ['C', 'F', 'G', 'Dm', 'Am', 'Em', 'Bb', 'D'], tol: [12, 7, 5.6] }], piece: [['C'], ['Am'], ['F'], ['G'], ['Em'], ['Am'], ['Dm'], ['G'], ['Bb'], ['F'], ['D'], ['G'], ['C']],
+    s: 'The vicar\'s hymnbook uses eight chords and nothing else. Minimise the worst error over those chords. The rest of the keyboard can howl.' },
+  { a: 3, n: 'Remote Keys', tools: ['pure', 'temper', 'presets'], goals: [{ k: 'ch', list: ['C', 'G', 'F', 'F#', 'C#', 'B', 'Ebm'], tol: [10, 5, 3.5] }], piece: [['C'], ['G'], ['F#'], ['C#'], ['Ebm'], ['B'], ['F#'], ['F'], ['C']],
+    s: 'A modern composer writes a piece that keeps leaping between C and F♯ major. No historical temperament suits it. Invent one: minimise the worst error over these seven chords.' },
+  { a: 3, n: 'All Twenty-Four', tools: ['pure', 'temper', 'presets'], start: 'pyth', goals: [{ k: 'ch', list: KEY.flatMap(n => [n, n + 'm']), tol: [20, 17, 15.8] }], piece: [['C'], ['Am'], ['E'], ['C#m'], ['Ab'.replace('Ab', 'G#')], ['Fm'], ['C']],
+    s: 'Every major and minor chord, all equally important. Minimise the worst error over all 24. You may find out why the world settled where it did.' },
+];
+
+// ================= state =================
+const S = RH.load('temper', { done: {}, tun: {}, cur: 0, intro: 0 });
+const persist = () => { RH.save('temper', S); RH.progress('temperament', Object.keys(S.done).length / C.length); };
+const actOpen = a => a === 0 || C.filter((c, j) => c.a === a - 1 && S.done[j]).length >= Math.min(3, C.filter(c => c.a === a - 1).length - 1);
+let cur = S.cur; if (!C[cur] || !actOpen(C[cur].a)) cur = 0;
+function startTuning(i) { const st = C[i].start; if (typeof st === 'string') return PRESET[st].c(); const c = ET(); if (st) for (const k in st) c[k] += st[k]; return c; }
+const tun = () => (S.tun[cur] ||= startTuning(cur));
+let selN = 7, selI = { i: 0, k: 7 };
+
+function goalEval(g, c) {
+  let err, label;
+  if (g.k === 'f') { err = Math.abs(dev(c, g.i, 7) - g.d); label = `Fifth ${NM[g.i]}–${NM[(g.i + 7) % 12]} ${g.d ? `narrowed by ${(-g.d).toFixed(2)}¢` : 'pure'}`; }
+  else if (g.k === 't') { err = Math.abs(dev(c, g.i, 4) - g.d); label = `Major third ${NM[g.i]}–${NM[(g.i + 4) % 12]} pure`; }
+  else if (g.k === 'ch') { const e = g.list.map(n => chordErr(c, n)); err = Math.max(...e); const w = g.list[e.indexOf(err)]; label = `Worst chord error over ${g.list.length > 10 ? 'all 24 chords' : g.list.map(chordLabel).join(', ')} <span class="dim">(worst: ${chordLabel(w)})</span>`; }
+  else if (g.k === 'eqF') { const f = Array.from({ length: 12 }, (_, i) => iv(c, i, 7)); err = Math.max(...f) - Math.min(...f); label = 'All twelve fifths the same size (spread)'; }
+  else if (g.k === 'allF') { err = Math.max(...Array.from({ length: 12 }, (_, i) => Math.abs(dev(c, i, 7)))); label = 'Every fifth close to pure (worst deviation)'; }
+  else if (g.k === 'allT') { err = Math.max(...Array.from({ length: 12 }, (_, i) => dev(c, i, 4))); label = 'Every major third not too sharp (worst)'; }
+  else if (g.k === 'tCFG') { err = Math.max(...[0, 5, 7].map(i => dev(c, i, 4))); label = 'Thirds of C, F and G (worst sharpness)'; }
+  else if (g.k === 'wolfAt') { const d = Array.from({ length: 12 }, (_, i) => Math.abs(dev(c, i, 7))); const w = d.indexOf(Math.max(...d)); return { ok: w === g.i, stars: w === g.i ? 3 : 0, label: `The wolf sits at ${NM[g.i]}–${NM[(g.i + 7) % 12]}`, val: `now: ${NM[w]}–${NM[(w + 7) % 12]}` }; }
+  const stars = err <= g.tol[2] ? 3 : err <= g.tol[1] ? 2 : err <= g.tol[0] ? 1 : 0;
+  return { ok: stars > 0, stars, label, val: err.toFixed(2) + '¢', err, need: g.tol };
+}
+
+// ================= audio =================
+let AC = null, master = null, playing = [];
+function ac() { if (!AC) { AC = new AudioContext(); master = AC.createGain(); master.gain.value = .22; master.connect(AC.destination); } if (AC.state === 'suspended') AC.resume(); return AC; }
+const HARM = [1, .55, .38, .26, .18, .12, .08];
+function tone(f, t0, dur) {
+  const a = ac(), g = a.createGain(); g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(.18, t0 + .04); g.gain.setValueAtTime(.18, t0 + dur - .15); g.gain.linearRampToValueAtTime(0, t0 + dur);
+  g.connect(master);
+  HARM.forEach((amp, h) => { const o = a.createOscillator(), gg = a.createGain(); o.frequency.value = f * (h + 1); gg.gain.value = amp / 3; o.connect(gg).connect(g); o.start(t0); o.stop(t0 + dur + .05); playing.push(o); });
+}
+function stopAll() { playing.forEach(o => { try { o.stop(); } catch (e) {} }); playing = []; }
+function playNotes(list, dur = 2.6) { stopAll(); const a = ac(), t = a.currentTime + .03; list.forEach(([i, oct]) => tone(freqAt(i, oct), t, dur)); }
+const freqAt = (i, oct) => freq(tun(), i, oct);
+function chordNotes(name) { const minor = name.endsWith('m'), r = KEY.indexOf(minor ? name.slice(0, -1) : name); return [[r, 3], [(r + (minor ? 3 : 4)) % 12, r + (minor ? 3 : 4) >= 12 ? 4 : 3], [(r + 7) % 12, r + 7 >= 12 ? 4 : 3], [r, 4]]; }
+function playPiece(p) {
+  stopAll(); const a = ac(); let t = a.currentTime + .05;
+  p.forEach(([ch]) => { chordNotes(ch).forEach(([i, o]) => tone(freqAt(i, o), t, 1.25)); t += 1.15; });
+}
+const ivNotes = (i, k) => [[i, 4], [(i + k) % 12, i + k >= 12 ? 5 : 4]];
+
+// ================= UI =================
+const $ = id => document.getElementById(id);
+function renderSide() {
+  let h = '', last = -1;
+  C.forEach((c, i) => {
+    if (c.a !== last) { last = c.a; h += `<div class="act ${actOpen(c.a) ? '' : 'locked'}"><span>${['I','II','III','IV'][c.a]}. ${ACTS[c.a]}</span><span>${actOpen(c.a) ? C.filter((x, j) => x.a === c.a && S.done[j]).length + '/' + C.filter(x => x.a === c.a).length : '🔒'}</span></div>`; }
+    const d = S.done[i];
+    h += `<div class="cm ${i === cur ? 'cur' : ''} ${actOpen(c.a) ? '' : 'locked'}" data-i="${i}"><span>${d ? '🎼' : '○'} ${c.n}</span><span class="st">${d ? '★'.repeat(d) + '☆'.repeat(3 - d) : ''}</span></div>`;
+  });
+  $('side').innerHTML = h + '<div class="note" style="margin:14px 6px">Finish most of an act to open the next. Sound on. Headphones help you hear the beats.</div>';
+  $('side').querySelectorAll('.cm').forEach(el => el.onclick = () => { const i = +el.dataset.i; if (actOpen(C[i].a)) { cur = i; S.cur = i; persist(); render(); } });
+  const n = Object.keys(S.done).length, st = Object.values(S.done).reduce((a, b) => a + b, 0);
+  $('totals').textContent = `${n}/${C.length} tunings · ${st}★`;
+}
+
+function render() {
+  const c = C[cur];
+  const presets = c.tools.includes('presets') ? `<select id="preset"><option value="">Load a tuning…</option><option value="et">Equal temperament</option>${Object.entries(PRESET).filter(([k]) => k !== 'et' && unlockedPreset(k)).map(([k, p]) => `<option value="${k}">${p.n}</option>`).join('')}${C.map((x, j) => S.tun[j] && j !== cur && S.done[j] ? `<option value="c${j}">Your tuning: ${x.n}</option>` : '').join('')}</select>` : '';
+  $('center').innerHTML = `
+    <div class="row" style="justify-content:space-between"><div><div class="dim small">${['I','II','III','IV'][c.a]}. ${ACTS[c.a]} · Commission ${cur + 1}</div><h2>${c.n}</h2></div>
+    <div class="row">${S.done[cur] ? `<span class="stars">${'★'.repeat(S.done[cur])}${'☆'.repeat(3 - S.done[cur])}</span>` : ''}${presets}<button id="resetBtn">Reset</button></div></div>
+    <p class="story">${c.s}</p>
+    <div class="wrap">
+      <svg id="wheel" viewBox="-220 -220 440 440"></svg>
+      <div class="panel">
+        <div class="box" id="ivBox"></div>
+        <div class="box" id="noteBox"></div>
+        <div class="box"><h3>Goals</h3><div class="goals" id="goals"></div>${c.piece ? '<div class="ctl"><button class="primary" id="pieceBtn">▶ Play the piece</button><button id="stopBtn">■</button></div>' : ''}</div>
+      </div>
+    </div>
+    <div class="box"><h3>Every interval <span class="note">(deviation from pure, in cents · click to select)</span></h3><div class="grid" id="grid"></div></div>`;
+  $('resetBtn').onclick = () => { S.tun[cur] = startTuning(cur); persist(); update(); };
+  if ($('preset')) $('preset').onchange = () => { const v = $('preset').value; if (!v) return; S.tun[cur] = v[0] === 'c' ? S.tun[+v.slice(1)].slice() : PRESET[v].c(); persist(); update(); $('preset').value = ''; };
+  if ($('pieceBtn')) { $('pieceBtn').onclick = () => playPiece(c.piece); $('stopBtn').onclick = stopAll; }
+  renderSide(); update();
+}
+const unlockedPreset = k => ({ pyth: 3, mean: 7, werck: 9, vallotti: 10 })[k] in S.done;
+
+function col(d, scale) { const x = Math.min(1, Math.abs(d) / scale); return `hsl(${130 - 130 * x},70%,${55 - 10 * x}%)`; }
+function update() {
+  const c = tun(), cm = C[cur];
+  // wheel
+  const R = 170, pos = FIFTHS.map((n, j) => { const a = -Math.PI / 2 + j / 12 * Math.PI * 2; return [R * Math.cos(a), R * Math.sin(a)]; });
+  const at = n => pos[FIFTHS.indexOf(n)];
+  let s = '';
+  for (let j = 0; j < 12; j++) { // thirds (inner star): note -> note+4 is 4 steps around the circle
+    const n = FIFTHS[j], m = (n + 4) % 12, [x1, y1] = at(n), [x2, y2] = at(m), d = dev(c, n, 4), sel = selI.i === n && selI.k === 4;
+    s += `<line x1="${x1 * .78}" y1="${y1 * .78}" x2="${x2 * .78}" y2="${y2 * .78}" stroke="${col(d, 22)}" stroke-width="${sel ? 5 : 2.2}" opacity="${sel ? 1 : .55}" pointer-events="none"/>`;
+    s += `<line class="arc" data-i="${n}" data-k="4" x1="${x1 * .78}" y1="${y1 * .78}" x2="${x2 * .78}" y2="${y2 * .78}" stroke="transparent" stroke-width="12"><title>${NM[n]}–${NM[m]} major third</title></line>`;
+  }
+  for (let j = 0; j < 12; j++) { // fifths (outer ring)
+    const n = FIFTHS[j], [x1, y1] = pos[j], [x2, y2] = pos[(j + 1) % 12], d = dev(c, n, 7), sel = selI.i === n && selI.k === 7;
+    const mx = (x1 + x2) / 2 * 1.13, my = (y1 + y2) / 2 * 1.13;
+    s += `<path d="M${x1},${y1} A${R},${R} 0 0 1 ${x2},${y2}" fill="none" stroke="${col(d, 12)}" stroke-width="${sel ? 10 : 6}" stroke-linecap="round" pointer-events="none"/>`;
+    s += `<path class="arc" data-i="${n}" data-k="7" d="M${x1},${y1} A${R},${R} 0 0 1 ${x2},${y2}" fill="none" stroke="transparent" stroke-width="22"><title>${NM[n]}–${NM[(n + 7) % 12]} fifth</title></path>`;
+    s += `<text x="${mx}" y="${my + 4}" text-anchor="middle" font-size="11" fill="${col(d, 12)}">${d >= 0 ? '+' : ''}${d.toFixed(1)}</text>`;
+  }
+  FIFTHS.forEach((n, j) => {
+    const [x, y] = pos[j], o = c[n] - 100 * n;
+    s += `<g class="node" data-n="${n}"><circle cx="${x}" cy="${y}" r="19" fill="${n === selN ? '#ffb547' : '#1e2330'}" stroke="#2a3040"/><text x="${x}" y="${y + 1}" text-anchor="middle" font-size="14" font-weight="700" fill="${n === selN ? '#1a1205' : '#e8e6df'}">${NM[n]}</text><text x="${x}" y="${y + 12}" text-anchor="middle" font-size="8" fill="${n === selN ? '#1a1205' : '#8a8f9c'}">${n ? (o >= 0 ? '+' : '') + o.toFixed(1) : 'ref'}</text></g>`;
+  });
+  s += `<text x="0" y="-6" text-anchor="middle" font-size="12" fill="#8a8f9c">outer ring: fifths</text><text x="0" y="10" text-anchor="middle" font-size="12" fill="#8a8f9c">inner star: major thirds</text>`;
+  $('wheel').innerHTML = s;
+  $('wheel').querySelectorAll('.arc').forEach(el => el.onclick = () => { selI = { i: +el.dataset.i, k: +el.dataset.k }; update(); playNotes(ivNotes(selI.i, selI.k)); });
+  $('wheel').querySelectorAll('.node').forEach(el => el.onclick = () => { selN = +el.dataset.n; update(); playNotes([[selN, 4]], 1.2); });
+  // interval box
+  const { i, k } = selI, j = (i + k) % 12, d = dev(c, i, k), b = beats(c, i, k);
+  $('ivBox').innerHTML = `<h3>${NM[i]}–${NM[j]} · ${IV[k].n}</h3>
+    <div class="row" style="gap:18px"><div><div class="big" style="color:${col(d, k === 7 ? 12 : 22)}">${d >= 0 ? '+' : ''}${d.toFixed(2)}¢</div><div class="note">${iv(c, i, k).toFixed(2)}¢ vs pure ${IV[k].pure.toFixed(2)}¢</div></div>
+    <div><div class="big beats">${b.toFixed(2)}</div><div class="note">beats per second</div></div></div>
+    <div class="meter"><div style="width:${Math.min(100, b * 10)}%"></div></div>
+    <div class="ctl"><button class="primary" id="ivPlay">▶ Listen</button><button id="ivPure" ${cm.tools.includes('pure') ? '' : 'disabled title="Unlocked in commission 3"'}>Make pure</button>
+    ${cm.tools.includes('temper') && k === 7 ? `<select id="tempSel"><option value="${-SC / 4}">narrow ¼ syntonic comma (−5.38¢)</option><option value="${-PC / 4}">narrow ¼ Pythagorean (−5.86¢)</option><option value="${-PC / 6}">narrow ⅙ Pythagorean (−3.91¢)</option><option value="${-PC / 12}">narrow 1/12 Pythagorean (−1.96¢)</option><option value="${-SC / 3}">narrow ⅓ syntonic (−7.17¢)</option><option value="${-SC / 6}">narrow ⅙ syntonic (−3.58¢)</option></select><button id="ivTemp">Temper</button>` : ''}</div>
+    <div class="note" style="margin-top:4px">${j === 0 ? 'C is the reference, so this moves the lower note instead.' : `Adjusting moves ${NM[j]}.`}</div>`;
+  $('ivPlay').onclick = () => playNotes(ivNotes(i, k));
+  const setIv = target => { const t = tun(); if (j !== 0) { t[j] = t[i] + target - (i + k >= 12 ? 1200 : 0); } else { t[i] = t[j] + (i + k >= 12 ? 1200 : 0) - target; } persist(); update(); playNotes(ivNotes(i, k)); };
+  if ($('ivPure')) $('ivPure').onclick = () => setIv(IV[k].pure);
+  if ($('ivTemp')) $('ivTemp').onclick = () => setIv(IV[k].pure + +$('tempSel').value);
+  // note box
+  const o = c[selN] - 100 * selN;
+  $('noteBox').innerHTML = `<h3>Note ${NM[selN]} ${selN ? '' : '<span class="note">(reference pitch, fixed)</span>'}</h3>
+    <div class="row"><span class="big">${selN ? (o >= 0 ? '+' : '') + o.toFixed(2) + '¢' : '0¢'}</span><span class="note">from equal temperament · ${freqAt(selN, 4).toFixed(2)} Hz</span></div>
+    <div class="ctl">${[-5, -1, -.1, .1, 1, 5].map(x => `<button data-n="${x}" ${selN ? '' : 'disabled'}>${x > 0 ? '+' : ''}${x}</button>`).join('')}<button id="nPlay">▶</button></div>
+    ${selN ? `<input type="range" id="nSl" min="-50" max="50" step="0.05" value="${o}" style="width:100%;margin-top:6px">` : ''}`;
+  $('noteBox').querySelectorAll('[data-n]').forEach(bn => bn.onclick = () => { tun()[selN] += +bn.dataset.n; persist(); update(); playNotes(ivNotes(selI.i, selI.k), 1.6); });
+  $('nPlay').onclick = () => playNotes([[selN, 4]], 1.2);
+  if ($('nSl')) $('nSl').oninput = () => { tun()[selN] = 100 * selN + +$('nSl').value; persist(); updateSoft(); };
+  if ($('nSl')) $('nSl').onchange = () => { update(); playNotes(ivNotes(selI.i, selI.k), 1.6); };
+  updateGoals();
+  // grid
+  let g = '<div class="h"></div>'.repeat(0);
+  g += NM.map(n => `<div class="h">${n}</div>`).join('');
+  [[7, 'fifth', 12], [4, 'M3', 22], [3, 'm3', 22]].forEach(([k2, lab, sc]) => {
+    g += Array.from({ length: 12 }, (_, i2) => { const d2 = dev(c, i2, k2), sel = selI.i === i2 && selI.k === k2; return `<div data-i="${i2}" data-k="${k2}" title="${NM[i2]}–${NM[(i2 + k2) % 12]} ${lab}" style="background:${col(d2, sc)}22;color:${col(d2, sc)};${sel ? 'outline:1px solid var(--accent)' : ''}">${d2 >= 0 ? '+' : ''}${d2.toFixed(1)}</div>`; }).join('');
+  });
+  $('grid').innerHTML = g + '<div class="note" style="grid-column:1/-1;text-align:left">Rows: fifths, major thirds, minor thirds, starting on each note.</div>';
+  $('grid').querySelectorAll('[data-k]').forEach(el => el.onclick = () => { selI = { i: +el.dataset.i, k: +el.dataset.k }; update(); playNotes(ivNotes(selI.i, selI.k)); });
+}
+function updateSoft() { // during slider drag: just goals + labels
+  updateGoals();
+}
+let celebrating = false;
+function updateGoals() {
+  const c = tun(), cm = C[cur], ev = cm.goals.map(g => goalEval(g, c));
+  $('goals').innerHTML = ev.map(e => `<div class="g"><span>${e.label}</span><span class="${e.stars === 3 ? 'ok' : e.stars ? 'mid' : 'no'}">${e.val ?? ''} ${e.stars ? '★'.repeat(e.stars) : '✗'}</span></div>`).join('') +
+    (cm.goals[0].tol ? `<div class="note" style="margin-top:4px">Thresholds for ★/★★/★★★: ${cm.goals[0].tol.map(x => x + '¢').join(' / ')}${cm.goals.length > 1 ? ' (per goal)' : ''}.</div>` : '');
+  const stars = Math.min(...ev.map(e => e.stars));
+  if (stars > 0 && (S.done[cur] || 0) < stars) {
+    const first = !S.done[cur]; S.done[cur] = stars; persist(); renderSide();
+    if (first && !celebrating) {
+      celebrating = true;
+      const nxt = C.findIndex((x, j) => j > cur && !S.done[j] && actOpen(x.a));
+      setTimeout(async () => {
+        if (cm.piece) playPiece(cm.piece); else playNotes([[0, 3], [4, 4], [7, 4], [0, 5]], 2.5);
+        const go = await RH.modal(`<h2>🎼 ${cm.n}</h2><p class="stars" style="font-size:26px;text-align:center">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</p><p style="text-align:center">${stars < 3 ? 'The commission is met. Tighter tuning earns more stars.' : 'Beautifully in tune.'}</p>`, nxt >= 0 ? [{ label: 'Keep tuning', value: 0 }, { label: `Next: ${C[nxt].n}`, value: 1 }] : [{ label: 'Close', value: 0 }]);
+        celebrating = false; if (go) { cur = nxt; S.cur = cur; persist(); render(); }
+      }, 250);
+    } else if (!first) RH.toast(`Improved: ${'★'.repeat(stars)}`);
+  }
+}
+
+const help = () => RH.modal(`<h2>🎹 Temperament</h2>
+  <p>A keyboard has twelve notes per octave, and you can't make all their intervals pure at once. It's a mathematical impossibility that musicians fought over for 2,000 years.</p>
+  <p>You tune the twelve notes. The <b>wheel</b> shows the circle of fifths (outer ring) and the major thirds (inner star), coloured green when pure and red when they beat. <b>Click any interval to hear it.</b> When an interval is out of tune you hear <b>beats</b>, a pulsing whose speed you can count.</p>
+  <p>Walk the history: Pythagoras' pure fifths and the comma that ruins them, sweet Renaissance thirds and meantone's wolf, Werckmeister and Bach, equal temperament, and finally your own temperaments for composers' commissions.</p>
+  <p class="dim">Sound matters here. Headphones recommended.</p>`, [{ label: 'Tune up' }]);
+$('helpBtn').onclick = help;
+if (!S.intro) { S.intro = 1; persist(); help(); }
+render();
+window.__tm = { C, S, goalEval, PRESET, tun, ET, dev, iv, chordErr, render, setCur: i => { cur = i; render(); } };
+</script>
+</body>
+</html>
