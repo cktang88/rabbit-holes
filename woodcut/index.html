@@ -114,7 +114,13 @@ const lum = c => .2126 * c[0] + .7152 * c[1] + .0722 * c[2];
 const I = (n, c, m = 'o', c2) => ({ n, hex: c, m, c: lin(c), c2: c2 ? lin(c2) : null, hex2: c2 });
 const ftT = x => { const t = clamp((x / (R - 1) - .1) / .8, 0, 1); return t * t * (3 - 2 * t); };
 function inkAt(ink, x, o) { if (!ink.c2) { o[0] = ink.c[0]; o[1] = ink.c[1]; o[2] = ink.c[2]; return o; } const t = ftT(x); for (let k = 0; k < 3; k++) o[k] = ink.c[k] + (ink.c2[k] - ink.c[k]) * t; return o; }
-function over(base, ink, x, o) { const ic = inkAt(ink, x, [0, 0, 0]); for (let k = 0; k < 3; k++) o[k] = ink.m === 't' ? base[k] * ic[k] : ic[k]; return o; }
+// Opaque ink is not perfectly opaque: dark over light covers, but a LIGHT ink over a DARK ground lets
+// the dark ghost through (cover drops with the lightness gap). This is why light→dark is the real rule.
+const OPQ = .5, cover = (bl, il) => { const d = Math.cbrt(il) - Math.cbrt(bl); return d > 0 ? 1 - OPQ * d : 1; };
+const OVS = [0, 0, 0];
+function over(base, ink, x, o) { const ic = inkAt(ink, x, OVS);
+  if (ink.m === 't') { for (let k = 0; k < 3; k++) o[k] = base[k] * ic[k]; return o; }
+  const cv = cover(lum(base), lum(ic)); for (let k = 0; k < 3; k++) o[k] = base[k] + (ic[k] - base[k]) * cv; return o; }
 const inkCss = (ink, base) => ink.c2 ? `linear-gradient(90deg,${css(over(base, ink, 0, []))},${css(over(base, ink, R - 1, []))})` : css(over(base, ink, R / 2, []));
 
 // ---------------- shape helpers for targets (256-unit coordinates) ----------------
@@ -433,10 +439,9 @@ function applyPull(k) {
     if (!uncut[i]) continue; const x = i % R, j = i * 3; inkAt(ink, x, ic);
     // ideal colour (for scoring) and a speckled display colour: grain and paper tooth starve a few spots of ink
     let cov = .93 + .07 * rnd() - .16 * Math.max(0, grain[i] - .72) * 3; if (rnd() < .012) cov *= .45;
-    for (let c = 0; c < 3; c++) {
-      if (ink.m === 't') { pcol[j + c] *= ic[c]; disp[j + c] *= 1 + (ic[c] - 1) * cov; }
-      else { pcol[j + c] = ic[c]; disp[j + c] += (ic[c] - disp[j + c]) * cov; }
-    }
+    if (ink.m === 't') for (let c = 0; c < 3; c++) { pcol[j + c] *= ic[c]; disp[j + c] *= 1 + (ic[c] - 1) * cov; }
+    else { const cv = cover(.2126 * pcol[j] + .7152 * pcol[j + 1] + .0722 * pcol[j + 2], .2126 * ic[0] + .7152 * ic[1] + .0722 * ic[2]);
+      for (let c = 0; c < 3; c++) { const v = pcol[j + c] + (ic[c] - pcol[j + c]) * cv; pcol[j + c] = v; disp[j + c] += (v - disp[j + c]) * cov; } }
     pt[i]++;
   }
   prevInk = surfInk; surfInk = ink; passes.push(k); usedK.add(k); undo = []; computePlab(); renderPrint(); pvDirty = true;
