@@ -116,11 +116,11 @@ const ftT = x => { const t = clamp((x / (R - 1) - .1) / .8, 0, 1); return t * t 
 function inkAt(ink, x, o) { if (!ink.c2) { o[0] = ink.c[0]; o[1] = ink.c[1]; o[2] = ink.c[2]; return o; } const t = ftT(x); for (let k = 0; k < 3; k++) o[k] = ink.c[k] + (ink.c2[k] - ink.c[k]) * t; return o; }
 // Opaque ink is not perfectly opaque: dark over light covers, but a LIGHT ink over a DARK ground lets
 // the dark ghost through (cover drops with the lightness gap). This is why light→dark is the real rule.
-const OPQ = .5, cover = (bl, il) => { const d = Math.cbrt(il) - Math.cbrt(bl); return d > 0 ? 1 - OPQ * d : 1; };
+const OPQ = .8, cover = (bl, il, dense) => { const d = Math.cbrt(il) - Math.cbrt(bl); return d > 0 && !dense ? 1 - OPQ * d : 1; };
 const OVS = [0, 0, 0];
 function over(base, ink, x, o) { const ic = inkAt(ink, x, OVS);
   if (ink.m === 't') { for (let k = 0; k < 3; k++) o[k] = base[k] * ic[k]; return o; }
-  const cv = cover(lum(base), lum(ic)); for (let k = 0; k < 3; k++) o[k] = base[k] + (ic[k] - base[k]) * cv; return o; }
+  const cv = cover(lum(base), lum(ic), ink.dense); for (let k = 0; k < 3; k++) o[k] = base[k] + (ic[k] - base[k]) * cv; return o; }
 const inkCss = (ink, base) => ink.c2 ? `linear-gradient(90deg,${css(over(base, ink, 0, []))},${css(over(base, ink, R - 1, []))})` : css(over(base, ink, R / 2, []));
 
 // ---------------- shape helpers for targets (256-unit coordinates) ----------------
@@ -193,7 +193,7 @@ const LV = [
       [4, c => E(c, 128, 198, 72, 7)],
       [2, c => { E(c, 128, 150, 62, 46); P(c, 'M184 150 Q214 130 226 104 L236 108 Q222 152 186 170Z'); S(c, 'M72 122 Q34 142 72 176', 10); E(c, 128, 104, 30, 10); }],
       [0, c => { for (const [x, y, r] of [[106, 148, 7], [150, 148, 7], [128, 170, 6], [96, 170, 5], [160, 170, 5], [128, 128, 6]]) C(c, x, y, r); }], [4, c => C(c, 128, 92, 7)]] },
-  { n: 'Mesa at Nightfall', paper: CREAM, inks: [I('Indigo', '#2b2a4f'), I('Rose', '#d77a8c', 't'), I('Gold', '#f0b545')],
+  { n: 'Mesa at Nightfall', paper: CREAM, inks: [I('Indigo', '#2b2a4f'), I('Rose', '#d77a8c', 't'), Object.assign(I('Gold', '#f0b545'), { dense: 1 })],
     story: 'The palette is sorted light to dark, as usual. This sky starts <b>dark</b>. The mesa is indigo glazed with transparent rose.',
     fact: 'Opaque light inks can sit on a dark ground. Printers save this trick for night scenes and neon.',
     layers: [[1, ALL], [0, c => { Q(c, 0, 120, 256, 80); for (const [x, y] of [[30, 30], [80, 58], [220, 38], [190, 88], [130, 20]]) C(c, x, y, 3); }],
@@ -440,7 +440,7 @@ function applyPull(k) {
     // ideal colour (for scoring) and a speckled display colour: grain and paper tooth starve a few spots of ink
     let cov = .93 + .07 * rnd() - .16 * Math.max(0, grain[i] - .72) * 3; if (rnd() < .012) cov *= .45;
     if (ink.m === 't') for (let c = 0; c < 3; c++) { pcol[j + c] *= ic[c]; disp[j + c] *= 1 + (ic[c] - 1) * cov; }
-    else { const cv = cover(.2126 * pcol[j] + .7152 * pcol[j + 1] + .0722 * pcol[j + 2], .2126 * ic[0] + .7152 * ic[1] + .0722 * ic[2]);
+    else { const cv = cover(.2126 * pcol[j] + .7152 * pcol[j + 1] + .0722 * pcol[j + 2], .2126 * ic[0] + .7152 * ic[1] + .0722 * ic[2], ink.dense);
       for (let c = 0; c < 3; c++) { const v = pcol[j + c] + (ic[c] - pcol[j + c]) * cv; pcol[j + c] = v; disp[j + c] += (v - disp[j + c]) * cov; } }
     pt[i]++;
   }
@@ -802,7 +802,7 @@ window.__wc = {
   solve(i) { this.load(i); const n = LV[i].inks.length; for (let k = 0; k < n; k++) { this.carveState(k); pull(k, true); } return result; },
   blank(i) { this.load(i); return score().lk; },
   naive(i) { this.load(i); for (let k = 0; k < LV[i].inks.length; k++) applyPull(k); return score().lk; },
-  get anim() { return anim; }, layout, get boxes() { return { B, PR, TC, dpr }; },
+  get anim() { return anim; }, _tgt: () => targetCv.toDataURL(), layout, get boxes() { return { B, PR, TC, dpr }; },
 };
 </script>
 </body>
