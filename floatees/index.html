@@ -48,7 +48,7 @@
   #ctrl .hint{font-size:12px;color:#2c1e08;padding:0 4px;font-style:italic}
   /* the tally is a typed field report */
   #tally{bottom:16px;right:16px;padding:12px 14px;width:244px;font-size:12.5px;line-height:1.55;background:var(--grain),repeating-linear-gradient(transparent 0 19px,rgba(31,53,80,.14) 19px 20px),linear-gradient(#f5efde,#e9dfc4)}
-  #tally .r{display:flex;justify-content:space-between;gap:6px} #tally .r span{overflow:hidden;white-space:nowrap}
+  #tally .r{display:flex;justify-content:space-between;gap:6px} #tally .r span{overflow:hidden;white-space:nowrap} #tally .r.wrap{flex-wrap:wrap} #tally .r.wrap b{white-space:normal;text-align:right;margin-left:auto}
   #tally .r span::after{content:' ..........................................';color:rgba(42,33,22,.35)}
   #tally b{color:var(--red);flex:none}
   #tally .hd{font:400 12px "Special Elite";letter-spacing:.1em;color:var(--navy);margin:4px 0 2px;text-transform:uppercase}
@@ -121,6 +121,7 @@
     #report{transform:translate(-50%,-50%) scale(.75) rotate(6deg)} #report.on{transform:translate(-50%,-50%) scale(.75) rotate(-2deg)}
     #toast{font-size:18px;top:30%;left:calc(50% + 135px);max-width:52vw;padding:8px 14px} #toast small{font-size:11.5px}
   }
+  @media (pointer:coarse){select{font-size:16px!important}}
   @media (prefers-reduced-motion:reduce){.pcard{animation:none}#report.on .conf{animation:none;opacity:1;transform:translate(-50%,-50%) rotate(-12deg)}}
 </style>
 </head>
@@ -504,7 +505,7 @@ function latLonAt(e) {
 }
 canvas.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
 canvas.addEventListener('pointerup', e => {
-  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) return; // that was a drag, not a click
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > (e.pointerType === 'mouse' ? 6 : 14)) return; // that was a drag, not a click (fingers jitter more)
   const ll = latLonAt(e); if (!ll) return;
   dropAt(ll[0], ll[1]);
 });
@@ -527,7 +528,9 @@ function dropAt(lat, lon) {
   drop(lat, lon, 100); if (!L.free) simT = 0;
   return true;
 }
-canvas.addEventListener('pointermove', e => { const ll = latLonAt(e), tip = $('tip'); if (!ll) { tip.style.display = 'none'; return; } tip.style.display = 'block'; tip.style.left = e.clientX + 14 + 'px'; tip.style.top = e.clientY + 10 + 'px'; tip.textContent = `${Math.abs(ll[0]).toFixed(1)}°${ll[0] >= 0 ? 'N' : 'S'} ${Math.abs(ll[1]).toFixed(1)}°${ll[1] >= 0 ? 'E' : 'W'}${isLand(...ll) ? ' · land' : ''}`; });
+const hideTip = () => { $('tip').style.display = 'none'; };
+for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) canvas.addEventListener(ev, hideTip); // touch has no hover: the tooltip must not stay stuck after a drag
+canvas.addEventListener('pointermove', e => { if (e.pointerType !== 'mouse') return hideTip(); const ll = latLonAt(e), tip = $('tip'); if (!ll) { tip.style.display = 'none'; return; } tip.style.display = 'block'; tip.style.left = e.clientX + 14 + 'px'; tip.style.top = e.clientY + 10 + 'px'; tip.textContent = `${Math.abs(ll[0]).toFixed(1)}°${ll[0] >= 0 ? 'N' : 'S'} ${Math.abs(ll[1]).toFixed(1)}°${ll[1] >= 0 ? 'E' : 'W'}${isLand(...ll) ? ' · land' : ''}`; });
 
 // ================= UI =================
 function maxOpen() { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; }
@@ -600,7 +603,7 @@ function renderTally(S) {
   const rows = Object.entries(S.regions).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, MOBILE ? 4 : 6);
   const ms = r => S.meas[r] ? `<b>${kmday(S.meas[r]).toFixed(0)} km/day</b>` : '<span style="opacity:.5">not yet</span>';
   $('tally').innerHTML = `<div class="r"><span>afloat</span><b>${S.afloat}</b></div>` + rows.map(([k, v]) => `<div class="r"><span>${k === 'other' ? 'elsewhere' : REG[k].n}</span><b>${v}</b></div>`).join('')
-    + (L.bet && S.first ? `<div class="r"><span>first ashore</span><b>${REG[S.first].n}</b></div>` : '')
+    + (L.bet && S.first ? `<div class="r wrap"><span>first ashore</span><b>${REG[S.first].n}</b></div>` : '')
     + (L.patch ? `<div class="r"><span>in the garbage patch</span><b>${S.patch}</b></div>` : '') + (L.n === 'Round the World' ? `<div class="r"><span>furthest east/west</span><b>${S.maxLap.toFixed(0)}°</b></div>` : '')
     + (L.measure ? `<div class="r" style="margin-top:4px;color:#8fa6c8"><span>fastest current, W Atlantic</span></div><div class="r"><span>spin normal</span>${ms(1)}</div><div class="r"><span>spin off</span>${ms(0)}</div>` : '');
   const nc = Object.keys(SAVE.cards).filter(k => REG[k]).length;

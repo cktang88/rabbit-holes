@@ -257,7 +257,7 @@ function buildLevel(i) {
   stat = {}; measure(); buildMarkers(); renderUI(); updateGeometry(true);
   $('lvName').textContent = L.n; $('place').textContent = L.place; $('goal').innerHTML = L.goal; $('first').innerHTML = L.first || '';
   $('report').classList.remove('on'); $('levels').classList.remove('open'); document.body.classList.remove('playing', 'brief');
-  setTool(Object.keys(L.kit)[0]); setSpeed(0); renderScore(); renderYears(); renderWorks(); showTags(false);
+  setTool('view'); /* start in Look: the first drag turns the model instead of spending a piece */ setSpeed(0); renderScore(); renderYears(); renderWorks(); showTags(false);
   frameCam(); resize();
 }
 // ================= works: a small kit of pieces =================
@@ -732,7 +732,7 @@ canvas.addEventListener('pointerdown', e => {
   if (e.button !== 0 || tool === 'view' || over) return;
   const g = pickGround(e); if (!g) return;
   $('hint').style.opacity = 0; document.body.classList.add('playing'); document.body.classList.remove('brief'); showTags(false);
-  drag.on = true; drag.a = g; drag.b = g; hover.on = true; hover.x = g[0]; hover.y = g[1]; canvas.setPointerCapture(e.pointerId);
+  drag.on = true; drag.a = g; drag.b = g; drag.sx = e.clientX; drag.sy = e.clientY; hover.on = true; hover.x = g[0]; hover.y = g[1]; canvas.setPointerCapture(e.pointerId);
 });
 let lastPick = 0;
 canvas.addEventListener('pointermove', e => {
@@ -743,6 +743,8 @@ canvas.addEventListener('pointermove', e => {
 canvas.addEventListener('pointerleave', () => { if (!drag.on) hover.on = false; });
 canvas.addEventListener('pointerup', e => {
   if (!drag.on) return; drag.on = false;
+  // fields and forests are placed by a tap; a finger that slid away was not a tap
+  if (!WORKS[tool].drag && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 14) { msg('Tap to place a ' + WORKS[tool].n.toLowerCase() + ' (pick Look, or use two fingers, to turn the model).', 2200); return; }
   const g = pickGround(e) || drag.b, r = placeWork(tool, drag.a, WORKS[tool].drag ? g : drag.a);
   if (typeof r === 'string') { snd.fail(); msg(r, 2200); } else { WORKS[tool].drag ? snd.plaster() : snd.pencil(); renderWorks(); renderUI(); }
 });
@@ -912,7 +914,7 @@ window.__ws = { SC, LV: SC, buildLevel: i => buildLevel(i), stat: () => stat, me
   // run whole years headless (what the game loop does, without drawing)
   stepN: n => { headless = true; for (let i = 0; i < n && !over; i++) step(); headless = false; return yStep; },
   runYears: n => { headless = true; const y1 = year + n; while (year < y1 && !over) step(); headless = false; return measure(); },
-  get stepCost() { return stepCost; }, get farmDiag() { return farmDiag; } };
+  get stepCost() { return stepCost; }, camPos: () => camera.position.toArray(), get farmDiag() { return farmDiag; } };
 
 </script>
 </body>

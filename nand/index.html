@@ -124,7 +124,7 @@
 <main>
   <div id="side">
     <div id="brief"></div>
-    <div><div class="dim small" style="margin-bottom:6px">Parts (click to add)</div><div id="palette"></div></div>
+    <div><div class="dim small" style="margin-bottom:6px">Parts (tap to add)</div><div id="palette"></div></div>
     <div class="row"><button class="primary" id="testBtn">▶ Run tests</button></div>
     <div id="result"></div>
     <div id="levels"></div>
@@ -625,7 +625,7 @@ function draw(){
     ctx.strokeStyle='rgba(255,246,208,.9)'; ctx.lineWidth=2; for (const p of ports){ ctx.beginPath(); ctx.arc(p.x,p.y,pulse,0,7); ctx.stroke(); }
     if (circ.comps.length){ const a={x:W_IN,y:pinY(0,1)}, b={x:circ.comps[0].x, y:circ.comps[0].y+16}; const k=(now%1600)/1600; ctx.setLineDash([4,6]); ctx.strokeStyle='rgba(255,246,208,.6)'; bez(a,b); ctx.stroke(); ctx.setLineDash([]);
       const q=bezPt(wirePts(a,b),k); ctx.fillStyle='#fff6d0'; ctx.beginPath(); ctx.arc(q.x,q.y,4,0,7); ctx.fill(); ctx.font=FONT(11,'600'); ctx.textAlign='left'; ctx.fillStyle=PCB.silk; ctx.fillText('drag from dot to dot', (a.x+b.x)/2-40, Math.max(a.y,b.y)+40); }
-    else { ctx.font=FONT(12,'600'); ctx.fillStyle=PCB.silk; ctx.textAlign='left'; ctx.fillText('← click NAND in Parts to place a chip', W_IN+60, pinY(0,1)-30); } }
+    else { ctx.font=FONT(12,'600'); ctx.fillStyle=PCB.silk; ctx.textAlign='left'; ctx.fillText('← tap NAND in Parts to place a chip', W_IN+60, pinY(0,1)-30); } }
   drawPackaging(now);
 }
 function lcd(x,y,txt,w){ ctx.fillStyle='#1b1d16'; rr(x-w/2-3,y-9,w+6,18,2); ctx.fill(); ctx.fillStyle='#9fbf57'; rr(x-w/2,y-7,w,14,1); ctx.fill(); ctx.fillStyle='#1d2a0c'; ctx.font='16px VT323, monospace'; ctx.textAlign='center'; ctx.fillText(txt, x, y+5); }
@@ -697,14 +697,16 @@ function animLoop(){ if (!softOn && !document.hidden) draw(); requestAnimationFr
 // ======================= Interaction =======================
 let touchPtr=false;
 function hitPort(wx,wy){
-  const l=lv(); const R=(touchPtr?18:9)/view.z+4;
-  for (let i=0;i<l.ins.length;i++){ const y=pinY(i,l.ins.length); if (Math.hypot(wx-W_IN,wy-y)<R) return {ref:['in',i],dir:'out'}; }
-  for (let i=0;i<l.outs.length;i++){ const y=pinY(i,l.outs.length); if (Math.hypot(wx-W_OUT,wy-y)<R) return {ref:['out',i],dir:'in'}; }
+  // the nearest port within reach (a finger reaches further than a mouse), never simply the first one found
+  const l=lv(); const R=(touchPtr?18:9)/view.z+4; let best=null, bd=R;
+  const consider=(x,y,hit)=>{ const d=Math.hypot(wx-x,wy-y); if (d<bd){ bd=d; best=hit; } };
+  for (let i=0;i<l.ins.length;i++) consider(W_IN, pinY(i,l.ins.length), {ref:['in',i],dir:'out'});
+  for (let i=0;i<l.outs.length;i++) consider(W_OUT, pinY(i,l.outs.length), {ref:['out',i],dir:'in'});
   for (const c of circ.comps){ const t=TYPES[c.type]; if(!t) continue; const s=compSize(c);
-    for (let i=0;i<t.ins.length;i++) if (Math.hypot(wx-c.x,wy-(c.y+16+i*18))<R) return {ref:[c.id,i],dir:'in'};
-    for (let i=0;i<t.outs.length;i++) if (Math.hypot(wx-(c.x+s.w),wy-(c.y+16+i*18))<R) return {ref:[c.id,i],dir:'out'};
+    for (let i=0;i<t.ins.length;i++) consider(c.x, c.y+16+i*18, {ref:[c.id,i],dir:'in'});
+    for (let i=0;i<t.outs.length;i++) consider(c.x+s.w, c.y+16+i*18, {ref:[c.id,i],dir:'out'});
   }
-  return null;
+  if (best) best.dist=bd; return best;
 }
 function hitPin(wx,wy){ const l=lv(); for (let i=0;i<l.ins.length;i++){ const y=pinY(i,l.ins.length); const bw=l.ins[i][1]>1?56:34; if (wx>W_IN-bw && wx<W_IN-6 && Math.abs(wy-y)<14) return i; } return -1; }
 function hitComp(wx,wy){ for (let i=circ.comps.length-1;i>=0;i--){ const c=circ.comps[i]; const s=compSize(c); if (wx>=c.x&&wx<=c.x+s.w&&wy>=c.y&&wy<=c.y+s.h) return c; } return null; }
@@ -740,7 +742,9 @@ cv.addEventListener('pointerdown', e=>{ touchPtr = e.pointerType==='touch'; if (
     const c=hitComp(wx,wy); if (c){ delComp(c); return; }
     const wi=hitWire(wx,wy); if (wi>=0){ circ.wires.splice(wi,1); selWire=-1; afterEdit(); } return;
   }
-  const p=hitPort(wx,wy);
+  let p=hitPort(wx,wy);
+  // on a chip's body (not right on one of its legs) a touch moves the chip; only the legs start wires
+  if (p && touchPtr){ const body=hitComp(wx,wy); if (body && p.dist>7 && wx>body.x+4 && wx<body.x+compSize(body).w-4) p=null; }
   if (p){ drag={kind:'wire',p,a:portPos(p.ref,p.dir),m:{x:wx,y:wy}}; return; }
   const pi=hitPin(wx,wy);
   if (pi>=0){

@@ -108,6 +108,10 @@
     .tb{min-height:42px;min-width:42px;justify-content:center;padding:4px 8px}
     #tools .tb{order:1} #acts .tb{order:2} #inks .tb{order:3} #acts .tb.pull{order:4}
     #inks .tb .lbl{display:none}
+    /* touch has no tooltips: every glyph tool carries a short name under it */
+    .tb[data-s]{flex-direction:column;gap:1px;padding:3px 5px;min-width:44px}
+    .tb[data-s]::after{content:attr(data-s);font:600 9.5px/1 Spectral,Georgia,serif;letter-spacing:.02em;white-space:nowrap}
+    #lvSel{font-size:16px}
     #toast{font-size:16px;padding:10px 30px 10px 14px} #toast small{font-size:13px}
   }
   /* landscape phones: the slip becomes a column on the left, the rack a strip along the bottom */
@@ -454,7 +458,7 @@ function load(i, opts = {}) {
     if (i >= 8) { const r = RH.rng(i * 13 + 7), lt = L.show.join(); let g = 0; do r.shuffle(L.show); while (g++ < 20 && (L.show.join() === lt || L.show.every((k, j) => k === j))); } }
   $('title').textContent = L.n; $('story').innerHTML = L.story;
   renderPrint(); blockDirty = true; pvDirty = true; hlComp = -2; renderLevels(); renderTray(); updateHUD(); layout();
-  if (innerWidth < 900 && !(innerHeight < 520 && innerWidth > innerHeight) && !opts.quiet) toast(L.n, L.story, 7000); // landscape phones show the story in the slip
+  // phones: the story sits in the slip's step line until the first cut (no card covering the level picker)
   if (!opts.fresh) restoreWip();
 }
 function idealStrokes() { let n = 0; const top = L.studio ? T.maxS : L.need; for (const r of T.regions) if (r.s < top) n++; return n; }
@@ -827,7 +831,7 @@ function setTool(t) { tool = t; hlComp = -2; FX.sfx('click'); renderTray(); upda
 function surfaceColor() { if (!passes.length) return PAPER; for (let i = 0; i < N; i++) if (uncut[i]) return [pcol[i * 3], pcol[i * 3 + 1], pcol[i * 3 + 2]]; return PAPER; }
 function renderTray() {
   const rl = rLeft();
-  $('tools').innerHTML = TOOLS.map(([k, n, ic, tip], j) => `<button class="tb ${tool === k ? 'on' : ''}" data-t="${k}" title="${n}: ${tip} (${j + 1})${k === 'region' && rl < 1e9 ? ' · ' + rl + ' clean cuts left' : ''}" ${k === 'region' && rl <= 0 && !finished ? 'disabled' : ''}><span class="ic">${ic}</span><span class="lbl">${n}</span>${k === 'region' && rl < 1e9 ? `<span class="cnt">×${rl}</span>` : ''}</button>`).join('') + `<button class="tb" id="undo" title="Undo (Z)" ${undo.length && !finished ? '' : 'disabled'}><span class="ic">↶</span><span class="lbl">Undo</span></button>`;
+  $('tools').innerHTML = TOOLS.map(([k, n, ic, tip], j) => `<button data-s="${{ v: 'V-cut', u: 'U-cut', region: 'Region', lasso: 'Lasso' }[k]}" class="tb ${tool === k ? 'on' : ''}" data-t="${k}" title="${n}: ${tip} (${j + 1})${k === 'region' && rl < 1e9 ? ' · ' + rl + ' clean cuts left' : ''}" ${k === 'region' && rl <= 0 && !finished ? 'disabled' : ''}><span class="ic">${ic}</span><span class="lbl">${n}</span>${k === 'region' && rl < 1e9 ? `<span class="cnt">×${rl}</span>` : ''}</button>`).join('') + `<button class="tb" data-s="Undo" id="undo" title="Undo (Z)" ${undo.length && !finished ? '' : 'disabled'}><span class="ic">↶</span><span class="lbl">Undo</span></button>`;
   const base = surfaceColor();
   $('inks').innerHTML = L.show.map(k => { const ink = L.inks[k], used = !L.studio && usedK.has(k);
     // swatch = what the remaining uncut surface becomes: current colour | colour after this ink
@@ -835,15 +839,15 @@ function renderTray() {
     return `<button class="tb ${sel === k ? 'on' : ''} ${used ? 'used' : ''}" data-k="${k}" title="${ink.n} (${ink.m === 't' ? 'transparent' : ink.dense ? 'dense opaque: covers even dark' : 'opaque: covers darker-over-lighter'}): left = now, right = after this ink" ${used || finished ? 'disabled' : ''}><span class="sw" style="background:${bg}"></span><span class="lbl">${ink.n}</span><span class="md ${ink.m === 't' ? 't' : ''}">${ink.m === 't' ? 'Tr' : ink.dense ? 'Op+' : 'Op'}</span></button>`; }).join('');
   const conf = performance.now() - confirmAt < 3000 && sel >= 0;
   $('acts').innerHTML = `<button class="tb pull ${conf ? 'confirm' : ''}" id="pullB" ${sel < 0 || finished ? 'disabled' : ''}><span class="ic">▤</span><span class="lbl">${conf ? 'Confirm pull' : 'Pull print'}</span></button>`
-    + `<button class="tb ${preview ? 'on' : ''}" id="pvB" title="Preview the next pull (V)"><span class="ic">◐</span><span class="lbl">Preview</span></button>`
-    + (L.studio ? `<button class="tb" id="promptB" title="Random subject"><span class="ic">✎</span><span class="lbl">Prompt</span></button>` : '')
-    + `<button class="tb" id="finB" ${passes.length && !finished ? '' : 'disabled'} title="Sign the edition now"><span class="ic">⬚</span><span class="lbl">Sign</span></button>`
-    + `<button class="tb" id="rstB" title="Start over with a fresh block"><span class="ic">⟲</span><span class="lbl">New block</span></button>`;
+    + `<button data-s="Preview" class="tb ${preview ? 'on' : ''}" id="pvB" title="Preview the next pull (V)"><span class="ic">◐</span><span class="lbl">Preview</span></button>`
+    + (L.studio ? `<button class="tb" data-s="Prompt" id="promptB" title="Random subject"><span class="ic">✎</span><span class="lbl">Prompt</span></button>` : '')
+    + `<button class="tb" data-s="Sign" id="finB" ${passes.length && !finished ? '' : 'disabled'} title="Sign the edition now"><span class="ic">⬚</span><span class="lbl">Sign</span></button>`
+    + `<button class="tb" data-s="New block" id="rstB" title="Start over with a fresh block"><span class="ic">⟲</span><span class="lbl">New block</span></button>`;
   $('tools').querySelectorAll('[data-t]').forEach(b => b.onclick = () => setTool(b.dataset.t));
   $('undo').onclick = doUndo;
   $('inks').querySelectorAll('[data-k]').forEach(b => b.onclick = () => {
     const k = +b.dataset.k; if (L.studio && sel === k) { const ink = L.inks[k]; ink.m = ink.m === 't' ? 'o' : 't'; toast(ink.n + ' is now ' + (ink.m === 't' ? 'transparent' : 'opaque'), '', 1600); }
-    sel = sel === k && !L.studio ? -1 : k; confirmAt = -1e9; FX.sfx('pop'); FX.tone({ noise: 1, f: 300, q: .8, dur: .09, vol: .08 }); pvDirty = true; renderTray(); updateHUD(); kick(); });
+    sel = k; confirmAt = -1e9; FX.sfx('pop'); FX.tone({ noise: 1, f: 300, q: .8, dur: .09, vol: .08 }); pvDirty = true; renderTray(); updateHUD(); kick(); });
   $('pullB').onclick = pullBtn; $('pvB').onclick = () => { preview = !preview; FX.sfx('click'); pvDirty = true; renderTray(); kick(); };
   $('finB').onclick = () => finish(); $('rstB').onclick = () => { FX.sfx('whoosh'); load(Li, { quiet: 1, fresh: 1, prompt: L.prompt }); };
   if ($('promptB')) $('promptB').onclick = () => { FX.sfx('chime', 3); const pr = makePrompt(Date.now() % 100000); load(Li, { quiet: 1, fresh: 1, prompt: pr }); toast('Prompt: ' + pr.name, 'One way to print it, in order: ' + pr.order.map(k => RACK[k].n).join(' → ') + '. The likeness meter now compares against the prompt.', 7000); };
@@ -862,6 +866,7 @@ function updateHUD() {
   if (finished) s = result.pass || L.studio ? 'Signed and stamped. The block is spent.' : result.lk >= PASS ? `${result.miss} missed detail${result.miss > 1 ? 's' : ''}: every shape counts. Try a fresh block.` : 'Missed the 85% mark. Try a fresh block.';
   else if (anim) s = 'Printing… (tap to skip)';
   else if (L.studio) s = sel < 0 ? 'Carve, then pick an ink. Tap the selected ink again to toggle opaque / transparent.' : 'Pull when ready. Pulls are permanent.';
+  else if (!passes.length && !strokes && innerWidth < 900 && !(innerHeight < 520 && innerWidth > innerHeight)) s = L.story;
   else if (!passes.length && !strokes) s = L.untraced ? `<b>Untraced block:</b> no pencil lines from here on. Read the commission, decide which shapes stay <b>paper</b>, and carve them.${L.spare ? ' One tin on the bench does not belong in this print.' : ''}` : '<b>Step 1:</b> carve away everything that should stay <b>paper</b>. The Region tool clears one shape per tap.';
   else if (sel < 0) s = passes.length ? `Carve what should <b>stay as it is now</b>, then pick the next ink.` : 'Then pick an ink below. Its swatch shows: now | after.';
   else s = `Pull <b>${L.inks[sel].n}</b> when ready. Pulling makes your cuts permanent (undo ends).`;
@@ -882,6 +887,7 @@ function toast(big, small, ms = 6000, extra = '') {
     if (a === 'next') load(Li + 1); else if (a === 'studio') load(NLV); else if (a === 'retry') load(Li, { quiet: 1, fresh: 1, prompt: L.prompt }); else if (a === 'diff') { diff = !diff; kick(); } });
   // results on a phone sit over the spent block, not over the HUD
   const res = mobile && extra.includes('data-a="retry"'); t.classList.toggle('res', res); t.style.bottom = res ? (innerHeight - $('tray').getBoundingClientRect().top + 8) + 'px' : '';
+  if (mobile && !res) t.style.top = Math.round($('hud').getBoundingClientRect().bottom + 6) + 'px'; else if (!res) t.style.top = ''; // on phones, never cover the level picker
   clearTimeout(toast.h); toast.h = setTimeout(hideToast, ms);
 }
 

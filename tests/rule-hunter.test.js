@@ -12,6 +12,13 @@ const PAT = {
   acorn: [[1, 0], [3, 1], [0, 2], [1, 2], [4, 2], [5, 2], [6, 2]],
 };
 async function reopen(page) { const p2 = await page.context().newPage(); const errs = []; p2.on('pageerror', e => errs.push(e.message)); await p2.goto(page.url()); await p2.waitForTimeout(300); p2.errs = errs; return p2; }
+// Real touch input through Chrome's protocol (touch emulation on, finger drags with intermediate moves).
+async function touchSession(page) { const cdp = await page.context().newCDPSession(page); await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }); return cdp; }
+async function touchDrag(cdp, a, b, steps = 6) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: a[0], y: a[1], id: 1 }] });
+  for (let k = 1; k <= steps; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: a[0] + (b[0] - a[0]) * k / steps, y: a[1] + (b[1] - a[1]) * k / steps, id: 1 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); }
+async function touchPinch(cdp, c, d0, d1) { const pts = (d) => [{ x: c[0] - d, y: c[1], id: 1 }, { x: c[0] + d, y: c[1], id: 2 }]; await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pts(d0) });
+  for (let k = 1; k <= 5; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pts(d0 + (d1 - d0) * k / 5) }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); }
 const dismiss = (page) => page.evaluate(() => { document.querySelectorAll('.modal-bg').forEach(m => m.remove()); __rh.running = false; });
 
 module.exports = {
@@ -196,6 +203,17 @@ module.exports = {
         return out; }, PAT);
       ok(r.random.filter(x => x > .2).length === 0, 'random bot late-prize rates ' + r.random); ok(r.idle <= .2, 'idle ' + r.idle);
       ok(r.design && r.competent > Math.max(...r.random), 'competent policy beats naive: ' + r.competent); ok(r.right >= 4, 'note-based predictions ' + r.right); ok(!r.master, 'master prize needs more than the simple policy');
+    },
+    'touch (phone): the dish stays on screen while you scroll to the controls; drag-paint in draw mode': async ({ page, ok, eq }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.goto(page.url()); await page.waitForTimeout(600); await dismiss(page);
+      const cdp = await touchSession(page);
+      await page.evaluate(() => document.getElementById('scanBtn').scrollIntoView({ block: 'end' })); await page.waitForTimeout(100);
+      const v = await page.evaluate(() => { const r = document.getElementById('world').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, h: innerHeight }; });
+      ok(v.top >= -1 && v.bottom > v.h * .45, 'dish still visible: ' + JSON.stringify(v));
+      ok(await page.isVisible('#scanBtn2') && await page.isVisible('#playBtn2'), 'control strip on the dish');
+      await page.evaluate(() => { __rh.S.noPredict = 1; __rh.setDrawing(true); });
+      const pts = await page.evaluate(() => { const r = document.getElementById('world').getBoundingClientRect(), d = __rh.dish, sc = d.sq / __rh.W; const f = (x, y) => [r.left + d.x0 + (x + .5) * sc, r.top + d.y0 + (y + .5) * sc]; return [f(70, 80), f(76, 80)]; });
+      await touchDrag(cdp, pts[0], pts[1], 12); eq(await page.evaluate(() => { let n = 0; for (let x = 70; x <= 76; x++) n += __rh.grid[80 * __rh.W + x]; return n; }), 7);
     },
     'phone layout: no horizontal scroll and the dish is visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(150);

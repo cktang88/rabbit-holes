@@ -229,6 +229,15 @@ module.exports = {
       ok(['assimilated', 'levelled', 'sharpened'].every(h => r.hows.includes(h)), JSON.stringify(r.hows)); ok(r.sharperUp > 0 && r.sharperDown === 0, 'sharpening only ever makes it worse');
       eq(r.tree.slice(0, 2), [[0, 5, null], [1, 3, 'sharpened']]);
     },
+    'touch, portrait phone: friend links are big enough to tap (40px), selects use 16px text, and a tap on a friend opens them': async ({ page, ok, eq }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); const cdp = await page.context().newCDPSession(page); await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }); await page.waitForTimeout(300);
+      await page.evaluate(() => { const R = window.__rumor; R.sel = R.T.people.find(p => p.friends.length >= 2 && !p.role).id; R.renderAll(); document.querySelector('#person [data-p]').scrollIntoView({ block: 'center' }); });
+      const r = await page.evaluate(() => ({ coarse: matchMedia('(pointer:coarse)').matches, links: [...document.querySelectorAll('#person [data-p]')].map(a => { const b = a.getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; }), sel: getComputedStyle(document.getElementById('cVerb')).fontSize }));
+      ok(r.coarse, 'touch emulation should report a coarse pointer'); ok(r.links.length && r.links.every(([w, h]) => h >= 40 && w >= 40), JSON.stringify(r.links)); eq(r.sel, '16px');
+      const t = await page.evaluate(() => { const a = document.querySelector('#person [data-p]'), b = a.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2, +a.dataset.p]; });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: t[0], y: t[1] }] }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await page.waitForTimeout(200);
+      eq(await page.evaluate(() => window.__rumor.sel), t[2]);
+    },
     'mobile layout: no horizontal scroll, town and Next day visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
       const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect().toJSON(), nd: document.getElementById('nextDay').getBoundingClientRect().toJSON() }));

@@ -9,13 +9,39 @@ module.exports = {
     'map: every route line ends on its two cities, in landscape and portrait, after layout changes': async ({ page, eq }) => {
       const check = () => page.evaluate(() => { const K = window.__caravan, segs = K.mapSegs(), bad = [];
         if (!segs || segs.length !== K.routes.length) return ['segments ' + (segs && segs.length)];
-        for (const [a, b, x1, y1, x2, y2] of segs) { const [ax, ay] = K.P(K.cities[a]), [bx, by] = K.P(K.cities[b]); if (Math.hypot(ax - x1, ay - y1) > 1 || Math.hypot(bx - x2, by - y2) > 1) bad.push(a + '-' + b); }
+        for (const [a, b, x1, y1, x2, y2] of segs) { const z = K.zoom, [ax, ay] = K.P(K.cities[a]), [bx, by] = K.P(K.cities[b]), [ox, oy] = K.P({ x: 0, y: 0 }), [zx, zy] = K.P0({ x: 0, y: 0 }); const sx = q => ox + (q - zx) * z, sy = q => oy + (q - zy) * z; if (Math.hypot(ax - sx(x1), ay - sy(y1)) > 1 || Math.hypot(bx - sx(x2), by - sy(y2)) > 1) bad.push(a + '-' + b); }
         return bad; });
       await closeModals(page); await page.waitForTimeout(200); eq(await check(), [], 'landscape');
       await page.evaluate(() => { document.getElementById('side').style.width = '300px'; }); await page.waitForTimeout(200); eq(await check(), [], 'after the panel resized');
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(400);
       eq(await page.evaluate(() => { const r = document.getElementById('map').getBoundingClientRect(); return r.height > r.width * 1.15; }), true, 'portrait map');
       eq(await check(), [], 'portrait');
+      await page.evaluate(() => window.__caravan.zoomAt(150, 200, 2.2)); await page.waitForTimeout(100); eq(await check(), [], 'zoomed in');
+    },
+    'touch: city names do not collide on a phone, pinch zooms the map, and a tap after zooming picks the right city': async ({ page, ok, eq }) => {
+      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+      const p = await ctx.newPage(); await p.goto(page.url()); await p.waitForTimeout(1200); await p.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
+      const overlaps = async () => p.evaluate(() => { const b = window.__caravan.labelBoxes().filter(Boolean); let n = 0; for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) if (b[i].x < b[j].x + b[j].w && b[j].x < b[i].x + b[i].w && b[i].y < b[j].y + b[j].h && b[j].y < b[i].y + b[i].h) n++; return n; });
+      const o1 = await overlaps(); ok(o1 <= 1, 'labels overlap: ' + o1);
+      // pinch out with two pointers
+      const box = await p.locator('#map').boundingBox(), cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+      await p.evaluate(([cx, cy]) => { const cv = document.getElementById('map'), ev = (t, id, x, y) => cv.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: x, clientY: y, pointerType: 'touch', bubbles: true }));
+        ev('pointerdown', 1, cx - 20, cy); ev('pointerdown', 2, cx + 20, cy); for (let k = 1; k <= 10; k++) { ev('pointermove', 1, cx - 20 - k * 8, cy); ev('pointermove', 2, cx + 20 + k * 8, cy); } ev('pointerup', 1, 0, 0); ev('pointerup', 2, 0, 0); }, [cx, cy]);
+      const z = await p.evaluate(() => window.__caravan.zoom); ok(z > 2, 'pinch did not zoom: ' + z);
+      const t = await p.evaluate(() => { const K = window.__caravan, r = document.getElementById('map').getBoundingClientRect(); for (const c of K.cities) { const [x, y] = K.P(c); if (x > 30 && y > 30 && x < r.width - 60 && y < r.height - 60 && c.id !== K.C.at) return { id: c.id, x: r.left + x, y: r.top + y }; } return null; });
+      ok(t, 'no city in view after zooming');
+      await p.touchscreen.tap(t.x, t.y); await p.waitForTimeout(200);
+      ok(await p.locator('#travelBox').isVisible(), 'tap after zoom did not plan'); eq(await p.evaluate(() => document.querySelector('#travelBox b').textContent), await p.evaluate(id => window.__caravan.cities[id].name, t.id));
+      ok(await p.evaluate(() => getComputedStyle(document.getElementById('zIn')).width) === '40px', 'zoom buttons');
+      await ctx.close();
+    },
+    'touch: the intro dialog button is on screen without scrolling, portrait and landscape': async ({ page, ok }) => {
+      for (const vp of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
+        const ctx = await page.context().browser().newContext({ viewport: vp, hasTouch: true, isMobile: true }); const p = await ctx.newPage();
+        await p.goto(page.url()); await p.waitForTimeout(1000);
+        const b = await p.locator('.modal-bg button').last().boundingBox(); ok(b && b.y + b.height <= vp.height, `intro button off screen at ${vp.width}x${vp.height}: ${JSON.stringify(b)}`);
+        await ctx.close();
+      }
     },
     'difficulty: naive play fails; a greedy trader wins; 3 stars needs better information; information pays': async ({ page, ok }) => {
       await closeModals(page); await page.addScriptTag({ content: caravanBot.toString() });

@@ -102,6 +102,22 @@ module.exports = {
       await page.evaluate(() => document.querySelector('#levels .lv[data-i="1"]').click()); eq(await page.evaluate(() => document.getElementById('lvName').textContent), 'The Levee');
       await page.evaluate(() => document.querySelector('#levels .lv[data-i="3"]').click()); eq(await page.evaluate(() => document.getElementById('lvName').textContent), 'Open Basin');
     },
+    'touch: the site opens in Look, a one-finger drag turns the model, a sliding finger with Field places nothing, a tap does': async ({ page, ok, eq }) => {
+      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }), p = await ctx.newPage();
+      await p.goto(page.url()); await p.waitForFunction(() => window.__ws, null, { timeout: 20000 }); await p.waitForTimeout(500);
+      eq(await p.evaluate(() => document.querySelector('.tool.on').dataset.t), 'view', 'default tool');
+      const cdp = await ctx.newCDPSession(p), swipe = async (x0, y0, x1, y1) => {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: y0 }] });
+        for (let i = 1; i <= 8; i++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x0 + (x1 - x0) * i / 8, y: y0 + (y1 - y0) * i / 8 }] }); await p.waitForTimeout(16); }
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await p.waitForTimeout(300); };
+      const cam0 = await p.evaluate(() => __ws.camPos()); await swipe(120, 520, 260, 540);
+      const cam1 = await p.evaluate(() => __ws.camPos()); ok(Math.hypot(cam1[0] - cam0[0], cam1[2] - cam0[2]) > 1, 'one-finger drag in Look did not turn the model');
+      eq(await p.evaluate(() => __ws.works.length), 0);
+      await p.locator('.tool[data-t="farm"]').tap(); const [x, y] = await p.evaluate(() => __ws.toScreen(62, 75));
+      await swipe(x, y, x + 60, y + 80); eq(await p.evaluate(() => __ws.works.length), 0, 'a sliding finger placed a field');
+      await p.touchscreen.tap(x, y); await p.waitForTimeout(300); eq(await p.evaluate(() => __ws.works.map(w => w.t)), ['farm'], 'a tap should place a field');
+      await ctx.close();
+    },
     'saves: corrupted and old saves load safely; progress counts medals and never exceeds 1': async ({ page, eq }) => {
       eq(await page.evaluate(() => [null, 'x', { v: 2, done: { 0: 1 }, cur: 3 }, { v: 3, medals: { 0: 2, 1: 9, 5: 1, z: 1 }, cur: 1, plans: { 0: [['farm', [62, 75], [62, 75]]], 1: [['bomb', [1, 1], [1, 1]]], 2: 'x' } }].map(__ws.cleanSave)),
         [{ v: 3, medals: {}, plans: {}, cur: 0, intro: 0 }, { v: 3, medals: {}, plans: {}, cur: 0, intro: 0 }, { v: 3, medals: {}, plans: {}, cur: 0, intro: 0 }, { v: 3, medals: { 0: 2, 1: 3 }, plans: { 0: [['farm', [62, 75], [62, 75]]] }, cur: 1, intro: 0 }]);

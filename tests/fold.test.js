@@ -13,6 +13,13 @@ const CANON_SRC = `(P)=>{ let best=null; for (let t=0;t<8;t++){ const q=P.map(([
   const x0=Math.min(...q.map(p=>p[0])), y0=Math.min(...q.map(p=>p[1])); const k=q.map(p=>(p[0]-x0)+','+(p[1]-y0)).join(';'); if (best===null||k<best) best=k; } return best; }`;
 
 async function reopen(page) { const p2 = await page.context().newPage(); const errs = []; p2.on('pageerror', e => errs.push(e.message)); await p2.goto(page.url()); await p2.waitForTimeout(300); p2.errs = errs; return p2; }
+// Real touch input through Chrome's protocol (touch emulation on, finger drags with intermediate moves).
+async function touchSession(page) { const cdp = await page.context().newCDPSession(page); await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }); return cdp; }
+async function touchDrag(cdp, a, b, steps = 6) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: a[0], y: a[1], id: 1 }] });
+  for (let k = 1; k <= steps; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: a[0] + (b[0] - a[0]) * k / steps, y: a[1] + (b[1] - a[1]) * k / steps, id: 1 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); }
+async function touchPinch(cdp, c, d0, d1) { const pts = (d) => [{ x: c[0] - d, y: c[1], id: 1 }, { x: c[0] + d, y: c[1], id: 2 }]; await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pts(d0) });
+  for (let k = 1; k <= 5; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pts(d0 + (d1 - d0) * k / 5) }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); }
 const dismiss = (page) => page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
 
 module.exports = {
@@ -176,6 +183,18 @@ module.exports = {
         return res; });
       ok(r.random / r.n <= .2, 'random ≥2★ ' + r.random + '/' + r.n); ok(r.greedy / r.n <= .2, 'greedy ≥2★ ' + r.greedy + '/' + r.n);
       ok(r.competent / r.n >= .8, 'annealing earns a star on ' + r.competent + '/' + r.n); ok(r.greedy3 <= 1, 'greedy 3★ on ' + r.greedy3 + '/' + r.n + ' ' + JSON.stringify(r));
+    },
+    'touch (phone): long chains keep finger-sized beads; pinch zooms; Fit shows everything; a finger drag folds': async ({ page, ok, eq }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.goto(page.url()); await page.waitForTimeout(600); await dismiss(page);
+      const cdp = await touchSession(page);
+      await page.evaluate(() => { const F = __fold; for (const k of [0, 1, 2]) F.SAVE.best[k] = F.optimum(k); F.open(19); });
+      ok(await page.evaluate(() => __fold.cellSize) >= 30, 'bead spacing on the 100-bead chain');
+      const box = await page.locator('#cv').boundingBox(); const c = [box.x + box.width / 2, box.y + box.height / 2];
+      const z0 = await page.evaluate(() => __fold.cellSize); await touchPinch(cdp, c, 80, 30); const z1 = await page.evaluate(() => __fold.cellSize); ok(z1 < z0 * .6, `pinch out ${z0} -> ${z1}`);
+      await touchPinch(cdp, c, 30, 90); ok(await page.evaluate(() => __fold.cellSize) > z1 * 2, 'pinch in');
+      await page.click('#fitBtn'); const f = await page.evaluate(() => { const r = document.getElementById('cv').getBoundingClientRect(); return __fold.pos.every((p, i) => { const [x, y] = __fold.screen(i); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; }); }); ok(f, 'Fit shows the whole chain');
+      await page.evaluate(() => __fold.open(0)); const a = await page.evaluate(() => __fold.screen(0)); const cs = await page.evaluate(() => __fold.cellSize);
+      await touchDrag(cdp, a, [a[0] + cs, a[1] + cs]); eq(await page.evaluate(() => JSON.stringify(__fold.pos[0])), '[1,1]');
     },
     'phone layout: no horizontal scroll, canvas is large enough': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);

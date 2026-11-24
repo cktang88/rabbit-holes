@@ -145,6 +145,18 @@ module.exports = {
       ok(R.comp.every(g => g < 3), '3★ needs planning beyond greedy: ' + R.comp);
       ok(R.twin[0] / R.twin[1] <= .6, `pitch alone matches ${R.twin[0]}/${R.twin[1]} twin targets`);
     },
+    'touch: ◀ ▶ nudge the pitch by 0.2% so a finger can sit on a resonance': async ({ page, ok, near }) => {
+      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }), p2 = await ctx.newPage(), errs = []; p2.on('pageerror', e => errs.push(e.message));
+      await p2.goto(page.url()); await p2.waitForTimeout(600);
+      const f0 = await p2.evaluate(() => { const m = __ch.PLATES.square.modes[0]; __ch.setFreq(m.f * .992); return m.f; });
+      const b = await p2.locator('#fUp').boundingBox();
+      for (let k = 0; k < 4; k++) { await p2.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2); await p2.waitForTimeout(40); }
+      const f1 = await p2.evaluate(() => +document.getElementById('freq').firstChild.nodeValue);
+      near(f1 / f0, 1, .004, 'four taps walk onto the resonance');
+      await p2.waitForFunction(() => Object.keys(__ch.SAVE.got).length >= 1, null, { timeout: 8000 });
+      ok(errs.length === 0, errs.join());
+      await ctx.close();
+    },
     'corrupted / odd saves load without errors': async ({ page, eq, ok }) => {
       for (const save of ['null', '3', '[]', '"s"', '{"got":7,"solved":"x","mode":"match","tgt":{"square":999}}', '{"plate":"hexagon","tgt":[1]}', '{"tgt":-5,"mode":"match"}',
         '{"tgt":{"square":"abc"},"mode":"match"}', '{"got":{"s01p":"data:image/png;base64,AAAA"},"tgt":3,"plate":"circle"}', '{bad']) {

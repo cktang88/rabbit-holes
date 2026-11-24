@@ -115,6 +115,20 @@ module.exports = {
       const label = await page.evaluate(() => window.__sling.aimText(window.__sling.aim));
       eq(during[0], during[1], 'while dragging'); eq(after[0], after[1], 'after release'); eq(label.startsWith('ΔV ' + after[0]), true, label);
     },
+    'touch, portrait phone: the window dial, Compute and Launch are all uncovered, and a real tap on Launch flies': async ({ page, ok, eq }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); const cdp = await page.context().newCDPSession(page); await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }); await page.waitForTimeout(300);
+      const tap = async (x, y) => { await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await page.waitForTimeout(120); };
+      const drag = async (pts) => { await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: pts[0][0], y: pts[0][1] }] }); for (const [x, y] of pts.slice(1)) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await page.waitForTimeout(120); };
+      const hit = await page.evaluate(() => ['winR', 'computeBtn', 'launchBtn'].map(id => { const r = document.getElementById(id).getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return [id, e && (e.id === id || document.getElementById(id).contains(e)), Math.round(Math.min(r.width, r.height))]; }));
+      for (const [id, top, size] of hit) { ok(top, id + ' is covered by something'); ok(size >= 28, id + ' too small: ' + size); }
+      const p = await page.evaluate(() => { const s = window.__sling, r = document.getElementById('cv').getBoundingClientRect(), q = s.toS(s.probe.x, s.probe.y); return [r.left + q[0], r.top + q[1]]; });
+      await drag([[p[0], p[1]], [p[0] - 20, p[1] + 20], [p[0] - 45, p[1] + 55]]);
+      eq(await page.evaluate(() => [window.__sling.mode, !!window.__sling.aim]), ['aim', true]);
+      const c = await page.evaluate(() => { const r = document.getElementById('computeBtn').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }); await tap(c[0], c[1]);
+      eq(await page.evaluate(() => window.__sling.runsLeft), 2, 'tapping Compute computes');
+      const l = await page.evaluate(() => { const r = document.getElementById('launchBtn').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }); await tap(l[0], l[1]);
+      eq(await page.evaluate(() => window.__sling.mode), 'fly', 'tapping the middle of Launch launches');
+    },
     'mobile layout: no horizontal scroll and the plot is visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
       const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect().toJSON() }));

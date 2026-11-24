@@ -103,7 +103,7 @@
 <main>
   <div id="left"><div id="levels"></div></div>
   <div id="stage"><canvas id="cv"></canvas>
-    <div id="hud"><button id="undo">↶ Undo</button><button id="redo">↷</button><button id="unfold">Unfold</button><button id="loadBest">Load my best</button><span id="pivots"><button data-pv="ccw" title="Rotate (Q)">⟲</button><button data-pv="cw" title="Rotate (E)">⟳</button><button data-pv="mirror" title="Mirror (W)">⇋</button></span></div>
+    <div id="hud"><button id="undo">↶ Undo</button><button id="redo" title="Redo" aria-label="Redo">↷ Redo</button><button id="unfold">Unfold</button><button id="loadBest">Load my best</button><button id="fitBtn" title="Show the whole chain">Fit</button><span id="pivots"><button data-pv="ccw" title="Rotate (Q)">⟲</button><button data-pv="cw" title="Rotate (E)">⟳</button><button data-pv="mirror" title="Mirror (W)">⇋</button></span></div>
     <div id="hint"></div></div>
   <div id="right">
     <div><div class="dim small" id="lvName"></div><div class="row" style="align-items:baseline"><span id="score">0</span><span class="dim" id="cword">contacts</span></div><div class="meter" style="margin-top:6px"><div id="meter"></div></div><div class="small" style="margin-top:4px" id="vs"></div><button class="primary" id="nextBtn" style="margin-top:8px">Next level →</button></div>
@@ -281,7 +281,12 @@ function tryMoveRaw(P0,i,t,r=Math.random){ const n=P0.length; const m=new Set(P0
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d'); let cell=30, ox=0, oy=0, drag=null, burst=0, hover=-1;
 function fit(){ const r=cv.getBoundingClientRect(); cv.width=r.width*devicePixelRatio; cv.height=r.height*devicePixelRatio; }
 function center(){ const r=cv.getBoundingClientRect(); let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for (const p of pos){ x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y0=Math.min(y0,p[1]); y1=Math.max(y1,p[1]); }
-  cell=Math.max(10,Math.min(64, Math.min((r.width-80)/(x1-x0+3),(r.height-100)/(y1-y0+3)))); ox=r.width/2-(x0+x1)/2*cell; oy=r.height/2-(y0+y1)/2*cell; }
+  // on touch screens balls never shrink below a finger's width: long chains extend past the edge and you pan (or pinch, or Fit)
+  cell=Math.max(minCell(),Math.min(64, Math.min((r.width-80)/(x1-x0+3),(r.height-100)/(y1-y0+3)))); ox=r.width/2-(x0+x1)/2*cell; oy=r.height/2-(y0+y1)/2*cell; }
+const isTouch=()=> (typeof matchMedia==='function' && matchMedia('(pointer:coarse)').matches) || innerWidth<760;
+const minCell=()=> isTouch()? 30 : 10;
+function fitAll(){ const r=cv.getBoundingClientRect(); let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for (const p of pos){ x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y0=Math.min(y0,p[1]); y1=Math.max(y1,p[1]); }
+  cell=Math.max(6,Math.min(64, Math.min((r.width-40)/(x1-x0+2),(r.height-90)/(y1-y0+2)))); ox=r.width/2-(x0+x1)/2*cell; oy=r.height/2+20-(y0+y1)/2*cell; }
 const sp=(p)=>[ox+p[0]*cell, oy+p[1]*cell];
 const toL=(mx,my)=>[Math.round((mx-ox)/cell), Math.round((my-oy)/cell)];
 // Kendrew's 1958 wire-and-ball model on a lab bench: graph paper, brass rods, painted balls, red thread for contacts.
@@ -359,7 +364,14 @@ function photograph(c,t){
     fig.innerHTML=`<img alt="photograph of the fold" src="${o.toDataURL('image/jpeg',.7)}"><figcaption>${LV[li].name.split(' · ')[0]} — ${c} contacts${c>t?' (new record)':''}</figcaption>`;
     box.prepend(fig); while (box.children.length>4) box.lastChild.remove(); } catch (e) {}
 }
-cv.addEventListener('pointerdown',e=>{ if (e.pointerType!=='mouse') e.preventDefault(); const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left, my=e.clientY-r.top; let best=-1, bd=cell*(e.pointerType==='touch'?0.7:0.45);
+// Two fingers: pinch to zoom and pan together. A bead drag the first finger started is ended where it stands.
+const ptrs=new Map(); let pinch=null;
+const pinchState=()=>{ const [a,b]=[...ptrs.values()]; return {d:Math.max(10,Math.hypot(a.x-b.x,a.y-b.y)), m:{x:(a.x+b.x)/2,y:(a.y+b.y)/2}}; };
+cv.addEventListener('pointerdown',e=>{ if (e.pointerType==='touch'){ const r=cv.getBoundingClientRect(); ptrs.set(e.pointerId,{x:e.clientX-r.left,y:e.clientY-r.top}); if (ptrs.size>=2){ if (drag&&drag.moved) afterChange(); drag=null; pinch={...pinchState(), cell0:cell, ox0:ox, oy0:oy}; } } },true);
+window.addEventListener('pointermove',e=>{ if (!ptrs.has(e.pointerId)) return; const r=cv.getBoundingClientRect(); ptrs.set(e.pointerId,{x:e.clientX-r.left,y:e.clientY-r.top});
+  if (pinch && ptrs.size>=2){ const ps=pinchState(); const nc=Math.max(6,Math.min(90,pinch.cell0*ps.d/pinch.d)); const wx=(pinch.m.x-pinch.ox0)/pinch.cell0, wy=(pinch.m.y-pinch.oy0)/pinch.cell0; cell=nc; ox=ps.m.x-wx*nc; oy=ps.m.y-wy*nc; e.stopImmediatePropagation(); } },true);
+const ptrUp=(e)=>{ ptrs.delete(e.pointerId); if (ptrs.size<2) pinch=null; }; window.addEventListener('pointerup',ptrUp,true); window.addEventListener('pointercancel',ptrUp,true);
+cv.addEventListener('pointerdown',e=>{ if (e.pointerType!=='mouse') e.preventDefault(); if (pinch) return; const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left, my=e.clientY-r.top; let best=-1, bd=cell*(e.pointerType==='touch'?0.7:0.45);
   pos.forEach((p,i)=>{ const [x,y]=sp(p); const d=Math.hypot(x-mx,y-my); if (d<bd){ bd=d; best=i; } });
   if (best>=0 && LV[li].design){ seq=seq.slice(0,best)+(seq[best]==='H'?'P':'H')+seq.slice(best+1); SAVE.dseq[li]=seq; designRes=null; SND.click(); persist(); renderRight(); return; }
   if (replay){ return; }
@@ -385,6 +397,7 @@ function undo(){ if (!hist.length) return; fut.push(pos); pos=hist.pop(); afterC
 function redo(){ if (!fut.length) return; hist.push(pos); pos=fut.pop(); afterChange(); }
 document.querySelectorAll('#pivots button').forEach(b=>b.onclick=()=>{ if (sel<0) RH.toast('Tap a bead first, then rotate the shorter end of the chain around it.'); else pivot(sel,b.dataset.pv); });
 document.getElementById('nextBtn').onclick=()=>{ if (li+1<LV.length && unlocked(li+1)) open(li+1); };
+document.getElementById('fitBtn').onclick=fitAll;
 document.getElementById('verifyBtn').onclick=()=>{ const L=LV[li]; if (!L.design) return; designRes=verifyDesign(L.shape, seq); if (designRes.stars>(SAVE.dstar[li]||0)){ SAVE.dstar[li]=designRes.stars; if (designRes.stars===3) photograph(designRes.t, designRes.t); } SND[designRes.stars>=2?'gain':'lose'](2); persist(); renderRight(); renderLevels(); };
 document.getElementById('watchBtn').onclick=()=>{ if (replay) stopReplay(); else startReplay(); };
 document.getElementById('lvBtn').onclick=()=>document.body.classList.toggle('drawer');
@@ -430,7 +443,7 @@ function open(i){
   hist=[]; fut=[]; sel=-1; center(); renderRight(); renderLevels();
   if (L.machine && SAVE.machine[i]==null) machineFoldAsync(i, 900+seq.length*25);
 }
-window.__fold={ parityBound, verifyDesign, allFolds, startReplay, get replay(){ return replay; }, machineTraces, LV, TOOLS, contacts, valid, validFold, optimum, stars, unlocked, tryMove, pullMove, pivot, makeMachine, machineFold, open, undo, redo, commit,
+window.__fold={ fitAll, get cellSize(){ return cell; }, get ox(){ return ox; }, parityBound, verifyDesign, allFolds, startReplay, get replay(){ return replay; }, machineTraces, LV, TOOLS, contacts, valid, validFold, optimum, stars, unlocked, tryMove, pullMove, pivot, makeMachine, machineFold, open, undo, redo, commit,
   get SAVE(){ return SAVE; }, get pos(){ return pos; }, set pos(P){ pos=P; }, get li(){ return li; }, get sel(){ return sel; }, set sel(v){ sel=v; }, get hist(){ return hist; },
   screen(i){ const r=cv.getBoundingClientRect(); const [x,y]=sp(pos[i]); return [r.left+x, r.top+y]; }, cellPx(){ return cell; }, machineRuns };
 fit(); window.addEventListener('resize',()=>{ fit(); });

@@ -36,7 +36,7 @@
   .layer .d button.on{background:#2a4a8a;color:#fff}
   .layer .x{margin-left:auto;padding:0 6px;background:none;color:#8a2a10;border:0;box-shadow:none;font-size:18px}
   .note{font-size:13px;color:#5e5038;line-height:1.35}
-  .cases button{display:flex;justify-content:space-between;width:100%;margin:2px 0;background:#fffaf0;color:var(--ink);border-color:#b8a67e;text-align:left}
+  .cases button{display:flex;justify-content:space-between;gap:6px;white-space:normal;width:100%;margin:2px 0;background:#fffaf0;color:var(--ink);border-color:#b8a67e;text-align:left}
   .cases button.cur{background:#2a4a8a;color:#fff}
   .cases .st{color:#a07a20}
   #plates{grid-area:plates;display:grid;grid-template-rows:1fr auto;min-height:0}
@@ -264,7 +264,12 @@ function drawPad() {
 let dragging = false;
 function padSet(e) { const r = pad.getBoundingClientRect(), x = FX.clamp((e.clientX - r.left) / r.width, 0, 1), y = FX.clamp((e.clientY - r.top) / r.height, 0, 1);
   const l = sounding[sel]; l.T = Math.round((TMAX + (TMIN - TMAX) * x) * 2) / 2; l.s = Math.round((1 - y) * 20) / 20; drawPad(); renderInfo(); renderColumn(); }
-pad.addEventListener('pointerdown', e => { dragging = true; pad.setPointerCapture(e.pointerId); padSet(e); });
+// pressing the pad grabs the nearest layer dot (and selects it); far from every dot, it moves the selected layer there
+pad.addEventListener('pointerdown', e => { const r = pad.getBoundingClientRect(); let best = -1, bd = e.pointerType === 'mouse' ? 22 : 36;
+  sounding.forEach((l, i) => { const [x, y] = padXY(l.T, l.s, r.width, r.height), d = Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y); if (d < bd) { bd = d; best = i; } });
+  if (best >= 0 && best !== sel) { sel = best; renderColumn(); }
+  dragging = true; try { pad.setPointerCapture(e.pointerId); } catch (err) {} padSet(e); });
+pad.addEventListener('pointercancel', () => { dragging = false; });
 pad.addEventListener('pointermove', e => { if (dragging) padSet(e); });
 pad.addEventListener('pointerup', () => { dragging = false; });
 // ================= panels =================
@@ -277,7 +282,7 @@ function renderColumn() {
     el.onclick = e => { if (e.target.closest('button')) return; sel = i; renderColumn(); drawPad(); renderInfo(); };
     el.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { sounding[i].d = +b.dataset.d; renderColumn(); });
     const x = el.querySelector('.x'); if (x) x.onclick = () => { sounding.splice(i, 1); sel = Math.min(sel, sounding.length - 1); renderColumn(); drawPad(); }; });
-  if ($('addL')) $('addL').onclick = () => { const p = sounding[sounding.length - 1]; sounding.push(L(p.T, p.s, 2)); sel = sounding.length - 1; renderColumn(); drawPad(); };
+  if ($('addL')) $('addL').onclick = () => { const p = sounding[sounding.length - 1]; sounding.push(L(Math.max(TMIN, p.T - 3), Math.min(1, p.s + .15), 2)); /* offset so the new dot does not hide the last one */ sel = sounding.length - 1; renderColumn(); drawPad(); };
 }
 function renderInfo() {
   const c = CASES[cur], l = sounding[sel], k = habit(l.T, l.s);

@@ -82,7 +82,8 @@
   .nb3{flex:0 0 42px;height:42px;background:conic-gradient(from 0deg,#3b2a1a 0 0) ;background:repeating-linear-gradient(90deg,transparent 0 13px,#3b2a1a 13px 14px),repeating-linear-gradient(0deg,transparent 0 13px,#3b2a1a 13px 14px),radial-gradient(circle at 50% 50%,#8b1e1e 0 5px,#e6d29a 5.5px);border:1px solid #3b2a1a}
   .drawerBtn{display:none}
   @media (max-width:760px){
-    #center{min-height:0;height:68vh;padding:0}
+    #center{min-height:0;height:60vh;padding:0;position:sticky;top:0;z-index:4;box-shadow:0 6px 14px rgba(0,0,0,.35)}
+    #predict{top:30px;padding:6px 8px} #predict .pq{font-size:16px;margin-bottom:4px} #predict .pr button{min-height:32px;padding:2px 8px;font-size:13px} #predict .pskip{margin-top:4px} #predict .pn{font-size:13px}
     .bits{grid-template-columns:22px repeat(9,1fr)}
     .bits button,.filter button,.tabs button,#left button,#right button{min-height:34px}
     .edge{display:flex;position:absolute;right:8px;bottom:8px;gap:6px;z-index:2}
@@ -148,7 +149,7 @@
     </div>
     <div>
       <button class="primary" id="scanBtn" style="width:100%">Scan the whole dish</button>
-      <div class="dim small" style="margin-top:4px">Or click any colony in the dish to put it under the lens by itself.</div>
+      <div class="dim small" style="margin-top:4px">Or tap any colony in the dish to put it under the lens by itself.</div>
       <div class="row" style="margin-top:8px"><button id="drawBtn" style="flex:1">Draw a pattern</button><button id="testDrawBtn" style="flex:1" disabled>Test my drawing</button></div>
     </div>
     <div>
@@ -157,7 +158,7 @@
     </div>
     <div class="panel small" id="ruleInfo"></div>
   </div>
-  <div id="center"><div id="behav"></div><canvas id="world"></canvas><div id="log"></div><div id="predict"></div><div class="edge"><button class="primary" id="soupBtn2">New soup</button><button id="scanBtn2">Scan</button></div></div>
+  <div id="center"><div id="behav"></div><canvas id="world"></canvas><div id="log"></div><div id="predict"></div><div class="edge"><button id="playBtn2" aria-label="Play or pause">⏸</button><button id="mutBtn2">Mutate</button><button class="primary" id="soupBtn2">New soup</button><button id="scanBtn2">Scan</button></div></div>
   <div id="right">
     <div class="tabs"><button data-t="guide" class="on">Field guide</button><button data-t="bounty">Bounties</button><button data-t="map">Rule map</button></div>
     <div class="pane on" id="p-guide"><div class="filter" id="filt"></div><div id="guide"></div></div>
@@ -301,7 +302,8 @@ function examineAt(x,y){
 // Draw mode: the dish becomes a blank slide; click cells on and off, then test the drawing in the current rule.
 let drawing=false;
 function setDrawing(on){ drawing=on; const b=document.getElementById('drawBtn'); b.textContent=on?'Stop drawing':'Draw a pattern'; b.classList.toggle('primary',on); document.getElementById('testDrawBtn').disabled=!on;
-  if (on){ running=false; grid.fill(0); gen=0; document.getElementById('playBtn').textContent='▶'; log('Drawing: click cells in the dish, then press Test my drawing.'); draw(); } }
+  cv.style.touchAction = on? 'none' : 'manipulation';
+  if (on){ running=false; grid.fill(0); gen=0; document.getElementById('playBtn').textContent='▶'; log('Drawing: tap or drag across cells in the dish, then press Test my drawing.'); draw(); } }
 function testDrawing(){ const objs=components(grid,W,H); if (!objs.length){ log('Draw something first.'); return null; }
   drawnFlag=true; growthBudget=2; const seen=new Set(); const res=[]; try { for (const o of objs) res.push(catalog(o, seen)); } finally { drawnFlag=false; }
   const neu=res.filter(r=>r.status==='new').map(r=>r.sp); const first=res[0];
@@ -309,8 +311,12 @@ function testDrawing(){ const objs=components(grid,W,H); if (!objs.length){ log(
   persist(); announce(neu); checkBounties(); renderGuide(); renderTotals(); setDrawing(false); running=true; document.getElementById('playBtn').textContent='⏸'; return res; }
 document.getElementById('drawBtn').onclick=()=>setDrawing(!drawing);
 document.getElementById('testDrawBtn').onclick=()=>testDrawing();
-cv.addEventListener('click', e=>{ const rc=cv.getBoundingClientRect(); const p=dishToCell(e.clientX-rc.left, e.clientY-rc.top); if (!p) return;
-  if (drawing){ grid[p[1]*W+p[0]]^=1; SND.lens(); draw(); return; } examineAt(p[0],p[1]); });
+// In draw mode, press and drag to paint (the first cell decides whether you are drawing or erasing).
+let paint=null;
+cv.addEventListener('pointerdown', e=>{ if (!drawing) return; e.preventDefault(); const rc=cv.getBoundingClientRect(); const p=dishToCell(e.clientX-rc.left, e.clientY-rc.top); if (!p) return; const k=p[1]*W+p[0]; paint={v:grid[k]?0:1, last:k}; grid[k]=paint.v; SND.lens(); draw(); });
+window.addEventListener('pointermove', e=>{ if (!paint) return; const rc=cv.getBoundingClientRect(); const p=dishToCell(e.clientX-rc.left, e.clientY-rc.top); if (!p) return; const k=p[1]*W+p[0]; if (k!==paint.last){ grid[k]=paint.v; paint.last=k; draw(); } });
+window.addEventListener('pointerup', ()=>{ paint=null; });
+cv.addEventListener('click', e=>{ if (drawing) return; const rc=cv.getBoundingClientRect(); const p=dishToCell(e.clientX-rc.left, e.clientY-rc.top); if (!p) return; examineAt(p[0],p[1]); });
 const pop=(g)=>{ let p=0; for (let i=0;i<g.length;i++) p+=g[i]; return p; };
 
 // ===================== Classifier =====================
@@ -579,7 +585,10 @@ function drawMap(){
   const cur=S.rules[rkey(S.rule)], n=bitsOf(S.rule); g.strokeStyle='#8b1e1e'; g.lineWidth=2; if (cur){ const ci=CLASSES.indexOf(cur.beh); g.beginPath(); g.arc(left+n/17*w, top+ci*lane+lane/2, 7, 0, 7); g.stroke(); } else { g.setLineDash([3,3]); g.beginPath(); g.moveTo(left+n/17*w, top); g.lineTo(left+n/17*w, top+h); g.stroke(); g.setLineDash([]); }
 }
 function mapHit(e){ const r=mapCv.getBoundingClientRect(); const x=(e.clientX-r.left)/r.width*MAPW, y=(e.clientY-r.top)/r.height*MAPH; return compassCells().find(c=>x>=c.x&&x<=c.x+c.w&&y>=c.y&&y<=c.y+c.h); }
-mapCv.onclick=(e)=>{ const c=mapHit(e); if (!c) return; const r={...S.rule}; r[c.k]^=1<<c.i; setRule(r); soup(); };
+let mapArmed=null;
+mapCv.onclick=(e)=>{ const c=mapHit(e); if (!c) return; const id=c.k+c.i;
+  if (e.pointerType==='touch' || (typeof matchMedia==='function' && matchMedia('(pointer:coarse)').matches)){ if (mapArmed!==id){ mapArmed=id; mapCv.onmousemove(e); document.getElementById('mapInfo').textContent+=' · tap again to go'; return; } }
+  mapArmed=null; const r={...S.rule}; r[c.k]^=1<<c.i; setRule(r); soup(); };
 mapCv.onmousemove=(e)=>{ const c=mapHit(e); const el=document.getElementById('mapInfo'); if (!c){ el.textContent=''; return; } const r={...S.rule}; r[c.k]^=1<<c.i; const v=S.rules[rkey(r)]; el.textContent = ruleStr(r)+(v?` · ${v.beh}${v.pred? ' · you predicted '+v.pred : ''}`:' · uncharted: click to go there and make a prediction'); };
 function setRule(r){ S.rule={b:r.b&~1, s:r.s}; persist(); renderBits(); renderRuleInfo(); drawMap(); }
 function renderBits(){
@@ -600,6 +609,9 @@ document.getElementById('lifeBtn').onclick=()=>{ setRule({b:8,s:12}); soup(); };
 document.getElementById('soupBtn').onclick=soup;
 document.getElementById('soupBtn2').onclick=()=>{ soup(); };
 document.getElementById('scanBtn2').onclick=()=>scan();
+document.getElementById('playBtn2').onclick=()=>document.getElementById('playBtn').click();
+document.getElementById('mutBtn2').onclick=()=>document.getElementById('mutBtn').click();
+setInterval(()=>{ const b=document.getElementById('playBtn2'); if (b) b.textContent=running?'⏸':'▶'; }, 300);
 // landscape phones: side panels become drawers behind labelled buttons; tapping the dish closes them
 document.querySelectorAll('.drawerBtn').forEach(b=>b.onclick=()=>{ const k='drawer-'+b.dataset.drawer; const on=!document.body.classList.contains(k); document.body.classList.remove('drawer-left','drawer-right'); if (on) document.body.classList.add(k); });
 document.getElementById('center').addEventListener('pointerdown',()=>document.body.classList.remove('drawer-left','drawer-right'));

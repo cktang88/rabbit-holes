@@ -105,6 +105,18 @@ module.exports = {
       ok(r.plate.n > r.fern.n * 2, 'a plate should be far more solid than a fern: ' + r.plate.n + ' vs ' + r.fern.n);
       ok(r.both.phases === 1 && r.both.n < r.plate.n && r.both.n > r.fern.n, 'two layers should leave a solid centre and lacy tips: ' + JSON.stringify(r.both));
     },
+    'touch: pressing a dot grabs that layer (not just the selected one); new layers do not hide the last': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { const S = __snow; S.SAVE.done[0] = 1; S.startCase(6); document.getElementById('addL').click(); document.getElementById('addL').click(); });
+      const snd = await page.evaluate(() => __snow.sounding.map(l => [l.T, l.s]));
+      ok(snd[1][0] !== snd[0][0] || snd[1][1] !== snd[0][1], 'new layer drawn on top of the previous one');
+      const r = await page.locator('#pad').boundingBox(), xy = ([T, s]) => [r.x + (T - -1) / (-25 - -1) * r.width, r.y + (1 - s) * r.height];
+      const [x0, y0] = xy(snd[0]), [x1, y1] = [r.x + r.width * .8, r.y + r.height * .1];
+      await page.evaluate(([x0, y0, x1, y1]) => { const p = document.getElementById('pad'), ev = (t, x, y) => p.dispatchEvent(new PointerEvent(t, { clientX: x, clientY: y, pointerId: 7, pointerType: 'touch', bubbles: true }));
+        ev('pointerdown', x0 + 3, y0 - 2); for (let i = 1; i <= 10; i++) ev('pointermove', x0 + (x1 - x0) * i / 10, y0 + (y1 - y0) * i / 10); ev('pointerup', x1, y1); }, [x0, y0, x1, y1]);
+      const after = await page.evaluate(() => __snow.sounding.map(l => [l.T, l.s]));
+      eq(after.length, 3); ok(after[0][0] < -15 && after[0][1] > .8, 'layer 1 did not follow the finger: ' + JSON.stringify(after));
+      eq(after.slice(1), snd.slice(1), 'other layers moved');
+    },
     'phone: plates are the main surface; cases open from a drawer; no sideways scroll': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
       ok(await page.evaluate(() => document.getElementById('cv').getBoundingClientRect().height > 400), 'plates too small');

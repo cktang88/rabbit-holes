@@ -149,6 +149,17 @@ module.exports = {
       ok(R.comp.every(Boolean), 'competent survey-and-refine solves every case: ' + R.compMis);
       ok(R.compMis.every(m => m > 1.2), '3★ (≤1.2 months) needs better than the simple competent search: ' + R.compMis);
     },
+    'touch: no hover tooltip left behind after a finger drag; jittery taps still drop': async ({ page, eq, ok }) => {
+      await unlock(page); await page.evaluate(() => __fl.load(9));
+      const shown = await page.evaluate(() => { const c = document.getElementById('gl'), ev = (t, x, y, pt) => c.dispatchEvent(new PointerEvent(t, { pointerType: pt, clientX: x, clientY: y, bubbles: true }));
+        const W = innerWidth / 2, H = innerHeight / 2; ev('pointermove', W, H, 'mouse'); const a = document.getElementById('tip').style.display;
+        ev('pointerdown', W, H, 'touch'); ev('pointermove', W + 40, H + 10, 'touch'); const b = document.getElementById('tip').style.display; ev('pointerup', W + 40, H + 10, 'touch');
+        return [a, b, document.getElementById('tip').style.display]; });
+      eq(shown, ['block', 'none', 'none']);
+      const n = await page.evaluate(() => { const [x, y, vis] = __fl.screenOf(30, -40), c = document.getElementById('gl'), ev = (t, dx) => c.dispatchEvent(new PointerEvent(t, { pointerType: 'touch', clientX: x + dx, clientY: y, bubbles: true }));
+        ev('pointerdown', 0); ev('pointerup', 10); return [vis, __fl.ducks.length]; });
+      ok(!n[0] || n[1] === 100, 'a 10 px finger jitter still counts as a tap: ' + n);
+    },
     'corrupted / odd saves load without errors': async ({ page, eq }) => {
       const u = page.url(); await page.goto('about:blank'); // stop the first globe rendering while the others load
       for (const [save, cur] of [['null', 0], ['{"done":{"0":1,"9":1,"x":1},"stars":"q","cards":7,"cur":3}', 1]]) {

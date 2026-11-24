@@ -44,6 +44,8 @@
   #slider::-webkit-slider-thumb{-webkit-appearance:none;width:30px;height:30px;margin-top:-9px;border-radius:3px 3px 10px 10px;background:radial-gradient(circle at 50% 45%,#f4f0ff 0 3px,#9fb6c8 4px,transparent 5px),linear-gradient(#3b2a1d,#0f0a06);border:1px solid #000;box-shadow:0 3px 6px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.2)}
   #slider::-moz-range-thumb{width:30px;height:30px;border-radius:3px 3px 10px 10px;background:radial-gradient(circle at 50% 45%,#f4f0ff 0 3px,#9fb6c8 4px,transparent 5px),linear-gradient(#3b2a1d,#0f0a06);border:1px solid #000}
   .row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+  .fine{display:flex;align-items:center;gap:8px} .fine #slider{flex:1;min-width:0} .nud{min-width:40px;min-height:36px;font-size:14px;touch-action:manipulation}
+  @media (pointer:coarse){select{font-size:16px}}
   #resLbl{font-style:italic;font-size:15px!important;color:#3a280c!important}
   #meter{height:10px;border-radius:1px;background:#21170c;overflow:hidden;width:160px;box-shadow:inset 0 2px 3px rgba(0,0,0,.8),0 1px 0 rgba(255,240,200,.5)}
   #meter div{height:100%;background:linear-gradient(90deg,#f0d9a0,#fff6d8);width:100%;transform-origin:0 50%;transform:scaleX(0);box-shadow:0 0 8px #ffe9b0}
@@ -125,7 +127,7 @@
 <div id="book" class="chip"></div>
 <div id="dial" class="chip">
   <div class="row"><div id="freq">0<small>Hz</small></div><div class="row"><span id="resLbl" style="font-size:12px;color:#a8957a">resonance</span><div id="meter"><div></div></div><button class="b" id="snd" aria-pressed="false">Bow: silent</button><button class="b" id="sprinkle">Sprinkle sand</button></div></div>
-  <input type="range" id="slider" min="0" max="1000" value="300" aria-label="Frequency">
+  <div class="fine"><button class="b nud" id="fDown" aria-label="Lower the pitch a little">◀</button><input type="range" id="slider" min="0" max="1000" step="0.1" value="300" aria-label="Frequency"><button class="b nud" id="fUp" aria-label="Raise the pitch a little">▶</button></div>
   <div class="row" id="hint" style="font-size:12px;color:#a8957a"><span>← low</span><span>draw the bow slowly near a resonance · arrow keys fine-tune</span><span>high →</span></div>
 </div>
 <div id="toast"></div>
@@ -517,10 +519,15 @@ cv.addEventListener('pointerdown', e => {
   if (px > 0 && px < 1 && py > 0 && py < 1 && insideP(plate, px, py)) { if (finger && Math.hypot(finger.x - px, finger.y - py) < .07) setFinger(null); else setFinger({ x: px, y: py }); }
 });
 cv.addEventListener('pointermove', e => { if (bowDrag) { const [px, py] = plateXY(e); setBow(toEdge(px, py)); } });
-addEventListener('pointerup', () => { bowDrag = false; });
+addEventListener('pointerup', () => { bowDrag = false; }); addEventListener('pointercancel', () => { bowDrag = false; });
 // slider input only marks the response dirty: it is recomputed at most once per animation frame
 $('slider').oninput = () => { freq = sliderToF(+$('slider').value); dirty = true; };
-addEventListener('keydown', e => { if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && e.target.tagName !== 'INPUT') { const v = +$('slider').value + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 10 : 1); $('slider').value = v; $('slider').oninput(); e.preventDefault(); } });
+addEventListener('keydown', e => { if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && e.target.tagName !== 'INPUT') { const v = +$('slider').value + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 10 : .4); $('slider').value = v; $('slider').oninput(); e.preventDefault(); } });
+// fine tuning for fingers: a resonance is under 2% wide, a pixel of slider is ~1.5%. Tap ◀ ▶ for 0.2% steps; hold to keep going.
+function nudge(dir) { freq = Math.max(FMIN, Math.min(FMAX, freq * (1 + .002 * dir))); $('slider').value = fToSlider(freq); dirty = true; }
+for (const [id, dir] of [['fDown', -1], ['fUp', 1]]) { let rep = 0; const b = $(id), stop = () => { clearInterval(rep); rep = 0; };
+  b.onpointerdown = e => { e.preventDefault(); nudge(dir); FX.sfx('click'); stop(); rep = setInterval(() => nudge(dir), 120); }; b.onpointerup = b.onpointerleave = b.onpointercancel = stop;
+  b.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); nudge(dir); } }; }
 $('snd').onclick = () => { soundOn = !soundOn; $('snd').textContent = soundOn ? 'Bow: sounding' : 'Bow: silent'; $('snd').setAttribute('aria-pressed', soundOn); lastSnd = -1; if (soundOn) startSound(); else stopSound(); };
 $('sprinkle').onclick = () => { sprinkle(); holdT = 0; };
 $('storyT').onclick = () => { const on = $('hud').classList.toggle('story'); $('storyT').setAttribute('aria-expanded', on); $('storyT').textContent = on ? 'Hide' : 'About'; layout(); };

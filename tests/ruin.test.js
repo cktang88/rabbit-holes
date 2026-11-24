@@ -63,6 +63,14 @@ module.exports = {
       await page.evaluate(() => { const R = __ruin; for (let i = 0; i < 7; i++) R.SAVE.done[i] = 3; R.render(); R.placeBet(); });
       eq(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).ruin), 1);
     },
+    'touch (portrait): the chart and the betting controls are on screen together; a tapped bet moves the chart without scrolling': async ({ page, ok, eq }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
+      const vis = sel => page.evaluate(sel => { const r = document.querySelector(sel).getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight && r.height > 0; }, sel);
+      ok(await vis('#chart'), 'chart off screen'); ok(await vis('#betBtn'), 'Place the bet off screen'); ok(await vis('.chip[data-v="1"]'), 'chips off screen');
+      await page.dispatchEvent('.chip[data-v="0.25"]', 'click'); await page.dispatchEvent('#betBtn', 'click');
+      eq(await page.evaluate(() => [scrollY, __ruin.SAVE.play[0].length]), [0, 1]);
+      ok(await vis('#chart') && await vis('#betBtn'), 'layout moved after betting');
+    },
     'phone: the chart is the main surface; tables open from a drawer': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
       const h = await page.evaluate(() => document.getElementById('chart').getBoundingClientRect().height); ok(h > 380, 'chart too small ' + h);

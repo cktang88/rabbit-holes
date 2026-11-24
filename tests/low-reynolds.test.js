@@ -193,6 +193,13 @@ module.exports = {
       await page.mouse.up();
       const l = await page.evaluate(() => __lr.loop); eq(l.length, 64); ok(l.every(p => Math.abs(p[0]) <= 1.45 && Math.abs(p[1]) <= 1.45));
     },
+    'touch: the microscope view and the pad block browser pinch-zoom and scrolling': async ({ page, eq }) => {
+      eq(await page.evaluate(() => [getComputedStyle(document.getElementById('cv')).touchAction, getComputedStyle(document.getElementById('pad')).touchAction]), ['none', 'none']);
+      // a cancelled touch ends the stroke being drawn: the next move doesn't extend it
+      await page.evaluate(() => { const p = document.getElementById('pad'), r = p.getBoundingClientRect(), ev = (t, x, y) => p.dispatchEvent(new PointerEvent(t, { pointerType: 'touch', clientX: r.left + x, clientY: r.top + y, bubbles: true, pointerId: 7 }));
+        ev('pointerdown', 20, 20); ev('pointermove', 60, 20); ev('pointercancel', 60, 20); ev('pointermove', 60, 80); ev('pointerup', 60, 80); });
+      eq(await page.evaluate(() => __lr.St().drawn), false, 'a cancelled touch still drew a loop');
+    },
     'no overflow or console errors at phone and desktop sizes': async ({ page, ok }) => {
       await setup(page);
       for (const [w, h] of [[390, 844], [1280, 800]]) {

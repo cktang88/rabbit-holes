@@ -101,6 +101,13 @@ async function solveAll(page, upTo) {
 }
 // The harness clears localStorage on every navigation of the test page, so "reload" opens a second page in the same context.
 async function reopen(page) { const p2 = await page.context().newPage(); const errs = []; p2.on('pageerror', e => errs.push(e.message)); await p2.goto(page.url()); await p2.waitForTimeout(200); p2.errs = errs; return p2; }
+// Real touch input through Chrome's protocol (touch emulation on, finger drags with intermediate moves).
+async function touchSession(page) { const cdp = await page.context().newCDPSession(page); await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }); return cdp; }
+async function touchDrag(cdp, a, b, steps = 6) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: a[0], y: a[1], id: 1 }] });
+  for (let k = 1; k <= steps; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: a[0] + (b[0] - a[0]) * k / steps, y: a[1] + (b[1] - a[1]) * k / steps, id: 1 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); }
+async function touchPinch(cdp, c, d0, d1) { const pts = (d) => [{ x: c[0] - d, y: c[1], id: 1 }, { x: c[0] + d, y: c[1], id: 2 }]; await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pts(d0) });
+  for (let k = 1; k <= 5; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pts(d0 + (d1 - d0) * k / 5) }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); }
 const dismissModals = (page) => page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
 
 module.exports = {
@@ -358,6 +365,18 @@ module.exports = {
         out.late = late.length; return out; }, { SOL, BUILD_SRC });
       ok(r.randomWins === 0, 'random wins ' + r.randomWins + '/' + r.randomTries); ok(r.obviousWins <= 0.2 * r.late, 'obvious wins ' + r.obviousWins);
       ok(r.composedWins === r.late, 'competent composition solves every late level'); ok(r.composed3 <= r.late / 2, 'composition alone 3★ on ' + r.composed3 + '/' + r.late);
+    },
+    'touch (phone): wire NOT to both inputs of a NAND at the fitted zoom; dragging the chip body moves it': async ({ page, eq, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.goto(page.url()); await page.waitForTimeout(600); await dismissModals(page);
+      const cdp = await touchSession(page); await page.evaluate(() => __nand.fitView());
+      await page.tap('#palette button:text-is("NAND")').catch(() => page.click('#palette button:text-is("NAND")'));
+      const S = () => page.evaluate(() => { const N = __nand, v = N.view, r = document.getElementById('cv').getBoundingClientRect(), c = N.circ.comps[0], s = N.compSize(c); const f = (p) => [r.left + p.x * v.z + v.x, r.top + p.y * v.z + v.y];
+        return { pin: f(N.portPos(['in', 0], 'out')), in0: f(N.portPos([c.id, 0], 'in')), in1: f(N.portPos([c.id, 1], 'in')), o: f(N.portPos([c.id, 0], 'out')), out: f(N.portPos(['out', 0], 'in')), body: f({ x: c.x + s.w / 2, y: c.y + s.h / 2 }), z: v.z, c: { x: c.x, y: c.y } }; });
+      let p = await S(); ok(p.z < 0.7, 'fitted zoom ' + p.z);
+      await touchDrag(cdp, p.body, [p.body[0] - 60, p.body[1] + 20]); const p2 = await S(); ok(p2.c.x !== p.c.x || p2.c.y !== p.c.y, 'chip moved'); eq(await page.evaluate(() => __nand.circ.wires.length), 0, 'no wire from a body drag');
+      p = p2; await touchDrag(cdp, p.pin, p.in0); await touchDrag(cdp, p.pin, p.in1); await touchDrag(cdp, p.o, p.out);
+      eq(await page.evaluate(() => __nand.circ.wires.map(w => w.to.join(':')).sort()), ['1:0', '1:1', 'out:0']);
+      await page.click('#testBtn'); ok(/All 2 tests passed/.test(await page.textContent('#result')));
     },
     'phone layout: no horizontal scroll and the canvas is usable': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
