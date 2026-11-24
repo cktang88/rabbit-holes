@@ -107,6 +107,14 @@ module.exports = {
         s.hold(true); s.end('win'); return { key: s.levelKey, runs: s.runsLeft, same: a === b, differ: a !== c, best: Object.keys(s.S.best).length }; });
       eq(r.key, 'deep:pioneer'); ok(r.runs > 3); ok(r.same && r.differ); eq(r.best, 0);
     },
+    'the Δv beside the probe and the ΔV panel always read the same value, while dragging and after release': async ({ page, eq }) => {
+      const pos = await page.evaluate(() => { const s = window.__sling, r = document.getElementById('cv').getBoundingClientRect(), p = s.toS(s.probe.x, s.probe.y); return [r.left + p[0], r.top + p[1]]; });
+      const read = () => page.evaluate(() => { const s = window.__sling; return [document.getElementById('dvP').textContent.match(/ΔV ([\d.]+)/)[1], s.shownDv().toFixed(1)]; });
+      await page.mouse.move(pos[0], pos[1]); await page.mouse.down(); await page.mouse.move(pos[0] - 40, pos[1] + 30, { steps: 4 }); await page.waitForTimeout(80);
+      const during = await read(); await page.mouse.move(pos[0] - 70, pos[1] + 50, { steps: 4 }); await page.mouse.up(); await page.waitForTimeout(80); const after = await read();
+      const label = await page.evaluate(() => window.__sling.aimText(window.__sling.aim));
+      eq(during[0], during[1], 'while dragging'); eq(after[0], after[1], 'after release'); eq(label.startsWith('ΔV ' + after[0]), true, label);
+    },
     'mobile layout: no horizontal scroll and the plot is visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
       const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect().toJSON() }));

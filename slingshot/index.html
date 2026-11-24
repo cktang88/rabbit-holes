@@ -227,9 +227,13 @@ function drawStrip(){ const el=document.getElementById('winStrip'); if (!el) ret
   el.innerHTML=winQ.map((q,i)=>`<i style="background:rgba(${q>=1?'123,227,138':'255,138,42'},${0.12+q*0.85})" title="T+${i}: ${q>=1?'arrives':Math.round(q*100)+'%'}"></i>`).join('')+`<b style="left:${(L.t0||0)/WIN_MAX*100}%"></b>`; }
 function setWindow(t){ if (mode!=='aim' || !L) return; L.t0=Math.max(0,Math.min(WIN_MAX,+t||0)); computed=null; reset(); updWin(); }
 function updWin(){ document.getElementById('winV').textContent=`T+ ${(L.t0||0).toFixed(1)} s`; drawStrip(); }
+// one source for the Δv on show: the aim being dragged, else the committed aim, else what the flight has used
+const liveAim=()=> mode==='aim'? (drag? aimVec() : null) || aim : null;
+const shownDv=()=>{ const v=liveAim(); return v? v.dv : dvUsed; };
+const aimText=(v)=>`ΔV ${v.dv.toFixed(1)} · θ ${Math.round((v.ang*180/Math.PI+360)%360)}°`;
 function updHud(){ const left=Math.max(0,L.budget-dvUsed); document.getElementById('needle').setAttribute('transform',`rotate(${-90+(left/L.budget)*180} 31 32)`);
   document.getElementById('tries').textContent=`UPLINK ${String(tries+(mode==='aim'?1:0)).padStart(2,'0')}`; document.getElementById('met').textContent=`T+ ${String((stepN*DT).toFixed(1)).padStart(4,'0')}`;
-  document.getElementById('dvP').textContent=`ΔV ${(mode==='aim'&&aim? aim.dv : dvUsed).toFixed(1)} / ${L.budget}`;
+  document.getElementById('dvP').textContent=`ΔV ${shownDv().toFixed(1)} / ${L.budget}`;
   document.getElementById('computeBtn').textContent=`Compute (${runsLeft})`; document.getElementById('computeBtn').disabled=!(mode==='aim'&&aim&&runsLeft>0); document.getElementById('launchBtn').disabled=!(mode==='aim'&&aim); }
 
 // ===================== Physics step (live) =====================
@@ -322,7 +326,8 @@ function draw(){
   if (mode==='aim'){ const v=drag? aimVec() : aim; if (v){ const ex=px+Math.cos(v.ang)*v.dv*8, ey=py+Math.sin(v.ang)*v.dv*8; ctx.strokeStyle='rgba(217,236,247,.7)'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(ex,ey); ctx.stroke();
       const pv=SYSTEMS[L.sys].preview, n=Math.round(pv/DT); ctx.fillStyle=PEN;
       simulate(L, v.ang, v.dv, (x,y,s)=>{ if (s%6===0){ ctx.globalAlpha=1-s/n; ctx.beginPath(); ctx.arc(x,y,2.4,0,7); ctx.fill(); } return s<n; }); ctx.globalAlpha=1;
-      ctx.fillStyle='#d9ecf7'; ctx.font='15px "Share Tech Mono",monospace'; ctx.textAlign='left'; txt(`ΔV ${v.dv.toFixed(1)} · θ ${Math.round((v.ang*180/Math.PI+360)%360)}°`, px+20, py-24); } }
+      // the aim label sits below the probe, clear of the planet's name, and reads the same Δv as the panel
+      ctx.fillStyle='#d9ecf7'; ctx.font='15px "Share Tech Mono",monospace'; ctx.textAlign='center'; txt(aimText(v), px, py+40); updHud(); } }
   ctx.save(); ctx.translate(px,py); ctx.rotate(mode==='aim'?0:Math.atan2(probe.vy,probe.vx)); ctx.strokeStyle='#ffffff'; ctx.fillStyle='#d9ecf7'; ctx.lineWidth=1.5;
   ctx.beginPath(); ctx.arc(-2,0,6,-1.2,1.2); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(10,0); ctx.moveTo(3,-1); ctx.lineTo(3,-9); ctx.stroke(); ctx.fillRect(-1,-2,4,4); ctx.restore();
   if (mode==='fly' && thrusting && dvUsed<L.budget && mouse){ ctx.strokeStyle='#e0472f'; ctx.lineWidth=3; const dx=mouse[0]-px, dy=mouse[1]-py, dd=Math.hypot(dx,dy)||1; ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px-dx/dd*18,py-dy/dd*18); ctx.stroke(); }
@@ -399,7 +404,7 @@ let lastT=performance.now(), testHold=false;
 function frame(now){ const dt=(now-lastT)/1000; lastT=now; if (!testHold) tick(dt); draw(); requestAnimationFrame(frame); }
 fit(); window.addEventListener('resize', fit);
 openLevel(String(S.cur||0)); requestAnimationFrame(frame);
-window.__sling={ windowQuality, deepMission, get winQ(){ return winQ; }, MISSIONS, SYSTEMS, SUN, simulate, startState, bodyPos, bodyVel, accel, flybyTracker, starsFor, cleanSave, levelOpen, nextOpen, sysUnlocked, aimVec, launch, compute, tick, liveStep, reset, openLevel, end, setWindow, DT, TMAX, THRUST, PER, NLEV, toS, toW,
+window.__sling={ aimText, shownDv, windowQuality, deepMission, get winQ(){ return winQ; }, MISSIONS, SYSTEMS, SUN, simulate, startState, bodyPos, bodyVel, accel, flybyTracker, starsFor, cleanSave, levelOpen, nextOpen, sysUnlocked, aimVec, launch, compute, tick, liveStep, reset, openLevel, end, setWindow, DT, TMAX, THRUST, PER, NLEV, toS, toW,
   get S(){ return S; }, get L(){ return L; }, set L(v){ L=v; }, get mode(){ return mode; }, get probe(){ return probe; }, get dvUsed(){ return dvUsed; }, get stepN(){ return stepN; }, get simT(){ return simT; }, get aim(){ return aim; }, set aim(v){ aim=v; }, get runsLeft(){ return runsLeft; }, get computed(){ return computed; }, get flyLog(){ return flyLog; }, get tries(){ return tries; },
   get thrusting(){ return thrusting; }, set thrusting(v){ thrusting=v; }, get mouse(){ return mouse; }, set mouse(v){ mouse=v; }, get levelKey(){ return levelKey; }, get lastShot(){ return lastShot; }, get view(){ return view; }, get winAnim(){ return winAnim; },
   hold(v){ testHold=!!v; } };
