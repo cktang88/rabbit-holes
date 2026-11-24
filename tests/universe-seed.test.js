@@ -128,6 +128,29 @@ module.exports = {
       ok(times[10] != null && times[10] < 40, 'civ at ' + times[10]);
       let prev = 0; for (let i = 1; i <= 10; i++) { ok(times[i] - prev < 10, `era ${i} took ${(times[i] - prev).toFixed(1)} min`); prev = times[i]; }
     },
+    'era forks: each era from 1 to 10 offers one permanent choice that changes production': async ({ page, eq, ok }) => {
+      await dismiss(page);
+      const r = await page.evaluate(() => { const X = __us; X.U = X.newRun(X.M); const U = X.U; U.gens['1:0'] = 4;
+        const future = X.choose(1, 'a'); U.tier = 1; X.renderAll(); const shown = document.getElementById('fork').textContent;
+        const before = X.rate('Q'); const ok1 = X.choose(1, 'a'); const after = X.rate('Q'); const again = X.choose(1, 'b'); const bad = X.choose(2, 'z');
+        return { keys: Object.keys(X.FORKS).map(Number), future, shown, ratio: after / before, ok1, again, bad, ch: U.choices, hidden: document.getElementById('fork').classList.contains('on') }; });
+      eq(r.keys, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]); eq(r.future, false, 'cannot choose for an era not yet reached'); ok(r.shown.includes('Baryogenesis'));
+      ok(Math.abs(r.ratio - 1.6) < 1e-9, 'ratio ' + r.ratio); eq([r.ok1, r.again, r.bad], [true, false, false]); eq(r.ch, { 1: 'a' }); eq(r.hidden, false);
+    },
+    'era fork buttons work with a real click and survive a reload; bad saved choices are dropped': async ({ page, eq }) => {
+      await dismiss(page);
+      await page.evaluate(() => { const X = __us; X.U.tier = 2; X.U.maxTier = 2; X.renderAll(); });
+      await page.click('#fork button[data-c="b"]'); eq(await page.evaluate(() => __us.U.choices), { 1: 'b' });
+      eq(await page.textContent('#fork .fk-q'), 'The neutron ratio');
+      await page.evaluate(() => { __us.U.choices[7] = 'q'; __us.persist(); });
+      const p2 = await reopen(page); eq(await p2.evaluate(() => __us.U.choices), { 1: 'b' }); await p2.close();
+    },
+    'seed constellation: lighting a star spends seeds and joins it to the constellation': async ({ page, eq }) => {
+      await dismiss(page);
+      await page.evaluate(() => { __us.M.seeds = 20; __us.renderAll(); });
+      await page.click('.tabs button[data-t="seeds"]'); await page.click('#p-seeds [data-s="mem"]'); await page.click('#p-seeds [data-s="start"]');
+      eq(await page.evaluate(() => [__us.M.seeds, __us.M.seedUps.mem, __us.M.seedUps.start, document.querySelectorAll('#p-seeds line').length, document.querySelectorAll('#p-seeds .star.lit').length]), [18, 1, 1, 1, 2]);
+    },
     'phone layout: no horizontal scroll, sky is visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect() }));

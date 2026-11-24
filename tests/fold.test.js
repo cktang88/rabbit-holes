@@ -124,6 +124,12 @@ module.exports = {
       await page.evaluate(() => { const F = __fold; F.commit(F.tryMove(0, [1, 1])); F.commit(F.tryMove(3, [2, 1])); });
       const p2 = await reopen(page); const r = await p2.evaluate(() => [__fold.contacts().c, __fold.SAVE.best[0]]); eq(r, [1, 1]); await p2.close();
     },
+    'matching the target photographs the fold into the notebook': async ({ page, eq, ok }) => {
+      await dismiss(page);
+      await page.evaluate(() => { const F = __fold; F.open(0); F.commit(F.tryMove(0, [1, 1])); F.commit(F.tryMove(3, [2, 1])); });
+      eq(await page.locator('#photos .photo').count(), 1); ok(/Warm-up 1 — 1 contacts/.test(await page.textContent('#photos')));
+      await page.evaluate(() => { const F = __fold; F.undo(); F.redo(); }); eq(await page.locator('#photos .photo').count(), 1, 'no second photo for the same record');
+    },
     'phone layout: no horizontal scroll, canvas is large enough': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect() }));

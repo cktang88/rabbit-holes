@@ -277,6 +277,23 @@ module.exports = {
       const r = await p2.evaluate(() => ({ best: __nand.SAVE.best, cur: __nand.SAVE.cur, n: __nand.circ.comps.length }));
       eq(r.best, { NOT: 1, AND: 2, OR: 3 }); eq(r.cur, 2); eq(r.n, 3);
     },
+    'oscilloscope: a test run draws a trace and the passing chip is packaged': async ({ page, ok }) => {
+      await dismissModals(page);
+      await page.evaluate(({ SOL, BUILD_SRC }) => { __nand.circ = eval(BUILD_SRC)(SOL.NOT); }, { SOL, BUILD_SRC });
+      await page.click('#testBtn'); ok(await page.isVisible('#scope'), 'scope shown');
+      ok(await page.evaluate(() => __nand.packaging && __nand.packaging.name === 'NOT'), 'packaging animation started');
+      await page.waitForTimeout(1000);
+      const lit = await page.evaluate(() => { const c = document.getElementById('scope'), g = c.getContext('2d'), d = g.getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 1] > 150) n++; return n; });
+      ok(lit > 50, 'trace pixels ' + lit);
+    },
+    'sagging jumper leads: hit test follows the drawn curve; signal animation never changes logic': async ({ page, ok, eq }) => {
+      await dismissModals(page);
+      const r = await page.evaluate(({ SOL, BUILD_SRC }) => { const N = __nand; N.circ = eval(BUILD_SRC)(SOL.NOT); const w = N.circ.wires[2];
+        const P = N.wirePts(N.portPos(w.from, 'out'), N.portPos(w.to, 'in')); const mid = N.bezPt(P, .5); const straight = { x: (P[0].x + P[3].x) / 2, y: (P[0].y + P[3].y) / 2 };
+        N.setInputs([1]); N.liveSettle(); const o1 = N.outputs(); N.setInputs([0]); N.liveSettle(); const o0 = N.outputs();
+        return { hit: N.hitWire(mid.x, mid.y), sag: mid.y - straight.y, o1, o0, anim: Object.keys(N.wireAnim).length }; }, { SOL, BUILD_SRC });
+      eq(r.hit, 2); ok(r.sag >= 0); eq(r.o1, [0]); eq(r.o0, [1]); ok(r.anim > 0, 'propagation animation queued');
+    },
     'phone layout: no horizontal scroll and the canvas is usable': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect() }));

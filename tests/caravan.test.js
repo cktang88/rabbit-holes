@@ -58,7 +58,7 @@ module.exports = {
     'tapping a city (no hover first) plans a journey, travel moves the caravan and passes days': async ({ page, ok, eq }) => {
       await closeModals(page);
       const target = await page.evaluate(() => { const K = window.__caravan; K.encountersOn = false; return K.neighbors(K.C.at).sort((a, b) => a.r.days - b.r.days)[0].to; });
-      await page.evaluate(ci => { const K = window.__caravan, cv = document.getElementById('map'), r = cv.getBoundingClientRect(), c = K.cities[ci]; cv.dispatchEvent(new MouseEvent('click', { clientX: r.left + c.x * r.width, clientY: r.top + c.y * r.height, bubbles: true })); }, target);
+      await page.evaluate(ci => { const K = window.__caravan, cv = document.getElementById('map'), r = cv.getBoundingClientRect(), c = K.cities[ci]; const [px, py] = K.P(c); cv.dispatchEvent(new MouseEvent('click', { clientX: r.left + px, clientY: r.top + py, bubbles: true })); }, target);
       ok(await page.locator('#goBtn').isVisible(), 'no plan from a tap');
       const d0 = await page.evaluate(() => window.__caravan.C.day);
       await page.click('#goBtn');
@@ -106,7 +106,7 @@ module.exports = {
     },
     'a journey does not advance while an encounter waits': async ({ page, eq }) => {
       await closeModals(page);
-      await page.evaluate(() => { const K = window.__caravan; K.planTo(K.neighbors(K.C.at)[0].to); K.travel(); K.traveling.enc = { k: 'storm' }; });
+      await page.evaluate(() => { const K = window.__caravan; K.planTo(K.neighbors(K.C.at)[0].to); K.travel(); K.traveling.enc = { k: 'storm' }; K.renderEncounter(); });
       const d0 = await page.evaluate(() => [window.__caravan.C.day, window.__caravan.traveling.t]);
       await page.waitForTimeout(800);
       eq(await page.evaluate(() => [window.__caravan.C.day, window.__caravan.traveling.t]), d0);

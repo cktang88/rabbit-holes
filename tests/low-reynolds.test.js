@@ -122,6 +122,7 @@ module.exports = {
       await page.evaluate(() => { __lr.load(0); while (__lr.St().cycles < 8) __lr.advance(.1); __lr.playing = true; });
       await page.waitForFunction(() => __lr.won, null, { timeout: 5000 });
       ok(await page.$eval('#toast', t => t.classList.contains('on')));
+      ok(await page.evaluate(() => __lr.shutter > 0), 'photomicrograph shutter fired'); ok(/OBSERVED/.test(await page.textContent('#toast')), 'stamped');
       await page.click('#levels .lv[data-i="0"]');
       eq(await page.$eval('#toast', t => t.classList.contains('on')), false);
       await page.evaluate(() => __lr.load(5)); eq(await page.evaluate(() => __lr.SAVE.cur), 1, 'locked level opened');
