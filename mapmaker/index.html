@@ -64,9 +64,11 @@
   #sealFx.on{display:block;animation:press 2.6s ease-out forwards}
   @keyframes press{0%{transform:scale(2.6) rotate(-30deg);opacity:0}18%{transform:scale(.92) rotate(-8deg);opacity:1}24%{transform:scale(1.04) rotate(-10deg)}30%{transform:scale(1) rotate(-10deg)}80%{opacity:1}100%{transform:scale(1) rotate(-10deg);opacity:0}}
   @media (prefers-reduced-motion:reduce){#sealFx.on{animation:none;opacity:1}}
+  #zoom{position:absolute;right:12px;bottom:12px;display:flex;flex-direction:column;gap:6px;z-index:3}
+  #zoom button{width:40px;height:40px;padding:0;font-size:22px;line-height:1;border-radius:50%;background:radial-gradient(circle at 35% 30%,#f0d48a,#b58a3c 60%,#7a5a24);border-color:#5e4418}
   @media (max-width:760px){
     main{flex-direction:column}
-    #stage{flex:none;height:48vh}
+    #stage{flex:none;height:54vh}
     #side{width:auto;flex:1;min-height:0;border-left:0;border-top:3px solid #1f1208;padding-left:14px}
     #look{width:104px;height:104px;right:10px;top:10px} #lookL{display:none}
     #hud{left:8px;bottom:6px;font-size:13px}
@@ -77,7 +79,7 @@
 <body>
 <div class="topbar"><a class="home" href="../index.html">← Rabbit Holes</a><h1>The Mapmaker of Lost Islands</h1><span class="spacer"></span><span class="small" id="tot"></span></div>
 <main>
-  <div id="stage"><canvas id="chart" aria-label="Your chart"></canvas><canvas id="look" aria-label="The lookout's view"></canvas><div id="lookL">The lookout: what is truly there</div><div id="hud"></div>
+  <div id="stage"><canvas id="chart" aria-label="Your chart"></canvas><canvas id="look" aria-label="The lookout's view"></canvas><div id="lookL">The lookout: what is truly there</div><div id="hud"></div><div id="zoom"><button data-z="in" aria-label="Zoom in">+</button><button data-z="out" aria-label="Zoom out">−</button></div>
     <svg id="sealFx" viewBox="0 0 180 180" aria-hidden="true"><defs><radialGradient id="wx" cx=".38" cy=".32"><stop offset="0" stop-color="#d9584a"/><stop offset=".55" stop-color="#9c1f1a"/><stop offset="1" stop-color="#5e0f0b"/></radialGradient></defs>
       <path d="M90 6 C120 4 150 18 164 44 C178 70 176 104 162 130 C148 158 118 176 88 174 C56 172 26 156 14 126 C2 96 6 62 22 38 C38 14 62 8 90 6Z" fill="url(#wx)"/>
       <circle cx="90" cy="90" r="58" fill="none" stroke="#6a120e" stroke-width="3"/><circle cx="90" cy="90" r="52" fill="none" stroke="#e58a7c" stroke-opacity=".5" stroke-width="1.5"/>
@@ -317,7 +319,13 @@ document.getElementById('newWorld').onclick=async()=>{ if (await RH.modal('<h2>S
 // ===================== Rendering =====================
 const cv=document.getElementById('chart'), ctx=cv.getContext('2d'); const lk=document.getElementById('look'), lctx=lk.getContext('2d');
 let view={s:1,ox:0,oy:0};
-function fit(){ const r=cv.getBoundingClientRect(), dp=Math.min(2,devicePixelRatio||1); cv.width=Math.max(1,r.width*dp|0); cv.height=Math.max(1,r.height*dp|0); view.s=Math.min(r.width/WX,r.height/WY)*0.97; view.ox=(r.width-WX*view.s)/2; view.oy=(r.height-WY*view.s)/2; lk.width=220*dp; lk.height=220*dp; }
+function fit(){ const r=cv.getBoundingClientRect(), dp=Math.min(2,devicePixelRatio||1); cv.width=Math.max(1,r.width*dp|0); cv.height=Math.max(1,r.height*dp|0); view.base=Math.min(r.width/WX,r.height/WY)*0.97; view.w=r.width; view.h=r.height;
+  if (view.z==null) view.z = r.width<600? 2 : 1; applyView(); lk.width=220*dp; lk.height=220*dp; }
+// zoomed in, the chart follows the ship (believed position) and never shows past its edges
+function applyView(){ const s=view.base*view.z; view.s=s; const fitAx=(len,W,c)=> W*s<=len? (len-W*s)/2 : Math.max(len-W*s, Math.min(0, len/2-c*s));
+  view.ox=fitAx(view.w,WX,ship? ship.bx : WX/2); view.oy=fitAx(view.h,WY,ship? ship.by : WY/2); }
+function setZoom(z){ view.z=Math.max(1,Math.min(4,z)); applyView(); }
+document.querySelectorAll('#zoom [data-z]').forEach(b=>b.onclick=()=>setZoom(view.z*(b.dataset.z==='in'?1.5:1/1.5)));
 let vellum=null;
 function rose(c, x, y, R, full){ // a compass rose: 32 points, alternating ink and verdigris, fleur-de-lis north
   c.save(); c.translate(x,y);
@@ -394,6 +402,7 @@ function frame(now){
   const dt=Math.min(0.05,(now-last)/1000); last=now;
   for (let k=0;k<2;k++) step(dt);
   ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,cv.width,cv.height);
+  if (view.z>1) applyView();
   const [shx,shy]=FX.shakeOffset(6); drawChart(ctx, view.s, view.ox+shx, view.oy+shy); drawLook();
   const la=landfallIsle(); const ab=document.getElementById('ashore'); if ((la>=0)!==ab.classList.contains('on')){ ab.classList.toggle('on', la>=0); if (la>=0) ab.textContent=`⛵ Go ashore on ${islands[la].name}`; }
   hudT+=dt; if (hudT>0.3){ hudT=0; renderStatus(); if (atPort!==lastPort){ if (atPort && lastPort===false){ VOICE.bell(); logE('Made Port Haven. Our position is certain again.'); } lastPort=atPort; if (atPort){ ship.bx=ship.x; ship.by=ship.y; ship.voyageDmg=0; } renderPort(); } saveT++; if (saveT>15){ saveT=0; S.ship=ship; persist(); } }
@@ -427,7 +436,15 @@ window.addEventListener('keydown',e=>{ const k=e.key.toLowerCase(); if (/^(INPUT
   if (k==='a'||e.key==='ArrowLeft') keys.a=1; if (k==='d'||e.key==='ArrowRight') keys.d=1;
   if (k==='f') tryFix(); if (e.key===' '){ ship.sail=0; e.preventDefault(); } });
 window.addEventListener('keyup',e=>{ const k=e.key.toLowerCase(); if (k==='a'||e.key==='ArrowLeft') keys.a=0; if (k==='d'||e.key==='ArrowRight') keys.d=0; if (keys.a||keys.d) target=null; });
-cv.addEventListener('pointerdown',e=>{ const r=cv.getBoundingClientRect(); const x=(e.clientX-r.left-view.ox)/view.s, y=(e.clientY-r.top-view.oy)/view.s; if (!(x>=0&&y>=0&&x<=WX&&y<=WY)) return; target=[x,y]; if (!ship.sail && fixing<=0) ship.sail=2; });
+// one finger (or click) sets a course; two fingers pinch to zoom
+const touches=new Map(); let pinch=null, beforeTap=null;
+cv.addEventListener('pointerdown',e=>{ touches.set(e.pointerId,[e.clientX,e.clientY]);
+  if (touches.size===2){ const [a,b]=[...touches.values()]; pinch={d:Math.hypot(a[0]-b[0],a[1]-b[1])||1, z:view.z}; if (beforeTap){ target=beforeTap.target; ship.sail=beforeTap.sail; } return; }
+  beforeTap={target, sail:ship.sail};
+  const r=cv.getBoundingClientRect(); const x=(e.clientX-r.left-view.ox)/view.s, y=(e.clientY-r.top-view.oy)/view.s; if (!(x>=0&&y>=0&&x<=WX&&y<=WY)) return; target=[x,y]; if (!ship.sail && fixing<=0) ship.sail=2; });
+cv.addEventListener('pointermove',e=>{ if (!touches.has(e.pointerId)) return; touches.set(e.pointerId,[e.clientX,e.clientY]); if (pinch && touches.size>=2){ const [a,b]=[...touches.values()]; setZoom(pinch.z*Math.hypot(a[0]-b[0],a[1]-b[1])/pinch.d); } });
+const lift=e=>{ touches.delete(e.pointerId); if (touches.size<2) pinch=null; };
+window.addEventListener('pointerup',lift); window.addEventListener('pointercancel',lift);
 document.querySelectorAll('#sails [data-sail]').forEach(b=>b.onclick=()=>{ if (fixing>0) return; ship.sail=+b.dataset.sail; if (!ship.sail) target=null; renderStatus(); });
 window.addEventListener('blur',()=>{ keys={}; });
 
@@ -445,7 +462,7 @@ S = cleanSave(S) || freshSave(Math.floor(Math.random()*1e9));
 boot(); requestAnimationFrame(frame);
 window.__map={ landfallIsle, goAshore, squall, logE, pressSeal, dirOf, hashCoast, buildWorld, acc, accAll, recall, precisions, nearestCoast, near, hashInk, cleanSave, freshSave, playableSeed, boot, step, ink, doFix, damage, renderAll, renderPort, COMS, INST, TOL, PREC_W, isLand, currentAt, uncertainty,
   get S(){ return S; }, set S(v){ S=v; }, get islands(){ return islands; }, set islands(v){ islands=v; }, get port(){ return port; }, get reefs(){ return reefs; }, get ship(){ return ship; }, set ship(v){ ship=v; }, get ghost(){ return ghost; },
-  get target(){ return target; }, set target(v){ target=v; }, get fixing(){ return fixing; }, get atPort(){ return atPort; }, set atPort(v){ atPort=v; }, get view(){ return view; }, get inkOn(){ return inkOn; }, set inkOn(v){ inkOn=v; }, get currents(){ return currents; }, get squallT(){ return squallT; }, set squallT(v){ squallT=v; }, get fixing(){ return fixing; }, set fixing(v){ fixing=v; } };
+  get target(){ return target; }, set target(v){ target=v; }, get fixing(){ return fixing; }, get atPort(){ return atPort; }, set atPort(v){ atPort=v; }, get view(){ return view; }, setZoom, applyView, get inkOn(){ return inkOn; }, set inkOn(v){ inkOn=v; }, get currents(){ return currents; }, get squallT(){ return squallT; }, set squallT(v){ squallT=v; }, get fixing(){ return fixing; }, set fixing(v){ fixing=v; } };
 if (!S.intro){ S.intro=1; persist(); RH.modal(`<h2>The Mapmaker of Lost Islands</h2><p>It's 1680. Nobody has charted these islands. You will.</p><p>The big view is <b>your chart</b>, drawn where you <i>think</i> you are. The round lookout shows what's <i>really</i> there. Currents push you off course and your compass is a little off, so your chart drifts away from the truth unless you navigate well.</p><p>Sail close to coasts to ink them. Come back to port to deliver commissions and buy better instruments. Watch out for reefs.</p>`,[{label:'Weigh anchor'}]); }
 </script>
 </body>

@@ -133,5 +133,17 @@ module.exports = {
       for (const i of [0, 14, 25]) { await page.evaluate(i => { const E = window.__esc; for (let j = 0; j < 26; j++) E.S.done[j] = { stars: 3, gears: 2 }; E.open(i); }, i);
         ok(await page.evaluate(() => document.documentElement.scrollWidth) <= 392, 'overflow on ' + i); }
     },
+    'phone: level list is a drawer behind a labelled button; picking a level closes it': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(500);
+      const off = await page.evaluate(() => document.getElementById('side').getBoundingClientRect().right <= 0);
+      ok(off, 'list visible without opening the drawer');
+      ok(await page.isVisible('#lvlBtn'), 'no drawer button');
+      await page.click('#lvlBtn'); await page.waitForTimeout(300);
+      ok(await page.evaluate(() => document.body.classList.contains('drawer') && document.getElementById('side').getBoundingClientRect().left >= 0), 'drawer did not open');
+      await page.click('#side .cm:not(.locked) >> nth=1'); await page.waitForTimeout(300);
+      ok(!(await page.evaluate(() => document.body.classList.contains('drawer'))), 'drawer stayed open');
+      await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(150);
+      ok(!(await page.isVisible('#lvlBtn')), 'drawer button on desktop');
+    },
   },
 };

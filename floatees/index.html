@@ -99,11 +99,15 @@
     #storyT{display:inline-block}
     #hud:not(.story) #story{display:none}
     .b{min-height:30px;min-width:30px}
+    #bets{gap:4px;margin-top:6px} #bets .b{font-size:10.5px;padding:3px 8px}
     #lvsel{min-height:30px}
     #report{top:50%}
   }
   @media (max-width:860px) and (min-height:501px){
-    #tally{max-height:22vh;overflow:hidden}
+    #tally{max-height:18vh;overflow:hidden}
+    #ctrl{flex-wrap:nowrap;gap:3px;padding:5px 6px} #ctrl .hint{display:none} #ctrl .b{padding:3px 7px;font-size:10.5px;white-space:nowrap}
+    #clock{position:absolute;left:8px;top:-24px;font-size:12px;padding:1px 8px}
+    #hud{padding:8px 12px} #hud .home{font-size:11px}
   }
   @media (max-height:500px) and (min-width:560px){
     #levels{display:none} #lvsel{display:block}
@@ -111,9 +115,9 @@
     #hud h1{font-size:18px;margin:0 0 2px} #goal{font-size:11.5px;margin-top:4px} #bets{gap:4px;margin-top:4px}
     #ctrl{left:282px;right:6px;bottom:6px;transform:none;max-width:none;padding:4px 6px;gap:4px} #ctrl .sep,#ctrl .hint{display:none} #ctrl .b{padding:3px 7px;font-size:11px}
     #tally{right:6px;top:6px;bottom:auto;width:170px;padding:5px 8px;font-size:10.5px;line-height:1.35;max-height:44vh;overflow:hidden}
-    #cards{left:auto;right:180px;top:6px;bottom:auto;transform:scale(.6);transform-origin:100% 0}
+    #cards{left:6px;right:auto;top:auto;bottom:6px;transform:scale(.6);transform-origin:0 100%}
     #report{transform:translate(-50%,-50%) scale(.75) rotate(6deg)} #report.on{transform:translate(-50%,-50%) scale(.75) rotate(-2deg)}
-    #toast{font-size:20px;top:30%}
+    #toast{font-size:18px;top:30%;left:calc(50% + 135px);max-width:52vw;padding:8px 14px} #toast small{font-size:11.5px}
   }
   @media (prefers-reduced-motion:reduce){.pcard{animation:none}#report.on .conf{animation:none;opacity:1;transform:translate(-50%,-50%) rotate(-12deg)}}
 </style>
@@ -320,7 +324,7 @@ scene.add(atmo);
 const brass = new THREE.MeshStandardMaterial({ color: '#c79d4e', metalness: .85, roughness: .32 });
 const meridian = new THREE.Mesh(new THREE.TorusGeometry(1.085, .016, 12, 160), brass); scene.add(meridian);
 const meridianEdge = new THREE.Mesh(new THREE.TorusGeometry(1.105, .006, 8, 160), brass); scene.add(meridianEdge);
-const pin = new THREE.Mesh(new THREE.CylinderGeometry(.012, .012, 2.32, 12), brass); scene.add(pin);
+const ringQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), .55); // the ring stands round the globe, turned a little towards the lamp
 
 // ================= background work: sliced so the page never freezes =================
 const jobs = []; const perf = { cpu: {}, slices: [] }; // perf: CPU ms per job, and the length of each work slice
@@ -465,7 +469,7 @@ function load(i) {
   SAVE.cur = i; persist(); L = LV[i]; ducks = []; simT = 0; running = false; won = false; resolved = false; bet = null; meas = {};
   if (!L.physics && rot !== 1) setSpin(1, true);
   patchRing.visible = !!L.patch; $('story').innerHTML = L.story; renderBets(); renderGoal(); renderLevels(); renderCtrl();
-  const fc = L.drop || L.focus; if (fc) { globe.rotation.y = 0; const v = new THREE.Vector3(...toXYZ(fc[0] - 12, fc[1])).normalize().multiplyScalar(MOBILE ? 6.6 : 5.4); camera.position.copy(v); controls.update(); }
+  const fc = L.drop || L.focus; if (fc) { globe.rotation.y = 0; const v = new THREE.Vector3(...toXYZ(fc[0] - 12, fc[1])).normalize().multiplyScalar(MOBILE ? (innerHeight <= 500 ? 5.4 : 6.6) : 5.4); camera.position.copy(v); controls.update(); }
   $('toast').classList.remove('on'); layout();
 }
 function setSpin(r, quiet) {
@@ -507,7 +511,7 @@ function renderCtrl() {
   layout();
 }
 function layout() { // keep the tally clear of the control bar on narrow screens
-  if (innerWidth <= 860) { const c = $('ctrl').getBoundingClientRect(); $('tally').style.bottom = (innerHeight - c.top + 8) + 'px'; } else $('tally').style.bottom = '';
+  if (innerWidth <= 860 && innerHeight > 500) { const c = $('ctrl').getBoundingClientRect(); $('tally').style.bottom = (innerHeight - c.top + 8) + 'px'; } else $('tally').style.bottom = '';
 }
 function patchDist(lat, lon) { const dLat = lat - PATCH[0], dLon = ((lon - PATCH[1] + 540) % 360) - 180; return Math.hypot(dLat, dLon * Math.cos(PATCH[0] * Math.PI / 180)); }
 function stats() {
@@ -561,7 +565,7 @@ function frame(now) {
     if (n && cen.lengthSq() > 1e-6) { globe.localToWorld(cen); const dist = camera.position.length(); tmpV.copy(cen).normalize().multiplyScalar(dist); camera.position.lerp(tmpV, 1 - Math.exp(-dt * 1.5)).setLength(dist); }
   }
   tallyT += dt; if (tallyT > .2) { tallyT = 0; const S = stats(); renderTally(S); check(S); layout(); }
-  controls.update(); renderer.render(scene, camera);
+  controls.update(); meridian.quaternion.copy(camera.quaternion).multiply(ringQ); meridianEdge.quaternion.copy(meridian.quaternion); renderer.render(scene, camera);
 }
 // after a miss: how close it was and where the ducks went instead, so the next drop is an informed guess
 function failHint(S) {

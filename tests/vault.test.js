@@ -234,5 +234,17 @@ module.exports = {
         ok(sw <= 392, 'horizontal overflow ' + sw + ' on vault ' + i);
       }
     },
+    'phone: level list is a drawer behind a labelled button; picking a level closes it': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(500);
+      const off = await page.evaluate(() => document.getElementById('side').getBoundingClientRect().right <= 0);
+      ok(off, 'list visible without opening the drawer');
+      ok(await page.isVisible('#lvlBtn'), 'no drawer button');
+      await page.click('#lvlBtn'); await page.waitForTimeout(300);
+      ok(await page.evaluate(() => document.body.classList.contains('drawer') && document.getElementById('side').getBoundingClientRect().left >= 0), 'drawer did not open');
+      await page.click('#side .vlt:not(.locked) >> nth=1'); await page.waitForTimeout(300);
+      ok(!(await page.evaluate(() => document.body.classList.contains('drawer'))), 'drawer stayed open');
+      await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(150);
+      ok(!(await page.isVisible('#lvlBtn')), 'drawer button on desktop');
+    },
   },
 };
