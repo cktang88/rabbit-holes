@@ -17,6 +17,9 @@
   #story b{color:#fff}
   #goal{margin-top:10px;padding:9px 12px;border-radius:12px;background:rgba(150,160,255,.07);border:1px solid rgba(150,160,255,.22);font-size:13px;line-height:1.45}
   #goal.ok{border-color:#5fd38d;background:rgba(95,211,141,.12)}
+  #goal.hold{border-color:#ffd27a}
+  #goal.hold::after{content:'Hold it there…';display:block;margin-top:6px;color:#ffd27a;font-size:12px;animation:hp .5s ease-in-out infinite alternate}
+  @keyframes hp{to{opacity:.45}}
   #goal .b{margin-top:8px}
   #levels{top:16px;right:16px;padding:8px;width:220px}
   #levels h4{margin:4px 8px 6px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#8f95c0}
@@ -146,15 +149,20 @@ const LV = [
 ];
 
 // ================= state =================
-const SAVE = RH.load('polarizer', {}); SAVE.done = SAVE.done || {}; SAVE.stars = SAVE.stars || {};
+const obj = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+const SAVE = obj(RH.load('polarizer', {})); SAVE.done = obj(SAVE.done); SAVE.stars = obj(SAVE.stars); // tolerate corrupted / hand-edited saves
+for (const k in SAVE.done) if (!(+k >= 0 && +k < LV.length - 1)) delete SAVE.done[k];
 const persist = () => { RH.save('polarizer', SAVE); RH.progress('polarizer', Object.keys(SAVE.done).length / (LV.length - 1)); };
+const maxOpen = () => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; };
+const isOpen = i => Number.isInteger(i) && i >= 0 && i < LV.length && (i <= maxOpen() || SAVE.done[i] || LV[i].free);
 let L, parts = [], sel = null, tool = null, Rz, fires = {}, flashes = [], photons = [], won = false, need = true;
 const timers = new Set();
 const $ = id => document.getElementById(id);
 const later = (fn, ms) => { const h = setTimeout(() => { timers.delete(h); fn(); }, ms); timers.add(h); };
 const cancelShots = () => { timers.forEach(clearTimeout); timers.clear(); };
 function load(i) {
-  cancelShots(); hideToast();
+  if (!isOpen(i)) i = maxOpen();
+  cancelShots(); hideToast(); clearTimeout(settleH); settleH = 0; holding = false;
   SAVE.cur = i; persist(); L = LV[i]; parts = []; sel = null; tool = null; fires = {}; flashes = []; photons = []; won = false;
   $('title').textContent = L.n; $('story').innerHTML = L.story; renderGoal(); renderLevels(); renderTray(); showSel(); recompute();
 }
@@ -254,11 +262,24 @@ function showSel() {
   for (const id of ['selR', 'selN', 'selV']) $(id).style.display = angled ? '' : 'none';
   const mx = sel.t === 'phase' ? 360 : 180; $('selR').max = $('selN').max = mx; $('selR').value = sel.a; if (document.activeElement !== $('selN')) $('selN').value = sel.a;
 }
-function setAngle(a) { if (!sel || !isFinite(a)) return; a = Math.max(0, Math.min(+$('selR').max, Math.round(a))); if (a === sel.a) return; sel.a = a; if (a % 15 === 0) FX.sfx('tick'); showSel(); recompute(); check(); }
+function setAngle(a) { if (!sel || !isFinite(a)) return; a = Math.max(0, Math.min(+$('selR').max, Math.round(a))); if (a === sel.a) return; sel.a = a; if (a % 15 === 0) FX.sfx('tick'); showSel(); recompute(); settle(); }
+// An angle only counts once it is HELD: unchanged for a second with the slider released. Sweeping the dial
+// past the answer (or typing digits on the way to another number) never wins by accident.
+const SETTLE = 1000; let settleH = 0, holding = false, sliding = false;
+const hitsNow = () => { const H = {}; for (const k in Rz.hits) H[k] = Rz.hits[k].p; return H; };
+function settle() {
+  clearTimeout(settleH); settleH = 0;
+  const pass = !won && !L.free && L.test(hitsNow(), fires);
+  if (pass !== holding) { holding = pass; $('goal').classList.toggle('hold', pass); }
+  if (pass) settleH = setTimeout(() => { settleH = 0; if (!sliding) { holding = false; $('goal').classList.remove('hold'); check(); } }, SETTLE);
+}
+$('selR').addEventListener('pointerdown', () => { sliding = true; });
+addEventListener('pointerup', () => { if (sliding) { sliding = false; settle(); } });
+addEventListener('pointercancel', () => { if (sliding) { sliding = false; settle(); } });
 $('selR').oninput = () => setAngle(+$('selR').value);
 $('selN').oninput = () => { if ($('selN').value !== '') setAngle(+$('selN').value); };
 $('selN').onchange = () => { $('selN').value = sel ? sel.a : 0; };
-$('selDel').onclick = () => { parts = parts.filter(p => p !== sel); sel = null; showSel(); FX.sfx('pop'); recompute(); renderTray(); };
+$('selDel').onclick = () => { parts = parts.filter(p => p !== sel); sel = null; showSel(); FX.sfx('pop'); recompute(); renderTray(); settle(); };
 addEventListener('keydown', e => {
   if (!sel || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return; const st = e.shiftKey ? 1 : 5;
   if (e.key === 'ArrowRight' || e.key === 'ArrowUp') setAngle((Math.floor(sel.a / st) + 1) * st);
@@ -276,8 +297,8 @@ function pathTo(hit) {
   return path.reverse();
 }
 function fire(n) {
-  const outs = Object.entries(Rz.hits).map(([k, v]) => [k, v.p, v.c, v]);
   for (let i = 0; i < n; i++) later(() => {
+    const outs = Object.entries(Rz.hits).map(([k, v]) => [k, v.p, v.c, v]); // the table as it is now, not when the button was pressed
     let r = Math.random(), res = null; for (const o of outs) { r -= o[1]; if (r <= 0) { res = o; break; } }
     if (!res) { FX.sfx('tick'); return; } // absorbed by a filter or lost off the table
     const [k, , c, hit] = res, path = pathTo(hit), now = performance.now();
@@ -309,13 +330,13 @@ const nextBtn = () => SAVE.cur < LV.length - 1 && SAVE.done[SAVE.cur] ? `<button
 const goNext = () => { FX.sfx('click'); load(SAVE.cur + 1); };
 function renderGoal() {
   const ok = SAVE.done[SAVE.cur], st = SAVE.stars[SAVE.cur];
-  $('goal').className = ok ? 'ok' : '';
+  $('goal').className = (ok ? 'ok' : '') + (holding ? ' hold' : '');
   $('goal').innerHTML = (ok ? '✓ ' : '🎯 ') + L.goal + (st ? ` <span style="color:#ffd27a">${stars(st)}</span>` : '') + (tool || ok ? '' : '<br><span style="color:#8f95c0;font-size:12px">Pick a part below, then click an empty spot on the table. Click a part to adjust it.</span>') + (nextBtn() ? '<br>' + nextBtn() : '');
   $('goal').querySelectorAll('[data-next]').forEach(b => b.onclick = goNext);
   if (L) fit();
 }
 function renderLevels() {
-  const maxOpen = (() => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; })(), locked = i => i > maxOpen && !SAVE.done[i] && !LV[i].free;
+  const locked = i => !isOpen(i);
   $('levels').innerHTML = '<h4>Experiments</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${locked(i) ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><span>${SAVE.done[i] ? '✓' : ''}</span></div>`).join('');
   $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { FX.sfx('click'); load(+el.dataset.i); });
   $('lvSel').innerHTML = LV.map((l, i) => `<option value="${i}" ${i === SAVE.cur ? 'selected' : ''} ${locked(i) ? 'disabled' : ''}>${i + 1}. ${l.n}${SAVE.done[i] ? ' ✓' : locked(i) ? ' 🔒' : ''}</option>`).join('');
@@ -346,9 +367,9 @@ function frame(now) {
   if (need || photons.length || flashes.length || particles.list.length) { need = false; draw(now); }
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; } else if (!raf) { need = true; raf = requestAnimationFrame(frame); } });
-load(Math.min(SAVE.cur || 0, LV.length - 1));
+load(+SAVE.cur || 0);
 raf = requestAnimationFrame(frame);
-window.__pz = { LV, load, simulate, addPart: (t, x, y, a = 0, m = 1) => { if (occupied(x, y)) return null; const p = P(t, x, y, a, m); parts.push(p); recompute(); renderTray(); check(); return p; }, setAngle: (p, a) => { p.a = a; recompute(); check(); }, hits: () => Rz.hits, fire, get fires() { return fires; }, get parts() { return parts; }, get won() { return won; } };
+window.__pz = { LV, load, simulate, addPart: (t, x, y, a = 0, m = 1) => { if (occupied(x, y)) return null; const p = P(t, x, y, a, m); parts.push(p); recompute(); renderTray(); check(); return p; }, setAngle: (p, a) => { p.a = a; recompute(); check(); }, hits: () => Rz.hits, fire, get fires() { return fires; }, get parts() { return parts; }, get won() { return won; }, select: p => { sel = p; showSel(); }, setAngleUI: a => setAngle(a), get holding() { return holding; }, SAVE };
 </script>
 </body>
 </html>

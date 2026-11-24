@@ -283,20 +283,41 @@ function calibrate(lv) {
 L.forEach(calibrate);
 
 // ================= state & UI =================
-const S = RH.load('opticks', { done: {}, layouts: {}, cur: 0, intro: 0 });
+function trayOf(lv) { return [...lv.sol, ...(lv.extra || [])].map((p, i) => ({ ...p, id: i })); }
+// Saves are sanitised: corrupted or old data (unknown levels, pieces that no longer exist, NaN positions) is dropped.
+function cleanSave(raw) {
+  const S = { done: {}, layouts: {}, cur: 0, intro: 0 };
+  if (!raw || typeof raw !== 'object') return S;
+  const okLv = k => /^\d+$/.test(k) && +k < L.length;
+  if (raw.done && typeof raw.done === 'object') for (const k of Object.keys(raw.done)) if (okLv(k) && raw.done[k]) S.done[k] = 1;
+  if (raw.layouts && typeof raw.layouts === 'object') for (const k of Object.keys(raw.layouts)) {
+    if (!okLv(k) || !Array.isArray(raw.layouts[k])) continue;
+    const tray = trayOf(L[k]), seen = new Set(), out = [];
+    for (const q of raw.layouts[k]) {
+      const t = q && tray.find(p => p.id === q.id);
+      if (!t || seen.has(t.id) || ![q.x, q.y, q.a].every(Number.isFinite)) continue;
+      seen.add(t.id); out.push({ ...t, x: Math.min(BW, Math.max(0, q.x)), y: Math.min(BH, Math.max(0, q.y)), a: q.a });
+    }
+    S.layouts[k] = out;
+  }
+  if (Number.isInteger(raw.cur) && raw.cur >= 0 && raw.cur < L.length) S.cur = raw.cur;
+  S.intro = raw.intro ? 1 : 0;
+  return S;
+}
+const S = cleanSave(RH.load('opticks', null));
 const persist = () => { RH.save('opticks', S); RH.progress('opticks', Object.keys(S.done).length / L.length); };
 const chOpen = c => c === 0 || L.filter((l, i) => l.c === c - 1 && S.done[i]).length >= Math.ceil(L.filter(l => l.c === c - 1).length * 2 / 3);
 let cur = S.cur; if (!L[cur] || !chOpen(L[cur].c)) cur = 0;
 const $ = id => document.getElementById(id);
 const cv = $('cv'), g = cv.getContext('2d');
-let placed = [], sel = -1, drag = null, R = null, view = { s: 30, ox: 0, oy: 0 };
+let placed = [], sel = -1, drag = null, R = null, winT = 0, view = { s: 30, ox: 0, oy: 0 };
 
-function trayOf(lv) { return [...lv.sol, ...(lv.extra || [])].map((p, i) => ({ ...p, id: i })); }
 function loadLevel(i) {
   cur = i; S.cur = i; persist();
   const lv = L[i], saved = S.layouts[i];
   placed = saved ? saved.map(p => ({ ...p })) : [];
-  sel = -1; render(); recompute();
+  // R holds the previous level's trace (its checks match the old target list): drop it before anything draws
+  R = null; sel = -1; drag = null; clearTimeout(winT); render(); recompute();
 }
 const unplaced = () => trayOf(L[cur]).filter(p => !placed.some(q => q.id === p.id));
 function pieceName(p) {
@@ -342,14 +363,16 @@ function pick(x, y) {
   for (let i = placed.length - 1; i >= 0; i--) { const p = placed[i]; if (Math.hypot(p.x - x, p.y - y) < Math.max(1.2, (p.L ?? SIZE[p.t] ?? 3) / 2)) return i; }
   return -1;
 }
-cv.addEventListener('pointerdown', e => { const [x, y] = toW(e), i = pick(x, y); sel = i; if (i >= 0) { drag = { i, dx: x - placed[i].x, dy: y - placed[i].y }; cv.setPointerCapture(e.pointerId); } draw(); });
+cv.addEventListener('pointerdown', e => { const [x, y] = toW(e), i = pick(x, y); sel = i; if (i >= 0) { drag = { i, dx: x - placed[i].x, dy: y - placed[i].y }; cv.setPointerCapture(e.pointerId); } draw(); updateStatus(); });
 addEventListener('pointermove', e => { if (drag) moveTo(e); });
-addEventListener('pointerup', e => {
+const endDrag = () => {
   if (!drag) return;
   const p = placed[drag.i];
   if (p.x < 0 || p.x > BW || p.y < 0 || p.y > BH) { placed.splice(drag.i, 1); sel = -1; renderTray(); }
   drag = null; save(); recompute();
-});
+};
+addEventListener('pointerup', endDrag);
+addEventListener('pointercancel', endDrag);
 cv.addEventListener('dblclick', e => { const [x, y] = toW(e), i = pick(x, y); if (i >= 0) { placed.splice(i, 1); sel = -1; save(); renderTray(); recompute(); } });
 cv.addEventListener('wheel', e => { if (sel < 0) return; e.preventDefault(); const st = e.shiftKey ? .25 : 3; placed[sel].a = +(placed[sel].a + (e.deltaY > 0 ? st : -st)).toFixed(2); save(); recompute(); }, { passive: false });
 addEventListener('keydown', e => {
@@ -361,19 +384,24 @@ addEventListener('keydown', e => {
   else if (e.key === 'ArrowUp') p.y = +(p.y - mv).toFixed(2); else if (e.key === 'ArrowDown') p.y = +(p.y + mv).toFixed(2);
   else if (e.key === 'Delete' || e.key === 'Backspace') { placed.splice(sel, 1); sel = -1; save(); renderTray(); recompute(); return; }
   else return;
+  p.x = Math.min(BW, Math.max(0, p.x)); p.y = Math.min(BH, Math.max(0, p.y)); // nudging can't push a piece off the bench
   e.preventDefault(); save(); recompute();
 });
 
-let wonShown = false;
+// A level is won only once the light has stayed on every target for SETTLE ms with nothing being dragged,
+// so sweeping a mirror past the right angle (wheel, keys or drag) does not count.
+const SETTLE = 800;
+const solvedNow = () => !!(R && R.lv === cur && R.checks.every(c => c.ok));
 function recompute() {
-  const lv = L[cur]; R = trace(lv, placed);
+  const lv = L[cur]; R = trace(lv, placed); R.lv = cur;
   R.checks = lv.targets.map((t, i) => checkTarget(t, R.hits[i], lv));
   draw(); updateStatus();
-  if (R.checks.every(c => c.ok) && !drag) win();
+  clearTimeout(winT); winT = 0;
+  if (solvedNow() && !drag && !S.done[cur]) { winT = setTimeout(() => { winT = 0; if (solvedNow() && !drag) win(); }, SETTLE); updateStatus(); }
 }
 function updateStatus() {
-  if (!R || !$('tg') || !R.checks || R.checks.length !== L[cur].targets.length) return; // results from a previous level
-  $('tg').innerHTML = L[cur].targets.map((t, i) => `<span class="${R.checks[i].ok ? 'ok' : ''}">${R.checks[i].ok ? '✓' : '○'} Target ${i + 1}${t.l ? ' (' + (Array.isArray(t.l) ? 'colours' : colourName(t.l)) + (t.only ? ' only' : '') + ')' : ''}${t.par != null ? ' · parallel' : ''}${t.width ? ` · width ${((t.width[0] + t.width[1]) / 2).toFixed(0)}` : ''}: ${R.checks[i].msg}</span>`).join('');
+  if (!R || R.lv !== cur || !$('tg')) return;
+  $('tg').innerHTML = L[cur].targets.map((t, i) => `<span class="${R.checks[i].ok ? 'ok' : ''}">${R.checks[i].ok ? '✓' : '○'} Target ${i + 1}${t.l ? ' (' + (Array.isArray(t.l) ? 'colours' : colourName(t.l)) + (t.only ? ' only' : '') + ')' : ''}${t.par != null ? ' · parallel' : ''}${t.width ? ` · width ${((t.width[0] + t.width[1]) / 2).toFixed(0)}` : ''}: ${R.checks[i].msg}</span>`).join('') + (winT ? '<span class="ok"> · Hold it there…</span>' : '') + (placed[sel] ? `<span class="dim"> · ${pieceName(placed[sel])} at ${placed[sel].a}°</span>` : '');
 }
 const colourName = l => ({ 650: 'red', 600: 'orange', 570: 'yellow', 530: 'green', 470: 'blue', 420: 'violet', 590: 'amber' })[l] || l + 'nm';
 async function win() {
@@ -411,7 +439,7 @@ function drawPiece(c, p, selected, lw = 1 / view.s) {
   c.restore();
 }
 function draw() {
-  if (!R) return;
+  if (!R || R.lv !== cur) return;
   const lv = L[cur];
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height);
   g.setTransform(view.s, 0, 0, view.s, view.ox, view.oy);
@@ -422,7 +450,7 @@ function draw() {
   (lv.fixed || []).forEach(p => drawPiece(g, p, false));
   // targets
   lv.targets.forEach((t, i) => {
-    const ok = !!(R && R.checks[i] && R.checks[i].ok), col = t.l && !Array.isArray(t.l) ? wlColor(t.l) : '#ffb547';
+    const ok = R.checks[i].ok, col = t.l && !Array.isArray(t.l) ? wlColor(t.l) : '#ffb547';
     g.lineWidth = 2 / view.s; g.strokeStyle = ok ? '#5fd38d' : col;
     if (t.k === 'spot') { const rr = Math.max(t.r, .25); g.beginPath(); g.arc(t.x, t.y, rr, 0, 7); g.stroke(); g.beginPath(); g.arc(t.x, t.y, Math.max(t.r, .08) * .6, 0, 7); g.fillStyle = ok ? '#5fd38d' : col; g.fill(); }
     else { g.beginPath(); g.moveTo(t.x1, t.y1); g.lineTo(t.x2, t.y2); g.lineWidth = 5 / view.s; g.stroke(); }
@@ -444,7 +472,7 @@ const help = () => RH.modal(`<h2>🔦 Opticks</h2>
 $('helpBtn').onclick = help;
 render(); loadLevel(cur);
 if (!S.intro) { S.intro = 1; persist(); help(); }
-window.__opt = { L, trace, checkTarget, loadLevel, get placed() { return placed; }, set placed(v) { placed = v; }, recompute, S };
+window.__opt = { L, trace, checkTarget, loadLevel, cleanSave, trayOf, chOpen, SETTLE, get R() { return R; }, get cur() { return cur; }, get sel() { return sel; }, set sel(v) { sel = v; }, get placed() { return placed; }, set placed(v) { placed = v; }, recompute, S };
 </script>
 </body>
 </html>

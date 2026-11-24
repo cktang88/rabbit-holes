@@ -108,15 +108,17 @@ const sliderToF = v => FMIN * Math.pow(FMAX / FMIN, v / 1000), fToSlider = f => 
 const insideP = (pl, x, y) => pl !== 'circle' || (x * 2 - 1) ** 2 + (y * 2 - 1) ** 2 < .97;
 
 // ================= state =================
-const SAVE = RH.load('chladni', {});
+const obj = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+const SAVE = obj(RH.load('chladni', {})); // tolerate corrupted / hand-edited saves
 // migrate: figures used to be stored as PNG data URLs (~1 MB); now just ids. Target index is per plate.
-SAVE.got = SAVE.got || {}; for (const k in SAVE.got) SAVE.got[k] = 1;
-SAVE.solved = SAVE.solved || {}; SAVE.mode = SAVE.mode === 'match' ? 'match' : 'explore';
-if (typeof SAVE.tgt !== 'object' || !SAVE.tgt) SAVE.tgt = { [PLATES[SAVE.plate] ? SAVE.plate : 'square']: +SAVE.tgt || 0 };
+SAVE.got = obj(SAVE.got); for (const k in SAVE.got) SAVE.got[k] = 1;
+SAVE.solved = obj(SAVE.solved); SAVE.mode = SAVE.mode === 'match' ? 'match' : 'explore';
+if (typeof SAVE.tgt !== 'object' || !SAVE.tgt || Array.isArray(SAVE.tgt)) SAVE.tgt = { [PLATES[SAVE.plate] ? SAVE.plate : 'square']: +SAVE.tgt || 0 };
+if (!PLATES[SAVE.plate]) delete SAVE.plate;
 const TOTAL = Object.values(PLATES).reduce((a, p) => a + p.modes.length, 0);
 const persist = () => { RH.save('chladni', SAVE); RH.progress('chladni', Object.values(PLATES).reduce((a, p) => a + p.modes.filter(m => SAVE.got[m.id]).length, 0) / TOTAL); };
 persist();
-let plate = PLATES[SAVE.plate] ? SAVE.plate : 'square', freq = sliderToF(300), holdT = 0, dirty = true;
+let plate = PLATES[SAVE.plate] ? SAVE.plate : 'square', freq = sliderToF(300), holdT = 0, holdF = 0, dirty = true;
 const focus = { k: 0, strength: 0, thr: .16 };
 
 // ================= sand =================
@@ -251,7 +253,7 @@ function updateSound() { if (!osc) return; const v = document.hidden ? 0 : .025 
 
 // ================= modes: explore / match =================
 const targetsOf = pl => PLATES[pl].modes.filter((_, i) => i % 2 === 0).slice(0, 10);
-const tgtIdx = () => SAVE.tgt[plate] || 0;
+const tgtIdx = () => { const n = targetsOf(plate).length, v = Math.floor(+SAVE.tgt[plate]); return v >= 0 && v < n ? v : 0; };
 // the current target is the first unsolved one at or after the stored index (null when all are matched)
 function curTarget() { const T = targetsOf(plate); for (let d = 0; d < T.length; d++) { const t = T[(tgtIdx() + d) % T.length]; if (!SAVE.solved[t.id]) return t; } return null; }
 function advanceTarget() { const T = targetsOf(plate), t = curTarget(); if (t) SAVE.tgt[plate] = (T.indexOf(t) + 1) % T.length; }
@@ -278,7 +280,7 @@ function renderUI() {
   $('book').innerHTML = `<h4>Chladni's book · ${P.n} · ${got}/${P.modes.length}<span class="mob" style="float:right">✕</span></h4><div class="pg">${P.modes.map(md => `<div class="${SAVE.got[md.id] ? 'got' : ''} ${md === t ? 'tg' : ''}" title="${SAVE.got[md.id] ? md.name + ' · ' + Math.round(md.f) + ' Hz' : md === t ? 'target' : 'undiscovered'}">${SAVE.got[md.id] ? `<img alt="" src="${thumb(plate, md)}">` : '?'}</div>`).join('')}</div>`;
   layout();
 }
-function setPlate(p) { plate = p; SAVE.plate = p; holdT = 0; persist(); sprinkle(); FX.sfx('click'); renderUI(); computeResponse(); }
+function setPlate(p) { if (!PLATES[p]) return; plate = p; SAVE.plate = p; holdT = 0; persist(); sprinkle(); FX.sfx('click'); renderUI(); computeResponse(); }
 // slider input only marks the response dirty: it is recomputed at most once per animation frame
 $('slider').oninput = () => { freq = sliderToF(+$('slider').value); dirty = true; };
 addEventListener('keydown', e => { if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && e.target.tagName !== 'INPUT') { const v = +$('slider').value + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 10 : 1); $('slider').value = v; $('slider').oninput(); e.preventDefault(); } });
@@ -291,6 +293,7 @@ function toast(big, small, ms = 3000) { const t = $('toast'); t.innerHTML = big 
 
 // ================= loop =================
 let last = performance.now(), shownF = -1, shownS = -1, raf = 0;
+const HOLD_TOL = .015; let shownL = '';
 function record(md) {
   const cx = plateBox.x + plateBox.s / 2, cy = plateBox.y + plateBox.s / 2;
   if (SAVE.mode === 'explore') {
@@ -304,7 +307,7 @@ function record(md) {
       SAVE.solved[t.id] = 1; SAVE.got[md.id] = 1; advanceTarget(); persist(); FX.sfx('win'); FX.shake(.25);
       particles.burst(cx, cy, { n: 120, color: ['#ffd27a', '#fff2cf', '#ff8a5c'], speed: 420 * dpr, life: 1.1 });
       const done = !curTarget(); toast(done ? '🏆 All matched!' : '✓ Matched', done ? `Every target on the ${PLATES[plate].n.toLowerCase()}.` : `${Math.round(md.f)} Hz. Next figure…`, done ? 4000 : 3000); renderUI();
-    } else { FX.sfx('fail'); toast('Not that one', 'Keep sweeping.', 1800); }
+    } else if (!SAVE.solved[md.id]) { FX.sfx('fail'); toast('Not that one', `That's ${md.name}. The target sings <b>${t.f > md.f ? 'higher' : 'lower'}</b>: sweep ${t.f > md.f ? 'right →' : '← left'}.`, 2600); }
   }
 }
 function frame(now) {
@@ -318,7 +321,11 @@ function frame(now) {
   // record once the sand has really settled on the nodal lines (average shaking where the grains sit, judged
   // against this field's own uniform vs settled levels), or after a long steady hold right on the resonance
   let settle = 0; for (let i = 0; i < 1500; i++) { const k = (Math.random() * NS) | 0, gi = Math.min(GRID - 1, sx[k] * GRID | 0), gj = Math.min(GRID - 1, sy[k] * GRID | 0); settle += AMP[gj * GRID + gi]; } settle /= 1500;
-  if (focus.strength > .55) holdT += dt; else holdT = 0;
+  // a figure only counts when the dial is HELD near the resonance: drifting more than ±1.5% restarts the clock,
+  // so sweeping slowly past a resonance never records it
+  if (holdT > 0 && Math.abs(Math.log(freq / holdF)) > HOLD_TOL) holdT = 0;
+  if (focus.strength > .55) { if (holdT === 0) holdF = freq; holdT += dt; } else holdT = 0;
+  const lbl = holdT > .3 ? 'hold steady…' : 'resonance'; if (lbl !== shownL) { shownL = lbl; $('resLbl').textContent = lbl; $('resLbl').style.color = holdT > .3 ? '#ffd27a' : ''; } // feedback that holding is working
   if ((holdT > 2 && settle < focus.thr) || (holdT > 3.5 && focus.strength > .9)) { holdT = -3; record(PLATES[plate].modes[focus.k]); }
   draw(now);
 }
@@ -327,7 +334,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) { can
 $('slider').value = fToSlider(freq);
 sprinkle(true); renderUI(); computeResponse();
 raf = requestAnimationFrame(frame);
-window.__ch = { PLATES, setFreq: f => { freq = f; $('slider').value = fToSlider(f); computeResponse(); }, setPlate, focus: () => focus, SAVE, get plate() { return plate; }, curTarget };
+window.__ch = { PLATES, setFreq: f => { freq = f; $('slider').value = fToSlider(f); computeResponse(); }, setPlate, focus: () => focus, SAVE, get plate() { return plate; }, curTarget, targetsOf, get holdT() { return holdT; }, record, HOLD_TOL };
 </script>
 </body>
 </html>

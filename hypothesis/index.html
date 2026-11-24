@@ -32,6 +32,8 @@
   .koan:hover{border-color:var(--accent)}
   .koan.new{animation:pop .5s}
   .koan{min-width:52px;justify-content:center}
+  .koan.mispred{border-style:dashed;border-color:var(--accent)}
+  .koan.mispred .tag{color:var(--accent)}
   .koan .tag{position:absolute;top:-8px;right:-4px;font-size:9px;line-height:13px;white-space:nowrap;background:var(--panel2);border-radius:8px;padding:0 4px;color:var(--dim)}
   @keyframes pop{0%{transform:scale(.6);opacity:0}70%{transform:scale(1.08)}}
   .builder{margin-top:16px;border:1px dashed var(--line);border-radius:12px;padding:12px}
@@ -199,7 +201,21 @@ function makeLaw(r, tier, avoid, tpl) {
 }
 
 // ---------- state ----------
-const S = RH.load('hyp', { seed: (Math.random() * 1e9) | 0, laws: {}, cur: 0, intro: 0, free: { solved: 0, i: 0 } });
+const S = loadState();
+function loadState() {
+  const fresh = () => ({ seed: (Math.random() * 1e9) | 0, laws: {}, cur: 0, intro: 0, free: { solved: 0, i: 0 } });
+  const s = RH.load('hyp', null);
+  if (!s || typeof s !== 'object' || Array.isArray(s) || !Number.isFinite(s.seed)) return fresh();
+  if (!s.laws || typeof s.laws !== 'object' || Array.isArray(s.laws)) s.laws = {};
+  const okK = k => Array.isArray(k) && k.length >= 1 && k.length <= 8 && k.every(t => Array.isArray(t) && t.length === 3 && t.every(x => x === 0 || x === 1 || x === 2));
+  const okSt = st => st && typeof st === 'object' && Array.isArray(st.journal) && st.journal.every(e => e && okK(e.k) && typeof e.ok === 'boolean');
+  for (const i in s.laws) { const st = s.laws[i]; if (!(+i >= 0 && +i < 60) || !okSt(st)) delete s.laws[i]; else { st.probes = st.probes | 0; st.fails = st.fails | 0; } }
+  if (!s.free || typeof s.free !== 'object') s.free = { solved: 0, i: 0 };
+  s.free.solved = s.free.solved | 0; s.free.i = s.free.i | 0;
+  if (!(s.free.tier >= 3 && s.free.tier <= 7) || (s.free.st && !okSt(s.free.st))) { s.free.st = null; s.free.tier = 3; }
+  if (s.cur !== 'free' && !(Number.isInteger(s.cur) && s.cur >= 0 && s.cur < 60)) s.cur = 0;
+  return s;
+}
 const persist = () => { RH.save('hyp', S); RH.progress('hypothesis', Object.values(S.laws).filter(l => l.solved).length / LAWS.length); };
 const LAWS = (() => { const r = RH.rng('hyp:' + S.seed), avoid = [], out = []; TIERS.forEach((_, t) => {
   const order = r.shuffle([...GEN[t].keys()]); if (t === 0) order.splice(order.indexOf(0), 1), order.unshift(0);
@@ -213,7 +229,7 @@ function lawState(i) {
   if (i === 'free') return S.free.st;
   if (!S.laws[i]) {
     const r = RH.rng('hyp:' + S.seed + ':start' + i), L = LAWS[i], j = [];
-    let y = null, n = null; for (let t = 0; t < 20000 && (!y || !n); t++) { const k = randKoan(r, 2, 5); if (L.f(k)) y ||= k; else n ||= k; }
+    let y = null, n = null; for (let t = 0; t < 20000 && (!y || !n); t++) { const k = t < 5000 ? randKoan(r, 2, 5) : randKoan(r, 1, 8); // some laws only reject 1-token or long koans if (L.f(k)) y ||= k; else n ||= k; }
     if (y) j.push({ k: y, ok: true, given: 1 }); if (n) j.push({ k: n, ok: false, given: 1 });
     S.laws[i] = { journal: j, probes: 0, fails: 0, notes: '' };
   }
@@ -250,8 +266,8 @@ function openFree(fresh) {
   const r = RH.rng('hyp:free:' + S.seed + ':' + S.free.i); r.int(5);
   freeLaw = makeLaw(r, S.free.tier, []);
   if (!S.free.st) {
-    const j = []; let y = null, n = null; for (let t = 0; t < 20000 && (!y || !n); t++) { const k = randKoan(r, 2, 5); if (freeLaw.f(k)) y ||= k; else n ||= k; }
-    j.push({ k: y, ok: true, given: 1 }, { k: n, ok: false, given: 1 }); S.free.st = { journal: j, probes: 0, fails: 0, notes: '' };
+    const j = []; let y = null, n = null; for (let t = 0; t < 20000 && (!y || !n); t++) { const k = t < 5000 ? randKoan(r, 2, 5) : randKoan(r, 1, 8); // some laws only reject 1-token or long koans if (freeLaw.f(k)) y ||= k; else n ||= k; }
+    if (y) j.push({ k: y, ok: true, given: 1 }); if (n) j.push({ k: n, ok: false, given: 1 }); S.free.st = { journal: j, probes: 0, fails: 0, notes: '' };
   }
   cur = 'free'; builder = []; sel = -1; mode = 'probe'; preds = null; lastVerdict = null; persist(); render();
 }
@@ -268,8 +284,8 @@ function render() {
     </div>
     ${solved ? `<div class="lawtext">“${L.d}”</div>` : ''}
     <div class="journal">
-      <div class="jcol yes"><h3>✓ The machine accepts (${yes.length})</h3><div class="klist">${yes.map(e => koanHTML(e.k, e === st.journal[nNew] && (lastVerdict === true || lastVerdict === false) ? 'new' : '', e.given ? 'given' : e.pred ? 'missed' : '')).join('')}</div></div>
-      <div class="jcol no"><h3>✗ The machine rejects (${no.length})</h3><div class="klist">${no.map(e => koanHTML(e.k, e === st.journal[nNew] && (lastVerdict === true || lastVerdict === false) ? 'new' : '', e.given ? 'given' : e.pred ? 'missed' : '')).join('')}</div></div>
+      <div class="jcol yes"><h3>✓ The machine accepts (${yes.length})</h3><div class="klist">${yes.map(e => jKoan(e, st, nNew)).join('')}</div></div>
+      <div class="jcol no"><h3>✗ The machine rejects (${no.length})</h3><div class="klist">${no.map(e => jKoan(e, st, nNew)).join('')}</div></div>
     </div>
     <div class="note" style="margin-top:6px">Click any koan above to copy it into the builder, then change one thing. Minimal changes make the sharpest experiments.</div>
     ${mode === 'predict' ? predHTML() : builderHTML(solved)}
@@ -283,6 +299,11 @@ function render() {
   if (mode === 'predict') wirePred(); else wireBuilder();
   renderSide();
 }
+// A journal entry sits in the box of the machine's real verdict. Entries that came from a failed prediction are
+// marked with what YOU said, so a counterexample in the accept box reads "you said ✗", never like a rejection.
+const jTag = e => e.given ? 'given' : e.pred ? (e.ok ? 'you said ✗' : 'you said ✓') : '';
+const jKoan = (e, st, nNew) => koanHTML(e.k, [e === st.journal[nNew] && (lastVerdict === true || lastVerdict === false) ? 'new' : '', e.pred ? 'mispred' : ''].join(' '),
+  jTag(e)).replace('<span class="koan', `<span title="${e.pred ? `Machine ${e.ok ? 'accepts' : 'rejects'} this; you predicted it would ${e.ok ? 'reject' : 'accept'}` : ''}" class="koan`);
 const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
 function builderHTML(solved) {
@@ -354,7 +375,7 @@ function startPredict() {
   for (let t = 0; t < 600 && (pos.length < 8 || neg.length < 8); t++) {
     if (t % 2) add(mutate(r, r.pick(st.journal).k)); else add(randKoan(r));
   }
-  let set = [...r.shuffle(pos).slice(0, 4), ...r.shuffle(neg).slice(0, 4)];
+  const nPos = 3 + r.int(3); let set = [...r.shuffle(pos).slice(0, nPos), ...r.shuffle(neg).slice(0, 8 - nPos)];
   while (set.length < 8) { const k = randKoan(r); if (!seen.has(kkey(k))) { seen.add(kkey(k)); set.push(k); } }
   preds = r.shuffle(set).map(k => ({ k, ans: null }));
   mode = 'predict'; render();
@@ -417,8 +438,8 @@ const help = () => RH.modal(`<h2>⚗️ Hypothesis</h2>
   <p class="dim">Sixty laws in eight tiers, generated for your save, plus an endless free lab. Good scientists change one thing at a time.</p>`, [{ label: 'Enter the lab' }]);
 $('helpBtn').onclick = help;
 if (!S.intro) { S.intro = 1; persist(); help(); }
-if (cur === 'free') openFree(false); else openLaw(typeof cur === 'number' && LAWS[cur] && tierOpen(LAWS[cur].tier) ? cur : 0);
-window.__hyp = { LAWS, S, openLaw, test, get builder() { return builder; }, set builder(b) { builder = b; }, startPredict, get preds() { return preds; }, submitPred, render, fp };
+if (cur === 'free' && tierOpen(3)) openFree(false); else openLaw(typeof cur === 'number' && LAWS[cur] && tierOpen(LAWS[cur].tier) ? cur : 0);
+window.__hyp = { GEN, makeLaw, randKoan, kkey, mutate, lawState, loadState, tierOpen, openFree, par, get cur() { return cur; }, get mode() { return mode; }, LAWS, S, openLaw, test, get builder() { return builder; }, set builder(b) { builder = b; }, startPredict, get preds() { return preds; }, submitPred, render, fp };
 </script>
 </body>
 </html>

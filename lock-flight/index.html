@@ -240,8 +240,11 @@ function waterChart(lost) {
 }
 
 // ================= state =================
-const SAVE = RH.load('lock-flight', { done: {}, cur: 0, photos: {} });
-SAVE.photos ||= {};
+const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+const SAVE = (v => isObj(v) ? v : {})(RH.load('lock-flight', {}));
+SAVE.done = isObj(SAVE.done) ? SAVE.done : {}; SAVE.photos = isObj(SAVE.photos) ? SAVE.photos : {};
+for (const k in SAVE.done) if (!(+k >= 0 && +k < LV.length && Number.isInteger(+k)) || !(SAVE.done[k] >= 1)) delete SAVE.done[k]; // stale or junk entries must not inflate progress
+SAVE.cur = Number.isInteger(SAVE.cur) && SAVE.cur >= 0 ? SAVE.cur : 0;
 const persist = () => { RH.save('lock-flight', SAVE); RH.progress('lock-flight', Object.keys(SAVE.done).length / LV.length); };
 let L, LI = 0, B = [], G = [], U = [], ops = [], boats = [], sIdx = -1, T = 0, nextBoat = 0, bid = 0;
 let ledger, state = 'play', speed = 1, keeperOn = false, feedMul = 1, rain = 0, rainT = 0, storm = 0, stormT = 0, ice = 1, iceT = 0;
@@ -1408,7 +1411,7 @@ window.__lock = {
   unitPos: ui => { const p = unitLabelPos(U[ui]); return [sx(p.x) / dpr, sy(p.z) / dpr]; },
 };
 
-startLevel(Math.min(SAVE.cur || 0, LV.length - 1));
+{ let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; const c = Math.min(SAVE.cur, LV.length - 1); startLevel(c > m && !SAVE.done[c] ? m : c); } // never resume into a locked canal
 if (!L) load(0);
 if (document.fonts) document.fonts.ready.then(() => fitView(false));
 raf = requestAnimationFrame(loop);

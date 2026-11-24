@@ -153,18 +153,26 @@ const LV = [
 for (const l of LV) l.goalBase = l.goal;
 
 // ================= state =================
-const SAVE = RH.load('lowre', { done: {}, cur: 0 });
-if (!Array.isArray(SAVE.slots)) SAVE.slots = [null, null, null];
+const obj = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+const SAVE = obj(RH.load('lowre', { done: {}, cur: 0 })); SAVE.done = obj(SAVE.done); // tolerate corrupted / hand-edited saves
+for (const k in SAVE.done) if (!(+k >= 0 && +k < LV.length && Number.isInteger(+k))) delete SAVE.done[k];
+// a saved loop must be at least 3 finite points inside shape space, or it is dropped
+const okLoop = l => Array.isArray(l) && l.length >= 3 && l.length <= 2000 && l.every(p => Array.isArray(p) && p.length === 2 && p.every(v => typeof v === 'number' && isFinite(v) && Math.abs(v) <= 1.45 + 1e-6));
+SAVE.slots = [0, 1, 2].map(k => Array.isArray(SAVE.slots) && okLoop(SAVE.slots[k]) ? SAVE.slots[k] : null);
+function maxOpen() { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; }
 const persist = () => { RH.save('lowre', SAVE); RH.progress('low-reynolds', Object.keys(SAVE.done).length / LV.length); };
 // loop: closed polygon in shape space. seg: the pose sits on loop[seg]→loop[seg+1]. trans: a point the pose is first travelling to.
 let L, sw, loop = [], seg = 0, trans = null, perim = 1, playing = true, speed = 3, trail = [], St, won = false, failed = false, asym = false, slotArm = false;
 const $ = id => document.getElementById(id);
 
-function load(i) {
+function load(i, retry = false) {
+  if (!(Number.isInteger(i) && i >= 0 && i < LV.length && (i <= maxOpen() || SAVE.done[i]))) i = maxOpen(); // locked or nonsense: the furthest open level
+  $('toast').classList.remove('on'); // a previous level's lesson (and its Next button) must not linger
+  const fresh = !retry || LV[i] !== L;
   SAVE.cur = i; persist(); L = LV[i]; won = false; failed = false;
   sw = { x: L.start[0], y: L.start[1], phi: L.start[2], t1: 0, t2: 0 };
   trail = []; St = { cycles: 0, strokes: 0, reached: false, energy: 0, phi: 0, dist: 0, blocked: false };
-  if (L.init) loop = presetLoop(L.init);
+  if (L.init && fresh) loop = presetLoop(L.init); // Reset keeps the loop you drew
   else if (!loop.length || (L.hinges === 1 && loop.some(p => p[1] !== 0)) || (L.hinges === 2 && loop.every(p => p[1] === 0))) loop = presetLoop(L.hinges === 1 ? 'line' : 'circle');
   if (L.hinges === 1) asym = false;
   setLoop(loop, true); // a fresh start: nothing measured yet, so the pose may start on the loop
@@ -305,7 +313,7 @@ $('rev').onclick = reverseLoop;
 $('asym').onclick = () => { asym = !asym; $('asym').classList.toggle('on', asym); FX.sfx('click'); };
 $('play').onclick = () => { playing = !playing; $('play').textContent = playing ? '⏸' : '▶'; FX.sfx('click'); };
 document.querySelectorAll('[data-s]').forEach(b => b.onclick = () => { speed = +b.dataset.s; document.querySelectorAll('[data-s]').forEach(x => x.classList.toggle('on', x === b)); FX.sfx('click'); });
-$('reset').onclick = () => { load(SAVE.cur); FX.sfx('pop'); };
+$('reset').onclick = () => { load(SAVE.cur, true); FX.sfx('pop'); };
 $('padMin').onclick = () => { const m = $('padBox').classList.toggle('min'); $('padMin').textContent = m ? '▸ pad' : '▾ pad'; layout(); };
 // saved loop slots: click (or key 1/2/3) loads; 💾 then a slot (or Shift+1/2/3) saves; an empty slot saves on click
 function renderSlots() { document.querySelectorAll('[data-slot]').forEach(b => b.classList.toggle('full', !!SAVE.slots[+b.dataset.slot])); $('slotSave').classList.toggle('arm', slotArm); }
@@ -414,7 +422,6 @@ function renderPad() {
 }
 
 // ================= UI & loop =================
-const maxOpen = () => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; };
 function renderGoal() {
   const ok = SAVE.done[SAVE.cur]; $('goal').className = ok ? 'ok' : ''; $('goal').innerHTML = (ok ? '✓ ' : '🎯 ') + L.goal;
   $('next').style.display = ok && SAVE.cur < LV.length - 1 ? 'inline-block' : 'none';
@@ -428,10 +435,17 @@ function renderLevels() {
 $('lvsel').onchange = e => { FX.sfx('click'); load(+e.target.value); };
 const goNext = () => { if (SAVE.cur < LV.length - 1) { FX.sfx('click'); $('toast').classList.remove('on'); load(SAVE.cur + 1); } };
 $('next').onclick = goNext;
-function toast(big, small, ms = 7000, next = false) {
-  const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : '') + (next && SAVE.cur < LV.length - 1 ? '<button class="b on" id="tnext">Next level ▸</button>' : '');
+function toast(big, small, ms = 7000, next = false, retry = false) {
+  const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : '') + (next && SAVE.cur < LV.length - 1 ? '<button class="b on" id="tnext">Next level ▸</button>' : '') + (retry ? '<button class="b on" id="tretry">↺ Try again with this loop</button>' : '');
   if ($('tnext')) $('tnext').onclick = goNext;
+  if ($('tretry')) $('tretry').onclick = () => { load(SAVE.cur, true); FX.sfx('pop'); };
   t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms);
+}
+// after a failed attempt: how close it got, and one concrete thing to try (instead of blind trial and error)
+function failHint() {
+  const got = Math.abs(St.dist), need = Math.abs(L.line), pct = Math.round(100 * got / need);
+  if (L.budget) return `You got ${got.toFixed(2)} of ${need} body lengths (${pct}%). ` + (pct < 50 ? 'Draw a <b>round</b> loop over the brightest patch: corners and long thin loops waste energy.' : 'Close! Round off the corners, or shrink the loop a little.');
+  return `You got ${got.toFixed(2)} of ${need} body lengths in ${L.maxCycles} strokes (${pct}%). ` + (pct < 50 ? 'Draw a <b>bigger</b> loop that sits over the brightest green (or pink, run backwards) patch.' : 'Nearly! Make the loop a bit bigger.');
 }
 function hintText() {
   if (St.blocked) return 'Blocked by a sand grain. Press ↺ reverse or pick another loop to back away.';
@@ -454,17 +468,17 @@ function frame(now) {
   St.dist = sw.x - L.start[0];
   cam.x = FX.damp(cam.x, sw.x + (L.target ? (L.target[0] - sw.x) * .3 : L.line && !L.maxCycles && !L.budget ? (L.line - sw.x) * .3 : 0), 2, dt); cam.y = FX.damp(cam.y, sw.y, 2, dt);
   if (!won && L.test(St)) { won = true; SAVE.done[SAVE.cur] = 1; persist(); FX.sfx('win'); FX.shake(.25); particles.burst(W / 2, H / 2, { n: 120, color: ['#7dffd0', '#ffffff', '#ffd27a'], speed: 480 * dpr, life: 1.1 }); toast('✓ ' + L.n, L.lesson, 9000, true); renderGoal(); renderLevels(); }
-  if (!won && !failed && L.fail && L.fail(St)) { failed = true; FX.sfx('fail'); toast('Out of ' + (L.budget ? 'energy' : 'strokes'), 'Press Reset and try a different loop.', 3500); }
+  if (!won && !failed && L.fail && L.fail(St)) { failed = true; FX.sfx('fail'); toast('Out of ' + (L.budget ? 'energy' : 'strokes'), failHint(), 9000, false, true); }
   const hint = hintText();
   const sh = `strokes <b>${St.strokes.toFixed(1)}</b>${L.maxCycles ? ` / ${L.maxCycles}` : ''} · moved <b>${St.dist.toFixed(2)}</b> body lengths<br>turned <b>${(St.phi * 180 / Math.PI).toFixed(0)}°</b>${L.budget ? ` · energy <b style="color:${St.energy > L.budget ? '#ff7a7a' : '#fff'}">${St.energy.toFixed(1)}</b> / ${L.budget}` : ''}${hint ? `<br><span class="hint">${hint}</span>` : ''}`;
   if (sh !== lastStat) { $('stat').innerHTML = sh; lastStat = sh; }
   if (++frameN % 60 === 0) layout();
   render(now); renderPad();
 }
-load(Math.min(SAVE.cur || 0, LV.length - 1));
+load(+SAVE.cur || 0);
 requestAnimationFrame(frame);
 window.__lr = { LV, load, preset, advance, setLoop, reverse: reverseLoop, bodyVel, useSlot, St: () => St, sw: () => sw, get loop() { return loop; }, get trans() { return trans; },
-  set ds(v) { DSX = v; }, get ds() { return DSX; }, set asym(v) { asym = v; }, set playing(v) { playing = v; } };
+  SAVE, get won() { return won; }, get failed() { return failed; }, get level() { return L; }, set ds(v) { DSX = v; }, get ds() { return DSX; }, set asym(v) { asym = v; }, set playing(v) { playing = v; } };
 </script>
 </body>
 </html>

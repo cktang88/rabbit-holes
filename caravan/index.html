@@ -53,12 +53,33 @@ const GOODS=[ // name, base price, perish per day
   ['Grain',5,0.004],['Salt',7,0],['Wool',9,0],['Iron',13,0],['Tea',20,0.006],['Spices',28,0.008],['Incense',24,0],['Porcelain',32,0],['Silk',38,0],['Medicine',22,0.003],['Horses',45,0],['Jade',65,0]];
 const CITY_NAMES=['Chang\'an','Lanzhou','Dunhuang','Turfan','Kucha','Kashgar','Khotan','Ferghana','Samarkand','Bukhara','Balkh','Merv','Herat','Nishapur','Rayy','Hamadan','Tabriz','Baghdad','Palmyra','Antioch','Damascus','Trebizond','Constantinople'];
 const CAREER_DAYS=1080, CAMEL_CAP=10;
-let M = RH.load('caravan-meta', {legacy:0, best:0, careers:0, perks:{}});
-let C = RH.load('caravan', null);
-const persist=()=>{ RH.save('caravan',C); RH.save('caravan-meta',M); RH.progress('caravan', Math.min(1, Math.log10(1+M.best)/5)); };
+const isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v), num0=v=>Number.isFinite(v)&&v>=0;
+function cleanMeta(raw){ const m={legacy:0, best:0, careers:0, perks:{}}; if (!isObj(raw)) return m;
+  for (const k of ['legacy','best','careers']) if (num0(raw[k])) m[k]=raw[k];
+  if (isObj(raw.perks)) for (const k of ['gold','camel','book','agent','guard']) if (Number.isInteger(raw.perks[k])&&raw.perks[k]>0) m.perks[k]=raw.perks[k];
+  if (raw.intro) m.intro=1; return m; }
+// a career save is kept only if its core fields are sound; anything optional that is malformed is reset
+function cleanCareer(raw){
+  if (!isObj(raw) || !Number.isInteger(raw.seed) || !num0(raw.day) || !Number.isFinite(raw.gold) || !Number.isInteger(raw.at) || raw.at<0 || raw.at>=CITY_NAMES.length) return null;
+  const arr=(v,n)=>Array.isArray(v)&&v.length===n&&v.every(num0)? v : null;
+  const c={...raw, cargo:arr(raw.cargo,GOODS.length)||GOODS.map(()=>0), cost:arr(raw.cost,GOODS.length)||GOODS.map(()=>0)};
+  c.camels=Number.isInteger(raw.camels)&&raw.camels>=1? raw.camels : 1; c.guards=Number.isInteger(raw.guards)&&raw.guards>=0? raw.guards : 0; c.gold=Math.max(0,raw.gold);
+  for (const k of ['book','agents']) if (!isObj(c[k])) c[k]={};
+  for (const k of ['mail','log','events','contracts','rumors','scheduled']) if (!Array.isArray(c[k])) c[k]=[];
+  c.contracts=c.contracts.filter(ct=>isObj(ct)&&Number.isInteger(ct.to)&&ct.to>=0&&ct.to<CITY_NAMES.length&&Number.isInteger(ct.g)&&ct.g>=0&&ct.g<GOODS.length&&num0(ct.qty)&&num0(ct.by)&&num0(ct.reward));
+  if (!Array.isArray(c.offers)) delete c.offers;
+  if (!(Array.isArray(c.prices)&&c.prices.length===CITY_NAMES.length&&c.prices.every(p=>arr(p,GOODS.length)))) { delete c.prices; delete c.mods; }
+  else if (!(Array.isArray(c.mods)&&c.mods.length===CITY_NAMES.length&&c.mods.every(p=>arr(p,GOODS.length)))) c.mods=CITY_NAMES.map(()=>GOODS.map(()=>1));
+  if (!num0(c.done)) c.done=0; if (!num0(c.peak)) c.peak=0;
+  return c; }
+let M = cleanMeta(RH.load('caravan-meta', null));
+let C = cleanCareer(RH.load('caravan', null));
+let cities, routes, rng, plan=null, traveling=null;
+// the world's live prices and a journey in progress are saved with the career, so a reload neither rolls prices back nor loses a trip
+const persist=()=>{ if (C && cities){ C.prices=cities.map(c=>c.price); C.mods=cities.map(c=>c.mod); C.trav= traveling? {legs:traveling.legs.map(l=>routes.indexOf(l.r)), leg:traveling.leg, t:traveling.t, dayCount:traveling.dayCount||0} : null; }
+  RH.save('caravan',C); RH.save('caravan-meta',M); RH.progress('caravan', Math.min(1, Math.log10(1+M.best)/5)); };
 
 // ===================== World =====================
-let cities, routes, rng;
 function buildWorld(seed){
   rng=RH.rng(seed); cities=[]; const n=CITY_NAMES.length;
   CITY_NAMES.forEach((nm,i)=>{ const t=i/(n-1); cities.push({id:i, name:nm, x: 0.95-t*0.89+rng.range(-0.015,0.015), y: 0.5+Math.sin(t*9+rng()*2)*0.24+rng.range(-0.1,0.1), prod:[], dem:[], dove: rng()<0.45, inn: true}); });
@@ -136,15 +157,16 @@ const cap=()=>C.camels*CAMEL_CAP;
 function buyPrice(g){ return cities[C.at].price[g]*1.03; }
 function sellPrice(g){ return cities[C.at].price[g]*0.97; }
 function trade(g, qty){
-  const c=cities[C.at];
+  const c=cities[C.at]; if (traveling || c.closed || !(qty===qty) || !qty) return;
   if (qty>0){ qty=Math.min(qty, Math.floor(cap()-load()+1e-9)); let spent=0, n=0; for (; n<qty; n++){ const p=buyPrice(g); if (C.gold<p) break; C.gold-=p; spent+=p; c.price[g]*=1.004; } if (n){ C.cost[g]=(C.cost[g]*C.cargo[g]+spent)/(C.cargo[g]+n); C.cargo[g]+=n; } }
-  else { qty=Math.min(-qty, Math.floor(C.cargo[g]+1e-9)); let got=0; for (let n=0;n<qty;n++){ const p=sellPrice(g); C.gold+=p; got+=p; c.price[g]*=0.996; } C.cargo[g]-=qty; if (qty) { const profit=got-C.cost[g]*qty; if (Math.abs(profit)>50) logIt(`Sold ${qty} ${GOODS[g][0].toLowerCase()} in ${c.name} for ${Math.round(got)}g (${profit>=0?'+':''}${Math.round(profit)}).`); } if (C.cargo[g]<0.01){ C.cargo[g]=0; C.cost[g]=0; } }
+  else { const want=-qty; qty=Math.min(want, Math.floor(C.cargo[g]+1e-9)); let got=0; for (let n=0;n<qty;n++){ const p=sellPrice(g); C.gold+=p; got+=p; c.price[g]*=0.996; } C.cargo[g]-=qty;
+    // perishables leave fractions behind (9.6 tea): selling everything sells the fraction too, so no unsellable ghost cargo is left taking up space
+    if (want>=C.cargo[g]+qty-1e-9 && C.cargo[g]>0){ const p=sellPrice(g)*C.cargo[g]; C.gold+=p; got+=p; qty+=C.cargo[g]; C.cargo[g]=0; } if (qty) { const profit=got-C.cost[g]*qty; if (Math.abs(profit)>50) logIt(`Sold ${qty} ${GOODS[g][0].toLowerCase()} in ${c.name} for ${Math.round(got)}g (${profit>=0?'+':''}${Math.round(profit)}).`); } if (C.cargo[g]<0.01){ C.cargo[g]=0; C.cost[g]=0; } }
   see(C.at); netWorth(); persist(); renderAll();
 }
 function netWorth(){ let w=C.gold + C.camels*25; const c=cities[C.at]; for (let g=0;g<GOODS.length;g++) w+=C.cargo[g]*c.price[g]*0.9; C.peak=Math.max(C.peak,w); return w; }
 
 // ===================== Travel =====================
-let plan=null, traveling=null;
 function planTo(to){ if (to===C.at){ plan=null; renderTravel(); return; } const p=shortest(C.at,to); plan=p? {to, ...p} : {to, none:true}; renderTravel(); }
 function renderTravel(){
   const box=document.getElementById('travelBox'); if (!plan){ box.style.display='none'; return; } box.style.display='block';
@@ -165,13 +187,18 @@ function stepTravel(dt){
   if (traveling.t>=1){
     const r=L.r; const to=r.a===C.at? r.b : r.a;
     if (rng()<banditChance(r)){ const lossG=Math.round(C.gold*0.25); C.gold-=lossG; for (let g=0;g<GOODS.length;g++) C.cargo[g]=Math.floor(C.cargo[g]*0.7); logIt(`⚔️ Bandits on the road to ${cities[to].name}! They took ${lossG}g and part of your cargo.`); RH.toast('⚔️ Bandits!'); }
-    C.at=to; see(to); traveling.leg++; traveling.t=0; traveling.dayCount=0;
+    C.at=to; see(to); traveling.leg++; traveling.t=0; traveling.dayCount=0; checkContracts(); // passing through a city: late contracts fail there too
     if (cities[to].closed){ logIt(`${cities[to].name}'s gates are shut. You camp outside.`); }
     if (traveling.leg>=traveling.legs.length){ traveling=null; arrive(); }
     renderAll(); persist();
   }
 }
-function arrive(){ const c=cities[C.at]; logIt(`Day ${C.day}: arrived in ${c.name}.`); genContracts(); checkContracts(); renderAll(); }
+function arrive(){ const c=cities[C.at]; logIt(`Day ${C.day}: arrived in ${c.name}.`); genContracts(); checkContracts(); renderAll(); arrivalTip(); }
+// arrival feedback: what your cargo fetches here against what you paid, and contracts you can hand in
+function arrivalTip(){ const c=cities[C.at]; if (c.closed) return; const bits=[];
+  GOODS.forEach((gd,g)=>{ if (C.cargo[g]>=1 && C.cost[g]>0){ const d=sellPrice(g)-C.cost[g]; bits.push(`${gd[0]} <span class="${d>=0?'up':'dn'}">${d>=0?'+':''}${d.toFixed(1)}g</span>/unit`); } });
+  const due=C.contracts.filter(ct=>ct.to===C.at&&C.cargo[ct.g]>=ct.qty).length;
+  if (bits.length||due) RH.toast(`🐫 ${c.name}: ${bits.join(' · ')}${due?`${bits.length?' · ':''}<b>${due} contract${due>1?'s':''} ready to deliver</b>`:''}`, 5000); }
 
 // ===================== Information =====================
 function buyRumor(){ if (C.gold<3) return; C.gold-=3; const r=RH.rng(C.seed+C.day*7+C.at);
@@ -196,10 +223,11 @@ function genContracts(){
     C.offers.push({to, g, qty, by:C.day+days, reward}); }
 }
 function checkContracts(){ C.contracts=C.contracts.filter(ct=>{ if (C.day>ct.by){ logIt(`❌ Contract failed: ${ct.qty} ${GOODS[ct.g][0].toLowerCase()} to ${cities[ct.to].name}. Your reputation suffers.`); return false; } return true; }); }
-function deliver(i){ const ct=C.contracts[i]; if (C.at!==ct.to || C.cargo[ct.g]<ct.qty) return; C.cargo[ct.g]-=ct.qty; C.gold+=ct.reward; C.done++; C.contracts.splice(i,1); logIt(`✅ Contract fulfilled in ${cities[C.at].name}: +${ct.reward}g.`); RH.toast(`Contract fulfilled: +${ct.reward}g`); persist(); renderAll(); }
+function deliver(i){ const ct=C.contracts[i]; if (!ct || C.at!==ct.to || C.cargo[ct.g]<ct.qty || C.day>ct.by) return; C.cargo[ct.g]-=ct.qty; C.gold+=ct.reward; C.done++; C.contracts.splice(i,1); logIt(`✅ Contract fulfilled in ${cities[C.at].name}: +${ct.reward}g.`); RH.toast(`Contract fulfilled: +${ct.reward}g`); persist(); renderAll(); }
 
 // ===================== End =====================
 function endCareer(){
+  if (C.ended) return; C.ended=1; // a reload before the modal is closed must not pay the legacy twice
   const w=Math.round(netWorth()); const legacy=Math.floor(Math.log10(Math.max(10,w))*2+C.done*0.5);
   M.legacy+=legacy; M.best=Math.max(M.best,w); M.careers++; persist();
   RH.modal(`<h2>Three years on the road.</h2><p>You retire with a fortune of <b>${w.toLocaleString()}g</b> (best ever ${M.best.toLocaleString()}g) and ${C.done} contracts fulfilled.</p><p>Your name earns <b>${legacy} legacy</b> for the next merchant of your house.</p>`,[{label:'Found a new house'}]).then(()=>{ newCareer(); buildAndRender(); showPerks(); });
@@ -232,8 +260,9 @@ function drawMap(){
   ctx.font='20px system-ui'; ctx.fillText('🐫', cx, cy-10);
   requestAnimationFrame(drawMap);
 }
-cv.addEventListener('mousemove',e=>{ const r=cv.getBoundingClientRect(); hoverC=-1; for (const c of cities){ const [x,y]=P(c); if (Math.hypot(x-(e.clientX-r.left),y-(e.clientY-r.top))<14) hoverC=c.id; } cv.style.cursor=hoverC>=0?'pointer':'default'; });
-cv.addEventListener('click',()=>{ if (traveling) return; if (hoverC>=0) planTo(hoverC); });
+const cityAt=e=>{ const r=cv.getBoundingClientRect(); let best=-1, bd=18; for (const c of cities){ const [x,y]=P(c), d=Math.hypot(x-(e.clientX-r.left),y-(e.clientY-r.top)); if (d<bd){ bd=d; best=c.id; } } return best; };
+cv.addEventListener('mousemove',e=>{ hoverC=cityAt(e); cv.style.cursor=hoverC>=0?'pointer':'default'; });
+cv.addEventListener('click',e=>{ if (traveling) return; const ci=cityAt(e); if (ci>=0) planTo(ci); }); // from the click itself: taps have no hover
 
 function bestKnown(g){ let best=null; for (const ci in C.book){ if (+ci===C.at) continue; const b=C.book[ci]; const p=b.p[g]*0.97; if (!best||p>best.p) best={ci:+ci,p,age:C.day-b.day}; } return best; }
 function renderMarket(){
@@ -262,11 +291,11 @@ function renderInfo(){
   document.getElementById('rumBtn').onclick=buyRumor; document.getElementById('agBtn').onclick=hireAgent; el.querySelectorAll('[data-pg]').forEach(b=>b.onclick=()=>sendPigeon(+b.dataset.pg));
 }
 function renderContracts(){
-  let h='<b>Your contracts</b>'; h+= C.contracts.length? C.contracts.map((ct,i)=>`<div class="ctr">${ct.qty} ${GOODS[ct.g][0]} → <b>${cities[ct.to].name}</b> by day ${ct.by} (${ct.by-C.day} days left) · <b>${ct.reward}g</b> ${C.at===ct.to&&C.cargo[ct.g]>=ct.qty?`<button data-dv="${i}" class="primary">Deliver</button>`:''}</div>`).join('') : '<p class="small dim">None.</p>';
+  let h='<b>Your contracts</b>'; h+= C.contracts.length? C.contracts.map((ct,i)=>`<div class="ctr">${ct.qty} ${GOODS[ct.g][0]} → <b>${cities[ct.to].name}</b> by day ${ct.by} (${ct.by-C.day} days left) · <b>${ct.reward}g</b> ${C.at===ct.to&&C.cargo[ct.g]>=ct.qty&&C.day<=ct.by?`<button data-dv="${i}" class="primary">Deliver</button>`:''}</div>`).join('') : '<p class="small dim">None.</p>';
   h+='<b>Offers here</b>'; h+= (C.offers||[]).length && !traveling? C.offers.map((o,i)=>`<div class="ctr">${o.qty} ${GOODS[o.g][0]} → <b>${cities[o.to].name}</b> by day ${o.by} · <b>${o.reward}g</b> <button data-of="${i}">Accept</button></div>`).join('') : '<p class="small dim">No offers.</p>';
   const el=document.getElementById('p-contracts'); el.innerHTML=h;
   el.querySelectorAll('[data-dv]').forEach(b=>b.onclick=()=>deliver(+b.dataset.dv));
-  el.querySelectorAll('[data-of]').forEach(b=>b.onclick=()=>{ const o=C.offers.splice(+b.dataset.of,1)[0]; C.contracts.push(o); persist(); renderAll(); });
+  el.querySelectorAll('[data-of]').forEach(b=>b.onclick=()=>{ if (traveling) return; const o=C.offers.splice(+b.dataset.of,1)[0]; if (o) C.contracts.push(o); persist(); renderAll(); });
 }
 function renderCaravan(){
   const el=document.getElementById('p-caravan');
@@ -274,10 +303,11 @@ function renderCaravan(){
   <div class="row" style="margin-top:6px"><button id="hireG" ${traveling||C.gold<15?'disabled':''}>Hire guard (15g, 0.3g/day)</button><button id="fireG" ${C.guards<=0?'disabled':''}>Dismiss guard</button></div>
   <p class="small dim">Each camel eats 0.05g a day. Guards cut the chance of losing cargo to bandits on dangerous roads; you need about one per four camels.</p>
   <p class="small">Net worth here: <b>${Math.round(netWorth()).toLocaleString()}g</b> · peak ${Math.round(C.peak).toLocaleString()}g</p><button id="perkBtn">House legacy (${M.legacy})</button>`;
-  document.getElementById('buyCamel').onclick=()=>{ C.gold-=40; C.camels++; persist(); renderAll(); };
-  document.getElementById('sellCamel').onclick=()=>{ C.gold+=25; C.camels--; persist(); renderAll(); };
-  document.getElementById('hireG').onclick=()=>{ C.gold-=15; C.guards++; persist(); renderAll(); };
-  document.getElementById('fireG').onclick=()=>{ C.guards--; persist(); renderAll(); };
+  const act=f=>()=>{ if (traveling) return; f(); persist(); renderAll(); };
+  document.getElementById('buyCamel').onclick=act(()=>{ if (C.gold>=40){ C.gold-=40; C.camels++; } });
+  document.getElementById('sellCamel').onclick=act(()=>{ if (C.camels>1 && load()<=cap()-CAMEL_CAP){ C.gold+=25; C.camels--; } });
+  document.getElementById('hireG').onclick=act(()=>{ if (C.gold>=15){ C.gold-=15; C.guards++; } });
+  document.getElementById('fireG').onclick=()=>{ if (C.guards>0) C.guards--; persist(); renderAll(); };
   document.getElementById('perkBtn').onclick=showPerks;
 }
 function renderLog(){ document.getElementById('p-log').innerHTML=C.log.slice().reverse().map(l=>`<div class="news">${l}</div>`).join(''); }
@@ -293,12 +323,15 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ document.qu
 let last=performance.now(); function loop(now){ const dt=Math.min(0.1,(now-last)/1000); last=now; if (traveling){ stepTravel(dt); processPigeons(); renderStatus(); } requestAnimationFrame(loop); }
 function buildAndRender(){ buildWorld(C.seed); // replay stored world state
   if (C.prices) cities.forEach((c,i)=>{ c.price=C.prices[i]; c.mod=C.mods[i]; });
+  traveling=null; plan=null; renderTravel();
+  const tv=C.trav; if (tv && Array.isArray(tv.legs) && tv.legs.length && tv.legs.every(i=>routes[i]) && tv.leg<tv.legs.length){ traveling={legs:tv.legs.map(i=>({r:routes[i]})), leg:tv.leg|0, t:Math.min(.999,Math.max(0,+tv.t||0)), dayCount:tv.dayCount|0}; const r=traveling.legs[traveling.leg].r; if (r.a!==C.at&&r.b!==C.at) traveling=null; }
   if (!C.offers) genContracts(); renderAll(); }
-// persist live prices with the save
-const _persist=persist; window.addEventListener('beforeunload',()=>{ C.prices=cities.map(c=>c.price); C.mods=cities.map(c=>c.mod); _persist(); });
-setInterval(()=>{ C.prices=cities.map(c=>c.price); C.mods=cities.map(c=>c.mod); persist(); }, 5000);
-if (!C){ newCareer(); }
-buildAndRender(); fit(); window.addEventListener('resize',fit); requestAnimationFrame(drawMap); requestAnimationFrame(loop);
+window.addEventListener('beforeunload',persist);
+setInterval(persist, 5000);
+if (!C || C.ended){ newCareer(); }
+buildAndRender();
+if (C.day>=CAREER_DAYS) endCareer(); fit(); window.addEventListener('resize',fit); requestAnimationFrame(drawMap); requestAnimationFrame(loop);
+window.__caravan = { get C(){ return C; }, get M(){ return M; }, get cities(){ return cities; }, get routes(){ return routes; }, get traveling(){ return traveling; }, GOODS, CAREER_DAYS, cleanCareer, cleanMeta, shortest, neighbors, trade, tick, planTo, travel, deliver, checkContracts, endCareer, netWorth, banditChance, buildAndRender, persist, load, cap };
 if (!M.intro){ M.intro=1; persist(); RH.modal(`<h2>🐫 Caravan</h2><p>Twenty-three cities from Chang'an to Constantinople. Silk is cheap in the east and dear in the west. Everyone knows that, so the real money is in knowing <b>what's changed</b>.</p><p>Your price book only holds what you've seen with your own eyes, and that goes out of date. Pigeons, paid agents and tavern gossip all buy you fresher information. Wars, plagues and famines change everything. The rumours usually arrive first.</p><p>You have three years. Make your house rich.</p>`,[{label:'Load the camels'}]); }
 </script>
 </body>

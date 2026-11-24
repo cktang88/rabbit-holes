@@ -50,6 +50,16 @@
   #chapters button{padding:3px 9px;font-size:12px}
   #chapters button.cur{border-color:var(--sig);color:var(--sig)}
   .static{font-family:ui-monospace,monospace;color:#4a6a78;font-size:12px}
+  @media (max-width:760px){
+    body{height:auto;min-height:100vh;overflow:auto}
+    .topbar{flex-wrap:wrap}
+    #chapters{flex-wrap:wrap}
+    main{flex-direction:column}
+    #feed{padding:12px 12px 30px;overflow:visible}
+    #nb{width:auto;border-left:0;border-top:1px solid var(--line);max-height:60vh}
+    .tx{flex-wrap:wrap}
+    .tx .pic{width:100%;max-width:240px;height:auto;aspect-ratio:17/11}
+  }
 </style>
 </head>
 <body>
@@ -64,9 +74,22 @@
 <script src="../shared/common.js"></script>
 <script>
 // ===================== Save / seed =====================
-let S = RH.load('fc', null);
+let S = null;
 function fresh(){ return {seed: Math.floor(Math.random()*1e9), notes:{}, conf:{}, seti:{}, solved:{}, chapter:0, hints:{}, gloss:true, decoded: (S&&S.decoded)||0}; }
-if (!S) S = fresh();
+// old or corrupted saves: keep what is well-formed, default the rest
+function cleanSave(raw){
+  const d = fresh(); d.decoded = 0; if (!raw || typeof raw!=='object' || Array.isArray(raw)) return d;
+  const obj = v => v && typeof v==='object' && !Array.isArray(v);
+  if (Number.isInteger(raw.seed)) d.seed = raw.seed;
+  for (const k of ['notes','conf','seti','solved','hints']) if (obj(raw[k])) d[k] = raw[k];
+  for (const k of Object.keys(d.notes)) if (typeof d.notes[k]!=='string') delete d.notes[k];
+  if (Number.isInteger(raw.chapter) && raw.chapter>=0) d.chapter = raw.chapter;
+  if (typeof raw.gloss==='boolean') d.gloss = raw.gloss;
+  if (Number.isInteger(raw.decoded) && raw.decoded>0) d.decoded = raw.decoded;
+  if (raw.intro) d.intro = 1; if (raw.ended) d.ended = 1;
+  return d;
+}
+S = cleanSave(RH.load('fc', null));
 const persist = ()=>{ RH.save('fc', S); RH.progress('first-contact', (S.decoded? 1 : Object.keys(S.solved).length / TOTALQ)); };
 let TOTALQ = 1;
 
@@ -299,21 +322,25 @@ function buildChapters(){
       {type:'compose', prompt:'They ask:', words:clause({s:['YOU'], v:'SEE', o:['WE'], q:1}), ans:['YES']},
       {type:'compose', prompt:'Last question. They ask:', words:clause({s:['YOU'], v:'SEND', o:['SIGNAL'], q:1}), ans:clause({s:['WE'], v:'SEND', o:['SIGNAL']}), final:true, alt:[['YES']]},
     ]}); }
-  return C;
+  return shuffleOpts(C);
 }
+// choice answers used to be authored first, so "always click the first option" worked: shuffle them (seeded, stable across reloads)
+function shuffleOpts(C){ const r=RH.rng(S.seed+991); for (const ch of C) for (const q of ch.qs) if (q.opts) r.shuffle(q.opts); return C; }
 function gl(id){ return `<span class="g" data-w="${id}" style="vertical-align:middle">${glyphSVG(id)}</span>`; }
 function glSeq(ws){ return `<span class="sentence" style="display:inline-flex">${ws.map(w=>gl(w)).join('')}</span>`; }
 
 // ===================== Rendering =====================
-let CH, seen;
+let CH, seen; const drafts = {}; // compose boxes survive re-renders (hint, gloss toggle, other replies)
+const LOCKOUT = 2500; let lockUntil = 0; // a wrong multiple-choice reply silences the choices for a moment: no rapid guessing through them
 function sentenceHTML(ws, cls=''){
   return `<div class="sentence ${cls}">`+ws.map(w=>`<span class="g" data-w="${w}">${glyphSVG(w)}<span class="gl">${S.gloss? esc(S.notes[w]||S.seti[w]||'') : ''}</span></span>`).join('')+`</div>`;
 }
 const esc=(s)=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function chapterUnlocked(i){ return i===0 || CH[i-1].qs.every((q,k)=>S.solved[(i-1)+':'+k]); }
 function seenUpTo(i){ const set=[]; for (let c=0;c<=i;c++){ for (const t of CH[c].tx) for (const w of t.words) if(!set.includes(w)) set.push(w); for (const q of CH[c].qs) for (const w of (q.words||[])) if(!set.includes(w)) set.push(w); }
-  // digits in numeric order so the palette is usable
-  return set.sort((a,b)=> (a[0]==='D'&&b[0]==='D')? 0 : 0); }
+  // digits first, in numeric order, so the palette is usable; words keep their order of first appearance
+  const isD = w=>/^D\d+$/.test(w);
+  return [...set.filter(isD).sort((a,b)=>a.slice(1)-b.slice(1)), ...set.filter(w=>!isD(w))]; }
 function render(){
   const i=S.chapter, ch=CH[i];
   seen = seenUpTo(i);
@@ -341,9 +368,13 @@ function render(){
     const k=+qel.dataset.q, q=ch.qs[k], id=i+':'+k; if (S.solved[id]) return;
     const fb=qel.querySelector('.fb');
     if (q.type==='choice') qel.querySelectorAll('[data-opt]').forEach(bt=> bt.onclick=()=>{
-      if (bt.dataset.opt===q.ans){ solve(id); } else { fb.className='fb bad'; fb.textContent='No reply from the signal. Try again.'; bt.disabled=true; } });
+      if (Date.now()<lockUntil) return;
+      if (bt.dataset.opt===q.ans){ solve(id); return; }
+      fb.className='fb bad'; fb.textContent='No reply from the signal. Waiting for the channel to clear…'; bt.dataset.wrong=1;
+      lockUntil=Date.now()+LOCKOUT; const all=[...feed.querySelectorAll('[data-opt]')]; all.forEach(b=>b.disabled=true);
+      setTimeout(()=>{ all.forEach(b=>{ if (!b.dataset.wrong) b.disabled=false; }); if (fb.isConnected) fb.textContent='No reply from the signal. Try again.'; }, LOCKOUT); });
     else {
-      const comp=[]; const box=qel.querySelector('[data-compose]');
+      const comp=(drafts[id] ||= []); const box=qel.querySelector('[data-compose]');
       const draw=()=>{ box.innerHTML = comp.map(w=>`<span class="g">${glyphSVG(w)}</span>`).join('') || '<span class="dim small" style="padding:8px">click glyphs below to compose</span>'; };
       draw();
       qel.querySelectorAll('[data-pw]').forEach(p=> p.onclick=()=>{ comp.push(p.dataset.pw); draw(); });
@@ -358,8 +389,10 @@ function render(){
   });
   renderNotebook();
 }
-function solve(id, final){ S.solved[id]=1; persist(); RH.toast('📡 Reply acknowledged.'); render();
-  if (final) setTimeout(ending, 500);
+const allSolved = ()=> CH.every((c,i)=>c.qs.every((q,k)=>S.solved[i+':'+k]));
+function solve(id, final){ if (S.solved[id]) return; S.solved[id]=1; delete drafts[id]; persist(); RH.toast('📡 Reply acknowledged.'); render();
+  if (allSolved() && !S.ended){ S.ended=1; persist(); setTimeout(ending, 500); }
+  else if (final) setTimeout(()=>RH.toast('They are waiting for the rest of your replies to this transmission.'),700);
   else if (CH[S.chapter].qs.every((q,k)=>S.solved[S.chapter+':'+k])) setTimeout(()=>RH.toast(`Transmission ${S.chapter+1} decoded.`),700);
 }
 async function ending(){
@@ -379,7 +412,7 @@ function focusGlyph(w){
 }
 function renderNotebook(){
   const confs=['?','~','✓'];
-  const order=[...seen].sort((a,b)=>{ const da=a[0]==='D'&&a.length<=3&&/^D\d+$/.test(a), db=/^D\d+$/.test(b); return (db-da) || 0; });
+  const order=seen;
   document.getElementById('nbList').innerHTML = order.map(w=>`<div class="nbRow" data-w="${w}">${glyphSVG(w)}<input value="${esc(S.notes[w]||'')}" placeholder="${S.seti[w]? '' : 'meaning?'}"><button class="conf">${confs[S.conf[w]||0]}</button>${S.seti[w]?`<span class="seti" title="SETI hint">${esc(S.seti[w])}</span>`:''}</div>`).join('');
   document.querySelectorAll('.nbRow').forEach(row=>{ const w=row.dataset.w;
     row.querySelector('svg').onclick=()=>focusGlyph(w);
@@ -402,14 +435,15 @@ document.getElementById('hintBtn').onclick=()=>{
 };
 document.getElementById('glossBtn').onclick=()=>{ S.gloss=!S.gloss; document.getElementById('glossBtn').textContent='Gloss: '+(S.gloss?'on':'off'); persist(); render(); };
 document.getElementById('newBtn').onclick=async()=>{ if (await RH.modal('<h2>New signal?</h2><p>A different species with a new language. Your notebook for this signal will be cleared.</p>',[{label:'Cancel',value:0},{label:'Tune in',value:1}])) newSignal(); };
-function newSignal(){ const d=S.decoded; S=fresh(); S.decoded=d; persist(); boot(); }
+function newSignal(){ const d=S.decoded; S=fresh(); S.decoded=d; S.intro=1; for (const k in drafts) delete drafts[k]; lockUntil=0; persist(); boot(); }
 function boot(){
   LANG = buildLanguage(S.seed); CH = buildChapters(); TOTALQ = CH.reduce((s,c)=>s+c.qs.length,0);
-  if (!chapterUnlocked(S.chapter)) S.chapter=0;
+  if (!CH[S.chapter] || !chapterUnlocked(S.chapter)) S.chapter=0;
   document.getElementById('glossBtn').textContent='Gloss: '+(S.gloss?'on':'off');
   render();
 }
 boot();
+window.__fc = { get S(){ return S; }, get LANG(){ return LANG; }, get CH(){ return CH; }, buildLanguage, num, np, clause, cleanSave, seenUpTo, chapterUnlocked, allSolved, solve, render, newSignal, LOCKOUT };
 if (!S.intro){ S.intro=1; persist(); RH.modal(`<h2>📡 First Contact</h2><p>A narrow-band signal is coming from a star 41 light-years away. It's structured. Someone made it.</p><p>You have no dictionary. You have pictures, patterns and a notebook. Work out what the symbols mean, then answer them <b>in their language</b>.</p><p class="dim">Eight transmissions. Every new signal is a different species with a different language.</p>`,[{label:'Start listening'}]); }
 </script>
 </body>

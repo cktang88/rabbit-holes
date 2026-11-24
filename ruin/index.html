@@ -93,7 +93,13 @@ const CH = [
 ];
 
 // ================= state =================
-const SAVE = RH.load('ruin', { done: {}, cur: 0 });
+// a corrupted or hand-edited save must not crash the page or unlock chapters out of range
+function cleanSave(raw) {
+  const s = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}, done = {};
+  if (s.done && typeof s.done === 'object') for (const k in s.done) if (/^\d+$/.test(k) && +k < CH.length && s.done[k]) done[k] = 1;
+  return { done, cur: Number.isInteger(s.cur) && s.cur >= 0 && s.cur < CH.length ? s.cur : 0 };
+}
+const SAVE = cleanSave(RH.load('ruin', null));
 const persist = () => { RH.save('ruin', SAVE); RH.progress('ruin', Object.keys(SAVE.done).length / CH.length); };
 let C, P, W, Wn, srt, logs, t, running = false, params = {}, S = {}, coin = { phase: 0, face: 1, flipping: false }, guess = 50, guessed = false;
 let martiBet, martiDone = new Set(), runLog = [], autoTok = 0, autoOn = false;
@@ -102,6 +108,7 @@ const startW = () => C.mode === 'marti' ? 100 : 1;
 
 function setup(i) {
   SAVE.cur = i; persist(); C = CH[i]; running = false; guessed = false; autoTok++; autoOn = false;
+  coin.flipping = false; coin.phase = 0; // a coin still in the air must not land in the next chapter
   params = { f: C.f ?? 1, pool: 1, q: 1, limit: 64 }; martiDone = new Set(); runLog = []; manualHist = [0];
   cacheColours(); reset();
   // on phones the story folds away; open it the first time a chapter is played
@@ -203,11 +210,11 @@ function frame(now) {
   const dt = Math.min(.1, (now - (lastNow || now)) / 1000); lastNow = now;
   if (document.hidden) return;
   if (running && !C.manual) { // a fixed number of rounds per second, whatever the frame rate
-    acc += dt * (P > 500 ? 30 : 60); let n = 0;
+    acc += dt * 60; let n = 0; // 60 rounds a second: a 300-round run is a 5-second watch, not a 10-second wait
     while (acc >= 1 && running && n < 4) { acc -= 1; advance(); n++; }
     if (n === 4) acc = 0;
   }
-  if (coin.flipping) { coin.phase += dt * 21; dirty = true; if (coin.phase > Math.PI * 6) { coin.flipping = false; coin.phase = 0; landCoin(); } }
+  if (coin.flipping) { coin.phase += dt * (autoOn ? 42 : 21); // auto-flips spin twice as fast: the point is the trend, not the wait dirty = true; if (coin.phase > Math.PI * 6) { coin.flipping = false; coin.phase = 0; landCoin(); } }
   const [sx, sy] = FX.shakeOffset(10 * dpr);
   // nothing moving: leave the last frame on screen
   if (!dirty && !particles.list.length && !sx && !sy) return;
@@ -287,7 +294,7 @@ async function autoFlip(n = 10) {
     while (coin.flipping) await new Promise(r => setTimeout(r, 30)); // wait for the previous flip to land
     if (tok !== autoTok || !flip()) break;
     while (coin.flipping) await new Promise(r => setTimeout(r, 30));
-    await new Promise(r => setTimeout(r, 120));
+    await new Promise(r => setTimeout(r, 60));
   }
   if (tok === autoTok) { autoOn = false; renderUI(); }
 }
@@ -337,12 +344,12 @@ function renderUI() {
   if ($('lock')) $('lock').onclick = () => { guessed = true; FX.sfx('place'); renderUI(); };
   if ($('again')) $('again').onclick = () => { guessed = false; running = false; reset(); FX.sfx('pop'); renderUI(); };
   if ($('run')) $('run').onclick = () => { if (t >= C.rounds) reset(); running = !running; FX.sfx('click'); renderUI(); };
-  if ($('rst')) $('rst').onclick = () => { running = false; autoTok++; autoOn = false; manualHist = [0]; reset(); FX.sfx('pop'); renderUI(); };
+  if ($('rst')) $('rst').onclick = () => { running = false; autoTok++; autoOn = false; manualHist = [0]; coin.flipping = false; coin.phase = 0; reset(); FX.sfx('pop'); renderUI(); };
   if ($('flipB')) $('flipB').onclick = flip;
   if ($('auto')) $('auto').onclick = () => autoFlip(10);
   const maxOpen = (() => { let m = 0; while (m < CH.length - 1 && SAVE.done[m]) m++; return m; })();
-  $('chapters').innerHTML = CH.map((ch, i) => `<button class="ch ${i === SAVE.cur ? 'cur' : ''} ${i > maxOpen && !SAVE.done[i] ? 'lock' : ''} ${SAVE.done[i] ? 'done' : ''}" data-i="${i}">${i + 1}. ${ch.n}</button>`).join('');
-  $('chapters').querySelectorAll('.ch').forEach(b => b.onclick = () => { FX.sfx('click'); setup(+b.dataset.i); });
+  $('chapters').innerHTML = CH.map((ch, i) => `<button class="ch ${i === SAVE.cur ? 'cur' : ''} ${i > maxOpen && !SAVE.done[i] ? 'lock' : ''} ${SAVE.done[i] ? 'done' : ''}" data-i="${i}" ${i > maxOpen && !SAVE.done[i] ? 'disabled' : ''}>${i + 1}. ${ch.n}</button>`).join('');
+  $('chapters').querySelectorAll('.ch').forEach(b => b.onclick = () => { if (b.disabled || b.classList.contains('lock')) return; FX.sfx('click'); setup(+b.dataset.i); });
   const cur = $('chapters').querySelector('.cur'); if (cur && innerWidth <= 860) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
   renderGoal(); updateStats(); dirty = true;
 }
@@ -381,7 +388,7 @@ const ro = new ResizeObserver(() => layout()); ['hud', 'stats', 'chapters'].forE
 addEventListener('resize', layout);
 document.addEventListener('visibilitychange', () => { lastNow = 0; dirty = true; });
 requestAnimationFrame(frame);
-window.__ruin = { CH, setup, roundOnce, stats: () => stats(), params: () => params, run: () => { running = true; renderUI(); }, flip, autoFlip, set guess(v) { guess = v; guessed = true; renderUI(); }, get t() { return t; }, get running() { return running; }, get flipping() { return coin.flipping; }, get done() { return SAVE.done; }, get area() { return area; }, get hist() { return { mean: meanHist.length, t }; } };
+window.__ruin = { CH, setup, cleanSave, growth: () => growth(), ff(n) { running = true; for (let i = 0; i < n && running; i++) advance(); return t; }, get W() { return W; }, get martiBet() { return martiBet; }, LESSON, roundOnce, stats: () => stats(), params: () => params, run: () => { running = true; renderUI(); }, flip, autoFlip, set guess(v) { guess = v; guessed = true; renderUI(); }, get t() { return t; }, get running() { return running; }, get flipping() { return coin.flipping; }, get done() { return SAVE.done; }, get area() { return area; }, get hist() { return { mean: meanHist.length, t }; } };
 </script>
 </body>
 </html>

@@ -522,7 +522,7 @@ const LV = [
     story: 'Half-turns now. Try Z, then Y, then X: the cube comes <b>home</b>. But the ribbon has its own opinion. Does the <b>order</b> matter?', goal: 'Half-turns only. Use <b>every axis</b> at least once and end home with a flat ribbon.',
     win: ['i·j·k = −1', 'In 1843 Hamilton carved i² = j² = k² = ijk = −1 into a Dublin bridge. Those are these half-turns, with the sign the ribbon remembers.'] },
   { n: 'Place Your Bets', setup: 'single', kind: 'bet',
-    story: 'Watch a sequence. When the cube is home again, <b>bet</b>: will the ribbon relax flat, or stay stuck? The sign lamp is covered, so read the ribbon, or do the algebra.', goal: 'Get 3 predictions right.' },
+    story: 'Watch a sequence. When the cube is home again, <b>bet</b>: will the ribbon relax flat, or stay stuck? The sign lamp is covered, so read the ribbon, or do the algebra.', goal: 'Get 3 predictions right in a row.' },
   { n: 'One Move', setup: 'single', start: ['Y+180', 'Z+90', 'Y+180'], moves: { ax: 'XYZ', ang: [-270, -180, -90, 90, 180, 270] }, maxMoves: 1, par: 1,
     story: 'Someone left the cube like this (watch). You get <b>exactly one move</b>. Pick an axis and an angle.', goal: 'One move: home, with a ribbon that relaxes flat.',
     win: ['The long way round', 'The short way home leaves a full twist. 270° the other way picks up the missing sign.'] },
@@ -560,12 +560,19 @@ const LV = [
   { n: 'Sandbox', setup: 'bundle', kind: 'sandbox', moves: { ax: 'XYZ', ang: [-90, 90, 180, 360] }, free: 1,
     story: 'Do anything. Drag the cube, record a routine, share it as a code.', goal: 'No goal. Try to find the shortest sequence that tangles the ribbons for good. (You can\'t.)' },
 ];
-const SAVE = RH.load('belt-trick', { done: {}, cur: 0, best: {} });
+const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+const SAVE = (v => isObj(v) ? v : {})(RH.load('belt-trick', {}));
+SAVE.done = isObj(SAVE.done) ? SAVE.done : {}; SAVE.best = isObj(SAVE.best) ? SAVE.best : {};
+for (const k in SAVE.done) if (!(Number.isInteger(+k) && +k >= 0 && +k < LV.length) || !(SAVE.done[k] >= 1)) delete SAVE.done[k];
+SAVE.cur = Number.isInteger(SAVE.cur) && SAVE.cur >= 0 ? SAVE.cur : 0;
+if (!Array.isArray(SAVE.recSteps)) delete SAVE.recSteps; if (!isObj(SAVE.rec) || !Array.isArray(SAVE.rec.moves)) delete SAVE.rec;
+let loadSeq = 0; // bumped on every level load: delayed wins / hole changes from the previous level must not land on this one
+const sameLevel = fn => { const k = loadSeq; return () => { if (k === loadSeq) fn(); }; };
 const persist = () => { RH.save('belt-trick', SAVE); RH.progress('belt-trick', Object.keys(SAVE.done).filter(k => +k < LV.length - 1).length / (LV.length - 1)); };
 let L, LI = 0, sel = 0, won = false, intro = false, S = {}, bet = null, golf = null, waiter = null, glitchT = 0, lastMsg = '';
 
 function loadLevel(i, opt = {}) {
-  LI = i; L = LV[i]; SAVE.cur = i; persist(); clearTimeout(toast.h); $('toast').classList.remove('on');
+  LI = i; L = LV[i]; SAVE.cur = i; persist(); loadSeq++; clearTimeout(toast.h); $('toast').classList.remove('on');
   queue = []; cur = null; relax.on = false; userMoves = []; axesUsed = new Set(); yawAcc = 0; won = false; sel = L.objs ? L.objs[0] : 0; recording = null;
   clearWorld(); const cam = (L.setup === 'mech' ? SETUPS.mech(L.kind === 'sat') : SETUPS[L.setup]());
   bet = L.kind === 'bet' ? { right: 0, tries: 0, phase: 'idle', seq: null } : null;
@@ -621,13 +628,13 @@ function resetState() { // put the level back to its start (no intro animation)
   if (MECH) Object.assign(MECH, { phi: 0, theta: 0, running: false, broken: false, t: 0, hold: false, maxTw: 0 });
   wake(500); renderCtrl(); renderGoal();
 }
-function userMove(tok) {
+function userMove(tok, replay) {
   if (won && !L.free) return; if (relax.on || (bet && bet.phase !== 'idle' && intro)) return; if (intro) flushQueue();
   const p = parseTok(tok); if (!p) return; const oi = p.o ?? sel;
   if (L.objs && !L.objs.includes(oi)) { msg('That cube is locked'); return; }
   if (L.maxMoves && userMoves.length >= L.maxMoves) { FX.sfx('fail'); msg('Out of moves. Press reset.'); return; }
   if (L.noRepeat && axesUsed.has(p.ax)) { FX.sfx('fail'); msg('Not the same axis twice'); return; }
-  if (queue.length > 3) return;
+  if (queue.length > 3 && !replay) return;
   axesUsed.add(p.ax); userMoves.push((OBJ.length > 1 ? 'ABC'[oi] + ':' : '') + p.ax + (p.deg > 0 ? '+' : '') + p.deg);
   if (golf) golf.strokes++;
   enqueue((OBJ.length > 1 ? 'ABC'[oi] + ':' : '') + p.ax + (p.deg > 0 ? '+' : '') + p.deg, true); renderCtrl();
@@ -640,10 +647,10 @@ function onRelaxEnd() {
   const stuck = RIB.some(r => !r.flat() && r.dmin() > Math.PI - .05);
   if (bet && bet.phase === 'relax') {
     const flat = RIB.every(r => r.flat()); bet.tries++; const ok = bet.guess === flat;
-    if (ok) { bet.right++; FX.sfx('coin'); burstAll('#7fe8b0', 40); } else { FX.sfx('fail'); FX.shake(.3); }
+    if (ok) { bet.right++; FX.sfx('coin'); burstAll('#7fe8b0', 40); } else { bet.right = 0; FX.sfx('fail'); FX.shake(.3); } // a streak: guessing at random rarely gets three in a row
     toast(ok ? 'Called it' : 'Nope', `${bet.seq.join(' · ')} → ${flat ? 'relaxes flat (+1)' : 'stays stuck (−1)'}`, 2600);
     bet.phase = 'done'; renderBets(); renderGoal();
-    if (bet.right >= 3) setTimeout(() => winLevel(['Prophet', `${bet.right} of ${bet.tries} right. Every full turn flips the sign; half-turns multiply like i, j, k. The cube never shows it. The ribbon always does.`]), 900);
+    if (bet.right >= 3) setTimeout(sameLevel(() => winLevel(['Prophet', `Three in a row (${bet.tries} bets in all). Every full turn flips the sign; half-turns multiply like i, j, k. The cube never shows it. The ribbon always does.`])), 900);
     else setTimeout(nextBet, 2400); return;
   }
   if (stuck && OBJ.every(o => rotAngle(o.q) < .14)) { glitchT = 1.2; FX.sfx('fail'); FX.shake(.35); FX.hitstop(90); }
@@ -665,8 +672,8 @@ function check(ev) {
       golf.matched = true;
       golf.results.push([golf.strokes, golf.par]); golf.total += golf.strokes; FX.sfx('coin'); FX.hitstop(60); burstAll('#7fe8b0', 60);
       toast(golf.strokes <= golf.par ? (golf.strokes < golf.par ? 'Birdie!' : 'Par') : `+${golf.strokes - golf.par}`, `Hole ${golf.hole + 1}: ${golf.strokes} strokes (par ${golf.par})`, 1800);
-      if (golf.hole + 1 >= L.holes.length) { const par = golf.results.reduce((a, r) => a + r[1], 0); setTimeout(() => winLevel(['Clubhouse', `${golf.total} strokes, par ${par}.`], golf.total - par), 900); }
-      else setTimeout(() => { golf.hole++; resetState(); setupHole(); renderGoal(); renderCtrl(); }, 1100);
+      if (golf.hole + 1 >= L.holes.length) { const par = golf.results.reduce((a, r) => a + r[1], 0); setTimeout(sameLevel(() => winLevel(['Clubhouse', `${golf.total} strokes, par ${par}.`], golf.total - par)), 900); }
+      else setTimeout(sameLevel(() => { golf.hole++; resetState(); setupHole(); renderGoal(); renderCtrl(); }), 1100);
     } else if (rotAngle(qmul(qinv(golf.target), OBJ[0].q)) < .07) { glitchT = 1; FX.sfx('fail'); msg('Looks right. Wrong sign!'); }
     return;
   }
@@ -703,7 +710,7 @@ function renderLevels() {
 function renderGoal() {
   let g = L.goal;
   if (L.par) g += ` <span style="color:#c9bcd6">Par ${L.par}.</span>`;
-  if (bet) g = `${L.goal} <b>${bet.right}/3</b>` + (bet.phase === 'watch' ? ' · watch…' : bet.phase === 'bet' ? ' · the cube is home. Will it relax?' : '');
+  if (bet) g = `${L.goal} <b>streak ${bet.right}/3</b>` + (bet.phase === 'watch' ? ' · watch…' : bet.phase === 'bet' ? ' · the cube is home. Will it relax?' : '');
   if (golf) g = `Hole ${golf.hole + 1}/${L.holes.length} · par ${golf.par} · strokes ${golf.strokes}. Target sign <b style="color:${signOf(golf.target) === '−' ? '#ff9a9a' : '#9af0c0'}">${signOf(golf.target)}</b>`;
   $('goal').className = won || SAVE.done[LI] ? 'ok' : ''; $('goal').innerHTML = (won ? '✓ ' : '🎯 ') + g;
 }
@@ -747,8 +754,8 @@ let playback = null;
 function playRec() { if (!SAVE.recSteps) return; resetState(); playback = { steps: SAVE.recSteps, i: 0 }; FX.sfx('whoosh'); toast('', 'Replaying (ghost)…', 1200); }
 function stepPlayback() { if (!playback) return; for (let k = 0; k < 3 && playback.i < playback.steps.length; k++) { const [oi, w, x, y, z] = playback.steps[playback.i++]; const d = qnorm([w, x, y, z]); applyRot(OBJ[oi] || OBJ[0], d); }
   if (playback.i >= playback.steps.length) { playback = null; snapAll(); } }
-const enc = toks => toks.map(t => { const p = parseTok(t); return ({ X: 'x', Y: 'y', Z: 'z' })[p.ax] + ({ '90': '', '-90': '-', '180': '2', '360': '4', '-180': '2', '270': '3', '-270': '-3' })[p.deg]; }).join('');
-function decode(code) { const out = []; const re = /([xyz])(-3|-|2|4|3)?/g; let m; while ((m = re.exec(code))) out.push(m[1].toUpperCase() + ({ undefined: '+90', '-': '-90', '2': '+180', '4': '+360', '3': '+270', '-3': '-270' })[m[2]]); return out; }
+const enc = toks => toks.map(t => { const p = parseTok(t); return ({ X: 'x', Y: 'y', Z: 'z' })[p.ax] + ({ '90': '', '-90': '-', '180': '2', '360': '4', '-180': '-2', '-360': '-4', '270': '3', '-270': '-3' })[p.deg]; }).join('');
+function decode(code) { const out = []; const re = /([xyz])(-3|-2|-4|-|2|4|3)?/g; let m; while ((m = re.exec(code))) out.push(m[1].toUpperCase() + ({ undefined: '+90', '-': '-90', '2': '+180', '4': '+360', '3': '+270', '-3': '-270', '-2': '-180', '-4': '-360' })[m[2]]); return out.slice(0, 200); }
 async function shareCode() {
   const toks = SAVE.rec ? SAVE.rec.moves : userMoves; if (!toks.length) { msg('Make some moves (or record) first'); return; }
   const code = enc(toks), url = location.href.split('#')[0] + '#seq=' + code; try { await navigator.clipboard.writeText(url); } catch (e) {}
@@ -967,7 +974,7 @@ window.__belt = {
   q: (i = 0) => [...OBJ[i].q], sign: (i = 0) => Math.sign(OBJ[i].q[0]) || 0,
   ribbons: () => RIB.map(r => ({ len: r.length(), dmin: r.dmin(), endDot: r.endDot(), flat: r.flat() })),
   get busy() { return busy() || snaps.length > 0 || !!(bet && bet.phase === "watch"); }, get won() { return won; }, get level_() { return LI; }, get par() { return L.par; }, get golf() { return golf; }, get bet() { return bet; }, get mech() { return MECH; }, get waiter() { return waiter; }, get yaw() { return yawAcc / D2R; },
-  placeBet, flush: flushQueue, check,
+  placeBet, flush: flushQueue, check, enc, decode, get queueN() { return queue.length + (cur ? 1 : 0); }, SAVE, nextBet,
   sim(sec, fn) { const dt = 1 / 60; for (let t = 0; t < sec; t += dt) { fn && fn(t); if (relax.on) stepRelax(dt, 30); if (waiter) stepWaiter(dt); if (MECH) stepMech(dt); stepSnaps(dt); stepQueue(dt); } },
   setRatio: r => setGearB(r), run: () => { MECH.running = true; }, hold: v => { if (v && !MECH.running) MECH.running = true; MECH.hold = v; },
   startWaiter: () => { waiter.started = true; }, calm: false, sel: i => { sel = i; },
@@ -981,7 +988,7 @@ window.__belt = {
 // boot
 resize();
 const hash = /#seq=([xyz234\-]+)/.exec(location.hash);
-if (hash) { loadLevel(LV.length - 1); const seq = decode(hash[1]); setTimeout(() => { seq.forEach(t => userMove(t)); toast('', 'Playing a shared sequence: ' + seq.join(' · '), 2500); }, 700); }
+if (hash) { loadLevel(LV.length - 1); const seq = decode(hash[1]); setTimeout(sameLevel(() => { seq.forEach(t => userMove(t, true)); toast('', 'Playing a shared sequence: ' + seq.join(' · '), 2500); }), 700); }
 else loadLevel(Math.min(SAVE.cur || 0, LV.length - 1) > maxOpen() && !LV[SAVE.cur]?.free ? maxOpen() : Math.min(SAVE.cur || 0, LV.length - 1));
 wake(800);
 </script>

@@ -353,20 +353,43 @@ function clientFor(r, child) {
 }
 
 // ================= state =================
-const S = RH.load('parish', { seed: (Math.random() * 1e9) | 0, done: {}, prog: {}, cur: 0, pins: [], notes: '', intro: 0, parishes: 0, total: 0 });
-const persist = () => { RH.save('parish', S); RH.progress('parish', Math.min(1, (S.total + Object.keys(S.done).length) / COMS.length / (S.parishes + 1))); };
+// Old or corrupted saves: fill in missing fields, drop anything that doesn't fit the current register.
+const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+function cleanSave(raw) {
+  const d = { seed: (Math.random() * 1e9) | 0, done: {}, prog: {}, wrong: {}, cur: 0, pins: [], notes: '', intro: 0, parishes: 0, total: 0 };
+  if (!isObj(raw)) return d;
+  const S = { ...d };
+  if (Number.isInteger(raw.seed)) S.seed = raw.seed;
+  for (const k of ['done', 'prog', 'wrong']) if (isObj(raw[k])) S[k] = raw[k];
+  if (Array.isArray(raw.pins)) S.pins = raw.pins.filter(Number.isInteger);
+  if (typeof raw.notes === 'string') S.notes = raw.notes;
+  for (const k of ['cur', 'parishes', 'total']) if (Number.isInteger(raw[k]) && raw[k] >= 0) S[k] = raw[k];
+  S.intro = raw.intro ? 1 : 0;
+  if (Number.isFinite(raw.pbest)) S.pbest = Math.min(1, Math.max(0, raw.pbest));
+  return S;
+}
+function fitSave() { // after the register is built: keep only state that refers to real letters and records
+  const okI = k => /^\d+$/.test(k) && +k < COMS.length;
+  const done = {}; for (const k of Object.keys(S.done)) if (okI(k) && isObj(S.done[k])) done[k] = { stars: Math.min(3, Math.max(1, S.done[k].stars | 0 || 1)) };
+  const prog = {}; for (const k of Object.keys(S.prog)) if (okI(k) && Array.isArray(S.prog[k]) && S.prog[k].length === COMS[k].tasks.length) prog[k] = S.prog[k].map(v => v ? 1 : 0);
+  const wrong = {}; for (const k of Object.keys(S.wrong)) if (okI(k) && Number.isFinite(S.wrong[k]) && S.wrong[k] > 0) wrong[k] = Math.floor(S.wrong[k]);
+  for (const k of Object.keys(done)) prog[k] = COMS[k].tasks.map(() => 1);
+  S.done = done; S.prog = prog; S.wrong = wrong;
+  S.pins = [...new Set(S.pins.filter(id => id >= 0 && id < W.R.length))];
+}
+const S = cleanSave(RH.load('parish', null));
+// hub progress: letters answered over a lifetime, measured in parishes' worth (one full parish = 1); never goes down when you move
+const persist = () => { S.pbest = Math.max(S.pbest || 0, Math.min(1, (S.total + Object.keys(S.done).length) / COMS.length)); RH.save('parish', S); RH.progress('parish', S.pbest); };
 let W, COMS;
-function boot() { W = buildRegister(S.seed); COMS = buildCommissions(W); }
+function boot() { W = buildRegister(S.seed); COMS = buildCommissions(W); fitSave(); }
 boot();
 const TIERN = ['Simple enquiries', 'Family matters', 'Tangled branches', 'The hard cases'];
 const tierOf = i => Math.min(3, Math.floor(i / 6));
 const tierOpen = t => t === 0 || COMS.filter((c, i) => tierOf(i) === t - 1 && S.done[i]).length >= 4;
 
 // ================= rendering records =================
-const G = (g) => RH_abbr(g);
-let abbrR = RH.rng('abbr');
-const abbrMemo = {};
-function RH_abbr(g, key) { const k = g + ':' + key; if (!(k in abbrMemo)) abbrMemo[k] = ABBR[g] && abbrR() < .45 ? ABBR[g] : g; return abbrMemo[k]; }
+// The clerk abbreviates some names. Decided per record from the seed, so a record reads the same every time (and after reloads).
+function RH_abbr(g, key) { return ABBR[g] && RH.hashStr(S.seed + ':' + key + ':' + g) % 100 < 45 ? ABBR[g] : g; }
 function recText(x) {
   const A = g => RH_abbr(g, x.id);
   if (x.t === 'B') return `${A(x.g)}, ${x.sex === 'M' ? 'son' : 'daughter'} of ${A(x.fg)} ${x.fs}${x.occ ? ', ' + x.occ : ''}, and ${A(x.mg)}${x.ms ? ` his wife, late ${x.ms}` : ' his wife'}.`;
@@ -389,7 +412,7 @@ function solvedRecIds() { const s = new Set(); const c = COMS[cur]; if (c) { s.a
 // ================= UI =================
 const $ = id => document.getElementById(id);
 let mode = 'book', year = 1700, sel = null, cur = S.cur || 0;
-if (!COMS[cur]) cur = 0;
+if (!COMS[cur] || !tierOpen(tierOf(cur))) cur = 0;
 
 function renderBook() {
   const b = $('book');
@@ -412,13 +435,14 @@ function renderBook() {
     const y0 = +$('qY0').value || REG0, y1 = +$('qY1').value || REG1;
     const sCode = soundex(s);
     const gMatch = n => !gN || n.toLowerCase().startsWith(gN);
-    const sMatch = n => !s || (sx ? soundex(n) === sCode : n.toLowerCase().startsWith(s.toLowerCase()));
+    // a surname with no letters ("1", "-") has no Soundex code: it must not match every record without a maiden name
+    const sMatch = n => !s || (sx ? !!sCode && soundex(n) === sCode : n.toLowerCase().startsWith(s.toLowerCase()));
     const res = W.R.filter(x => types[x.t] && yearOf(x.d) >= y0 && yearOf(x.d) <= y1 && (
       x.t === 'B' ? (gMatch(x.g) && sMatch(x.fs)) || (!g && sMatch(x.ms || '~')) :
       x.t === 'M' ? (gMatch(x.gg) && sMatch(x.gs)) || (gMatch(x.bg) && sMatch(x.bs)) :
       gMatch(x.g) && sMatch(x.s)));
-    const words = [g && (ABBR[gN[0].toUpperCase() + gN.slice(1)] || ''), g, s].filter(Boolean);
-    const hl = t => words.length ? t.replace(new RegExp(`\\b(${words.map(w => w.replace(/[^a-z]/gi, '')).filter(Boolean).join('|')})`, 'gi'), '<mark>$1</mark>') : t;
+    const words = [g && (ABBR[gN[0].toUpperCase() + gN.slice(1)] || ''), g, s].map(w => (w || '').replace(/[^a-z]/gi, '')).filter(Boolean);
+    const hl = t => words.length ? t.replace(new RegExp(`\\b(${words.join('|')})`, 'gi'), '<mark>$1</mark>') : t;
     let h = `<div class="page"><h3>Index · ${res.length} entr${res.length === 1 ? 'y' : 'ies'}</h3>`;
     if (!g && !s) h += '<div class="lost">Type a given name or a surname above. With sounds-like on, surnames match by Soundex code (Cooper = Couper = C160).</div>';
     else h += res.slice(0, 400).map(x => recRow(x, hl)).join('') + (res.length > 400 ? '<div class="lost">… narrow the search to see more.</div>' : '');
@@ -437,7 +461,7 @@ function renderSide() {
   });
   h += `<div class="note" style="margin:14px 6px">Answer 4 letters in a tier to open the next. <i>New parish</i> (top right) moves you to a new village.</div>`;
   $('side').innerHTML = h;
-  $('side').querySelectorAll('.cm').forEach(el => el.onclick = () => { const i = +el.dataset.i; if (tierOpen(tierOf(i))) { cur = i; S.cur = i; persist(); sel = null; renderAll(); } });
+  $('side').querySelectorAll('.cm').forEach(el => el.onclick = () => { const i = +el.dataset.i; if (tierOpen(tierOf(i))) { openLetter(i); } });
   const n = Object.keys(S.done).length;
   $('totals').textContent = `${W.village} · ${n}/${COMS.length} letters answered${S.parishes ? ` · ${S.parishes} parish${S.parishes > 1 ? 'es' : ''} before` : ''}`;
 }
@@ -460,7 +484,7 @@ function renderRight() {
   c.tasks.forEach((k, i) => {
     const locked = i > active && active >= 0 && !prog[i];
     const depOk = (k.dep < 0 || prog[k.dep]) && (k.dep2 == null || k.dep2 < 0 || prog[k.dep2]);
-    h += `<div class="task ${prog[i] ? 'done' : i === active ? 'active' : ''} ${!prog[i] && !depOk ? 'locked' : ''}"><b>${i + 1}.</b> ${!prog[i] && !depOk ? `<span class="dim">🔒 Unlocks when task ${(k.dep >= 0 && !prog[k.dep] ? k.dep : k.dep2) + 1} is answered.</span>` : taskText(c, k, i)}${prog[i] ? `<div class="ans">✓ ${fmtD(W.R[k.truth].d)}: ${recText(W.R[k.truth])}</div>` : ''}</div>`;
+    h += `<div class="task ${prog[i] ? 'done' : i === active ? 'active' : ''} ${!prog[i] && !depOk ? 'locked' : ''}"><b>${i + 1}.</b> ${!prog[i] && !depOk ? `<span class="dim">🔒 Unlocks when task ${(k.dep >= 0 && !prog[k.dep] ? k.dep : k.dep2) + 1} is answered.</span>` : taskText(c, k, i)}${!prog[i] && depOk ? ` <button class="small" data-look="${i}" title="Search the index for these names">🔎 Look up</button>` : ''}${prog[i] ? `<div class="ans">✓ ${fmtD(W.R[k.truth].d)}: ${recText(W.R[k.truth])}</div>` : ''}</div>`;
   });
   if (sel != null) {
     const x = W.R[sel];
@@ -474,11 +498,14 @@ function renderRight() {
   $('right').querySelectorAll('[data-ans]').forEach(bn => bn.onclick = () => answer(+bn.dataset.ans));
   if ($('pinBtn')) $('pinBtn').onclick = () => { S.pins = S.pins.includes(sel) ? S.pins.filter(x => x !== sel) : [...S.pins, sel]; persist(); renderRight(); renderBook(); };
   if ($('goYr')) $('goYr').onclick = () => { year = yearOf(W.R[sel].d); setMode('book'); };
-  $('right').querySelectorAll('.pins .p').forEach(el => el.onclick = () => { sel = +el.dataset.id; year = yearOf(W.R[sel].d); setMode('book'); });
+  $('right').querySelectorAll('.pins .p').forEach(el => el.onclick = () => { sel = +el.dataset.id; year = yearOf(W.R[sel].d); setMode('book'); renderRight(); });
+  $('right').querySelectorAll('[data-look]').forEach(bn => bn.onclick = () => lookUp(+bn.dataset.look));
 }
 
 async function answer(i) {
-  const c = COMS[cur], k = c.tasks[i], x = W.R[sel];
+  const c = COMS[cur], k = c.tasks[i], x = W.R[sel], prog = S.prog[cur];
+  // only an open task (not answered, its prerequisite answered) can be answered, and only with a selected record
+  if (!k || !x || !prog || prog[i] || S.done[cur] || !((k.dep < 0 || prog[k.dep]) && (k.dep2 == null || k.dep2 < 0 || prog[k.dep2]))) return;
   if (x.id === k.truth) {
     S.prog[cur][i] = 1; persist();
     RH.toast('✓ That fits.');
@@ -488,7 +515,7 @@ async function answer(i) {
       const nxt = COMS.findIndex((cc, j) => j > cur && !S.done[j] && tierOpen(tierOf(j)));
       renderAll();
       const go = await RH.modal(`<h2>✉️ Letter answered</h2><p>You trace ${W.R[c.start].g}'s family through ${c.tasks.length} records.</p><p style="text-align:center;color:var(--accent);font-size:24px">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</p><p class="dim small" style="text-align:center">${w ? w + ' wrong answer' + (w > 1 ? 's' : '') + ' along the way.' : 'No wrong answers. The client will recommend you to their friends.'}</p>`, nxt >= 0 ? [{ label: 'Stay', value: 0 }, { label: 'Next letter', value: 1 }] : [{ label: 'Close', value: 0 }]);
-      if (go) { cur = nxt; S.cur = cur; sel = null; persist(); renderAll(); }
+      if (go) openLetter(nxt);
       return;
     }
   } else {
@@ -505,6 +532,15 @@ $('mIdx').onclick = () => setMode('idx');
 ['qG', 'qS', 'qY0', 'qY1'].forEach(id => $(id).oninput = () => setMode('idx'));
 ['qSx', 'qB', 'qM', 'qD'].forEach(id => $(id).onchange = () => setMode('idx'));
 function renderAll() { renderSide(); renderBook(); renderRight(); }
+function openLetter(i) { cur = i; S.cur = i; sel = null; year = yearOf(W.R[COMS[i].start].d); persist(); renderAll(); }
+// "Look up" fills the index with the names a task gives you; telling the right record from the decoys is still up to you
+function lookUp(i) {
+  const k = COMS[cur].tasks[i], a = W.R[k.a];
+  const [gv, sv, t] = { A: [a.fg, a.fs, 'M'], B: [a.gg, a.gs, 'B'], C: [a.bg, a.bs, 'B'], D: [a.gg, a.gs, 'D'], E: [a.bg, a.gs, 'D'] }[k.kind];
+  $('qG').value = gv; $('qS').value = sv; $('qSx').checked = true; $('qY0').value = ''; $('qY1').value = '';
+  $('qB').checked = t === 'B'; $('qM').checked = t === 'M'; $('qD').checked = t === 'D';
+  setMode('idx'); $('book').scrollTop = 0;
+}
 
 $('newParish').onclick = async () => {
   if (!(await RH.modal('<h2>Move to a new parish?</h2><p>A different village with a different register and new letters. Your answered letters here count towards your lifetime total.</p>', [{ label: 'Stay', value: 0 }, { label: 'Move', value: 1 }]))) return;
@@ -519,7 +555,7 @@ $('helpBtn').onclick = help;
 renderAll();
 if (!S.intro) { S.intro = 1; persist(); help(); }
 year = yearOf(W.R[COMS[cur].start].d); renderBook();
-window.__parish = { W: () => W, COMS: () => COMS, S, KIND, solveTask, answer, setSel: v => { sel = v; }, renderAll };
+window.__parish = { W: () => W, COMS: () => COMS, S, KIND, solveTask, naive, soundex, cleanSave, recText, answer, lookUp, openLetter, tierOpen, tierOf, setSel: v => { sel = v; }, get sel() { return sel; }, get cur() { return cur; }, get year() { return year; }, renderAll };
 </script>
 </body>
 </html>

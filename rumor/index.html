@@ -30,6 +30,16 @@
   #log b{color:var(--ink)}
   #legend{position:absolute;bottom:10px;left:12px;font-size:12px;color:var(--dim)}
   #legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin:0 4px 0 10px;vertical-align:middle}
+  @media (max-width:760px){
+    body{height:auto;min-height:100vh;overflow:auto}
+    main{flex-direction:column}
+    #stage{height:58vh;flex:none}
+    #left{width:auto;order:3;max-height:none;border-right:0;border-top:1px solid var(--line)}
+    #right{width:auto;order:2;border-left:0;border-top:1px solid var(--line)}
+    #hud{flex-wrap:wrap;left:6px;right:6px;top:6px;gap:4px} #hud .pill{font-size:11px;padding:3px 8px} #hud button{padding:4px 8px;font-size:12px}
+    #legend{font-size:10px;left:6px;right:6px;bottom:4px}
+    #log{max-height:140px}
+  }
 </style>
 </head>
 <body>
@@ -47,6 +57,7 @@
   </div>
 </main>
 <script src="../shared/common.js"></script>
+<script src="../shared/fx.js"></script>
 <script>
 // ===================== Vocabulary =====================
 const VERBS=[ // [text, polarity, severity]
@@ -70,11 +81,11 @@ const SC=[
   {act:2,n:'Two Birds',d:'Get 35% to believe that <b>{T}</b> did something bad <b>to {V}</b>.',N:60,days:8,w:2,goal:{type:'pair',pct:35}},
   {act:2,n:'Before the Vote',d:'The vote is on day 5. Get 50% believing something bad about <b>{T}</b> before then.',N:60,days:5,w:3,goal:{type:'reach',pct:50,pol:-1}},
   {act:2,n:'Short on Breath',d:'One whisper a day. Choose carefully. Reach 40%.',N:55,days:9,w:1,goal:{type:'reach',pct:40,pol:-1}},
-  {act:3,n:'Damage Control',d:'Someone is spreading lies about <b>{T}</b>. By the last day, no more than 20% may believe a bad story about them. Whisper that it\'s a lie.',N:60,days:8,w:2,enemy:{about:'T',start:3},goal:{type:'defend',max:20}},
-  {act:3,n:'Head Start',d:'The lie about <b>{T}</b> is already out. Keep belief under 25% at the end.',N:65,days:8,w:2,enemy:{about:'T',start:6},goal:{type:'defend',max:25}},
+  {act:3,n:'Damage Control',d:'Someone is spreading lies about <b>{T}</b>. By the last day, no more than 20% may believe a bad story about them. Whisper that it\'s a lie.',N:60,days:8,w:2,enemy:{about:'T',start:2},goal:{type:'defend',max:20}},
+  {act:3,n:'Head Start',d:'The lie about <b>{T}</b> is already out. Keep belief under 25% at the end.',N:65,days:8,w:2,enemy:{about:'T',start:1,seed:0.1},goal:{type:'defend',max:25}},
   {act:3,n:'Fight Fire',d:'They\'re smearing <b>{T}</b>. Defend them (under 25%) <i>and</i> get 30% believing something bad about the rumor-monger, <b>{E}</b>.',N:65,days:9,w:3,enemy:{about:'T',start:3},goal:{type:'counter',max:25,pct:30}},
-  {act:3,n:'Trusted Voices',d:'The skeptics are on your side here. Use them. Keep the lie about <b>{T}</b> under 15%.',N:70,days:8,w:2,skeptics:3,enemy:{about:'T',start:5},goal:{type:'defend',max:15}},
-  {act:3,n:'Everyone\'s Talking',d:'A very gossipy town and a lie about <b>{T}</b>. Keep it under 30%.',N:80,days:7,w:2,chatty:1,enemy:{about:'T',start:6},goal:{type:'defend',max:30}},
+  {act:3,n:'Trusted Voices',d:'The skeptics are on your side here. Use them. Keep the lie about <b>{T}</b> under 15%.',N:70,days:8,w:2,skeptics:3,enemy:{about:'T',start:2},goal:{type:'defend',max:15}},
+  {act:3,n:'Everyone\'s Talking',d:'A very gossipy town and a lie about <b>{T}</b>. Keep it under 30%.',N:80,days:7,w:2,chatty:1,enemy:{about:'T',start:1,seed:0.06},goal:{type:'defend',max:30}},
   {act:4,n:'The Feud',d:'The heads of two families, <b>{A}</b> and <b>{B}</b>, hate each other. Each must believe something <b>good</b> about the other.',N:60,days:9,w:2,feud:1,goal:{type:'reconcile'}},
   {act:4,n:'Good News Travels',d:'Get 50% believing something good about <b>{T}</b>. People pass on good news less often.',N:60,days:9,w:2,goal:{type:'reach',pct:50,pol:1}},
   {act:4,n:'Hero of the Docks',d:'40% must believe <b>{T}</b> <i>saved the life of</i> someone. Not just helped them.',N:60,days:9,w:2,goal:{type:'verb',pct:40,verb:9}},
@@ -86,7 +97,15 @@ const SC=[
   {act:5,n:'Peace and Pitchforks',d:'Reconcile <b>{A}</b> and <b>{B}</b>, and get 35% believing something bad about <b>{T}</b>.',N:80,days:11,w:3,feud:1,goal:{type:'reconcile+',pct:35}},
   {act:5,n:'The Long Con',d:'Exactly what you whisper, to 45% of the biggest town yet.',N:110,days:12,w:2,skeptics:2,goal:{type:'exact',pct:45}},
 ];
-const SAVE = RH.load('rumor', {done:{}, cur:0, endless:0});
+function cleanSave(s){
+  if (!s || typeof s!=='object' || Array.isArray(s)) s={};
+  const done={}; if (s.done && typeof s.done==='object') for (const k in s.done){ const n=+k; if (Number.isInteger(n) && n>=0 && n<SC.length && s.done[k]) done[n]=1; }
+  return {...s, done, cur: Number.isInteger(s.cur) && s.cur>=0 && s.cur<SC.length ? s.cur : 0, endless: Number.isFinite(s.endless) && s.endless>0 ? Math.floor(s.endless) : 0};
+}
+const esc=(t)=>String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const scenOpen=(i)=> i===0 || !!SAVE.done[i-1] || !!SAVE.done[i] || (i%5===0 && SAVE.done[i-5]!=null && Object.keys(SAVE.done).length>=i-2);
+const SAVE = cleanSave(RH.load('rumor', null));
+if (!scenOpen(SAVE.cur)) SAVE.cur=0;
 const persist=()=>{ RH.save('rumor',SAVE); RH.progress('rumor', Object.keys(SAVE.done).length/SC.length); };
 
 // ===================== Town =====================
@@ -222,16 +241,19 @@ function start(i, endlessSeed){
   day=1; wLeft=sc.w; sel=-1; log=[]; firstWhisper=null; flashes=[];
   enemy=null;
   if (sc.enemy){ const tgt = sc.enemy.about==='V'? T.cast.V : T.cast.T; enemy={target:tgt.id, src:T.cast.E.id, start:sc.enemy.start};
+    if (sc.enemy.seed){ for (const p of T.people) if (p!==tgt && Math.random()<sc.enemy.seed){ p.belief={who:tgt.id, verb:4, whom:T.people[(p.id+3)%T.people.length].id, place:Math.floor(Math.random()*PLACES.length)}; p.str=0.7; p.heardFrom='someone'; } }
     if (sc.enemy.pre){ for (const p of T.people) if (p!==tgt && Math.random()<0.75){ p.belief={who:tgt.id, verb:4, whom:T.people[(p.id+3)%T.people.length].id, place:Math.floor(Math.random()*PLACES.length)}; p.str=0.7; p.heardFrom='everyone'; } enemy=null; } }
   addLog(`Day 1. ${desc()}`); renderAll(); fitView();
 }
-function endlessSpec(seed){ const r=RH.rng(seed); const base=SC[r.int(SC.length)]; return {...base, n:'Endless · '+seed, N:60+r.int(60)}; }
+function endlessSpec(seed){ const r=RH.rng(seed); const base=SC[r.int(SC.length)]; return {...base, n:'Endless · '+esc(seed), N:60+r.int(60)}; }
 function desc(){ const c=T.cast; return sc.d.replace(/\{T\}/g,c.T.name).replace(/\{V\}/g,c.V.name).replace(/\{F\}/g,c.F.name).replace(/\{E\}/g,c.E.name).replace(/\{A\}/g,c.A?.name).replace(/\{B\}/g,c.B?.name); }
 function addLog(t){ log.unshift(t); if (log.length>60) log.pop(); document.getElementById('log').innerHTML=log.map(x=>`<div>${x}</div>`).join(''); }
 document.getElementById('nextDay').onclick=()=>{
   if (day>sc.days) return;
+  const before=goalStatus().v;
   const ev=simDay(); day++; wLeft=sc.w;
-  addLog(`<b>— Day ${Math.min(day,sc.days)} —</b>`); ev.slice(0,8).forEach(addLog);
+  if (day<=sc.days) addLog(`<b>— Day ${day} —</b>`); else addLog('<b>— The last day is over —</b>'); ev.slice(0,8).forEach(addLog);
+  { const now=goalStatus().v; if (Math.round(now)!==Math.round(before)) FX.sfx('chime', Math.max(0,Math.round(now/12))); }
   const st=goalStatus();
   if (day>sc.days || (st.ok && !st.inverse && sc.goal.type!=='defend' && sc.goal.type!=='counter' && sc.goal.type!=='redeem' && sc.goal.type!=='mixed')) finish(st);
   else if (st.fail) finish(st);
@@ -242,10 +264,13 @@ let endlessSeedCur='';
 function finish(st){
   day=sc.days+1;
   if (st.ok){ if (scKey!=='endless'){ SAVE.done[scKey]=Math.max(SAVE.done[scKey]||0, 1); persist(); } else { SAVE.endless++; persist(); }
-    RH.modal(`<h2>It worked.</h2><p>${st.label}</p><p class="dim">Somewhere in town, someone is repeating a story you made up, and is sure it's true.</p>`,[{label:'Stay'}]); }
-  else RH.modal(`<h2>The town moved on.</h2><p>${st.label}</p><p class="dim">Try a different first ear. Chatty people spread rumors, trusted people make them believable, and people on the edges carry them between groups.</p>`,[{label:'OK'}]);
+    FX.sfx('win'); RH.modal(`<h2>It worked.</h2><p>${st.label}</p><p class="dim">Somewhere in town, someone is repeating a story you made up, and is sure it's true.</p>`,[{label:'Stay'}]); }
+  else { FX.sfx('fail'); const h=bestEar(); RH.modal(`<h2>The town moved on.</h2><p>${st.label}</p><p class="dim">Try a different first ear. Chatty people spread rumors, trusted people make them believable, and people on the edges carry them between groups.</p>${h?`<p>Hint: <b>${h.name}</b>${h.role?` (${h.role})`:''} talks to ${h.friends.length} people and loves to gossip.</p>`:''}`,[{label:'OK'}]); }
   renderAll();
 }
+
+// The best-connected talker who isn't the subject: used as a hint after a failed attempt
+function bestEar(){ const c=T.cast; let best=null, bv=-1; for (const p of T.people){ if (p===c.T || p.skeptic || p.role==='mayor') continue; const v=p.chat*p.friends.reduce((s,f)=>s+f[1],0)*(0.4+p.gull); if (v>bv){ bv=v; best=p; } } return best; }
 
 // ===================== Rendering =====================
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d'); let view={s:1,ox:0,oy:0};
@@ -306,7 +331,7 @@ function renderPerson(){
   const w=document.getElementById('cWho'); if (w){ w.value=T.cast.T.id; document.getElementById('cWhom').value=(T.cast.V||P[(T.cast.T.id+1)%P.length]).id;
     document.getElementById('cGo').onclick=()=>{ const vv=document.getElementById('cVerb').value; const v={who:+w.value, verb: vv==='neg'?4:+vv, whom:+document.getElementById('cWhom').value, place:+document.getElementById('cPlace').value, neg: vv==='neg'};
       if (!v.neg && v.who===v.whom) return RH.toast('Pick two different people.');
-      wLeft--; const ok=hear(p, v, 0.9, null);
+      if (wLeft<=0 || day>sc.days) return; wLeft--; const ok=hear(p, v, 0.9, null); FX.sfx(ok?'pop':'fail');
       if (!firstWhisper && !v.neg) firstWhisper={...v};
       addLog(ok? `You whispered to <b>${p.name}</b>: ${rText(v)}` : `<b>${p.name}</b> didn't believe you.`);
       if (!ok) RH.toast(`${p.name} doesn't believe you.`); renderAll(); }; }
@@ -322,17 +347,19 @@ function renderScen(){
   const acts=['','I · Whispers','II · Obstacles','III · Damage control','IV · Good news','V · Mastery'];
   let h='', last=0;
   SC.forEach((s,i)=>{ if (s.act!==last){ h+=`<div class="act">${acts[s.act]}</div>`; last=s.act; }
-    const open = i===0 || SAVE.done[i-1] || SAVE.done[i] || (i%5===0 && SAVE.done[i-5]!=null && Object.keys(SAVE.done).length>=i-2);
+    const open = scenOpen(i);
     h+=`<div class="sc ${scKey===i?'cur':''} ${open?'':'lock'}" data-i="${i}"><span>${i+1}. ${s.n}</span><span class="ok">${SAVE.done[i]?'✓':''}</span></div>`; });
-  h+=`<div class="act">Endless</div><div class="row"><input id="eSeed" placeholder="town name" style="width:120px"><button id="eGo">Go</button></div><div class="small dim" style="margin-top:4px">${SAVE.endless} endless towns fooled</div>`;
+  h+=`<div class="act">Endless</div><div class="row"><input id="eSeed" placeholder="town name" maxlength="32" style="width:120px"><button id="eGo">Go</button></div><div class="small dim" style="margin-top:4px">${SAVE.endless} endless towns fooled</div>`;
   const el=document.getElementById('scen'); el.innerHTML=h;
-  el.querySelectorAll('.sc').forEach(d=>d.onclick=()=>{ if (d.classList.contains('lock')) return; SAVE.cur=+d.dataset.i; persist(); start(+d.dataset.i); });
-  document.getElementById('eGo').onclick=()=>{ endlessSeedCur=document.getElementById('eSeed').value.trim()||('town'+Date.now()%10000); start(0, endlessSeedCur); };
+  el.querySelectorAll('.sc').forEach(d=>d.onclick=()=>{ if (!scenOpen(+d.dataset.i)) return; SAVE.cur=+d.dataset.i; persist(); start(+d.dataset.i); });
+  document.getElementById('eGo').onclick=()=>{ endlessSeedCur=document.getElementById('eSeed').value.trim().slice(0,32)||('town'+Date.now()%10000); start(0, endlessSeedCur); };
   document.getElementById('total').textContent=`${Object.keys(SAVE.done).length}/${SC.length} scenarios`;
 }
 function renderAll(){ renderGoal(); renderPerson(); renderScen(); }
 window.addEventListener('resize', fitView);
 start(SAVE.cur||0); requestAnimationFrame(draw);
+window.__rumor={ SC, VERBS, buildTown, hear, mutate, simDay, goalStatus, goalFor, sameV, rText, pctOf, believesBad, believesGood, start, finish, endlessSpec, cleanSave, scenOpen, bestEar, esc, renderAll,
+  get T(){ return T; }, get sc(){ return sc; }, get day(){ return day; }, set day(v){ day=v; }, get wLeft(){ return wLeft; }, get firstWhisper(){ return firstWhisper; }, get SAVE(){ return SAVE; }, get log(){ return log; }, get sel(){ return sel; }, set sel(v){ sel=v; }, get view(){ return view; } };
 if (!SAVE.intro){ SAVE.intro=1; persist(); RH.modal(`<h2>🗣️ Rumor</h2><p>Every person in this town has friends, rivals, a loose tongue or a careful one, and a sense of who to trust.</p><p>Click someone and <b>whisper</b> a story. Then let the days pass. They'll tell their friends, who tell theirs, and the story changes on the way. Names get swapped, crimes get worse, places move.</p><p>Watch who carries it. Pick your first ear well.</p>`,[{label:'Lean in'}]); }
 </script>
 </body>

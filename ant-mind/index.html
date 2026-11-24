@@ -9,7 +9,7 @@
   body{display:flex;flex-direction:column;height:100vh;overflow:hidden;background:#17120c}
   main{flex:1;display:flex;min-height:0}
   #stage{flex:1;position:relative;min-width:0;display:flex;align-items:center;justify-content:center}
-  #cv{image-rendering:auto;cursor:crosshair;border-radius:6px;box-shadow:0 10px 40px #0008}
+  #cv{image-rendering:auto;cursor:crosshair;border-radius:6px;box-shadow:0 10px 40px #0008;touch-action:none}
   #side{width:290px;background:var(--panel);border-left:1px solid var(--line);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px}
   .scents{display:grid;grid-template-columns:1fr 1fr;gap:6px}
   .scents button{text-align:left;padding:8px;font-size:13px}
@@ -28,6 +28,14 @@
   #banner{position:absolute;top:14px;left:50%;transform:translateX(-50%);background:#1d1710ee;border:1px solid var(--line);border-radius:20px;padding:6px 16px;font-size:14px;pointer-events:none}
   .ups{display:flex;flex-direction:column;gap:8px}
   .ups button{text-align:left;padding:10px}
+  #banner{transition:opacity .4s;max-width:calc(100% - 20px);text-align:center}
+  @media (max-width:760px){
+    main{flex-direction:column}
+    #stage{flex:none;height:42vh}
+    #side{width:auto;flex:1;min-height:0;border-left:0;border-top:1px solid var(--line)}
+    #banner{font-size:12px;top:6px}
+    .topbar #total{font-size:10px}
+  }
 </style>
 </head>
 <body>
@@ -48,6 +56,7 @@
   </div>
 </main>
 <script src="../shared/common.js"></script>
+<script src="../shared/fx.js"></script>
 <script>
 const W=192, H=120;
 const SCENTS=[
@@ -85,7 +94,15 @@ const UPS=[
   ['queen','Fertile queen','Hatching costs 25% less food.'],['nose','Keen antennae','Ants sense scent from farther away.'],['memory','Lingering scent','Scent fades 35% slower.'],
   ['shell','Thick carapace','Ants have 30% more health.'],['haul','Big mandibles','Workers carry 2 food at a time.'],['start','Large founding','Start each map with 50% more ants.'],
 ];
-const SAVE=RH.load('ant',{stars:{}, cur:0, ups:[], pendingUp:false});
+function cleanSave(s){
+  if (!s || typeof s!=='object' || Array.isArray(s)) s={};
+  const stars={}; if (s.stars && typeof s.stars==='object') for (const k in s.stars){ const n=+k, v=s.stars[k]; if (Number.isInteger(n) && n>=0 && n<MAPS.length && [1,2,3].includes(v)) stars[n]=v; }
+  const ups=Array.isArray(s.ups)? s.ups.filter(u=>UPS.some(x=>x[0]===u)).slice(0,MAPS.length) : [];
+  return {...s, stars, ups, cur: Number.isInteger(s.cur) && s.cur>=0 && s.cur<MAPS.length ? s.cur : 0};
+}
+const mapOpen=(i)=> i===0 || !!SAVE.stars[i-1] || !!SAVE.stars[i];
+const SAVE=cleanSave(RH.load('ant',null));
+if (!mapOpen(SAVE.cur)) SAVE.cur=0;
 const persist=()=>{ RH.save('ant',SAVE); RH.progress('ant-mind', Object.keys(SAVE.stars).length/MAPS.length); };
 const has=(k)=>SAVE.ups.filter(u=>u===k).length;
 
@@ -115,9 +132,14 @@ function build(i){
   const startN=Math.round(45*(1+0.5*has('start')));
   for (let k=0;k<startN;k++) spawnAnt(0, k<startN*0.12?'soldier':'worker');
   if (nests[1]) for (let k=0;k<40*M.rival;k++) spawnAnt(1, k%4===0?'soldier':'worker');
-  for (let k=0;k<(M.spider||0);k++){ spiders.push({x:W*0.5+rng.range(-30,40), y:rng.range(15,H-15), hp:70+k*15, maxhp:70+k*15, cd:0, tx:0, ty:0, t:0}); }
+  // spiders must stand on open ground the colony can reach, or they could never be fought (or move)
+  for (let k=0;k<(M.spider||0);k++){ let x=W*0.5+rng.range(-30,40), y=rng.range(15,H-15);
+    for (let tries=0; tries<300 && !(passable(x,y) && home[idx(x|0,y|0)]<1e9); tries++){ x=W*0.5+rng.range(-45,55); y=rng.range(10,H-10); }
+    spiders.push({x, y, hp:70+k*15, maxhp:70+k*15, cd:0, tx:x, ty:y, t:0}); }
   timeLeft=M.t; stored=30; gland=1; gameOver=false; rainT=0; kills=0; nextRain= M.rain? 40+rng.int(30) : 1e9;
   killsNeeded=M.g.type==='kill'? M.g.n : 0;
+  // nothing from the previous map may leak into this one
+  hatchT=0; coldT=0; digDirty=false; digT=0; digMix.fill(0); digMixOn=false; digMixT=0; fx=[]; delivered=0; painted=0; milestone=0; hintT=0;
   renderSide();
 }
 let nextRain=1e9;
@@ -211,18 +233,22 @@ function stepWorld(dt){
   if (digDirty){ digT+=dt; if (digT>0.5){ digT=0; digDirty=false; home=bfs(nests[0]); if (nests[1]) rivalHome=bfs(nests[1]); } }
   // cold: ants slowly die if colony has no food
   if (M.cold){ coldT+=dt; if (coldT>4){ coldT=0; const ours=ants.filter(a=>a.team===0); const need=ours.length*0.02; if (stored>=need) stored-=need; else { for (let k=0;k<3&&ours[k];k++) ours[k].hp=0; } } }
-  timeLeft-=dt; checkEnd();
+  timeLeft-=dt;
+  // a nudge for newcomers who haven't painted anything yet
+  if (!painted && mapI<2){ hintT+=dt; if (hintT>6){ hintT=-12; banner('Hold and drag from your nest (the gold ring) out to the yellow food.'); } }
+  const [gv,gn]=goalProgress(); const q=Math.floor(4*gv/gn); if (q>milestone && q<4){ milestone=q; FX.sfx('chime', q); banner(`${q*25}% of the goal`); }
+  checkEnd();
 }
 let digMix=new Float32Array(W*H), digMixT=0;
 function digField(){ return digMixOn; }
 let digMixOn=false;
 function updDigMix(){ let any=false; const d=scent.dig, f=scent.forage; for (let i=0;i<W*H;i++){ digMix[i]=Math.max(f[i], d[i]*0.9); if (d[i]>0.01) any=true; } digMixOn=any; }
-let hatchT=0, digDirty=false, digT=0, coldT=0, delivered=0;
+let hatchT=0, digDirty=false, digT=0, coldT=0, delivered=0, painted=0, milestone=0, hintT=0;
 let fx=[]; function burstAt(x,y){ for (let k=0;k<30;k++){ const a=Math.random()*7, s=Math.random()*3; fx.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,l:1}); } }
 function goalProgress(){ const g=MAPS[mapI].g; if (g.type==='food') return [delivered, g.n, `Bring ${g.n} food home`]; if (g.type==='kill') return [kills, g.n, `Kill ${g.n} spider${g.n>1?'s':''}`]; if (g.type==='nest') return [nests[1]? (nests[1].maxhp-Math.max(0,nests[1].hp)) : 0, nests[1]?.maxhp||1, 'Destroy the rival nest']; }
 function checkEnd(){
   if (gameOver) return; const [v,n]=goalProgress(); const ours=ants.filter(a=>a.team===0).length;
-  if (v>=n){ gameOver=true; const frac=timeLeft/MAPS[mapI].t; const stars= frac>0.4?3: frac>0.15?2:1; const prev=SAVE.stars[mapI]||0; const first=!prev; SAVE.stars[mapI]=Math.max(prev,stars); persist();
+  if (v>=n){ gameOver=true; FX.sfx('win'); for (let k=0;k<3;k++) burstAt(nests[0].x, nests[0].y); const frac=timeLeft/MAPS[mapI].t; const stars= frac>0.4?3: frac>0.15?2:1; const prev=SAVE.stars[mapI]||0; const first=!prev; SAVE.stars[mapI]=Math.max(prev,stars); persist();
     const pool=[...UPS].sort(()=>Math.random()-.5).slice(0,3);
     RH.modal(`<h2>${'★'.repeat(stars)}${'☆'.repeat(3-stars)} Colony thrives</h2><p>${Math.round(timeLeft)}s to spare.</p>${first?`<p><b>The colony adapts.</b> Choose a trait for every map from now on:</p><div class="ups">${pool.map(u=>`<button data-u="${u[0]}"><b>${u[1]}</b><br><span class="small dim">${u[2]}</span></button>`).join('')}</div>`:''}`, first? [] : [{label:'Next map'}]).then(()=>{ if(!first) openMap(Math.min(MAPS.length-1,mapI+1)); });
     if (first) setTimeout(()=>document.querySelectorAll('.modal [data-u]').forEach(b=>b.onclick=()=>{ SAVE.ups.push(b.dataset.u); persist(); document.querySelector('.modal-bg').remove(); openMap(Math.min(MAPS.length-1,mapI+1)); }),50);
@@ -235,10 +261,12 @@ const cv=document.getElementById('cv'), ctx=cv.getContext('2d'); let cell=5;
 function fit(){ const r=document.getElementById('stage').getBoundingClientRect(); cell=Math.max(2,Math.floor(Math.min((r.width-20)/W,(r.height-20)/H)*10)/10); cv.width=W*cell*devicePixelRatio; cv.height=H*cell*devicePixelRatio; cv.style.width=W*cell+'px'; cv.style.height=H*cell+'px'; }
 let painting=0, lastP=null;
 cv.addEventListener('contextmenu',e=>e.preventDefault());
-cv.addEventListener('mousedown',e=>{ painting=e.button===2? -1 : 1; lastP=null; strokeLen=0; paint(e); });
+cv.addEventListener('pointerdown',e=>{ if (gameOver) return; painting=e.button===2? -1 : 1; lastP=null; strokeLen=0; try { cv.setPointerCapture(e.pointerId); } catch(_){} paint(e); });
 let strokeLen=0;
-window.addEventListener('mouseup',()=>{ painting=0; });
-cv.addEventListener('mousemove',e=>{ mouseC=toCell(e); if (painting) paint(e); });
+const endPaint=()=>{ painting=0; lastP=null; };
+window.addEventListener('pointerup',endPaint); window.addEventListener('pointercancel',endPaint); window.addEventListener('blur',endPaint);
+cv.addEventListener('pointermove',e=>{ mouseC=toCell(e); if (painting) paint(e); });
+cv.addEventListener('pointerleave',e=>{ if (e.pointerType!=='mouse') mouseC=null; });
 let mouseC=null;
 const toCell=(e)=>{ const r=cv.getBoundingClientRect(); return [(e.clientX-r.left)/cell, (e.clientY-r.top)/cell]; };
 function paint(e){
@@ -250,13 +278,18 @@ function paint(e){
   for (const [px,py] of pts){
     for (let y=-3;y<=3;y++) for (let x=-3;x<=3;x++){ const X=(px|0)+x, Y=(py|0)+y; if(X<0||Y<0||X>=W||Y>=H) continue; const d=Math.hypot(x,y); if (d>R) continue; const i=idx(X,Y);
       if (painting<0){ for (const s of SCENTS) scent[s.k][i]=0; continue; }
-      if (gland<=0.002) continue; const add=(1-d/R)*0.6*(0.35+Math.min(1,strokeLen/70)); const before=f[i]; f[i]=Math.min(1.5, f[i]+add); gland=Math.max(0, gland-(f[i]-before)*0.0016/(1+0.35*has('glands')));
+      if (gland<=0.002) continue; painted=1; const add=(1-d/R)*0.6*(0.35+Math.min(1,strokeLen/70)); const before=f[i]; f[i]=Math.min(1.5, f[i]+add); gland=Math.max(0, gland-(f[i]-before)*0.0016/(1+0.35*has('glands')));
       // forage scent painted on far points should still be followable: add a gentle gradient toward the stroke end
     }
   }
 }
 window.addEventListener('keydown',e=>{ const s=SCENTS.find(s=>s.key===e.key); if (s && unlockedScent(s)){ brush=s.k; renderScents(); } if (e.key===' '){ paused=!paused; e.preventDefault(); updBtns(); } });
 const unlockedScent=(s)=> !s.unlock || mapI>=s.unlock;
+window.__ant={ MAPS, SCENTS, UPS, build, bfs, stepWorld, goalProgress, checkEnd, cleanSave, mapOpen, openMap, paint, passable, sense, unlockedScent,
+  get G(){ return G; }, get food(){ return food; }, get scent(){ return scent; }, get home(){ return home; }, get nests(){ return nests; }, get ants(){ return ants; }, get spiders(){ return spiders; },
+  get gland(){ return gland; }, set gland(v){ gland=v; }, get stored(){ return stored; }, get delivered(){ return delivered; }, set delivered(v){ delivered=v; }, get kills(){ return kills; }, set kills(v){ kills=v; }, get timeLeft(){ return timeLeft; }, set timeLeft(v){ timeLeft=v; },
+  get gameOver(){ return gameOver; }, get mapI(){ return mapI; }, get SAVE(){ return SAVE; }, get paused(){ return paused; }, set paused(v){ paused=v; }, get cell(){ return cell; }, get painting(){ return painting; }, set painting(v){ painting=v; }, get brush(){ return brush; }, set brush(v){ brush=v; },
+  get digMixOn(){ return digMixOn; }, get hatchT(){ return hatchT; }, get fx(){ return fx; }, idx, W, H, PASS, ROCK, DIRT };
 
 // ===================== Rendering =====================
 const off=document.createElement('canvas'); off.width=W; off.height=H; const octx=off.getContext('2d'); const img=octx.createImageData(W,H);
@@ -299,7 +332,7 @@ function renderSide(){
 }
 function renderMaps(){
   let h=''; for (let s=0;s<4;s++){ h+=`<div class="season">${SEASONS[s]}</div><div class="maps">`; for (let i=s*5;i<s*5+5;i++){ const open=i===0||SAVE.stars[i-1]||SAVE.stars[i]; h+=`<button data-m="${i}" class="${i===mapI?'cur':''}" ${open?'':'disabled'}>${i+1}<span class="st">${SAVE.stars[i]?'★'.repeat(SAVE.stars[i]):''}</span></button>`; } h+='</div>'; }
-  const el=document.getElementById('mapList'); el.innerHTML=h; el.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>openMap(+b.dataset.m));
+  const el=document.getElementById('mapList'); el.innerHTML=h; el.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{ if (mapOpen(+b.dataset.m)) openMap(+b.dataset.m); });
 }
 function hud(){
   const [v,n,t]=goalProgress(); document.getElementById('gText').textContent=`${t}: ${Math.floor(v)} / ${Math.round(n)}`; document.getElementById('tText').textContent=`${Math.max(0,Math.ceil(timeLeft))}s left in the season`;
@@ -310,7 +343,7 @@ function updBtns(){ document.getElementById('pauseBtn').textContent=paused?'▶ 
 document.getElementById('pauseBtn').onclick=()=>{ paused=!paused; updBtns(); };
 document.getElementById('fastBtn').onclick=()=>{ speed=speed===1?2:speed===2?4:1; updBtns(); };
 document.getElementById('retryBtn').onclick=()=>openMap(mapI);
-function openMap(i){ SAVE.cur=i; persist(); delivered=0; build(i); brush='forage'; fit(); banner(`${MAPS[i].n}`); }
+function openMap(i){ if (!mapOpen(i)) i=0; SAVE.cur=i; persist(); build(i); brush='forage'; fit(); banner(`${MAPS[i].n}`); }
 
 let last=performance.now(), hudT=0;
 function frame(now){ const dt=Math.min(0.05,(now-last)/1000); last=now;

@@ -9,7 +9,7 @@
   body{display:flex;flex-direction:column;height:100vh;overflow:hidden;background:#03040a}
   main{flex:1;display:flex;min-height:0}
   #stage{flex:1;position:relative;min-width:0}
-  canvas{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
+  canvas{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none}
   #side{width:280px;background:var(--panel);border-left:1px solid var(--line);overflow:auto;padding:12px}
   .sys{margin-bottom:12px}
   .sys .h{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
@@ -24,7 +24,15 @@
   #fuelBar div{height:100%;background:var(--accent)}
   #tip{position:absolute;bottom:12px;left:12px;font-size:12px;color:var(--dim);pointer-events:none}
   #msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
-  #msg div{background:#0d111aee;border:1px solid var(--line);border-radius:12px;padding:16px 24px;text-align:center;pointer-events:auto}
+  #msg div{background:#0d111aee;border:1px solid var(--line);border-radius:12px;padding:16px 24px;text-align:center;pointer-events:auto;max-width:calc(100% - 24px)}
+  #lvlName{max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  @media (max-width:760px){
+    main{flex-direction:column}
+    #side{width:auto;max-height:36vh;border-left:0;border-top:1px solid var(--line)}
+    #hud{flex-wrap:wrap;gap:4px;left:8px;right:8px;top:6px} #hud .pill{font-size:11px;padding:3px 8px} #fuelBar{width:60px}
+    #tip{font-size:10px;left:8px;right:8px;bottom:6px}
+    .topbar #total{font-size:10px;text-align:right}
+  }
 </style>
 </head>
 <body>
@@ -37,10 +45,11 @@
   </div>
   <div id="side"><div id="levels"></div>
     <div class="sys"><div class="h">Deep space</div><div class="d">Endless generated systems. Share the seed with a friend and compare fuel.</div>
-      <div class="row"><input id="seedIn" placeholder="seed" style="width:110px"><button id="deepBtn">Fly</button><button id="rndSeed">🎲</button></div><div class="small dim" id="deepInfo" style="margin-top:6px"></div></div>
+      <div class="row"><input id="seedIn" placeholder="seed" maxlength="32" style="width:110px"><button id="deepBtn">Fly</button><button id="rndSeed">🎲</button></div><div class="small dim" id="deepInfo" style="margin-top:6px"></div></div>
   </div>
 </main>
 <script src="../shared/common.js"></script>
+<script src="../shared/fx.js"></script>
 <script>
 const WW=1600, WH=1000, DT=1/120, TMAX=45;
 const SYSTEMS=[
@@ -50,8 +59,21 @@ const SYSTEMS=[
   {n:'Gauntlet', d:'Fly through every ring, in order, before you reach the target.', preview:1.4},
   {n:'Event Horizon', d:'A black hole. Get close enough to use it, and not too close.', preview:1.2},
 ];
-const S = RH.load('sling', {best:{}, cur:0, deep:{}});
+// Saves can be missing, corrupted or from an older version: keep only well-formed records
+function cleanSave(s){
+  if (!s || typeof s!=='object' || Array.isArray(s)) s={};
+  const rec=(r)=> r && typeof r==='object' && [1,2,3].includes(r.stars) ? {stars:r.stars, fuel: Number.isFinite(r.fuel)? Math.max(0,Math.min(1,r.fuel)) : 1} : null;
+  const best={}; if (s.best && typeof s.best==='object') for (const k in s.best){ const n=+k, r=rec(s.best[k]); if (Number.isInteger(n) && n>=0 && n<40 && r) best[String(n)]=r; }
+  const deep={}; if (s.deep && typeof s.deep==='object') for (const k in s.deep){ const r=rec(s.deep[k]); if (k.startsWith('deep:') && r) deep[k]=r; }
+  const cur=Number.isInteger(s.cur) && s.cur>=0 && s.cur<40 ? s.cur : 0;
+  return {...s, best, deep, cur};
+}
+const S = cleanSave(RH.load('sling', null));
 const persist=()=>{ RH.save('sling',S); RH.progress('slingshot', Object.keys(S.best).length/40); };
+const sysUnlocked=(si)=> si===0 || [...Array(8)].filter((_,i)=>S.best[(si-1)*8+i]).length>=5;
+const levelOpen=(k)=>{ k=+k; if (!(Number.isInteger(k) && k>=0 && k<40)) return false; const si=Math.floor(k/8), i=k%8; return sysUnlocked(si) && (i===0 || i<3 || !!S.best[k-1] || !!S.best[k]); };
+const nextOpen=(k)=>{ for (let n=+k+1;n<40;n++) if (levelOpen(n)) return n; return -1; };
+if (!levelOpen(S.cur)) S.cur=0;
 
 // ===================== Level generation =====================
 function bodyPos(b, t){ if (!b.orb) return [b.x,b.y]; const a=b.orb.ph + t*b.orb.w; const c=b.orb.c; const [cx,cy]= c? bodyPos(c,t) : [b.orb.cx,b.orb.cy]; return [cx+Math.cos(a)*b.orb.r, cy+Math.sin(a)*b.orb.r]; }
@@ -145,7 +167,7 @@ function buildLevel(sys, idx, seedBase){
 
 // ===================== Game state =====================
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
-let L=null, levelKey='', mode='aim', probe=null, trail=[], fuel=1, tries=0, drag=null, mouse=null, thrusting=false, simT=0, stepN=0, ringIdx=0, burnLog=[], view={s:1,ox:0,oy:0};
+let L=null, levelKey='', mode='aim', lastShot=null, acc=0, probe=null, trail=[], fuel=1, tries=0, drag=null, mouse=null, thrusting=false, simT=0, stepN=0, ringIdx=0, burnLog=[], view={s:1,ox:0,oy:0};
 const starsBg=[...Array(400)].map(()=>[Math.random()*WW,Math.random()*WH,Math.random()]);
 const cache={};
 function openLevel(key){
@@ -154,11 +176,11 @@ function openLevel(key){
     if (key.startsWith('deep:')){ const sd=key.slice(5); const r=RH.rng(sd); cache[key]=buildLevel(r.int(5), 3+r.int(5), RH.hashStr(sd)); }
     else { const n=+key; cache[key]=buildLevel(Math.floor(n/8), n%8, 1); }
   }
-  L=cache[key]; tries=0; reset(); renderSide();
+  L=cache[key]; tries=0; mode='aim'; reset(); lastShot=null; renderSide();
   const nm = key.startsWith('deep:')? `Deep space · ${key.slice(5)}` : `${SYSTEMS[L.sys].n} · ${(+key)%8+1}/8`;
   document.getElementById('lvlName').textContent=nm;
 }
-function reset(){ mode='aim'; probe={x:L.start[0],y:L.start[1],vx:0,vy:0}; trail=[]; fuel=L.fuel; simT=0; stepN=0; ringIdx=0; burnLog=[]; document.getElementById('msg').innerHTML=''; updHud(); }
+function reset(){ if (mode!=='aim' && trail.length>1) lastShot=trail.map(p=>[p[0],p[1]]); mode='aim'; thrusting=false; drag=null; acc=0; probe={x:L.start[0],y:L.start[1],vx:0,vy:0}; trail=[]; fuel=L.fuel; simT=0; stepN=0; ringIdx=0; burnLog=[]; document.getElementById('msg').innerHTML=''; updHud(); }
 function updHud(){ document.querySelector('#fuelBar div').style.width=(fuel*100)+'%'; document.getElementById('tries').textContent=`Attempt ${tries+ (mode==='aim'?1:0)}`; }
 
 // ===================== Physics step (live) =====================
@@ -174,7 +196,7 @@ function liveStep(){
   if (L.rings && ringIdx<L.rings.length){ const rg=L.rings[ringIdx]; if (Math.hypot(probe.x-rg[0],probe.y-rg[1])<rg[2]){ ringIdx++; RH.toast(`Ring ${ringIdx}/${L.rings.length}`,1200); } }
   if ((!L.rings||ringIdx>=L.rings.length) && Math.hypot(probe.x-L.target[0],probe.y-L.target[1])<L.tr) return end('win');
   if (probe.x<-250||probe.x>WW+250||probe.y<-250||probe.y>WH+250) return end('lost');
-  if (simT>TMAX) return end('timeout');
+  if (stepN>=Math.round(TMAX/DT)) return end('timeout');
 }
 function end(res, body){
   mode='done'; tries++;
@@ -183,12 +205,14 @@ function end(res, body){
     const used=L.fuel-fuel; const stars = used<=0.0001? 3 : used<=L.fuel/3? 2 : 1;
     const prev=S.best[levelKey]||(S.deep[levelKey]); const rec={stars:Math.max(stars,prev?.stars||0), fuel:Math.min(used, prev?.fuel??9)};
     if (levelKey.startsWith('deep:')) S.deep[levelKey]=rec; else S.best[levelKey]=rec; persist(); renderSide();
-    box.innerHTML=`<div><h2 style="margin:0 0 6px">${['','Arrived','Efficient','Elegant'][stars]} ${'★'.repeat(stars)}${'☆'.repeat(3-stars)}</h2><div class="small dim">Fuel used: ${Math.round(used*100)}% · flight time ${simT.toFixed(1)}s${stars<3?'<br>★★★ means arriving without burning any fuel: gravity does all the work.':''}</div><div class="row" style="justify-content:center;margin-top:10px"><button id="again">Retry</button>${levelKey.startsWith('deep:')?'':`<button class="primary" id="nextL">Next →</button>`}</div></div>`;
-    document.getElementById('again').onclick=reset; document.getElementById('nextL')?.addEventListener('click',()=>{ const n=Math.min(39,+levelKey+1); S.cur=n; persist(); openLevel(String(n)); });
+    box.innerHTML=`<div><h2 style="margin:0 0 6px">${['','Arrived','Efficient','Elegant'][stars]} ${'★'.repeat(stars)}${'☆'.repeat(3-stars)}</h2><div class="small dim">Fuel used: ${Math.round(used*100)}% · flight time ${simT.toFixed(1)}s${stars<3?'<br>★★★ means arriving without burning any fuel: gravity does all the work.':''}</div><div class="row" style="justify-content:center;margin-top:10px"><button id="again">Retry</button>${levelKey.startsWith('deep:')||nextOpen(levelKey)<0?'':`<button class="primary" id="nextL">Next →</button>`}</div></div>`;
+    document.getElementById('again').onclick=reset; document.getElementById('nextL')?.addEventListener('click',()=>{ const n=nextOpen(levelKey); if (n<0) return; S.cur=n; persist(); openLevel(String(n)); });
+    burst.burst(L.target[0],L.target[1],{n:60+stars*40,color:['#ffb547','#7cf0c8','#fff'],speed:420,life:1.1}); FX.sfx('win');
     if (Object.keys(S.best).length===40 && !S.finished){ S.finished=1; persist(); RH.modal('<h2>All 40 systems charted.</h2><p>Now go back for three stars on each, or fly Deep Space seeds. There are about four billion of them.</p>'); }
   } else {
     const why={crash: body?.bh? 'Crossed the event horizon.' : body?.star? 'Burned up in a star.' : 'Impact.', lost:'Lost to deep space.', timeout:'Ran out of time.'}[res];
-    box.innerHTML=`<div><b>${why}</b><div class="small dim" style="margin-top:4px">Press <kbd>R</kbd> or click to retry</div></div>`; box.firstChild.onclick=reset;
+    if (res==='crash'){ burst.burst(probe.x,probe.y,{n:40,color:['#ff6b6b','#ffb547'],speed:300,life:0.7}); FX.shake(0.5); FX.sfx('boom'); } else FX.sfx('fail');
+    box.innerHTML=`<div><b>${why}</b><div class="small dim" style="margin-top:4px">Press <kbd>R</kbd> or click to retry. Your last path stays on the chart.</div></div>`; box.firstChild.onclick=reset;
   }
 }
 
@@ -197,7 +221,7 @@ function fit(){ const r=cv.getBoundingClientRect(); cv.width=r.width*devicePixel
 const toW=(cx,cy)=>[(cx-view.ox)/view.s,(cy-view.oy)/view.s];
 function draw(){
   const d=devicePixelRatio; ctx.setTransform(d,0,0,d,0,0); ctx.fillStyle='#03040a'; ctx.fillRect(0,0,cv.width,cv.height);
-  ctx.setTransform(d*view.s,0,0,d*view.s,d*view.ox,d*view.oy);
+  const [shx,shy]=FX.shakeOffset(10); ctx.setTransform(d*view.s,0,0,d*view.s,d*(view.ox+shx),d*(view.oy+shy));
   for (const [x,y,b] of starsBg){ ctx.fillStyle=`rgba(255,255,255,${0.2+b*0.5})`; ctx.fillRect(x,y,1.6,1.6); }
   ctx.strokeStyle='#1a2030'; ctx.lineWidth=2; ctx.strokeRect(0,0,WW,WH);
   // orbits
@@ -215,6 +239,8 @@ function draw(){
   // target
   const pulse=1+0.08*Math.sin(performance.now()/300); ctx.strokeStyle='#ffb547'; ctx.lineWidth=2; ctx.setLineDash([6,6]); ctx.beginPath(); ctx.arc(L.target[0],L.target[1],L.tr*pulse,0,7); ctx.stroke(); ctx.setLineDash([]);
   ctx.fillStyle='#ffb54733'; ctx.beginPath(); ctx.arc(L.target[0],L.target[1],L.tr*0.6,0,7); ctx.fill();
+  // the previous attempt, faint, so each retry is an adjustment rather than a guess
+  if (lastShot && mode==='aim'){ ctx.strokeStyle='#7cf0c833'; ctx.setLineDash([3,7]); ctx.lineWidth=2; ctx.beginPath(); lastShot.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y)); ctx.stroke(); ctx.setLineDash([]); }
   // trail
   ctx.lineWidth=2; for (let i=1;i<trail.length;i++){ ctx.strokeStyle= trail[i][2]? '#ff6b6b' : `rgba(124,240,200,${0.2+0.8*i/trail.length})`; ctx.beginPath(); ctx.moveTo(trail[i-1][0],trail[i-1][1]); ctx.lineTo(trail[i][0],trail[i][1]); ctx.stroke(); }
   // aim
@@ -227,37 +253,59 @@ function draw(){
   ctx.fillStyle='#e8e6df'; ctx.shadowColor='#7cf0c8'; ctx.shadowBlur=14; ctx.beginPath(); ctx.arc(px,py,6,0,7); ctx.fill(); ctx.shadowBlur=0;
   if (mode==='fly' && thrusting && fuel>0 && mouse){ ctx.strokeStyle='#ff6b6b'; ctx.lineWidth=3; const dx=mouse[0]-px, dy=mouse[1]-py, d=Math.hypot(dx,dy)||1; ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px-dx/d*18,py-dy/d*18); ctx.stroke(); }
   if (mode==='aim'){ ctx.strokeStyle='#7cf0c855'; ctx.beginPath(); ctx.arc(px,py,26,0,7); ctx.stroke(); }
+  burst.draw(ctx);
 }
+const burst=FX.particles(600);
 function aimVec(){ if(!drag) return null; const dx=L.start[0]-drag.x, dy=L.start[1]-drag.y; const d=Math.hypot(dx,dy); if (d<8) return null; return {ang:Math.atan2(dy,dx), pow:Math.min(560, d*2.4)}; }
 
 // ===================== Input =====================
-cv.addEventListener('mousedown', e=>{ const r=cv.getBoundingClientRect(); const [x,y]=toW(e.clientX-r.left,e.clientY-r.top);
+function launch(v){ probe.vx=Math.cos(v.ang)*v.pow; probe.vy=Math.sin(v.ang)*v.pow; mode='fly'; acc=0; updHud(); FX.sfx('whoosh'); }
+const toWorld=(e)=>{ const r=cv.getBoundingClientRect(); return toW(e.clientX-r.left,e.clientY-r.top); };
+cv.addEventListener('pointerdown', e=>{ const [x,y]=toWorld(e); mouse=[x,y]; try { cv.setPointerCapture(e.pointerId); } catch(_){}
   if (mode==='aim'){ drag={x,y}; }
-  else if (mode==='fly'){ thrusting=true; mouse=[x,y]; }
+  else if (mode==='fly'){ thrusting=true; }
   else if (mode==='done' && !document.querySelector('#msg button')) reset(); });
-window.addEventListener('mousemove', e=>{ const r=cv.getBoundingClientRect(); const [x,y]=toW(e.clientX-r.left,e.clientY-r.top); mouse=[x,y]; if (drag) drag={x,y}; });
-window.addEventListener('mouseup', ()=>{ thrusting=false; if (mode==='aim' && drag){ const v=aimVec(); drag=null; if (v){ probe.vx=Math.cos(v.ang)*v.pow; probe.vy=Math.sin(v.ang)*v.pow; mode='fly'; updHud(); } } });
-window.addEventListener('keydown', e=>{ if (e.key==='r'||e.key==='R'){ reset(); } if (e.key===' ' && mode==='fly'){ thrusting=true; e.preventDefault(); } });
+window.addEventListener('pointermove', e=>{ const [x,y]=toWorld(e); mouse=[x,y]; if (drag) drag={x,y}; });
+const release=()=>{ thrusting=false; if (mode==='aim' && drag){ const v=aimVec(); drag=null; if (v) launch(v); } };
+window.addEventListener('pointerup', release);
+window.addEventListener('pointercancel', ()=>{ thrusting=false; drag=null; });
+window.addEventListener('blur', ()=>{ thrusting=false; drag=null; });
+const typing=(e)=> e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+window.addEventListener('keydown', e=>{ if (typing(e)) { if (e.key==='Enter' && e.target.id==='seedIn') document.getElementById('deepBtn').click(); return; }
+  if (e.key==='r'||e.key==='R'){ reset(); } if (e.key===' ' && mode==='fly'){ thrusting=true; e.preventDefault(); } });
 window.addEventListener('keyup', e=>{ if (e.key===' ') thrusting=false; });
 
 // ===================== Sidebar =====================
 function renderSide(){
-  let h=''; SYSTEMS.forEach((s,si)=>{ const unlocked = si===0 || [...Array(8)].filter((_,i)=>S.best[(si-1)*8+i]).length>=5;
+  let h=''; SYSTEMS.forEach((s,si)=>{ const unlocked = sysUnlocked(si);
     h+=`<div class="sys"><div class="h">${si+1}. ${s.n}${unlocked?'':' 🔒'}</div><div class="d">${unlocked? s.d : 'Clear 5 levels of the previous system to unlock.'}</div><div class="lvls">`;
-    for (let i=0;i<8;i++){ const k=String(si*8+i); const b=S.best[k]; const open = unlocked && (i===0 || S.best[si*8+i-1] || b || i<3);
+    for (let i=0;i<8;i++){ const k=String(si*8+i); const b=S.best[k]; const open = levelOpen(k);
       h+=`<button data-k="${k}" class="${k===levelKey?'cur':''}" ${open?'':'disabled'}>${i+1}<span class="st">${b?'★'.repeat(b.stars)+'☆'.repeat(3-b.stars):''}</span></button>`; }
     h+='</div></div>'; });
-  const el=document.getElementById('levels'); el.innerHTML=h; el.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{ S.cur=+b.dataset.k; persist(); openLevel(b.dataset.k); });
+  const el=document.getElementById('levels'); el.innerHTML=h; el.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{ if (!levelOpen(b.dataset.k)) return; S.cur=+b.dataset.k; persist(); openLevel(b.dataset.k); });
   const tot=Object.values(S.best).reduce((s,b)=>s+b.stars,0); document.getElementById('total').textContent=`${Object.keys(S.best).length}/40 systems · ${tot}/120 ★ · ${Object.keys(S.deep).length} deep-space seeds`;
   const dk=Object.keys(S.deep); document.getElementById('deepInfo').textContent = dk.length? 'Flown: '+dk.slice(-6).map(k=>k.slice(5)+' '+'★'.repeat(S.deep[k].stars)).join(' · ') : '';
 }
-document.getElementById('deepBtn').onclick=()=>{ const v=document.getElementById('seedIn').value.trim()||'andromeda'; openLevel('deep:'+v); };
+document.getElementById('deepBtn').onclick=()=>{ const v=document.getElementById('seedIn').value.trim().slice(0,32)||'andromeda'; openLevel('deep:'+v); };
 document.getElementById('rndSeed').onclick=()=>{ const w=['vela','orion','lyra','draco','cygnus','hydra','carina','pavo','lupus','ara','grus','norma']; const s=w[Math.floor(Math.random()*w.length)]+'-'+Math.floor(Math.random()*1000); document.getElementById('seedIn').value=s; openLevel('deep:'+s); };
 
 // ===================== Loop =====================
-function frame(){ if (mode==='fly'){ for (let i=0;i<2;i++) if (mode==='fly') liveStep(); updHud(); } draw(); requestAnimationFrame(frame); }
+// Fixed-step physics driven by real elapsed time: the same flight takes the same wall-clock time at 30, 60 or 144 Hz
+const MAX_STEPS=24;
+function tick(dt){
+  dt=Math.min(0.1, Math.max(0, dt||0)); burst.update(dt);
+  if (mode!=='fly'){ acc=0; return 0; }
+  acc+=dt; let n=0; while (acc>=DT && mode==='fly' && n<MAX_STEPS){ liveStep(); acc-=DT; n++; }
+  if (n>=MAX_STEPS) acc=0; updHud(); return n;
+}
+let lastT=performance.now(), testHold=false;
+function frame(now){ const dt=(now-lastT)/1000; lastT=now; if (!testHold) tick(dt); draw(); requestAnimationFrame(frame); }
 fit(); window.addEventListener('resize', fit);
 openLevel(String(S.cur||0)); requestAnimationFrame(frame);
+window.__sling={ gen, buildLevel, simulate, solvable, tooEasy, bodyPos, cleanSave, levelOpen, nextOpen, sysUnlocked, aimVec, launch, tick, liveStep, reset, openLevel, end, DT, TMAX, THRUST, BURN_RATE,
+  get S(){ return S; }, get L(){ return L; }, set L(v){ L=v; }, get mode(){ return mode; }, get probe(){ return probe; }, get fuel(){ return fuel; }, set fuel(v){ fuel=v; }, get stepN(){ return stepN; }, get simT(){ return simT; },
+  get thrusting(){ return thrusting; }, set thrusting(v){ thrusting=v; }, get mouse(){ return mouse; }, set mouse(v){ mouse=v; }, get levelKey(){ return levelKey; }, get lastShot(){ return lastShot; }, get view(){ return view; },
+  hold(v){ testHold=!!v; } };
 if (!S.intro){ S.intro=1; persist(); RH.modal(`<h2>🛰️ Slingshot</h2><p>You have one probe and almost no fuel. Gravity is real: every planet, moon and star pulls on you every moment.</p><p><b>Drag back</b> from the probe to aim and let go to launch. The dotted line shows only the start of your path. The rest you have to work out. Hold the mouse during flight to burn fuel toward the cursor.</p><p>Arrive without burning any fuel and you get three stars.</p>`,[{label:'Launch'}]); }
 </script>
 </body>

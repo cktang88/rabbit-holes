@@ -303,8 +303,12 @@ const grain = new Float32Array(N);
 })();
 
 // ---------------- state ----------------
-const SAVE = RH.load('woodcut', {}); SAVE.best = SAVE.best || {}; SAVE.ed = SAVE.ed || 0; SAVE.wips = SAVE.wips || {};
-let GAL = RH.load('woodcut-gal', []);
+// saves are user-editable: anything that is not the expected shape is dropped rather than crashing the page
+const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+const SAVE = (v => isObj(v) ? v : {})(RH.load('woodcut', {}));
+SAVE.best = isObj(SAVE.best) ? SAVE.best : {}; for (const k in SAVE.best) if (!isObj(SAVE.best[k]) || !isFinite(SAVE.best[k].lk)) delete SAVE.best[k];
+SAVE.ed = isFinite(SAVE.ed) ? +SAVE.ed : 0; SAVE.wips = isObj(SAVE.wips) ? SAVE.wips : {};
+let GAL = (v => Array.isArray(v) ? v.filter(e => isObj(e) && typeof e.d === 'string') : [])(RH.load('woodcut-gal', []));
 const doneCount = () => Object.keys(SAVE.best).filter(k => +k < NLV && SAVE.best[k].lk >= PASS).length;
 const persist = () => { RH.save('woodcut', SAVE); RH.progress('woodcut', doneCount() / NLV); };
 let L, Li = 0, T = null, ORDER = null, PAPER;
@@ -371,6 +375,7 @@ function buildTarget(layers) {
 // ---------------- level load ----------------
 const lightness = ink => { const o = []; lab(...inkAt(ink, R / 2, [0, 0, 0]), o, 0); return o[0]; };
 function load(i, opts = {}) {
+  if (wipT) { clearTimeout(wipT); wipT = 0; if (L) wipSave(); } // the last stroke on the old block must not be lost
   hideToast(); Li = i; L = LV[i]; SAVE.cur = i; persist();
   PAPER = lin(L.paper); ORDER = L.studio ? (opts.prompt ? opts.prompt.order : RACK.map((_, k) => k)) : L.inks.map((_, k) => k);
   if (L.studio) { L.inks = RACK; T = opts.prompt ? buildTarget(opts.prompt.layers) : null; L.prompt = opts.prompt || null; }
@@ -519,7 +524,8 @@ function score() {
 function waste() { if (!T) return 0; let n = 0; for (let i = 0; i < N; i++) if (!uncut[i]) { const j = i * 3; if (Math.hypot(plab[j] - T.tlab[j], plab[j + 1] - T.tlab[j + 1], plab[j + 2] - T.tlab[j + 2]) > 12) n++; } return n / N; }
 function finish() {
   if (finished || !passes.length) return null;
-  skipAnim(); finished = true; sel = -1; preview = false;
+  skipAnim(); if (finished) return result; // skipping the last pull's animation already signed the edition
+  finished = true; sel = -1; preview = false;
   const sc = score(), w = waste(), par = L.studio ? 0 : L.inks.length;
   let stars = 0;
   if (T && !L.studio && sc.lk >= PASS) { stars = 1; if (passes.length <= par && strokes <= L.parStrokes) stars++; if (stars === 2 && sc.lk >= .93 && w <= .03) stars++; }
@@ -718,7 +724,7 @@ cv.addEventListener('pointermove', e => {
 });
 const endDrag = () => {
   if (!drag) return; const d = drag; drag = null;
-  if (d.tool === 'lasso') { const before = uncut.slice(); if (lassoFill(d.pts)) { undo.push(before); strokes++; FX.sfx('pop'); scratch(1); flash = { t: performance.now() }; } else FX.sfx('tick'); }
+  if (d.tool === 'lasso') { const before = uncut.slice(); if (lassoFill(d.pts)) { undo.push(before); if (undo.length > 40) undo.shift(); strokes++; FX.sfx('pop'); scratch(1); flash = { t: performance.now() }; } else FX.sfx('tick'); }
   else { if (d.q && !d.straight) { d.n += line(d.last, d.q, RAD[d.tool]); blockDirty = true; } } // smoothing lags the pointer: finish the cut where the finger lifted
   if (d.tool !== 'lasso' && d.n > 0) { undo.push(d.base); if (undo.length > 40) undo.shift(); strokes++; }
   blockDirty = pvDirty = true; hlComp = -2; updateHUD(); renderTray();
@@ -817,7 +823,8 @@ function makePrompt(seed) {
 function rleEnc(a) { let out = '', v = a[0], n = 0; for (let i = 0; i <= a.length; i++) { if (i < a.length && a[i] === v) { n++; continue; } out += v.toString(36) + ':' + n.toString(36) + ','; v = a[i]; n = 1; } return out; }
 function rleDec(str) { const a = new Uint8Array(N); let i = 0; for (const t of str.split(',')) { if (!t) continue; const [v, n] = t.split(':').map(x => parseInt(x, 36)); a.fill(v, i, i + n); i += n; } return a; }
 let wipT = 0;
-function wipSoon() { clearTimeout(wipT); wipT = setTimeout(wipSave, 400); }
+function wipSoon() { clearTimeout(wipT); wipT = setTimeout(() => { wipT = 0; wipSave(); }, 400); }
+addEventListener('pagehide', () => { if (wipT) { clearTimeout(wipT); wipT = 0; wipSave(); } });
 function wipSave() {
   if (!L) return; if (finished || (!strokes && !passes.length)) { if (SAVE.wips[Li]) { delete SAVE.wips[Li]; RH.save('woodcut', SAVE); } return; }
   const c = new Uint8Array(N); for (let i = 0; i < N; i++) c[i] = uncut[i] ? 255 : pt[i];
@@ -847,7 +854,7 @@ function frame(now) {
 document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; } else kick(); });
 addEventListener('resize', () => L && layout());
 // first load: font metrics may shift the HUD, so lay out again once fonts settle
-load(clamp(SAVE.cur || 0, 0, LV.length - 1));
+{ const c = clamp(+SAVE.cur || 0, 0, LV.length - 1), open = c < NLV ? c <= doneCount() || !!SAVE.best[c] : doneCount() >= NLV || !!SAVE.best[NLV - 1]; load(open ? c : Math.min(doneCount(), NLV - 1)); }
 if (document.fonts) document.fonts.ready.then(() => layout());
 kick();
 
@@ -855,7 +862,7 @@ kick();
 window.__wc = {
   LV, load: (i, o) => load(i, { quiet: 1, fresh: 1, ...o }), makePrompt,
   get L() { return L; }, get T() { return T; }, get passes() { return passes.slice(); }, get strokes() { return strokes; }, get result() { return result; }, get finished() { return finished; },
-  carveRegion: (x, y) => regionAt(x | 0, y | 0),
+  carveRegion: (x, y) => { pendingUndo = uncut.slice(); const n = regionAt(x | 0, y | 0); pendingUndo = null; return n; },
   carveState: s => { let st = 0; const before = uncut.slice(); T.comps.forEach((c, id) => { if (c.s === s && carveComp(id) && c.n >= 10) st++; }); if (st) { undo.push(before); strokes += st; } blockDirty = pvDirty = true; updateHUD(); return st; },
   gouge: (pts, t = 'v') => { const before = uncut.slice(); let n = stamp(pts[0][0], pts[0][1], RAD[t]); for (let k = 1; k < pts.length; k++) n += line(pts[k - 1], pts[k], RAD[t]); if (n) { undo.push(before); strokes++; } blockDirty = true; updateHUD(); return n; },
   lasso: pts => { const before = uncut.slice(), n = lassoFill(pts); if (n) { undo.push(before); strokes++; } updateHUD(); return n; },
@@ -863,6 +870,7 @@ window.__wc = {
   solve(i) { this.load(i); const n = LV[i].inks.length; for (let k = 0; k < n; k++) { this.carveState(k); pull(k, true); } return result; },
   blank(i) { this.load(i); return score().lk; },
   naive(i) { this.load(i); for (let k = 0; k < LV[i].inks.length; k++) applyPull(k); return score().lk; },
+  over, cover, lin, I, ftT, rleEnc, rleDec, wipSave, rLeft, PASS, NLV, SAVE, get GAL() { return GAL; }, get undoN() { return undo.length; }, pullBtn, applyPull,
   get anim() { return anim; }, get draws() { return draws; }, _tgt: () => targetCv.toDataURL(), layout, get boxes() { return { B, PR, TC, dpr }; },
 };
 </script>

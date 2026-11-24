@@ -30,6 +30,10 @@
   .mono{font-family:ui-monospace,"SF Mono",Menlo,monospace}
   .txt{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:15px;line-height:1.7;letter-spacing:.06em;background:#0a0c10;border:1px solid var(--line);border-radius:8px;padding:10px 12px;word-break:break-all;white-space:pre-wrap;max-height:220px;overflow:auto}
   .txt .u{color:#5d6475}
+  .txt .wd{color:var(--good);text-shadow:0 0 8px #5fd38d55}
+  .txt .wd.pop{display:inline-block;animation:snap .45s cubic-bezier(.2,1.6,.4,1)}
+  @keyframes snap{from{transform:scale(1.35);color:#fff}}
+  .brief{border-left:3px solid var(--accent);padding:4px 10px;margin:8px 0 4px;color:var(--dim);font-size:13px;max-width:760px}
   .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin:14px 0 5px;display:flex;justify-content:space-between;align-items:center}
   .stage{border:1px solid var(--line);border-radius:10px;background:var(--panel);margin:8px 0;padding:10px 12px}
   .stage .hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
@@ -80,6 +84,8 @@
   textarea#notes{width:100%;height:240px;font-family:ui-monospace,monospace;font-size:12px;resize:vertical}
   @media (max-width:1100px) and (min-width:761px){#right{width:250px}#side{width:180px}}
   @media (max-width:760px){
+    .subgrid{grid-template-columns:repeat(9,minmax(0,1fr))}
+    .sub input{width:100%;max-width:26px}
     body{height:auto;min-height:100vh;overflow:auto}
     main{flex-direction:column}
     #side{display:block!important;width:auto!important;max-height:170px;border-right:0!important;border-bottom:1px solid var(--line)}
@@ -192,85 +198,69 @@ const STEP = {
 };
 
 // ---------- the 36 vaults ----------
+const ERA_BRIEF = [
+  'Rome, 50 BC. A courier was stopped at the gate with sealed tablets. Read them before his friends notice he is missing.',
+  'Baghdad, then London. Letters keep reaching a plotter in the Tower, and whoever reads them first decides who lives.',
+  'Workshops, Sparta and the Civil War signal corps. Every letter is still there, only in the wrong place.',
+  'For three hundred years the Vigenère was "the indecipherable cipher". Now it is your turn to break it.',
+  'Washington, 1920s. Yardley\'s Black Chamber reads the world\'s cables, and the ciphers now come in layers.',
+  '1946. A Soviet pad factory printed some pages twice. Somewhere in this traffic is the cover name of an agent.',
+];
 const ERAS = ['Antiquity', 'The House of Wisdom', 'Scrambled', 'Le Chiffre Indéchiffrable', 'The Black Chamber', 'Reused Pads'];
 const V = [
   // Era 0
-  { e: 0, n: "Caesar's Dispatch", fmt: 'spaced', len: 60, steps: [{ t: 'caesar', k: 3 }], intro: ['shift'],
+  { id: 0, e: 0, n: "Caesar's Dispatch", fmt: 'spaced', len: 60, steps: [{ t: 'caesar', k: 3 }], intro: ['shift'],
     story: 'Suetonius says Julius Caesar wrote his private letters by moving each letter <b>three</b> places down the alphabet. Here is one of his dispatches.<br><i>Turn the shift wheel until it reads as Latin. Well, English.</i>' },
-  { e: 0, n: 'Legion Orders', fmt: 'spaced', len: 90, steps: [{ t: 'caesar' }],
-    story: 'A centurion copied the trick but picked his own shift. There are only 25 possibilities. Find the right one.' },
-  { e: 0, n: "The Scribe's Mirror", fmt: 'spaced', len: 80, steps: [{ t: 'atbash' }], intro: ['atbash'],
+  { id: 2, e: 0, n: "The Scribe's Mirror", fmt: 'spaced', len: 80, steps: [{ t: 'atbash' }], intro: ['atbash'],
     story: 'Hebrew scribes used <b>Atbash</b>: the first letter swaps with the last, the second with the second-to-last. Jeremiah hides "Babel" as "Sheshach" this way. There is no key. You only need to recognise it.' },
-  { e: 0, n: 'Sealed in Rome', fmt: 'grouped', len: 110, steps: [{ t: 'caesar' }],
-    story: 'This time the spaces are gone. The letters are split into groups of five so that word lengths give nothing away. It is still a single shift.' },
-  { e: 0, n: 'The Affine Tablet', fmt: 'spaced', len: 100, steps: [{ t: 'affine' }], intro: ['affine'],
+  { id: 3, e: 0, n: 'Sealed in Rome', fmt: 'grouped', len: 110, steps: [{ t: 'caesar' }],
+    story: 'A centurion copied the trick but chose his own shift, and this time the spaces are gone: the letters come in groups of five so word lengths give nothing away. Twenty-five shifts are possible. Look for a run of letters that could be THE.' },
+  { id: 4, e: 0, n: 'The Affine Tablet', fmt: 'spaced', len: 100, steps: [{ t: 'affine' }], intro: ['affine'],
     story: 'An <b>affine</b> cipher multiplies each letter by <i>a</i> and adds <i>b</i>, all mod 26. Only 12 values of <i>a</i> can be undone, so there are 312 keys. Short words like THE and A are your friends.' },
-  { e: 0, n: "The Merchant's Ledger", fmt: 'grouped', len: 130, steps: [{ t: 'affine' }],
-    story: 'An affine cipher with no spaces. Tip: if the most common letter is E (4) and the next is T (19), you have two equations and two unknowns.' },
   // Era 1
-  { e: 1, n: "Al-Kindi's Lesson", fmt: 'spaced', len: 380, steps: [{ t: 'subst', keyword: 1 }], intro: ['subst', 'freq'],
+  { id: 6, e: 1, n: "Al-Kindi's Lesson", fmt: 'spaced', len: 380, steps: [{ t: 'subst', keyword: 1 }], intro: ['subst', 'freq'],
     story: 'Around 850 AD, in Baghdad, the philosopher al-Kindi made the first known record of <b>frequency analysis</b>: in any language some letters are far more common than others. However you disguise them, E is still the most common letter.<br><i>Each cipher letter now stands for some other letter. Use the Frequency tab, and try likely guesses for THE and AND.</i>' },
-  { e: 1, n: "The Vizier's Letter", fmt: 'spaced', len: 340, steps: [{ t: 'subst' }],
+  { id: 7, e: 1, n: "The Vizier's Letter", fmt: 'spaced', len: 340, steps: [{ t: 'subst' }],
     story: 'A random substitution alphabet: 400 septillion keys, and you are going to find the right one by hand. Start with one-letter words, then the most common three-letter word.' },
-  { e: 1, n: 'The Spice Road', fmt: 'spaced', len: 280, steps: [{ t: 'subst' }],
-    story: 'Shorter message, less to go on. Look for double letters (LL, SS, EE, OO) and words with repeated patterns like THAT.' },
-  { e: 1, n: "The Queen's Secretary", fmt: 'spaced', len: 230, steps: [{ t: 'subst' }],
+  { id: 9, e: 1, n: "The Queen's Secretary", fmt: 'spaced', len: 230, steps: [{ t: 'subst' }],
     story: 'In 1586 Mary, Queen of Scots, trusted a substitution cipher with her life. Thomas Phelippes, Walsingham\'s codebreaker, read every letter. She was executed the next year.' },
-  { e: 1, n: 'Run Together', fmt: 'grouped', len: 430, steps: [{ t: 'subst' }],
-    story: 'Substitution with the word breaks removed. Frequency still works. Look for the most common trigram (it is almost always THE), then for ING and ION.' },
-  { e: 1, n: "Phelippes' Desk", fmt: 'grouped', len: 320, steps: [{ t: 'subst' }],
+  { id: 11, e: 1, n: "Phelippes' Desk", fmt: 'grouped', len: 320, steps: [{ t: 'subst' }],
     story: 'The hardest substitution yet: shorter and unspaced. Phelippes did this by candlelight. You have a frequency chart.' },
   // Era 2
-  { e: 2, n: "Leonardo's Notebook", fmt: 'spaced', len: 90, steps: [{ t: 'rev' }], intro: ['rev'],
+  { id: 12, e: 2, n: "Leonardo's Notebook", fmt: 'spaced', len: 90, steps: [{ t: 'rev' }], intro: ['rev'],
     story: 'Leonardo da Vinci filled his notebooks with mirror writing. Ciphers that <b>move letters around</b> instead of replacing them are called <b>transpositions</b>. The frequencies are untouched; only the order changes.' },
-  { e: 2, n: 'The Zig-Zag', fmt: 'raw', len: 80, steps: [{ t: 'rail', n: 3 }], intro: ['rail'],
-    story: 'The <b>rail fence</b>: write the message zig-zagging across 3 rows, then read the rows off one after another. A favourite of Civil War signal corps.' },
-  { e: 2, n: 'Fences', fmt: 'raw', len: 110, steps: [{ t: 'rail', lo: 2, hi: 7 }],
-    story: 'Another rail fence, number of rails unknown. Check the Frequency tab: if the letter counts look like plain English, the letters have only been moved.' },
-  { e: 2, n: 'The Spartan Scytale', fmt: 'raw', len: 100, steps: [{ t: 'col', lo: 4, hi: 8, ident: 1 }], intro: ['col'],
+  { id: 14, e: 2, n: 'Fences', fmt: 'raw', len: 110, steps: [{ t: 'rail', lo: 2, hi: 7 }], intro: ['rail'],
+    story: 'The <b>rail fence</b>, a favourite of Civil War signal corps: write the message zig-zagging across a few rows, then read the rows off one after another. The number of rails is unknown. Check the Frequency tab first: if the letter counts look like plain English, the letters have only been moved.' },
+  { id: 15, e: 2, n: 'The Spartan Scytale', fmt: 'raw', len: 100, steps: [{ t: 'col', lo: 4, hi: 8, ident: 1 }], intro: ['col'],
     story: 'Spartan generals wound a leather strip around a rod (a <b>scytale</b>) and wrote along it. Unwound, it was gibberish. In columns: the message was written in rows of some width and read off column by column. Find the width. <i>(Messages are padded with X to fill the last row.)</i>' },
-  { e: 2, n: 'Keyed Columns', fmt: 'raw', len: 100, steps: [{ t: 'col', w: 5 }],
+  { id: 16, e: 2, n: 'Keyed Columns', fmt: 'raw', len: 100, steps: [{ t: 'col', w: 5 }],
     story: 'Now the columns were read off in a secret order. Five columns. Click two columns to swap them until the rows read as English. Look for the TH, HE and QU pairs.' },
-  { e: 2, n: 'The Seven Pillars', fmt: 'raw', len: 140, steps: [{ t: 'col', w: 7 }],
-    story: 'Seven columns, 5040 possible orders. Anagramming beats brute force: find two columns that make good letter pairs across many rows and build outwards from there.' },
   // Era 3
-  { e: 3, n: "Bellaso's Key", fmt: 'spaced', len: 220, steps: [{ t: 'vig', lo: 5, hi: 6 }], intro: ['vig'],
+  { id: 18, e: 3, n: "Bellaso's Key", fmt: 'spaced', len: 220, steps: [{ t: 'vig', lo: 5, hi: 6 }], intro: ['vig'],
     story: 'In 1553 Giovan Battista Bellaso published a cipher that changes its shift letter by letter, following a <b>keyword</b>. It took 300 years to break and is now named after Vigenère, who did not invent it. Intelligence says this key is <b>{L} letters</b> long. Every {L}th letter shares one Caesar shift: line each column\'s bars up with the English outline.' },
-  { e: 3, n: 'The Indecipherable', fmt: 'spaced', len: 260, steps: [{ t: 'vig', rand: 3 }],
-    story: 'A 3-letter key, this time random letters rather than a word. Each column is a Caesar cipher. Line up E, T and A.' },
-  { e: 3, n: "Babbage's Trick", fmt: 'spaced', len: 330, steps: [{ t: 'vig', lo: 4, hi: 6 }], intro: ['kasiski', 'period'],
+  { id: 20, e: 3, n: "Babbage's Trick", fmt: 'spaced', len: 330, steps: [{ t: 'vig', lo: 4, hi: 6 }], intro: ['kasiski', 'period'],
     story: 'Key length unknown. Charles Babbage (and later Friedrich Kasiski) noticed that repeated words sometimes encrypt the same way, and the distance between repeats is a multiple of the key length. Check the <b>Repeats</b> and <b>Periods</b> tabs.' },
-  { e: 3, n: "Kasiski's Spacing", fmt: 'grouped', len: 400, steps: [{ t: 'vig', lo: 5, hi: 8 }],
+  { id: 21, e: 3, n: "Kasiski's Spacing", fmt: 'grouped', len: 400, steps: [{ t: 'vig', lo: 5, hi: 8 }],
     story: 'Unspaced Vigenère with a longer key. The Periods tab measures how "English-like" each column split looks (index of coincidence). The right key length lights up, and so do its multiples.' },
-  { e: 3, n: 'The Long Key', fmt: 'grouped', len: 540, steps: [{ t: 'vig', lo: 9, hi: 12 }],
-    story: 'A key of nine letters or more. Each column holds less text, so the shift is harder to see. Once a few columns are right, guess the key word.' },
-  { e: 3, n: 'The Confederate Ledger', fmt: 'grouped', len: 640, steps: [{ t: 'vig', kwList: ['MANCHESTERBLUFF', 'COMPLETEVICTORY', 'COMERETRIBUTION'] }],
+  { id: 23, e: 3, n: 'The Confederate Ledger', fmt: 'grouped', len: 640, steps: [{ t: 'vig', kwList: ['MANCHESTERBLUFF', 'COMPLETEVICTORY', 'COMERETRIBUTION'] }],
     story: 'The Confederacy used a brass Vigenère disk and only three key phrases for most of the war. Union codebreakers read their traffic constantly. Fifteen letters.' },
   // Era 4
-  { e: 4, n: 'Double Trouble', fmt: 'spaced', len: 100, steps: [{ t: 'caesar' }, { t: 'rev' }],
+  { id: 24, e: 4, n: 'Double Trouble', fmt: 'spaced', len: 100, steps: [{ t: 'caesar' }, { t: 'rev' }],
     story: 'From here on, the Black Chamber layers ciphers. Your workbench can stack tools: the output of one feeds the next. This one has two layers.' },
-  { e: 4, n: 'Shuffled Frequencies', fmt: 'raw', len: 380, steps: [{ t: 'subst' }, { t: 'rail', lo: 3, hi: 5 }],
+  { id: 25, e: 4, n: 'Shuffled Frequencies', fmt: 'raw', len: 380, steps: [{ t: 'subst' }, { t: 'rail', lo: 3, hi: 5 }],
     story: 'Substitution, then a rail fence. A useful fact: letter substitution and transposition <b>commute</b>, so you can undo them in either order. Frequency analysis does not care about order, but word guessing does.' },
-  { e: 4, n: 'Columns of Caesar', fmt: 'raw', len: 150, steps: [{ t: 'caesar' }, { t: 'col', lo: 5, hi: 6 }],
-    story: 'A shift and a keyed columnar transposition. Undo the easy layer first.' },
-  { e: 4, n: 'Mirror Vigenère', fmt: 'grouped', len: 340, steps: [{ t: 'vig', lo: 4, hi: 5 }, { t: 'rev' }],
+  { id: 27, e: 4, n: 'Mirror Vigenère', fmt: 'grouped', len: 340, steps: [{ t: 'vig', lo: 4, hi: 5 }, { t: 'rev' }],
     story: 'A Vigenère, then the whole text reversed. Reversing keeps the period, but it changes which column comes first.' },
-  { e: 4, n: 'The Affine Fence', fmt: 'raw', len: 160, steps: [{ t: 'affine' }, { t: 'rail', lo: 3, hi: 6 }],
-    story: 'An affine cipher, then a rail fence. Two unknown keys and no spaces. This is where the Black Chamber earns its name.' },
-  { e: 4, n: "The Chamber's Pride", fmt: 'raw', len: 440, steps: [{ t: 'subst' }, { t: 'col', lo: 5, hi: 6 }],
+  { id: 29, e: 4, n: "The Chamber's Pride", fmt: 'raw', len: 440, steps: [{ t: 'subst' }, { t: 'col', lo: 5, hi: 6 }],
     story: 'Substitution under a keyed columnar transposition: the cipher Herbert Yardley\'s Black Chamber broke every day in the 1920s. Solve the substitution first to get an anagram, then sort the columns.' },
   // Era 5
-  { e: 5, n: 'Venona', pad: 2, len: 42, startA: 'ATTENTION',
+  { id: 30, e: 5, n: 'Venona', pad: 2, len: 42, startA: 'ATTENTION',
     story: 'A <b>one-time pad</b> adds a truly random key to each letter. Used once, it is unbreakable. In the 1940s Soviet pad factories reused pages, and the US <b>Venona</b> project read the messages.<br>These two messages share a pad. Type a guess into either row and the key, and the other row, follow. <b>Message A begins with ATTENTION.</b>' },
-  { e: 5, n: 'Two Agents', pad: 2, len: 60,
+  { id: 31, e: 5, n: 'Two Agents', pad: 2, len: 60,
     story: 'No crib this time. Use <b>crib dragging</b>: guess a common word (THE, AND, WILL, THAT), slide it along one message, and see where the other message turns into English.' },
-  { e: 5, n: 'Three Pages', pad: 3, len: 60,
+  { id: 32, e: 5, n: 'Three Pages', pad: 3, len: 60,
     story: 'Three messages on one pad. Every letter you place in one row lights up the same column in the other two, so you get three times the evidence.' },
-  { e: 5, n: 'Long Traffic', pad: 2, len: 100,
-    story: 'Longer messages. Once you have a few words, guess how the sentences continue. They are written by tired clerks in a hurry.' },
-  { e: 5, n: 'Signals', pad: 3, len: 90,
-    story: 'Three long intercepts, one reused pad. Venona took decades. You have an afternoon.' },
-  { e: 5, n: 'The Last Vault', fmt: 'raw', len: 620, steps: [{ t: 'col', lo: 6, hi: 7 }, { t: 'vig', lo: 6, hi: 9 }],
+  { id: 35, e: 5, n: 'The Last Vault', fmt: 'raw', len: 620, steps: [{ t: 'col', lo: 6, hi: 7 }, { t: 'vig', lo: 6, hi: 9 }],
     story: 'The final vault. The message was transposed in columns, then enciphered with a Vigenère key. Repeats will not help you now, but the index of coincidence still will. Peel the layers in the right order.' },
 ];
 
@@ -287,14 +277,35 @@ const TOOLS = {
 const TOOL_ORDER = ['shift', 'atbash', 'affine', 'subst', 'rev', 'rail', 'col', 'vig'];
 
 // ---------- state ----------
-const S = RH.load('vault', { seed: (Math.random() * 1e9) | 0, solved: {}, hints: {}, work: {}, variant: {}, cur: 0, intro: 0 });
+const S = loadState();
+function APPLY_OK(st) { // shape check for a saved workbench stage
+  const s = st.s; if (!TOOLS[st.t] || !s || typeof s !== 'object') return false;
+  const num = x => Number.isFinite(x);
+  return { shift: () => num(s.k), affine: () => COPR.includes(s.a) && num(s.b), subst: () => s.m && typeof s.m === 'object', rail: () => num(s.n),
+    col: () => s.w === 0 || num(s.w), vig: () => Array.isArray(s.sh) && s.sh.length > 0 && s.sh.every(num) }[st.t]?.() ?? true;
+}
+function loadState() {
+  const fresh = () => ({ v: 2, seed: (Math.random() * 1e9) | 0, solved: {}, hints: {}, work: {}, variant: {}, cur: 0, intro: 0 });
+  let s = RH.load('vault', null);
+  if (!s || typeof s !== 'object' || Array.isArray(s) || !Number.isFinite(s.seed)) return fresh();
+  for (const k of ['solved', 'hints', 'work', 'variant']) if (!s[k] || typeof s[k] !== 'object' || Array.isArray(s[k])) s[k] = {};
+  if (s.v !== 2) { // v1 had 36 vaults keyed by position; keep progress for the 24 that remain
+    const byId = {}; V.forEach((v, i) => byId[v.id] = i);
+    for (const k of ['solved', 'hints', 'work', 'variant']) { const o = {}; for (const j in s[k]) if (byId[j] != null) o[byId[j]] = s[k][j]; s[k] = o; }
+    s.cur = byId[s.cur] ?? 0; s.v = 2;
+  }
+  for (const j in s.solved) { const x = s.solved[j]; if (!V[j] || !x || typeof x !== 'object') delete s.solved[j]; else x.stars = Math.max(1, Math.min(3, x.stars | 0)); }
+  for (const j in s.work) { const w = s.work[j]; if (!V[j] || !w || typeof w !== 'object' || !Array.isArray(w.stages) || w.stages.some(st => !st || !APPLY_OK(st))) delete s.work[j]; else w.time = Number.isFinite(w.time) ? w.time : 0; }
+  s.cur = Number.isInteger(s.cur) && s.cur >= 0 && s.cur < V.length ? s.cur : 0;
+  return s;
+}
 const persist = () => { RH.save('vault', S); RH.progress('vault', Object.keys(S.solved).length / V.length); };
 
 const cache = {};
 function build(i) {
   const variant = S.variant[i] || 0, key = i + ':' + variant;
   if (cache[key]) return cache[key];
-  const v = V[i], r = RH.rng(S.seed + ':v' + i + ':' + variant);
+  const v = V[i], r = RH.rng(S.seed + ':v' + v.id + ':' + variant); // seeded by the vault's original id so messages survive re-ordering
   let out;
   if (v.pad) {
     const rows = []; for (let m = 0; m < v.pad; m++) rows.push(letters(genText(r, v.len + 10, m === 0 && v.startA ? v.startA : '')).slice(0, v.len));
@@ -314,7 +325,8 @@ function build(i) {
   return (cache[key] = out);
 }
 const toolsAt = i => { const s = new Set(); for (let j = 0; j <= i; j++) (V[j].intro || []).forEach(t => s.add(t)); return s; };
-const eraOpen = e => e === 0 || V.filter((v, i) => v.e === e - 1 && S.solved[i]).length >= 4;
+const ERA_NEED = 3; // vaults to open in an era before the next unlocks
+const eraOpen = e => e === 0 || V.filter((v, i) => v.e === e - 1 && S.solved[i]).length >= ERA_NEED;
 const workOf = i => (S.work[i] ||= { stages: [], notes: '', time: 0, padKey: null });
 
 // ---------- decryption tools ----------
@@ -356,17 +368,18 @@ let cur = Math.min(S.cur || 0, V.length - 1), anSrc = 'c', lastOut = '', padSel 
 function renderSide() {
   let h = '', last = -1;
   V.forEach((v, i) => {
-    if (v.e !== last) { last = v.e; const done = V.filter((w, j) => w.e === v.e && S.solved[j]).length; h += `<div class="era ${eraOpen(v.e) ? '' : 'locked'}"><span>${['I','II','III','IV','V','VI'][v.e]}. ${ERAS[v.e]}</span><span>${eraOpen(v.e) ? done + '/6' : '🔒'}</span></div>`; }
+    if (v.e !== last) { last = v.e; const done = V.filter((w, j) => w.e === v.e && S.solved[j]).length; h += `<div class="era ${eraOpen(v.e) ? '' : 'locked'}"><span>${['I','II','III','IV','V','VI'][v.e]}. ${ERAS[v.e]}</span><span>${eraOpen(v.e) ? done + '/' + V.filter(w => w.e === v.e).length : '🔒'}</span></div>`; }
     const open = eraOpen(v.e), sv = S.solved[i];
     h += `<div class="vlt ${i === cur ? 'cur' : ''} ${open ? '' : 'locked'}" data-i="${i}"><span>${sv ? '🔓' : '🔒'} ${v.n}</span><span class="st">${sv ? '★'.repeat(sv.stars) + '☆'.repeat(3 - sv.stars) : ''}</span></div>`;
   });
-  $('side').innerHTML = h + `<div class="note" style="margin:16px 6px">Open 4 vaults in an era to unlock the next one.</div>`;
+  $('side').innerHTML = h + `<div class="note" style="margin:16px 6px">Open ${ERA_NEED} vaults in an era to unlock the next one.</div>`;
   $('side').querySelectorAll('.vlt').forEach(el => el.onclick = () => { const i = +el.dataset.i; if (eraOpen(V[i].e)) openVault(i); });
   const n = Object.keys(S.solved).length, st = Object.values(S.solved).reduce((a, x) => a + x.stars, 0);
   $('totals').textContent = `${n}/${V.length} vaults · ${st}★`;
 }
 
 function openVault(i) {
+  disarm(); seenWords = null;
   cur = i; S.cur = i; padSel = null; persist();
   const v = V[i], w = workOf(i), b = build(i);
   if (!v.pad && !w.stages.length) {
@@ -375,7 +388,7 @@ function openVault(i) {
     else if (intro.length && !['atbash', 'rev'].includes(intro[0])) w.stages.push({ t: intro[0], s: DEF[intro[0]]() }); // param-less tools would open the vault by themselves
     else if (v.e === 0) w.stages.push({ t: 'shift', s: DEF.shift() });
   }
-  if (v.pad && !w.padKey) w.padKey = Array(v.len).fill(null);
+  if (v.pad && (!Array.isArray(w.padKey) || w.padKey.length !== v.len)) w.padKey = Array(v.len).fill(null);
   const L = b.keys?.find((k, j) => v.steps[j].t === 'vig')?.kw?.length;
   const story = v.story.replace(/\{L\}/g, L);
   const nh = S.hints[i] || 0, sv = S.solved[i];
@@ -384,6 +397,7 @@ function openVault(i) {
       <div><div class="dim small">${['I','II','III','IV','V','VI'][v.e]}. ${ERAS[v.e]} · Vault ${i + 1}</div><h2 class="vt">${sv ? '🔓' : '🔒'} ${v.n}</h2></div>
       <div class="row"><span class="pill" id="timer">⏱ ${fmtT(w.time)}</span><button id="hintBtn">💡 Hint (${3 - nh} left)</button>${sv ? '<button id="newMsg" title="Same cipher, new message and key">🔁 New intercept</button>' : ''}</div>
     </div>
+    ${V.findIndex(x => x.e === v.e) === i ? `<div class="brief">${ERA_BRIEF[v.e]}</div>` : ''}
     <p class="story">${story}</p>
     <div id="hints">${hintList(i, nh)}</div>
     ${v.pad ? padHTML(i) : benchHTML(i)}
@@ -539,8 +553,48 @@ function refreshStage(el, st, input) {
 }
 let colPick = null;
 
-function renderOut(t) {
-  return esc(t).replace(/[a-z]+/g, m => `<span class="u">${m.toUpperCase()}</span>`);
+// Words the player has recovered glow as they snap into place. This is recognition (the message vocabulary), not a
+// correctness oracle: a wrong key can still spell a real word.
+const VOCAB = (() => { const s = new Set(); TPL.concat(Object.values(SL).flat()).forEach(t => t.replace(/\{\w+\}/g, ' ').split(/[^A-Z]+/).forEach(w => w.length >= 3 && s.add(w))); return s; })();
+const VMAX = Math.max(...[...VOCAB].map(w => w.length));
+function findWords(t, spaced) { // returns [start, end) ranges in t of recognised, fully decoded words
+  const out = [];
+  if (spaced) { const re = /[A-Za-z]+/g; let m; while ((m = re.exec(t))) if (m[0] === m[0].toUpperCase() && VOCAB.has(m[0])) out.push([m.index, m.index + m[0].length]); return out; }
+  for (let p = 0; p < t.length;) {
+    let best = 0;
+    for (let L = Math.min(VMAX, t.length - p); L >= 4; L--) { const w = t.substr(p, L); if (VOCAB.has(w)) { best = L; break; } }
+    if (best) { out.push([p, p + best]); p += best; } else p++;
+  }
+  return out;
+}
+let seenWords = null; // word positions already shown, so only new ones pop
+function renderOut(t, spaced) {
+  const words = findWords(t, spaced), key = r => r[0] + ':' + t.slice(r[0], r[1]), now = new Set(words.map(key));
+  const fresh = seenWords ? words.filter(r => !seenWords.has(key(r))) : [];
+  if (fresh.length && document.hasFocus?.()) tick(fresh.length);
+  seenWords = now;
+  let h = '', p = 0;
+  const plain = s => esc(s).replace(/[a-z]+/g, m => `<span class="u">${m.toUpperCase()}</span>`);
+  for (const r of words) { h += plain(t.slice(p, r[0])) + `<span class="wd${fresh.includes(r) ? ' pop' : ''}">${esc(t.slice(r[0], r[1]))}</span>`; p = r[1]; }
+  return { html: h + plain(t.slice(p)), words: words.length };
+}
+let tickAC = null;
+function tick(n) { try { const ac = tickAC ||= new AudioContext(); for (let k = 0; k < Math.min(n, 4); k++) { const o = ac.createOscillator(), g = ac.createGain(), t0 = ac.currentTime + k * .05; o.type = 'square'; o.frequency.value = 1400 + 200 * k; g.gain.setValueAtTime(.025, t0); g.gain.exponentialRampToValueAtTime(.0005, t0 + .05); o.connect(g).connect(ac.destination); o.start(t0); o.stop(t0 + .06); } } catch (e) {} }
+
+// ---------- deliberate commit ----------
+// A vault only opens once the right answer has been held still: unchanged for SETTLE_MS with no pointer held down.
+// Sweeping a slider (or a stepper) past the answer therefore never opens it.
+const SETTLE_MS = 1000;
+let settleT = null, ptrDown = false, settleWait = false;
+const disarm = () => { clearTimeout(settleT); settleT = null; settleWait = false; };
+function arm(i) { disarm(); settleT = setTimeout(() => { settleT = null; if (ptrDown) { settleWait = true; return; } if (cur === i && !S.solved[i] && isOpenNow(i)) solved(i); }, SETTLE_MS); }
+addEventListener('pointerdown', () => { ptrDown = true; }, true);
+const ptrUp = () => { ptrDown = false; if (settleWait) { settleWait = false; if (!S.solved[cur] && isOpenNow(cur)) arm(cur); } };
+addEventListener('pointerup', ptrUp, true); addEventListener('pointercancel', ptrUp, true); addEventListener('blur', ptrUp);
+function isOpenNow(i) {
+  const v = V[i], w = workOf(i), b = build(i);
+  if (v.pad) return b.plains.every((p, r) => p.split('').every((c, j) => w.padKey[j] != null && (b.ciphers[r][j] - w.padKey[j] + 26) % 26 === ix(c)));
+  return letters(runPipeline(i).out) === b.target;
 }
 
 function update() {
@@ -548,15 +602,18 @@ function update() {
   if (v.pad) { updatePad(i); return; }
   const { ins, out } = runPipeline(i); lastOut = out;
   document.querySelectorAll('.stage').forEach(el => { const k = +el.dataset.k; refreshStage(el, w.stages[k], ins[k]); });
-  $('otext').innerHTML = renderOut(out);
+  const ro = renderOut(out, /\s/.test(out));
+  $('otext').innerHTML = ro.html;
   const known = letters(out).length, tot = onlyLetters(out).length;
-  $('outInfo').textContent = w.stages.some(s => s.t === 'subst') ? `${known}/${tot} letters mapped` : '';
+  $('outInfo').textContent = (w.stages.some(s => s.t === 'subst') ? `${known}/${tot} letters mapped · ` : '') + (ro.words ? `${ro.words} word${ro.words > 1 ? 's' : ''} recognised` : '');
   persist(); renderAnalysis();
-  if (letters(out) === b.target && !S.solved[i]) solved(i);
-  else if (S.solved[i] && letters(out) === b.target) $('solvedBanner').innerHTML = `<div class="okbanner">🔓 Open. <span class="mono">${esc(b.plain)}</span></div>`;
+  const open = letters(out) === b.target;
+  if (open && !S.solved[i]) arm(i); else disarm();
+  $('solvedBanner').innerHTML = S.solved[i] && open ? `<div class="okbanner">🔓 Open. <span class="mono">${esc(b.plain)}</span></div>` : '';
 }
 
 async function solved(i) {
+  disarm(); if (S.solved[i]) return;
   const w = workOf(i), h = S.hints[i] || 0, stars = h === 0 ? 3 : h === 1 ? 2 : 1;
   S.solved[i] = { stars, time: w.time }; persist(); renderSide();
   const b = build(i);
@@ -564,7 +621,7 @@ async function solved(i) {
   try { const ac = new AudioContext(); [523, 659, 784, 1046].forEach((f, k) => { const o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = f; g.gain.setValueAtTime(.08, ac.currentTime + k * .09); g.gain.exponentialRampToValueAtTime(.001, ac.currentTime + k * .09 + .35); o.connect(g).connect(ac.destination); o.start(ac.currentTime + k * .09); o.stop(ac.currentTime + k * .09 + .4); }); } catch (e) {}
   const eraWasOpen = V.map(v => eraOpen(v.e));
   const next = V.findIndex((v, j) => j > i && !S.solved[j] && eraOpen(v.e));
-  const newEra = V.find(v => v.e === V[i].e + 1 && eraOpen(v.e) && V.filter((x, j) => x.e === V[i].e && S.solved[j]).length === 4);
+  const newEra = V.find(v => v.e === V[i].e + 1 && eraOpen(v.e) && V.filter((x, j) => x.e === V[i].e && S.solved[j]).length === ERA_NEED);
   const go = await RH.modal(`<div class="dial"></div><h2 style="text-align:center">${V[i].n}: opened</h2>
     <p style="text-align:center;color:var(--accent);font-size:22px">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</p>
     <div class="txt" style="font-size:13px;word-break:normal">${plain}</div>
@@ -577,7 +634,7 @@ const fmtT = s => `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
 // ---------- analysis panel ----------
 function renderAnalysis() {
   const i = cur, v = V[i], av = toolsAt(i), b = build(i);
-  const tabs = { freq: av.has('freq') || i >= 6, rep: av.has('kasiski'), per: av.has('period') };
+  const tabs = { freq: av.has('freq') || v.e >= 1, rep: av.has('kasiski'), per: av.has('period') };
   document.querySelectorAll('.tabs button').forEach(bn => { const t = bn.dataset.t; bn.disabled = t !== 'notes' && !tabs[t]; bn.title = bn.disabled ? 'Unlocked in a later vault' : ''; });
   let t;
   if (v.pad) t = b.ciphers.map(r => r.map(x => A[x]).join('')).join(' ');
@@ -695,8 +752,8 @@ function updatePad(i) {
   g.querySelectorAll('.pc').forEach(el => el.onclick = () => { padSel = [+el.dataset.r, +el.dataset.c]; g.focus(); update(); });
   persist(); renderAnalysis();
   const ok = b.plains.every((p, r) => p.split('').every((c, j) => w.padKey[j] != null && (b.ciphers[r][j] - w.padKey[j] + 26) % 26 === ix(c)));
-  if (ok && !S.solved[i]) solved(i);
-  else if (ok) $('solvedBanner').innerHTML = `<div class="okbanner">🔓 Both pages read. This vault is open.</div>`;
+  if (ok && !S.solved[i]) arm(i); else disarm();
+  if (ok && S.solved[i]) $('solvedBanner').innerHTML = `<div class="okbanner">🔓 Both pages read. This vault is open.</div>`;
 }
 
 // ---------- timer ----------
@@ -706,14 +763,14 @@ setInterval(() => {
 }, 1000);
 
 const help = () => RH.modal(`<h2>🔐 The Vault</h2>
-  <p>Thirty-six vaults, each locked by a real historical cipher, from Caesar to reused Soviet one-time pads. Every message is generated for <i>your</i> save, so nobody can spoil the answers.</p>
+  <p>Twenty-four vaults, each locked by a real historical cipher, from Caesar to reused Soviet one-time pads. Every message is generated for <i>your</i> save, so nobody can spoil the answers.</p>
   <p>Put tools on your <b>workbench</b>. They run top to bottom on the ciphertext. When the output matches the hidden message, the vault opens. Later vaults stack several ciphers, so you'll need several tools.</p>
   <p>The panel on the right has the analyst's instruments: <b>frequency counts</b>, <b>Kasiski repeats</b> and <b>index-of-coincidence periods</b>. They unlock as history invents them.</p>
   <p class="dim">Hints cost stars. Solved vaults offer a 🔁 new intercept so you can practise a technique again.</p>`, [{ label: 'Pick a lock' }]);
 $('helpBtn').onclick = help;
 if (!S.intro) { S.intro = 1; persist(); help(); }
 openVault(eraOpen(V[cur].e) ? cur : 0);
-window.__vault = { V, build, S, workOf, openVault, update, APPLY };
+window.__vault = { V, build, S, workOf, openVault, update, APPLY, isOpenNow, findWords, SETTLE_MS, eraOpen, toolsAt, loadState, get cur() { return cur; } };
 </script>
 </body>
 </html>
