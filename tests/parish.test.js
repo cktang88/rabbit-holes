@@ -245,6 +245,21 @@ module.exports = {
       const r = await page.evaluate(() => { const P = window.__parish; P.openLetter(3); return [P.year, new Date(Date.UTC(1650, 0, 1) + Math.floor(P.W().R[P.COMS()[3].start].d) * 864e5).getUTCFullYear()]; });
       eq(r[0], r[1]);
     },
+    'touch: the intro dialog button is on screen without scrolling, portrait and landscape': async ({ page, ok }) => {
+      for (const vp of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
+        const ctx = await page.context().browser().newContext({ viewport: vp, hasTouch: true, isMobile: true }); const p = await ctx.newPage();
+        await p.goto(page.url()); await p.waitForTimeout(1000);
+        const b = await p.locator('.modal-bg button').last().boundingBox(); ok(b && b.y + b.height <= vp.height, `intro button off screen at ${vp.width}x${vp.height}: ${JSON.stringify(b)}`);
+        await ctx.close();
+      }
+    },
+    'touch: text fields are at least 16px (no iOS zoom on focus)': async ({ page, ok }) => {
+      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }); const p = await ctx.newPage();
+      await p.goto(page.url()); await p.waitForTimeout(1000); await p.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
+      const sizes = await p.evaluate(() => { document.body.dataset.tab = 'reg'; return [...document.querySelectorAll('input:not([type=checkbox]), textarea')].map(e => parseFloat(getComputedStyle(e).fontSize)); });
+      ok(sizes.length && sizes.every(x => x >= 16), 'field font sizes: ' + sizes);
+      await ctx.close();
+    },
     'phone layout has no horizontal overflow': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300); await closeModals(page);
       ok(await page.evaluate(() => document.documentElement.scrollWidth <= 392), 'overflow ' + await page.evaluate(() => document.documentElement.scrollWidth));

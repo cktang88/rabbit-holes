@@ -200,6 +200,21 @@ module.exports = {
       const v = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub'))['first-contact']);
       ok(v > 0 && v < 1, 'progress ' + v);
     },
+    'touch: the intro dialog button is on screen without scrolling, portrait and landscape': async ({ page, ok }) => {
+      for (const vp of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
+        const ctx = await page.context().browser().newContext({ viewport: vp, hasTouch: true, isMobile: true }); const p = await ctx.newPage();
+        await p.goto(page.url()); await p.waitForTimeout(1000);
+        const b = await p.locator('.modal-bg button').last().boundingBox(); ok(b && b.y + b.height <= vp.height, `intro button off screen at ${vp.width}x${vp.height}: ${JSON.stringify(b)}`);
+        await ctx.close();
+      }
+    },
+    'touch: text fields are at least 16px (no iOS zoom on focus)': async ({ page, ok }) => {
+      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }); const p = await ctx.newPage();
+      await p.goto(page.url()); await p.waitForTimeout(1000); await p.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
+      const sizes = await p.evaluate(() => { document.body.classList.add('lex'); return [...document.querySelectorAll('input')].slice(0, 5).map(e => parseFloat(getComputedStyle(e).fontSize)); });
+      ok(sizes.length && sizes.every(x => x >= 16), 'field font sizes: ' + sizes);
+      await ctx.close();
+    },
     'phone layout has no horizontal overflow': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300); await closeModals(page);
       ok(await page.evaluate(() => document.documentElement.scrollWidth <= 392), 'overflow ' + await page.evaluate(() => document.documentElement.scrollWidth));
