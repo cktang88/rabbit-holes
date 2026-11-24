@@ -97,7 +97,8 @@
       <div class="stat"><span>Hull</span><b id="hull"></b></div><div class="bar"><div id="hullBar" style="background:#8a5a2a"></div></div>
       <div class="stat" style="margin-top:4px"><span>Where we think we are</span><b id="unc"></b></div>
       <div class="sails" id="sails"><button data-sail="0">⚓ Furl</button><button data-sail="1">Half sail</button><button data-sail="2">Full sail</button></div>
-      <div class="row" style="margin-top:8px"><button id="fixBtn">⊕ Take a fix</button><button id="inkBtn" title="Stray ink lowers a chart's accuracy: lift the quill when you are unsure where you are">🖋 Quill: inking</button></div>
+      <div class="row" style="margin-top:8px"><button id="bearBtn" title="Compass bearings on two landmarks you have already charted. Your chart's errors become your position's errors.">⌖ Bearings</button><button id="fixBtn">⊕ Noon sight</button><button id="inkBtn" title="Stray ink lowers a chart's accuracy: lift the quill when you are unsure where you are">🖋 Quill: inking</button></div>
+      <button id="allowBtn" title="Add the currents you have measured (set and drift) to your reckoning" style="margin-top:6px">Allow for current: yes</button>
       <button id="ashore">⛵ Go ashore</button>
       <div class="small" style="color:#5a4630;margin-top:6px"><kbd>W</kbd>/<kbd>S</kbd> sails · <kbd>A</kbd>/<kbd>D</kbd> helm · or click the chart to steer. <kbd>F</kbd> fix · <kbd>Space</kbd> heave to</div>
     </div>
@@ -114,7 +115,7 @@
 const WX=1400, WY=900, CELL=5, GW=WX/CELL, GH=WY/CELL;
 // ===================== World =====================
 let S = RH.load('mapmaker', null);
-function freshSave(seed){ return {seed:playableSeed(seed), gold:40, prov:100, hull:100, inst:{compass:1}, ship:null, ink:[], done:{}, visited:[], rep:0, worlds:(S&&S.worlds)||0, log:[], landed:{}, day:0}; }
+function freshSave(seed){ return {seed:playableSeed(seed), gold:40, prov:100, hull:100, inst:{compass:1}, ship:null, ink:[], done:{}, visited:[], rep:0, worlds:(S&&S.worlds)||0, log:[], landed:{}, day:0, learned:{}, allow:true, reefInk:{}, sold:{}, rivalDone:{}, routes:0}; }
 // every commission needs at least five islands (home + four to chart); skip the rare seeds that make fewer
 function playableSeed(seed){ seed=Math.floor(Math.abs(+seed||0))%1e9; for (let k=0;k<50;k++){ buildWorld(seed+k); if (islands.length>=5) return seed+k; } return seed; }
 const num=(v,d,lo,hi)=> Number.isFinite(v)? Math.max(lo,Math.min(hi,v)) : d;
@@ -126,7 +127,11 @@ function cleanSave(s){
   const sh=s.ship; const ship= sh && typeof sh==='object' && ['x','y','bx','by','h'].every(k=>Number.isFinite(sh[k])) ? {...sh, sail:[0,1,2].includes(sh.sail)?sh.sail:0, voyageDmg:num(sh.voyageDmg,0,0,1e4)} : null;
   return {...s, seed:Math.floor(Math.abs(s.seed))%1e9, gold:Math.floor(num(s.gold,40,0,1e9)), prov:num(s.prov,100,0,100), hull:num(s.hull,100,1,100), inst, done, ship,
     ink:Array.isArray(s.ink)? s.ink.filter(pt) : [], visited:Array.isArray(s.visited)? s.visited.filter(pt).slice(-3000) : [], worlds:Math.floor(num(s.worlds,0,0,1e6)),
-    log:Array.isArray(s.log)? s.log.filter(e=>e && Number.isFinite(e.d) && typeof e.t==='string').slice(0,40) : [], landed:(s.landed && typeof s.landed==='object' && !Array.isArray(s.landed))? Object.fromEntries(Object.keys(s.landed).filter(k=>/^\d+$/.test(k)).map(k=>[k,1])) : {}, day:num(s.day,0,0,1e7)};
+    log:Array.isArray(s.log)? s.log.filter(e=>e && Number.isFinite(e.d) && typeof e.t==='string').slice(0,40) : [], landed:(s.landed && typeof s.landed==='object' && !Array.isArray(s.landed))? Object.fromEntries(Object.keys(s.landed).filter(k=>/^\d+$/.test(k)).map(k=>[k,1])) : {}, day:num(s.day,0,0,1e7),
+    learned:(s.learned && typeof s.learned==='object')? Object.fromEntries(Object.entries(s.learned).filter(([k,v])=>/^\d+$/.test(k) && +k<12 && v && Number.isFinite(v.x) && Number.isFinite(v.y))) : {}, allow:s.allow!==false,
+    reefInk:(s.reefInk && typeof s.reefInk==='object')? Object.fromEntries(Object.entries(s.reefInk).filter(([k,v])=>/^\d+$/.test(k) && pt(v))) : {},
+    sold:(s.sold && typeof s.sold==='object')? Object.fromEntries(Object.entries(s.sold).filter(([k,v])=>/^\d+$/.test(k) && ['ok','wreck','sea'].includes(v))) : {},
+    rivalDone:(s.rivalDone && typeof s.rivalDone==='object')? Object.fromEntries(Object.keys(s.rivalDone).filter(k=>/^\d+$/.test(k)).map(k=>[k,1])) : {}, routes:Math.floor(num(s.routes,0,0,100)), rep:Math.floor(num(s.rep,0,-99,999))};
 }
 const persist=()=>{ RH.save('mapmaker', S); RH.progress('mapmaker', Object.keys(S.done).length/COMS.length); };
 let land, islands, coast, port, currents, reefs, rng, names;
@@ -153,7 +158,7 @@ function buildWorld(seed){
   const pc=home.coast.slice().sort((a,b)=>b[0]-a[0])[Math.floor(home.coast.length*0.05)]; port={x:pc[0]+12, y:pc[1]};
   while (isLand(port.x,port.y)) port.x+=5;
   // currents: coarse grid of vectors
-  currents=[...Array(12)].map(()=>({x:rng.range(-7,7), y:rng.range(-5,5)}));
+  currents=[...Array(12)].map(()=>({x:rng.range(-4.5,4.5), y:rng.range(-3.5,3.5)}));
   // reefs near island 2 or 3
   reefs=[]; const ri=islands[Math.min(3,islands.length-1)]; for (let k=0;k<26;k++){ const c=rng.pick(ri.coast); const a=rng()*7, d=rng.range(10,30); const x=c[0]+Math.cos(a)*d, y=c[1]+Math.sin(a)*d; if (!isLand(x,y)) reefs.push({x,y}); }
   ri.reefy=true;
@@ -189,15 +194,21 @@ const COMS=[
   {n:'The Archipelago', d:'Chart 60% of the coastline in the whole archipelago.', reward:250, test:()=>accAll()>=60, prog:()=>`${accAll()|0}%`},
   {n:'Every Island', d:'Chart every island to at least 40%.', reward:250, test:()=>islands.every(is=>acc(is.id)>=40), prog:()=>`${islands.filter(is=>acc(is.id)>=40).length}/${islands.length}`},
   {n:'Master Chart', d:'80% of all coastline. The Admiralty will print it.', reward:500, test:()=>accAll()>=80, prog:()=>`${accAll()|0}%`},
+  {n:'The Strait', d:'Chart the reef island to 70%, mark eight of its reefs, and see a merchant safely there by your chart. Few landmarks, many rocks.', reward:300, test:()=>acc(reefIsle())>=70 && reefsMarked()>=8 && S.sold[reefIsle()]==='ok', prog:()=>`${acc(reefIsle())|0}% · ${reefsMarked()} reefs · merchant ${S.sold[reefIsle()]||'not sent'}`},
 ];
+// A rival hydrographer works the same islands. Each commission after the first has a day by which he will deliver it; after that the Admiralty pays you half.
+const RIVAL='Captain Delacroix';
+const rivalDay=(i)=> i===0? 1e9 : 20+i*25;
+const reefsMarked=()=>Object.keys(S.reefInk).length;
+const payFor=(i)=> S.rivalDone[i]? Math.round(COMS[i].reward/2) : COMS[i].reward;
 const nearest=()=>{ let b=Math.min(1,islands.length-1), bd=1e9; for (let i=1;i<islands.length;i++){ const d=Math.hypot(islands[i].cx-port.x,islands[i].cy-port.y); if (d<bd){ bd=d; b=i; } } return b; };
 const farthest=()=>{ let b=Math.min(1,islands.length-1), bd=0; for (let i=1;i<islands.length;i++){ const d=Math.hypot(islands[i].cx-port.x,islands[i].cy-port.y); if (d>bd){ bd=d; b=i; } } return b; };
 const reefIsle=()=>Math.max(0,islands.findIndex(is=>is.reefy));
 const others=()=>islands.slice(1).map(is=>is.id);
 // accuracy: how much of the true coast is inked (recall), discounted by stray ink near that island that matches no coast (precision).
-// Stray ink costs up to a quarter of the score, so a smeared chart drawn while lost can't pass for a precise one.
+// Stray ink costs up to half the score, so a smeared chart drawn while lost can't pass for a precise one.
 let inkHash=new Map(), accCache={}, accDirty=true, precCache=null;
-const TOL=14, STRAY=1.5*TOL, NEAR_ISLE=70, PREC_W=0.25;
+const TOL=14, STRAY=1.5*TOL, NEAR_ISLE=70, PREC_W=0.5;
 function hashInk(){ inkHash=new Map(); precCache=null; for (const [x,y] of S.ink){ const k=((x/TOL)|0)+','+((y/TOL)|0); (inkHash.get(k)||inkHash.set(k,[]).get(k)).push([x,y]); } accDirty=true; }
 function near(x,y){ const cx=(x/TOL)|0, cy=(y/TOL)|0; for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++){ const l=inkHash.get((cx+dx)+','+(cy+dy)); if (l) for (const p of l) if ((p[0]-x)**2+(p[1]-y)**2<TOL*TOL) return true; } return false; }
 let coastHash=new Map();
@@ -239,19 +250,46 @@ function goAshore(){ const i=landfallIsle(); if (i<0) return null; const is=isla
   VOICE.surf(); logE(`Went ashore. We ${what}.`); RH.toast(`Landfall on ${is.name}.`); persist(); renderAll(); return what; }
 // ===================== Squalls =====================
 let squallT=75;
-function squall(){ currents=currents.map(()=>({x:rng.range(-9,9), y:rng.range(-6,6)})); const c=currentAt(ship.x,ship.y); compassBias=rng.range(-1,1); speedBias=rng.range(-1,1);
+function squall(){ currents=currents.map(()=>({x:rng.range(-5,5), y:rng.range(-4,4)})); if (ship.sail===2) damage(5,'The squall caught us under full sail and carried away a spar.'); const c=currentAt(ship.x,ship.y); compassBias=rng.range(-1,1); speedBias=rng.range(-1,1);
   VOICE.squall(); FX.shake(0.3); logE(`A squall. The current here now sets to the ${dirOf(c.x,c.y)}. Our reckoning is worth less than it was.`); RH.toast('A squall! The currents have turned.'); }
+
+// ===================== Navigation: only what the master can know =====================
+const cellOf=(x,y)=> Math.min(3,Math.max(0,Math.floor(x/WX*4)))+4*Math.min(2,Math.max(0,Math.floor(y/WY*3)));
+let nav={dist:0,t:0,cells:{}}, fogT=0, weatherT=60, pendingFix=null, bearingFx=null, doubtWarned=false;
+// estimated error of the reckoning, from what was sailed since the last fix (never from the true position)
+function estErr(){ const lc=S.learned[cellOf(ship.bx,ship.by)]; return 3 + nav.dist*(has('log')?0.03:0.07) + nav.t*(lc && S.allow? 0.9 : 3); }
+// a fix: compare where we reckoned we were with where we are, and learn the current (set and drift) from the difference
+function fixAt(x,y,how){ const dx=x-ship.bx, dy=y-ship.by, off=Math.hypot(dx,dy); let msg=`${how}. Our reckoning was ${Math.round(off)} leagues out.`;
+  if (nav.t>6){ let best=-1,bt=0; for (const c in nav.cells) if (nav.cells[c]>bt){ bt=nav.cells[c]; best=+c; }
+    const prev=(S.allow && S.learned[best])? S.learned[best] : {x:0,y:0}; const est={x:prev.x+dx/nav.t, y:prev.y+dy/nav.t};
+    const old=S.learned[best]; S.learned[best]= old? {x:old.x*0.35+est.x*0.65, y:old.y*0.35+est.y*0.65} : est;
+    const L=S.learned[best]; msg+=` Set and drift: the current here sets ${dirOf(L.x,L.y)} at ${Math.hypot(L.x,L.y).toFixed(1)} leagues a glass.`; }
+  ship.bx=x; ship.by=y; nav={dist:0,t:0,cells:{}}; doubtWarned=false; logE(msg); return off; }
+// the nearest mark on YOUR chart to a real coast feature: the landmark you would recognise and take a bearing on
+function inkNear(x,y,r){ const cx=(x/TOL)|0, cy=(y/TOL)|0; let best=null, bd=r*r; for (let dy=-2;dy<=2;dy++) for (let dx=-2;dx<=2;dx++){ const l=inkHash.get((cx+dx)+','+(cy+dy)); if (l) for (const p of l){ const d=(p[0]-x)**2+(p[1]-y)**2; if (d<bd){ bd=d; best=p; } } } return best; }
+// bearings on two charted landmarks: the lines cross at our position as our own chart has it, so chart errors carry into the fix
+function bearingFix(){
+  if (fogT>0) return {err:'Fog. No landmarks in sight.'};
+  const R=sightR()*0.95, c=[];
+  for (const is of islands){ if (Math.hypot(is.cx-ship.x,is.cy-ship.y)>R+400) continue; for (let k=0;k<is.coast.length;k+=2){ const [x,y]=is.coast[k], d=Math.hypot(x-ship.x,y-ship.y); if (d>R||d<10) continue; const m=inkNear(x,y,TOL*1.5); if (m) c.push({x:m[0],y:m[1],b:Math.atan2(y-ship.y,x-ship.x)}); } }
+  let best=null, bs=1e9; for (let i=0;i<c.length;i+=3) for (let j=i+1;j<c.length;j+=3){ let d=Math.abs(Math.atan2(Math.sin(c[i].b-c[j].b),Math.cos(c[i].b-c[j].b))); if (d<0.6||d>2.5) continue; const sc=Math.abs(d-Math.PI/2); if (sc<bs){ bs=sc; best=[c[i],c[j]]; } }
+  if (!best) return {err: c.length? 'Only one charted landmark in sight. Bearings need two, well apart.' : 'No charted landmarks in sight. Chart a coast first; then you can take bearings on it.'};
+  const herr=(has('fineCompass')?1:3)*Math.PI/180, [A,B]=best, ba=A.b+rng.range(-1,1)*herr, bb=B.b+rng.range(-1,1)*herr;
+  const ux=Math.cos(ba), uy=Math.sin(ba), vx=Math.cos(bb), vy=Math.sin(bb), det=-ux*vy+vx*uy; if (Math.abs(det)<1e-6) return {err:'The bearings are too alike.'};
+  const s=((A.x-B.x)*(-vy)-(-vx)*(A.y-B.y))/det; return {x:A.x-s*ux, y:A.y-s*uy, marks:[A,B]}; }
+function takeBearings(){ if (fixing>0 || atPort) return; const f=bearingFix(); if (f.err){ RH.toast(f.err); return; } ship.sail=0; fixing=1.2; pendingFix={...f, how:'Bearings taken on two charted landmarks'}; bearingFx={marks:f.marks, at:[f.x,f.y], t:performance.now()}; VOICE.creak(); }
+function weather(){ if (atPort) return; if (rng()<0.5){ fogT=22+rng.int(18); RH.toast('Fog has come down. The lookout sees half as far; no bearings, no noon sight.'); logE('Fog. We feel our way by the lead and the log.'); } else squall(); }
 
 // ===================== Ship =====================
 let ship;
 function newShip(){ return {x:port.x, y:port.y, bx:port.x, by:port.y, h:0, sail:0, voyageDmg:0}; }
 let target=null, fixing=0, ghost;
-function sightR(){ return has('telescope')? 135 : 90; }
+function sightR(){ return (has('telescope')? 135 : 90)*(fogT>0? 0.5 : 1); }
 function step(dt){
   // helm
   if (keys.a) ship.h-=1.4*dt; if (keys.d) ship.h+=1.4*dt;
   if (target){ const want=Math.atan2(target[1]-ship.by, target[0]-ship.bx); let d=want-ship.h; d=Math.atan2(Math.sin(d),Math.cos(d)); ship.h+=Math.max(-1.4*dt,Math.min(1.4*dt,d)); if (Math.hypot(target[0]-ship.bx,target[1]-ship.by)<10) target=null; }
-  if (fixing>0){ fixing-=dt; if (fixing<=0) doFix(); return; }
+  if (fixing>0){ fixing-=dt; if (fixing<=0){ if (pendingFix){ const f=pendingFix; pendingFix=null; fixAt(f.x,f.y,f.how); } else doFix(); } return; }
   const v=[0,14,28][ship.sail]; if (!v) return;
   // true motion: heading error + current
   const herr = (has('fineCompass')? 1.5 : 6)*Math.PI/180;
@@ -260,13 +298,18 @@ function step(dt){
   const nx = ship.x + (Math.cos(trueH)*v + c.x)*dt, ny = ship.y + (Math.sin(trueH)*v + c.y)*dt;
   // believed motion: logged speed with error, compass heading
   const verr = has('log')? 0.03 : 0.15;
-  ship.bx += Math.cos(ship.h)*v*(1+speedBias*verr)*dt; ship.by += Math.sin(ship.h)*v*(1+speedBias*verr)*dt;
-  if (isLand(nx,ny)){ ship.sail=0; damage(8,'You ran aground!'); ship.x-=Math.cos(trueH)*4; ship.y-=Math.sin(trueH)*4; }
+  const lc= S.allow? S.learned[cellOf(ship.bx,ship.by)] : null;
+  ship.bx += (Math.cos(ship.h)*v*(1+speedBias*verr) + (lc? lc.x : 0))*dt; ship.by += (Math.sin(ship.h)*v*(1+speedBias*verr) + (lc? lc.y : 0))*dt;
+  nav.dist+=v*dt; nav.t+=dt; { const ce=cellOf(ship.bx,ship.by); nav.cells[ce]=(nav.cells[ce]||0)+dt; }
+  if (!doubtWarned && estErr()>TOL*1.5){ doubtWarned=true; logE(`Our position is doubtful (±${Math.round(estErr())} leagues). Take bearings, or lift the quill.`); }
+  if (isLand(nx,ny)){ ship.sail=0; target=null; damage(8,'We struck ground and hove to. Our reckoning must be out.'); ship.x-=Math.cos(trueH)*4; ship.y-=Math.sin(trueH)*4; }
   else { ship.x=nx; ship.y=ny; }
-  for (const r of reefs) if (Math.hypot(r.x-ship.x,r.y-ship.y)<5 && !r.hitT){ r.hitT=3; damage(12,'Reef! The hull scrapes on rock.'); }
+  for (const r of reefs) if (Math.hypot(r.x-ship.x,r.y-ship.y)<5 && !r.hitT){ r.hitT=3; damage(14,'Reef! The hull scrapes on rock.'); }
+  if (fogT<=0) reefs.forEach((r,k)=>{ if (!S.reefInk[k] && Math.hypot(r.x-ship.x,r.y-ship.y)<sightR()*0.45){ S.reefInk[k]=[Math.round(r.x+ship.bx-ship.x),Math.round(r.y+ship.by-ship.y)]; } });
   for (const r of reefs) if (r.hitT) r.hitT=Math.max(0,r.hitT-dt);
   S.prov -= dt*0.2; S.day += dt/6; if (S.prov<=0){ S.prov=0; mutiny(); }
-  squallT-=dt; if (squallT<=0){ squallT=70+rng.int(40); if (!atPort) squall(); }
+  weatherT-=dt; if (weatherT<=0){ weatherT=45+rng.int(40); weather(); } if (fogT>0) fogT-=dt;
+  for (let i=1;i<COMS.length;i++) if (!S.done[i] && !S.rivalDone[i] && S.day>rivalDay(i)){ S.rivalDone[i]=1; logE(`Word from the Admiralty: ${RIVAL} has delivered "${COMS[i].n}" first. They will pay us only half for ours.`); RH.toast(`${RIVAL} beat you to "${COMS[i].n}".`); }
   // ink coast in sight
   inkT+=dt; if (inkT>0.35 && inkOn){ inkT=0; ink(); }
   // ghost island
@@ -288,13 +331,37 @@ function ink(){
 }
 let inkSet=new Set();
 function doFix(){
-  const ny = has('sextant')? 2 : 14; ship.by = ship.y + rng.range(-ny,ny);
+  const ny = has('sextant')? 2 : 14, by0=ship.by; ship.by = ship.y + rng.range(-ny,ny);
   if (has('chronometer')) ship.bx = ship.x + rng.range(-3,3);
-  RH.toast(has('chronometer')? 'Fix taken: latitude and longitude corrected.' : 'Fix taken: latitude corrected. Longitude is still dead reckoning.'); VOICE.creak();
+  if (has('chronometer')){ ship.by=by0; fixAt(ship.x+rng.range(-3,3), ship.y+rng.range(-ny,ny), 'Noon sight and chronometer'); RH.toast('Fix taken: latitude and longitude.'); }
+  else { nav.t*=0.5; nav.dist*=0.5; RH.toast('Noon sight: latitude corrected. Longitude is still dead reckoning.'); logE('Noon sight taken. Latitude is good; longitude is still reckoning.'); } VOICE.creak();
 }
 function damage(n,msg){ const d=has('copper')? n/2 : n; S.hull-=d; ship.voyageDmg+=d; RH.toast(msg); VOICE.thump(); FX.shake(0.35); logE(msg); if (ship.voyageDmg>30) S.reefOk=S.reefOk||false; if (S.hull<=0) wreck(); }
 function wreck(){ S.hull=40; S.gold=Math.max(0,S.gold-40); ship=newShip(); RH.modal('<h2>Shipwreck</h2><p>Your ship broke up on the rocks. The crew rowed home. A new ship cost 40 gold, but your chart survived in its oilskin.</p>'); }
 function mutiny(){ S.gold=Math.max(0,S.gold-25); S.prov=40; ship=newShip(); RH.modal('<h2>Mutiny</h2><p>The food ran out. The crew turned the ship around and brought you home. You paid them 25 gold to keep quiet.</p>'); }
+
+// ===================== Merchants sail by your chart =====================
+// Sell sailing directions to an island. A merchant steers from Port Haven straight for your charted landing place.
+function landingFor(i){ let best=null, bd=1e9; for (const p of S.ink){ const n=nearestCoast(p[0],p[1]); if (!n || n[1]!==i || n[0]>STRAY) continue; const d=Math.hypot(p[0]-port.x,p[1]-port.y); if (d<bd){ bd=d; best=p; } } return best; }
+function merchantVoyage(i){ const L=landingFor(i); if (!L) return {res:'sea', why:'the chart shows no coast there'};
+  const n=nearestCoast(L[0],L[1]); if (!n || n[1]!==i || n[0]>TOL*1.6) return {res:'sea', why:'they found open sea where your chart shows land'};
+  // merchant masters can see land by day, so they steer round it; what they can't see are reefs, and only your chart warns of those
+  const path=seaPath(port.x,port.y,L[0],L[1]); if (!path) return {res:'sea', why:'no passage could be found to where your chart puts it'};
+  for (const [x,y] of path) for (let k=0;k<reefs.length;k++){ const r=reefs[k]; if (Math.hypot(r.x-x,r.y-y)<6){ const m=S.reefInk[k]; if (m && Math.hypot(m[0]-r.x,m[1]-r.y)<TOL*1.5) continue; return {res:'wreck', why:'they struck a reef your chart did not mark'}; } }
+  return {res:'ok'}; }
+// shortest sea passage on the true coastline grid (8-neighbour BFS), as a list of points
+function seaPath(x0,y0,x1,y1){ const sx=Math.floor(x0/CELL), sy=Math.floor(y0/CELL), tx=Math.floor(x1/CELL), ty=Math.floor(y1/CELL); const prev=new Int32Array(GW*GH).fill(-2); const q=[sy*GW+sx]; prev[q[0]]=-1;
+  for (let h=0;h<q.length;h++){ const i=q[h], x=i%GW, y=(i/GW)|0; if (Math.abs(x-tx)<=2 && Math.abs(y-ty)<=2){ const out=[]; for (let j=i;j>=0;j=prev[j]) out.push([(j%GW)*CELL+CELL/2,((j/GW)|0)*CELL+CELL/2]); return out.reverse(); }
+    for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]){ const X=x+dx, Y=y+dy; if (X<0||Y<0||X>=GW||Y>=GH) continue; const j=Y*GW+X; if (prev[j]!==-2 || land[j]) continue; prev[j]=i; q.push(j); } }
+  return null; }
+function sellDirections(i){ if (S.sold[i] || !atPort) return; const v=merchantVoyage(i), is=islands[i], ship=['the Merry Dolphin','the Good Intent','the Prosperous Ann','the Two Brothers'][(i+S.routes)%4];
+  S.sold[i]=v.res;
+  if (v.res==='ok'){ const g=30+Math.round(acc(i)*0.6); S.gold+=g; S.rep+=1; S.routes+=1; logE(`${ship} sailed to ${is.name} by our chart and came home laden. The owners paid ${g} gold, and will pay dues on every voyage.`); RH.toast(`${ship} made ${is.name}. +${g}g`); VOICE.bell(); }
+  else { const fine= v.res==='wreck'? 40 : 15; S.gold=Math.max(0,S.gold-fine); S.rep-=v.res==='wreck'?2:1; logE(`${ship} sailed for ${is.name} by our chart and ${v.why}. The owners demand ${fine} gold.`); RH.toast(`${ship}: ${v.why}. −${fine}g`); VOICE.thump(); }
+  persist(); renderAll(); return v; }
+function directionsHTML(){ const opts=islands.filter(is=>is.id>0 && acc(is.id)>=40); if (!opts.length) return '<div class="small" style="color:#5a4630;margin-top:6px;font-style:italic">Chart an island to 40% and merchants will buy sailing directions to it.</div>';
+  return `<div class="small" style="margin-top:8px"><b>Sailing directions</b> <i>(a merchant will steer by your chart)</i></div>`+opts.map(is=>S.sold[is.id]? `<div class="small" style="font-style:italic">${is.name}: ${S.sold[is.id]==='ok'?'a trade route':S.sold[is.id]==='wreck'?'a wreck':'a wasted voyage'}</div>` : `<button data-dir="${is.id}" style="width:100%;margin-top:4px">Sell directions to ${is.name}</button>`).join(''); }
+function wireDirections(){ document.querySelectorAll('[data-dir]').forEach(b=>b.onclick=()=>sellDirections(+b.dataset.dir)); }
 
 // ===================== Port =====================
 function renderPort(){
@@ -302,19 +369,23 @@ function renderPort(){
   if (!atPort){ el.innerHTML=`<h3>At sea</h3><div class="small" style="color:#5a4630;font-style:italic">Return to Port Haven (⚓ on your chart) to deliver charts, victual and buy instruments. In port your position is known exactly.</div>`; return; }
   const ready=COMS.map((c,i)=>[c,i]).filter(([c,i])=>!S.done[i] && c.test());
   el.innerHTML=`<h3>⚓ In port</h3><div class="row"><button id="resup" ${S.prov>=99?'disabled':''}>Resupply (${Math.ceil((100-S.prov)*0.3)}g)</button><button id="repair" ${S.hull>=100?'disabled':''}>Repair (${Math.ceil((100-S.hull)*0.6)}g)</button></div>
-    ${ready.length? `<button class="primary" id="sell" style="width:100%;margin-top:8px">Deliver ${ready.length} chart${ready.length>1?'s':''} (+${ready.reduce((s,[c])=>s+c.reward,0)}g)</button>` : '<div class="small" style="color:#5a4630;margin-top:6px;font-style:italic">No commissions ready to deliver.</div>'}
-    <button id="compare" style="width:100%;margin-top:6px">Compare your chart with the truth</button>`;
+    ${ready.length? `<button class="primary" id="sell" style="width:100%;margin-top:8px">Deliver ${ready.length} chart${ready.length>1?'s':''} (+${ready.reduce((s,[c,i])=>s+payFor(i),0)}g)</button>` : '<div class="small" style="color:#5a4630;margin-top:6px;font-style:italic">No commissions ready to deliver.</div>'}
+    ${directionsHTML()}
+    <button id="compare" style="width:100%;margin-top:6px" ${S.gold<25?'disabled':''}>Buy a look at the Admiralty survey (25g)</button>`;
+  wireDirections();
   document.getElementById('resup').onclick=()=>{ const c=Math.ceil((100-S.prov)*0.3); if (S.gold<c) return RH.toast('Not enough gold.'); S.gold-=c; S.prov=100; persist(); renderAll(); };
   document.getElementById('repair').onclick=()=>{ const c=Math.ceil((100-S.hull)*0.6); if (S.gold<c) return RH.toast('Not enough gold.'); S.gold-=c; S.hull=100; persist(); renderAll(); };
-  document.getElementById('sell')?.addEventListener('click',()=>{ let g=0; for (const [c,i] of ready){ if (S.done[i]) continue; S.done[i]=1; g+=c.reward; } if (!g) return; S.gold+=g; persist(); pressSeal(ready.filter(([c,i])=>S.done[i]).map(([c])=>c.n)); RH.toast(`The Admiralty pays ${g} gold.`); logE(`Delivered to the Admiralty: ${ready.map(([c])=>c.n).join(', ')}. Paid ${g} gold.`); renderAll();
+  document.getElementById('sell')?.addEventListener('click',()=>{ let g=0; for (const [c,i] of ready){ if (S.done[i]) continue; S.done[i]=1; g+=payFor(i); } if (!g) return; S.gold+=g; persist(); pressSeal(ready.filter(([c,i])=>S.done[i]).map(([c])=>c.n)); RH.toast(`The Admiralty pays ${g} gold.`); logE(`Delivered to the Admiralty: ${ready.map(([c])=>c.n).join(', ')}. Paid ${g} gold.`); renderAll();
     if (Object.keys(S.done).length===COMS.length) RH.modal('<h2>The Admiralty prints your chart.</h2><p>Your name is in the corner of every copy. Sailors will use it for a hundred years.</p><p>A new archipelago has been sighted. Every new one is a new set of islands.</p>'); });
-  document.getElementById('compare').onclick=()=>{ showTruth=performance.now()+5000; RH.toast('Truth overlay for 5 seconds: blue is the real coast, ink is yours.'); };
+  document.getElementById('compare').onclick=()=>{ if (S.gold<25) return; S.gold-=25; persist(); showTruth=performance.now()+5000; RH.toast('The Admiralty survey, for 5 seconds: blue is the real coast, ink is yours.'); renderAll(); };
 }
 let showTruth=0;
 // Signature moment: the Admiralty's wax seal is pressed onto the delivered chart
 function pressSeal(names){ const el=document.getElementById('sealFx'); document.getElementById('sealTxt').textContent=(names[0]||'').slice(0,18); el.classList.remove('on'); void el.getBoundingClientRect(); el.classList.add('on'); setTimeout(VOICE.seal,420); }
 document.getElementById('fixBtn').onclick=()=>tryFix();
-function tryFix(){ if (!has('quadrant')&&!has('sextant')) return RH.toast('You need a quadrant or sextant to take a fix.'); ship.sail=0; fixing=2; RH.toast('Taking a sighting…'); }
+document.getElementById('bearBtn').onclick=()=>takeBearings();
+document.getElementById('allowBtn').onclick=()=>{ S.allow=!S.allow; persist(); renderStatus(); };
+function tryFix(){ if (!has('quadrant')&&!has('sextant')) return RH.toast('A noon sight needs a quadrant or sextant. Bearings on charted landmarks are free.'); if (fogT>0) return RH.toast('No sun in this fog.'); ship.sail=0; fixing=2; pendingFix=null; RH.toast('Taking a sighting…'); }
 document.getElementById('inkBtn').onclick=()=>{ inkOn=!inkOn; document.getElementById('inkBtn').textContent='🖋 Quill: '+(inkOn?'inking':'lifted'); };
 document.getElementById('ashore').onclick=()=>goAshore();
 document.getElementById('exportBtn').onclick=()=>{ const c=document.createElement('canvas'); c.width=WX; c.height=WY; drawChart(c.getContext('2d'), 1, 0, 0, true); const a=document.createElement('a'); a.download='my-chart.png'; a.href=c.toDataURL(); a.click(); };
@@ -381,7 +452,14 @@ function drawChart(c, s, ox, oy, exportMode){
   c.font='26px "IM Fell English SC",serif'; c.textAlign='left'; c.fillStyle='#2e2015'; c.fillText('A Chart of the Lost Islands', 44, 58); c.font='italic 14px "IM Fell English",serif'; c.fillText(`surveyed aboard ${document.getElementById('shipName').textContent}, anno 1680`, 44, 78);
   if (exportMode) return;
   // ship (believed position) + uncertainty
-  const u=uncertainty(); c.strokeStyle='rgba(156,31,26,.55)'; c.setLineDash([3,4]); c.beginPath(); c.arc(ship.bx,ship.by,Math.max(6,u),0,7); c.stroke(); c.setLineDash([]);
+  // currents you have measured, as arrows in their part of the sea
+  for (const k in S.learned){ const L=S.learned[k], cx=((+k%4)+0.5)*WX/4, cy=(Math.floor(+k/4)+0.5)*WY/3, m=Math.hypot(L.x,L.y); if (m<0.2) continue; const ex=cx+L.x/m*40, ey=cy+L.y/m*40;
+    c.strokeStyle='rgba(63,127,106,.75)'; c.lineWidth=2.5; c.beginPath(); c.moveTo(cx-L.x/m*40,cy-L.y/m*40); c.lineTo(ex,ey); c.stroke(); const a=Math.atan2(L.y,L.x); c.beginPath(); c.moveTo(ex,ey); c.lineTo(ex-Math.cos(a-0.4)*12,ey-Math.sin(a-0.4)*12); c.lineTo(ex-Math.cos(a+0.4)*12,ey-Math.sin(a+0.4)*12); c.closePath(); c.fillStyle='rgba(63,127,106,.75)'; c.fill();
+    c.font='italic 13px "IM Fell English",serif'; c.fillStyle='rgba(46,32,21,.75)'; c.textAlign='center'; c.fillText(`${m.toFixed(1)} a glass`, cx, cy+22); }
+  // reefs you have sighted, at the place your reckoning put them
+  c.strokeStyle='#9c1f1a'; c.lineWidth=1.5; for (const k in S.reefInk){ const [x,y]=S.reefInk[k]; c.beginPath(); c.moveTo(x-4,y); c.lineTo(x+4,y); c.moveTo(x,y-4); c.lineTo(x,y+4); c.stroke(); }
+  if (bearingFx && performance.now()-bearingFx.t<3500){ c.strokeStyle='rgba(156,31,26,.7)'; c.lineWidth=1.2; c.setLineDash([6,4]); for (const m of bearingFx.marks){ c.beginPath(); c.moveTo(m.x,m.y); c.lineTo(bearingFx.at[0]+(bearingFx.at[0]-m.x)*0.3,bearingFx.at[1]+(bearingFx.at[1]-m.y)*0.3); c.stroke(); c.beginPath(); c.arc(m.x,m.y,5,0,7); c.stroke(); } c.setLineDash([]); }
+  const u=estErr(); c.strokeStyle='rgba(156,31,26,.55)'; c.setLineDash([3,4]); c.beginPath(); c.arc(ship.bx,ship.by,Math.max(6,u),0,7); c.stroke(); c.setLineDash([]);
   if (target){ // the dividers: two legs from ship to destination
     const mx=(ship.bx+target[0])/2, my=(ship.by+target[1])/2, dx=target[0]-ship.bx, dy=target[1]-ship.by, L=Math.hypot(dx,dy)||1, hx=mx-dy/L*Math.min(60,L*0.3), hy=my+dx/L*Math.min(60,L*0.3);
     c.strokeStyle='#6b5a3a'; c.lineWidth=2; c.beginPath(); c.moveTo(ship.bx,ship.by); c.lineTo(hx,hy); c.lineTo(target[0],target[1]); c.stroke(); c.fillStyle='#b58a3c'; c.beginPath(); c.arc(hx,hy,4,0,7); c.fill();
@@ -397,9 +475,11 @@ function drawLook(){
   const d=Math.min(2,devicePixelRatio||1), R=sightR(), sc=110/R; lctx.setTransform(d,0,0,d,0,0); lctx.clearRect(0,0,220,220);
   lctx.save(); lctx.beginPath(); lctx.arc(110,110,110,0,7); lctx.clip();
   lctx.fillStyle='#1a4a66'; lctx.fillRect(0,0,220,220);
+  if (fogT>0){ lctx.fillStyle='rgba(200,205,210,.55)'; }
   const step=CELL; for (let y=-R;y<=R;y+=step) for (let x=-R;x<=R;x+=step){ if (x*x+y*y>R*R) continue; if (isLand(ship.x+x,ship.y+y)){ lctx.fillStyle='#7a9a5a'; lctx.fillRect(110+x*sc,110+y*sc,step*sc+1,step*sc+1); } }
   for (const rf of reefs){ const x=rf.x-ship.x, y=rf.y-ship.y; if (x*x+y*y<(R*0.45)**2){ lctx.fillStyle='#e8e0d0'; lctx.beginPath(); lctx.arc(110+x*sc,110+y*sc,2.5,0,7); lctx.fill(); } }
   const t=performance.now()/600; lctx.strokeStyle='rgba(255,255,255,.08)'; for (let k=0;k<12;k++){ lctx.beginPath(); lctx.arc((k*53+t*10)%220,(k*91)%220,8,0,3); lctx.stroke(); }
+  if (fogT>0){ const g=lctx.createRadialGradient(110,110,20,110,110,110); g.addColorStop(0,'rgba(220,225,230,0)'); g.addColorStop(1,'rgba(220,225,230,.92)'); lctx.fillStyle=g; lctx.fillRect(0,0,220,220); }
   lctx.translate(110,110); lctx.rotate(ship.h); lctx.fillStyle='#e8d8b0'; lctx.beginPath(); lctx.moveTo(10,0); lctx.lineTo(-7,-5); lctx.lineTo(-7,5); lctx.closePath(); lctx.fill(); lctx.restore();
 }
 function frame(now){
@@ -409,7 +489,7 @@ function frame(now){
   if (view.z>1) applyView();
   const [shx,shy]=FX.shakeOffset(6); drawChart(ctx, view.s, view.ox+shx, view.oy+shy); drawLook();
   const la=landfallIsle(); const ab=document.getElementById('ashore'); if ((la>=0)!==ab.classList.contains('on')){ ab.classList.toggle('on', la>=0); if (la>=0) ab.textContent=`⛵ Go ashore on ${islands[la].name}`; }
-  hudT+=dt; if (hudT>0.3){ hudT=0; renderStatus(); if (atPort!==lastPort){ if (atPort && lastPort===false){ VOICE.bell(); logE('Made Port Haven. Our position is certain again.'); } lastPort=atPort; if (atPort){ ship.bx=ship.x; ship.by=ship.y; ship.voyageDmg=0; } renderPort(); } saveT++; if (saveT>15){ saveT=0; S.ship=ship; persist(); } }
+  hudT+=dt; if (hudT>0.3){ hudT=0; renderStatus(); if (atPort!==lastPort){ if (atPort && lastPort===false){ VOICE.bell(); fixAt(ship.x,ship.y,'Made Port Haven'); if (S.routes){ S.gold+=S.routes*5; logE(`Harbour dues from our trade routes: ${S.routes*5} gold.`); } } lastPort=atPort; if (atPort){ ship.bx=ship.x; ship.by=ship.y; ship.voyageDmg=0; nav={dist:0,t:0,cells:{}}; fogT=0; } renderPort(); } saveT++; if (saveT>15){ saveT=0; S.ship=ship; persist(); } }
   lastVoyageOk = ship.voyageDmg<=30;
   if (acc(reefIsle())>=55 && ship.voyageDmg<=30) S.reefOk=true;
   requestAnimationFrame(frame);
@@ -418,15 +498,16 @@ let last=performance.now(), hudT=0, lastPort=null, saveT=0, lastVoyageOk=true;
 function renderStatus(){
   document.getElementById('gold').textContent=S.gold+'g'; document.getElementById('prov').textContent=Math.ceil(S.prov)+' days'; document.getElementById('provBar').style.width=S.prov+'%';
   document.getElementById('hull').textContent=Math.ceil(S.hull)+'%'; document.getElementById('hullBar').style.width=S.hull+'%';
-  const u=uncertainty(); document.getElementById('unc').textContent= u<4? 'precise' : `~${Math.round(u)} leagues`;
-  document.getElementById('hud').textContent = fixing>0? 'Taking a sighting…' : ['Sails furled','Half sail','Full sail'][ship.sail] + (atPort?' · in port':'');
+  const u=estErr(); document.getElementById('unc').textContent= atPort? 'in port: certain' : `±${Math.round(u)} leagues by reckoning`;
+  document.getElementById('bearBtn').disabled = atPort || fixing>0; document.getElementById('allowBtn').textContent = 'Allow for current: '+(S.allow?'yes':'no');
+  document.getElementById('hud').textContent = (fixing>0? 'Taking a sighting…' : ['Sails furled','Half sail','Full sail'][ship.sail] + (atPort?' · in port':'')) + (fogT>0? ' · fog' : '') + ` · day ${Math.floor(S.day)+1} · reputation ${S.rep}`;
   document.getElementById('fixBtn').disabled = !(has('quadrant')||has('sextant'));
   document.querySelectorAll('#sails [data-sail]').forEach(b=>b.classList.toggle('on', +b.dataset.sail===ship.sail));
   noteReady(); renderComs();
 }
 let readySeen=new Set();
 function noteReady(){ COMS.forEach((c,i)=>{ if (S.done[i] || readySeen.has(i)) return; if (c.test()){ readySeen.add(i); FX.sfx('coin'); RH.toast(`<b>${c.n}</b> is ready. Deliver it at port for ${c.reward}g.`, 3600); logE(`The chart for "${c.n}" is good enough to sell.`); } }); }
-function renderComs(){ document.getElementById('coms').innerHTML=COMS.map((c,i)=>`<div class="com ${S.done[i]?'done':''}"><div class="t">${S.done[i]?'<span class="seal" title="Delivered and sealed"></span>':''}${c.n} <span style="float:right;color:#7a5c32">${c.reward}g</span></div><div class="p">${c.d}</div>${S.done[i]?'':`<div class="p">Progress: ${c.prog()}${c.test()?' · <span class="ready">ready: deliver at port</span>':''}</div>`}</div>`).join('');
+function renderComs(){ document.getElementById('coms').innerHTML=COMS.map((c,i)=>`<div class="com ${S.done[i]?'done':''}"><div class="t">${S.done[i]?'<span class="seal" title="Delivered and sealed"></span>':''}${c.n} <span style="float:right;color:#7a5c32">${payFor(i)}g</span></div><div class="p">${c.d}</div>${S.done[i]?'':`<div class="p">Progress: ${c.prog()}${c.test()?' · <span class="ready">ready: deliver at port</span>':''}${i? (S.rivalDone[i]? ` · <span style="color:#9c1f1a">${RIVAL} delivered first: half pay</span>` : ` · ${RIVAL} expects to deliver by day ${rivalDay(i)}`) : ''}</div>`}</div>`).join('');
   document.getElementById('tot').textContent=`${Object.keys(S.done).length}/${COMS.length} commissions · ${Math.round(accAll())}% of coast charted${S.worlds?` · archipelago #${S.worlds+1}`:''}`; }
 function renderInsts(){ document.getElementById('insts').innerHTML=INST.map(it=>`<div class="inst"><div><b>${it.n}</b><div class="p small">${it.d}</div></div>${has(it.k)?'<span>✓</span>':`<button data-i="${it.k}" ${!atPort||S.gold<it.cost?'disabled':''}>${it.cost}g</button>`}</div>`).join('');
   document.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{ const it=INST.find(x=>x.k===b.dataset.i); if (S.gold<it.cost||!atPort) return; S.gold-=it.cost; S.inst[it.k]=1; persist(); RH.toast(`Bought: ${it.n}`); renderAll(); }); }
@@ -438,7 +519,7 @@ window.addEventListener('keydown',e=>{ const k=e.key.toLowerCase(); if (/^(INPUT
   if ((k==='w'||e.key==='ArrowUp') && fixing<=0){ ship.sail=Math.min(2,ship.sail+1); }
   if (k==='s'||e.key==='ArrowDown'){ ship.sail=Math.max(0,ship.sail-1); }
   if (k==='a'||e.key==='ArrowLeft') keys.a=1; if (k==='d'||e.key==='ArrowRight') keys.d=1;
-  if (k==='f') tryFix(); if (e.key===' '){ ship.sail=0; e.preventDefault(); } });
+  if (k==='f') tryFix(); if (k==='b') takeBearings(); if (e.key===' '){ ship.sail=0; e.preventDefault(); } });
 window.addEventListener('keyup',e=>{ const k=e.key.toLowerCase(); if (k==='a'||e.key==='ArrowLeft') keys.a=0; if (k==='d'||e.key==='ArrowRight') keys.d=0; if (keys.a||keys.d) target=null; });
 // one finger (or click) sets a course; two fingers pinch to zoom
 const touches=new Map(); let pinch=null, beforeTap=null;
@@ -459,15 +540,15 @@ function boot(){
   const gr=RH.rng(S.seed+5); let gt=0; do { ghost={x:gr.range(300,WX-100), y:gr.range(100,WY-100)}; } while (islands.some(is=>Math.hypot(is.cx-ghost.x,is.cy-ghost.y)<200) && ++gt<500);
   ship = S.ship && !isLand(S.ship.x,S.ship.y) ? S.ship : newShip();
   document.getElementById('shipName').textContent = ['The Wandering Gull','The Patient Heron','The Small Hours','The Last Lantern'][(S.worlds||0)%4];
-  squallT=70+rng.int(40); fit(); renderAll(); renderLog(); persist();
+  squallT=70+rng.int(40); weatherT=50+rng.int(30); fogT=0; nav={dist:0,t:0,cells:{}}; pendingFix=null; fit(); renderAll(); renderLog(); persist();
 }
 window.addEventListener('resize', fit);
 S = cleanSave(S) || freshSave(Math.floor(Math.random()*1e9));
 boot(); requestAnimationFrame(frame);
-window.__map={ landfallIsle, goAshore, squall, logE, pressSeal, dirOf, hashCoast, buildWorld, acc, accAll, recall, precisions, nearestCoast, near, hashInk, cleanSave, freshSave, playableSeed, boot, step, ink, doFix, damage, renderAll, renderPort, COMS, INST, TOL, PREC_W, isLand, currentAt, uncertainty,
+window.__map={ estErr, fixAt, bearingFix, takeBearings, inkNear, cellOf, weather, merchantVoyage, sellDirections, landingFor, rivalDay, payFor, reefsMarked, get nav(){ return nav; }, set nav(v){ nav=v; }, get fogT(){ return fogT; }, set fogT(v){ fogT=v; }, get pendingFix(){ return pendingFix; }, landfallIsle, goAshore, squall, logE, pressSeal, dirOf, hashCoast, buildWorld, acc, accAll, recall, precisions, nearestCoast, near, hashInk, cleanSave, freshSave, playableSeed, boot, step, ink, doFix, damage, renderAll, renderPort, COMS, INST, TOL, PREC_W, isLand, currentAt, uncertainty,
   get S(){ return S; }, set S(v){ S=v; }, get islands(){ return islands; }, set islands(v){ islands=v; }, get port(){ return port; }, get reefs(){ return reefs; }, get ship(){ return ship; }, set ship(v){ ship=v; }, get ghost(){ return ghost; },
   get target(){ return target; }, set target(v){ target=v; }, get fixing(){ return fixing; }, get atPort(){ return atPort; }, set atPort(v){ atPort=v; }, get view(){ return view; }, setZoom, applyView, get inkOn(){ return inkOn; }, set inkOn(v){ inkOn=v; }, get currents(){ return currents; }, get squallT(){ return squallT; }, set squallT(v){ squallT=v; }, get fixing(){ return fixing; }, set fixing(v){ fixing=v; } };
-if (!S.intro){ S.intro=1; persist(); RH.modal(`<h2>The Mapmaker of Lost Islands</h2><p>It's 1680. Nobody has charted these islands. You will.</p><p>The big view is <b>your chart</b>, drawn where you <i>think</i> you are. The round lookout shows what's <i>really</i> there. Currents push you off course and your compass is a little off, so your chart drifts away from the truth unless you navigate well.</p><p>Sail close to coasts to ink them. Come back to port to deliver commissions and buy better instruments. Watch out for reefs.</p>`,[{label:'Weigh anchor'}]); }
+if (!S.intro){ S.intro=1; persist(); RH.modal(`<h2>The Mapmaker of Lost Islands</h2><p>1680. Nobody has charted these islands. You will, and merchants will sail by what you draw.</p><p>Your chart is drawn where you <i>reckon</i> you are. Hidden currents and a crude log make that reckoning drift, and you can't see by how much. The round lookout shows what is truly there.</p><p>Fix your position with <b>bearings</b> on two landmarks you have already charted (B). Each fix measures the current, so your reckoning gets better. Lift the quill when you're unsure: bad ink costs you. A rival, ${RIVAL}, is charting the same islands.</p>`,[{label:'Weigh anchor'}]); }
 </script>
 </body>
 </html>

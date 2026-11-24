@@ -137,15 +137,15 @@ const LV = [
     demand: [{ o: 'P', d: 'W', n: 2000 }, { o: 'Q', d: 'W', n: 2000 }], target: 35, tools: { build: 1 } },
   { n: 'Pigou\'s Toll', story: 'A highway that always takes 40 minutes, and a free street that jams. Selfish drivers pile onto the street until it is <i>also</i> 40 minutes. A <b>toll</b> nudges some drivers back onto the highway (drivers treat $1 like 1 minute), and the people still on the street get there faster.',
     nodes: { A: [140, 340, 'home'], B: [860, 340, 'work'], T: [500, 560] }, roads: [R('A', 'B', 40, 0, { hw: 1, bend: -1 }), R('A', 'T', 0, 10), R('T', 'B', 0, 10)],
-    demand: [{ o: 'A', d: 'B', n: 2000 }], target: 30.5, tools: { toll: 1 },
+    demand: [{ o: 'A', d: 'B', n: 2000 }], target: 30.5, tools: { toll: 1 }, grades: [[30.5, 'Approved'], [30.2, 'Commended'], [30.03, 'Masterplan']],
     lesson: 'The best toll charges each driver the delay they cause everyone else. Here that is $20.' },
   { n: 'Just Enough Toll', story: 'This connector jams a little itself. Price it out completely and you are back to 60 min. But a connector used by <i>some</i> drivers beats none at all. Find a toll that gets the average under <b>59</b>.',
     nodes: { A: [130, 330, 'home'], C: [500, 110], D: [500, 550], B: [870, 330, 'work'] }, roads: [R('A', 'C', 0, 10), R('C', 'B', 45, 0, { hw: 1 }), R('A', 'D', 45, 0, { hw: 1 }), R('D', 'B', 0, 10), R('C', 'D', 0, 5, { name: 'the connector' })],
-    demand: [{ o: 'A', d: 'B', n: 3000 }], target: 59, tools: { toll: 1 } },
+    demand: [{ o: 'A', d: 'B', n: 3000 }], target: 59, tools: { toll: 1 }, grades: [[59, 'Approved'], [58.5, 'Commended'], [58.15, 'Masterplan']] },
   { n: 'Congestion Charge', story: 'Both suburbs now have every road. The best possible average, with a dispatcher assigning routes, is <b>28.7 min</b>. Selfish drivers get 30.7. With <b>two tolls</b>, get within 2% of the optimum.',
     nodes: { P: [120, 190, 'home'], Q: [120, 500, 'home'], M: [420, 350], R: [520, 120], W: [870, 350, 'work'] },
     roads: [R('P', 'M', 4, 6), R('Q', 'M', 4, 6), R('M', 'W', 10, 4), R('P', 'W', 40, 0, { hw: 1, bend: -1 }), R('Q', 'W', 40, 0, { hw: 1, bend: 1 }), R('P', 'R', 5, 2), R('R', 'W', 8, 6), R('Q', 'R', 20, 0, { hw: 1 }), R('M', 'R', 1, 0, { hw: 1 })],
-    demand: [{ o: 'P', d: 'W', n: 2000 }, { o: 'Q', d: 'W', n: 2000 }], target: 29.2, tools: { toll: 2 } },
+    demand: [{ o: 'P', d: 'W', n: 2000 }, { o: 'Q', d: 'W', n: 2000 }], target: 29.2, tools: { toll: 2 }, grades: [[29.2, 'Approved'], [28.9, 'Commended'], [28.72, 'Masterplan']] },
   { n: 'Your City', story: 'The whole department is yours: a <b>$6M</b> budget for any of five proposals, one closure, and up to two toll booths. Every plan is graded by the commission. The flashiest proposal is a trap on its own.',
     nodes: { P: [110, 190, 'home'], Q: [110, 520, 'home'], A: [370, 90], M: [420, 340], B: [360, 620], C: [660, 210], D: [660, 500], W: [900, 350, 'work'] },
     roads: [R('M', 'C', 0, 4), R('P', 'A', 2, 7), R('A', 'M', 16, 0, { hw: 1, bend: .22 }), R('D', 'W', 23, 0, { hw: 1 }), R('D', 'C', 13, 0, { hw: 1, bend: .2 }), R('B', 'M', 1, 5), R('P', 'M', 28, 0, { hw: 1 }), R('M', 'A', 2, 2, { bend: .22 }), R('Q', 'M', 1, 3), R('C', 'W', 3, 7),
@@ -195,6 +195,7 @@ const persist = () => { RH.save('gridlock', SAVE); RH.progress('gridlock', Objec
 let L, roads, P, tool = 'look', sel = -1, settleT = 0, won = false, shown = { avg: 0 }, homes = [];
 
 function load(i) {
+  shown.eq = NaN;
   document.body.classList.remove('playing', 'brief');
   SAVE.cur = i; persist(); L = LV[i]; won = false; settleT = 0; sel = -1; shown.avg = 0;
   roads = [...L.roads.map(r => ({ ...r })), ...(L.ghosts || []).map(r => ({ ...r, ghost: 1, built: 0 }))];
@@ -313,7 +314,9 @@ function jamColor(r) { const x = r.k ? Math.min(1, (time(r) - r.t0) / Math.max(8
 const ORIG = ['#24466e', '#9b2f7d', '#2f9e74', '#d98b2b'];
 
 const nsc = () => Math.min(fs, 1.7); // node scale on small screens
-const ghostLabel = r => `PROPOSED${r.name ? ' ' + r.name.replace(/^the /, '').toUpperCase() : ''} · ${r.t0}${r.k ? '+' : ''} MIN${r.cost ? ' · $' + r.cost + 'M' : ''}`;
+// a road's cost law: base minutes plus minutes per thousand cars ("10+5/k"); highways never jam ("15 flat")
+const law = r => r.k ? `${r.t0}+${r.k}/k` : `${r.t0} flat`;
+const ghostLabel = r => `PROPOSED${r.name ? ' ' + r.name.replace(/^the /, '').toUpperCase() : ''} · ${law(r).toUpperCase()}${r.cost ? ' · $' + r.cost + 'M' : ''}`;
 // labels: placed once per layout change, avoiding nodes and each other
 function layoutLabels() {
   if (!roads || !L) return;
@@ -322,7 +325,7 @@ function layoutLabels() {
   for (const [x, y, kind] of Object.values(L.nodes)) { const rr = (kind ? 36 : 16) * nsc(); boxes.push([x - rr, y - rr, x + rr, y + rr]); }
   const hit = (a) => boxes.some(b => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]);
   for (const r of roads) {
-    const tw = g.measureText(r.ghost && !r.built ? ghostLabel(r) : r.toll || L.tools.toll ? '88 min +$40' : '188 min').width + 14 * fs, th = 24 * fs;
+    const tw = g.measureText(r.ghost && !r.built ? ghostLabel(r) : `88 MIN  (${law(r)})` + (r.toll || L.tools.toll ? '  ·  $40' : '')).width + 14 * fs, th = 24 * fs;
     let best = null;
     outer: for (const d of [26, 40, 56, 76]) for (const t of [.5, .4, .6, .3, .7, .22, .78]) for (const side of [1, -1]) {
       const [mx, my] = bez(r.G, t), [dx, dy] = bezD(r.G, t), nl = Math.hypot(dx, dy), off = d * fs * side, x = mx - dy / nl * off, y = my + dx / nl * off;
@@ -401,7 +404,7 @@ function draw(now) {
     let label;
     if (r.ghost && !r.built) label = r.gl || (r.gl = ghostLabel(r));
     else if (r.closed) label = 'CLOSED';
-    else { const tm = Math.round(time(r)); if (r.lt !== tm || r.ltl !== r.toll) { r.lt = tm; r.ltl = r.toll; r.lab = `${tm} MIN${r.toll ? `  ·  $${r.toll}` : ''}`; r.lw = g.measureText(r.lab).width + 14 * fs; } label = r.lab; }
+    else { const tm = Math.round(time(r)); if (r.lt !== tm || r.ltl !== r.toll) { r.lt = tm; r.ltl = r.toll; r.lab = `${tm} MIN  (${law(r)})${r.toll ? `  ·  $${r.toll}` : ''}`; r.lw = g.measureText(r.lab).width + 14 * fs; } label = r.lab; }
     const tw = label === r.lab ? r.lw : g.measureText(label).width + 14 * fs, th = 24 * fs;
     // a faint tether so a displaced label still reads as belonging to its road
     if (Math.hypot(r.lx - r.mx, r.ly - r.my) > 34 * fs) { g.strokeStyle = 'rgba(42,38,34,.25)'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(r.mx, r.my); g.lineTo(r.lx, r.ly); g.stroke(); }
@@ -522,7 +525,8 @@ function loop(now) {
   const dt = Math.min(.05, (now - last) / 1000); last = now;
   let gap = 0; for (let i = 0; i < 3; i++) gap = adjust(.004);
   const avg = average();
-  shown.avg = FX.damp(shown.avg || avg, avg, 6, dt);
+  if (!isFinite(shown.eq) || Math.abs(avg - shown.eq) > .08 || gap < .02) shown.eq = avg; // ignore the drivers' last little wobbles
+  shown.avg = FX.damp(shown.avg || shown.eq, shown.eq, 6, dt);
   setText('avg', isFinite(avg) ? shown.avg.toFixed(1) : '∞');
   const ok = avg <= L.target + 1e-6;
   const tg = $('tgt'); const cls = 'target' + (ok ? ' ok' : ''); if (ui.cls !== cls) { ui.cls = cls; tg.className = cls; }

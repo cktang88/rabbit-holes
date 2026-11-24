@@ -4,9 +4,13 @@ const solutions = () => {
   const T = window.__tm, SC = 1200 * Math.log2(81 / 80);
   const just = [0, 1200 * Math.log2(16 / 15), 1200 * Math.log2(9 / 8), 1200 * Math.log2(6 / 5), 1200 * Math.log2(5 / 4), 1200 * Math.log2(4 / 3), 1200 * Math.log2(45 / 32), 1200 * Math.log2(3 / 2), 1200 * Math.log2(8 / 5), 1200 * Math.log2(5 / 3), 1200 * Math.log2(9 / 5), 1200 * Math.log2(15 / 8)];
   // Remote Keys: minimax optimum (worst error ~3.26 cents), found offline by smoothed-max descent.
+  // Patron's Third and All Twenty-Four: minimax optima from an offline solver (3 stars).
+  const PATRON = [0, 76.411, 200, 269.48, 386.675, 500, 579.832, 700, 772.614, 890.034, 966.113, 1083.254];
+  const FINALE = [0, 96.437, 197.12, 297.862, 394.3, 499.286, 595.724, 700.711, 797.149, 893.587, 998.574, 1095.011];
+  const WTC = [0, 99.574, 199.161, 298.819, 391.61, 503.769, 599.999, 702.936, 795.805, 895.385, 999.999, 1094.629];
   const remote = [0, 105.213, 208.801, 283.275, 387.944, 494.786, 600, 705.214, 808.795, 882.728, 987.397, 1094.786];
   const P = k => T.PRESET[k].c();
-  return [P('pyth'), P('pyth'), P('pyth'), T.wolfAt(2), P('mean'), just, P('mean'), P('mean'), T.chainFrom(-SC / 4, -SC / 4, 11, 0), P('werck'), P('vallotti'), P('et'), P('vallotti'), P('mean'), remote, P('et')];
+  return [P('pyth'), P('pyth'), P('pyth'), T.wolfAt(2), P('mean'), just, P('mean'), P('mean'), T.chainFrom(-SC / 4, -SC / 4, 11, 0), P('werck'), P('vallotti'), P('et'), WTC, T.chainFrom(-SC / 4, -SC / 4, 9, 2), remote, PATRON, FINALE];
 };
 
 module.exports = {
@@ -27,7 +31,8 @@ module.exports = {
         const T = window.__tm, S = eval('(' + sol + ')')();
         return T.C.map((c, i) => ({ i, start: Math.min(...c.goals.map(g => T.goalEval(g, T.startTuning(i)).stars)), sol: Math.min(...c.goals.map(g => T.goalEval(g, S[i]).stars)) }));
       }, solutions.toString());
-      eq(r.length, 16);
+      eq(r.length, 17);
+      ok(r.slice(11).every(x => x.sol === 3), 'late known tunings should reach 3 stars: ' + JSON.stringify(r.slice(11)));
       ok(r.every(x => x.start === 0), 'met at start: ' + r.filter(x => x.start).map(x => x.i));
       ok(r.every(x => x.sol >= 1), 'unsolvable: ' + JSON.stringify(r.filter(x => x.sol < 1)));
     },
@@ -104,6 +109,59 @@ module.exports = {
     'phone layout: no horizontal scroll': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
       ok(await page.evaluate(() => document.documentElement.scrollWidth) <= 392, 'overflow');
+    },
+    'presets are earned: equal temperament only after building it, never on its own commission': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const T = window.__tm, opts = () => [...document.querySelectorAll('#preset option')].map(o => o.value);
+        T.S.done = {}; for (let i = 0; i < 11; i++) T.S.done[i] = 3; T.setCur(11); const a = opts(); T.setCur(16); const b = opts();
+        T.S.done[11] = 3; T.setCur(16); const c = opts(); T.setCur(11); const d = opts(); return { a, b, c, d }; });
+      ok(!r.a.includes('et') && !r.b.includes('et'), 'ET offered before it was built'); ok(r.c.includes('et'), 'ET not offered after building it'); ok(!r.d.includes('et'), 'ET offered on its own commission');
+      const fin = await page.evaluate(() => { const T = window.__tm; return Math.min(...T.C[16].goals.map(g => T.goalEval(g, T.PRESET.et.c()).stars)); });
+      eq(fin, 0, 'equal temperament must not pass the finale');
+    },
+    'commissions show the worst chord and the interval that limits it': async ({ page, ok }) => {
+      await page.evaluate(() => { const T = window.__tm; for (let i = 0; i < 13; i++) T.S.done[i] = 3; T.setCur(13); });
+      ok(await page.locator('#wheel polygon').count() === 10, 'chord triangles');
+      const txt = await page.textContent('.bindbtn'); ok(/is limited by its (fifth|major third|minor third)/.test(txt), txt);
+      await page.click('.bindbtn');
+      const sel = await page.evaluate(() => document.querySelector('#ivBox h3').textContent); ok(txt.includes(sel.split(' ')[0]), 'binding interval not selected: ' + sel);
+      ok(/Comma budget/.test(await page.textContent('#goals')), 'no comma budget');
+      const sum = await page.evaluate(() => { const T = window.__tm; return T.chordInfo(T.tun(), 'C').parts.length; }); ok(sum === 3);
+    },
+    'v1 saves: the finale result moves past the inserted commission': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { localStorage.setItem('rh:temper', JSON.stringify({ done: { 14: 2, 15: 3 }, tun: { 15: Array(12).fill(0).map((_, i) => i * 100) }, cur: 15 }));
+        const s = window.__tm.loadState(); return [s.done, Object.keys(s.tun), s.cur, s.v]; });
+      eq(r, [{ 14: 2, 16: 3 }, ['16'], 16, 2]);
+    },
+    'difficulty: naive play fails': async ({ page, ok }) => {
+      const r = await page.evaluate(() => {
+        const T = window.__tm, late = [11, 12, 13, 14, 15, 16], stars = (i, c) => Math.min(...T.C[i].goals.map(g => T.goalEval(g, c).stars));
+        const rng = s => () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+        const avail = i => Object.keys(T.PRESET).filter(k => ({ pyth: 3, mean: 7, werck: 9, vallotti: 10, et: 11 })[k] < i);
+        const descend = (i, temps, iters) => { const g = T.C[i].goals, c = T.ET();
+          const fine = c => g.flatMap(x => x.k === 'ch' ? x.list.map(n => T.chordInfo(c, n).err / x.tol[2]) : x.k === 'tCFG' ? [0, 5, 7].map(q => T.dev(c, q, 4) / x.tol[2]) : x.k === 't' ? [Math.abs(T.dev(c, x.i, 4)) / x.tol[2]] : [T.goalEval(x, c).err / x.tol[2]]);
+          for (const Tm of temps) { const sm = c => { const v = fine(c), m = Math.max(...v); return m + Tm * Math.log(v.reduce((a, x) => a + Math.exp((x - m) / Tm), 0)); }; let lr = .5;
+            for (let it = 0; it < iters; it++) { const f0 = sm(c), gr = []; for (let n = 1; n < 12; n++) { c[n] += 1e-4; gr[n] = (sm(c) - f0) / 1e-4; c[n] -= 1e-4; } const c2 = c.map((x, n) => n ? x - lr * gr[n] : 0); if (sm(c2) < f0) { for (let n = 1; n < 12; n++) c[n] = c2[n]; lr *= 1.2; } else lr *= .5; if (lr < 1e-8) break; } }
+          return c; };
+        const runs = [];
+        for (const i of late) {
+          runs.push(stars(i, T.startTuning(i)));                                                    // idle
+          for (let seed = 1; seed <= 6; seed++) { const R = rng(seed), c = T.startTuning(i); let best = 0;     // random nudges
+            for (let t = 0; t < 300; t++) { c[1 + Math.floor(R() * 11)] += [-5, -1, -.1, .1, 1, 5][Math.floor(R() * 6)]; best = Math.max(best, stars(i, c)); } runs.push(best); }
+          runs.push(Math.max(0, ...avail(i).map(k => stars(i, T.PRESET[k].c()))));                  // load the best earned preset
+          { const g = T.C[i].goals, c = T.startTuning(i); let best = 0;                               // greedy: make the worst interval pure
+            for (let t = 0; t < 40; t++) { let sel; const ch = g.find(x => x.k === 'ch');
+              if (ch) sel = ch.list.map(n => T.chordInfo(c, n)).reduce((a, b) => b.err > a.err ? b : a).bind;
+              else { let m = -1; for (let n = 0; n < 12; n++) for (const k of [7, 4]) { const d = Math.abs(T.dev(c, n, k)); if (d > m) { m = d; sel = { i: n, k }; } } }
+              const j = (sel.i + sel.k) % 12, pure = { 7: 701.955, 4: 386.314, 3: 315.641 }[sel.k];
+              if (j !== 0) c[j] = c[sel.i] + pure - (sel.i + sel.k >= 12 ? 1200 : 0); else c[sel.i] = c[j] + 1200 - pure;
+              best = Math.max(best, stars(i, c)); } runs.push(best); }
+        }
+        const competent = late.map(i => stars(i, descend(i, [1, .3], 300)));
+        return { naiveOk: runs.filter(x => x <= 1).length / runs.length, competent };
+      });
+      ok(r.naiveOk >= .8, 'naive policies scored above 1 star too often: ' + r.naiveOk);
+      ok(r.competent.every(s => s >= 1), 'competent policy failed a late commission: ' + r.competent);
+      ok(r.competent.slice(1).filter(s => s === 3).length <= 1, 'a simple optimiser already gets 3 stars: ' + r.competent);
     },
     'phone: level list is a drawer behind a labelled button; picking a level closes it': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(500);

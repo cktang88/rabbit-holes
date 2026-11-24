@@ -121,20 +121,22 @@ module.exports = {
       ok(r.conf, 'reply symbols not confirmed'); eq(r.gl, 0, 'glosses printed without notes');
     },
     'decoding a transmission grades pencilled guesses: right ones confirmed, wrong ones marked, blanks left alone': async ({ page, ok, eq }) => {
-      await closeModals(page);
+      const seed = await page.evaluate(() => { for (let i = 1; ; i++) if (window.__fc.buildLanguage(i * 31).base >= 8) return i * 31; });
+      await withSave(page, { seed, intro: 1 }); await closeModals(page);
       const r = await page.evaluate(async () => {
         const fc = window.__fc, S = fc.S, L = fc.LANG;
-        S.notes.D2 = 'two'; S.notes.D1 = '7'; // one right, one wrong
+        const used = new Set(fc.CH[0].qs.flatMap(q => q.ans)), free = Array.from({ length: L.base }, (_, i) => 'D' + i).filter(w => !used.has(w));
+        const [dr, dw, db] = free; const names = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven'];
+        S.notes[dr] = names[+dr.slice(1)]; S.notes[dw] = String(+dw.slice(1) + 1); // one right, one wrong
         fc.solve('0:0'); fc.solve('0:1'); fc.solve('0:2');
         await new Promise(r => setTimeout(r, 1800));
-        const other = 'D' + (L.base - 1);
-        return { d2: !!S.known.D2, d1bad: !!(S.bad && S.bad.D1), d1known: !!S.known.D1, blank: !!S.known[other] && !fc.CH[0].qs.some(q => q.ans.includes(other)), redCard: !!document.querySelector('.nbRow.bad'), glD2: document.querySelector('#feed .tx .g[data-w="D2"] .gl').textContent };
+        return { d2: !!S.known[dr], d1bad: !!(S.bad && S.bad[dw]), blank: db ? !!S.known[db] : false, redCard: !!document.querySelector('.nbRow.bad'), glD2: document.querySelector(`#feed .tx .g[data-w="${dr}"] .gl`).textContent, want: S.notes[dr] };
       });
-      ok(r.d2, 'right guess not confirmed'); ok(r.d1bad, 'wrong guess not marked'); ok(!r.blank, 'unannotated glyph was confirmed'); ok(r.redCard); eq(r.glD2, 'two');
+      ok(r.d2, 'right guess not confirmed'); ok(r.d1bad, 'wrong guess not marked'); ok(!r.blank, 'unannotated glyph was confirmed'); ok(r.redCard); eq(r.glD2, r.want);
     },
     'guess checking accepts sensible wordings and rejects others': async ({ page, eq }) => {
       const r = await page.evaluate(() => { const g = window.__fc.guessRight; return [g('HOT', 'warm'), g('COLD', 'icy'), g('PAST', 'was / past'), g('WE', 'the aliens'), g('D3', '3'), g('D3', 'three'), g('HOT', 'cold'), g('D3', '13'), g('IS', 'island'), g('PLUS', '+')]; });
-      eq(r, [true, true, true, true, true, true, false, false, true, true]);
+      eq(r, [true, true, true, true, true, true, false, false, false, true]);
     },
     'newcomer: intro says one species per signal; hot and cold planets are drawn differently': async ({ page, ok }) => {
       const r = await page.evaluate(() => [document.querySelector('.modal')?.textContent || '', window.__fc.planetIn(1), window.__fc.planetIn(0)]);

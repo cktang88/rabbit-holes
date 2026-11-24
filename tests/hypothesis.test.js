@@ -30,11 +30,14 @@ module.exports = {
       });
       eq(r, ['An odd number of tokens', true, false, false, true, false, true, false, true, false, 'Contains a blue token', false, true]);
     },
-    'every law starts correctly filed: 1+1 given koans, or a 5+5 dossier for sealed cases': async ({ page, ok }) => {
+    'every law starts correctly filed: 1+1 given koans, or a sealed dossier that rules out every rival law': async ({ page, ok }) => {
       const bad = await page.evaluate(() => {
         const H = window.__hyp, out = [];
-        H.LAWS.forEach((L, i) => { const st = H.lawState(i), y = st.journal.filter(e => e.ok), n = st.journal.filter(e => !e.ok), want = H.isSealed(i) ? 5 : 1;
-          if (y.length !== want || n.length !== want || !y.every(e => L.f(e.k)) || n.some(e => L.f(e.k)) || new Set(st.journal.map(e => H.kkey(e.k))).size !== st.journal.length || !!st.sealed !== H.isSealed(i)) out.push(i); });
+        H.LAWS.forEach((L, i) => { const st = H.lawState(i), y = st.journal.filter(e => e.ok), n = st.journal.filter(e => !e.ok), sealed = H.isSealed(i);
+          if (sealed) { const tf = H.fp(L), alive = H.rivalPool(i).filter(q => H.fp(q).filter((x, k) => x !== tf[k]).length >= H.SAMPLE_D && st.journal.every(e => q.f(e.k) === e.ok));
+            if (alive.length) out.push(i + ' has ' + alive.length + ' rival laws consistent with its dossier: ' + alive[0].d);
+            if (st.journal.length < 8 || st.journal.length > 24 || y.length < 3 || n.length < 3) out.push(i + ' dossier shape ' + y.length + '/' + n.length); }
+          if ((!sealed && (y.length !== 1 || n.length !== 1)) || !y.every(e => L.f(e.k)) || n.some(e => L.f(e.k)) || new Set(st.journal.map(e => H.kkey(e.k))).size !== st.journal.length || !!st.sealed !== H.isSealed(i)) out.push(i); });
         if (H.LAWS.filter((L, i) => H.isSealed(i)).length !== 14) out.push('sealed count');
         return out;
       });
@@ -117,8 +120,9 @@ module.exports = {
       await page.evaluate(() => { const H = window.__hyp; for (let i = 0; i < 3; i++) H.lawState(i).solved = { stars: 3, probes: 1 }; H.openLaw(10); });
       await page.click('#pal button[data-t="000"]');
       ok(await page.isDisabled('#testBtn'), 'test lever not sealed');
+      const n0 = await page.evaluate(() => window.__hyp.lawState(10).journal.length);
       await page.keyboard.press('Enter');
-      eq(await page.evaluate(() => window.__hyp.lawState(10).journal.length), 10, 'Enter probed a sealed case');
+      eq(await page.evaluate(() => window.__hyp.lawState(10).journal.length), n0, 'Enter probed a sealed case');
       ok((await page.textContent('#center')).includes('Sealed case'));
       // one failed round, then a perfect one: 2 stars
       await page.evaluate(() => { const H = window.__hyp, L = H.LAWS[10]; H.startPredict(); H.preds.forEach((p, i) => p.ans = i ? L.f(p.k) : !L.f(p.k)); H.submitPred(); });
@@ -152,6 +156,58 @@ module.exports = {
       ok(await page.evaluate(() => document.documentElement.scrollWidth) <= 392, 'probe overflow');
       await page.evaluate(() => window.__hyp.startPredict());
       ok(await page.evaluate(() => document.documentElement.scrollWidth) <= 392, 'predict overflow');
+    },
+    'rival scientist: a wrong theory that fits the opening evidence blocks publishing until refuted': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const H = window.__hyp, out = [];
+        H.LAWS.forEach((L, i) => { if (!H.hasRival(i)) return; const q = H.rivalOf(i), st = H.lawState(i);
+          out.push({ i, has: !!q, fits: q ? st.journal.every(e => q.f(e.k) === e.ok) : false, differs: q ? H.fp(q).filter((x, k) => x !== H.fp(L)[k]).length : 0, refuted: H.refuted(i, st) }); });
+        return out; });
+      eq(r.length, 7);
+      ok(r.every(x => x.has && x.fits && x.differs >= 30 && !x.refuted), JSON.stringify(r.filter(x => !(x.has && x.fits && x.differs >= 30 && !x.refuted))));
+      const i = r[0].i;
+      await page.evaluate(i => { const H = window.__hyp; for (let j = 0; j < 3; j++) H.lawState(j).solved = { stars: 3, probes: 1 }; H.openLaw(i); }, i);
+      ok(await page.isDisabled('#pubBtn'), 'publish allowed before refuting');
+      ok((await page.textContent('.rival')).includes('Dr Ashcombe'));
+      // probe a koan on which the rival and the machine disagree
+      const k = await page.evaluate(i => { const H = window.__hyp, q = H.rivalOf(i), L = H.LAWS[i]; for (let t = 0; t < 5000; t++) { const k = H.randKoan(RH.rng(t), 1, 6); if (q.f(k) !== L.f(k)) return k; } }, i);
+      await page.evaluate(k => { const H = window.__hyp; H.builder = k; H.test(); }, k);
+      ok(!(await page.isDisabled('#pubBtn')), 'still blocked after refuting');
+      ok((await page.textContent('.rival')).includes('Refuted'));
+    },
+    'tier briefings name a method': async ({ page, ok }) => {
+      ok(/Method:/.test(await page.textContent('.method')));
+    },
+    'difficulty: naive play fails': async ({ page, ok }) => {
+      const r = await page.evaluate(() => {
+        const H = window.__hyp, L = H.LAWS, out = { naive: [], competent: [], solver: [] };
+        let s = 11; const R = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+        const rk = () => Array.from({ length: 1 + Math.floor(R() * 7) }, () => [0, 1, 2].map(() => Math.floor(R() * 3)));
+        const dist = (a, b) => Math.abs(a.length - b.length) * 3 + a.slice(0, Math.min(a.length, b.length)).reduce((d, t, k) => d + t.filter((x, q) => x !== b[k][q]).length, 0);
+        for (let i = 40; i < 60; i++) { if (H.isSealed(i)) continue;
+          const law = L[i], J = H.lawState(i).journal.map(e => ({ k: e.k, ok: e.ok }));
+          for (let run = 0; run < 3; run++) {
+            // a prediction set like the game's: 3-5 accepted, the rest rejected
+            const nPos = 3 + Math.floor(R() * 3), pos = [], neg = []; while (pos.length < nPos || neg.length < 8 - nPos) { const k = rk(); (law.f(k) ? (pos.length < nPos && pos.push(k)) : (neg.length < 8 - nPos && neg.push(k))); }
+            const set = pos.concat(neg), truth = set.map(k => law.f(k)), pass = preds => preds.every((v, k) => v === truth[k]);
+            const nn = j => set.map(k => j.reduce((a, e) => dist(e.k, k) < dist(a.k, k) ? e : a).ok);
+            const j10 = J.slice(); for (let t = 0; t < 10; t++) { const k = rk(); j10.push({ k, ok: law.f(k) }); }
+            out.naive.push(pass(set.map(() => true)), pass(set.map(() => R() < .5)), pass(nn(J)), pass(nn(j10)));   // all-accept, coin flips, nearest example, 10 random probes + nearest
+            const pool = H.rivalPool(i).concat([law]);
+            const play = smart => { const j = J.slice(); let probes = 0, alive = pool.filter(q => j.every(e => q.f(e.k) === e.ok));
+              while (!set.every(k => alive.every(q => q.f(k) === alive[0].f(k))) && probes < 80) { let k;
+                if (smart) { let bs = -1; for (let c = 0; c < 150; c++) { const x = rk(), y = alive.filter(q => q.f(x)).length, sc = Math.min(y, alive.length - y); if (sc > bs) { bs = sc; k = x; } } } else k = rk();
+                const v = law.f(k); probes++; alive = alive.filter(q => q.f(k) === v); }
+              return { pass: pass(set.map(k => alive.filter(q => q.f(k)).length * 2 >= alive.length)), three: probes <= H.par(law.tier) }; };
+            out.competent.push(play(false)); out.solver.push(play(true));
+          }
+        }
+        return out;
+      });
+      const rate = a => a.filter(Boolean).length / a.length;
+      ok(rate(r.naive) <= .2, 'naive policies passed the prediction round too often: ' + rate(r.naive));
+      ok(r.competent.every(x => x.pass), 'competent hypothesis-elimination failed');
+      const c3 = rate(r.competent.map(x => x.three)), s3 = rate(r.solver.map(x => x.three));
+      ok(c3 <= .6 && s3 >= .8, `3 stars should need solver-level probing: random-probing ${c3}, best-split ${s3}`);
     },
     'phone: level list is a drawer behind a labelled button; picking a level closes it': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(500);

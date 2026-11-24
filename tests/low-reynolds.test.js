@@ -78,7 +78,7 @@ module.exports = {
         const until = (cond, step = .05, max = 40000) => { let k = 0; while (!cond() && k++ < max) { X.advance(step); tick(); } tick(); };
         X.LV.forEach((l, i) => { X.load(i); tick(); o['start' + i] = l.test(X.St()); });
         X.load(0); until(() => X.St().cycles >= 8); o.s0 = W();
-        X.load(1); until(() => X.sw().x >= 2.6, .1, 4000); o.s1 = W();
+        X.load(1); until(() => X.sw().x >= 2.6, .1, 4000); o.p1 = W(); X.load(1); X.drawLoop(circ(1.1, 0, 0)); until(() => X.sw().x >= 2.6, .1, 4000); o.s1 = W();
         X.load(2); X.preset('circle'); until(() => false, .1, 400); o.w2 = W();
         X.load(2); X.reverse(); until(() => X.sw().x <= -2.6, .1, 4000); o.s2 = W();
         X.load(3); X.preset('circle'); until(() => X.St().strokes > 9.2, .1); o.w3 = W(); o.f3 = !!X.level.fail(X.St());
@@ -92,8 +92,38 @@ module.exports = {
         return o; });
       for (let i = 0; i < 8; i++) ok(!R['start' + i], `level ${i} solved at start`);
       for (const k of ['s0', 's1', 's2', 's3', 's4', 's5', 's6', 's7']) ok(R[k], `${k} not solved: ` + JSON.stringify(R));
-      for (const k of ['w2', 'w3', 'w4', 'w7']) ok(!R[k], `${k}: wrong strategy won`);
+      for (const k of ['w2', 'w3', 'w4', 'w7', 'p1']) ok(!R[k], `${k}: wrong strategy won (p1: a preset where a drawn loop is required)`);
       ok(R.f3 && R.f7, 'default loops run out of strokes / energy');
+    },
+    'difficulty: naive play fails': async ({ page, ok }) => {
+      await setup(page);
+      const R = await page.evaluate(() => { const X = __lr, out = { naive: 0, naiveN: 0, comp: {} }; unlock();
+        const tick = () => { const L = X.level, sw = X.sw(), St = X.St(); if (L.target) St.reached = Math.hypot(sw.x - L.target[0], sw.y - L.target[1]) < (L.tr || .45); };
+        const grade = () => X.St().reached ? (X.St().energy <= X.level.par ? 3 : X.St().energy <= X.level.par2 ? 2 : 1) : 0;
+        const pilot = (wps, R = .65, S = 1.15) => { const sw = X.sw(); let mode = '', used = 0;
+          for (const w of wps) { while (used < 3000) { tick(); if (X.St().reached) return; const tgt = w === 'T' ? X.level.target : w; if (w !== 'T' && Math.hypot(sw.x - tgt[0], sw.y - tgt[1]) < .5) break;
+            const e = Math.atan2(Math.sin(Math.atan2(tgt[1] - sw.y, tgt[0] - sw.x) - sw.phi), Math.cos(Math.atan2(tgt[1] - sw.y, tgt[0] - sw.x) - sw.phi)), m = e > .15 ? 'L' : e < -.15 ? 'R' : 'S';
+            if (m !== mode) { mode = m; X.setLoop(m === 'L' ? circ(R, -.7, -.7) : m === 'R' ? circ(R, .7, .7) : circ(S, 0, 0)); }
+            X.advance(.2); used += .2; if (X.St().blocked) { X.reverse(); X.advance(3); mode = ''; } } } tick(); };
+        const late = { 8: [[[1.5, 0], 'T'], .65, .5], 9: [['T']], 10: [['T']], 11: [[[1.5, -.15], [3.6, -.15], [4.3, 1.3], [6.2, 1.3], [7, -.35], [8.6, -.35], 'T']] };
+        for (const lv of [8, 9, 10, 11]) {
+          X.load(lv); X.preset('circle'); X.load(lv); pilot(...late[lv]); out.comp[lv] = grade();
+          X.load(lv); out.naiveN++; for (let k = 0; k < 300; k++) { X.advance(.2); tick(); } if (grade() > 1) out.naive++; // idle-ish: keep the starting stroke
+          X.load(lv); X.preset('circle'); out.naiveN++; for (let k = 0; k < 400 && !X.St().reached; k++) { X.advance(.2); tick(); } if (grade() > 1) out.naive++; // the obvious stroke, straight at it
+          for (let t = 0; t < 3; t++) { X.load(lv); out.naiveN++; let rs = 5 + t + lv; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647;
+            for (let k = 0; k < 400 && !X.St().reached; k++) { if (k % 30 === 0) X.setLoop(circ(.3 + rnd() * .9, (rnd() - .5) * 1.4, (rnd() - .5) * 1.4)); X.advance(.2); tick(); if (X.St().blocked) X.reverse(); } if (grade() > 1) out.naive++; }
+        }
+        return out; });
+      ok(R.naive / R.naiveN <= .2, `naive bots got 2★+ on ${R.naive}/${R.naiveN} late runs`);
+      ok(Object.values(R.comp).every(g => g >= 1), 'the competent steering pilot reaches every late target: ' + JSON.stringify(R.comp));
+      ok(Object.values(R.comp).every(g => g < 3), '3★ needs better than the simple pilot: ' + JSON.stringify(R.comp));
+    },
+    'stroke prediction matches a real stroke; maps and hover': async ({ page, ok, near }) => {
+      await setup(page);
+      const r = await page.evaluate(() => { unlock(); const X = __lr; X.load(4); X.setLoop(circ(.6, .5, .4)); X.load(4); const p = X.pred, sw = X.sw(), s0 = X.St().strokes, e0 = X.St().energy;
+        while (X.St().strokes - s0 < 1) X.advance(.01); return [p.dx, p.turn, p.e, sw.x * Math.cos(0) , sw.phi * 180 / Math.PI, X.St().energy - e0]; });
+      near(r[0], r[3], .03, 'forward per stroke'); near(r[1], r[4], 1.5, 'turn per stroke'); near(r[2], r[5], .25, 'energy per stroke');
+      await page.click('#mapT'); ok(await page.$eval('#mapT', b => /turning/.test(b.textContent)));
     },
     'Reset keeps the drawn loop (Lazy Swimmer used to snap back to the square)': async ({ page, eq, ok }) => {
       await setup(page);
@@ -126,8 +156,8 @@ module.exports = {
       await page.click('#levels .lv[data-i="0"]');
       eq(await page.$eval('#toast', t => t.classList.contains('on')), false);
       await page.evaluate(() => __lr.load(5)); eq(await page.evaluate(() => __lr.SAVE.cur), 1, 'locked level opened');
-      const locked = await page.$$eval('#levels .lv.lock', e => e.map(x => +x.dataset.i)); eq(locked, [2, 3, 4, 5, 6, 7]);
-      const hub = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub'))['low-reynolds']); ok(Math.abs(hub - 1 / 8) < 1e-9, 'progress ' + hub);
+      const locked = await page.$$eval('#levels .lv.lock', e => e.map(x => +x.dataset.i)); eq(locked, [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+      const hub = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub'))['low-reynolds']); ok(Math.abs(hub - 1 / 12) < 1e-9, 'progress ' + hub);
     },
     'saved loop slots: save, load, persist, and garbage slots are dropped': async ({ page, eq, ok }) => {
       await setup(page);

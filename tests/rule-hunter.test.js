@@ -70,7 +70,7 @@ module.exports = {
     'no bounties are claimed on a fresh start; stale bounty ids never push progress past 100%': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => { const R = __rh; const a = R.claimed(); R.checkBounties(); const b = R.claimed();
         for (let i = 0; i < 500; i++) R.S.bounties['old:' + i] = 1; R.setRule(R.S.rule); R.renderBounties();
-        return { a, b, c: R.claimed(), prog: JSON.parse(localStorage.getItem('rh:hub'))['rule-hunter'], txt: document.querySelector('#p-bounty .small').textContent, top: document.getElementById('totals').textContent }; });
+        return { a, b, c: R.claimed(), prog: JSON.parse(localStorage.getItem('rh:hub'))['rule-hunter'], txt: [...document.querySelectorAll('#p-bounty .small.dim')].map(e=>e.textContent).find(t=>/prizes claimed/.test(t)), top: document.getElementById('totals').textContent }; });
       eq([r.a, r.b, r.c], [0, 0, 0]); eq(r.prog, 0); ok(r.txt.startsWith('0 /'), r.txt);
     },
     'classifyRule: Life is complex, a birth-only-at-8 rule dies': async ({ page, eq }) => {
@@ -132,6 +132,70 @@ module.exports = {
       await page.mouse.click(700, 200); await page.waitForTimeout(350); eq(await open('left'), false, 'tapping the dish closes the drawer');
       const s0 = await page.evaluate(() => __rh.S.scans); await page.click('#scanBtn2'); eq(await page.evaluate(() => __rh.S.scans), s0 + 1);
       await page.evaluate(() => { __rh.tick(30); }); await page.click('#soupBtn2'); eq(await page.evaluate(() => __rh.gen), 0);
+    },
+    'species are patterns, not pattern-per-rule: a glider found in two rules is one species living in both': async ({ page, eq }) => {
+      await dismiss(page);
+      const r = await page.evaluate((PAT) => { const R = __rh; R.S.noPredict = 1; for (const rs of ['B3/S23', 'B36/S23']) { R.setRule(R.parseRule(rs)); R.place(PAT.glider, 40, 40); R.examineAt(41, 41); }
+        const sp = Object.values(R.S.species); return { n: sp.length, rules: sp[0].rules, log: document.getElementById('log').textContent }; }, PAT);
+      eq(r.n, 1); eq(r.rules, ['B3/S23', 'B36/S23']); eq(/also lives in this rule/.test(r.log), true);
+    },
+    'old saves with per-rule species are merged on load': async ({ page, eq }) => {
+      const old = { rule: { b: 8, s: 12 }, species: {}, rules: {}, bounties: {}, scans: 3 };
+      const g = { type: 'diag', p: 4, dx: 1, dy: 1, cells: 5, phases: ['1,0;2,1;0,2;1,2;2,2'], name: 'x', t: 1 };
+      old.species['B3/S23|0,0;1,0'] = { ...g, rule: 'B3/S23' }; old.species['B36/S23|0,0;1,0'] = { ...g, rule: 'B36/S23' }; old.species['B3/S23|0,0;0,1'] = { ...g, type: 'still', p: 1, dx: 0, dy: 0, rule: 'B3/S23' };
+      await page.evaluate((o) => localStorage.setItem('rh:rh', JSON.stringify(o)), old); const p2 = await reopen(page);
+      eq(await p2.evaluate(() => Object.values(__rh.S.species).map(s => [s.type, s.rules.length]).sort()), [['diag', 2], ['still', 1]]); eq(p2.errs, []); await p2.close();
+    },
+    'predict, then run: an uncharted rule waits for a bet, scores it, and earns a field note': async ({ page, eq, ok }) => {
+      await dismiss(page);
+      await page.evaluate(() => { const R = __rh; R.setRule(R.parseRule('B1/S1')); R.soup(); });
+      ok(await page.isVisible('#predict'), 'prediction card shown'); eq(await page.evaluate(() => __rh.running), false, 'soup waits for the bet');
+      await page.click('#predict [data-p="explodes"]');
+      const r = await page.evaluate(() => ({ pred: __rh.S.pred, beh: __rh.S.rules[__rh.parseRule('B1/S1').b + ':' + __rh.parseRule('B1/S1').s].beh, note: !!__rh.S.notes.B1, run: __rh.running, txt: document.getElementById('predict').textContent }));
+      const hit = r.beh === 'explodes' ? 1 : 0; eq([r.pred.n, r.pred.right, r.pred.streak], [1, hit, hit]); ok(r.note); ok(r.run); ok(/B1 rules almost always explode/.test(r.txt), r.txt);
+      await page.evaluate(() => { const R = __rh; R.setRule(R.parseRule('B3/S')); R.soup(); }); await page.click('#predict [data-p="explodes"]');
+      eq(await page.evaluate(() => [__rh.S.pred.n, __rh.S.pred.streak, !!__rh.S.notes.noS]), [2, 0, true]);
+      await page.evaluate(() => __rh.soup()); eq(await page.isVisible('#predict [data-p]'), false, 'charted rules are not asked again');
+    },
+    'draw mode: draw a glider by clicking cells, test it, and earn the design prize': async ({ page, eq, ok }) => {
+      await dismiss(page); await page.evaluate(() => { __rh.S.noPredict = 1; __rh.setRule(__rh.parseRule('B3/S23')); });
+      await page.click('#drawBtn');
+      const pts = await page.evaluate((PAT) => { const r = document.getElementById('world').getBoundingClientRect(), d = __rh.dish, sc = d.sq / __rh.W; return PAT.glider.map(([x, y]) => [r.left + d.x0 + (60 + x + .5) * sc, r.top + d.y0 + (60 + y + .5) * sc]); }, PAT);
+      for (const p of pts) await page.mouse.click(...p);
+      eq(await page.evaluate(() => __rh.grid.reduce((a, b) => a + b, 0)), 5);
+      await page.click('#testDrawBtn');
+      const r = await page.evaluate(() => ({ sp: Object.values(__rh.S.species).map(s => [s.type, !!s.drawn]), prize: Object.keys(__rh.S.bounties).some(k => /6 cells or fewer/.test(k)) }));
+      eq(r.sp, [['diag', true]]); ok(r.prize, 'design prize');
+    },
+    'rule map compass: clicking a neighbour flips exactly that switch': async ({ page, eq }) => {
+      await dismiss(page); await page.evaluate(() => { __rh.S.noPredict = 1; __rh.setRule(__rh.parseRule('B3/S23')); });
+      await page.click('.tabs button[data-t="map"]'); const box = await page.locator('#mapCv').boundingBox();
+      // S row, switch 8: last cell of the second row
+      await page.mouse.click(box.x + box.width * (8.5 / 9.5 + .02), box.y + box.height * ((24 + 320 / 9.5 + 18 + 15) / 330));
+      eq(await page.evaluate(() => __rh.ruleStr(__rh.S.rule)), 'B3/S238');
+    },
+    'difficulty: naive play fails': async ({ page, ok }) => {
+      await dismiss(page);
+      const r = await page.evaluate((PAT) => { const R = __rh; R.running = false; const late = R.BOUNTIES.filter(b => b.tier >= 4 && !/^Find a rule that/.test(b.text));
+        const lateGot = () => late.filter(b => b.test()).length / late.length;
+        const reset = () => { for (const k of Object.keys(R.S.species)) delete R.S.species[k]; for (const k of Object.keys(R.S.rules)) delete R.S.rules[k]; R.S.pred = { n: 0, right: 0, streak: 0, best: 0 }; R.S.notes = {}; };
+        let seed = 5; const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) / 32768; };
+        const out = {};
+        // random bot: random rules, a soup each, scan; never predicts
+        const runs = []; for (let k = 0; k < 3; k++) { reset(); R.S.noPredict = 1; for (let i = 0; i < 10; i++) { let b = 0, s = 0; for (let j = 1; j < 9; j++) if (rnd() < .3) b |= 1 << j; for (let j = 0; j < 9; j++) if (rnd() < .35) s |= 1 << j; if (!b) b = 8; R.setRule({ b, s }); R.soup(); R.tick(260); R.scan(true); } runs.push(lateGot()); }
+        out.random = runs;
+        // idle bot: Life forever
+        reset(); R.setRule(R.parseRule('B3/S23')); for (let i = 0; i < 10; i++) { R.soup(); R.tick(260); R.scan(true); } out.idle = lateGot();
+        // competent: knows the field notes, predicts, and designs on purpose
+        reset(); R.S.noPredict = 0; let right = 0;
+        for (const rs of ['B1/S1', 'B12/S0', 'B3/S', 'B4/S4', 'B2/S', 'B1/S0123']) { R.setRule(R.parseRule(rs)); R.soup(); const r = R.parseRule(rs); const g = (r.b >> 1) & 1 ? 'explodes' : (r.b >> 2) & 1 ? 'explodes' : !((r.s >> 2) & 1) && !((r.s >> 3) & 1) ? 'dies' : 'complex'; const res = R.predict(g); if (res && res.right) right++; }
+        R.S.noPredict = 1;
+        for (const rs of ['B3/S23', 'B36/S23', 'B38/S23']) { R.setRule(R.parseRule(rs)); R.setDrawing(true); for (const [x, y] of PAT.glider) R.grid[(60 + y) * R.W + 60 + x] = 1; R.testDrawing(); }
+        out.competent = lateGot(); out.right = right; out.design = R.BOUNTIES.filter(b => /6 cells or fewer|ship in 3 different/.test(b.text)).every(b => b.test());
+        out.master = R.BOUNTIES.find(b => /^Master/.test(b.text)).test();
+        return out; }, PAT);
+      ok(r.random.filter(x => x > .2).length === 0, 'random bot late-prize rates ' + r.random); ok(r.idle <= .2, 'idle ' + r.idle);
+      ok(r.design && r.competent > Math.max(...r.random), 'competent policy beats naive: ' + r.competent); ok(r.right >= 4, 'note-based predictions ' + r.right); ok(!r.master, 'master prize needs more than the simple policy');
     },
     'phone layout: no horizontal scroll and the dish is visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(150);

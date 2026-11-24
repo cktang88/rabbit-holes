@@ -3,6 +3,8 @@
 const ROUND = `const useRoundIsles = (M) => { M.islands = [[300, 450], [900, 450]].map(([cx, cy], id) => ({ id, cx, cy, name: 'I' + id, cells: [], coast: [...Array(240)].map((_, k) => [cx + 80 * Math.cos(k / 240 * 2 * Math.PI), cy + 80 * Math.sin(k / 240 * 2 * Math.PI)]) })); M.islands[1].reefy = true; M.hashCoast(); };`;
 // The harness clears localStorage on every navigation; this injects a save that survives the reload (init scripts run in order)
 const reloadWith = async (page, key, v) => { await page.addInitScript(([k, val]) => { try { localStorage.setItem(k, val); } catch (e) {} }, [key, v]); await page.reload(); };
+// Sailing bots for the difficulty test: 'naive' inks everything and never fixes; 'competent' takes bearings when doubtful, a noon sight when it can, lifts the quill when lost
+const BOT = "// Mapmaker bots. policy: 'naive' (ink always, never fixes), 'competent' (bearings every few glasses, allows for current, lifts quill when doubtful)\nwindow.__mapbot = (policy, islandId, laps=1, seed=1, opts={}) => {\n  const M=window.__map; RH.modal=()=>Promise.resolve(); RH.toast=()=>{};\n  const is=M.islands[islandId]; const pts=is.coast.slice().sort((a,b)=>Math.atan2(a[1]-is.cy,a[0]-is.cx)-Math.atan2(b[1]-is.cy,b[0]-is.cx));\n  const wps=[]; for (let k=0;k<pts.length;k+=Math.max(1,pts.length/24|0)){ const [x,y]=pts[k], dx=x-is.cx, dy=y-is.cy, L=Math.hypot(dx,dy)||1; let off=34; let wx=x+dx/L*off, wy=y+dy/L*off; for(let g=0;g<10&&M.isLand(wx,wy);g++){off+=8; wx=x+dx/L*off; wy=y+dy/L*off;} wps.push([wx,wy]); }\n  if (opts.inst) Object.assign(M.S.inst, opts.inst); let noonT=0, t=0, fixes=0, sinceFix=0, groundings=0; const hull0=M.S.hull;\n  const sail=(tx,ty,limit)=>{ for (let i=0;i<limit;i++){ const sh=M.ship; if (Math.hypot(tx-sh.x,ty-sh.y)<12) return true;\n      const want=Math.atan2(ty-sh.y,tx-sh.x); let hh=want; for (const k of [0,1,-1,2,-2,3,-3,4,-4,5,-5,6,-6]){ const a=want+k*0.26; let clear=true; for (let r=4;r<=36;r+=4){ if (M.isLand(sh.x+Math.cos(a)*r, sh.y+Math.sin(a)*r)){ clear=false; break; } } if (clear){ hh=a; break; } } sh.h=hh; M.target=null; if (M.fixing<=0) sh.sail=2;\n      if (policy==='competent'){ M.inkOn = M.estErr()<M.TOL*1.4; sinceFix+=0.05; if (M.estErr()>M.TOL*0.8 && sinceFix>0.6 && M.fixing<=0){ const f=M.bearingFix(); if (!f.err){ M.fixAt(f.x,f.y,'bot bearings'); fixes++; } else if (M.S.inst.quadrant && M.fogT<=0 && noonT>3){ M.doFix(); fixes++; noonT=0; } sinceFix=0; } noonT+=0.05; }\n      else if (policy==='naive') M.inkOn=true;\n      M.step(0.05); t+=0.05; M.atPort=false; } return false; };\n  // start at port, go to the island\n  for (let lap=0;lap<laps;lap++) for (const [x,y] of wps) sail(x,y,1200);\n  return { policy, acc:Math.round(M.acc(islandId)), recall:Math.round(M.recall(islandId)*100), prec:Math.round(M.precisions()[islandId]*100), t:Math.round(t), fixes, hull:Math.round(M.S.hull), learned:Object.keys(M.S.learned).length };\n};\n";
 module.exports = {
   page: 'mapmaker/index.html',
   ready: async (page) => { await page.waitForFunction(() => window.__map && window.__map.ship); await page.evaluate(() => { document.querySelectorAll('.modal-bg').forEach(m => m.remove()); RH.modal = (h) => { window.__lastModal = h; return Promise.resolve(); }; }); },
@@ -23,7 +25,7 @@ module.exports = {
       eq(r.empty, 0); eq(r.perfect, 100); eq(r.shifted, 0); near(r.withinTol, 100, 2, 'within tolerance');
       near(r.half, 50, 12, 'half the coast'); eq(r.otherIsland, 0, 'inking one island does not chart another');
     },
-    'accuracy: stray ink (a chart smeared while lost) costs up to a quarter and cannot pass Precision': async ({ page, near, ok }) => {
+    'accuracy: stray ink (a chart smeared while lost) costs up to half the score and cannot pass Precision': async ({ page, near, ok }) => {
       const r = await page.evaluate(`(() => { ${ROUND}
         const M = window.__map; useRoundIsles(M); const is = M.islands[1];
         const good = is.coast.map(([x, y]) => [x, y]); const stray = is.coast.map(([x, y]) => { const k = 40 / Math.hypot(x - is.cx, y - is.cy); return [x + (x - is.cx) * k, y + (y - is.cy) * k]; });
@@ -33,7 +35,7 @@ module.exports = {
         M.S.ink = good.concat([[5, 5], [WX - 5, WY - 5]]); M.hashInk(); const farJunk = M.acc(1); // ink far out at sea isn't attributed to an island
         return { smeared, prec, precisionCom, clean, cleanCom, farJunk };
       })()`);
-      near(r.prec, 0.5, 0.05, 'precision'); near(r.smeared, 100 * (1 - 0.25 + 0.25 * r.prec), 0.01, 'smeared score'); ok(!r.precisionCom, 'smeared chart passed Precision');
+      near(r.prec, 0.5, 0.05, 'precision'); near(r.smeared, 100 * (0.5 + 0.5 * r.prec), 0.01, 'smeared score'); ok(!r.precisionCom, 'smeared chart passed Precision');
       ok(r.cleanCom, 'clean chart should pass Precision'); near(r.clean, 100, 1e-9); near(r.farJunk, 100, 1e-9);
     },
     'whole-archipelago accuracy is the coast-length weighted mean; the cache refreshes when ink changes': async ({ page, near }) => {
@@ -158,6 +160,61 @@ module.exports = {
       const r = await page.evaluate(() => { const M = window.__map; M.S.ink = M.islands[0].coast.map(([x, y]) => [x, y]); M.hashInk(); M.atPort = true; M.renderPort(); document.getElementById('sell').click(); M.renderAll();
         return [document.getElementById('sealFx').classList.contains('on'), document.getElementById('sealTxt').textContent, document.querySelectorAll('#coms .seal').length]; });
       ok(r[0] && r[1].length > 0 && r[2] >= 1, JSON.stringify(r));
+    },
+    'the master never sees the true error: the reckoning estimate grows with distance and time since the last fix, not with the real drift': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const M = window.__map; M.atPort = false; M.nav = { dist: 0, t: 0, cells: {} }; const e0 = M.estErr();
+        M.ship.bx += 200; const e1 = M.estErr(); M.nav = { dist: 280, t: 10, cells: {} }; const e2 = M.estErr(); M.renderAll();
+        return { e0, e1, e2, txt: document.getElementById('unc').textContent }; });
+      eq(r.e0, r.e1, 'moving the believed position does not change the estimate'); ok(r.e2 > r.e0 + 10, 'estimate grows with sailing'); ok(/reckoning/.test(r.txt), r.txt);
+    },
+    'bearings fix you against YOUR chart: a shifted chart gives a shifted fix; no charted landmarks, no fix; fog blocks it': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const M = window.__map, is = M.islands[0]; M.atPort = false;
+        // sit off the home coast
+        const c = is.coast[Math.floor(is.coast.length / 3)], dx = c[0] - is.cx, dy = c[1] - is.cy, L = Math.hypot(dx, dy); let x = c[0] + dx / L * 40, y = c[1] + dy / L * 40;
+        M.ship = { x, y, bx: x + 30, by: y - 20, h: 0, sail: 0, voyageDmg: 0 };
+        M.S.ink = []; M.hashInk(); const none = M.bearingFix().err;
+        M.S.ink = is.coast.map(p => [p[0], p[1]]); M.hashInk(); const good = M.bearingFix();
+        M.S.ink = is.coast.map(p => [p[0] + 10, p[1]]); M.hashInk(); const shifted = M.bearingFix();
+        M.fogT = 10; const fog = M.bearingFix().err; M.fogT = 0;
+        return { none, good: Math.hypot(good.x - x, good.y - y), shiftedOff: [shifted.x - x, shifted.y - y], fog }; });
+      ok(/No charted landmarks/.test(r.none), r.none); ok(r.good < 6, 'accurate chart gives a good fix: ' + r.good);
+      ok(Math.abs(r.shiftedOff[0] - 10) < 6 && Math.abs(r.shiftedOff[1]) < 6, 'a chart drawn 10 leagues east puts the fix 10 leagues east: ' + r.shiftedOff); ok(/Fog/.test(r.fog), r.fog);
+    },
+    'set and drift: a fix after sailing in a current learns that current, and allowing for it shrinks the next error': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const M = window.__map; M.atPort = false; M.S.learned = {};
+        const c = M.currentAt(M.ship.x, M.ship.y); M.ship.sail = 1; M.ship.h = 0; M.inkOn = false; M.nav = { dist: 0, t: 0, cells: {} };
+        const run = () => { const sx = M.ship.x, sy = M.ship.y; M.ship.bx = sx; M.ship.by = sy; M.nav = { dist: 0, t: 0, cells: {} }; for (let i = 0; i < 200; i++){ M.ship.h = 0; M.ship.sail = 1; M.step(0.05); } return Math.hypot(M.ship.bx - M.ship.x, M.ship.by - M.ship.y); };
+        // keep the ship away from land for the test
+        M.ship.x = M.ship.bx = 300; M.ship.y = M.ship.by = 60; while (M.isLand(M.ship.x, M.ship.y)) M.ship.y += 10; M.ship.bx = M.ship.x; M.ship.by = M.ship.y;
+        M.S.allow = false; const before = run(); M.fixAt(M.ship.x, M.ship.y, 'test fix'); const learned = Object.keys(M.S.learned).length, fixLog = M.S.log[0].t;
+        M.S.allow = true; M.ship.x -= 140; const after = run();
+        return { before, after, learned, mag: Math.hypot(c.x, c.y), log: fixLog }; });
+      ok(r.learned >= 1, 'a current was learned'); ok(/Set and drift/.test(r.log) || r.mag < 0.5, r.log); ok(r.after < r.before || r.before < 4, `error before ${r.before.toFixed(1)}, after ${r.after.toFixed(1)}`);
+    },
+    'merchants sail by your chart: a good chart makes a trade route, a mischarted island sends them to open sea, an unmarked reef wrecks them': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const M = window.__map; const out = {}; const i = M.islands.findIndex(is => is.reefy);
+        const ink = (dx) => { M.S.ink = M.islands[i].coast.map(p => [p[0] + dx, p[1]]); M.hashInk(); };
+        ink(0); M.S.reefInk = {}; M.reefs.forEach((rf, k) => { M.S.reefInk[k] = [rf.x, rf.y]; }); out.good = M.merchantVoyage(i).res;
+        ink(60); out.shifted = M.merchantVoyage(i).res;
+        ink(0); M.S.reefInk = {}; const v = M.merchantVoyage(i).res; out.unmarked = v;
+        // selling settles it once, with money and reputation
+        ink(0); M.reefs.forEach((rf, k) => { M.S.reefInk[k] = [rf.x, rf.y]; }); M.atPort = true; const g0 = M.S.gold, r0 = M.S.rep; M.sellDirections(i); out.paid = M.S.gold > g0 && M.S.rep === r0 + 1; M.sellDirections(i); out.once = M.S.routes;
+        return out; });
+      eq(r.good, 'ok'); eq(r.shifted, 'sea'); eq(['ok', 'wreck'].includes(r.unmarked), true); eq(r.paid, true); eq(r.once, 1);
+    },
+    'a rival hydrographer delivers late commissions first if you are slow; you then get half pay': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const M = window.__map; M.atPort = false; M.S.day = M.rivalDay(3) + 0.5; M.ship.sail = 1; M.step(0.05); return [!!M.S.rivalDone[3], M.payFor(3), M.COMS[3].reward, !!M.S.rivalDone[0]]; });
+      eq(r[0], true); eq(r[1], Math.round(r[2] / 2)); eq(r[3], false);
+    },
+    'difficulty: naive play fails on late (far) islands; a competent navigator charts them; the master Precision bar is not a given': async ({ page, ok }) => {
+      await page.addScriptTag({ content: BOT });
+      const res = await page.evaluate(() => { const out = []; for (const seed of [11, 22, 33, 44, 55]) for (const pol of ['naive', 'idle', 'competent']) { const M = window.__map; M.S = M.freshSave(seed * 1000); M.boot();
+          const isl = M.islands.length - 1 >= 3 ? 3 : 2; let r; if (pol === 'idle'){ for (let i = 0; i < 2000; i++) M.step(0.05); r = { acc: Math.round(M.acc(isl)) }; } else r = window.__mapbot(pol, isl, 1, seed, { inst: { log: 1, quadrant: 1 } }); out.push([seed, pol, r.acc]); } return out; });
+      const by = (p) => res.filter(r => r[1] === p).map(r => r[2]);
+      const naive = by('naive'), idle = by('idle'), comp = by('competent');
+      ok(naive.filter(a => a < 60).length >= 4, 'naive should fail (<60%) in at least 4/5: ' + naive);
+      ok(idle.every(a => a === 0), 'idle charts nothing: ' + idle);
+      ok(comp.filter(a => a >= 70).length >= 3, 'competent should chart 70%+ in most runs: ' + comp);
     },
     'mobile layout: no horizontal scroll, chart and sail buttons visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);

@@ -37,6 +37,10 @@ const SOL = {
       ['in.1>m0.0', 'r0.0>m0.1', 'r1.0>m0.2', 'in.1>m1.0', 'r2.0>m1.1', 'r3.0>m1.2', 'in.0>m.0', 'm0.0>m.1', 'm1.0>m.2', 'm.0>out.0'])],
   COND: [{ sp: 'SPLIT', z: 'ZERO8', pos: 'NOR', a1: 'AND', a2: 'AND', a3: 'AND', o1: 'OR', o2: 'OR' },
     ['in.3>sp.0', 'in.3>z.0', 'sp.7>pos.0', 'z.0>pos.1', 'in.0>a1.0', 'sp.7>a1.1', 'in.1>a2.0', 'z.0>a2.1', 'in.2>a3.0', 'pos.0>a3.1', 'a1.0>o1.0', 'a2.0>o1.1', 'o1.0>o2.0', 'a3.0>o2.1', 'o2.0>out.0']],
+  DECODE: [{ n2: 'NOT', n1: 'NOT', n0: 'NOT', nr: 'NOR', m4: 'AND', a1x: 'AND', alu1: 'OR', a0x: 'AND', alu0: 'OR', x5: 'AND', mem: 'AND', x6: 'AND', st: 'AND', wr: 'NAND' },
+    ['in.0>n2.0', 'in.1>n1.0', 'in.2>n0.0', 'in.1>nr.0', 'in.2>nr.1', 'in.0>m4.0', 'nr.0>m4.1', 'n2.0>a1x.0', 'in.1>a1x.1', 'a1x.0>alu1.0', 'm4.0>alu1.1', 'n2.0>a0x.0', 'in.2>a0x.1', 'a0x.0>alu0.0', 'm4.0>alu0.1',
+      'n1.0>x5.0', 'in.2>x5.1', 'in.0>mem.0', 'x5.0>mem.1', 'in.1>x6.0', 'n0.0>x6.1', 'in.0>st.0', 'x6.0>st.1', 'in.0>wr.0', 'in.1>wr.1',
+      'alu1.0>out.0', 'alu0.0>out.1', 'm4.0>out.2', 'mem.0>out.3', 'st.0>out.4', 'wr.0>out.5']],
   PC: [{ r: 'REG8', inc: 'INC8', m1: 'MUX8', m2: 'MUX8', h: 'HIGH' }, ['m2.0>r.0', 'h.0>r.1', 'in.3>r.2', 'r.0>inc.0', 'in.1>m1.0', 'inc.0>m1.1', 'in.2>m1.2', 'in.0>m2.0', 'm1.0>m2.1', 'r.0>out.0']],
 };
 
@@ -55,6 +59,7 @@ const REF_SRC = `({
   COUNTER:([l,d,c],st)=>{ st.q??=0; if(c&&!st.c) st.q = l? d : (st.q+1)%256; st.c=c; return [st.q]; },
   RAM4:([a1,a0,w,d,c],st)=>{ st.m??=[0,0,0,0]; if(c&&!st.c&&w) st.m[a1*2+a0]=d; st.c=c; return [st.m[a1*2+a0]]; },
   COND:([lt,eq,gt,x])=>{ const s=x>=128?x-256:x; return [(lt&&s<0)||(eq&&s===0)||(gt&&s>0)?1:0]; },
+  DECODE:([a,b,c])=>{ const o=a*4+b*2+c; return [[0,0,1,1,1,0,0,0][o],[0,1,0,1,1,0,0,0][o],o===4?1:0,o===5?1:0,o===6?1:0,o<=5?1:0]; },
   PC:([r,j,a,c],st)=>{ st.q??=0; if(c&&!st.c) st.q = r?0 : j?a : (st.q+1)%256; st.c=c; return [st.q]; },
 })`;
 
@@ -103,7 +108,7 @@ module.exports = {
   tests: {
     'level data: 25 circuit + 9 software levels, unique ids, solutions exist for each': async ({ page, eq, ok }) => {
       const d = await page.evaluate(() => ({ n: __nand.L.length, sw: __nand.SW.length, ids: __nand.L.map(l => l.id) }));
-      eq(d.n, 25); eq(d.sw, 9); eq(new Set(d.ids).size, d.ids.length, 'unique ids');
+      eq(d.n, 26); eq(d.sw, 9); eq(new Set(d.ids).size, d.ids.length, 'unique ids');
       for (const id of d.ids) ok(SOL[id], 'test has reference solution for ' + id);
     },
     'combinational test vectors: exhaustive when ≤10 input bits, and l.fn matches an independent reference': async ({ page, eq, ok }) => {
@@ -130,9 +135,9 @@ module.exports = {
       const res = await solveAll(page);
       await dismissModals(page);
       for (const r of res) { ok(!r.err, r.id + ': ' + r.err); ok(!r.emptyPasses, r.id + ' solved by empty circuit'); ok(r.solved, r.id + ' reference failed: ' + r.res); }
-      eq(res.length, 25);
+      eq(res.length, 26);
       const st = await page.evaluate(() => ({ prog: JSON.parse(localStorage.getItem('rh:hub')).nand, soft: __nand.softUnlocked(), total: document.getElementById('total').textContent }));
-      eq(st.prog, 25 / 34); ok(st.soft, 'software unlocked after PC'); eq(st.total, '25 / 34 solved');
+      eq(st.prog, 26 / 35); ok(st.soft, 'software unlocked after PC'); eq(st.total, '26 / 35 solved');
     },
     'reference circuits also agree with the independent reference on extra random vectors': async ({ page, eq }) => {
       await solveAll(page); await dismissModals(page);
@@ -212,6 +217,31 @@ module.exports = {
       }
       const st = await page.evaluate(() => ({ p: JSON.parse(localStorage.getItem('rh:hub')).nand, n: Object.keys(__nand.SAVE.soft).length }));
       eq(st.n, 9); eq(st.p, 1);
+    },
+    'CPU board: every reference program runs on the player\'s chips clock by clock and matches the interpreter exactly': async ({ page, eq, ok }) => {
+      await solveAll(page); await dismissModals(page);
+      const r = await page.evaluate((PROGS) => { const N = __nand, bad = []; let n = 0;
+        for (const [id, src] of Object.entries(PROGS)) { const s = N.SW.find(x => x.id === id); const asm = N.assemble(src);
+          for (let t = 1; t <= 2; t++) { const tc = s.gen(RH.rng(t)); const ref = N.newCpu(asm, tc.inp); while (!ref.halted && ref.cycles < 20000) N.stepCpu(ref); const hw = N.runOnBoard(asm, tc.inp); n++;
+            if (hw.out.join() !== ref.out.join() || hw.cycles !== ref.cycles || hw.mem.join() !== ref.mem.join() || hw.halted !== ref.halted || JSON.stringify(hw.regs) !== JSON.stringify(ref.r)) bad.push(id + ' t' + t); } }
+        // edge cases: reading past the input, falling off the end, jlt with an immediate on the left, wraparound
+        for (const [src, inp] of [['in a\nin b\nout b', [7]], ['mov a, 3\nadd a, 255', []], ['mov b, 9\njlt 5, b, x\nout 1\nx: out 2\nhlt', []], ['mov a, 200\njlt a, 5, x\nout 1\nx: hlt', []], ['mov c, 77\nst [63], c\nld d, [63]\nout d', []]]) {
+          const asm = N.assemble(src); const ref = N.newCpu(asm, inp); while (!ref.halted && ref.cycles < 1000) N.stepCpu(ref); const hw = N.runOnBoard(asm, inp, 1000);
+          if (hw.out.join() !== ref.out.join() || hw.err !== ref.err || hw.cycles !== ref.cycles || JSON.stringify(hw.regs) !== JSON.stringify(ref.r)) bad.push(src.replace(/\n/g, '/')); }
+        const b = N.getBoard(); return { bad, n, gates: b.gates(), refs: b.refs(), comps: b.comps.length }; }, PROGS);
+      eq(r.bad, []); eq(r.refs, [], 'board uses only the player\'s chips'); ok(r.gates > 1000, 'gates ' + r.gates); ok(r.comps > 80);
+    },
+    'CPU board: a broken DECODE chip would make the board disagree (the board really uses it)': async ({ page, ok }) => {
+      await solveAll(page); await dismissModals(page);
+      const r = await page.evaluate((src) => { const N = __nand; const asm = N.assemble(src); const good = N.runOnBoard(asm, []).out.join();
+        const orig = N.TYPES.DECODE.fn; N.TYPES.DECODE.fn = (v) => { const o = orig(v); o[0] = 0; return o; }; const bad = N.runOnBoard(asm, []).out.join(); N.TYPES.DECODE.fn = orig; return [good, bad]; }, PROGS.fib);
+      ok(r[0] !== r[1], 'board output changed: ' + r);
+    },
+    'Step runs the program on the board and lights the chips in use': async ({ page, ok, eq }) => {
+      await solveAll(page); await dismissModals(page);
+      await page.evaluate(() => { __nand.showSoft(0); const c = document.getElementById('code'); c.value = 'in a\nin b\nadd a, b\nout a\nhlt'; c.dispatchEvent(new Event('input')); });
+      await page.click('#stepBtn'); ok(/I\/O/.test(await page.textContent('#cpuBoard .lit:last-child')) || (await page.locator('#cpuBoard .lit').count()) > 2);
+      await page.click('#stepBtn'); await page.click('#stepBtn'); eq((await page.locator('#cpuBoard span.lit').allTextContents()).includes('ALU'), true);
     },
     'software: wrong programs fail (hard-coded answer, never halts, smile with wrong pixel)': async ({ page, ok }) => {
       await solveAll(page); await dismissModals(page);
@@ -306,6 +336,28 @@ module.exports = {
       const z1 = await page.evaluate(() => __nand.view.z); ok(z1 > z0 * 2.2, `zoomed ${z0} -> ${z1}`);
       ok(await page.evaluate(() => __nand.circ.comps.length === 0 && __nand.SAVE.cur === 0), 'pinch did not edit the circuit');
       await page.click('#fitBtn'); const z2 = await page.evaluate(() => __nand.view.z); ok(z2 < z1, 'fit zooms back out');
+    },
+    'difficulty: naive play fails': async ({ page, ok }) => {
+      await solveAll(page, 16); await dismissModals(page);
+      const r = await page.evaluate(({ SOL, BUILD_SRC }) => { const N = __nand, build = eval(BUILD_SRC); const late = N.L.map((l, i) => i).filter(i => i >= 17);
+        let seed = 9; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) % n; };
+        const out = { randomWins: 0, randomTries: 0, obviousWins: 0, composed3: 0, composedWins: 0 };
+        for (const i of late) { N.showCircuit(i); const l = N.L[i]; const pal = N.paletteFor(i);
+          // random bot: a handful of random parts, randomly wired
+          for (let k = 0; k < 6; k++) { const comps = [], wires = []; const n = 1 + rnd(5); for (let c = 0; c < n; c++) comps.push({ id: c + 1, type: pal[rnd(pal.length)], x: 200 + c * 90, y: 60 + rnd(200) });
+            const outsOf = [...l.ins.map((p, j) => ({ ref: ['in', j], w: p[1] }))]; comps.forEach(c => N.TYPES[c.type].outs.forEach((p, j) => outsOf.push({ ref: [c.id, j], w: p[1] })));
+            const sinks = [...l.outs.map((p, j) => ({ ref: ['out', j], w: p[1] }))]; comps.forEach(c => N.TYPES[c.type].ins.forEach((p, j) => sinks.push({ ref: [c.id, j], w: p[1] })));
+            for (const s of sinks) { const ok = outsOf.filter(o => o.w === s.w); if (ok.length) wires.push({ from: ok[rnd(ok.length)].ref, to: s.ref }); }
+            N.circ = { comps, wires }; const before = N.SAVE.best[l.id]; delete N.SAVE.best[l.id]; N.runTests(); out.randomTries++; if (N.SAVE.best[l.id] != null) out.randomWins++; if (before != null) N.SAVE.best[l.id] = before; else delete N.SAVE.best[l.id]; }
+          // obvious bot: the previous level's chip, inputs and outputs wired straight through
+          const prev = N.L[i - 1].id; if (N.TYPES[prev]) { const t = N.TYPES[prev]; const wires = []; t.ins.forEach((p, j) => { const k = l.ins.findIndex(q => q[1] === p[1]); if (k >= 0) wires.push({ from: ['in', Math.min(j, l.ins.length - 1)], to: [1, j] }); }); l.outs.forEach((p, j) => { if (t.outs[j] && t.outs[j][1] === p[1]) wires.push({ from: [1, j], to: ['out', j] }); });
+            N.circ = { comps: [{ id: 1, type: prev, x: 300, y: 100 }], wires: wires.filter(w => N.TYPES[prev].ins[w.to[1]] && (w.from[0] !== 'in' || l.ins[w.from[1]][1] === N.TYPES[prev].ins[w.to[1]][1])) };
+            const before = N.SAVE.best[l.id]; delete N.SAVE.best[l.id]; N.runTests(); if (N.SAVE.best[l.id] != null) out.obviousWins++; if (before != null) N.SAVE.best[l.id] = before; else delete N.SAVE.best[l.id]; }
+          // competent: compose the earlier chips sensibly (the reference circuits)
+          N.circ = build(SOL[l.id]); N.runTests(); if (N.SAVE.best[l.id] != null) { out.composedWins++; if (N.stars(l.id) === 3) out.composed3++; } }
+        out.late = late.length; return out; }, { SOL, BUILD_SRC });
+      ok(r.randomWins === 0, 'random wins ' + r.randomWins + '/' + r.randomTries); ok(r.obviousWins <= 0.2 * r.late, 'obvious wins ' + r.obviousWins);
+      ok(r.composedWins === r.late, 'competent composition solves every late level'); ok(r.composed3 <= r.late / 2, 'composition alone 3★ on ' + r.composed3 + '/' + r.late);
     },
     'phone layout: no horizontal scroll and the canvas is usable': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);

@@ -41,6 +41,8 @@
   .ax.bad{border-color:var(--bad)}
   .addax{display:flex;flex-direction:column;gap:6px;justify-content:center}
   .tool{margin-top:16px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel);max-width:900px}
+  .drift{font-size:11px;color:#c8f0c8;white-space:nowrap}
+  .walk{font-size:18px;margin:8px 0}
   .tool summary{cursor:pointer;font-weight:600}
   .bt{font-family:ui-monospace,monospace;font-size:12px;width:100%;border-collapse:collapse;margin-top:8px}
   .bt td,.bt th{padding:3px 6px;border-bottom:1px solid #1d2230;text-align:right}
@@ -191,8 +193,8 @@ const C = [
     s: 'Every mesh <b>reverses</b> the direction of rotation. This output has to turn at a third of the speed <b>and</b> clockwise, the same way as the motor. Put an <b>idler</b> in between: a gear that only passes the motion along. It changes the direction but not the overall ratio.<br><i>Press <b>+ Axle</b>: a new axle\'s gear is an idler until you give it a driving gear.</i>' },
   { id: 2, a: 0, n: 'The Seconds Hand', motor: [1, 'escape wheel: 1 turn per second'], T: [{ n: 'Seconds hand', r: [1, 60], dir: 1 }], par: 4,
     s: 'The escapement ticks the motor round once a second. A seconds hand turns once a minute. Gears run from 8 to 120 teeth, so one mesh can reduce speed by at most 15×. You need a <b>compound</b> axle: two gears fixed to the same arbor, one driven and one driving.' },
-  { id: 3, a: 0, n: 'The Hour Hand', motor: [3600, 'minute arbor: 1 turn per hour'], T: [{ n: 'Hour hand', r: [1, 12], dir: 1 }], par: 3,
-    s: 'The minute arbor turns once an hour. The hour hand turns once every 12 hours, clockwise like everything else on a clock face.' },
+  { id: 3, a: 0, n: 'The Hour Hand', motor: [3600, 'minute arbor: 1 turn per hour'], T: [{ n: 'Hour hand', r: [1, 12], dir: 1 }], par: 4, coaxial: 1,
+    s: 'The minute arbor turns once an hour; the hour hand turns once every 12 hours. But the hour hand sits on a pipe <b>around the minute arbor</b>: this is the <i>motion work</i>, and the train must come back to where it started. Two meshes of the same tooth size can only do that if their <b>tooth counts add up to the same total</b> (wheel + pinion on the way out = wheel + pinion on the way back). 36 + 12 and 32 + 8 will not do.' },
   { id: 4, a: 0, n: 'Hours from Seconds', motor: [1, '1 turn per second'], T: [{ n: 'Hour wheel', r: [1, 3600], dir: 1 }], par: 8,
     s: 'From one turn a second down to one turn an hour: a 3600× reduction, clockwise. 15 × 15 × 15 is only 3375.' },
   { id: 5, a: 0, n: 'The Weekday Wheel', motor: [DAY, '1 turn per day'], T: [{ n: 'Weekday wheel', r: [1, 7], dir: 1 }], par: 3,
@@ -216,7 +218,7 @@ const C = [
     s: 'For a display cabinet: a 1000× reduction in which <b>every gear has a different tooth count</b>.' },
   // Act III
   { id: 14, a: 2, n: 'The Pi Wheel', motor: [1, '1 turn per second'], T: [{ n: 'Output', x: Math.PI, tol: [1000, 100, 1] }], maxG: 4, brocot: 1,
-    s: 'Approximate ratios. Real clocks have to match the sky, and the sky does not use whole numbers. Make the output turn π times per motor turn. 22/7 is close. <b>Brocot\'s table</b>, published in 1862 by Achille Brocot, a Paris clockmaker, lists the best fractions near any number. Error is measured in parts per million (ppm).' },
+    s: 'Approximate ratios. Real clocks have to match the sky, and the sky does not use whole numbers. Make the output turn π times per motor turn. 22/7 is close. <b>Brocot\'s table</b>, published in 1862 by the Paris clockmaker Achille Brocot, lists the best fractions near any number, but you have to earn it: first walk the Stern–Brocot tree by hand, as he did. Error is measured in parts per million (ppm), and shown as how long the dial takes to drift.' },
   { id: 15, a: 2, n: 'Moon Phase', motor: [DAY, '1 turn per day'], T: [{ n: 'Moon-phase disc', x: 1 / 29.530589, tol: [1000, 100, 5] }], maxG: 6, lastGear: 59, brocot: 1,
     s: 'From new moon to new moon is 29.530589 days. The customer\'s case already holds a painted <b>moon disc with 59 teeth</b> (two moons around its edge), so the <b>last gear of your train must be that 59</b>. Two teeth per day would be the mantel-clock shortcut, but it drifts a day every three years. Do better with the gears in front of it.' },
   { id: 16, a: 2, n: 'The Golden Gear', motor: [1, '1 turn per second'], T: [{ n: 'Output', x: (1 + Math.sqrt(5)) / 2, tol: [1000, 200, 100] }], maxG: 2,
@@ -297,6 +299,10 @@ function analyse(c, d) {
   if (c.distinct || c.inv) { const seen = {}; res.gears.forEach(t => { seen[t] = (seen[t] || 0) + 1; }); for (const t in seen) if (seen[t] > 1) { bad.add(+t); res.problems.push(`${t}-tooth gear used ${seen[t]} times`); } }
   if (c.inv) res.gears.forEach(t => { if (!c.inv.includes(t)) { bad.add(t); res.problems.push(`no ${t}-tooth gear in the bin`); } });
   if (c.maxG && res.gears.length > c.maxG) res.problems.push(`${res.gears.length} gears, limit ${c.maxG}`);
+  if (c.coaxial) { // motion work: the train returns to the motor's axis, so both meshes need the same centre distance
+    if (ax.length !== 3 || ax[1].o == null) res.problems.push('the motion work is exactly two meshes: minute pinion → minute wheel, its pinion → hour wheel');
+    else if (ax[0].o + ax[1].i !== ax[1].o + ax[2].i) res.problems.push(`centre distances differ: ${ax[0].o}+${ax[1].i} = ${ax[0].o + ax[1].i} teeth out, ${ax[1].o}+${ax[2].i} = ${ax[1].o + ax[2].i} back`);
+  }
   if (c.lastGear && ax.length > 1 && ax[ax.length - 1].i !== c.lastGear) res.problems.push(`the last gear must be the ${c.lastGear}-tooth disc`);
   if (c.budget) { const tot = res.gears.reduce((a, t) => a + t, 0); if (tot > c.budget) res.problems.push(`${tot} teeth in total, budget ${c.budget}`); }
   res.bad = bad;
@@ -335,6 +341,12 @@ function fmtP(sec) {
   for (const [s, n] of u) if (sec >= s * .999 || s === 1) { const v = sec / s; return (v >= 100 ? v.toFixed(2) : v >= 10 ? v.toFixed(3) : v.toFixed(4)).replace(/\.?0+$/, '') + ' ' + (Math.abs(v - 1) < 1e-9 ? n.replace(/s$/, '') : n); }
 }
 const fmtR = (p, q) => q === 1n ? `${p}` : `${p}/${q}`;
+// Error as time on the sky: how long until the dial is a whole day out (or seconds a day for fast dials).
+function drift(ppm, period) {
+  const e = ppm / 1e6; if (!(e > 0)) return 'never drifts';
+  if (period >= DAY * .9) { const y = 1 / (e * 365.2422); return y >= 1e6 ? 'a day out in over a million years' : y >= 1 ? `a day out every ${y >= 100 ? Math.round(y).toLocaleString('en') : y.toFixed(1)} years` : `a day out every ${Math.round(y * 365.2422)} days`; }
+  const sd = e * 86400; return sd >= 1 ? `${sd.toFixed(sd >= 10 ? 0 : 1)} s a day off` : `${(sd * 365.2422 / 60).toFixed(1)} min a year off`;
+}
 const fmtErr = e => e == null ? '–' : e < .01 ? '<0.01 ppm' : e < 10 ? e.toFixed(2) + ' ppm' : e < 1e4 ? e.toFixed(0) + ' ppm' : (e / 1e4).toFixed(1) + '%';
 
 // ---------- UI ----------
@@ -363,6 +375,7 @@ function render() {
   if (c.odd) rules.push('Odd tooth counts only');
   if (c.distinct) rules.push('Every gear different');
   if (c.inv) rules.push('Bin: ' + c.inv.join(', '));
+  if (c.coaxial) rules.push('Coaxial: equal tooth sums');
   if (c.lastGear) rules.push(`Last gear: the ${c.lastGear}-tooth disc`);
   if (c.budget) rules.push(`At most ${c.budget} teeth in all`);
   const best = S.done[cur];
@@ -376,12 +389,12 @@ function render() {
     <canvas id="cv"></canvas>
     <div class="axles" id="axles"></div>
     <div class="note" style="margin-top:6px">Each axle after the motor has a <b>driven</b> gear. Give it a second, <b>driving</b> gear to make it compound, or leave that empty and the driven gear passes the motion on by itself (an idler). Every mesh reverses direction.</div>
-    ${c.brocot ? brocotHTML(c) : ''}`;
+    ${c.brocot ? (brocotEarned() ? brocotHTML(c) : walkHTML(c)) : ''}`;
   $('resetBtn').onclick = () => { delete S.designs[cur]; persist(); render(); };
   if ($('freeX')) $('freeX').oninput = () => { S.freeX = $('freeX').value; const x = parseRatio(S.freeX); if (x > 0) { FREE.T[0].x = x; } update(); };
   if (cur === 'free') { const x = parseRatio(S.freeX ?? '1/29.530589'); if (x > 0) FREE.T[0].x = x; }
   renderAxles(); renderSide(); update();
-  if (c.brocot) wireBrocot(c);
+  if (c.brocot) (brocotEarned() ? wireBrocot : wireWalk)(c);
   sizeCanvas();
 }
 const parseRatio = s => { const m = String(s).split('/'); const v = m.length === 2 ? +m[0] / +m[1] : +m[0]; return isFinite(v) ? v : NaN; };
@@ -424,7 +437,7 @@ function update() {
     const dir = t.dir === 1 ? '↻ clockwise' : t.dir === -1 ? '↺ anticlockwise' : 'either';
     const ach = m?.k ? `${fmtR(R.axles[m.k].p, R.axles[m.k].q)} <span class="dim">= ${m.val.toPrecision(9)}</span>` : '–';
     const st = m?.ok ? (t.r ? '<span class="yes">✓ exact</span>' : `<span class="${m.stars === 3 ? 'yes' : 'mid'}">${'★'.repeat(m.stars)}</span>`) : '<span class="no">✗</span>';
-    return `<tr><td>${t.n}</td><td class="mono">${need}</td><td>${dir}</td><td>${m?.k ? 'Axle ' + m.k : '–'}</td><td class="mono">${ach}</td><td class="mono">${m?.k ? (t.r && m.exact ? '0' : fmtErr(m.err)) : '–'}</td><td>${st}</td></tr>`;
+    return `<tr><td>${t.n}</td><td class="mono">${need}</td><td>${dir}</td><td>${m?.k ? 'Axle ' + m.k : '–'}</td><td class="mono">${ach}</td><td class="mono">${m?.k ? (t.r && m.exact ? '0' : fmtErr(m.err) + (t.x ? `<div class="drift">${drift(m.err, mp / m.val)}</div>` : '')) : '–'}</td><td>${st}</td></tr>`;
   }).join('');
   document.querySelectorAll('[data-sp]').forEach(el => { const k = +el.dataset.sp, a = R.axles[k]; el.textContent = `${a.sign > 0 ? '↻' : '↺'} ${fmtR(a.p, a.q)}`; el.title = '1 turn per ' + fmtP(mp * Number(a.q) / Number(a.p)); });
   document.querySelectorAll('[data-hand]').forEach(el => { const k = +el.dataset.hand; el.textContent = c.T.filter((t, j) => R.T[j]?.k === k && R.T[j].ok).map(t => '◆ ' + t.n).join(' '); });
@@ -467,6 +480,33 @@ async function record() {
 }
 
 // ---------- Brocot table ----------
+// Brocot's printed table is earned: until the Pi Wheel is delivered you walk the Stern–Brocot tree yourself, one
+// mediant at a time (between a/b and c/d lies (a+c)/(b+d)), deciding at each step whether the target is above or below.
+const PI_WHEEL = C.findIndex(c => c.n === 'The Pi Wheel');
+const brocotEarned = () => !!S.done[PI_WHEEL];
+let walk = null;
+function walkHTML(c) {
+  const opts = c.T.map(t => `<option value="${t.r ? t.r[0] / t.r[1] : t.x}">${t.n}</option>`).join('');
+  return `<details class="tool" open><summary>🌳 Walk the Stern–Brocot tree</summary>
+    <div class="note" style="margin-top:6px">Brocot's printed table is yours once you deliver the Pi Wheel. Until then, find good fractions the way he did. Between two fractions a/b and c/d lies their <b>mediant</b> (a+c)/(b+d). Start between 0/1 and 1/0. At each step, say whether the target is above or below the mediant. Every fraction you pass is the best one possible for its size.</div>
+    <div class="row" style="margin-top:8px"><select id="wSel">${opts}</select><button id="wReset">Start again</button></div><div id="wOut"></div></details>`;
+}
+function wireWalk(c) {
+  const draw = () => {
+    const x = walk.x, m = [walk.a[0] + walk.b[0], walk.a[1] + walk.b[1]], v = m[0] / m[1];
+    $('wOut').innerHTML = `<div class="walk"><span class="mono">${walk.a[0]}/${walk.a[1]}</span> &lt; <b class="mono">${m[0]}/${m[1]} = ${v.toPrecision(9)}</b> &lt; <span class="mono">${walk.b[0]}/${walk.b[1]}</span></div>
+      <div class="row">Target ${x.toPrecision(10)} is <button id="wHi">above it</button><button id="wLo">below it</button></div>
+      ${walk.hist.length ? `<table class="bt"><tr><th class="l">p / q</th><th>value</th><th>error</th><th class="l">p factors</th><th class="l">q factors</th></tr>${walk.hist.slice(-10).reverse().map(r => `<tr><td class="l">${r.p}/${r.q}</td><td>${(r.p / r.q).toPrecision(9)}</td><td>${fmtErr(r.e)}</td><td class="l">${factor(r.p).join('·') || 1}</td><td class="l">${factor(r.q).join('·') || 1}</td></tr>`).join('')}</table>` : ''}`;
+    const step = up => {
+      if ((x > v) !== up) { RH.toast(`No: ${m[0]}/${m[1]} = ${v.toPrecision(6)} is ${v > x ? 'above' : 'below'} the target.`); return; }
+      if (up) walk.a = m; else walk.b = m; const e = Math.abs(v / x - 1) * 1e6;
+      if (!walk.hist.length || e < walk.hist[walk.hist.length - 1].e) walk.hist.push({ p: m[0], q: m[1], e }); SFXW.click(); draw();
+    };
+    $('wHi').onclick = () => step(true); $('wLo').onclick = () => step(false);
+  };
+  const reset = () => { walk = { x: +$('wSel').value, a: [0, 1], b: [1, 0], hist: [] }; draw(); };
+  $('wSel').onchange = reset; $('wReset').onclick = reset; reset();
+}
 function brocotHTML(c) {
   const opts = c.T.map((t, j) => `<option value="${t.r ? t.r[0] / t.r[1] : t.x}">${t.n}</option>`).join('') + (c.T.length > 1 ? c.T.slice(1).map((t, j) => { const a = c.T[j], va = a.r ? a.r[0] / a.r[1] : a.x, vb = t.r ? t.r[0] / t.r[1] : t.x; return `<option value="${vb / va}">${a.n} → ${t.n}</option>`; }).join('') : '');
   return `<details class="tool" open><summary>📖 Brocot's table: best fractions near a number</summary>
@@ -591,7 +631,7 @@ const help = () => RH.modal(`<h2>⚙️ Escapement</h2>
 $('helpBtn').onclick = help;
 if (!S.intro) { S.intro = 1; persist(); help(); }
 open(cur);
-window.__esc = { ACT_NEED, loadState, actOpen, SETTLE_MS, get cur() { return cur; }, C, S, analyse, open, design, render, update, get R() { return R; } };
+window.__esc = { drift, brocotEarned, ACT_NEED, loadState, actOpen, SETTLE_MS, get cur() { return cur; }, C, S, analyse, open, design, render, update, get R() { return R; } };
 
 // phones: level drawer and folding stories
 (() => {

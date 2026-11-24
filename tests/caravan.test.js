@@ -1,10 +1,43 @@
 // Caravan: Silk Road trading. Logic via window.__caravan.
+const { caravanBot } = require('./caravan.bots.js');
 const closeModals = page => page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
 const keepStorage = async page => { const snap = await page.evaluate(() => JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])))); await page.addInitScript(s => { const o = JSON.parse(s); for (const k in o) localStorage.setItem(k, o[k]); }, snap); };
 const reload = async page => { await keepStorage(page); await page.reload(); await page.waitForTimeout(500); await closeModals(page); };
 module.exports = {
   page: 'caravan/index.html',
   tests: {
+    'map: every route line ends on its two cities, in landscape and portrait, after layout changes': async ({ page, eq }) => {
+      const check = () => page.evaluate(() => { const K = window.__caravan, segs = K.mapSegs(), bad = [];
+        if (!segs || segs.length !== K.routes.length) return ['segments ' + (segs && segs.length)];
+        for (const [a, b, x1, y1, x2, y2] of segs) { const [ax, ay] = K.P(K.cities[a]), [bx, by] = K.P(K.cities[b]); if (Math.hypot(ax - x1, ay - y1) > 1 || Math.hypot(bx - x2, by - y2) > 1) bad.push(a + '-' + b); }
+        return bad; });
+      await closeModals(page); await page.waitForTimeout(200); eq(await check(), [], 'landscape');
+      await page.evaluate(() => { document.getElementById('side').style.width = '300px'; }); await page.waitForTimeout(200); eq(await check(), [], 'after the panel resized');
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(400);
+      eq(await page.evaluate(() => { const r = document.getElementById('map').getBoundingClientRect(); return r.height > r.width * 1.15; }), true, 'portrait map');
+      eq(await check(), [], 'portrait');
+    },
+    'difficulty: naive play fails; a greedy trader wins; 3 stars needs better information; information pays': async ({ page, ok }) => {
+      await closeModals(page); await page.addScriptTag({ content: caravanBot.toString() });
+      const r = await page.evaluate(() => { const K = window.__caravan, w = {};
+        for (const pol of ['idle', 'random', 'obvious', 'greedy-book', 'greedy-live']) w[pol] = [1, 2, 3, 4, 5, 6].map(s => caravanBot(s * 1013, pol));
+        const st = Object.fromEntries(Object.entries(w).map(([k, v]) => [k, v.map(K.starsFor)])), mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+        return { w, st, book: mean(w['greedy-book']), live: mean(w['greedy-live']) }; });
+      const naive = [...r.st.idle, ...r.st.random, ...r.st.obvious], low = naive.filter(x => x <= 1).length / naive.length;
+      ok(low >= .8, 'naive bots reach 2+ stars too often: ' + JSON.stringify(r.w));
+      ok(r.st['greedy-book'].filter(x => x >= 2).length >= 4, 'the competent trader should usually win: ' + r.w['greedy-book']);
+      ok(r.st['greedy-book'].every(x => x < 3), '3 stars should need more than the simple greedy trader');
+      ok(r.st['greedy-live'].some(x => x === 3), 'a trader with live information should reach 3 stars');
+      ok(r.live > r.book * 1.3, 'information should pay: ' + r.book + ' vs ' + r.live);
+    },
+    'geography is coherent: no city wants what it makes, and silk runs east to west': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const K = window.__caravan; return { same: K.cities.filter(c => c.prod.some(g => c.dem.includes(g))).length, silkE: K.cities[0].prod.includes(8), silkW: K.cities[22].dem.includes(8) }; });
+      ok(r.same === 0 && r.silkE && r.silkW, JSON.stringify(r));
+    },
+    'stale prices go stale: after 90 days a city price has usually moved by more than 15%': async ({ page, ok }) => {
+      const f = await page.evaluate(() => { const K = window.__caravan; K.newCareerSeed(4242); const before = K.cities.map(c => c.price.slice()); for (let d = 0; d < 90; d++) K.tick(); let n = 0, m = 0; K.cities.forEach((c, i) => c.price.forEach((p, g) => { n++; if (Math.abs(p / before[i][g] - 1) > .15) m++; })); return m / n; });
+      ok(f > .5, 'only ' + f + ' moved');
+    },
     'world: every city reachable, shortest paths optimal and symmetric': async ({ page, eq }) => {
       const bad = await page.evaluate(() => {
         const K = window.__caravan, n = K.cities.length, D = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => i === j ? 0 : 1e9));

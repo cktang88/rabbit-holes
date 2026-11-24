@@ -65,6 +65,11 @@
   .rec .dt{flex:0 0 70px;color:var(--fade)}
   .rec .ty{flex:0 0 18px;color:#8a6a3a}
   .rec .tx{flex:1}
+  .pinB{flex:0 0 auto;align-self:center;min-width:30px;min-height:28px;padding:0 6px;font-size:13px;background:transparent;box-shadow:none;border:1px dotted #7d5a3688;color:var(--fade);opacity:.75}
+  .pinB.on{opacity:1;border-style:solid;background:#f2c76a66}
+  .rec:hover .pinB{opacity:1}
+  .ev{font-size:13px;color:var(--fade);margin:4px 0;font-style:italic}
+  .ev i{color:var(--ink)}
   .lost{text-align:center;font-style:italic;color:#8a6a3a;padding:20px}
   .nav{display:flex;justify-content:center;gap:8px;align-items:center;margin:4px 0 14px}
   .nav select{background:#f1e6ca;font-size:17px;border:1px solid var(--fade)}
@@ -327,12 +332,13 @@ function buildRegister(seed) {
 // Each task kind lists the records a careful genealogist could not rule out, using only what the anchor records say.
 const sameSur = (a, b) => canon(a) === canon(b);
 function bornFromBurial(b) { return b.age == null ? null : b.d - (b.age + .5) * YD; }
-function deadBefore(R, c, before) {
-  // a burial that plausibly is this baptised child, before the date we know they were alive
-  return R.some(b => b.t === 'D' && b.d < before && b.d > c.d && b.g === c.g && sameSur(b.s, c.fs) && (
+// a burial that plausibly is this baptised child, before the date we know they were alive
+const isChildBurial = (b, c, before) => !!b && b.t === 'D' && b.d < before && b.d > c.d && b.g === c.g && sameSur(b.s, c.fs) && (
     (b.rel && (b.rel.k === 'son' || b.rel.k === 'dau') && b.rel.fg === c.fg && (b.age == null || Math.abs(bornFromBurial(b) - c.d) < yrs(1.5))) ||
-    (!b.rel && b.age != null && Math.abs(bornFromBurial(b) - c.d) < yrs(2.5))));
-}
+    (!b.rel && b.age != null && Math.abs(bornFromBurial(b) - c.d) < yrs(2.5)));
+function deadBefore(R, c, before) { return R.some(b => isChildBurial(b, c, before)); }
+// which reasons need a third record cited as proof (the rest can be read off the entry itself)
+const CITE = { dead: (R, c, k, b) => isChildBurial(b, c, R[k.a].d) };
 // Each kind lists its tests in order; a record fits when none of them fail. The first failure is "the" reason,
 // but every failing test is a valid reason to strike a candidate out.
 const ageOff = (c, b) => c.age != null && Math.abs(bornFromBurial(c) - b.d) > yrs(c.about ? 5.5 : 3.5);
@@ -382,6 +388,8 @@ const candidates = (R, k) => {
   if (k.kind === 'E') return R.filter(c => c.t === 'D' && c.g === a.bg && sameSur(c.s, a.gs));
 };
 const naive = (R, k) => candidates(R, k).length;
+// decoys that survive every date check: only another record (a burial, a maiden name, an age, a relation) tells them apart
+const hardDecoys = (R, k) => candidates(R, k).filter(d => d.id !== k.truth && !KIND[k.kind].why(R, d, k).some(x => x === 'late' || x === 'early'));
 const solveTask = (R, k) => R.filter(c => KIND[k.kind].fits(R, c, k) === null);
 
 // ================= commissions =================
@@ -429,7 +437,8 @@ function buildCommissions(W) {
     if (tasks.filter(t => t.naive > 1).length < 2) continue; // at least two real deductions; single-name tasks are filled in for you
     tasks.forEach(t => { t.dep = tasks.findIndex(u => u.truth === t.a); if (t.b != null) t.dep2 = tasks.findIndex(u => u.truth === t.b); });
     const diff = tasks.length * 2 + tasks.reduce((a, t) => a + Math.min(6, t.naive - 1), 0);
-    cands.push({ start: st.id, tasks, diff, client: clientFor(r, R[st.id]) });
+    const hard = tasks.reduce((a, t) => a + hardDecoys(R, t).reduce((h, d) => h + (KIND[t.kind].why(R, d, t).includes('dead') ? 2 : 1), 0), 0);
+    cands.push({ start: st.id, tasks, diff, hard, client: clientFor(r, R[st.id]) });
   }
   // prefer longer letters; keep a spread of difficulty
   // one letter per family (siblings share every ancestor), a few short ones to start, then the longest
@@ -439,7 +448,10 @@ function buildCommissions(W) {
   const long = uniq.filter(c => !short.includes(c)).sort((a, b) => b.tasks.length - a.tasks.length || b.diff - a.diff);
   const out = [...short, ...long].slice(0, 24);
   out.sort((a, b) => a.diff - b.diff);
-  return out;
+  // the last bundle gets the six most tangled letters, the third bundle the next six with at least one tangle
+  const take = (pool, n, ok) => { const xs = pool.filter(ok).sort((a, b) => b.hard - a.hard || b.diff - a.diff).slice(0, n); return xs.sort((a, b) => a.diff - b.diff); };
+  const t3 = take(out, 6, c => c.hard >= 2), rest = out.filter(c => !t3.includes(c)), t2 = take(rest, 6, c => c.hard >= 1), early = rest.filter(c => !t2.includes(c));
+  return [...early, ...t2, ...t3];
 }
 const CLIENT_N = ['Mrs Eleanor Hartwell, of Boston','Mr Josiah Penrose, of Adelaide','The Rev. Arthur Quill','Miss Dorothea Vane, of Toronto','Mr Ezekiel Marsh, of Philadelphia','Mrs Clara Oakes, of Dunedin','Mr Barnaby Croft','Miss Henrietta Lyle, of Cape Town','Mr Silas Whitlock, of Ohio','Mrs Winifred Ashe'];
 function clientFor(r, child) {
@@ -508,7 +520,7 @@ const TY = { B: 'Baptisms', M: 'Marriages', D: 'Burials' };
 const TYI = { B: '✝', M: '⚭', D: '☩' };
 function recRow(x, hl) {
   const dt = dayToDate(x.d), solvedIds = solvedRecIds();
-  return `<div class="rec ${x.id === sel ? 'sel' : ''} ${solvedIds.has(x.id) ? 'done' : ''}" data-id="${x.id}"><span class="dt">${MN[dt.m]} ${dt.d}${mode === 'idx' ? ' ' + dt.y : ''}</span><span class="ty">${TYI[x.t]}</span><span class="tx">${hl ? hl(recText(x)) : recText(x)}</span>${S.pins.includes(x.id) ? '<span class="pin">📌</span>' : ''}</div>`;
+  return `<div class="rec ${x.id === sel ? 'sel' : ''} ${solvedIds.has(x.id) ? 'done' : ''}" data-id="${x.id}"><span class="dt">${MN[dt.m]} ${dt.d}${mode === 'idx' ? ' ' + dt.y : ''}</span><span class="ty">${TYI[x.t]}</span><span class="tx">${hl ? hl(recText(x)) : recText(x)}</span><button class="pinB ${S.pins.includes(x.id) ? 'on' : ''}" data-pin="${x.id}" aria-label="${S.pins.includes(x.id) ? 'Unpin' : 'Pin'} this entry" title="Pin">${S.pins.includes(x.id) ? '📌' : '＋'}</button></div>`;
 }
 function solvedRecIds() { const s = new Set(); const c = COMS[cur]; if (c) { s.add(c.start); (S.prog[cur] || []).forEach((v, i) => { if (v) s.add(c.tasks[i].truth); }); } return s; }
 
@@ -552,7 +564,8 @@ function renderBook() {
     else h += res.slice(0, 400).map(x => recRow(x, hl)).join('') + (res.length > 400 ? '<div class="lost">… narrow the search to see more.</div>' : '');
     b.innerHTML = h + '</div>';
   }
-  b.querySelectorAll('.rec').forEach(el => el.onclick = () => { sel = +el.dataset.id; renderBook(); renderRight(); });
+  b.querySelectorAll('.rec').forEach(el => el.onclick = e => { if (e.target.closest('[data-pin]')) return; sel = +el.dataset.id; renderBook(); renderRight(); });
+  b.querySelectorAll('[data-pin]').forEach(bn => bn.onclick = () => togglePin(+bn.dataset.pin));
 }
 
 function renderSide() {
@@ -591,23 +604,28 @@ function strikeLabel(code, k) {
     D: { rel: 'Someone else’s kin', early: `Buried before ${yearOf(k.after)}`, age: 'Age at burial doesn’t fit' },
     E: { rel: 'Someone else’s kin', early: `Buried before ${yearOf(k.after)}`, age: 'Age at burial doesn’t fit' } })[k.kind][code];
 }
+const starsFor = w => w === 0 ? 3 : w === 1 ? 2 : 1;
+// in the later bundles the register isn't searched for you: only entries you have pinned appear as candidates
+const needPins = () => tierOf(cur) >= 2;
 const struckOf = i => ((S.strikes[cur] ||= {})[i] ||= {});
 const remaining = i => candidates(W.R, COMS[cur].tasks[i]).filter(c => !struckOf(i)[c.id]);
 const tried = {}; // wrong reasons already tried this session, per task:record, so the same mistake isn't paid twice
 let openCand = null;
-function strike(i, id, code) {
+function strike(i, id, code, citeId) {
   const c = COMS[cur], k = c.tasks[i], prog = S.prog[cur], x = W.R[id];
   if (!k || !prog || prog[i] || S.done[cur] || !depOk(k, prog) || !x || struckOf(i)[id] || !candidates(W.R, k).some(r => r.id === id)) return null;
   if (!KIND[k.kind].strikes.includes(code)) return null;
-  const key = cur + ':' + i + ':' + id;
+  if (needPins() && !S.pins.includes(id)) return null; // later bundles: only entries you have found and pinned
+  if (CITE[code] && citeId == null) { RH.toast('Cite the evidence: select the burial in the register first, then strike.', 4200); return null; }
+  const key = cur + ':' + i + ':' + id + (CITE[code] ? ':' + citeId : '');
   if ((tried[key] ||= []).includes(code)) return false;
-  if (KIND[k.kind].why(W.R, x, k).includes(code)) {
+  if (KIND[k.kind].why(W.R, x, k).includes(code) && (!CITE[code] || CITE[code](W.R, x, k, W.R[citeId]))) {
     struckOf(i)[id] = code; openCand = null; sfx('quill'); persist();
-    if (remaining(i).length === 1) confirmTask(i); else renderAll();
+    if (remaining(i).length === 1 && confirmTask(i)) {} else renderAll();
     return true;
   }
   tried[key].push(code); S.wrong[cur] = (S.wrong[cur] || 0) + 1; persist(); sfx('blot');
-  RH.toast('✗ The register does not bear that out. A blot on your reply.', 3600);
+  RH.toast(CITE[code] ? '✗ That entry proves nothing about this one. A blot on your reply.' : '✗ The register does not bear that out. A blot on your reply.', 3600);
   renderAll(); return false;
 }
 // tasks where only one entry in the whole register bears the names need no deduction: they are entered for you
@@ -619,10 +637,11 @@ function autoEnter() {
 async function confirmTask(i) {
   const c = COMS[cur], k = c.tasks[i], prog = S.prog[cur];
   if (!k || prog[i] || S.done[cur] || !depOk(k, prog) || remaining(i).length !== 1) return false;
+  if (needPins() && !S.pins.includes(remaining(i)[0].id)) return false; // the last one must be found and pinned too
   prog[i] = 1; openCand = null; autoEnter(); persist(); sfx('quill');
   RH.toast(`✓ Only one entry is left. ${fmtD(W.R[k.truth].d)}: that must be the one.`, 3200);
   if (prog.every(Boolean)) {
-    const w = S.wrong[cur] || 0, stars = w === 0 ? 3 : w <= 2 ? 2 : 1;
+    const w = S.wrong[cur] || 0, stars = starsFor(w);
     S.done[cur] = { stars }; persist();
     const nxt = COMS.findIndex((cc, j) => j > cur && !S.done[j] && tierOpen(tierOf(j)));
     renderAll(); await sealLetter();
@@ -653,16 +672,21 @@ function renderRight() {
     if (!prog[i] && !ok) { h += `<span class="dim">Unlocks when task ${(k.dep >= 0 && !prog[k.dep] ? k.dep : k.dep2) + 1} is answered.</span></div>`; return; }
     h += taskText(c, k, i);
     if (prog[i]) { h += `<div class="ans">✓ ${fmtD(W.R[k.truth].d)}: ${recText(W.R[k.truth])}</div></div>`; return; }
-    h += ` <button class="small" data-look="${i}" title="Search the index for these names">Look up</button>`;
-    const cands = candidates(W.R, k).sort((a, b) => a.d - b.d), sk = struckOf(i), left = cands.filter(x => !sk[x.id]).length;
-    h += `<div class="cands"><div class="ch">${cands.length === 1 ? 'Only one entry in the register bears these names.' : `${cands.length} entries bear these names. Strike out every one that cannot be right.`}</div>`;
+    const pinMode = needPins();
+    if (!pinMode) h += ` <button class="small" data-look="${i}" title="Search the index for these names">Look up</button>`;
+    const all = candidates(W.R, k).sort((a, b) => a.d - b.d), sk = struckOf(i), left = all.filter(x => !sk[x.id]).length;
+    const cands = pinMode ? all.filter(x => S.pins.includes(x.id) || sk[x.id]) : all;
+    h += `<div class="cands"><div class="ch">${pinMode ? `Search the register and <b>pin</b> every entry that bears these names: ${cands.length} of ${all.length} found. Strike out the ones that cannot be right.` : all.length === 1 ? 'Only one entry in the register bears these names.' : `${all.length} entries bear these names. Strike out every one that cannot be right.`}</div>`;
     for (const x of cands) {
       const why = sk[x.id], open = openCand === i + ':' + x.id;
       h += `<div class="cand ${why ? 'struck' : ''} ${open ? 'open' : ''} ${x.id === sel ? 'sel' : ''}" data-cand="${x.id}" data-t="${i}" ${why ? '' : 'tabindex="0" role="button"'}><span class="cd">${fmtD(x.d)}</span> <span class="ct">${recText(x)}</span>${why ? `<span class="why">${strikeLabel(why, k)}</span>` : ''}`;
-      if (open && !why) { const bad = tried[cur + ':' + i + ':' + x.id] || []; h += `<div class="chips">${KIND[k.kind].strikes.map(code => `<button data-strike="${code}" ${bad.includes(code) ? 'disabled class="blotted"' : ''}>${strikeLabel(code, k)}</button>`).join('')}</div>`; }
+      if (open && !why) { const bad = tried[cur + ':' + i + ':' + x.id] || [], ev = sel != null && sel !== x.id ? W.R[sel] : null, needs = KIND[k.kind].strikes.some(c => CITE[c]);
+        if (needs) h += `<div class="ev">${ev ? `Evidence to cite: <i>${fmtD(ev.d)}, ${recText(ev)}</i>` : 'To strike with a cited record, select it in the register first.'}</div>`;
+        h += `<div class="chips">${KIND[k.kind].strikes.map(code => `<button data-strike="${code}" ${bad.includes(code) && !CITE[code] ? 'disabled class="blotted"' : ''}>${strikeLabel(code, k)}${CITE[code] ? ' (cite)' : ''}</button>`).join('')}</div>`; }
       h += `</div>`;
     }
-    if (left === 1) h += `<button class="primary enter" data-confirm="${i}">Enter the last one in the reply</button>`;
+    if (left === 1 && (!pinMode || S.pins.includes(all.find(x => !sk[x.id]).id))) h += `<button class="primary enter" data-confirm="${i}">Enter the last one in the reply</button>`;
+    else if (left === 1) h += `<div class="ev">One entry is still unaccounted for. Find it in the register and pin it.</div>`;
     h += `</div></div>`;
   });
   if (sel != null) {
@@ -680,9 +704,9 @@ function renderRight() {
   $('right').querySelectorAll('[data-confirm]').forEach(bn => bn.onclick = () => confirmTask(+bn.dataset.confirm));
   $('right').querySelectorAll('.cand:not(.struck)').forEach(el => {
     const i = +el.dataset.t, id = +el.dataset.cand;
-    el.onclick = e => { if (e.target.closest('[data-strike]')) return; const key = i + ':' + id; openCand = openCand === key ? null : key; sel = id; year = yearOf(W.R[id].d); sfx('page'); renderBook(); renderRight(); };
+    el.onclick = e => { if (e.target.closest('[data-strike]')) return; const key = i + ':' + id; const opening = openCand !== key; openCand = opening ? key : null; if (!opening || sel == null) { sel = id; year = yearOf(W.R[id].d); } sfx('page'); renderBook(); renderRight(); };
     el.onkeydown = e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === el) { e.preventDefault(); el.onclick(e); } };
-    el.querySelectorAll('[data-strike]').forEach(bn => bn.onclick = () => strike(i, id, bn.dataset.strike));
+    el.querySelectorAll('[data-strike]').forEach(bn => bn.onclick = () => { const code = bn.dataset.strike; strike(i, id, code, CITE[code] && sel != null && sel !== id ? sel : undefined); });
   });
 }
 
@@ -691,6 +715,7 @@ $('mBook').onclick = () => setMode('book');
 $('mIdx').onclick = () => setMode('idx');
 ['qG', 'qS', 'qY0', 'qY1'].forEach(id => $(id).oninput = () => setMode('idx'));
 ['qSx', 'qB', 'qM', 'qD'].forEach(id => $(id).onchange = () => setMode('idx'));
+function togglePin(id) { S.pins = S.pins.includes(id) ? S.pins.filter(x => x !== id) : [...S.pins, id]; sfx('page'); persist(); renderBook(); renderRight(); renderTabs(); }
 function renderAll() { renderSide(); renderBook(); renderRight(); renderTabs(); }
 // phone layout: which desk is showing (the CSS ignores this on wide screens)
 function setTab(t) { document.body.dataset.tab = t; renderTabs(); const el = { letters: $('side'), reg: $('book'), reply: $('right') }[t]; if (el) el.scrollTop = 0; }
@@ -718,13 +743,16 @@ const help = () => RH.modal(`<h2>The Parish Register</h2>
   <p>You keep the old register of <b>${W.village}</b>: every baptism, marriage and burial from 1700 to 1799, in the clerk's own hand. Letters arrive from descendants who emigrated. Trace their families.</p>
   <p>Each letter is a chain of tasks. For each one, several entries bear the right names, but only one can be the right person. <b>Strike out the others</b> and say why: too young to marry, buried as a child, another man's widow. The register (by year in the <b>Book</b>, by name in the <b>Index</b>) holds the evidence. When one entry is left, it goes in your reply.</p>
   <p>Watch out for the clerk's habits. The same names come back in every generation. Surnames are spelt several ways (Cooper, Couper). Ages at burial are approximate. When a baby died, the next child was often given the same name.</p>
-  <p class="dim">A reason the register doesn't support leaves a blot, and blots cost stars. You need stars to untie the next bundle of letters.</p>`, [{ label: 'Open the register' }]);
+  <p class="dim">A reason the register doesn't support leaves a blot, and every blot costs a star. "Buried as a child" must cite the burial itself. In the later bundles nobody hands you the list: search the register and pin the candidates yourself.</p>`, [{ label: 'Open the register' }]);
 $('helpBtn').onclick = help;
 if (!S.done[cur]) autoEnter();
 renderAll();
 if (!S.intro) { S.intro = 1; persist(); help(); }
 year = yearOf(W.R[COMS[cur].start].d); renderBook();
-window.__parish = { W: () => W, COMS: () => COMS, S, KIND, solveTask, naive, candidates, soundex, cleanSave, recText, strike, confirmTask, remaining, strikeLabel, STARS_TO_OPEN, tierStars, lookUp, openLetter, tierOpen, tierOf, setSel: v => { sel = v; }, get sel() { return sel; }, get cur() { return cur; }, get year() { return year; }, renderAll };
+// solver used by tests: a true reason for striking decoy `id` from task i of the open letter, with the cited record if one is needed
+function proofFor(i, id) { const k = COMS[cur].tasks[i], K = KIND[k.kind], d = W.R[id], why = K.why(W.R, d, k).filter(x => K.strikes.includes(x)), vis = why.find(x => !CITE[x]);
+  if (vis) return { code: vis }; if (!why.length) return null; return { code: why[0], cite: W.R.find(b => CITE[why[0]](W.R, d, k, b)).id }; }
+window.__parish = { proofFor, starsFor, hardDecoys, isChildBurial, CITE, needPins, togglePin, deadBefore, W: () => W, COMS: () => COMS, S, KIND, solveTask, naive, candidates, soundex, cleanSave, recText, strike, confirmTask, remaining, strikeLabel, STARS_TO_OPEN, tierStars, lookUp, openLetter, tierOpen, tierOf, setSel: v => { sel = v; }, get sel() { return sel; }, get cur() { return cur; }, get year() { return year; }, renderAll };
 </script>
 </body>
 </html>

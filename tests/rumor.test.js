@@ -78,11 +78,11 @@ module.exports = {
       await seedRandom(page, 77);
       const r = await page.evaluate(() => {
         const R = window.__rumor, out = {};
-        const play = (i, act) => { R.start(i); const tId = R.T.cast.T.id;
+        const play = (i, act, k) => { R.start(i, null, k + 1); const tId = R.T.cast.T.id;
           while (R.day <= R.sc.days) { if (act) for (let k = 0; k < R.sc.w; k++) { const c = R.T.people.filter(p => p.id !== tId && !(p.belief && p.belief.neg)).sort((a, b) => (R.believesBad(b, tId) - R.believesBad(a, tId)) || b.chat * b.friends.length - a.chat * a.friends.length)[0]; R.hear(c, { who: tId, verb: 4, whom: 0, place: 0, neg: true }, 0.9, null); }
             R.simDay(); R.day = R.day + 1; }
           return R.goalStatus().ok; };
-        for (const i of [10, 11, 13, 14]) { let idle = 0, act = 0; for (let k = 0; k < 15; k++) { idle += play(i, false); act += play(i, true); } out[R.SC[i].n] = [idle, act]; }
+        for (const i of [10, 11, 13, 14]) { let idle = 0, act = 0; for (let k = 0; k < 15; k++) { idle += play(i, false, k); act += play(i, true, k); } out[R.SC[i].n] = [idle, act]; }
         return out;
       });
       for (const [n, [idle, act]] of Object.entries(r)) { ok(idle <= 5, `${n}: idle play won ${idle}/15`); ok(act >= 9, `${n}: denying won only ${act}/15`); }
@@ -99,9 +99,9 @@ module.exports = {
       });
       eq(r.clicks, r.days); eq(r.dup, false); eq(r.done, 1); ok(r.hub > 0 && r.hub <= 1, 'hub ' + r.hub); eq(r.disabled, true); ok(/Village Gazette/.test(r.modal) && /class="big"/.test(r.modal), 'the win prints a gazette front page');
     },
-    'a lost scenario explains why and names a promising first ear': async ({ page, ok }) => {
+    'a lost scenario explains what went wrong as a principle, not a name to copy': async ({ page, ok }) => {
       const m = await page.evaluate(() => { const R = window.__rumor; R.start(2); R.T.people.forEach(p => p.belief = null); while (!document.getElementById('nextDay').disabled) document.getElementById('nextDay').click(); return window.__lastModal; });
-      ok(/moved on/.test(m) && /Hint: <b>/.test(m), m);
+      ok(/moved on/.test(m) && /(hamlet|ear|bridge|starting points)/.test(m) && !/Hint: <b>/.test(m), m);
     },
     'whispers: cannot exceed the daily allowance by spamming the button, and none after the end': async ({ page, eq }) => {
       const r = await page.evaluate(() => {
@@ -164,6 +164,30 @@ module.exports = {
         R.sel = ears[0].id; R.renderAll(); document.getElementById('cVerb').value = '5'; document.getElementById('cPlace').value = '6'; document.getElementById('cGo').click();
         R.sel = ears[1].id; R.renderAll(); return [document.getElementById('cVerb').value, document.getElementById('cPlace').value]; });
       eq(r, ['5', '6']);
+    },
+    'repeatable: the same whispers on Restart give exactly the same town afterwards': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const R = window.__rumor; const play = () => { R.start(2); const P = R.T.people, t = R.T.cast.T.id; const ears = P.filter(p => p.id !== t && !p.role).slice(0, 3);
+          for (const e of ears.slice(0, 2)) { R.sel = e.id; R.renderAll(); document.getElementById('cVerb').value = '2'; document.getElementById('cGo').click(); }
+          for (let d = 0; d < 4; d++) document.getElementById('nextDay').click(); return JSON.stringify(R.T.people.map(p => p.belief && [p.belief.who, p.belief.verb, p.belief.whom, p.belief.place, Math.round(p.str * 100)])); };
+        const a = play(), b = play(); R.start(2); return [a === b, a.length]; });
+      eq(r[0], true); ok(r[1] > 100);
+    },
+    'who told whom: a believer shows the chain back to your whisper, with the teller who changed it': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const R = window.__rumor; R.start(0); const P = R.T.people; const t = R.T.cast.T.id;
+        const [a, b, c] = P.filter(p => p.id !== t && !p.role && !p.skeptic); const v = { who: t, verb: 2, whom: (t + 1) % P.length, place: 0 };
+        a.belief = { ...v }; a.str = 1; a.via = -1; b.belief = { ...v, place: 3 }; b.str = 1; b.via = a.id; b.changedAt = a.id; c.belief = { ...v, place: 3 }; c.str = 1; c.via = b.id; c.changedAt = null;
+        return R.chainOf(c); });
+      ok(/You → .+ → .+changed by.+ → /.test(r), r);
+    },
+    'every villager has a unique name, so the whisper dropdown is unambiguous': async ({ page, ok }) => {
+      const bad = await page.evaluate(() => { const R = window.__rumor, bad = []; R.SC.forEach((sc, i) => { const T = R.buildTown(sc, 1000 + i * 17); const n = T.people.map(p => p.name); if (new Set(n).size !== n.length) bad.push(i); }); const T = R.buildTown({ ...R.SC[0], N: 120 }, 5); if (new Set(T.people.map(p => p.name)).size !== 120) bad.push('120'); return bad; });
+      ok(!bad.length, 'duplicate names in ' + bad);
+    },
+    'whispering a story someone already believes says so, instead of "didn\'t believe you"': async ({ page, ok }) => {
+      const m = await page.evaluate(() => { const R = window.__rumor; R.start(0); const t = R.T.cast.T.id; const p = R.T.people.find(q => q.id !== t && !q.role && !q.skeptic);
+        R.sel = p.id; R.renderAll(); const verb = document.getElementById('cVerb').value, whom = +document.getElementById('cWhom').value, place = +document.getElementById('cPlace').value, who = +document.getElementById('cWho').value;
+        p.belief = { who, verb: +verb, whom, place }; p.str = 0.9; document.getElementById('cGo').click(); return R.log[0]; });
+      ok(/already believes/.test(m), m);
     },
     'mobile layout: no horizontal scroll, town and Next day visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);

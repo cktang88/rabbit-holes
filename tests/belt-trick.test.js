@@ -75,12 +75,13 @@ module.exports = {
     'mechanisms: anti-twister gear orders need +1/2 (sign and size), wrong trains snap; the satellite needs half-speed driving': async ({ page, eq }) => {
       const r = await page.evaluate(() => { const B = __belt, out = {};
         const tryG = o => { B.gears(o); B.run(); B.sim(10); return { k: B.gj.k, broken: B.mech.broken }; };
-        B.level(13); out.g = [tryG({ T: 24, idler: false }), tryG({ T: 18, idler: true }), tryG({ T: 24, idler: true }), tryG({ T: 30, idler: true }), tryG({ T: 36, idler: true }),
-          tryG({ A: 16, B: 24, C: 32 }), tryG({ A: 16, B: 16, C: 24 })]; out.gwon = B.won;
+        B.level(13); out.g = [tryG({ T: 24, idler: false }), tryG({ T: 24, idler: true }), tryG({ T: 30, idler: true }), tryG({ T: 36, idler: true }), tryG({ A: 16, B: 16, C: 24 })]; out.gwon = B.won; out.gstars = B.SAVE.done[13];
+        // three snapped cables empty the drawer and the orders start again
+        B.level(13); out.out = [tryG({ T: 12, idler: true }), tryG({ T: 24, idler: true }), tryG({ T: 18, idler: true }), tryG({ T: 36, idler: false })].map(x => x.k);
         for (const mode of ['never', 'always', 'alt']) { B.level(14); B.hold(true); B.sim(17, t => B.hold(mode === 'always' || (mode === 'alt' && (t % 1.2) < .6))); out[mode] = B.won; }
         return out; });
-      eq(r.g, [{ k: 0, broken: true }, { k: 0, broken: true }, { k: 1, broken: false }, { k: 1, broken: true }, { k: 2, broken: false }, { k: 2, broken: true }, { k: 2, broken: false }], 'gear orders');
-      eq(r.gwon, true); eq([r.never, r.always, r.alt], [false, false, true]);
+      eq(r.g, [{ k: 0, broken: true }, { k: 1, broken: false }, { k: 1, broken: true }, { k: 2, broken: false }, { k: 2, broken: false }], 'gear orders');
+      eq(r.gwon, true); eq(r.gstars, 2, 'two snapped cables cost a star'); eq(r.out, [0, 1, 1, 0], 'out of cable sends you back to order 1'); eq([r.never, r.always, r.alt], [false, false, true]);
     },
     'golf: optimal play scores par and a sign-wrong match does not count': async ({ page, eq, ok }) => {
       const r = await page.evaluate(async () => { const B = __belt, sl = ms => new Promise(r => setTimeout(r, ms)), out = {};
@@ -105,6 +106,47 @@ module.exports = {
       await p.evaluate(() => __belt.flush());
       const r = await p.evaluate(s => ({ q: __belt.q(), want: __belt.seqQ(s), lv: __belt.level_ }), seq);
       eq(r.lv, 17); ok(Math.abs(r.q.reduce((a, v, i) => a + v * r.want[i], 0)) > .999, 'shared sequence was truncated'); ok(!p.errs.length, p.errs[0]); await p.close();
+    },
+    'level 1 by hand: four taps on +90°, then swinging the cable loop round the box shows it stuck (and that wins the lesson)': async ({ page, eq, ok }) => {
+      await page.evaluate(() => __belt.level(0)); await page.waitForTimeout(200);
+      for (let k = 0; k < 4; k++) { await page.click('[data-m="X+90"]'); await page.waitForTimeout(450); }
+      await page.waitForFunction(() => !__belt.busy, null, { timeout: 5000 });
+      ok(/swing it round the box/.test(await page.$eval('#goal', g => g.textContent)), 'coach should say to swing the loop now');
+      eq(await page.$eval('#lampt', e => e.textContent), '?', 'the gauge stays covered until the loop has been tried');
+      const p = await page.evaluate(() => __belt.ribbonScreen(0, .35)), c = await page.evaluate(() => __belt.screen(0)), rad = Math.hypot(p[0] - c[0], p[1] - c[1]), a0 = Math.atan2(p[1] - c[1], p[0] - c[0]);
+      await page.mouse.move(p[0], p[1]); await page.mouse.down();
+      for (let k = 1; k <= 48; k++) { const a = a0 + k / 48 * 2 * Math.PI; await page.mouse.move(c[0] + rad * Math.cos(a), c[1] + rad * Math.sin(a)); }
+      await page.mouse.up(); await page.waitForFunction(() => !__belt.relaxing, null, { timeout: 8000 });
+      eq(await page.evaluate(() => __belt.won), true, 'stuck cable after one full turn should complete level 1');
+      eq(await page.$eval('#lampt', e => e.textContent), 'stuck −1');
+    },
+    'level 2: keep turning forwards and the loop frees the cable after the second full turn': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const B = __belt; B.level(1); const out = []; for (let k = 1; k <= 4; k++) { B.move('X+90'); if (k === 4) { B.relax(); B.check('relax'); } out.push(B.won); } return out; });
+      eq(r, [false, false, false, true]);
+    },
+    'difficulty: naive play fails on the last third, competent play wins, 3 stars need solver-level play': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const B = __belt, QT = ['X+90', 'X-90', 'Y+90', 'Y-90', 'Z+90', 'Z-90'], stars = over => over <= 0 ? 3 : over <= 2 ? 2 : 1, rnd = RH.rng(7), res = { naive: 0, runs: 0, comp: [], simple: [] };
+        const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+        const mul = (t, q) => { const a = B.seqQ([t]); return [a[0] * q[0] - a[1] * q[1] - a[2] * q[2] - a[3] * q[3], a[0] * q[1] + a[1] * q[0] + a[2] * q[3] - a[3] * q[2], a[0] * q[2] - a[1] * q[3] + a[2] * q[0] + a[3] * q[1], a[0] * q[3] + a[1] * q[2] - a[2] * q[1] + a[3] * q[0]]; };
+        // golf: each hole is a target in the 48-element group, matched with the game's rule (sign included); strokes capped at 40
+        const golf = (lv, policy) => { let over = 0; for (const h of B.LV[lv].holes) { const tg = B.seqQ(h), par = B.bfsPar([1, 0, 0, 0], QT, tg); let q = [1, 0, 0, 0], n = 0;
+            while (dot(q, tg) < Math.cos(.07) && n < 40) { q = mul(policy(q, tg), q); n++; } over += n >= 40 ? 99 : n - par; } return stars(over); };
+        const randomP = () => QT[rnd() * 6 | 0], greedyP = (q, tg) => QT.reduce((b, t) => Math.abs(dot(mul(t, q), tg)) > Math.abs(dot(mul(b, q), tg)) ? t : b, QT[0]);
+        const solverP = (q, tg) => B.solve(q, QT, tg)[0];
+        for (const lv of [15, 16]) { for (let t = 0; t < 3; t++) { res.runs++; if (golf(lv, randomP) <= 1) res.naive++; } res.simple.push(golf(lv, greedyP)); res.comp.push(golf(lv, solverP)); }
+        // anti-twister: random parts from the drawer vs the right trains; every snap costs a star
+        const gear = picks => { B.level(13); let guard = 0; while (!B.won && guard++ < 40) { B.gears(picks(B.gj.k)); B.run(); B.sim(10); } return B.won ? B.SAVE.done[13] : 0; };
+        const J = B.LV[13].jobs, pick = a => a[rnd() * a.length | 0];
+        for (let t = 0; t < 3; t++) { delete B.SAVE.done[13]; res.runs++; if (gear(k => J[k].stages ? { A: pick(J[k].gears), B: pick(J[k].gears), C: pick(J[k].gears) } : { T: pick(J[k].gears), idler: rnd() < .5 }) <= 1) res.naive++; }
+        delete B.SAVE.done[13]; res.comp.push(gear(k => [{ T: 24, idler: true }, { T: 36, idler: true }, { A: 16, B: 16, C: 24 }][k]));
+        // satellite: never / always / random long holds vs steady half-speed driving
+        const sat = f => { B.level(14); B.hold(true); B.sim(17, f); return B.won ? 3 : 0; };
+        const randHold = (() => { let next = 0, on = true; return t => { if (t >= next) { on = !on; next = t + .5 + rnd() * 2; } B.hold(on); }; })();
+        for (const f of [() => B.hold(false), () => B.hold(true), randHold]) { res.runs++; if (sat(f) <= 1) res.naive++; }
+        res.comp.push(sat(t => B.hold((t % 1.2) < .6)));
+        return res; });
+      ok(r.naive / r.runs >= .8, `naive bots got 2★+ in ${r.runs - r.naive}/${r.runs} late runs`);
+      ok(r.comp.every(s => s === 3), 'competent: ' + r.comp); ok(r.simple.some(s => s < 3), 'greedy golf (blind to the hidden sign) still gets 3★: ' + r.simple);
     },
     'keyboard: X turns the cube, Shift+X turns it back; RELAX is disabled while betting': async ({ page, near, ok }) => {
       await page.evaluate(() => __belt.level(10)); await page.waitForTimeout(100);

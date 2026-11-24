@@ -148,6 +148,11 @@
   .lawtext .ch{opacity:0;animation:engrave .05s forwards}
   @keyframes engrave{from{opacity:0;color:#fff}to{opacity:1}}
   .note{color:var(--dim)}
+  .method{margin-top:10px;font-size:14px;color:#e6c77b;border-left:3px solid #8a6420;padding:2px 10px}
+  .rival{margin-top:10px;padding:10px 14px;background:#26302b;border:8px solid #6b4423;color:#f1efe6;font-size:15px;box-shadow:inset 0 0 12px #000}
+  .rival .chalk{font-family:Caveat,cursive;font-size:24px}
+  .rival.done{opacity:.8}
+  .stampok{display:inline-block;transform:rotate(-6deg);border:2px solid #7fc48a;color:#7fc48a;padding:0 8px;margin-right:6px;font-family:'Playfair Display SC',serif}
   .sealed{display:inline-block;background:#6e1d15;color:#f6dd8f;padding:2px 10px;border-radius:2px;font-family:"Playfair Display SC",serif;letter-spacing:.1em;box-shadow:inset 0 0 0 2px #f6dd8f66}
   .modal-bg{background:#0d0804cc}
   .modal{background:radial-gradient(ellipse at 50% 0,#4f3520,#2e1d10 80%);color:var(--ink);border:0;border-radius:3px;box-shadow:0 0 0 3px #8a6420,0 0 0 9px #24170d,0 0 0 11px #c99a3b,0 20px 50px #000}
@@ -342,7 +347,9 @@ const LAWS = (() => { const r = RH.rng('hyp:' + S.seed), avoid = [], out = []; T
   const order = r.shuffle([...GEN[t].keys()]); if (t === 0) order.splice(order.indexOf(0), 1), order.unshift(0);
   for (let j = 0; j < TSIZE[t]; j++) out.push(makeLaw(r, t, avoid, order[j % order.length]));
 }); return out; })();
-const par = t => 6 + 2 * t;
+// Par is set from a solver that keeps a pool of candidate laws and always probes the koan that splits it most evenly
+// (about 4 probes in early tiers, 5 later); a random-probing player with the same knowledge only matches it a third of the time.
+const par = t => t < 4 ? 4 : 5;
 const TIER_NEED = 3; // laws to solve in a tier before the next opens
 const tierOpen = t => t === 0 || LAWS.filter((l, i) => l.tier === t - 1 && S.laws[i]?.solved).length >= TIER_NEED;
 // Each tier is a different judging engine, so the nameplate changes as you climb.
@@ -352,16 +359,57 @@ const MODELS = ['The Sieve', 'The Tally Engine', 'The Bookends', 'The Neighbour 
 const isSealed = i => i !== 'free' && LAWS[i].tier >= 1 && [2, 5].includes(i - LAWS.findIndex(l => l.tier === LAWS[i].tier));
 
 let cur = S.cur, law, builder = [], sel = -1, mode = 'probe', preds = null, lastVerdict = null, freeLaw = null;
+// Sealed dossiers are fair: the evidence is chosen so that every rival law in a pool of the same families (this tier's
+// and the one below, plus every law in the book) that differs from the real one on 3% or more of koans is contradicted.
+const rivalPool = i => { const L = LAWS[i], r = RH.rng('hyp:pool:' + i), out = [];
+  for (let t = 0; t < 240; t++) { const tier = t % 3 === 2 && L.tier > 0 ? L.tier - 1 : L.tier; out.push(r.pick(GEN[tier])(r)); }
+  return out.concat(LAWS.filter(x => x !== L)); };
+const SAMPLE_D = 12; // laws closer than this (out of 400 sample koans) count as the same law
+function dossier(i) {
+  const L = LAWS[i], r = RH.rng('hyp:' + S.seed + ':dossier' + i), tf = fp(L);
+  let cands = rivalPool(i).filter(q => fp(q).filter((x, k) => x !== tf[k]).length >= SAMPLE_D);
+  const koans = Array.from({ length: 500 }, (_, t) => randKoan(r, t < 250 ? 2 : 1, t < 250 ? 6 : 8)), chosen = [], seen = new Set();
+  const add = k => { chosen.push(k); seen.add(kkey(k)); const v = L.f(k); cands = cands.filter(q => q.f(k) === v); };
+  // start with a balanced pair, then always take the koan that rules out the most remaining rivals
+  add(koans.find(k => L.f(k))); add(koans.find(k => !L.f(k)));
+  while (cands.length && chosen.length < 18) {
+    let best = null, bn = 0;
+    for (const k of koans) { if (seen.has(kkey(k))) continue; const v = L.f(k); const n = cands.reduce((a, q) => a + (q.f(k) !== v), 0); if (n > bn) { bn = n; best = k; } }
+    if (!best) break; add(best);
+  }
+  // round the file out to at least eight koans, three of each verdict, so it reads as a case rather than a riddle
+  for (const k of koans) { if (chosen.length >= 8 && chosen.filter(x => L.f(x)).length >= 3 && chosen.filter(x => !L.f(x)).length >= 3) break;
+    if (seen.has(kkey(k))) continue; const y = chosen.filter(x => L.f(x)).length, v = L.f(k); if ((v && y >= 5) || (!v && chosen.length - y >= 5)) continue; add(k); }
+  return chosen;
+}
+// Rival scientists: on some laws Dr Ashcombe has already published a confident theory that fits your opening evidence
+// but is wrong. You may not publish until an experiment of yours refutes it.
+const hasRival = i => i !== 'free' && LAWS[i].tier >= 1 && i - LAWS.findIndex(l => l.tier === LAWS[i].tier) === 4;
+const rivalCache = {};
+function rivalOf(i) {
+  if (!hasRival(i)) return null; if (rivalCache[i] !== undefined) return rivalCache[i];
+  const L = LAWS[i], st = lawState(i), r = RH.rng('hyp:rival:' + S.seed + ':' + i), tf = fp(L), given = st.journal.filter(e => e.given);
+  for (let t = 0; t < 3000; t++) { const tier = r.int(2) && L.tier > 0 ? L.tier - 1 : L.tier, q = r.pick(GEN[tier])(r), qf = fp(q), rate = qf.filter(Boolean).length / qf.length;
+    if (rate < .1 || rate > .9 || qf.filter((x, k) => x !== tf[k]).length < 30) continue;
+    if (given.every(e => q.f(e.k) === e.ok)) return (rivalCache[i] = q); }
+  return (rivalCache[i] = null);
+}
+const refuted = (i, st) => { const q = rivalOf(i); return !q || st.journal.some(e => !e.given && q.f(e.k) !== e.ok); };
+const METHODS = [
+  'Method: change one thing at a time. A minimal pair (two koans that differ in a single token) tells you exactly what mattered.',
+  'Method: look for the boundary. When a count matters, step it one at a time across the edge: 1, 2, 3 tokens of a kind.',
+  'Method: position. Move the same tokens to the front, the back and the middle; the law may only care about the ends.',
+  'Method: order. Swap two neighbours. If the verdict flips, the law is about who stands next to whom.',
+  'Method: falsify, don\'t confirm. People test koans they expect to pass (Wason\'s 2-4-6 problem). Build the one your theory says will fail.',
+  'Method: compare. Laws now weigh one thing against another; keep the totals equal and change only the balance.',
+  'Method: conditionals hide. An "if" law is satisfied whenever its condition is absent: test with the condition present.',
+  'Method: Occam. Among theories that fit every verdict, try the simplest arithmetic first, then try to break it.',
+];
 function lawState(i) {
   if (i === 'free') return S.free.st;
   if (!S.laws[i]) {
     const r = RH.rng('hyp:' + S.seed + ':start' + i), L = LAWS[i], j = [];
-    if (isSealed(i)) { // a dossier: five accepted, five rejected, all different
-      const seen = new Set(); let ny = 0, nn = 0;
-      for (let t = 0; t < 40000 && (ny < 5 || nn < 5); t++) { const k = t < 20000 ? randKoan(r, 2, 6) : randKoan(r, 1, 8), key = kkey(k), ok = L.f(k); if (seen.has(key) || (ok ? ny >= 5 : nn >= 5)) continue; seen.add(key); j.push({ k, ok, given: 1 }); ok ? ny++ : nn++; }
-      S.laws[i] = { journal: j, probes: 0, fails: 0, notes: '', sealed: 1 };
-      return S.laws[i];
-    }
+    if (isSealed(i)) { S.laws[i] = { journal: dossier(i).map(k => ({ k, ok: L.f(k), given: 1 })), probes: 0, fails: 0, notes: '', sealed: 1 }; return S.laws[i]; }
     let y = null, n = null; for (let t = 0; t < 20000 && (!y || !n); t++) { const k = t < 5000 ? randKoan(r, 2, 5) : randKoan(r, 1, 8); /* some laws only reject 1-token or long koans */ if (L.f(k)) y ||= k; else n ||= k; }
     if (y) j.push({ k: y, ok: true, given: 1 }); if (n) j.push({ k: n, ok: false, given: 1 });
     S.laws[i] = { journal: j, probes: 0, fails: 0, notes: '' };
@@ -412,10 +460,12 @@ function render() {
   const nNew = st.journal.length - 1;
   $('center').innerHTML = `
     <div class="head">
-      <div><span class="plate">Model ${['I','II','III','IV','V','VI','VII','VIII'][tier]} · ${MODELS[tier]}</span><div class="dim small" style="margin-top:4px">Tier ${tier + 1} · ${TIERS[tier]}</div><h2>${solved ? '✓ ' : ''}${title}</h2></div>
+      <div><span class="plate">Model ${['I','II','III','IV','V','VI','VII','VIII'][tier]} · ${MODELS[tier]}</span><div class="dim small" style="margin-top:4px" title="Each tier's engine judges a different kind of law">Tier ${tier + 1} · ${TIERS[tier]}</div><h2>${solved ? '✓ ' : ''}${title}</h2></div>
       <div class="row">${st.sealed && !solved ? '<span class="sealed" title="No experiments on this one: judge from the evidence">🔒 Sealed case · no probes</span>' : `<span class="pill">Probes <b>${st.probes}</b> / par ${par(tier)}</span>`}${st.fails ? `<span class="pill">Failed predictions <b>${st.fails}</b></span>` : ''}${cur === 'free' ? '<button id="rerollBtn">🎲 New random law</button>' : ''}</div>
     </div>
     ${solved ? `<div class="lawtext">“${L.d}”</div>` : ''}
+    ${!solved ? `<div class="method">${METHODS[tier]}</div>` : ''}
+    ${cur !== 'free' && rivalOf(cur) ? `<div class="rival ${refuted(cur, st) ? 'done' : ''}"><b>Dr Ashcombe has published:</b> <span class="chalk">“${rivalOf(cur).d}”</span><br>${refuted(cur, st) ? '<span class="stampok">Refuted</span> One of your experiments contradicts it. You may publish.' : 'It fits all the evidence so far. You may not publish until one of your experiments refutes it: build a koan where this theory and the machine must disagree.'}</div>` : ''}
     <div class="journal">
       <div class="jcol yes"><h3>✓ The machine accepts (${yes.length})</h3><div class="klist">${yes.map(e => jKoan(e, st, nNew)).join('')}</div></div>
       <div class="jcol no"><h3>✗ The machine rejects (${no.length})</h3><div class="klist">${no.map(e => jKoan(e, st, nNew)).join('')}</div></div>
@@ -452,7 +502,7 @@ function builderHTML(solved) {
       <button id="mvL">◀</button><button id="mvR">▶</button><button id="delBtn">✕</button>
       <button id="clrBtn">Clear</button><button id="rndBtn">🎲 Random</button>
       <span class="spacer" style="flex:1"></span>
-      ${solved ? '' : '<button id="pubBtn">📜 I know the law: publish</button>'}
+      ${solved ? '' : `<button id="pubBtn" ${cur !== 'free' && !refuted(cur, lawState(cur)) ? 'disabled title="Refute Dr Ashcombe first"' : ''}>📜 I know the law: publish</button>`}
     </div>
     <div class="verdict ${lastVerdict === true ? 'yes' : lastVerdict === false ? 'no' : ''}" id="verdict">${lastVerdict === true ? '✓ Accepted' : lastVerdict === false ? '✗ Rejected' : lastVerdict === 'dup' ? '<span class="dim" style="font-size:14px;font-weight:400">Already in your journal. No probe spent.</span>' : ''}</div>
   </div>`;
@@ -499,7 +549,9 @@ function test() {
   if (lawState(cur).sealed && !lawState(cur).solved) return;
   const st = lawState(cur), k = builder.map(t => t.slice());
   if (st.journal.some(e => kkey(e.k) === kkey(k))) { lastVerdict = 'dup'; render(); return; }
+  const wasRefuted = cur === 'free' || refuted(cur, st);
   const ok = curLaw().f(k); st.journal.push({ k, ok }); if (!st.solved) st.probes++;
+  if (!wasRefuted && refuted(cur, st)) setTimeout(() => RH.toast('Refuted! Dr Ashcombe\'s theory predicted the opposite verdict.', 3600), 400);
   lastVerdict = ok; beep(ok); persist(); render();
 }
 
@@ -513,6 +565,7 @@ function mutate(r, k) {
   return c;
 }
 function startPredict() {
+  if (cur !== 'free' && !refuted(cur, lawState(cur))) { RH.toast('Refute Dr Ashcombe\'s theory first.'); return; }
   const st = lawState(cur), L = curLaw(), r = RH.rng(Math.random() * 1e9 | 0), seen = new Set(st.journal.map(e => kkey(e.k)));
   const pos = [], neg = [];
   const add = k => { const key = kkey(k); if (seen.has(key)) return; seen.add(key); (L.f(k) ? pos : neg).push(k); };
@@ -583,7 +636,7 @@ const help = () => RH.modal(`<h2>⚗️ Hypothesis</h2>
 $('helpBtn').onclick = help;
 if (!S.intro) { S.intro = 1; persist(); help(); }
 if (cur === 'free' && tierOpen(3)) openFree(false); else openLaw(typeof cur === 'number' && LAWS[cur] && tierOpen(LAWS[cur].tier) ? cur : 0);
-window.__hyp = { isSealed, TIER_NEED, GEN, makeLaw, randKoan, kkey, mutate, lawState, loadState, tierOpen, openFree, par, get cur() { return cur; }, get mode() { return mode; }, LAWS, S, openLaw, test, get builder() { return builder; }, set builder(b) { builder = b; }, startPredict, get preds() { return preds; }, submitPred, render, fp };
+window.__hyp = { rivalPool, dossier, rivalOf, hasRival, refuted, SAMPLE_D, isSealed, TIER_NEED, GEN, makeLaw, randKoan, kkey, mutate, lawState, loadState, tierOpen, openFree, par, get cur() { return cur; }, get mode() { return mode; }, LAWS, S, openLaw, test, get builder() { return builder; }, set builder(b) { builder = b; }, startPredict, get preds() { return preds; }, submitPred, render, fp };
 
 // phones: level drawer and folding stories
 (() => {

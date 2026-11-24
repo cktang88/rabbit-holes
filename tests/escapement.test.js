@@ -5,7 +5,7 @@ const T = (o, ...rest) => ({ ax: [{ o }, ...rest.map(r => Array.isArray(r) ? { i
 const SOL = [
   T(20, 40), // Half Speed
   T(20, [20, null], 60), // Same Way Round (idler)
-  T(8, [60, 10], 80), T(10, [30, 10], 40), T(10, [100, 10], [100, 10], [60, 10], 60), T(10, [10, null], 70), T(60, 10), T(10, [120, 8], 112),
+  T(8, [60, 10], 80), T(10, [30, 8], 32), T(10, [100, 10], [100, 10], [60, 10], 60), T(10, [10, null], 70), T(60, 10), T(10, [120, 8], 112),
   T(8, [40, 8], [40, 10], 40), T(8, [56, 8], [52, 10], 20), T(10, [90, 12], 72), T(10, [97, 10], 100), T(9, [81, 9], 45), T(8, [80, 9], [90, 10], 100),
   T(71, [113, 50], 10), T(14, [33, 19], [117, 29], 59), T(89, 55), T(17, [27, 43], 27), T(8, [44, 10], [89, 13], 97), T(9, [61, 11], [95, 31], 119),
   T(8, [60, 10], [80, 8], [60, 10], [80, 10], [30, 10], 40), // A Proper Clock
@@ -132,6 +132,59 @@ module.exports = {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
       for (const i of [0, 14, 25]) { await page.evaluate(i => { const E = window.__esc; for (let j = 0; j < 26; j++) E.S.done[j] = { stars: 3, gears: 2 }; E.open(i); }, i);
         ok(await page.evaluate(() => document.documentElement.scrollWidth) <= 392, 'overflow on ' + i); }
+    },
+    'motion work: the hour hand is coaxial, so both meshes need equal tooth sums': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const E = window.__esc, c = E.C.find(c => c.n === 'The Hour Hand'), a = d => { const x = E.analyse(c, d); return [x.ok, x.problems.some(p => /centre distances/.test(p))]; };
+        return [a({ ax: [{ o: 12 }, { i: 36, o: 8 }, { i: 32 }] }), a({ ax: [{ o: 10 }, { i: 30, o: 8 }, { i: 32 }] }), a({ ax: [{ o: 10 }, { i: 120 }] })[0]]; });
+      eq(r, [[false, true], [true, false], false]);
+    },
+    'error is shown as drift on the sky': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const E = window.__esc, D = 86400; return [E.drift(100, 29.53 * D), E.drift(1, 365 * D), E.drift(1000, 1), E.drift(0, D)]; });
+      eq(r, ['a day out every 27.4 years', 'a day out every 2,738 years', '86 s a day off', 'never drifts']);
+    },
+    'Brocot\'s table is earned: walk the tree by hand until the Pi Wheel is delivered': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { const E = window.__esc; for (let i = 0; i < 14; i++) E.S.done[i] = { stars: 3, gears: 2 }; E.open(14); });
+      ok(await page.locator('#wOut').count() === 1 && await page.locator('#bOut').count() === 0, 'table handed over before it was earned');
+      // walk towards pi: 1/1 below, 2/1 below, 3/1 below, 4/1 above, 7/2 above, 10/3 above, 13/4 above ... 22/7 eventually
+      const steps = [true, true, true, false, false, false, false, false, false, false];
+      for (const up of steps) await page.click(up ? '#wHi' : '#wLo');
+      const hist = await page.$$eval('#wOut .bt td.l:first-child', t => t.map(x => x.textContent));
+      ok(hist.includes('22/7'), 'walk did not reach 22/7: ' + hist);
+      await page.click('#wHi'); // wrong direction does not advance
+      await page.evaluate(() => { const E = window.__esc; E.S.done[14] = { stars: 1, gears: 4 }; E.open(15); });
+      ok(await page.locator('#bOut').count() === 1, 'table not unlocked after the Pi Wheel');
+    },
+    'difficulty: naive play fails': async ({ page, ok }) => {
+      const r = await page.evaluate(SOL => {
+        const E = window.__esc, C = E.C, late = C.map((c, i) => i).filter(i => i >= 17);
+        let sd = 5; const R = () => (sd = (sd * 1103515245 + 12345) % 2147483648) / 2147483648;
+        const stars = (c, d) => { const a = E.analyse(c, d); return a.ok ? a.stars : 0; };
+        const ratioOf = t => t.r ? t.r[0] / t.r[1] : t.x;
+        const segs = c => c.T.map((t, j) => ratioOf(t) / (j ? ratioOf(c.T[j - 1]) : 1));
+        const ok = (c, g) => g >= (c.tmin || 8) && g <= (c.tmax || 120) && (!c.odd || g % 2) && (!c.inv || c.inv.includes(g));
+        const split = (c, n, m) => { if (m === 1) return ok(c, n) ? [n] : null; for (let a = c.tmin || 8; a <= (c.tmax || 120); a++) if (n % a === 0 && ok(c, a)) { const r = split(c, n / a, m - 1); if (r) return [a, ...r]; } return null; };
+        const build = segsPQ => { const ax = [{ o: null }]; const drivers = [], driven = []; segsPQ.forEach(([ps, qs]) => { drivers.push(...ps); driven.push(...qs); });
+          ax[0].o = drivers[0]; for (let k = 0; k < driven.length; k++) ax.push({ i: driven[k], o: drivers[k + 1] ?? null }); return { ax }; };
+        // fractions a careful player reads off Brocot's table (the Stern–Brocot path), best first, that split into 2 gears each side
+        const brocot = (c, x) => { let a = [0, 1], b = [1, 0]; const out = []; for (let it = 0; it < 3000; it++) { const m = [a[0] + b[0], a[1] + b[1]]; if (m[0] > 20000 || m[1] > 20000) break; out.push(m); const v = m[0] / m[1]; if (v < x) a = m; else if (v > x) b = m; else break; }
+          for (const m of [2, 3]) for (const [p, q] of out.slice().reverse()) { if (Math.abs(p / q / x - 1) * 1e6 > 1000) continue;
+            for (let k = 1; k <= 64; k++) { const P = p * k, Q = q * k, ps = split(c, P, m), qs = split(c, Q, m); if (ps && qs && (!c.budget || [...ps, ...qs].reduce((a, b) => a + b, 0) <= c.budget)) return [ps, qs]; } } return null; };
+        const runs = [], competent = [], solver = [];
+        for (const i of late) { const c = C[i];
+          runs.push(stars(c, { ax: [{ o: 20 }, { i: 20, o: null }] }));                                                      // idle
+          for (let k = 0; k < 4; k++) { let best = 0; for (let t = 0; t < 300; t++) { const n = 2 + Math.floor(R() * 6), g = () => 8 + Math.floor(R() * 113);  // random trains
+            const ax = [{ o: g() }]; for (let a = 1; a < n; a++) ax.push({ i: g(), o: a < n - 1 ? g() : null }); best = Math.max(best, stars(c, { ax })); } runs.push(best); }
+          { const pq = segs(c).map(x => { let best = null; for (let p = 8; p <= 120; p++) { const q = Math.round(p / x); if (q >= 8 && q <= 120 && ok(c, p) && ok(c, q) && (!best || Math.abs(p / q / x - 1) < Math.abs(best[0][0] / best[1][0] / x - 1))) best = [[p], [q]]; } return best; }); // one mesh per hand
+            runs.push(pq.every(Boolean) ? stars(c, build(pq)) : 0); }
+          const pq = segs(c).map(x => brocot(c, x)); competent.push(pq.every(Boolean) ? stars(c, build(pq)) : 0);
+          solver.push(stars(c, SOL[i]));
+        }
+        return { naive: runs, competent, solver };
+      }, SOL);
+      const lowRate = r.naive.filter(x => x <= 1).length / r.naive.length;
+      ok(lowRate >= .8, 'naive policies scored above 1 star too often: ' + JSON.stringify(r.naive));
+      ok(r.competent.filter(x => x >= 1).length >= r.competent.length - 1, 'Brocot-table policy failed late commissions: ' + r.competent);
+      ok(r.competent.filter(x => x === 3).length < r.solver.filter(x => x === 3).length, `3 stars should need better than the first Brocot fraction: competent ${r.competent}, solver ${r.solver}`);
     },
     'phone: level list is a drawer behind a labelled button; picking a level closes it': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(500);

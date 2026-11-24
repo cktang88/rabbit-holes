@@ -186,7 +186,8 @@ const FLOW_T = [.30,.12,.06,.025,.008,0,.003,.04,.12,.19,.24,.32]; // g nectar /
 const SWARM_T = [.35,.1,0,0,0,0,0,.15,.55,.9,1,.85];               // seasonal swarm readiness
 const WB_FR = [0,.12,.55,.95,1,1,.85,.3,0,0,0,0];                 // fraction of emerging bees that are long-lived winter bees
 const MATE_T = [.92,.88,.75,.5,.2,.1,.15,.35,.75,.9,.95,.95];      // mating success
-const doyOf = d => ((d % 365) + 365) % 365;
+// day of the calendar year for day d (d = days since 1 Jan 1914); uses the real calendar so seasons stay put in leap years and in the modern-era scenarios
+const doyOf = d => { const t = Date.UTC(1914, 0, 1) + d * 864e5, y = new Date(t).getUTCFullYear(); return Math.min(364, Math.floor((t - Date.UTC(y, 0, 1)) / 864e5)); };
 const monthF = d => doyOf(d) / 365 * 12;
 function seasonal(T, d) { const m = monthF(d) - .5, i = Math.floor(m), f = m - i; const a = T[(i + 12) % 12], b = T[(i + 13) % 12]; return a + (b - a) * f; }
 function dateStr(d, long) { const dt = new Date(Date.UTC(1914, 0, 1) + d * 864e5); return dt.getUTCDate() + ' ' + (long ? MONTHS_L : MONTHS)[dt.getUTCMonth()] + ' ' + dt.getUTCFullYear(); }
@@ -555,6 +556,8 @@ const queenright = h => h.alive && ['laying', 'caged', 'intro'].includes(h.q.st)
 const cleanKg = w => w.hives.reduce((a, h) => a + Math.max(0, h.harvested - Math.min(h.harvested, (h.harvestTaint || 0) + (h.oaHarvest || 0))), 0) / 1000;
 const grossKg = w => w.hives.reduce((a, h) => a + h.harvested, 0) / 1000;
 const ALL = ['super', 'harvest', 'checker', 'demaree', 'split', 'cage', 'destroy', 'requeen', 'feed', 'oa', 'drone', 'wash'];
+// 1914: no Varroa in New Zealand yet (it arrived in 2000), so no mite treatments; the modern-era scenarios are dated and say so
+const ALL1914 = ALL.filter(a => !['oa', 'drone', 'wash'].includes(a));
 const noSwarm = w => swarmsOf(w) ? 'A swarm left the apiary.' : null;
 const dead = w => w.hives.some(h => !h.alive) ? `${w.hives.find(h => !h.alive).name} died (${w.hives.find(h => !h.alive).cause}).` : null;
 
@@ -562,92 +565,92 @@ const SCEN = [
   { id: 'first', n: 'First Frames', start: D(1914, 10, 6), weeks: 2, acts: 2, allowed: [], tutorial: 1,
     intro: `<b>To the beginner.</b> Before you can manage a colony you must learn to <i>read</i> a comb. Light the smoker, give the entrance a puff, lift the lid, and draw out a frame from the middle of the box. Brush the bees gently aside with your hand.`,
     goal: 'Identify each of the things on the list by tapping them on the comb.',
-    hives: [{ adults: 22000, lay: 1150, honey: 7, pollen: 4500, mites: 40, qAge: 1, droneFr: .05, nectar: 2 }],
+    hives: [{ adults: 22000, lay: 1150, honey: 7, pollen: 4500, mites: 0, qAge: 1, droneFr: .05, nectar: 2 }],
     fail: () => null,
     early: w => w.tut && TUT_TARGETS.every(t => w.tut.found[t]),
     win(w) { const ok = w.tut && TUT_TARGETS.every(t => w.tut.found[t]); if (!ok) return { won: false, msg: 'The fortnight ran out before you had learned the comb.' }; const s = (w.tut.wrong <= 3 && !w.tut.driven ? 3 : w.tut.wrong <= 8 ? 2 : 1); return { won: true, stars: s, msg: `You read the comb with ${w.tut.wrong} wrong guess${w.tut.wrong === 1 ? '' : 'es'}${w.tut.driven ? ' (and were driven off once)' : ''}.` }; } },
 
-  { id: 'spring', n: 'Spring Build-up', start: D(1914, 9, 1), weeks: 13, acts: 2, allowed: ['super', 'feed', 'checker', 'destroy', 'wash'],
+  { id: 'spring', n: 'Spring Build-up', start: D(1914, 9, 1), weeks: 13, acts: 2, allowed: ['super', 'feed', 'checker', 'destroy'],
     intro: `<b>Notes for September.</b> The willows are yielding pollen and the colony is waking. A hive that is <i>given room at the right time</i> will build to a great force for the clover; one that is crowded will swarm in November; one that is given a super too early, while the nights are cold, will sulk.`,
     goal: 'By 1 December: no swarm, at least 30,000 bees. Super them before the box is crowded — not before.',
-    hives: [{ adults: 16000, lay: 800, honey: 8, winter: 9000, mites: 60, qAge: 1, droneFr: .02 }],
+    hives: [{ adults: 16000, lay: 800, honey: 8, winter: 9000, mites: 0, qAge: 1, droneFr: .02 }],
     fail: noSwarm,
     win(w) { const h = w.hives[0], a = adultsOf(h); if (a < 30000) return { won: false, msg: `Only ${Math.round(a / 1000)}k bees by December — not strong enough for the flow.` }; const peak = Math.max(...h.hist.map(s => s.cong)); const sh = h.harvested + h.sH, s = sh > 6000 && peak < .9 ? 3 : sh > 2500 ? 2 : 1; return { won: true, stars: s, msg: `${Math.round(a / 1000)}k bees, ${(sh / 1000).toFixed(1)} kg already in the super, peak congestion ${f2(peak)}.` }; } },
 
   { id: 'swarm', n: 'Swarm Season', start: D(1914, 10, 15), weeks: 11, acts: 2, maxHives: 2, allowed: ['super', 'checker', 'demaree', 'split', 'destroy', 'requeen', 'harvest'],
     intro: `<b>Notes for October.</b> "A swarm in November" — every beekeeper knows the rhyme and every beekeeper has watched his profits disappear over the hedge. This colony is strong, honey-bound and headed by a two-year-old queen. Watch the bottom bars.`,
     goal: 'Keep the colony from swarming until the New Year, and finish queenright.',
-    hives: [{ adults: 24000, lay: 1300, honey: 12, mites: 80, qAge: 2, imp: .05, pollen: 4000 }],
+    hives: [{ adults: 24000, lay: 1300, honey: 12, mites: 0, qAge: 2, imp: .05, pollen: 4000 }],
     fail: noSwarm,
     win(w) { if (!w.hives.some(queenright)) return { won: false, msg: 'No swarm — but no laying queen either.' }; const kg = cleanKg(w) + w.hives.reduce((a, h) => a + h.sH, 0) / 1000; return { won: true, stars: kg >= 20 ? 3 : kg >= 10 ? 2 : 1, msg: `No swarm, and ${kg.toFixed(1)} kg of honey in hand or in the supers.` }; } },
 
   { id: 'capped', n: 'Cells Already Capped', start: D(1914, 11, 10), weeks: 6, acts: 2, maxHives: 2, allowed: ['split', 'destroy', 'super', 'requeen', 'checker', 'demaree'],
     intro: `<b>An urgent letter.</b> "Sir — I opened my best hive this morning and found the bottom bars hung with queen cells like peanuts. Some look sealed. What am I to do?" — Our answer: you have perhaps two days. Do not trust the knife alone.`,
     goal: 'No swarm for six weeks. End with two queenright colonies.',
-    hives: [{ adults: 38000, lay: 1300, honey: 10, supers: 1, superHoney: 6, qAge: 2, imp: .82, cups: 3, cells: [6, 5, 5, 4], mites: 80 }],
+    hives: [{ adults: 38000, lay: 1300, honey: 10, supers: 1, superHoney: 6, qAge: 2, imp: .82, cups: 3, cells: [6, 5, 5, 4], mites: 0 }],
     fail: noSwarm,
     win(w) { const qr = w.hives.filter(queenright); if (qr.length < 2) return { won: false, msg: `Only ${qr.length} queenright colon${qr.length === 1 ? 'y' : 'ies'} at the end.` }; const min = Math.min(...qr.map(adultsOf)); return { won: true, stars: min > 15000 ? 3 : min > 9000 ? 2 : 1, msg: `Two queenright colonies; the smaller has ${Math.round(min / 1000)}k bees.` }; } },
 
-  { id: 'queenless', n: 'Queenless', start: D(1914, 11, 20), weeks: 6, acts: 2, allowed: ['requeen', 'feed', 'super', 'wash', 'destroy'],
+  { id: 'queenless', n: 'Queenless', start: D(1914, 11, 20), weeks: 6, acts: 2, allowed: ['requeen', 'feed', 'super', 'destroy'],
     intro: `<b>Something is wrong with Hive A.</b> The bees are flying but the hum is wrong — a restless, mournful roar. Read the brood. Eggs are laid only by a queen; a frame with no eggs and no young larvae tells its own story.`,
     goal: 'Find out what is wrong and put it right. End with a laying queen and 10,000+ bees.',
-    hives: [{ adults: 26000, lay: 1300, honey: 9, qst: 'none', noneDays: 17, broodFrom: 17, mites: 60, droneFr: 0 }],
+    hives: [{ adults: 26000, lay: 1300, honey: 9, qst: 'none', noneDays: 17, broodFrom: 17, mites: 0, droneFr: 0 }],
     fail: dead,
     win(w) { const h = w.hives[0]; if (!queenright(h) || h.q.st !== 'laying') return { won: false, msg: 'Still no laying queen.' }; const a = adultsOf(h); if (a < 10000) return { won: false, msg: `A queen — but only ${Math.round(a / 1000)}k bees left.` }; return { won: true, stars: h.lwEver ? 1 : a > 16000 ? 3 : 2, msg: `New queen laying; ${Math.round(a / 1000)}k bees.${h.lwEver ? ' (laying workers had already started.)' : ''}` }; } },
 
   { id: 'flow', n: 'The Big Flow', start: D(1914, 12, 1), weeks: 9, acts: 2, maxHives: 2, allowed: ['super', 'harvest', 'checker', 'demaree', 'split', 'destroy', 'requeen'],
     intro: `<b>Notes for December.</b> The white clover is coming on and the main flow is upon us. A strong colony can store three or four pounds a day — <i>if it has somewhere to put it</i>. Nectar is thin; it takes three cells of nectar to make one of honey.`,
     goal: 'Harvest at least 30 kg of honey by early February, without a swarm.',
-    hives: [{ adults: 42000, lay: 1500, honey: 8, supers: 1, superHoney: 4, qAge: 1, mites: 100, imp: .2, pollen: 5000 }],
+    hives: [{ adults: 42000, lay: 1500, honey: 8, supers: 1, superHoney: 4, qAge: 1, mites: 0, imp: .2, pollen: 5000 }],
     fail: noSwarm,
     win(w) { const kg = cleanKg(w); if (kg < 30) return { won: false, msg: `Only ${kg.toFixed(1)} kg of honey.` }; return { won: true, stars: kg >= 60 ? 3 : kg >= 45 ? 2 : 1, msg: `${kg.toFixed(1)} kg of honey from one colony.` }; } },
 
-  { id: 'varroa', n: 'Varroa Creeping', start: D(1915, 1, 15), weeks: 12, acts: 2, allowed: ['wash', 'oa', 'drone', 'cage', 'harvest', 'feed', 'super'],
+  { id: 'varroa', n: 'Varroa Creeping (2001)', start: D(2001, 1, 15), weeks: 12, acts: 2, allowed: ['wash', 'oa', 'drone', 'cage', 'harvest', 'feed', 'super'],
     intro: `<b>A note from a future season.</b> A correspondent assures us that a little red mite will one day reach these shores, riding on the bees and breeding in sealed brood. It doubles every month while there is brood. The <i>alcohol wash</i> counts mites per hundred bees; above three in autumn, the winter bees will be crippled.`,
     goal: 'By April: fewer than 3 mites per 100 bees, and 12,000+ bees going into winter.',
     hives: [{ adults: 38000, lay: 1300, honey: 8, supers: 2, superHoney: 18, qAge: 1, mites: 2400, droneFr: .01 }],
     fail: dead,
     win(w) { const h = w.hives[0], l = loadOf(h), a = adultsOf(h); if (l >= 3) return { won: false, msg: `Mite load ${l.toFixed(1)} per 100 bees — too high for winter.` }; if (a < 12000) return { won: false, msg: `Mites beaten, but only ${Math.round(a / 1000)}k bees left.` }; const kg = cleanKg(w); return { won: true, stars: l < 1.5 && kg >= 15 ? 3 : kg >= 10 || l < 1.5 ? 2 : 1, msg: `${l.toFixed(1)} mites/100 bees, ${Math.round(a / 1000)}k bees, ${kg.toFixed(1)} kg of saleable honey.` }; } },
 
-  { id: 'broodless', n: 'Broodless Window', start: D(1915, 2, 20), weeks: 7, acts: 2, allowed: ['cage', 'oa', 'wash', 'drone', 'feed'],
+  { id: 'broodless', n: 'Broodless Window (2002)', start: D(2002, 2, 20), weeks: 7, acts: 2, allowed: ['cage', 'oa', 'wash', 'drone', 'feed'],
     intro: `<b>The mite's hiding place.</b> Oxalic acid kills the mites riding on the bees — but a mite sealed under a brood capping is safe. In summer most of them are. Take the brood away and there is nowhere to hide. A queen caged for three weeks and a few days leaves the combs bare.`,
     goal: 'Achieve a single oxalic treatment that kills more than 95% of the mites. End with a laying queen.',
     hives: [{ adults: 30000, lay: 1000, honey: 14, mites: 3000, qAge: 1, droneFr: 0 }],
     fail: dead,
     win(w) { const h = w.hives[0], best = Math.max(0, ...h.oaKills.map(k => k.pct)); if (best <= 95) return { won: false, msg: `Best oxalic kill was ${best.toFixed(0)}%. The mites were under the cappings.` }; if (h.q.st !== 'laying') return { won: false, msg: 'Mites beaten — but the queen is not laying.' }; return { won: true, stars: h.oaKills.length === 1 ? 3 : h.oaKills.length === 2 ? 2 : 1, msg: `One dose killed ${best.toFixed(0)}% of the mites (${h.oaKills.length} dose${h.oaKills.length > 1 ? 's' : ''} in all).` }; } },
 
-  { id: 'winter', n: 'Into Winter', start: D(1915, 4, 1), weeks: 22, acts: 2, allowed: ['feed', 'oa', 'wash', 'cage', 'requeen', 'drone'],
+  { id: 'winter', n: 'Into Winter (2002)', start: D(2002, 4, 1), weeks: 22, acts: 2, allowed: ['feed', 'oa', 'wash', 'cage', 'requeen', 'drone'],
     intro: `<b>Notes for April.</b> The season is over; the supers are off. A colony goes into winter on two things: <i>stores</i> (it will eat 15 to 25 kg before spring) and <i>long-lived winter bees</i> reared in autumn — which the mites cripple. Heft your hives.`,
     goal: 'Bring the colony through to 1 September alive, with 8,000+ bees.',
     hives: [{ adults: 22000, winter: 7000, lay: 600, honey: 7, mites: 1300, qAge: 1, droneFr: 0 }],
     fail: dead,
-    win(w) { const h = w.hives[0], a = adultsOf(h); if (a < 8000) return { won: false, msg: `Alive, but only ${Math.round(a / 1000)}k bees.` }; const s = storesKg(h); return { won: true, stars: s >= 5 && loadOf(h) < 2 ? 3 : a > 11000 ? 2 : 1, msg: `${Math.round(a / 1000)}k bees, ${s.toFixed(1)} kg stores left, ${loadOf(h).toFixed(1)} mites/100.` }; } },
+    win(w) { const h = w.hives[0], a = adultsOf(h); if (a < 8000) return { won: false, msg: `Alive, but only ${Math.round(a / 1000)}k bees.` }; const s = storesKg(h); return { won: true, stars: s >= 5 && loadOf(h) < 2 && a > 11000 ? 3 : a > 11000 || s >= 5 ? 2 : 1, msg: `${Math.round(a / 1000)}k bees, ${s.toFixed(1)} kg stores left, ${loadOf(h).toFixed(1)} mites/100.` }; } },
 
   { id: 'failing', n: 'Failing Queen', start: D(1914, 12, 1), weeks: 9, acts: 2, maxHives: 2, allowed: ['requeen', 'super', 'harvest', 'destroy', 'split', 'checker'],
     intro: `<b>Spotty brood.</b> This queen was a fine one three seasons ago. Now her brood is patchy as a shotgun pattern, and the bees know it. They will supersede her in their own time — but a virgin must mate, and a broodless month in the flow costs honey.`,
     goal: 'Finish with a young queen laying well, and at least 25 kg of honey.',
-    hives: [{ adults: 32000, lay: 1500, patch: .6, qual: .5, qAge: 3, honey: 8, supers: 1, superHoney: 3, mites: 100 }],
+    hives: [{ adults: 32000, lay: 1500, patch: .6, qual: .5, qAge: 3, honey: 8, supers: 1, superHoney: 3, mites: 0 }],
     fail: w => noSwarm(w) || dead(w),
     win(w) { const h = w.hives.find(x => x.q.st === 'laying' && x.q.age < 150 && x.q.qual > .7); const kg = cleanKg(w); if (!h) return { won: false, msg: 'No young, well-mated queen laying at the end.' }; if (kg < 25) return { won: false, msg: `New queen — but only ${kg.toFixed(1)} kg of honey.` }; return { won: true, stars: kg >= 40 ? 3 : kg >= 32 ? 2 : 1, msg: `Young queen laying; ${kg.toFixed(1)} kg of honey.` }; } },
 
-  { id: 'apiary', n: 'Three-Hive Apiary', start: D(1914, 9, 1), weeks: 104, acts: 4, maxHives: 8, allowed: ALL, long: 1,
+  { id: 'apiary', n: 'Three-Hive Apiary (2003–05)', start: D(2003, 9, 1), weeks: 104, acts: 4, maxHives: 8, allowed: ALL, long: 1,
     intro: `<b>Two seasons.</b> Three hives, two years. Increase by splits, keep the swarms at home, take a crop, keep the mite in check and see every colony through two winters. Queens age; mites carry over.`,
-    goal: 'By 1 September 1916: at least 4 colonies alive and 60 kg of honey taken.',
+    goal: 'By 1 September 2005: at least 4 colonies alive and 60 kg of honey taken.',
     hives: [{ adults: 18000, lay: 900, winter: 9000, honey: 9, mites: 60, qAge: 1 }, { adults: 12000, lay: 650, winter: 6500, honey: 7, mites: 90, qAge: 2 }, { adults: 15000, lay: 800, winter: 8000, honey: 8, mites: 70, qAge: 1.5, qual: .8 }],
     fail: w => alive(w).length < 2 ? 'Fewer than two colonies left.' : null,
     win(w) { const n = alive(w).length, kg = cleanKg(w); if (n < 4) return { won: false, msg: `Only ${n} colonies alive.` }; if (kg < 60) return { won: false, msg: `${n} colonies but only ${kg.toFixed(0)} kg of honey.` }; return { won: true, stars: n >= 6 && kg >= 250 ? 3 : n >= 5 && kg >= 150 ? 2 : 1, msg: `${n} colonies and ${kg.toFixed(0)} kg of honey over two seasons.` }; } },
 
-  { id: 'show', n: '1914 Honey Show', start: D(1914, 11, 1), weeks: 15, acts: 2, maxHives: 2, allowed: ALL,
-    intro: `<b>The Canterbury A. & P. Honey Show.</b> Entries close in February. The judges weigh, hold the jar to the light, and taste. Honey stored from sugar syrup will be detected; honey from supers that were on during a treatment will be disqualified; and a swarm takes the crop with it.`,
+  { id: 'show', n: '1914 Honey Show', start: D(1914, 11, 1), weeks: 15, acts: 2, maxHives: 2, allowed: ALL1914,
+    intro: `<b>The Canterbury A. & P. Honey Show.</b> Entries close in February. The judges weigh, hold the jar to the light, and taste. Honey stored from sugar syrup will be detected, and a swarm takes the crop with it.`,
     goal: 'Harvest 25 kg+ of clean honey with no swarm. First Prize needs it pure.',
-    hives: [{ adults: 30000, lay: 1400, honey: 9, supers: 1, superHoney: 2, qAge: 1.2, mites: 300, imp: .2, pollen: 4000 }],
+    hives: [{ adults: 30000, lay: 1400, honey: 9, supers: 1, superHoney: 2, qAge: 1.2, mites: 0, imp: .2, pollen: 4000 }],
     fail: noSwarm,
     win(w) { const g = grossKg(w), kg = cleanKg(w), pur = g ? kg / g : 1; if (kg < 25) return { won: false, msg: `${kg.toFixed(1)} kg of clean honey — not enough to enter.` }; const grade = pur > .98 ? 'First Prize' : pur > .9 ? 'Second Prize' : 'Highly Commended'; return { won: true, stars: grade === 'First Prize' ? (kg >= 40 ? 3 : 2) : 1, msg: `${grade}: ${kg.toFixed(1)} kg, ${(pur * 100).toFixed(0)}% pure.`, unlock: 1 }; } },
 
-  { id: 'free', n: 'Endless Seasons', start: D(1914, 9, 1), weeks: 99999, acts: 3, maxHives: 6, allowed: ALL, free: 1, long: 1,
+  { id: 'free', n: 'Endless Seasons', start: D(1914, 9, 1), weeks: 99999, acts: 3, maxHives: 6, allowed: ALL1914, free: 1, long: 1,
     intro: `<b>Free play.</b> Two hives, the seasons turning without end. Each 1 September the year's ledger is drawn up.`,
     goal: 'Keep bees. See how many years and how much honey.',
-    hives: [{ adults: 17000, lay: 850, winter: 9000, honey: 9, mites: 100, qAge: 1 }, { adults: 14000, lay: 700, winter: 8000, honey: 7, mites: 150, qAge: 1.5 }],
+    hives: [{ adults: 17000, lay: 850, winter: 9000, honey: 9, mites: 0, qAge: 1 }, { adults: 14000, lay: 700, winter: 8000, honey: 7, mites: 0, qAge: 1.5 }],
     fail: w => alive(w).length ? null : 'Every colony is dead.', win: () => ({ won: true, stars: 3, msg: '' }) },
 ];
 const TUT_TARGETS = ['egg', 'larva', 'capped', 'drone', 'honey', 'nectar', 'pollen', 'queen'];
@@ -921,7 +924,7 @@ function persist() { RH.save('swarm', SAVE); const n = SCEN.filter(s => !s.free 
 let notes = [], notesUnread = false;
 function startScenario(i) {
   SCI = i; SC = SCEN[i]; SAVE.cur = i; persist();
-  W = mkWorld(SC); W.onEvent = onModelEvent; curHive = 0; result = null; insp = null; ff = null; endAnim = null; view = 'apiary';
+  W = mkWorld(SC); W.onEvent = onModelEvent; curHive = 0; result = null; simOn = false; insp = null; ff = null; endAnim = null; view = 'apiary';
   if (SC.tutorial) W.tut = { found: {}, wrong: 0, driven: 0 };
   notes = [{ html: SC.intro }];
   document.body.classList.remove('insp'); $('result').style.display = 'none';
@@ -1101,7 +1104,7 @@ addEventListener('keydown', e => {
   if (e.target.tagName === 'SELECT') return;
   if (view === 'inspect') { if (e.key === 'ArrowLeft') changeFrame(-1); else if (e.key === 'ArrowRight') changeFrame(1); else if (e.key === 'f' || e.key === 'ArrowUp' || e.key === 'ArrowDown') changeFrame(0, 1); else if (e.key === 's' || e.key === ' ') { e.preventDefault(); smokePuff(); } else if (e.key === 'Escape') closeHive(); }
   else if (view === 'apiary' && (e.key === 'Enter' || e.key === 'n')) nextWeek(1);
-  if (e.key === 'v') { simOn = !simOn; renderUI(); }
+  if (e.key === 'v' && (view === 'end' || SC.free)) { simOn = !simOn; renderUI(); }
 });
 function brush(px, py, dx, dy) {
   const fg = insp.fg || frameGeom(), l = toLocal(px, py, fg); const R = 58;
@@ -1602,7 +1605,7 @@ function renderUI() {
   // tray
   const tr = $('tray'); let html = '';
   if (view === 'inspect') {
-    html += `<button class="b ghost ${insp && insp.hint ? 'pulse' : ''}" id="tSmoke" title="Smoke (S)">💨<span class="lbl"> Smoke</span></button><button class="b ghost" id="tPrev" title="Previous frame (←)">◂</button><button class="b ghost" id="tFlip" title="Turn frame over (F)">⟲<span class="lbl"> Turn</span></button><button class="b ghost" id="tNext" title="Next frame (→)">▸</button><button class="b" id="tClose" aria-label="Close up">Close<span class="lbl"> up</span></button>`;
+    html += `<button class="b ghost ${insp && insp.hint ? 'pulse' : ''}" id="tSmoke" title="Smoke (S)">💨<span class="lbl"> Smoke</span></button><button class="b ghost" id="tPrev" title="Previous frame (←)">◂</button><button class="b ghost" id="tFlip" title="Turn frame over (F)">⟲<span class="lbl"> Turn</span></button><button class="b ghost" id="tNext" title="Next frame (→)">▸</button><button class="b" id="tClose" aria-label="Put the lid on">Lid on</button>`;
   } else if (view === 'apiary') {
     const al = W.hives.map((h, i) => [h, i]).filter(x => x[0].alive);
     html += al.length <= (isMobile() ? 1 : 4) ? al.map(([h, i]) => `<button class="b ghost" data-open="${i}"><span class="lbl">Open </span>${h.name}</button>`).join('') : isMobile() ? '' : `<span class="fell" style="font-size:14px;padding:0 6px">Tap a hive to open it</span>`;
@@ -1610,7 +1613,9 @@ function renderUI() {
     // every multi-week scenario gets the fast-forwards: quiet weeks are waiting, not decisions (a warning stops the run)
     if (!SC.tutorial) html += (SC.long || SC.weeks >= 20 ? `<button class="b ghost" id="tSkip" ${ff ? 'disabled' : ''} title="Four weeks at once">▸▸<span class="lbl"> 4 weeks</span></button>` : '') + `<button class="b ghost" id="tUntil" ${ff ? 'disabled' : ''} title="Run on (up to 26 weeks) until the notes or the colonies show something new">⏭<span class="lbl"> Until something happens</span></button>`;
   } else html += `<button class="b ghost" id="tRetry">Try again</button>` + (simOn ? '' : '');
-  html += `<button class="b ghost ${simOn ? 'on' : ''}" id="tSim" title="Model curves (V)" aria-label="Sim view">📈<span class="lbl"> Sim view</span></button><button class="b ghost ${notesUnread && !$('notes').classList.contains('open') ? 'pulse' : ''}" id="notesBtn">Notes${notesUnread && !$('notes').classList.contains('open') ? ' •' : ''}</button>`;
+  // the model's curves are the answer key: they open only once the season is judged, so play means reading the comb
+  if (view === 'end' || SC.free) html += `<button class="b ghost ${simOn ? 'on' : ''}" id="tSim" title="Model curves (V)" aria-label="Sim view">📈<span class="lbl"> Sim view</span></button>`;
+  html += `<button class="b ghost ${notesUnread && !$('notes').classList.contains('open') ? 'pulse' : ''}" id="notesBtn">Notes${notesUnread && !$('notes').classList.contains('open') ? ' •' : ''}</button>`;
   tr.innerHTML = html;
   tr.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openHive(+b.dataset.open));
   const on = (id, f) => { const e = $(id); if (e) e.onclick = f; };

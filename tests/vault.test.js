@@ -59,6 +59,12 @@ module.exports = {
       });
       ok(!bad.length, bad.join('; '));
     },
+    'regression: the tool a vault starts you with never opens it at its default setting': async ({ page, ok }) => {
+      const bad = await page.evaluate(() => { const X = window.__vault, out = [];
+        X.V.forEach((v, i) => { if (v.pad) return; for (let variant = 0; variant < 12; variant++) { X.S.variant[i] = variant; delete X.S.work[i]; X.openVault(i); if (X.isOpenNow(i)) out.push(i + ':' + variant); } X.S.variant[i] = 0; delete X.S.work[i]; });
+        X.openVault(0); return out; });
+      ok(!bad.length, 'open at start with the default tool: ' + bad.join(', '));
+    },
     'cipher primitives round-trip (rail fence, columns, affine, vigenere)': async ({ page, eq }) => {
       const r = await page.evaluate(() => {
         const X = window.__vault, out = [];
@@ -217,11 +223,11 @@ module.exports = {
     'alarm vault: when time runs out the intercept and key change, tools stay': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => {
         const X = window.__vault, i = X.V.findIndex(v => v.alarm); X.S.solved[0] = X.S.solved[1] = { stars: 3, time: 0 };
-        X.openVault(i); const before = X.build(i).cipher; X.workOf(i).stages[0].s.k = 7; const left0 = X.alarmLeft(i);
+        X.openVault(i); const before = X.build(i).cipher, st0 = X.workOf(i).stages[0], key = Object.keys(st0.s)[0], t0 = st0.t; st0.s[key] = 7; const left0 = X.alarmLeft(i);
         for (let t = 0; t < X.V[i].alarm; t++) X.alarmTick(i);
-        return { i, left0, alarm: X.V[i].alarm, changed: X.build(i).cipher !== before, variant: X.S.variant[i], k: X.workOf(i).stages[0].s.k, t: X.workOf(i).stages[0].t, left: X.alarmLeft(i), shown: !!document.getElementById('alarm') };
+        return { i, left0, alarm: X.V[i].alarm, changed: X.build(i).cipher !== before, variant: X.S.variant[i], k: X.workOf(i).stages[0].s[key] !== 7, t: X.workOf(i).stages[0].t === t0, left: X.alarmLeft(i), shown: !!document.getElementById('alarm') };
       });
-      eq(r.left0, r.alarm); ok(r.changed, 'same intercept after alarm'); eq(r.variant, 1); eq([r.t, r.k], ['shift', 0]); eq(r.left, r.alarm); ok(r.shown);
+      eq(r.left0, r.alarm); ok(r.changed, 'same intercept after alarm'); eq(r.variant, 1); eq([r.t, r.k], [true, true]); eq(r.left, r.alarm); ok(r.shown);
       // a solved alarm vault never re-keys
       const v = await page.evaluate(i => { const X = window.__vault; X.S.solved[i] = { stars: 3, time: 0 }; for (let t = 0; t < 400; t++) X.alarmTick(i); return X.S.variant[i]; }, r.i);
       eq(v, 1);
@@ -233,6 +239,63 @@ module.exports = {
         const sw = await page.evaluate(() => document.documentElement.scrollWidth);
         ok(sw <= 392, 'horizontal overflow ' + sw + ' on vault ' + i);
       }
+    },
+    'carbon vault: output hidden until you pull; wrong pulls run out and the intercept changes; the right pull opens it': async ({ page, eq, ok }) => {
+      const i = await page.evaluate(() => { const X = window.__vault, i = X.V.findIndex(v => v.carbons); X.S.solved[0] = X.S.solved[1] = { stars: 3, time: 0 }; X.openVault(i); return i; });
+      ok(/NO CARBON/.test(await page.textContent('#otext')), 'output visible before pulling');
+      ok(await page.evaluate(() => !document.querySelector('#p-freq').textContent.includes('unlocks')), 'frequency tab not open on a carbon vault');
+      const n = await page.evaluate(i => window.__vault.V[i].carbons, i), before = await page.evaluate(i => window.__vault.build(i).cipher, i);
+      for (let k = 0; k < n; k++) { await page.evaluate(i => { const X = window.__vault, w = X.workOf(i), b = X.build(i); w.stages[0].s.k = (b.keys[0].k + 1) % 26; }, i); await page.click('#pullBtn'); }
+      ok(await page.evaluate(([i, b]) => window.__vault.build(i).cipher !== b && !window.__vault.S.solved[i], [i, before]), 'running out of carbons did not change the intercept');
+      await page.evaluate(i => { const X = window.__vault, w = X.workOf(i); w.stages[0].s.k = X.build(i).keys[0].k; X.update(); }, i);
+      await page.waitForTimeout(1300);
+      ok(!(await page.evaluate(i => window.__vault.S.solved[i], i)), 'opened without pulling a carbon');
+      await page.click('#pullBtn');
+      ok(await page.evaluate(i => !!window.__vault.S.solved[i], i), 'right carbon did not open it');
+    },
+    'intel: the decrypted fact is in the message, unambiguous, and a wrong call costs a star': async ({ page, eq, ok }) => {
+      const bad = await page.evaluate(() => { const X = window.__vault, out = [];
+        X.V.forEach((v, i) => { if (!v.intel) return; for (let variant = 0; variant < 4; variant++) { X.S.variant[i] = variant; const b = X.build(i), txt = v.pad ? b.plains[v.intel.row] : X.build(i).plain.replace(/[^A-Z]/g, '');
+          if (!b.intel || b.intel.opts.length !== 4 || !b.intel.opts.includes(b.intel.ans) || !txt.includes(b.intel.start.replace(/[^A-Z]/g, '').slice(0, v.pad ? 20 : 999))) out.push(i + ':' + variant);
+          if (!v.pad && v.intel.excl.some(w => b.plain.split(b.intel.start).join('').includes(w))) out.push(i + ' ambiguous'); } X.S.variant[i] = 0; });
+        return out; });
+      ok(!bad.length, bad.join(', '));
+      // Phelippes' Desk through the UI: answer wrongly
+      const i = await page.evaluate(() => { const X = window.__vault, i = X.V.findIndex(v => v.n === "Phelippes' Desk"); for (let j = 0; j < 4; j++) X.S.solved[j] = { stars: 3, time: 0 };
+        X.openVault(i); const w = X.workOf(i); w.stages = window.__solution(i).stages; X.openVault(i); return i; });
+      await page.waitForTimeout(2400);
+      const opts = await page.$$eval('.modal button', bs => bs.map(b => b.textContent));
+      const ans = await page.evaluate(i => window.__vault.build(i).intel.ans, i);
+      ok(opts.includes(ans) && opts.length === 4, 'intel question missing: ' + opts);
+      await page.click(`.modal button:not(:text-is("${ans}"))`);
+      await page.waitForTimeout(100);
+      eq(await page.evaluate(i => window.__vault.S.solved[i], i).then(x => [x.stars, x.intel]), [2, false]);
+    },
+    'difficulty: naive play fails': async ({ page, ok }) => {
+      const r = await page.evaluate(() => {
+        const X = window.__vault, V = X.V, late = V.map((v, i) => i).filter(i => i >= 16), runs = [];
+        const R0 = s => () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+        const tools = ['shift', 'atbash', 'affine', 'rev', 'rail', 'col', 'vig', 'subst'], A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const randStage = R => { const t = tools[Math.floor(R() * tools.length)], s = { shift: { k: Math.floor(R() * 26) }, atbash: {}, affine: { a: [1, 3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25][Math.floor(R() * 12)], b: Math.floor(R() * 26) }, rev: {}, rail: { n: 2 + Math.floor(R() * 8) }, col: { w: 2 + Math.floor(R() * 8), pos: null }, vig: { sh: Array.from({ length: 2 + Math.floor(R() * 8) }, () => Math.floor(R() * 26)) }, subst: { m: Object.fromEntries(A.split('').map(c => [c, A[Math.floor(R() * 26)]])) } }[t]; return { t, s }; };
+        const tryOpen = (i, stages, pad) => { const w = X.workOf(i); if (V[i].pad) w.padKey = pad; else w.stages = stages; return X.isOpenNow(i); };
+        for (const i of late) {
+          const v = V[i];
+          runs.push(tryOpen(i, [], Array(v.len || 0).fill(null)));                                   // idle
+          for (let seed = 1; seed <= 4; seed++) { const R = R0(seed * 97 + i); let won = false;   // random stacks / random pad keys
+            for (let t = 0; t < 250 && !won; t++) won = tryOpen(i, Array.from({ length: 1 + Math.floor(R() * 2) }, () => randStage(R)), Array.from({ length: v.len || 0 }, () => Math.floor(R() * 26)));
+            runs.push(won); }
+          { let won = false; if (!v.pad) {                                                                  // brute force every small key space, alone and with a reversal
+              const singles = [...Array(26).keys()].map(k => ({ t: 'shift', s: { k } })).concat([{ t: 'atbash', s: {} }, { t: 'rev', s: {} }], [...Array(19).keys()].map(n => ({ t: 'rail', s: { n: n + 2 } })));
+              for (const st of singles) { if (tryOpen(i, [st]) || tryOpen(i, [st, { t: 'rev', s: {} }]) || tryOpen(i, [{ t: 'rev', s: {} }, st])) { won = true; break; } } }
+            runs.push(won); }
+          X.workOf(i).stages = []; if (v.pad) X.workOf(i).padKey = Array(v.len).fill(null);
+        }
+        // competent but simple: read the key off the three hints (every hint taken = 1 star)
+        const competent = late.filter(i => !V[i].pad).map(i => { const w = X.workOf(i); w.stages = window.__solution(i).stages; const o = X.isOpenNow(i); w.stages = []; return o; });
+        return { naiveFail: runs.filter(x => !x).length / runs.length, competent };
+      });
+      ok(r.naiveFail >= .8, 'naive bots opened late vaults too often: ' + (1 - r.naiveFail));
+      ok(r.competent.every(Boolean), 'hint-following policy failed');
     },
     'phone: level list is a drawer behind a labelled button; picking a level closes it': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(500);

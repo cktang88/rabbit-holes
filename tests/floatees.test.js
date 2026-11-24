@@ -84,7 +84,7 @@ module.exports = {
       ok(await page.$eval('#ctrl [data-s="4"]', b => b.classList.contains('on')));
       await page.evaluate(() => { __fl.SAVE.done = {}; });
       await page.evaluate(() => __fl.load(4)); eq(await page.evaluate(() => __fl.SAVE.cur), 0, 'locked voyage opened');
-      await page.evaluate(() => __fl.load(6)); eq(await page.evaluate(() => __fl.SAVE.cur), 6, 'sandbox always open');
+      await page.evaluate(() => __fl.load(9)); eq(await page.evaluate(() => __fl.SAVE.cur), 9, 'sandbox always open');
       const r = await voyage(page, 0, null); // the spill with no bet placed: release is a no-op in the UI, but the debug drop runs
       const p = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).floatees); ok(p >= 0 && p <= 1);
     },
@@ -106,6 +106,49 @@ module.exports = {
       eq(r2, r.stars);
       eq(await page.evaluate(() => __fl.grade({ t: 3, regions: { uk: 50 }, maxLap: 0 })), 3);
     },
+    'forensic cases: the logbook comes from the model, the true spill reproduces it, hindcasts cost computer time': async ({ page, ok, eq }) => {
+      await unlock(page);
+      const r = await page.evaluate(() => { const X = __fl, o = {};
+        for (const lv of [6, 7, 8]) { X.load(lv); const C = X.level.case, log = X.caseLog(); X.caseState.month = C.truthMonth || 0;
+          o[lv] = { n: log.length, self: X.caseTry(...C.truth).mis, off: X.caseTry(C.truth[0] + 8, C.truth[1] + 10).mis, budget: X.caseState.left }; }
+        return o; });
+      for (const lv of [6, 7, 8]) { ok(r[lv].n >= 2, `case ${lv} has a logbook (${r[lv].n})`); eq(r[lv].self, 0, `case ${lv}: the truth fits exactly`); ok(r[lv].off > 3, `case ${lv}: 8° off fails (${r[lv].off})`); }
+      // play it through the UI path: a wrong hindcast uses one run and shows residuals; the truth closes the case with a report
+      const v = await page.evaluate(() => { const X = __fl; X.load(6); const C = X.level.case;
+        const run = (la, lo) => { X.dropAt(la, lo); for (let t = 0; t < X.level.years; t += .05) X.step(.05); X.simT = X.level.years; X.check(); };
+        run(20, -40); const a = [X.caseState.left, X.won, X.resolved, document.querySelector('.logb').textContent.includes('mo')];
+        run(...C.truth); return [...a, X.caseState.left, X.won, X.SAVE.stars[6], X.reportOn, document.getElementById('report').textContent.includes('Case closed')]; });
+      eq(v, [11, false, true, true, 10, true, 3, true, true]);
+      // out of computer time: further hindcasts are refused until the case is reopened
+      const w = await page.evaluate(() => { const X = __fl; X.load(7); X.caseState.left = 0; return [X.dropAt(30, -60), X.caseState.left]; });
+      eq(w, [false, 0]);
+      eq(await page.evaluate(() => { __fl.load(7); return __fl.dropAt(10, 150); }), false, 'a drop in the wrong ocean is refused');
+    },
+    'difficulty: naive play fails': async ({ page, ok }) => {
+      await unlock(page);
+      const R = await page.evaluate(() => { const X = __fl, out = { naive: 0, naiveN: 0, comp: [], compMis: [] };
+        for (const lv of [6, 7, 8]) {
+          X.load(lv); const C = X.level.case, lim = 3, log = X.caseLog(), B = C.budget, A = C.area;
+          const f = (la, lo, m = 0) => { X.caseState.month = m; return X.caseTry(la, lo); };
+          let rs = 11 + lv; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647;
+          for (let k = 0; k < 6; k++) { // random hindcasts anywhere in the basin (random month too)
+            let best = 99; for (let j = 0; j < B; j++) best = Math.min(best, f(A[0] + rnd() * (A[1] - A[0]), A[2] + rnd() * (A[3] - A[2]), (rnd() * 12) | 0).mis); out.naiveN++; if (best <= lim) out.naive++; }
+          for (let k = 0; k < 3; k++) { // the obvious guess: just offshore from the first sighting
+            let best = 99; for (let j = 0; j < B; j++) { const q = log[0].at; best = Math.min(best, f(q[0] + (rnd() - .5) * 6, q[1] + (rnd() - .5) * 6 - 4).mis); } out.naiveN++; if (best <= lim) out.naive++; }
+          out.naiveN++; // idling: no hindcast, no answer
+          // competent: survey the basin with 6 probes, then a local pattern search; refit the month from the residuals
+          let m = 0, n = 0, best = { mis: 99 };
+          const refit = r => { const d = r.rows.filter(x => x.dt != null).map(x => x.dt).sort((a, b) => a - b); return d.length ? Math.max(0, Math.min(11, m - d[d.length >> 1])) : m; };
+          const tryP = q => { if (n >= B) return; let r2 = f(q[0], q[1], m); n++; if (C.unknownDate) { const m2 = refit(r2); if (m2 !== m && n < B) { m = m2; r2 = f(q[0], q[1], m); n++; } } if (r2.mis < best.mis) best = { ...r2, pt: q }; };
+          for (const fy of [.3, .7]) for (const fx of [.15, .45, .75]) tryP([A[0] + (A[1] - A[0]) * fy, A[2] + (A[3] - A[2]) * fx]);
+          for (const st of [6, 3]) for (const [dl, dn] of [[st, 0], [-st, 0], [0, st], [0, -st]]) { if (best.mis <= lim * .7) break; tryP([best.pt[0] + dl, best.pt[1] + dn]); }
+          out.comp.push(best.mis <= lim); out.compMis.push(+best.mis.toFixed(2));
+        }
+        return out; });
+      ok(R.naive / R.naiveN <= .2, `naive bots solved ${R.naive}/${R.naiveN} late cases`);
+      ok(R.comp.every(Boolean), 'competent survey-and-refine solves every case: ' + R.compMis);
+      ok(R.compMis.every(m => m > 1.2), '3★ (≤1.2 months) needs better than the simple competent search: ' + R.compMis);
+    },
     'corrupted / odd saves load without errors': async ({ page, eq }) => {
       const u = page.url(); await page.goto('about:blank'); // stop the first globe rendering while the others load
       for (const [save, cur] of [['null', 0], ['{"done":{"0":1,"9":1,"x":1},"stars":"q","cards":7,"cur":3}', 1]]) {
@@ -119,7 +162,7 @@ module.exports = {
       await unlock(page);
       for (const [w, h] of [[390, 844], [1280, 800]]) {
         await page.setViewportSize({ width: w, height: h });
-        for (const i of [0, 3, 6]) { await page.evaluate(i => __fl.load(i), i); await page.waitForTimeout(120); }
+        for (const i of [0, 3, 6, 9]) { await page.evaluate(i => __fl.load(i), i); await page.waitForTimeout(120); }
         ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'overflow at ' + w);
       }
     },

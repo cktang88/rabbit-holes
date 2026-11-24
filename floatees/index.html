@@ -25,6 +25,8 @@
   #goal{margin-top:10px;padding:8px 0 0;border-top:1px solid rgba(168,50,30,.5);font-size:13px;line-height:1.45}
   #goal.ok{color:#1d4d22}
   #goal .stars{color:var(--red);letter-spacing:.15em;font-size:15px}
+  .logb{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px} .logb th{text-align:left;font:400 11px "Special Elite";color:var(--red);border-bottom:1px solid rgba(168,50,30,.4)} .logb td{padding:2px 4px 2px 0;border-bottom:1px dotted rgba(42,33,22,.25);vertical-align:top}
+  .cleft{margin-top:6px} .dial{display:block;margin-top:6px} .dial select{font:inherit;background:#f8f1de;border:1px solid #8a7a5a;min-height:28px}
   #bets{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
   /* buttons are typewriter keys: round black caps in a chrome ring */
   .b{border:2px solid #b8bcc0;background:radial-gradient(circle at 50% 35%,#4a4a4a,#141414 70%);color:#f2ead6;font:700 12px "Courier Prime",monospace;border-radius:999px;padding:6px 12px;cursor:pointer;box-shadow:0 0 0 1px #3a3a3a,0 3px 0 #2a2a2a,0 4px 6px rgba(0,0,0,.5);text-transform:uppercase;letter-spacing:.04em;transition:transform .05s}
@@ -236,6 +238,15 @@ const LV = [
   { n: 'Round the World', years: 8, focus: [-45, -70], physics: 0,
     story: 'Around Antarctica nothing blocks the water, so the <b>Antarctic Circumpolar Current</b>, the largest current on Earth, circles the planet forever.',
     goal: 'Get a duck to travel <b>all the way around</b> the world (360° of longitude) within 8 years. ★★ within 5 years, ★★★ within 3½.', win: S => S.maxLap >= 360, score: S => [Math.round(S.maxLap), 360, 'degrees: the furthest any duck went round'], instant: 1, timeStars: [8, 5, 3.5], card: 'round' },
+  { n: 'Case 1: The Logbook', years: 5, focus: [30, -50], case: { truth: [36, -66], windage: 22, budget: 12, start: [1994, 0], area: [5, 50, -98, -10] },
+    story: 'This is what Curtis Ebbesmeyer actually did. A beachcomber network has logged where and when yellow ducks washed up around the Atlantic. Somewhere, early in January 1994, a crate went over the side. <b>Where?</b> Each hindcast runs the current model backwards in your head: drop a test crate, and see whether it reproduces the logbook.',
+    goal: 'Find the spill: a hindcast that matches the logbook within <b>3 months</b> on average. You have <b>12 hindcasts</b> of computer time. ★★ within 2, ★★★ within 1.2.' },
+  { n: 'Case 2: Sneakers', years: 6, focus: [32, -50], case: { truth: [40, -56], windage: 6, budget: 12, start: [1991, 4], area: [5, 50, -98, -10] },
+    story: 'In 1990 the <i>Hansa Carrier</i> lost 61,000 Nike trainers in the Pacific, and Ebbesmeyer tracked them the same way. Here the shoes are from a crate lost in the Atlantic in May 1991. Shoes float low in the water, so the wind hardly pushes them: they ride the current itself, and they take different roads from ducks.',
+    goal: 'Find the spill: match the logbook within <b>3 months</b> average error, using at most <b>12 hindcasts</b>. These drift like shoes, not ducks. ★★ within 2, ★★★ within 1.2.' },
+  { n: 'Case 3: No Name, No Date', years: 5, focus: [32, -50], case: { truth: [33, -70], truthMonth: 7, windage: 22, budget: 12, start: [1996, 0], unknownDate: 1, area: [5, 50, -98, -10] },
+    story: 'Bath toys with no maker\'s mark have been washing up for two years. Nobody reported a spill. To pin it down you need <b>where</b> and <b>when</b>: set the spill month on the dial, and use the hindcasts to fix the rest. If every sighting comes out early, what does that tell you?',
+    goal: 'Match the logbook within <b>3 months</b> average error, with at most <b>12 hindcasts</b>. ★★ within 2, ★★★ within 1.2.' },
   { n: 'Open Ocean', years: Infinity, free: 1, physics: 1,
     story: 'A sandbox. Drop ducks anywhere, change the planet, and watch for decades.', goal: 'No goal. Have fun.', win: () => false },
 ];
@@ -383,7 +394,7 @@ function moveTracers(dt) {
     if (tr.lon[i] > 180) tr.lon[i] -= 360; if (tr.lon[i] < -180) tr.lon[i] += 360;
     if (tr.age[i] < 0 || isLand(tr.lat[i], tr.lon[i]) || Math.abs(tr.lat[i]) > 80) respawnTracer(i);
     toXYZ(tr.lat[i], tr.lon[i], 1.003, XYZ); trPos[i * 3] = XYZ[0]; trPos[i * 3 + 1] = XYZ[1]; trPos[i * 3 + 2] = XYZ[2];
-    const s = Math.min(1, Math.hypot(u, w) / 90), fade = Math.min(1, tr.age[i]) * (.25 + s * .9);
+    const s = Math.min(1, Math.hypot(u, w) / 90), fade = Math.min(1, tr.age[i]) * (.25 + s * .9) * Math.max(0, Math.min(1, (80 - Math.abs(tr.lat[i])) / 14)); // fade out towards the poles: no hard ring where tracers stop
     trCol[i * 3] = fade * .95; trCol[i * 3 + 1] = fade * .88; trCol[i * 3 + 2] = fade * .7; // cream ink streaks
   }
   trGeo.attributes.position.needsUpdate = trGeo.attributes.color.needsUpdate = true;
@@ -399,6 +410,12 @@ const dot = (inner, outer) => { const c = document.createElement('canvas'); c.wi
 const duckPts = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .06, map: dot(.45, .7), vertexColors: true, transparent: true, depthWrite: false }));
 const duckHalo = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .15, map: dot(.05, .3), color: '#ffd23a', transparent: true, opacity: .45, blending: THREE.AdditiveBlending, depthWrite: false }));
 globe.add(duckHalo); globe.add(duckPts); dGeo.setDrawRange(0, 0);
+// red map pins: where the logbook's sightings were made (and, once solved, a black cross at the true spill)
+const pinGeo = new THREE.BufferGeometry(), pinPos = new Float32Array(6 * 3); pinGeo.setAttribute('position', new THREE.BufferAttribute(pinPos, 3));
+const pins = new THREE.Points(pinGeo, new THREE.PointsMaterial({ size: .07, map: dot(.5, .75), color: '#c42a18', transparent: true, depthWrite: false })); globe.add(pins); pinGeo.setDrawRange(0, 0);
+const truthGeo = new THREE.BufferGeometry(); truthGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
+const truthPin = new THREE.Points(truthGeo, new THREE.PointsMaterial({ size: .12, map: dot(.3, .5), color: '#111', transparent: true, depthWrite: false })); globe.add(truthPin); truthPin.visible = false;
+function sightPins(log) { log.forEach((q, i) => { toXYZ(q.at[0], q.at[1], 1.012, XYZ); pinPos.set(XYZ, i * 3); }); pinGeo.setDrawRange(0, log.length); pinGeo.attributes.position.needsUpdate = true; }
 let landed = {}, lastDrop = null, attempts = [];
 function drop(lat, lon, n = 100) {
   lastDrop = [lat, lon]; if (!L.free) landed = {};
@@ -412,6 +429,48 @@ function drop(lat, lon, n = 100) {
   won = false; resolved = false; // every drop is a fresh attempt
   running = true; duckDirty = true; FX.sfx('pop'); FX.sfx('whoosh'); renderCtrl(); if (L.bet) renderBets();
 }
+// ---- forensic cases: the logbook is generated by the very model you test against, so a perfect answer exists ----
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const calOf = (C, months) => { const m = Math.round(C.start[1] + months); return `${MON[((m % 12) + 12) % 12]} ${C.start[0] + Math.floor(m / 12)}`; };
+let caseState = null; // { log, left, month, results: [] }
+function caseLog(C) { return C.log ||= sightingsOf(hindcast(C.truth[0], C.truth[1], L.years, C.windage, 400, 7)).slice(0, 4).map(q => ({ ...q, t: q.t + (C.truthMonth || 0) / 12 })); }
+const caseMonth = () => (L.case.unknownDate ? caseState.month : 0) / 12;
+function caseTry(lat, lon) {
+  const C = L.case, sim = sightingsOf(hindcast(lat, lon, L.years, C.windage, 400, 7)) /* same weather as the real spill: a perfect guess reproduces the logbook exactly */.map(q => ({ ...q, t: q.t + caseMonth() }));
+  const log = caseLog(C), m = {}; for (const q of sim) m[q.r] = q;
+  return { ll: [lat, lon], month: caseState.month, mis: misfit(log, sim), rows: log.map(q => { const h = m[q.r]; return { r: q.r, d: h ? [h.at[0] - q.at[0], ((h.at[1] - q.at[1] + 540) % 360) - 180] : null, dt: h ? Math.round((h.t - q.t) * 12) : null, km: h ? Math.round(Math.hypot(q.at[0] - h.at[0], ((q.at[1] - h.at[1] + 540) % 360 - 180) * Math.cos(q.at[0] * Math.PI / 180)) * 111) : null }; }) };
+}
+function renderCase() {
+  const C = L.case, log = caseLog(C), last = caseState.results[caseState.results.length - 1];
+  const rows = log.map((q, i) => { const d = last && last.rows[i]; return `<tr><td>${calOf(C, q.t * 12)}</td><td>${REG[q.r].n}</td><td>${!d ? '' : d.dt == null ? '<i>never</i>' : `${d.dt > 0 ? '+' : ''}${d.dt} mo, ${d.km} km`}</td></tr>`; }).join('');
+  $('goal').innerHTML = (SAVE.done[SAVE.cur] ? '✓ ' : '» ') + L.goal + (SAVE.stars[SAVE.cur] ? ` <span class="stars">${starStr(SAVE.stars[SAVE.cur])}</span>` : '')
+    + `<table class="logb"><tr><th>Sighted</th><th>Coast</th><th>${last ? 'Your hindcast' : ''}</th></tr>${rows}</table>`
+    + (C.unknownDate ? `<label class="dial">Spill month: <select id="cmonth">${Array.from({ length: 12 }, (_, k) => `<option value="${k}" ${k === caseState.month ? 'selected' : ''}>${calOf(C, k)}</option>`).join('')}</select></label>` : '')
+    + `<div class="cleft">Hindcasts left: <b>${caseState.left}</b>${last ? ` · last misfit <b>${last.mis.toFixed(1)} mo</b>` : ''}</div>`;
+  if ($('cmonth')) $('cmonth').onchange = e => { caseState.month = +e.target.value; FX.sfx('click'); };
+  sightPins(log);
+}
+const windage = () => L && L.case ? L.case.windage : WINDAGE; // sneakers ride low in the water and barely feel the wind
+// ---- hindcasting: the same drift model, run silently and reproducibly (seeded), to see where and when a spill would wash up ----
+function hindcast(lat, lon, years, wnd = WINDAGE, n = 400, seed = 7) {
+  let a = seed >>> 0; const rnd = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const arr = {}, dt = .02, sub = 4, h = dt / sub, sq = DIFF * Math.sqrt(h), V = [0, 0];
+  for (let k = 0; k < n; k++) {
+    let la = lat + (rnd() - .5) * 1.5, lo = lon + (rnd() - .5) * 1.5;
+    run: for (let t = 0; t < years; t += dt) for (let s = 0; s < sub; s++) {
+      vel(la, lo, V); const c = Math.max(.15, Math.cos(la * Math.PI / 180));
+      la += (V[1] + swWind(la, lo)) * h + (rnd() - .5) * sq; lo += ((V[0] + wnd * taux(la * Math.PI / 180)) * h + (rnd() - .5) * sq) / c;
+      if (lo > 180) lo -= 360; if (lo < -180) lo += 360;
+      if (isLand(la, lo) || Math.abs(la) > 84) { const r = regionOf(la, lo); if (r !== 'other') (arr[r] ||= []).push([t + s * h, la, lo]); break run; }
+    }
+  }
+  for (const r in arr) arr[r].sort((p, q) => p[0] - q[0]);
+  return arr; // region → sorted [[years, lat, lon], …]
+}
+// a region's "sighting" is when the fourth toy turns up there (the first can be a fluke)
+const sightingsOf = (arr, k = 4) => Object.entries(arr).filter(([, v]) => v.length >= 6).map(([r, v]) => { const f = v.slice(0, 6); return { r, t: v[k - 1][0], at: [f.reduce((a, p) => a + p[1], 0) / f.length, f.reduce((a, p) => a + p[2], 0) / f.length] }; }).sort((p, q) => p.t - q.t);
+// how badly a hindcast fits the logbook: months of timing error plus where along the coast (3° ≈ one month); a coast it never reaches costs two years
+function misfit(log, sim) { const m = {}; for (const q of sim) m[q.r] = q; return log.reduce((a, q) => { const s2 = m[q.r]; if (!s2) return a + 24; const dl = q.at[0] - s2.at[0], dn = ((q.at[1] - s2.at[1] + 540) % 360 - 180) * Math.cos(q.at[0] * Math.PI / 180); return a + Math.abs(s2.t - q.t) * 12 + Math.hypot(dl, dn) / 3; }, 0) / log.length; }
 function moveDucks(dtYears) {
   if (!CU) return;
   const box = L.measure ? GSBOX : null; let mx = 0;
@@ -422,7 +481,7 @@ function moveDucks(dtYears) {
       const v = vel(d.lat, d.lon), u = v[0], w = v[1], c = Math.max(.15, Math.cos(d.lat * Math.PI / 180));
       if (box && d.lat > box[0] && d.lat < box[1] && d.lon > box[2] && d.lon < box[3]) { const sp = Math.hypot(u, w); if (sp > mx) mx = sp; }
       // eddies scatter the flock: a random walk on top of the mean current. Toys ride high, so the wind pushes them downwind too.
-      const dl = (w + swWind(d.lat, d.lon)) * h + (Math.random() - .5) * sq, dn = ((u + WINDAGE * taux(d.lat * Math.PI / 180)) * h + (Math.random() - .5) * sq) / c;
+      const dl = (w + swWind(d.lat, d.lon)) * h + (Math.random() - .5) * sq, dn = ((u + windage() * taux(d.lat * Math.PI / 180)) * h + (Math.random() - .5) * sq) / c;
       d.lat += dl; d.lon += dn; d.lap += dn;
       if (d.lon > 180) d.lon -= 360; if (d.lon < -180) d.lon += 360;
       if (isLand(d.lat, d.lon) || Math.abs(d.lat) > 84) { d.beached = regionOf(d.lat, d.lon); d.bt = simT; if (d.beached !== 'other' && !landed[d.beached]) { landed[d.beached] = 1; postcard(d.beached, d.bt); } break; }
@@ -456,6 +515,14 @@ function dropAt(lat, lon) {
   if (L.dropBox && !(lat >= L.dropBox[0] && lat <= L.dropBox[1] && lon >= L.dropBox[2] && lon <= L.dropBox[3])) { FX.sfx('fail'); toast('Not in the western Atlantic', 'Drop between the Americas and 45°W: dropping next to Europe proves nothing.', 2400); return false; }
   if (L.outsidePatch && patchDist(lat, lon) < 14) { FX.sfx('fail'); toast('Inside the patch already', 'Drop them outside the ring and let the gyre do the herding.', 2200); return false; }
   if (!CU) { toast('Still charting the oceans…', '', 1200); return false; }
+  if (L.case) {
+    const A = L.case.area, inA = lat >= A[0] && lat <= A[1] && (A[2] < A[3] ? lon >= A[2] && lon <= A[3] : lon >= A[2] || lon <= A[3]);
+    if (!inA) { FX.sfx('fail'); toast('Wrong ocean', 'The sightings are all in this basin: the spill was too.', 2000); return false; }
+    if (resolved && won) return false;
+    if (caseState.left <= 0) { toast('No computer time left', 'Reopen the case (pick it again) to start over.', 2500); return false; }
+    if (ducks.length && !resolved && simT < L.years) { toast('Hindcast still running', 'Wait for it to finish.', 1500); return false; }
+    caseState.left--; caseState.pending = caseTry(lat, lon); renderCase();
+  }
   if (!L.free && ducks.length) { ducks = []; simT = 0; }
   drop(lat, lon, 100); if (!L.free) simT = 0;
   return true;
@@ -470,6 +537,8 @@ function load(i) {
   if (LV[i] !== L) attempts = []; hideReport(); $('cards').innerHTML = ''; landed = {};
   SAVE.cur = i; persist(); L = LV[i]; ducks = []; simT = 0; running = false; won = false; resolved = false; bet = null; meas = {};
   if (!L.physics && rot !== 1) setSpin(1, true);
+  pinGeo.setDrawRange(0, 0); truthPin.visible = false;
+  caseState = L.case ? { left: L.case.budget, month: 0, results: [] } : null; if (L.case) speed = 12;
   patchRing.visible = !!L.patch; $('story').innerHTML = L.story; renderBets(); renderGoal(); renderLevels(); renderCtrl();
   const fc = L.drop || L.focus; if (fc) { globe.rotation.y = 0; const v = new THREE.Vector3(...toXYZ(fc[0] - 12, fc[1])).normalize().multiplyScalar(MOBILE ? (innerHeight <= 500 ? 5.4 : 6.6) : 5.4); camera.position.copy(v); controls.update(); }
   $('toast').classList.remove('on'); layout();
@@ -487,7 +556,7 @@ function renderBets() {
   $('bets').innerHTML = L.bet ? L.bet.map(k => `<button class="b ${bet === k ? 'on' : ''}" data-k="${k}" ${lockd ? 'disabled' : ''} style="${lockd && bet !== k ? 'opacity:.4' : ''}">${REG[k].n}</button>`).join('') : '';
   $('bets').querySelectorAll('[data-k]').forEach(b => b.onclick = () => { if (betLocked()) return; bet = b.dataset.k; FX.sfx('click'); renderBets(); renderCtrl(); });
 }
-function renderGoal() { const ok = SAVE.done[SAVE.cur]; $('goal').className = ok ? 'ok' : ''; $('goal').innerHTML = (ok ? '✓ ' : '» ') + L.goal + (SAVE.stars[SAVE.cur] ? ` <span class="stars">${starStr(SAVE.stars[SAVE.cur])}</span>` : ''); $('next').style.display = ok && SAVE.cur < LV.length - 1 ? 'inline-block' : 'none'; }
+function renderGoal() { if (L.case && caseState) return renderCase(); const ok = SAVE.done[SAVE.cur]; $('goal').className = ok ? 'ok' : ''; $('goal').innerHTML = (ok ? '✓ ' : '» ') + L.goal + (SAVE.stars[SAVE.cur] ? ` <span class="stars">${starStr(SAVE.stars[SAVE.cur])}</span>` : ''); $('next').style.display = ok && SAVE.cur < LV.length - 1 ? 'inline-block' : 'none'; }
 function renderLevels() {
   const mo = maxOpen(), locked = (l, i) => i > mo && !SAVE.done[i] && !l.free;
   $('levels').innerHTML = '<h4>Voyages</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${locked(l, i) ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><span>${SAVE.stars[i] ? starStr(SAVE.stars[i]) : SAVE.done[i] ? '✓' : ''}</span></div>`).join('');
@@ -501,7 +570,7 @@ $('next').onclick = goNext;
 function renderCtrl() {
   let h = '';
   if (L.drop) h += `<button class="b on" id="rel" ${L.bet && !bet ? 'disabled' : ''}>Release the crate</button><span class="sep"></span>`;
-  else h += `<span class="hint">${MOBILE ? 'Tap' : 'Click'} the ocean to drop 100 ducks</span><span class="sep"></span>`;
+  else h += `<span class="hint">${MOBILE ? 'Tap' : 'Click'} the ocean to ${L.case ? 'run a hindcast' : 'drop 100 ducks'}</span><span class="sep"></span>`;
   h += `<button class="b" id="pp" aria-label="${running ? 'Pause' : 'Play'}">${running ? '❚❚' : '▶'}</button>` + [1, 4, 12].map(s => `<button class="b ${speed === s ? 'on' : ''}" data-s="${s}">${s}×</button>`).join('') + `<button class="b ${follow ? 'on' : ''}" id="fol" title="Keep the camera on the flock">follow</button><span id="clock"></span>`;
   if (L.physics) h += '<span class="sep"></span><span class="hint">Earth\'s spin</span>' + [[1, 'normal'], [0, 'off'], [-1, 'reversed']].map(([v, n]) => `<button class="b ${rot === v ? 'on' : ''}" data-r="${v}">${n}${rot === v && !CU ? '…' : ''}</button>`).join('');
   $('ctrl').innerHTML = h;
@@ -577,6 +646,7 @@ function failHint(S) {
 const starStr = n => '★'.repeat(n) + '☆'.repeat(3 - n);
 const fmtLL = ll => ll ? `${Math.abs(ll[0]).toFixed(0)}°${ll[0] >= 0 ? 'N' : 'S'} ${Math.abs(ll[1]).toFixed(0)}°${ll[1] >= 0 ? 'E' : 'W'}` : '';
 function grade(S) {
+  if (L.case) { const m = caseState.results[caseState.results.length - 1].mis, t = [2, 1.2]; return m <= t[1] ? 3 : m <= t[0] ? 2 : 1; }
   if (L.timeStars) return S.t <= L.timeStars[2] ? 3 : S.t <= L.timeStars[1] ? 2 : 1;
   if (L.stars && L.score) { const v = L.score(S)[0]; return v >= L.stars[2] ? 3 : v >= L.stars[1] ? 2 : 1; }
   return 3;
@@ -612,8 +682,11 @@ function postcard(k, t) {
   setTimeout(() => { c.style.opacity = '0'; setTimeout(() => c.remove(), 700); }, 7000);
 }
 function report(S, st) {
+  if (L.case) { const C = L.case, r = caseState.results[caseState.results.length - 1], d = Math.hypot(r.ll[0] - C.truth[0], (r.ll[1] - C.truth[1]) * Math.cos(C.truth[0] * Math.PI / 180)) * 111;
+    toXYZ(C.truth[0], C.truth[1], 1.012, XYZ); truthGeo.attributes.position.array.set(XYZ); truthGeo.attributes.position.needsUpdate = true; truthPin.visible = true;
+    S = { ...S, caseLine: `Case closed. The crate went over at ${fmtLL(C.truth)}${C.unknownDate ? ' in ' + calOf(C, C.truthMonth) : ''}. Your hindcast was ${Math.round(d)} km off, after ${C.budget - caseState.left} runs.` }; }
   const k = L.card || (L.bet ? S.first : null) || S.top || 'uk', sc = L.score ? L.score(S) : null;
-  const line = L.bet ? `Your bet was right: the first duck came ashore here after ${(S.firstT * 12).toFixed(0)} months.` : L.timeStars ? `A duck has gone all the way round the world in ${(S.t).toFixed(1)} years.` : sc ? `${sc[0]} ducks ${sc[2].replace(/^reached /, 'reached ').replace(/^ended up/, 'ended up')}.` : 'Measurements agree: spin makes the Gulf Stream.';
+  const line = S.caseLine ? S.caseLine : L.bet ? `Your bet was right: the first duck came ashore here after ${(S.firstT * 12).toFixed(0)} months.` : L.timeStars ? `A duck has gone all the way round the world in ${(S.t).toFixed(1)} years.` : sc ? `${sc[0]} ducks ${sc[2].replace(/^reached /, 'reached ').replace(/^ended up/, 'ended up')}.` : 'Measurements agree: spin makes the Gulf Stream.';
   $('report').innerHTML = `<div style="position:relative">${cardHTML(k, line, `<span class="stars">${starStr(st)}</span>`, S.t)}<span class="conf">CONFIRMED</span></div>`
     + `<div class="chip" style="position:relative;margin-top:10px;padding:10px 14px;font-size:13px;line-height:1.5">${LESSON[SAVE.cur] || ''}${SAVE.cur < LV.length - 1 ? '<div style="margin-top:8px;display:flex;gap:8px"><button class="b on" id="tnext">Next voyage ▸</button><button class="b" id="rclose">Stay here</button></div>' : '<div style="margin-top:8px"><button class="b" id="rclose">Close</button></div>'}</div>`;
   $('report').classList.add('on'); setTimeout(() => FX.sfx('stamp'), 880);
@@ -623,6 +696,15 @@ function report(S, st) {
 function hideReport() { $('report').classList.remove('on'); }
 function check(S) {
   if (resolved || L.free || !ducks.length) return;
+  if (L.case) { // the hindcast's verdict comes when its run ends
+    if (simT < L.years || !caseState.pending) return;
+    const res = caseState.pending; caseState.pending = null; caseState.results.push(res); attempts.push({ ll: res.ll, rot: 1, score: res.mis.toFixed(1) + ' mo', stars: 0 });
+    const lim = 3;
+    if (res.mis <= lim) { won = true; SAVE.done[SAVE.cur] = 1; persist(); renderCase(); return finish(S); }
+    resolved = true; renderCase(); FX.sfx('fail');
+    toast(caseState.left ? 'No match' : 'Out of computer time', caseState.left ? `Average misfit ${res.mis.toFixed(1)} months. Read the table: which coasts come out early, late, or never?` : 'The case goes cold. Pick it again to reopen it with fresh computer time.', 5000);
+    return;
+  }
   if (L.bet) { // judged by the first duck ashore, as the question asks
     if (S.first) { if (S.first === bet) win(S); else { resolved = true; logAttempt(S); renderBets(); FX.sfx('fail'); toast('Not this time', `The first duck came ashore in <b>${REG[S.first].n}</b> after ${(S.firstT * 12).toFixed(0)} months. (In 30 runs of this model, North America came first every time.) Try again.`, 6000); } }
     else if (simT >= L.years) { resolved = true; renderBets(); toast('No landfall yet', 'Two years and every duck is still at sea. Try again.', 4000); }
@@ -647,7 +729,7 @@ const LESSON = [
 load(+SAVE.cur || 0);
 requestAnimationFrame(frame);
 const proj = new THREE.Vector3();
-window.__fl = { LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
+window.__fl = { LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
   screenOf: (lat, lon) => { proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>

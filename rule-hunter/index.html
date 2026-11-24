@@ -72,6 +72,14 @@
   #world{position:absolute;inset:0;width:100%;height:100%;border:0;image-rendering:auto;cursor:zoom-in;max-width:none;max-height:none;touch-action:manipulation}
   #behav,#log{z-index:1;pointer-events:none}
   .edge{display:none}
+  #predict{position:absolute;left:50%;top:44px;transform:translateX(-50%);width:min(520px,94%);z-index:3;display:none;background:#f6eed8;border:1px solid #3b2a1a;box-shadow:0 0 0 4px #f6eed8,0 0 0 5px #3b2a1a,6px 8px 20px rgba(0,0,0,.5);padding:10px 12px;text-align:center;color:#3b2a1a}
+  #predict.on{display:block}
+  #predict .pq{font-size:19px;margin-bottom:6px} #predict .pq.right{color:#2f6a2a} #predict .pq.wrong{color:#8b1e1e}
+  #predict .pr{display:flex;flex-wrap:wrap;gap:6px;justify-content:center} #predict .pr button{min-height:36px}
+  #predict .pskip{margin-top:6px;font-size:12px;min-height:30px;box-shadow:none;border-style:dotted}
+  #predict .pn{font-size:14px;line-height:1.4}
+  .nbr{display:flex;gap:10px;align-items:center}
+  .nb3{flex:0 0 42px;height:42px;background:conic-gradient(from 0deg,#3b2a1a 0 0) ;background:repeating-linear-gradient(90deg,transparent 0 13px,#3b2a1a 13px 14px),repeating-linear-gradient(0deg,transparent 0 13px,#3b2a1a 13px 14px),radial-gradient(circle at 50% 50%,#8b1e1e 0 5px,#e6d29a 5.5px);border:1px solid #3b2a1a}
   .drawerBtn{display:none}
   @media (max-width:760px){
     #center{min-height:0;height:68vh;padding:0}
@@ -128,7 +136,7 @@
 <main>
   <div id="left">
     <div>
-      <div class="dim small">Rule: which neighbour counts cause a <b>B</b>irth, and which let a cell <b>S</b>urvive</div>
+      <div class="nbr"><div class="nb3" aria-hidden="true"></div><div class="dim small">Each cell counts its 8 neighbours (the ring around it). A dead cell is <b>B</b>orn if the count is lit in the B row; a live cell <b>S</b>urvives if it's lit in the S row.</div></div>
       <div class="bits" id="bits" style="margin-top:6px"></div>
       <input id="ruleStr" style="margin-top:8px">
       <div class="row" style="margin-top:8px"><button id="mutBtn" title="Flip one random bit">Mutate</button><button id="rndBtn">Random</button><button id="lifeBtn">Life</button></div>
@@ -141,20 +149,20 @@
     <div>
       <button class="primary" id="scanBtn" style="width:100%">Scan the whole dish</button>
       <div class="dim small" style="margin-top:4px">Or click any colony in the dish to put it under the lens by itself.</div>
+      <div class="row" style="margin-top:8px"><button id="drawBtn" style="flex:1">Draw a pattern</button><button id="testDrawBtn" style="flex:1" disabled>Test my drawing</button></div>
     </div>
     <div>
       <div class="row"><button id="autoBtn" style="flex:1">Engage the assistant: off</button></div>
-      <label class="small row" style="margin-top:6px"><input type="checkbox" id="wander"> Drift to nearby rules while hunting</label>
-      <div class="dim small" style="margin-top:4px">A tireless assistant who runs soup after soup and scans each one.</div>
+      <div class="dim small" style="margin-top:4px">A tireless assistant who repeats your current experiment: soup after soup in this rule, scanning each one. Choosing rules stays your job.</div>
     </div>
     <div class="panel small" id="ruleInfo"></div>
   </div>
-  <div id="center"><div id="behav"></div><canvas id="world"></canvas><div id="log"></div><div class="edge"><button class="primary" id="soupBtn2">New soup</button><button id="scanBtn2">Scan</button></div></div>
+  <div id="center"><div id="behav"></div><canvas id="world"></canvas><div id="log"></div><div id="predict"></div><div class="edge"><button class="primary" id="soupBtn2">New soup</button><button id="scanBtn2">Scan</button></div></div>
   <div id="right">
     <div class="tabs"><button data-t="guide" class="on">Field guide</button><button data-t="bounty">Bounties</button><button data-t="map">Rule map</button></div>
     <div class="pane on" id="p-guide"><div class="filter" id="filt"></div><div id="guide"></div></div>
     <div class="pane" id="p-bounty"></div>
-    <div class="pane" id="p-map"><div class="dim small" style="margin-bottom:6px">Each pixel is a rule: x = birth set, y = survival set. Lit pixels are rules you have explored, coloured by what happened. Click any pixel to go there.</div><canvas id="mapCv" width="256" height="256"></canvas>
+    <div class="pane" id="p-map"><div class="dim small" style="margin-bottom:6px">Top: the rules one switch away from yours (click one to go there). Bottom: every rule you have charted, by how many switches are on.</div><canvas id="mapCv" width="320" height="330"></canvas>
       <div class="small" style="margin-top:8px;line-height:1.8"><span style="color:#2f6a2a">■</span> complex · <span style="color:#a3231b">■</span> explodes · <span style="color:#24557a">■</span> freezes · <span style="color:#9c8462">■</span> dies · <span style="color:#6a2a6e">■</span> chaotic</div><div id="mapInfo" class="small dim"></div></div>
   </div>
 </main>
@@ -169,6 +177,14 @@ S.rule={b:S.rule.b&0b111111110, s:S.rule.s&0b111111111};
 for (const k of ['species','rules','bounties']) if (!isObj(S[k])) S[k]={};
 for (const [id,sp] of Object.entries(S.species)) if (!isObj(sp) || typeof sp.rule!=='string' || !Array.isArray(sp.phases) || !sp.phases.length || typeof sp.phases[0]!=='string' || !(sp.type in {still:1,osc:1,ship:1,diag:1,knight:1,grower:1})) delete S.species[id];
 for (const [k,v] of Object.entries(S.rules)) if (!isObj(v) || !/^\d+:\d+$/.test(k)) delete S.rules[k];
+// A species is a pattern with a behaviour, wherever it lives: the same glider in two rules is one species found in two rules.
+const spKey=(type,p,dx,dy,ck)=> type==='grower'? 'G|'+ck : `${type}|${p}|${dx}|${dy}|${ck}`;
+{ const out={}; for (const [id,sp] of Object.entries(S.species)){ let k=id; if (!Array.isArray(sp.rules)){ const ck=id.slice(id.indexOf('|')+1).replace(/^G/,''); k=spKey(sp.type,sp.p,sp.dx,sp.dy,ck); sp.rules=[sp.rule]; }
+    sp.rules=sp.rules.filter(r=>typeof r==='string'); if (!sp.rules.length) continue; sp.rule=sp.rules[0];
+    if (out[k]){ for (const r of sp.rules) if (!out[k].rules.includes(r)) out[k].rules.push(r); out[k].drawn ||= sp.drawn; } else out[k]=sp; }
+  S.species=out; }
+if (!isObj(S.pred)) S.pred={n:0,right:0,streak:0,best:0}; for (const k of ['n','right','streak','best']) if (!Number.isInteger(S.pred[k])||S.pred[k]<0) S.pred[k]=0;
+if (!isObj(S.notes)) S.notes={};
 if (!Number.isFinite(S.scans) || S.scans<0) S.scans=0;
 // Only bounties that still exist count (ids are their text, so an edited bounty must not push the total past 100%)
 const claimed=()=>BOUNTIES.filter(b=>S.bounties[b.id]).length;
@@ -191,7 +207,40 @@ function soup(){
   grid.fill(0); gen=0; const d=+document.getElementById('dens').value/100; const R=RH.rng(Math.random()*1e9|0);
   const s=48, ox=(W-s)>>1, oy=(H-s)>>1; seedBox=[ox,oy,s];
   for (let y=0;y<s;y++) for (let x=0;x<s;x++) grid[(oy+y)*W+ox+x] = R()<d?1:0;
-  draw();
+  draw(); maybePredict();
+}
+// ===================== Predict, then run =====================
+// Before a rule you have never charted runs, you say what you expect. The soup waits for your bet.
+const CLASSES=['dies','freezes','complex','chaotic','explodes'];
+const bitsOf=(r)=>{ let n=0; for (let i=0;i<9;i++){ n+=(r.b>>i)&1; n+=(r.s>>i)&1; } return n; };
+// Field notes: rules of thumb the player earns by seeing them happen
+const NOTES={
+  B1:{t:'B1 rules almost always explode.', d:'With B1, any lone live cell gives birth to all eight of its neighbours. Nothing can stay small.', when:(r)=>(r.b>>1)&1},
+  B2:{t:'B2 rules usually explode.', d:'Two neighbours is so easy to reach that births outrun deaths, unless survival is very stingy.', when:(r)=>!((r.b>>1)&1) && ((r.b>>2)&1)},
+  noS:{t:'Without S2 or S3, soups die out or freeze.', d:'A small pattern\'s cells mostly have two or three neighbours. If those counts can\'t survive, every pattern thins out or locks solid.', when:(r)=>!((r.s>>2)&1) && !((r.s>>3)&1)},
+  lam:{t:'Langton\'s λ: the edge of chaos.', d:'Count the switched-on bits. Few bits and soups die or freeze; many and they explode or boil. Complex rules sit in a narrow middle band.', when:()=>true},
+};
+function noteFor(r){ for (const k of ['B1','B2','noS','lam']) if (NOTES[k].when(r)) return k; return 'lam'; }
+let pending=null;
+function maybePredict(){
+  const el=document.getElementById('predict'); if (!el) return;
+  if (auto || S.rules[rkey(S.rule)] || S.noPredict){ el.classList.remove('on'); pending=null; return; }
+  pending={rule:{...S.rule}}; running=false; document.getElementById('playBtn').textContent='▶';
+  el.innerHTML=`<div class="pq">What will <b>${ruleStr(S.rule)}</b> do to this soup?</div><div class="pr">${CLASSES.map(c=>`<button data-p="${c}">${c==='complex'?'stay complex':c==='chaotic'?'boil':c==='dies'?'die out':c}</button>`).join('')}</div><button class="pskip" data-p="">Skip the bet</button>`;
+  el.classList.add('on'); el.querySelectorAll('[data-p]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); predict(b.dataset.p||null); });
+}
+function predict(guess){
+  if (!pending) return null; const r=pending.rule; pending=null; const k=rkey(r); const beh=classifyRule(r);
+  S.rules[k]={beh, scans:0, found:0, pred:guess||undefined};
+  let msg='', right=false;
+  if (guess){ S.pred.n++; right = guess===beh; if (right){ S.pred.right++; S.pred.streak++; S.pred.best=Math.max(S.pred.best,S.pred.streak); } else S.pred.streak=0; }
+  const nk=noteFor(r); const fresh=!S.notes[nk]; S.notes[nk]=1;
+  msg = guess? (right? `Right: it ${beh==='complex'?'stays complex':beh==='chaotic'?'boils':beh==='dies'?'dies out':beh}.` : `You said ${guess}; it ${beh==='complex'?'stays complex':beh==='chaotic'?'boils':beh==='dies'?'dies out':beh}.`) : `It ${beh==='complex'?'stays complex':beh==='chaotic'?'boils':beh==='dies'?'dies out':beh}.`;
+  const el=document.getElementById('predict'); el.innerHTML=`<div class="pq ${guess? (right?'right':'wrong') : ''}">${msg}</div><div class="pn">${fresh?'New field note: ':''}<b>${NOTES[nk].t}</b> ${NOTES[nk].d}</div>`;
+  setTimeout(()=>el.classList.remove('on'), 5200);
+  if (guess){ if (right) SND.bell(1); else SND.lens(); }
+  persist(); checkBounties(); renderRuleInfo(); renderBounties(); drawMap(); running=true; document.getElementById('playBtn').textContent='⏸';
+  return {beh, right};
 }
 function tick(n){ for (let i=0;i<n;i++){ stepGrid(grid,next,W,H,S.rule); [grid,next]=[next,grid]; gen++; } }
 
@@ -240,14 +289,28 @@ function examineAt(x,y){
   if (!best || bd>16){ log('Nothing under the lens there. Click on a colony.'); return null; }
   growthBudget=2; const r=catalog(best); SND.lens();
   const msg = r.status==='new'? `New ${TYPEN[r.sp.type]}: ${r.sp.name}${r.sp.p>1?`, period ${r.sp.p}`:''}${speedStr(r.sp)?', '+speedStr(r.sp):''}.`
+    : r.status==='newrule'? `${r.sp.name} again: the same ${TYPEN[r.sp.type]} also lives in this rule (${r.sp.rules.length} rules now).`
     : r.status==='known'? `Already in the field guide: ${S.species[r.id].name}.` : r.status==='dies'? 'On its own, this one withers and dies.' : r.status==='big'? 'Too large to isolate.' : 'Unclassified: it neither repeats nor grows steadily in 72 generations.';
   log(msg);
   const pts=unwrap(best,W,H); const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]); const sc=dish.sq/W;
   lensMark={x:dish.x0+((Math.min(...xs)+Math.max(...xs))/2%W+.5)*sc, y:dish.y0+((Math.min(...ys)+Math.max(...ys))/2%H+.5)*sc, r:Math.max(10,(Math.max(...xs)-Math.min(...xs)+4)*sc), t:performance.now()};
+  if (r.status==='newrule'){ persist(); checkBounties(); renderGuide(); }
   if (r.status==='new'){ persist(); announce([r.sp]); checkBounties(); renderGuide(); renderTotals(); renderRuleInfo(); }
   draw(); return r;
 }
-cv.addEventListener('click', e=>{ const rc=cv.getBoundingClientRect(); const p=dishToCell(e.clientX-rc.left, e.clientY-rc.top); if (p) examineAt(p[0],p[1]); });
+// Draw mode: the dish becomes a blank slide; click cells on and off, then test the drawing in the current rule.
+let drawing=false;
+function setDrawing(on){ drawing=on; const b=document.getElementById('drawBtn'); b.textContent=on?'Stop drawing':'Draw a pattern'; b.classList.toggle('primary',on); document.getElementById('testDrawBtn').disabled=!on;
+  if (on){ running=false; grid.fill(0); gen=0; document.getElementById('playBtn').textContent='▶'; log('Drawing: click cells in the dish, then press Test my drawing.'); draw(); } }
+function testDrawing(){ const objs=components(grid,W,H); if (!objs.length){ log('Draw something first.'); return null; }
+  drawnFlag=true; growthBudget=2; const seen=new Set(); const res=[]; try { for (const o of objs) res.push(catalog(o, seen)); } finally { drawnFlag=false; }
+  const neu=res.filter(r=>r.status==='new').map(r=>r.sp); const first=res[0];
+  log(objs.length+' drawn object'+(objs.length>1?'s':'')+': '+res.map(r=>r.status==='new'? 'new '+TYPEN[r.sp.type] : r.status==='known'||r.status==='newrule'? 'known '+TYPEN[S.species[r.id].type] : r.status==='dies'? 'dies' : 'unclassified').join(', '));
+  persist(); announce(neu); checkBounties(); renderGuide(); renderTotals(); setDrawing(false); running=true; document.getElementById('playBtn').textContent='⏸'; return res; }
+document.getElementById('drawBtn').onclick=()=>setDrawing(!drawing);
+document.getElementById('testDrawBtn').onclick=()=>testDrawing();
+cv.addEventListener('click', e=>{ const rc=cv.getBoundingClientRect(); const p=dishToCell(e.clientX-rc.left, e.clientY-rc.top); if (!p) return;
+  if (drawing){ grid[p[1]*W+p[0]]^=1; SND.lens(); draw(); return; } examineAt(p[0],p[1]); });
 const pop=(g)=>{ let p=0; for (let i=0;i<g.length;i++) p+=g[i]; return p; };
 
 // ===================== Classifier =====================
@@ -316,12 +379,12 @@ function growthCheck(a0,b0,N0,g0,rule,p0,pts){
   if (marks[450]>Math.max(80,p0+40) && (marks[450]>marks[300]*1.3 || (d1>=12 && d2>=d1*0.8))) return {type:'grower', cells:p0, pts};
   return {type:'unknown'};
 }
-function classifyRule(){
+function classifyRule(rule=S.rule){
   // runs a fresh soup off-screen to label the rule's general behaviour
-  const w=96,h=96; let a=new Uint8Array(w*h), b=new Uint8Array(w*h); const R=RH.rng(rkey(S.rule).length+S.rule.b*7+S.rule.s*131);
+  const w=96,h=96; let a=new Uint8Array(w*h), b=new Uint8Array(w*h); const R=RH.rng(rkey(rule).length+rule.b*7+rule.s*131);
   for (let y=36;y<60;y++) for (let x=36;x<60;x++) a[y*w+x]=R()<0.4?1:0;
   let changes=0;
-  for (let g=0; g<300; g++){ stepGrid(a,b,w,h,S.rule); if (g===299){ changes=0; for(let i=0;i<w*h;i++) if(a[i]!==b[i]) changes++; } [a,b]=[b,a]; }
+  for (let g=0; g<300; g++){ stepGrid(a,b,w,h,rule); if (g===299){ changes=0; for(let i=0;i<w*h;i++) if(a[i]!==b[i]) changes++; } [a,b]=[b,a]; }
   const p=pop(a); const d=p/(w*h);
   let edge=0; for (let i=0;i<w;i++) edge+=a[i]+a[(h-1)*w+i]+a[i*w]+a[i*w+w-1];
   if (p===0) return 'dies';
@@ -341,13 +404,16 @@ function speedStr(sp){ if (!sp.dx&&!sp.dy) return ''; const d=Math.max(sp.dx,sp.
 
 // ===================== Scan =====================
 // Test one object alone and add it to the field guide if it is new.
+let drawnFlag=false;
 function catalog(o, seenIds){
   if (o.length>220) return {status:'big'};
   const res=analyzeObject(unwrap(o,W,H), S.rule); if(!res) return {status:'big'}; if (res.type==='dies') return {status:'dies'}; if (res.type==='unknown') return {status:'unknown'};
-  if (res.type==='grower'){ const id=ruleStr(S.rule)+'|G'+canon(res.pts); res.id=id; res.p=0; res.dx=0; res.dy=0; res.phases=[res.pts]; }
+  if (res.type==='grower'){ res.p=0; res.dx=0; res.dy=0; res.phases=[res.pts]; res.ck=canon(res.pts); } else res.ck=res.id.slice(res.id.indexOf('|')+1);
+  res.id=spKey(res.type,res.p,res.dx,res.dy,res.ck); const rs=ruleStr(S.rule);
   if (seenIds){ if (seenIds.has(res.id)) return {status:'dup'}; seenIds.add(res.id); }
-  if (S.species[res.id]) return {status:'known', id:res.id};
-  const sp={type:res.type, p:res.p, dx:res.dx, dy:res.dy, cells:res.cells, rule:ruleStr(S.rule), phases:res.phases.slice(0,24).map(ph=>ph.map(c=>c.join(',')).join(';')), t:Date.now()};
+  const have=S.species[res.id];
+  if (have){ if (drawnFlag) have.drawn=true; if (have.rules.includes(rs)) return {status:'known', id:res.id}; have.rules.push(rs); return {status:'newrule', sp:have, id:res.id}; }
+  const sp={type:res.type, p:res.p, dx:res.dx, dy:res.dy, cells:res.cells, rule:rs, rules:[rs], phases:res.phases.slice(0,24).map(ph=>ph.map(c=>c.join(',')).join(';')), t:Date.now(), drawn:drawnFlag||undefined};
   sp.name=nameFor(res.id, res.type); S.species[res.id]=sp;
   const k=rkey(S.rule); if(!S.rules[k]) S.rules[k]={beh:classifyRule(), scans:0, found:0}; S.rules[k].found=(S.rules[k].found||0)+1;
   return {status:'new', sp, id:res.id};
@@ -359,12 +425,12 @@ function announce(found){
 function scan(quiet){
   const objs=components(grid,W,H); let found=[], known=0, tested=0;
   const seenIds=new Set(); growthBudget=2;
-  for (const o of objs){ if (o.length>220) continue; tested++; const r=catalog(o, seenIds); if (r.status==='known') known++; else if (r.status==='new') found.push(r.sp); }
+  let again=0; for (const o of objs){ if (o.length>220) continue; tested++; const r=catalog(o, seenIds); if (r.status==='known') known++; else if (r.status==='newrule') again++; else if (r.status==='new') found.push(r.sp); }
   S.scans++;
   const k=rkey(S.rule); if(!S.rules[k]) S.rules[k]={beh:classifyRule()};
   S.rules[k].scans=(S.rules[k].scans||0)+1; S.rules[k].found=Math.max(S.rules[k].found||0, 0);
   persist(); if (!quiet) SND.scan();
-  log(`scan: ${objs.length} objects, ${tested} tested, ${found.length} new, ${known} already known`);
+  log(`scan: ${objs.length} objects, ${tested} tested, ${found.length} new, ${again} known species found in a new rule, ${known} already known`);
   announce(found);
   checkBounties(); renderGuide(); renderTotals(); renderRuleInfo(); drawMap(); renderAuto();
   return found.length;
@@ -400,18 +466,20 @@ function drawSpecimen(c, sp, frame, S0){
 const BOUNTIES=[];
 function bty(tier, text, test){ BOUNTIES.push({id:tier+':'+text, tier, text, test}); }
 const sps=()=>Object.values(S.species);
+const occ=()=>sps().flatMap(s=>s.rules.map(r=>({...s, rule:r})));   // one entry per (species, rule it lives in)
 const cnt=(f)=>sps().filter(f).length;
-const rulesWith=(f)=>new Set(sps().filter(f).map(s=>s.rule)).size;
+const rulesWith=(f)=>new Set(occ().filter(f).map(s=>s.rule)).size;
+const behOf=(rs)=>{ const r=parseRule(rs); return r && S.rules[rkey(r)]? S.rules[rkey(r)].beh : null; };
 // Tier 1: still lifes
-for (const n of [1,3,5,10,20,40,80]) bty(1, `Catalog ${n} still life${n>1?'s':''}`, ()=>cnt(s=>s.type==='still')>=n);
+for (const n of [1,3,10]) bty(1, `Catalog ${n} still life${n>1?'s':''}`, ()=>cnt(s=>s.type==='still')>=n);
 for (const c of [5,8,12,16,24]) bty(1, `A still life with at least ${c} cells`, ()=>cnt(s=>s.type==='still'&&s.cells>=c)>0);
 bty(1,'A still life with 3 or fewer cells', ()=>cnt(s=>s.type==='still'&&s.cells<=3)>0);
 for (const n of [3,10,25]) bty(1, `Still lifes in ${n} different rules`, ()=>rulesWith(s=>s.type==='still')>=n);
-bty(1,'A still life in a rule without S2 or S3', ()=>cnt(s=>s.type==='still'&&!/S[^/]*[23]/.test(s.rule))>0);
+bty(1,'A still life in a rule without S2 or S3', ()=>occ().some(s=>s.type==='still'&&!/S[^/]*[23]/.test(s.rule)));
 // Tier 2: oscillators
 for (const p of [2,3,4,5,6,7,8,9,10,12,14,15]) bty(2, `An oscillator with period ${p}`, ()=>cnt(s=>s.type==='osc'&&s.p===p)>0);
 for (const p of [16,24,30]) bty(2, `An oscillator with period ${p} or more`, ()=>cnt(s=>s.type==='osc'&&s.p>=p)>0);
-for (const n of [5,15,40,100]) bty(2, `Catalog ${n} oscillators`, ()=>cnt(s=>s.type==='osc')>=n);
+for (const n of [5,15]) bty(2, `Catalog ${n} oscillators`, ()=>cnt(s=>s.type==='osc')>=n);
 bty(2,'An oscillator with 30+ cells', ()=>cnt(s=>s.type==='osc'&&s.cells>=30)>0);
 bty(2,'Oscillators in 10 different rules', ()=>rulesWith(s=>s.type==='osc')>=10);
 // Tier 3: orthogonal ships
@@ -420,47 +488,52 @@ const vel=(s)=>Math.max(s.dx,s.dy)/s.p;
 for (const [n,d] of [[1,2],[1,3],[1,4],[1,5],[1,6],[1,7],[2,5],[2,7],[1,8]]) bty(3, `An orthogonal ship with speed ${n===1?'':n}c/${d}`, ()=>cnt(s=>orth(s)&&Math.abs(vel(s)-n/d)<1e-9)>0);
 bty(3,'An orthogonal ship faster than c/2', ()=>cnt(s=>orth(s)&&vel(s)>0.5+1e-9)>0);
 bty(3,'An orthogonal ship slower than c/8', ()=>cnt(s=>orth(s)&&vel(s)<1/8-1e-9)>0);
-for (const n of [1,5,12,30]) bty(3, `Catalog ${n} orthogonal ship${n>1?'s':''}`, ()=>cnt(orth)>=n);
+for (const n of [1,5]) bty(3, `Catalog ${n} orthogonal ship${n>1?'s':''}`, ()=>cnt(orth)>=n);
 bty(3,'An orthogonal ship with 20+ cells', ()=>cnt(s=>orth(s)&&s.cells>=20)>0);
 bty(3,'Orthogonal ships in 5 different rules', ()=>rulesWith(orth)>=5);
 bty(3,'A ship with period 10 or more', ()=>cnt(s=>['ship','diag','knight'].includes(s.type)&&s.p>=10)>0);
 // Tier 4: diagonal + knight
 for (const [n,d] of [[1,4],[1,3],[1,2],[1,5],[1,6],[1,8]]) bty(4, `A diagonal ship with speed c/${d}`, ()=>cnt(s=>s.type==='diag'&&Math.abs(vel(s)-n/d)<1e-9)>0);
-for (const n of [1,5,15]) bty(4, `Catalog ${n} diagonal ship${n>1?'s':''}`, ()=>cnt(s=>s.type==='diag')>=n);
+for (const n of [1,5]) bty(4, `Catalog ${n} diagonal ship${n>1?'s':''}`, ()=>cnt(s=>s.type==='diag')>=n);
 bty(4,'Diagonal ships in 4 different rules', ()=>rulesWith(s=>s.type==='diag')>=4);
 bty(4,'A diagonal ship with 15+ cells', ()=>cnt(s=>s.type==='diag'&&s.cells>=15)>0);
 bty(4,'A knightship (moves at an oblique angle)', ()=>cnt(s=>s.type==='knight')>0);
 bty(4,'Two different knightships', ()=>cnt(s=>s.type==='knight')>=2);
-bty(4,'A rule with both orthogonal and diagonal ships', ()=>{ const o=new Set(sps().filter(orth).map(s=>s.rule)); return sps().some(s=>s.type==='diag'&&o.has(s.rule)); });
-bty(4,'A rule with 5 distinct ships', ()=>{ const m={}; for(const s of sps()) if(['ship','diag','knight'].includes(s.type)) m[s.rule]=(m[s.rule]||0)+1; return Object.values(m).some(v=>v>=5); });
+bty(4,'A rule with both orthogonal and diagonal ships', ()=>{ const o=new Set(occ().filter(orth).map(s=>s.rule)); return occ().some(s=>s.type==='diag'&&o.has(s.rule)); });
+bty(4,'A rule with 5 distinct ships', ()=>{ const m={}; for(const s of occ()) if(['ship','diag','knight'].includes(s.type)) m[s.rule]=(m[s.rule]||0)+1; return Object.values(m).some(v=>v>=5); });
 // Tier 5: growth
-for (const n of [1,3,8,20]) bty(5, `Catalog ${n} grower${n>1?'s':''} (objects that never stop growing)`, ()=>cnt(s=>s.type==='grower')>=n);
+for (const n of [1,3]) bty(5, `Catalog ${n} grower${n>1?'s':''} (objects that never stop growing)`, ()=>cnt(s=>s.type==='grower')>=n);
 bty(5,'Growers in 5 different rules', ()=>rulesWith(s=>s.type==='grower')>=5);
 bty(5,'A grower with 6 or fewer cells', ()=>cnt(s=>s.type==='grower'&&s.cells<=6)>0);
-bty(5,'A grower in a rule where soups usually die', ()=>sps().some(s=>s.type==='grower' && Object.entries(S.rules).some(([k,v])=>v.beh==='dies'&&ruleStr({b:+k.split(':')[0],s:+k.split(':')[1]})===s.rule)));
-bty(5,'A rule with a still life, an oscillator, a ship and a grower', ()=>{ const m={}; for(const s of sps()){ (m[s.rule] ||= new Set()).add(s.type==='diag'||s.type==='knight'?'ship':s.type); } return Object.values(m).some(x=>['still','osc','ship','grower'].every(t=>x.has(t))); });
+bty(5,'A grower in a rule where soups usually die', ()=>occ().some(s=>s.type==='grower' && Object.entries(S.rules).some(([k,v])=>v.beh==='dies'&&ruleStr({b:+k.split(':')[0],s:+k.split(':')[1]})===s.rule)));
+bty(5,'A rule with a still life, an oscillator, a ship and a grower', ()=>{ const m={}; for(const s of occ()){ (m[s.rule] ||= new Set()).add(s.type==='diag'||s.type==='knight'?'ship':s.type); } return Object.values(m).some(x=>['still','osc','ship','grower'].every(t=>x.has(t))); });
 // Tier 6: rules & explorer
-for (const n of [5,20,50,100,200,300]) bty(6, `Explore ${n} rules`, ()=>Object.keys(S.rules).length>=n);
+// Tier 6: experiments. Predict, then test; engineer a rule or a pattern to order.
+for (const n of [3,10,25]) bty(6, `Predict ${n} rules correctly before running them`, ()=>S.pred.right>=n);
+bty(6,'Predict 5 rules in a row', ()=>S.pred.best>=5);
 for (const b of ['explodes','freezes','dies','chaotic','complex']) bty(6, `Find a rule that ${b==='complex'?'stays complex':b==='dies'?'kills every soup':b==='chaotic'?'boils with chaos':b}`, ()=>Object.values(S.rules).some(r=>r.beh===b));
-for (const n of [10,40]) bty(6, `Find ${n} complex rules`, ()=>Object.values(S.rules).filter(r=>r.beh==='complex').length>=n);
-for (const n of [25,100,300,1000]) bty(6, `Run ${n} scans`, ()=>S.scans>=n);
-for (const n of [50,150,300,600]) bty(6, `Catalog ${n} species in total`, ()=>sps().length>=n);
-bty(6,'A species in a rule with B1', ()=>sps().some(s=>/^B[^/]*1/.test(s.rule)));
-bty(6,'A species in a rule with B2', ()=>sps().some(s=>/^B[^/]*2/.test(s.rule)));
-bty(6,'Species in 50 different rules', ()=>new Set(sps().map(s=>s.rule)).size>=50);
-
-function checkBounties(){ let n=0; for (const b of BOUNTIES) if(!S.bounties[b.id] && b.test()){ S.bounties[b.id]=Date.now(); n++; RH.toast(`Prize of the Society awarded: ${b.text}`, 3500); SND.seal(); } if(n){ persist(); renderBounties(); } }
+bty(6,'A ship in a rule whose soups calm down (no explosion, no chaos)', ()=>occ().some(s=>['ship','diag','knight'].includes(s.type) && ['dies','freezes','complex'].includes(behOf(s.rule))));
+bty(6,'One pattern that is a ship in 3 different rules', ()=>sps().some(s=>['ship','diag','knight'].includes(s.type) && s.rules.length>=3));
+bty(6,'A diagonal ship in a rule without B3', ()=>occ().some(s=>s.type==='diag' && !/^B[^/]*3/.test(s.rule)));
+bty(6,'A ship in a rule with B2', ()=>occ().some(s=>['ship','diag','knight'].includes(s.type) && /^B[^/]*2/.test(s.rule)));
+bty(6,'Design: draw a pattern of 6 cells or fewer that turns out to be a ship', ()=>sps().some(s=>s.drawn && s.cells<=6 && ['ship','diag','knight'].includes(s.type)));
+bty(6,'Design: draw an oscillator of period 3 or more', ()=>sps().some(s=>s.drawn && s.type==='osc' && s.p>=3));
+bty(6,'Master: a knightship you drew yourself', ()=>sps().some(s=>s.drawn && s.type==='knight'));
+function checkBounties(){ let n=0; const got=[]; for (const b of BOUNTIES) if(!S.bounties[b.id] && b.test()){ S.bounties[b.id]=Date.now(); n++; got.push(b.text); }
+  if (got.length){ SND.seal(); RH.toast(got.length===1? `Prize of the Society awarded: ${got[0]}` : `${got.length} prizes awarded, including: ${got[0]}`, 3500); } if(n){ persist(); renderBounties(); } }
 function renderBounties(){
-  const tiers=['','Still lifes','Oscillators','Orthogonal ships','Diagonal & knight ships','Growth','Rule-space explorer'];
+  const tiers=['','Still lifes','Oscillators','Orthogonal ships','Diagonal & knight ships','Growth','Experiments & design'];
   // Where to look, so the hunt isn't blind trial and error. Rule names are clickable.
   const tips=['','Almost any rule with S2 or S3 leaves still lifes behind. Try <a data-r="B3/S23">B3/S23</a> first.',
     'Life is full of blinkers (period 2). Longer periods hide in other rules: try <a data-r="B36/S125">B36/S125</a> or <a data-r="B34/S34">B34/S34</a>.',
     'Life itself throws out the odd c/2 ship: <a data-r="B3/S23">B3/S23</a>. <a data-r="B34/S34">B34/S34</a> has c/3 ships. Let soups settle before scanning.',
     'Life\'s glider is a c/4 diagonal ship: <a data-r="B3/S23">B3/S23</a>, also in <a data-r="B36/S23">B36/S23</a>. Knightships are very rare; turn on auto-hunt with drift.',
     'Rules on the edge of exploding are good hunting grounds: <a data-r="B34/S34">B34/S34</a>, or <a data-r="B3/S12345">B3/S12345</a> (Maze).',
-    'Auto-hunt with “drift” on explores rules for you.'];
+    'Predict before you run: go to uncharted rules (the rule map shows your neighbours). Use Draw a pattern to design creatures.'];
   setTimeout(()=>document.querySelectorAll('#p-bounty [data-r]').forEach(a=>a.onclick=()=>{ const r=parseRule(a.dataset.r); if (r){ setRule(r); soup(); RH.toast('Rule set to '+a.dataset.r+'. Let it settle, then scan.'); } }));
-  let h=`<div class="small dim">${claimed()} / ${BOUNTIES.length} claimed</div>`;
+  let h=`<div class="tierH">Your predictions</div><div class="small">${S.pred.n? `${S.pred.right} right of ${S.pred.n} (${Math.round(S.pred.right/S.pred.n*100)}%) · best streak ${S.pred.best}` : 'Go to an uncharted rule and make your first prediction.'}</div>`+
+    `<div class="tierH">Field notes</div>`+Object.keys(NOTES).map(k=>S.notes[k]? `<p class="small"><b>${NOTES[k].t}</b> ${NOTES[k].d}</p>` : `<p class="small dim">· an unearned note</p>`).join('')+
+    `<div class="small dim" style="margin-top:10px">${claimed()} / ${BOUNTIES.length} prizes claimed</div>`;
   for (let t=1;t<=6;t++){ const bs=BOUNTIES.filter(b=>b.tier===t); const d=bs.filter(b=>S.bounties[b.id]).length; h+=`<div class="tierH">${tiers[t]} · ${d}/${bs.length}</div>`+(d<bs.length? `<p class="tip">${tips[t]}</p>` : '');
     h+=bs.map(b=>`<div class="bounty ${S.bounties[b.id]?'done':''}"><span class="ck">${S.bounties[b.id]?'<i class="seal"></i>':'·'}</span><span>${b.text}</span></div>`).join(''); }
   document.getElementById('p-bounty').innerHTML=h;
@@ -474,7 +547,7 @@ function renderGuide(){
   document.querySelectorAll('#filt button').forEach(b=>b.onclick=()=>{ filter=b.dataset.f; renderGuide(); });
   const list = Object.entries(S.species).filter(([,s])=>filter==='all'||s.type===filter).sort((a,b)=>rarity(b[1])-rarity(a[1])||b[1].t-a[1].t).slice(0,120);
   thumbs=[];
-  document.getElementById('guide').innerHTML = list.length? list.map(([id,s],i)=>`<div class="card" data-id="${encodeURIComponent(id)}"><canvas width="56" height="56" data-i="${i}"></canvas><div><div class="nm">${s.name}</div><div class="meta">${TYPEN[s.type]}${s.p>1?` · period ${s.p}`:''}${speedStr(s)?' · '+speedStr(s):''} · ${s.cells} cells<br>${s.rule}</div></div></div>`).join('') : '<p class="dim small">Nothing catalogued yet. Make a soup, let it settle, then click a colony or scan the dish.</p>';
+  document.getElementById('guide').innerHTML = list.length? list.map(([id,s],i)=>`<div class="card" data-id="${encodeURIComponent(id)}"><canvas width="56" height="56" data-i="${i}"></canvas><div><div class="nm">${s.name}</div><div class="meta">${TYPEN[s.type]}${s.p>1?` · period ${s.p}`:''}${speedStr(s)?' · '+speedStr(s):''} · ${s.cells} cells<br>${s.rules.length>1? `lives in ${s.rules.length} rules: ${s.rules.slice(0,3).join(', ')}${s.rules.length>3?'…':''}` : s.rule}</div></div></div>`).join('') : '<p class="dim small">Nothing catalogued yet. Make a soup, let it settle, then click a colony or scan the dish.</p>';
   document.querySelectorAll('#guide canvas').forEach((c,i)=>{ thumbs.push({c, s:list[i][1]}); });
   document.querySelectorAll('#guide .card').forEach(el=>el.onclick=()=>{ const id=decodeURIComponent(el.dataset.id); const s=S.species[id]; const r=parseRule(s.rule); setRule(r); placeSpecies(s); });
 }
@@ -484,15 +557,30 @@ let tf=0; setInterval(()=>{ tf++; for (const t of thumbs) drawSpecimen(t.c.getCo
 // ===================== Rule map =====================
 const mapCv=document.getElementById('mapCv'), mcx=mapCv.getContext('2d');
 const BEHC={complex:'#2f6a2a',explodes:'#a3231b',freezes:'#24557a',dies:'#9c8462',chaotic:'#6a2a6e'};
+// The rule map: a compass of the 17 rules one switch away from yours, and a λ chart of every rule you have charted.
+const MAPW=320, MAPH=330; mapCv.width=MAPW; mapCv.height=MAPH;
+function compassCells(){ const cells=[]; const cw=MAPW/9.5, y0=24;
+  for (let i=1;i<9;i++) cells.push({k:'b', i, x:(i-.5)*cw+cw*.5, y:y0, w:cw-4, h:cw-4});
+  for (let i=0;i<9;i++) cells.push({k:'s', i, x:(i)*cw+cw*.5, y:y0+cw+18, w:cw-4, h:cw-4});
+  return cells; }
 function drawMap(){
-  mcx.fillStyle='#f3ead2'; mcx.fillRect(0,0,256,256);
-  for (const [k,v] of Object.entries(S.rules)){ const [b,s]=k.split(':').map(Number); const x=b>>1, y=s>>1; mcx.fillStyle=BEHC[v.beh]||'#888'; mcx.fillRect(x,y,1,1); if (v.found){ mcx.globalAlpha=.35; mcx.fillRect(x-1,y-1,3,3); mcx.globalAlpha=1; } }
-  const cx=S.rule.b>>1, cy=S.rule.s>>1; mcx.strokeStyle='#3b2a1a'; mcx.strokeRect(cx-3.5,cy-3.5,8,8);
+  const g=mcx; g.fillStyle='#f3ead2'; g.fillRect(0,0,MAPW,MAPH);
+  g.fillStyle='#3b2a1a'; g.font='14px "IM Fell English SC", serif'; g.textAlign='left'; g.fillText('One switch away: flip B…', 4, 15); g.fillText('…or flip S', 4, 15+MAPW/9.5+18);
+  for (const c of compassCells()){ const r={...S.rule}; r[c.k]^=1<<c.i; const v=S.rules[rkey(r)]; const on=(S.rule[c.k]>>c.i)&1;
+    g.fillStyle= v? BEHC[v.beh] : '#e9dcbc'; g.fillRect(c.x,c.y,c.w,c.h); g.strokeStyle='#3b2a1a'; g.lineWidth=on?2.5:1; g.strokeRect(c.x+.5,c.y+.5,c.w-1,c.h-1);
+    g.fillStyle= v? '#f6eed8' : '#7a6248'; g.font='15px "IM Fell English", serif'; g.textAlign='center'; g.fillText((on?'−':'+')+c.k.toUpperCase()+c.i, c.x+c.w/2, c.y+c.h/2+5); }
+  // λ chart: x = switched-on bits, y = what happened
+  const top=150, left=70, w=MAPW-left-10, h=MAPH-top-30, lane=h/5;
+  g.fillStyle='#3b2a1a'; g.font='13px "IM Fell English SC", serif'; g.textAlign='left'; g.fillText('Every charted rule, by λ (switched-on bits)', 4, top-8);
+  CLASSES.forEach((c,i)=>{ const y=top+i*lane; g.fillStyle=i%2? '#efe3c4':'#e9dcbc'; g.fillRect(left,y,w,lane); g.fillStyle=BEHC[c]; g.textAlign='right'; g.font='12px "IM Fell English", serif'; g.fillText(c, left-6, y+lane/2+4); });
+  g.fillStyle='#3b2a1a'; g.textAlign='center'; for (let n=0;n<=17;n+=4) g.fillText(n, left+n/17*w, top+h+14);
+  for (const [k,v] of Object.entries(S.rules)){ const [b,s2]=k.split(':').map(Number); const n=bitsOf({b,s:s2}); const ci=CLASSES.indexOf(v.beh); if (ci<0) continue; const jx=((b*31+s2*17)%100)/100-.5, jy=((b*13+s2*7)%100)/100-.5;
+    g.fillStyle=BEHC[v.beh]; g.globalAlpha=.75; g.beginPath(); g.arc(left+n/17*w+jx*w/17*.8, top+ci*lane+lane/2+jy*lane*.6, 3, 0, 7); g.fill(); g.globalAlpha=1; }
+  const cur=S.rules[rkey(S.rule)], n=bitsOf(S.rule); g.strokeStyle='#8b1e1e'; g.lineWidth=2; if (cur){ const ci=CLASSES.indexOf(cur.beh); g.beginPath(); g.arc(left+n/17*w, top+ci*lane+lane/2, 7, 0, 7); g.stroke(); } else { g.setLineDash([3,3]); g.beginPath(); g.moveTo(left+n/17*w, top); g.lineTo(left+n/17*w, top+h); g.stroke(); g.setLineDash([]); }
 }
-mapCv.onclick=(e)=>{ const r=mapCv.getBoundingClientRect(); const x=Math.floor((e.clientX-r.left)/r.width*256), y=Math.floor((e.clientY-r.top)/r.height*256); setRule({b:x<<1, s:(y<<1)|(S.rule.s&1)}); soup(); };
-mapCv.onmousemove=(e)=>{ const r=mapCv.getBoundingClientRect(); const x=Math.floor((e.clientX-r.left)/r.width*256), y=Math.floor((e.clientY-r.top)/r.height*256); const ru={b:x<<1,s:y<<1}; const v=S.rules[rkey(ru)]||S.rules[rkey({b:x<<1,s:(y<<1)|1})]; document.getElementById('mapInfo').textContent = ruleStr(ru)+(v?` · ${v.beh} · ${v.found||0} species found`:' · unexplored'); };
-
-// ===================== UI =====================
+function mapHit(e){ const r=mapCv.getBoundingClientRect(); const x=(e.clientX-r.left)/r.width*MAPW, y=(e.clientY-r.top)/r.height*MAPH; return compassCells().find(c=>x>=c.x&&x<=c.x+c.w&&y>=c.y&&y<=c.y+c.h); }
+mapCv.onclick=(e)=>{ const c=mapHit(e); if (!c) return; const r={...S.rule}; r[c.k]^=1<<c.i; setRule(r); soup(); };
+mapCv.onmousemove=(e)=>{ const c=mapHit(e); const el=document.getElementById('mapInfo'); if (!c){ el.textContent=''; return; } const r={...S.rule}; r[c.k]^=1<<c.i; const v=S.rules[rkey(r)]; el.textContent = ruleStr(r)+(v?` · ${v.beh}${v.pred? ' · you predicted '+v.pred : ''}`:' · uncharted: click to go there and make a prediction'); };
 function setRule(r){ S.rule={b:r.b&~1, s:r.s}; persist(); renderBits(); renderRuleInfo(); drawMap(); }
 function renderBits(){
   let h='<span>B</span>'; for (let i=0;i<9;i++) h+=`<button data-k="b" data-i="${i}" class="${(S.rule.b>>i)&1?'on':''}" ${i===0?'disabled title="B0 rules flash on and off every generation, so they are excluded"':''}>${i}</button>`;
@@ -501,7 +589,7 @@ function renderBits(){
   el.querySelectorAll('button').forEach(b=>b.onclick=()=>{ const r={...S.rule}; r[b.dataset.k]^=1<<+b.dataset.i; setRule(r); });
   document.getElementById('ruleStr').value=ruleStr(S.rule);
 }
-function renderRuleInfo(){ const v=S.rules[rkey(S.rule)]; const here=sps().filter(s=>s.rule===ruleStr(S.rule));
+function renderRuleInfo(){ const v=S.rules[rkey(S.rule)]; const here=sps().filter(s=>s.rules.includes(ruleStr(S.rule)));
   document.getElementById('ruleInfo').innerHTML = `<b>${ruleStr(S.rule)}</b>${ruleStr(S.rule)==='B3/S23'?' (Conway\'s Life)':''}<br>${v?`Behaviour: <b style="color:${BEHC[v.beh]}">${v.beh}</b> · ${v.scans} scan${v.scans>1?'s':''}`:'<span class="dim">Unexplored. Scan to chart it.</span>'}<br>Species here: ${here.length}${here.length?` (${['still','osc','ship','diag','knight','grower'].map(t=>[t,here.filter(s=>s.type===t).length]).filter(x=>x[1]).map(x=>x[1]+' '+TYPEN[x[0]]+(x[1]>1?'s':'')).join(', ')})`:''}`; }
 function renderTotals(){ document.getElementById('totals').textContent = `${sps().length} species · ${Object.keys(S.rules).length} rules explored · ${claimed()}/${BOUNTIES.length} bounties`; }
 function log(t){ document.getElementById('log').textContent=t; }
@@ -531,12 +619,11 @@ function autoStep(){
   if (!auto) return;
   if (gen>=260){
     scan(true);
-    if (document.getElementById('wander').checked && Math.random()<0.25){ const r={...S.rule}; const k=Math.random()<.5?'b':'s'; const i=k==='b'?1+Math.floor(Math.random()*8):Math.floor(Math.random()*9); r[k]^=1<<i; if(r.b) setRule(r); }
     soup();
   }
 }
 
-window.__rh={ examineAt, catalog, autoUnlocked, dishToCell, get dish(){ return dish; }, stepGrid, components, normalize, canon, unwrap, analyzeObject, growthCheck, classifyRule, parseRule, ruleStr, speedStr, nameFor, scan, setRule, soup, tick, checkBounties, renderBounties, BOUNTIES, claimed, W, H,
+window.__rh={ predict, maybePredict, NOTES, noteFor, bitsOf, testDrawing, setDrawing, get pending(){ return pending; }, examineAt, catalog, autoUnlocked, dishToCell, get dish(){ return dish; }, stepGrid, components, normalize, canon, unwrap, analyzeObject, growthCheck, classifyRule, parseRule, ruleStr, speedStr, nameFor, scan, setRule, soup, tick, checkBounties, renderBounties, BOUNTIES, claimed, W, H,
   get S(){ return S; }, get grid(){ return grid; }, get gen(){ return gen; }, setBudget(n){ growthBudget=n; }, get running(){ return running; }, set running(v){ running=v; }, get auto(){ return auto; },
   place(pts, ox=70, oy=70){ grid.fill(0); gen=0; for (const [x,y] of pts) grid[(oy+y)*W+ox+x]=1; draw(); } };
 // Main loop

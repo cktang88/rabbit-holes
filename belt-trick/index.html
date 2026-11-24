@@ -74,6 +74,11 @@
   .modal h2{font:400 28px "IM Fell English SC",Georgia,serif;border-bottom:3px double var(--ink);padding-bottom:6px} .modal p{line-height:1.5;color:var(--ink)} .modal b{color:#6b2a10}
   .modal button{font:400 15px "IM Fell English SC",Georgia,serif;letter-spacing:.08em;color:#2a1a06;border:0;border-radius:1px;background:linear-gradient(#f3d98a,var(--brass) 45%,#9b7428 55%,#e6c46c);box-shadow:inset 0 0 0 1px #5d4210}
   .modal input{font:15px Kalam,cursive}
+  /* the chalk guide ring shown while the player swings the cable loop round the box */
+  #swing{position:fixed;pointer-events:none;border-radius:50%;border:3px dashed rgba(236,232,220,.55);opacity:0;transition:opacity .2s;z-index:5;
+    background:conic-gradient(rgba(242,200,121,.28) var(--a,0deg),transparent 0)}
+  #swing.on{opacity:1}
+  #swing span{position:absolute;left:50%;top:-30px;transform:translateX(-50%);white-space:nowrap;font:700 15px Kalam,cursive;color:var(--chalk);text-shadow:0 1px 4px #000}
   /* signature: chalk writes "Q.E.D." across the board while the lecturer's brass bell rings */
   #qed{position:fixed;left:50%;top:3%;transform:translateX(-50%);pointer-events:none;z-index:20;width:min(560px,92vw)}
   #qed svg{width:100%;overflow:visible}
@@ -114,6 +119,7 @@
 <canvas id="lens" class="chip" width="340" height="380" title="The space of rotations. Click to read why."></canvas>
 <div id="ctrl" class="chip"></div>
 <div id="toast"></div>
+<div id="swing" aria-hidden="true"><span>swing the loop round the box</span></div>
 <div id="qed" aria-hidden="true"><svg viewBox="0 0 560 150"><defs><filter id="chalky"><feTurbulence type="fractalNoise" baseFrequency="1.4" numOctaves="2" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.2"/></filter></defs>
 <text class="big" x="280" y="78" text-anchor="middle">Q.E.D.</text><path class="ul" d="M110 98 C 200 108, 360 92, 450 100"/></svg></div>
 <script src="../shared/common.js"></script>
@@ -228,13 +234,18 @@ const MAT = {
   dark: new THREE.MeshStandardMaterial({ color: '#4a2814', roughness: .55, metalness: .1 }),
 };
 Object.values(MAT).forEach(m => m.userData.shared = true);
-const wallTex = (() => { // a lecture-theatre chalkboard: slate with half-wiped chalk working of the quaternion relations
-  const c = document.createElement('canvas'); c.width = c.height = 512; const g = c.getContext('2d'); g.fillStyle = '#25302b'; g.fillRect(0, 0, 512, 512);
-  for (let k = 0; k < 40; k++) { const x = Math.random() * 512, y = Math.random() * 512, r = 30 + Math.random() * 90, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(230,228,215,.06)'); gr.addColorStop(1, 'rgba(230,228,215,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
-  g.fillStyle = 'rgba(236,232,220,.55)'; g.font = '30px "IM Fell English", Georgia, serif';
-  [['i² = j² = k² = ijk = −1', 30, 70], ['q → −q  after 2π', 60, 150], ['SO(3) ≅ SU(2) / ±1', 40, 240], ['e^{θ n·σ/2}', 300, 320], ['720° ~ 0', 90, 400], ['π₁ = ℤ₂', 330, 470]].forEach(([t, x, y]) => { g.save(); g.translate(x, y); g.rotate((Math.random() - .5) * .06); g.fillText(t, 0, 0); g.restore(); });
-  g.strokeStyle = 'rgba(236,232,220,.35)'; g.lineWidth = 2; g.beginPath(); g.arc(380, 150, 60, 0, TAU); g.moveTo(320, 150); g.lineTo(440, 150); g.stroke();
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+// the lecture-theatre chalkboard: a formula is chalked up each time the player earns it (redrawn on every level load)
+const BOARD = [['720° ~ 0', 90, 400, 2], ['two flips cancel', 60, 150, 3], ['i² = j² = k² = ijk = −1', 30, 70, 4], ['q → −q  after 2π', 300, 320, 6], ['SO(3) ≅ SU(2) / ±1', 40, 240, 9], ['π₁ = ℤ₂', 330, 470, 13]];
+const boardCv = document.createElement('canvas'); boardCv.width = boardCv.height = 512;
+const wallTex = new THREE.CanvasTexture(boardCv); wallTex.colorSpace = THREE.SRGBColorSpace;
+function drawBoard(done) {
+  const g = boardCv.getContext('2d'), rnd = RH.rng(5); g.fillStyle = '#25302b'; g.fillRect(0, 0, 512, 512);
+  for (let k = 0; k < 40; k++) { const x = rnd() * 512, y = rnd() * 512, r = 30 + rnd() * 90, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(230,228,215,.06)'); gr.addColorStop(1, 'rgba(230,228,215,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
+  g.fillStyle = 'rgba(236,232,220,.6)'; g.font = '30px "IM Fell English", Georgia, serif';
+  for (const [t, x, y, need] of BOARD) if (done >= need) { g.save(); g.translate(x, y); g.rotate((rnd() - .5) * .06); g.fillText(t, 0, 0); g.restore(); }
+  if (done >= 1) { g.strokeStyle = 'rgba(236,232,220,.35)'; g.lineWidth = 2; g.beginPath(); g.arc(380, 150, 60, 0, TAU); g.moveTo(320, 150); g.lineTo(440, 150); g.stroke(); }
+  wallTex.needsUpdate = true;
+}
 MAT.wall = new THREE.MeshStandardMaterial({ map: wallTex, roughness: .95, color: '#d8d8d0' }); MAT.wall.userData.shared = true;
 
 function roundedBox(s, r, seg = 8) {
@@ -492,8 +503,13 @@ function gearRatio(g = gj, J = L && L.jobs && L.jobs[g ? g.k : 0]) { // signed c
 }
 function applyGears() { const r = gearRatio(); if (r != null) setGearB(r); else if (MECH) MECH.ratio = null; if (MECH) { MECH.phi = MECH.theta = 0; MECH.broken = false; MECH.maxTw = 0; if (MECH.gI) MECH.gI.visible = !!(gj && gj.idler); } renderBets(); renderCtrl(); wake(300); }
 function gearJobDone() {
-  if (gj.k + 1 < L.jobs.length) { gj = { k: gj.k + 1, idler: false }; FX.sfx('chime', 3 + gj.k); burstAll('#ffd08a', 60); toast('Order delivered', `${L.jobs[gj.k].note}`, 4200); applyGears(); }
-  else winLevel(L.win);
+  if (gj.k + 1 < L.jobs.length) { gj = { k: gj.k + 1, idler: false, cables: gj.cables, snaps: gj.snaps }; FX.sfx('chime', 3 + gj.k); burstAll('#ffd08a', 60); toast('Order delivered', `${L.jobs[gj.k].note}`, 4200); applyGears(); }
+  else winLevel(L.win, gj.snaps); // every snapped cable costs a star: guess-and-check is not engineering
+}
+function gearSnapped() { // a snapped cable is used up; run out of spares and the workshop starts the orders again
+  if (!gj) return; gj.snaps++; gj.cables--;
+  if (gj.cables <= 0) { toast('Out of cable', 'The drawer is empty. The workshop restarts all three orders with three new cables.', 3600); gj = { k: 0, idler: false, cables: 3, snaps: gj.snaps }; applyGears(); }
+  renderBets();
 }
 function setGearB(ratio) { // carrier : rotor speed ratio → carrier gear has 12/ratio teeth
   if (!MECH) return; const m = MECH, T = Math.max(6, Math.round(12 / Math.abs(ratio))), r = .3 * T / 12; m.ratio = ratio;
@@ -582,10 +598,10 @@ function burstRibbon(r, n, col) { r.update(); const p = [0, 0, 0]; for (let k = 
 const PM90 = [-90, 90];
 const LV = [
   { n: 'One Full Turn', setup: 'single', kind: 'stuck', drag: 1, moves: { ax: 'X', ang: [90] },
-    story: 'This box is a lamp that turns on a stand. A flat ribbon cable wires it to the wall, and it can\'t be unplugged, so a twisted cable is a broken lamp. Turn the box <b>one full circle</b>, then <b>drag the cable</b> (or press <b>TUG</b>) to pull it straight.',
-    goal: 'Turn the box all the way round, then try to tug the cable flat.' },
+    story: 'This box is a lamp that turns on a stand. A flat ribbon cable wires it to the wall, and it can\'t be unplugged, so a twisted cable is a broken lamp. Turn the box <b>one full circle</b>. Then grab the cable and <b>swing its loop round the box</b>, the way you would free a tangled phone cord. Can you get it flat?',
+    goal: 'Turn the box all the way round, then swing the cable loop round it.' },
   { n: 'Keep Going', setup: 'single', start: ['X+360'], moves: { ax: 'X', ang: [90] }, par: 4,
-    story: 'The lamp is still twisted from last time, and its motor only turns <b>one way</b>: no going back. Keep turning, and keep tugging the cable. Is there a point where it comes free?', goal: 'Turn forwards only until a tug pulls the cable flat.',
+    story: 'The lamp is still twisted from last time, and its motor only turns <b>one way</b>: no going back. Keep turning, and keep swinging the loop. Is there a point where it comes free?', goal: 'Turn forwards only until a swing of the loop lays the cable flat.',
     win: ['Twice round = not at all', '360° leaves a twist you can\'t shake out. 720° leaves nothing. This is Dirac\'s belt trick.'] },
   { n: 'Two Different Turns', setup: 'single', moves: { ax: 'XYZ', ang: [360] }, noRepeat: 1, need: S => S.n >= 2, par: 2,
     story: 'One full turn leaves the cable stuck; two free it. Does it matter <b>which way</b> each full turn goes? Try one about <b>X</b>, then one about <b>Y</b>.', goal: 'Full turns only, a different axis each time. End with a cable you can tug flat.',
@@ -621,7 +637,7 @@ const LV = [
     win: ['Service!', 'Two full turns, one relaxed arm.'] },
   { n: 'Anti-Twister', setup: 'mech', kind: 'gear',
     story: 'A rotor spins on a carrier arm. A cable feeds it power from the fixed base, <b>no slip ring</b>. Three workshop orders: build each gear train from the parts in the drawer. Every pair of meshing wheels <b>reverses</b> the direction; an <b>idler</b> wheel turns it back.',
-    goal: 'Three gear trains, each spinning the rotor 6 turns without snapping the cable.',
+    goal: 'Three gear trains, each spinning the rotor 6 turns. Three spare cables in the drawer; each snap costs a star.',
     jobs: [{ drv: 12, gears: [12, 18, 24, 36], idler: 1, note: 'Order 1: choose the carrier wheel.' },
       { drv: 18, gears: [18, 24, 30, 36, 48], idler: 1, note: 'Order 2: a bigger pinion on the rotor.' },
       { drv: 12, gears: [16, 24, 32, 40], stages: 2, note: 'Order 3: no idler in the drawer, and no single wheel is right. Use a two-stage train: pinion → A, then B on the same shaft → carrier C.' }],
@@ -648,10 +664,10 @@ const persist = () => { RH.save('belt-trick', SAVE); RH.progress('belt-trick', O
 let L, LI = 0, sel = 0, won = false, intro = false, S = {}, bet = null, golf = null, waiter = null, glitchT = 0, lastMsg = '';
 
 function loadLevel(i, opt = {}) {
-  LI = i; L = LV[i]; SAVE.cur = i; persist(); loadSeq++; clearTimeout(toast.h); $('toast').classList.remove('on');
+  LI = i; L = LV[i]; SAVE.cur = i; persist(); loadSeq++; drawBoard(Object.keys(SAVE.done).length); attempted = false; clearTimeout(toast.h); $('toast').classList.remove('on');
   queue = []; cur = null; relax.on = false; userMoves = []; axesUsed = new Set(); yawAcc = 0; won = false; sel = L.objs ? L.objs[0] : 0; recording = null;
   clearWorld(); const cam = (L.setup === 'mech' ? SETUPS.mech(L.kind === 'sat') : SETUPS[L.setup]());
-  gj = L.kind === 'gear' ? { k: 0, idler: false } : null; if (gj) applyGears();
+  gj = L.kind === 'gear' ? { k: 0, idler: false, cables: 3, snaps: 0 } : null; if (gj) applyGears();
   bet = L.kind === 'bet' ? { right: 0, tries: 0, phase: 'idle', seq: null } : null;
   golf = L.kind === 'golf' ? { hole: 0, strokes: 0, total: 0, par: 0, results: [] } : null;
   waiter = L.kind === 'waiter' ? { spill: 0, bumpT: 1.5, bump: null, t: 0, started: false, done: false } : null;
@@ -701,6 +717,7 @@ function placeBet(relaxes) { if (!bet || bet.phase !== 'bet') return; bet.guess 
 
 // ---------- level flow ----------
 function resetState() { // put the level back to its start (no intro animation)
+  attempted = false;
   queue = []; cur = null; relax.on = false; intro = false; userMoves = []; axesUsed = new Set(); yawAcc = 0;
   OBJ.forEach(o => setExact(o, [1, 0, 0, 0])); RIB.forEach(r => { const f = r.endFrame(r.e0); for (let i = 0; i <= r.N; i++) r.g.set(f, i * 4); r.fixEnds(); });
   if (L.start && !bet) { L.start.forEach(t => enqueue(t, false)); flushQueue(); }
@@ -715,7 +732,7 @@ function userMove(tok, replay) {
   if (L.maxMoves && userMoves.length >= L.maxMoves) { FX.sfx('fail'); msg('Out of moves. Press reset.'); return; }
   if (L.noRepeat && axesUsed.has(p.ax)) { FX.sfx('fail'); msg('Not the same axis twice'); return; }
   if (queue.length > 3 && !replay) return;
-  axesUsed.add(p.ax); userMoves.push((OBJ.length > 1 ? 'ABC'[oi] + ':' : '') + p.ax + (p.deg > 0 ? '+' : '') + p.deg);
+  attempted = false; axesUsed.add(p.ax); userMoves.push((OBJ.length > 1 ? 'ABC'[oi] + ':' : '') + p.ax + (p.deg > 0 ? '+' : '') + p.deg);
   if (golf) golf.strokes++;
   enqueue((OBJ.length > 1 ? 'ABC'[oi] + ':' : '') + p.ax + (p.deg > 0 ? '+' : '') + p.deg, true); renderCtrl(); renderGoal();
 }
@@ -724,6 +741,7 @@ function onMovesSettled() {
   check('move');
 }
 function onRelaxEnd() {
+  attempted = true;
   const stuck = RIB.some(r => !r.flat() && r.dmin() > Math.PI - .05);
   if (bet && bet.phase === 'relax') {
     const flat = RIB.every(r => r.flat()); bet.tries++; const ok = bet.guess === flat;
@@ -743,7 +761,7 @@ function check(ev) {
   if (won || L.free) return;
   const stuck = RIB.some(r => r.dmin() > Math.PI - .05 && !r.flat());
   if (L.kind === 'stuck') {
-    if (ev === 'relax' && allHome() && stuck) winLevel(['Huh. It\'s stuck.', 'The box is exactly where it started, yet no amount of tugging untwists the cable. The cable remembers a full turn the box can\'t show. Next: what if you keep going?']);
+    if (ev === 'relax' && allHome() && stuck) winLevel(['Huh. It\'s stuck.', 'The box is exactly where it started, yet however you swing the loop, the cable only twists the other way. The cable remembers a full turn the box can\'t show. Next: what if you keep going?']);
     else if (ev === 'relax' && allHome()) msg(userMoves.length ? 'It came flat! That was more than one full turn. Reset (↺) and stop at exactly four quarter-turns.' : 'Nothing to untwist yet. Turn the box once round first.');
     else if (ev === 'relax') msg('The cube isn\'t home yet. Keep turning until it looks exactly like the start.');
     return;
@@ -794,8 +812,8 @@ function renderGoal() {
   let g = L.goal;
   if (!won && (LI === 0 || LI === 1) && !bet) { // step-by-step coaching on the first two levels
     const n = userMoves.length, full = LI === 1 ? 4 + n : n, home = full > 0 && full % 4 === 0;
-    g = n === 0 ? (LI === 0 ? 'Tap <b>+90°</b> four times to turn the box once round (0/4).' : 'Keep turning: tap <b>+90°</b>. Tug the cable whenever the box is home.')
-      : home ? `The box looks exactly as it started (${full / 4} full turn${full > 4 ? 's' : ''}). Now <b>drag the cable</b> or press <b>TUG</b>.`
+    g = n === 0 ? (LI === 0 ? 'Tap <b>+90°</b> four times to turn the box once round (0/4).' : 'Keep turning: tap <b>+90°</b>. Swing the loop whenever the box is home.')
+      : home ? `The box looks exactly as it started (${full / 4} full turn${full > 4 ? 's' : ''}). Now grab the cable and <b>swing it round the box</b> (or press SWING).`
       : LI === 0 && n > 4 ? 'Past one full turn: press ↺ and stop at exactly four.' : `Quarter-turn ${full % 4}/4 of turn ${Math.floor(full / 4) + 1}…`;
   }
   if (L.par) g += ` <span style="color:#c9c4b4">Par ${L.par}.</span>`;
@@ -809,7 +827,7 @@ function renderBets() {
   if (bet && bet.seq) b.insertAdjacentHTML('afterbegin', `<div style="width:100%;font-size:12px;color:#c9c4b4">Sequence: <b style="color:#ffd08a">${bet.seq.join(' · ')}</b></div>`);
   if (L.kind === 'gear' && gj) { const J = L.jobs[gj.k], pick = (key, list) => list.map(t => `<button class="b ${gj[key] === t ? 'on' : ''}" data-g="${key}" data-t="${t}">${t}</button>`).join('');
     const ratio = gearRatio(), rt = ratio == null ? '–' : `${ratio < 0 ? '−' : '+'}${fracStr(Math.abs(ratio))}`;
-    b.innerHTML = `<div class="gnote"><b>${J.note}</b> Pinion on the rotor: ${J.drv} teeth. Carrier : rotor = <b>${rt}</b> <span class="dim">(order ${gj.k + 1}/${L.jobs.length})</span></div>`
+    b.innerHTML = `<div class="gnote"><b>${J.note}</b> Pinion on the rotor: ${J.drv} teeth. Carrier : rotor = <b>${rt}</b> <span class="dim">(order ${gj.k + 1}/${L.jobs.length} · spare cables ${'▮'.repeat(Math.max(0, gj.cables))}${'▯'.repeat(Math.max(0, 3 - gj.cables))})</span></div>`
       + (J.stages === 2 ? `<span class="glab">A</span>${pick('A', J.gears)}<span class="glab">B</span>${pick('B', J.gears)}<span class="glab">C</span>${pick('C', J.gears)}`
         : `<span class="glab">carrier wheel</span>${pick('T', J.gears)}${J.idler ? `<button class="b ${gj.idler ? 'on' : ''}" data-idler="1">idler ${gj.idler ? 'in' : 'out'}</button>` : ''}`);
     b.querySelectorAll('[data-g]').forEach(x => x.onclick = () => { if (MECH.running) return; FX.sfx('click'); gj[x.dataset.g] = +x.dataset.t; applyGears(); });
@@ -821,7 +839,7 @@ function renderCtrl() {
     if (OBJ.length > 1) h += '<span class="info">turn</span>' + OBJ.map((o, i) => `<button class="b ${sel === i ? 'on' : ''}" data-sel="${i}" ${L.objs && !L.objs.includes(i) ? 'disabled' : ''}>${o.label}${L.objs && !L.objs.includes(i) ? ' 🔒' : ''}</button>`).join('') + '<span class="sep"></span>';
     for (const a of L.moves.ax) h += `<div class="ax"><span style="color:${{ X: '#ff8a65', Y: '#ffc857', Z: '#63c7b8' }[a]}">${a}</span>` + L.moves.ang.map(d => `<button class="b" data-m="${a}${d > 0 ? '+' : ''}${d}" ${(L.noRepeat && axesUsed.has(a)) || (L.maxMoves && userMoves.length >= L.maxMoves) ? 'disabled' : ''}>${d > 0 ? '+' : '−'}${Math.abs(d)}°</button>`).join('') + '</div>';
   }
-  if (L.kind !== 'gear' && L.kind !== 'sat' && L.kind !== 'waiter' && L.kind !== 'golf') h += `<button class="b relax" id="rx" ${bet ? 'disabled' : ''} title="Pull the cable straight (or drag the cable itself)">TUG ⟿</button>`;
+  if (L.kind !== 'gear' && L.kind !== 'sat' && L.kind !== 'waiter' && L.kind !== 'golf') h += `<button class="b relax" id="rx" ${bet ? 'disabled' : ''} title="Swing the cable loop round the box (or grab the cable and swing it yourself)">SWING ⟳</button>`;
   if (L.kind === 'gear') h += `<button class="b relax" id="run">${MECH && MECH.running ? '■ Stop' : '▶ Run motor'}</button>`;
   if (L.kind === 'sat') h += `<button class="b relax" id="hold" style="touch-action:none">● HOLD to drive boom</button>`;
   if (L.kind !== 'bet') h += '<button class="b" id="rst" title="Reset (Backspace)">↺</button>';
@@ -878,7 +896,7 @@ function onDown(e) {
   if (!L || !OBJ.length || (won && !L.free) || bet || intro || relax.on) return;
   const i = pickObj(e);
   if (i < 0 && $('rx') && !$('rx').disabled && !busy() && pickRibbon(e)) { // grab the cable: pulling it straightens it, as far as it will go
-    Object.assign(tug, { on: true, x: e.clientX, y: e.clientY, id: e.pointerId, pulled: 0 }); controls.enabled = false; canvas.setPointerCapture(e.pointerId);
+    const c = screenOf((OBJ[sel] || OBJ[0]).pos); Object.assign(tug, { on: true, x: e.clientX, y: e.clientY, id: e.pointerId, pulled: 0, cx: c[0], cy: c[1], a: Math.atan2(e.clientY - c[1], e.clientX - c[0]) }); showSwing(true); controls.enabled = false; canvas.setPointerCapture(e.pointerId);
     startRelax(); relax.manual = true; e.stopImmediatePropagation(); wake(300); return; }
   if (i < 0) return;
   if (L.objs && !L.objs.includes(i)) { msg('That cube is locked'); return; }
@@ -890,8 +908,10 @@ function onDown(e) {
   e.stopImmediatePropagation(); wake(300);
 }
 canvas.addEventListener('pointermove', e => {
-  if (tug.on && e.pointerId === tug.id) { const d = Math.hypot(e.clientX - tug.x, e.clientY - tug.y); tug.x = e.clientX; tug.y = e.clientY; tug.pulled += d;
-    if (relax.on && d > 0) { stepRelax(1 / 60, Math.max(1, Math.round(d * .6))); if (Math.random() < .3) FX.sfx('click'); } wake(200); return; }
+  if (tug.on && e.pointerId === tug.id) { // swinging the loop round the box: each radian swept works the cable along
+    const a = Math.atan2(e.clientY - tug.cy, e.clientX - tug.cx); let da = a - tug.a; if (da > Math.PI) da -= TAU; if (da < -Math.PI) da += TAU; tug.a = a; tug.pulled += Math.abs(da);
+    tug.x = e.clientX; tug.y = e.clientY; $('swing').style.setProperty('--a', (tug.pulled / TAU * 360) + 'deg');
+    if (relax.on && Math.abs(da) > 1e-3) { stepRelax(1 / 60, Math.max(1, Math.round(Math.abs(da) * 70))); if (Math.random() < .3) FX.sfx('click'); } wake(200); return; }
   if (!drag.on || e.pointerId !== drag.id) return; const o = drag.o;
   if (o.kind === 'tray') { // sideways = turn about the vertical, up/down = tilt
     const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly; drag.lx = e.clientX; drag.ly = e.clientY;
@@ -899,7 +919,8 @@ canvas.addEventListener('pointermove', e => {
   const p = arcVec(e.clientX, e.clientY, [0, 0, 0]), a = drag.last, ax = [a[1] * p[2] - a[2] * p[1], a[2] * p[0] - a[0] * p[2], a[0] * p[1] - a[1] * p[0]], s = Math.hypot(...ax), ang = Math.atan2(s, a[0] * p[0] + a[1] * p[1] + a[2] * p[2]) * 1.7;
   drag.last = p; if (s < 1e-9) return; V3.set(ax[0] / s, ax[1] / s, ax[2] / s).applyQuaternion(camera.quaternion); rotateBy(o, [V3.x, V3.y, V3.z], ang);
 });
-const endTug = () => { if (!tug.on) return; tug.on = false; controls.enabled = true; relax.manual = false; }; // let go: the cable settles the rest of the way
+const endTug = () => { if (!tug.on) return; tug.on = false; controls.enabled = true; relax.manual = false; showSwing(false); };
+function showSwing(on) { const el = $('swing'); if (!on) { el.classList.remove('on'); return; } const o = OBJ[sel] || OBJ[0], r = projRadius(o) * 2.1; el.style.left = tug.cx - r + 'px'; el.style.top = tug.cy - r + 'px'; el.style.width = el.style.height = r * 2 + 'px'; el.style.setProperty('--a', '0deg'); el.classList.add('on'); } // let go: the cable settles the rest of the way
 canvas.addEventListener('pointerup', endTug); canvas.addEventListener('pointercancel', endTug);
 const endDrag = e => { if (drag.hold) { drag.hold = false; setHold(false); } if (!drag.on) return; drag.on = false; controls.enabled = true; if (drag.o.kind !== 'tray') { snapObj(drag.o, L.kind === 'sandbox' ? undefined : 7); if (L.moves && L.kind !== 'sandbox') { const c = dragCost(drag.q0, drag.o.q); for (let k = 0; k < c; k++) userMoves.push('drag'); if (c) { renderCtrl(); if (L.par) msg(`That drag = ${c} quarter-turn${c > 1 ? 's' : ''}`); } } } };
 // a drag costs as many moves as the fewest quarter-turns that do the same thing (sign included), so dragging can't beat par
@@ -960,7 +981,7 @@ function stepMech(dt) {
     else { m.theta += w * dt; m.phi += (m.ratio || 0) * w * dt; }
     const tw = 2 * m.phi - m.theta; m.maxTw = Math.max(m.maxTw, Math.abs(tw));
     const lim = m.sat ? 200 * D2R : Math.PI; // the cable tears past half a turn of twist
-    if (Math.abs(tw) > lim) { m.broken = true; m.running = false; FX.sfx('boom'); FX.shake(.6); FX.hitstop(120); burst(.9, 1.2, 0, 60, '#ff6040', 3, .8); toast('Snap!', m.sat ? 'The cable twisted too far. Drive the boom at half the satellite\'s speed on average.' : 'The cable twisted itself apart. Try another ratio.', 2600); renderCtrl(); }
+    if (Math.abs(tw) > lim) { m.broken = true; m.running = false; if (!m.sat) gearSnapped(); FX.sfx('boom'); FX.shake(.6); FX.hitstop(120); burst(.9, 1.2, 0, 60, '#ff6040', 3, .8); toast('Snap!', m.sat ? 'The cable twisted too far. Drive the boom at half the satellite\'s speed on average.' : 'The cable twisted itself apart. Try another ratio.', 2600); renderCtrl(); }
     if (!m.sat && m.theta >= 6 * TAU && !won) { m.running = false; if (gj) gearJobDone(); else winLevel(L.win); renderCtrl(); }
     if (m.sat && m.t >= L.time && !won) { m.running = false; winLevel(L.win); }
     if (m.sat && !m.hold && m.t > 0 && Math.random() < dt * 2) FX.sfx('tick');
@@ -970,7 +991,8 @@ function stepMech(dt) {
   $('meter').innerHTML = (m.sat ? `time <b>${m.t.toFixed(1)}</b> / ${L.time} s · ` : `rotor turns <b>${(m.theta / TAU).toFixed(1)}</b> / 6 · `) + `cable twist <b style="color:${Math.abs(tw) > (m.sat ? 150 : 120) ? '#ff8080' : '#9af0c0'}">${tw.toFixed(0)}°</b><div class="bar"><i style="width:${Math.min(100, Math.abs(tw) / (m.sat ? 2 : 1.8))}%"></i></div>`;
 }
 const jitQ = new THREE.Quaternion(), tq = new THREE.Quaternion(), jitE = new THREE.Euler(), invQ = new THREE.Quaternion();
-const hideSign = () => !!(bet && (bet.phase === 'watch' || bet.phase === 'bet'));
+let attempted = false; // the twist gauge only reads out after the player has tried the loop at this position
+const hideSign = () => !!(bet && (bet.phase === 'watch' || bet.phase === 'bet')) || (!attempted && L && !L.free && L.kind !== 'golf' && L.setup !== 'mech' && L.kind !== 'waiter');
 function syncMeshes(now) {
   const glitchy = !relax.on && !hideSign() && RIB.length && allHome() && RIB.some(r => r.endDot() < -.97) && L.kind !== 'golf' && L.kind !== 'waiter';
   for (const o of OBJ) {

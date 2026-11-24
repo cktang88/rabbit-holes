@@ -114,6 +114,9 @@
   .tape{font-family:VT323,monospace;font-size:20px;color:#ffd27a}
   #softResult{color:#e9e2cc}
   #isa{font-family:"IBM Plex Mono",monospace}
+  #cpuBoard .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+  #cpuBoard .chips span{background:#17171a;color:#8c8c86;padding:6px 8px;font-size:12px;border:1px solid #000;box-shadow:inset 0 -3px 0 #000}
+  #cpuBoard .chips span.lit{color:#fff1d0;box-shadow:0 0 12px #ffd27a,inset 0 -3px 0 #000;border-color:#ffd27a}
 </style>
 </head>
 <body>
@@ -135,6 +138,7 @@
     <div><textarea id="code" spellcheck="false"></textarea></div>
     <div style="flex:1;display:flex;flex-direction:column;gap:12px;min-width:280px">
       <div class="row"><button class="primary" id="runBtn">▶ Run tests</button><button id="stepBtn">Step</button><button id="playBtn">Run once</button><button id="isaBtn">Instruction set</button></div>
+      <div id="cpuBoard"></div>
       <div class="regs" id="regs"></div>
       <div class="row" style="align-items:flex-start;gap:18px">
         <div><div class="dim small">Display (RAM 56–63)</div><div id="disp"></div></div>
@@ -212,10 +216,10 @@ lvl({id:'SR LATCH',act:3,ins:[['set',1],['reset',1]],outs:[['q',1],['nq',1]],par
 lvl({id:'D LATCH',act:3,ins:[['d',1],['en',1]],outs:[['q',1]],par:4,seq:'dl',
   fn:([d,e],st)=>{ if(st.q===undefined) st.q=0; if(e) st.q=d; return [st.q]; },
   desc:'While <b>en</b>=1, q follows d. When en=0, q remembers the last value.'});
-lvl({id:'DFF',act:3,ins:[['d',1],['clk',1]],outs:[['q',1]],par:9,seq:'clk',
+lvl({id:'DFF',act:3,ins:[['d',1],['clk',1]],outs:[['q',1]],par:9,gold:6,seq:'clk',
   fn:([d,c],st)=>{ if(st.q===undefined) st.q=0; if(edge(st,c)) st.q=d; return [st.q]; },
   desc:'Data flip-flop: q only changes at the moment <b>clk</b> goes 0 → 1, when it grabs d. Hint: two D latches, one open while the clock is low and one while it is high.'});
-lvl({id:'REG',act:3,ins:[['d',1],['load',1],['clk',1]],outs:[['q',1]],par:13,seq:'clk',
+lvl({id:'REG',act:3,ins:[['d',1],['load',1],['clk',1]],outs:[['q',1]],par:13,gold:10,seq:'clk',
   fn:([d,l,c],st)=>{ if(st.q===undefined) st.q=0; if(edge(st,c)&&l) st.q=d; return [st.q]; },
   desc:'A 1-bit register: on the clock edge, store d only if <b>load</b>=1. Otherwise keep the old value. Solving this unlocks REG8.'});
 lvl({id:'DEC2',act:3,ins:[['s1',1],['s0',1]],outs:[['d0',1],['d1',1],['d2',1],['d3',1]],par:10,
@@ -224,13 +228,16 @@ lvl({id:'DEC2',act:3,ins:[['s1',1],['s0',1]],outs:[['d0',1],['d1',1],['d2',1],['
 lvl({id:'COUNTER',act:3,ins:[['ld',1],['d',8],['clk',1]],outs:[['q',8]],par:144,bus:true,seq:'clk',
   fn:([l,d,c],st)=>{ if(st.q===undefined) st.q=0; if(edge(st,c)) st.q = l? d : (st.q+1)&M8; return [st.q]; },
   desc:'On each clock edge: if <b>ld</b>, q becomes d; otherwise q goes up by 1. This will become the program counter.'});
-lvl({id:'RAM4',act:3,ins:[['a1',1],['a0',1],['st',1],['d',8],['clk',1]],outs:[['q',8]],par:530,bus:true,seq:'clk',
+lvl({id:'RAM4',act:3,ins:[['a1',1],['a0',1],['st',1],['d',8],['clk',1]],outs:[['q',8]],par:530,gold:434,bus:true,seq:'clk',
   fn:([a1,a0,s,d,c],st)=>{ if(!st.m) st.m=[0,0,0,0]; const a=a1*2+a0; if(edge(st,c)&&s) st.m[a]=d; return [st.m[a]]; },
-  desc:'Four bytes of RAM. q always shows the byte at the address. On a clock edge with <b>st</b>=1, write d there. This one is big; take your time.'});
+  desc:'Four bytes of RAM. q always shows the byte at the address. On a clock edge with <b>st</b>=1, write d there. This one is big; take your time. Notice the cost: every stored bit needs its own flip-flop, which is why memory was the most expensive part of early computers.'});
 
 lvl({id:'COND',act:4,ins:[['lt',1],['eq',1],['gt',1],['x',8]],outs:[['jump',1]],par:40,bus:true,
   fn:([lt,eq,gt,x])=>{const neg=x>127, z=x===0, pos=!neg&&!z; return [B((lt&&neg)||(eq&&z)||(gt&&pos))];},
   desc:'Condition unit. Treat x as signed (bit 7 = negative). Output jump=1 if (lt and x&lt;0) or (eq and x=0) or (gt and x&gt;0). Jump instructions are built from this.'});
+lvl({id:'DECODE',act:4,ins:[['o2',1],['o1',1],['o0',1]],outs:[['alu1',1],['alu0',1],['zeroA',1],['mem',1],['st',1],['wr',1]],par:24,
+  fn:([a,b,c])=>{ const o=a*4+b*2+c; return [B(o===2||o===3||o===4), B(o===1||o===3||o===4), B(o===4), B(o===5), B(o===6), B(o<=5)]; },
+  desc:'The <b>instruction decoder</b> turns a 3-bit opcode into the control lines that steer the CPU.<br>0 add · 1 sub · 2 and · 3 or: <b>alu1 alu0</b> = the opcode\'s low bits, <b>wr</b>=1 (write the result to a register).<br>4 mov: alu=11 (OR) with <b>zeroA</b>=1, so the result is just the source; wr=1.<br>5 ld: <b>mem</b>=1, wr=1 · 6 st: <b>st</b>=1, wr=0 · 7: everything 0.<br>When you pass, every program in Act V runs through this chip.'});
 lvl({id:'PC',act:4,ins:[['rst',1],['j',1],['addr',8],['clk',1]],outs:[['pc',8]],par:180,bus:true,seq:'clk',
   fn:([r,j,a,c],st)=>{ if(st.q===undefined) st.q=0; if(edge(st,c)) st.q = r?0 : j? a : (st.q+1)&M8; return [st.q]; },
   desc:'Program counter. On each clock edge: rst → 0, otherwise j → jump to addr, otherwise step to the next instruction. This is the last part. When it passes, your parts are put together into a CPU.'});
@@ -250,12 +257,13 @@ const HINTS = {
   ALU:'Build all four results side by side, then use MUX8s to pick one. op0 chooses within a pair, op1 chooses the pair. Feed the result into ZERO8.',
   'SR LATCH':'Two NANDs, each one\'s output feeding the other\'s input. They want active-low set/reset, so put a NOT on each input.',
   'D LATCH':'Feed d and en into a NAND, then NAND that with en again. Those two signals drive a NAND SR latch.',
-  DFF:'Master latch enabled by NOT clk, slave latch enabled by clk. The slave copies the master the moment clk rises, while the master stops listening.',
+  DFF:'Master latch enabled by NOT clk, slave latch enabled by clk. The slave copies the master the moment clk rises, while the master stops listening. (Gold, 6 NANDs, is the classic edge-triggered design: three cross-coupled pairs.)',
   REG:'A MUX in front of a DFF: when load is 0, feed q back into d.',
   DEC2:'Each output is an AND of s1 or NOT s1 with s0 or NOT s0.',
   COUNTER:'REG8 with load tied HIGH. Its d is a MUX8 choosing between INC8(q) and d.',
   RAM4:'Four REG8s. DEC2 picks which one gets load (AND each line with st). Two layers of MUX8 pick which q to show.',
   COND:'Bit 7 of x is "negative". ZERO8 gives "zero". Positive is neither of those.',
+  DECODE:'Write each output as a sum of opcode patterns. Note wr is "not (o2 and o1)", and the low ALU bits match o1,o0 except for mov (100), which forces 11.',
   PC:'Like COUNTER, but a MUX8 picks addr when j, and another forces 0 when rst (an unwired MUX8 input reads 0).',
 };
 
@@ -294,7 +302,7 @@ const persist = ()=>{ RH.save('nand', SAVE); RH.progress('nand', (Object.keys(SA
 
 // Register user-solved chips as black boxes
 const BUS_OF = {NOT:'NOT8',AND:'AND8',OR:'OR8',XOR:'XOR8',MUX:'MUX8',REG:'REG8'};
-function registerChips(){
+function registerChips(){ if (typeof board!=='undefined') board=null;
   for (const l of L) if (SAVE.best[l.id]!=null) def(l.id, l.ins, l.outs, l.fn, ()=>SAVE.best[l.id]);
   const busOn = SAVE.best['ADD8']!=null || L[SAVE.cur]?.bus;
   if (SAVE.best.NOT!=null) def('NOT8',[['a',8]],[['out',8]],([a])=>[(~a)&M8],()=>8*SAVE.best.NOT);
@@ -455,7 +463,7 @@ function runTests(){
   saveCircuit(); registerChips();
   const st = stars(l.id);
   res.innerHTML = `<canvas id="scope"></canvas><div class="ok">✓ All ${tests.length} tests passed with ${g} NAND${g===1?'':'s'}. ${'★'.repeat(st)}${'☆'.repeat(3-st)}</div>`+
-    (g<l.par? `<div class="ok">You beat the designers' par of ${l.par}.</div>` : g>l.par? `<div class="dim">Par is ${l.par}. Can you get it lower?</div>`:'')+
+    (g<goldOf(l)? `<div class="ok">You beat the gold count of ${goldOf(l)}.</div>` : g>goldOf(l)? `<div class="dim">${g<=l.par? `Par met. Gold is ${goldOf(l)} NAND: open up your chips and share gates between them.` : `Par is ${l.par}, gold ${goldOf(l)}. Can you get it lower?`}</div>`:'')+
     (SAVE.cur+1<L.length? `<button class="primary next" id="nextBtn">Next: ${L[SAVE.cur+1].id} →</button>` : '');
   const nb=document.getElementById('nextBtn'); if (nb) nb.onclick=()=>showCircuit(SAVE.cur+1);
   drawScope(l, trace, -1); startPackaging(l.id, g);
@@ -465,7 +473,9 @@ function runTests(){
   }
   renderLevels(); renderPalette(); updateHud();
 }
-function stars(id){ const l=L.find(x=>x.id===id); const g=SAVE.best[id]; if(g==null) return 0; return g<=l.par?3 : g<=l.par*1.5?2:1; }
+// ★★★ needs the gold count (a hand-optimised design, below what plugging earlier chips together gives), ★★ par, ★ any working circuit
+const goldOf=(l)=> l.gold ?? l.par;
+function stars(id){ const l=L.find(x=>x.id===id); const g=SAVE.best[id]; if(g==null) return 0; return g<=goldOf(l)?3 : g<=l.par?2 : 1; }
 function ttTable(l, rows, showExp){
   const fmtv=(v,w)=> w===1? v : v;
   let h='<table class="tt"><tr>'+l.ins.map(p=>`<th>${p[0]}</th>`).join('')+l.outs.map(p=>`<th>${p[0]}${showExp?' exp/got':''}</th>`).join('')+'</tr>';
@@ -609,6 +619,13 @@ function draw(){
   const outv = outputs(); const osrc=l.outs.map((p,i)=>src['out:'+i]);
   l.outs.forEach((p,i)=>{ const y=pinY(i,l.outs.length); pin(W_OUT,y,p, osrc[i]? shownVal(osrc[i]) : outv[i],'out'); });
   if (unstable){ ctx.fillStyle='#ff6b5a'; ctx.font=FONT(13,'700'); ctx.textAlign='left'; ctx.fillText('⚠ OSCILLATING — a loop is fighting itself', W_IN+30, H-8); }
+  // First wire on the first level: pulse the ports and ghost-draw the drag you need to make
+  if (SAVE.cur===0 && !circ.wires.length && !drag){ const pulse=6+3*Math.sin(now/220);
+    const ports=[{x:W_IN,y:pinY(0,1)}]; for (const c of circ.comps){ const t=TYPES[c.type]; if (!t) continue; const s=compSize(c); t.ins.forEach((p,i)=>ports.push({x:c.x,y:c.y+16+i*18})); t.outs.forEach((p,i)=>ports.push({x:c.x+s.w,y:c.y+16+i*18})); }
+    ctx.strokeStyle='rgba(255,246,208,.9)'; ctx.lineWidth=2; for (const p of ports){ ctx.beginPath(); ctx.arc(p.x,p.y,pulse,0,7); ctx.stroke(); }
+    if (circ.comps.length){ const a={x:W_IN,y:pinY(0,1)}, b={x:circ.comps[0].x, y:circ.comps[0].y+16}; const k=(now%1600)/1600; ctx.setLineDash([4,6]); ctx.strokeStyle='rgba(255,246,208,.6)'; bez(a,b); ctx.stroke(); ctx.setLineDash([]);
+      const q=bezPt(wirePts(a,b),k); ctx.fillStyle='#fff6d0'; ctx.beginPath(); ctx.arc(q.x,q.y,4,0,7); ctx.fill(); ctx.font=FONT(11,'600'); ctx.textAlign='left'; ctx.fillStyle=PCB.silk; ctx.fillText('drag from dot to dot', (a.x+b.x)/2-40, Math.max(a.y,b.y)+40); }
+    else { ctx.font=FONT(12,'600'); ctx.fillStyle=PCB.silk; ctx.textAlign='left'; ctx.fillText('← click NAND in Parts to place a chip', W_IN+60, pinY(0,1)-30); } }
   drawPackaging(now);
 }
 function lcd(x,y,txt,w){ ctx.fillStyle='#1b1d16'; rr(x-w/2-3,y-9,w+6,18,2); ctx.fill(); ctx.fillStyle='#9fbf57'; rr(x-w/2,y-7,w,14,1); ctx.fill(); ctx.fillStyle='#1d2a0c'; ctx.font='16px VT323, monospace'; ctx.textAlign='center'; ctx.fillText(txt, x, y+5); }
@@ -797,7 +814,7 @@ function renderBrief(){
 function updateHud(){
   const l=lv(); const g=gateCount();
   document.getElementById('gatePill').textContent = `${g} NAND`;
-  document.getElementById('parPill').textContent = `par ${l.par}` + (SAVE.best[l.id]!=null? ` · your best ${SAVE.best[l.id]}`:'');
+  document.getElementById('parPill').textContent = `par ${l.par}`+(goldOf(l)<l.par? ` · gold ${goldOf(l)}`:'') + (SAVE.best[l.id]!=null? ` · your best ${SAVE.best[l.id]}`:'');
 }
 function showCircuit(i){
   softOn=false; document.getElementById('soft').classList.remove('on'); document.getElementById('stage').style.display='';
@@ -810,26 +827,28 @@ window.addEventListener('resize', resize);
 
 // ======================= The CPU + software =======================
 async function cpuCutscene(){
-  await RH.modal(`<h2>🖥️ It's a computer.</h2><p>Your ALU, registers, RAM decoder, condition unit and program counter have been connected into a working 8-bit CPU with four registers (<b>a b c d</b>) and 64 bytes of RAM.</p><p>Every instruction you write from here runs on chips you built from NAND gates.</p><p><b>Act V: Software</b> is unlocked.</p>`,[{label:'Boot it up'}]);
+  await RH.modal(`<h2>It's a computer.</h2><p>Your program counter, decoder, four REG8 registers, ALU, condition unit and sixteen RAM4 chips are wired onto one board: an 8-bit CPU with registers <b>a b c d</b> and 64 bytes of RAM. It has ${getBoard().gates()} NAND gates' worth of your chips.</p><p>Programs you write now run through those chips, clock by clock: <b>Step</b> shows which chips light up for each instruction.</p><p><b>Act V: Software</b> is unlocked.</p>`,[{label:'Boot it up'}]);
   renderLevels(); showSoft(0);
 }
 let softOn=false, softCur=0, cpu=null;
-const ISA = `Registers: a b c d   (8-bit, wrap at 256)
-RAM: 64 bytes [0..63]; 56..63 = display rows
+const ISA = `Registers: a b c d   (four of your REG8, picked by DEC2 + MUX8)
+RAM: 64 bytes [0..63] = sixteen of your RAM4; 56..63 = display rows
+Each line is one clock tick: PC fetches it, DECODE sets the control lines.
 
-mov r, x       r = x        (x = register or number)
-add r, x       r = r + x
-sub r, x       r = r - x
-and r, x  /  or r, x
-inc r  /  dec r
-ld  r, [x]     r = RAM[x]
-st  [x], r     RAM[x] = r
+mov r, x       r = x          ALU (OR with zeroA)   x = register or number
+add r, x       r = r + x      ALU op 00
+sub r, x       r = r - x      ALU op 01
+and r, x  /  or r, x          ALU op 10 / 11
+inc r  /  dec r               add / sub with 1
+ld  r, [x]     r = RAM[x]     RAM64
+st  [x], r     RAM[x] = r     RAM64
 in  r          read next input
 out x          write x to output
-jmp L          jump to label L
-jz  r, L       jump if r == 0
-jnz r, L       jump if r != 0
-jlt x, y, L    jump if x < y   (unsigned)
+jmp L          jump to label  COND (lt, eq, gt all 1)
+jz  r, L       if r == 0      COND (eq)
+jnz r, L       if r != 0      COND (lt, gt)
+jlt x, y, L    if x < y       unsigned: ADD8(x, NOT8 y, 1) has no carry
+                              (at most one of x, y may be a number)
 hlt            stop
 
 label:         defines a label
@@ -846,9 +865,103 @@ function assemble(src){
   for (const ins of prog){ const sp=spec[ins.op]; if(!sp){ errs.push(`line ${ins.ln+1}: unknown instruction "${ins.op}"`); continue; }
     if (sp.length!==ins.args.length){ errs.push(`line ${ins.ln+1}: ${ins.op} takes ${sp.length} argument(s)`); continue; }
     sp.forEach((k,i)=>{ const a=ins.args[i]; const ok = k==='r'?isR(a):k==='v'?isV(a):k==='m'?isM(a):(a in labels);
-      if(!ok) errs.push(`line ${ins.ln+1}: bad argument "${a}"${k==='l'?' (unknown label)':''}`); }); }
+      if(!ok) errs.push(`line ${ins.ln+1}: bad argument "${a}"${k==='l'?' (unknown label)':''}`); });
+    if (ins.op==='jlt' && isN(ins.args[0]) && isN(ins.args[1])) errs.push(`line ${ins.ln+1}: jlt compares at most one number (the CPU has one immediate field)`); }
   return {prog,labels,errs};
 }
+// ======================= The CPU board: your chips, wired into a computer =======================
+// Act V programs run here, clock by clock, through the chips you built (each as the black box your tests verified).
+// The program ROM, the input tape and the output printer are peripherals; everything else is your hardware.
+// Instruction fields the assembler burns into ROM for each line.
+function encode(asm){
+  const R={a:0,b:1,c:2,d:3}; const isR=x=>x in R; const num=x=>parseInt(x)&255;
+  return asm.prog.map(({op,args})=>{
+    const f={c:0,o:7,d:0,s:0,imm:0,ui:0,uia:0,lt:0,eq:0,gt:0,isLt:0,isIn:0,isOut:0,addr:0};
+    const srcB=(x)=>{ if (isR(x)) f.s=R[x]; else { f.imm=num(x); f.ui=1; } };
+    const ALU={add:0,sub:1,and:2,or:3};
+    if (op in ALU){ f.o=ALU[op]; f.d=R[args[0]]; srcB(args[1]); }
+    else if (op==='inc'||op==='dec'){ f.o=op==='inc'?0:1; f.d=R[args[0]]; f.imm=1; f.ui=1; }
+    else if (op==='mov'){ f.o=4; f.d=R[args[0]]; srcB(args[1]); }
+    else if (op==='ld'){ f.o=5; f.d=R[args[0]]; srcB(args[1].slice(1,-1)); }
+    else if (op==='st'){ f.o=6; f.d=R[args[1]]; srcB(args[0].slice(1,-1)); }
+    else if (op==='in'){ f.c=2; f.isIn=1; f.d=R[args[0]]; }
+    else if (op==='out'){ f.c=2; f.isOut=1; srcB(args[0]); }
+    else if (op==='jmp'){ f.c=1; f.lt=f.eq=f.gt=1; f.addr=asm.labels[args[0]]; }
+    else if (op==='jz'||op==='jnz'){ f.c=1; f.d=R[args[0]]; if (op==='jz') f.eq=1; else f.lt=f.gt=1; f.addr=asm.labels[args[1]]; }
+    else if (op==='jlt'){ f.c=1; f.isLt=1; f.addr=asm.labels[args[2]]; if (isR(args[0])) f.d=R[args[0]]; else { f.imm=num(args[0]); f.uia=1; } if (isR(args[1])) f.s=R[args[1]]; else { f.imm=num(args[1]); f.ui=1; } }
+    else if (op==='hlt'){ f.c=3; }
+    return f;
+  });
+}
+const NOP_WORD={c:0,o:7,d:0,s:0,imm:0,ui:0,uia:0,lt:0,eq:0,gt:0,isLt:0,isIn:0,isOut:0,addr:0};
+// A chip type for the board: the one you built, or (only if you skipped it in an old save) the reference.
+const chipType=(n)=> TYPES[n] || (()=>{ const l=L.find(x=>x.id===n); return l? {name:n, ins:l.ins, outs:l.outs, fn:l.fn, gates:()=>l.par, ref:true} : null; })()
+  || {NOT8:{ins:[['a',8]],outs:[['out',8]],fn:([a])=>[(~a)&M8]}, AND8:{fn:([a,b])=>[a&b]}, MUX8:{fn:([s,a,b])=>[s?b:a]}, REG8:{fn:([d,l,c],st)=>{ if(st.q===undefined) st.q=0; if(edge(st,c)&&l) st.q=d; return [st.q]; }}}[n];
+function buildBoard(){
+  const comps=[]; const add=(type, ins, outs, role)=>{ const t= typeof type==='string'? chipType(type) : type; comps.push({t, name: typeof type==='string'? type : type.name, ins, outs, st:{}, role}); return outs; };
+  const N=(p,n)=>[...Array(n)].map((_,i)=>p+i);
+  let rom=[], resetting=false, inVal=0;
+  const ROMT={name:'ROM', fn:([pc])=>{ const w=(!resetting && rom[pc]) || (pc>=rom.length && !resetting? {...NOP_WORD,c:3} : NOP_WORD);
+    return [w.c>>1&1, w.c&1, w.o>>2&1, w.o>>1&1, w.o&1, w.d>>1&1, w.d&1, w.s>>1&1, w.s&1, w.imm, w.ui, w.uia, w.lt, w.eq, w.gt, w.isLt, w.isIn, w.isOut, w.addr]; }};
+  const INT={name:'IN', fn:()=>[inVal]};
+  add(ROMT, ['pc'], ['c1','c0','o2','o1','o0','d1','d0','s1','s0','imm','ui','uia','lt','eq','gt','isLt','isIn','isOut','addr'], 'rom');
+  add(INT, [], ['inv'], 'io');
+  add('DECODE', ['o2','o1','o0'], ['alu1','alu0','zeroA','mem','st','wr'], 'dec');
+  add('DEC2', ['c1','c0'], ['isALU','isBr','isIO','isHalt'], 'dec');
+  // write enable: ALU/memory ops that write, or `in`
+  add('AND', ['wr','isALU'], ['wA'], 'dec'); add('AND', ['isIn','isIO'], ['wI'], 'dec'); add('OR', ['wA','wI'], ['wrEn'], 'dec');
+  add('AND', ['st','isALU'], ['stEn'], 'ram');
+  // register file: four REG8, DEC2 picks which one loads, MUX8 trees read operands
+  add('DEC2', ['d1','d0'], ['sel0','sel1','sel2','sel3'], 'regs');
+  for (let k=0;k<4;k++){ add('AND', ['sel'+k,'wrEn'], ['ld'+k], 'regs'); add('REG8', ['wb','ld'+k,'clk'], ['r'+k], 'regs'); }
+  add('MUX8', ['d0','r0','r1'], ['ma0'], 'regs'); add('MUX8', ['d0','r2','r3'], ['ma1'], 'regs'); add('MUX8', ['d1','ma0','ma1'], ['regA'], 'regs');
+  add('MUX8', ['s0','r0','r1'], ['mb0'], 'regs'); add('MUX8', ['s0','r2','r3'], ['mb1'], 'regs'); add('MUX8', ['s1','mb0','mb1'], ['regB'], 'regs');
+  add('MUX8', ['uia','regA','imm'], ['A'], 'regs'); add('MUX8', ['ui','regB','imm'], ['B'], 'regs');
+  add('MUX8', ['zeroA','A',0], ['A0'], 'alu');
+  add('ALU', ['alu1','alu0','A0','B'], ['aluOut','aluZero'], 'alu');
+  // RAM64: sixteen of your RAM4 chips, addressed by the low six bits of B
+  add('SPLIT', ['B'], N('b',8), 'ram');
+  add('DEC2', ['b5','b4'], ['h0','h1','h2','h3'], 'ram'); add('DEC2', ['b3','b2'], ['l0','l1','l2','l3'], 'ram');
+  for (let k=0;k<16;k++){ add('AND', ['h'+(k>>2),'l'+(k&3)], ['cs'+k], 'ram'); add('AND', ['cs'+k,'stEn'], ['we'+k], 'ram'); add('RAM4', ['b1','b0','we'+k,'A','clk'], ['m'+k], 'ram'); }
+  let lvl=N('m',16), bit=2, uid=0; while (lvl.length>1){ const nx=[]; for (let i=0;i<lvl.length;i+=2){ const o='mm'+(uid++); add('MUX8', ['b'+bit, lvl[i], lvl[i+1]], [o], 'ram'); nx.push(o); } lvl=nx; bit++; }
+  add('MUX8', ['mem','aluOut',lvl[0]], ['res'], 'alu'); add('MUX8', ['isIO','res','inv'], ['wb'], 'regs');
+  // branches: COND for jz/jnz/jmp; an unsigned comparator (ADD8 + NOT8, borrow = no carry) for jlt
+  add('COND', ['lt','eq','gt','A'], ['condJ'], 'cond');
+  add('NOT8', ['B'], ['nB'], 'cond'); add('ADD8', ['A','nB',1], ['diff','cout'], 'cond'); add('NOT', ['cout'], ['borrow'], 'cond');
+  add('MUX', ['isLt','condJ','borrow'], ['cj'], 'cond'); add('AND', ['cj','isBr'], ['j'], 'cond');
+  add('PC', ['rst','j','addr','clk'], ['pc'], 'pc');
+  let vals={};
+  const settle=()=>{ for (let it=0; it<60; it++){ let ch=false;
+      for (const c of comps){ const ins=c.ins.map(x=> typeof x==='number'? x : (vals[x]??0)); const out=c.t.fn(ins, c.st); c.outs.forEach((o,i)=>{ if (vals[o]!==out[i]){ vals[o]=out[i]; ch=true; } }); }
+      if (!ch) return true; } return false; };
+  const B={ comps, get vals(){ return vals; },
+    gates(){ const seen=comps.filter(c=>c.t && c.t.gates); return seen.reduce((s,c)=>s+c.t.gates(),0); },
+    refs(){ return [...new Set(comps.filter(c=>c.t&&c.t.ref).map(c=>c.name))]; },
+    load(asm, inp){ rom=encode(asm); vals={}; for (const c of comps) c.st={}; B.tape=[...inp]; B.out=[]; B.cycles=0; B.halted=false; B.err=null; B.active=[];
+      vals.rst=1; vals.clk=0; resetting=true; settle(); vals.clk=1; settle(); vals.clk=0; settle(); vals.rst=0; resetting=false; inVal=B.tape[0]??0; settle(); },
+    step(){ if (B.halted) return; inVal=B.tape[0]??0; vals.clk=0; settle(); const v=vals;
+      if (v.pc>=rom.length){ B.halted=true; return; }
+      B.cycles++; const cls=v.c1*2+v.c0, op=v.o2*4+v.o1*2+v.o0;
+      B.active = cls===3? ['pc','rom'] : cls===2? ['pc','rom','dec','io','regs'] : cls===1? ['pc','rom','dec','regs','cond'] : op===5||op===6? ['pc','rom','dec','regs','ram'] : ['pc','rom','dec','regs','alu'];
+      if (cls===3){ B.halted=true; return; }
+      if (cls===2 && v.isIn && !B.tape.length){ B.err='read past the end of the input'; B.halted=true; return; }
+      if (cls===2 && v.isOut) B.out.push(v.B);
+      const wasIn = cls===2 && v.isIn; vals.clk=1; settle(); if (wasIn) B.tape.shift(); inVal=B.tape[0]??0; vals.clk=0; settle(); },
+    regs(){ return {a:vals.r0??0, b:vals.r1??0, c:vals.r2??0, d:vals.r3??0}; },
+    mem(){ const m=[]; for (let k=0;k<16;k++){ const st=comps.find(c=>c.outs[0]==='m'+k).st; for (let a=0;a<4;a++) m.push(st.m? st.m[a] : 0); } return m; },
+    get pc(){ return vals.pc??0; },
+  };
+  return B;
+}
+let board=null; const getBoard=()=> board ||= buildBoard();
+// Run a program on the board (to halt or a cycle cap) and compare with the reference interpreter.
+function runOnBoard(asm, inp, cap=20000){ const b=getBoard(); b.load(asm, inp); while (!b.halted && b.cycles<cap) b.step(); return {out:b.out.slice(), cycles:b.cycles, halted:b.halted, err:b.err, regs:b.regs(), mem:b.mem()}; }
+function renderBoardPanel(active){
+  const el=document.getElementById('cpuBoard'); if (!el) return; const b=getBoard();
+  const parts=[['pc','PC'],['rom','ROM'],['dec','DECODE'],['regs','4× REG8'],['alu','ALU'],['ram','16× RAM4'],['cond','COND + CMP'],['io','I/O']];
+  el.innerHTML=`<div class="dim small">Your CPU board · ${b.gates()} NAND${b.refs().length?` · using reference for ${b.refs().join(', ')}`:''}</div><div class="chips">`+parts.map(([k,n])=>`<span class="${(active||[]).includes(k)?'lit':''}">${n}</span>`).join('')+'</div>';
+}
+
 function newCpu(asm, inp){ return {asm, r:{a:0,b:0,c:0,d:0}, mem:new Array(64).fill(0), pc:0, inp:[...inp], out:[], cycles:0, halted:false, err:null}; }
 function stepCpu(c){
   if (c.halted) return; if (c.pc>=c.asm.prog.length){ c.halted=true; return; }
@@ -884,7 +997,7 @@ function showSoft(i){
   document.getElementById('result').innerHTML='';
   const code=document.getElementById('code'); code.value = SAVE.code[s.id] ?? `; ${s.name}\n; Instruction set: click "Instruction set"\n\n`;
   code.oninput=()=>{ SAVE.code[s.id]=code.value; persist(); cpu=null; };
-  cpu=null; renderCpu(newCpu({prog:[],labels:{}}, s.gen(RH.rng(1)).inp)); renderLevels();
+  cpu=null; renderCpu(newCpu({prog:[],labels:{}}, s.gen(RH.rng(1)).inp)); renderBoardPanel([]); renderLevels();
   document.getElementById('softResult').innerHTML='';
 }
 function renderCpu(c){
@@ -897,15 +1010,18 @@ function renderCpu(c){
   if (c.asm.prog[c.pc]) { /* highlight current line by selection */ const ln=c.asm.prog[c.pc].ln; const lines=code.value.split('\n'); let st=0; for(let k=0;k<ln;k++) st+=lines[k].length+1; if(document.activeElement!==code){ code.setSelectionRange(st, st+lines[ln].length); } }
 }
 document.getElementById('isaBtn').onclick=()=>RH.modal(`<h2>Instruction set</h2><div id="isa">${ISA}</div>`);
+// Step and Run once go through the CPU board itself; the fast interpreter only checks your 12 test inputs.
+const boardView=(b,asm)=>({r:b.regs(), mem:b.mem(), inp:b.tape, out:b.out, asm, pc:b.pc});
 document.getElementById('stepBtn').onclick=()=>{
-  const s=SW[softCur]; if(!cpu){ const asm=assemble(document.getElementById('code').value); if(asm.errs.length){ document.getElementById('softResult').innerHTML=`<div style="color:var(--bad)">${asm.errs.join('<br>')}</div>`; return; } cpu=newCpu(asm, s.gen(RH.rng(1)).inp); }
-  stepCpu(cpu); renderCpu(cpu); if (cpu.halted){ document.getElementById('softResult').innerHTML=`<span class="dim">Halted after ${cpu.cycles} cycles.${cpu.err?' Error: '+cpu.err:''}</span>`; cpu=null; }
+  const s=SW[softCur]; if(!cpu){ const asm=assemble(document.getElementById('code').value); if(asm.errs.length){ document.getElementById('softResult').innerHTML=`<div style="color:var(--bad)">${asm.errs.join('<br>')}</div>`; return; } getBoard().load(asm, s.gen(RH.rng(1)).inp); cpu={asm}; }
+  const b=getBoard(); b.step(); renderCpu(boardView(b,cpu.asm)); renderBoardPanel(b.active); FX.tone({f:1500,type:'square',dur:.015,vol:.03});
+  if (b.halted){ document.getElementById('softResult').innerHTML=`<span class="dim">Halted after ${b.cycles} cycles on your CPU board.${b.err?' Error: '+b.err:''}</span>`; cpu=null; }
 };
 document.getElementById('playBtn').onclick=()=>{
   const s=SW[softCur]; const asm=assemble(document.getElementById('code').value);
   if(asm.errs.length){ document.getElementById('softResult').innerHTML=`<div style="color:var(--bad)">${asm.errs.join('<br>')}</div>`; return; }
-  const c=newCpu(asm, s.gen(RH.rng(1)).inp); while(!c.halted && c.cycles<20000) stepCpu(c); renderCpu(c); cpu=null;
-  document.getElementById('softResult').innerHTML=`<span class="dim">${c.halted?'Halted':'Stopped (20000-cycle limit)'} after ${c.cycles} cycles.${c.err?' Error: '+c.err:''}</span>`;
+  const b=getBoard(); b.load(asm, s.gen(RH.rng(1)).inp); while(!b.halted && b.cycles<20000) b.step(); renderCpu(boardView(b,asm)); renderBoardPanel([]); cpu=null;
+  document.getElementById('softResult').innerHTML=`<span class="dim">${b.halted?'Halted':'Stopped (20000-cycle limit)'} after ${b.cycles} cycles on your CPU board.${b.err?' Error: '+b.err:''}</span>`;
 };
 document.getElementById('runBtn').onclick=()=>{
   const s=SW[softCur]; const asm=assemble(document.getElementById('code').value); const res=document.getElementById('softResult');
@@ -918,17 +1034,21 @@ document.getElementById('runBtn').onclick=()=>{
     if (s.target) ok = c.halted && !c.err && s.target.every((row,i)=>c.mem[56+i]===row);
     if (!ok){ renderCpu(c); res.innerHTML=`<div style="color:var(--bad)">✗ Test ${t+1} failed. ${!c.halted?'Program never halted. ':''}${c.err?c.err+'. ':''}<br>Input: ${tc.inp.join(' ')||'—'}<br>Expected: ${s.target?'the target picture':tc.out.join(' ')}<br>Got: ${s.target?'see display':c.out.join(' ')||'—'}</div>`; return; }
   }
+  // Test 1 again, this time clock by clock through your chips on the CPU board. It must agree with the reference.
+  const tc1=s.gen(RH.rng(1)), ref=newCpu(asm, tc1.inp); while(!ref.halted && ref.cycles<20000) stepCpu(ref); const hw=runOnBoard(asm, tc1.inp);
+  const agree = hw.halted===ref.halted && hw.cycles===ref.cycles && hw.out.join()===ref.out.join() && hw.mem.join()===ref.mem.join();
+  if (!agree){ res.innerHTML=`<div style="color:var(--bad)">✗ Your CPU board disagrees with the reference on test 1 (board output ${hw.out.join(' ')||'—'}, ${hw.cycles} cycles).</div>`; return; }
   const size=asm.prog.length; const st = 1 + (size<=s.par[0]?1:0) + (maxCycles<=s.par[1]?1:0);
   const prev=SAVE.soft[s.id];
   SAVE.soft[s.id] = {size: Math.min(size, prev?.size??999), cycles: Math.min(maxCycles, prev?.cycles??1e9), stars: Math.max(st, prev?.stars??0)};
   persist(); renderLevels();
-  res.innerHTML=`<div style="color:var(--good)">✓ All 12 tests passed. ${size} instructions, worst case ${maxCycles} cycles. ${'★'.repeat(st)}${'☆'.repeat(3-st)}</div><div class="dim small">★ pass · ★ ≤ ${s.par[0]} instructions · ★ ≤ ${s.par[1]} cycles</div>`;
+  res.innerHTML=`<div style="color:var(--good)">✓ All 12 tests passed. Test 1 also ran clock by clock on your CPU board (${hw.cycles} cycles, same result). ${size} instructions, worst case ${maxCycles} cycles. ${'★'.repeat(st)}${'☆'.repeat(3-st)}</div><div class="dim small">★ pass · ★ ≤ ${s.par[0]} instructions · ★ ≤ ${s.par[1]} cycles</div>`;
   if (!prev) RH.toast(`Program <b>${s.name}</b> runs on your CPU.`);
   if (Object.keys(SAVE.soft).length===SW.length && !prev) RH.modal('<h2>From one gate to software.</h2><p>Every program you wrote ran on hardware you built out of NAND. That is the whole stack.</p><p>For more, try to get 3 stars on every level. Some pars are very hard to beat.</p>');
 };
 
 // Debug / test handle (no behaviour of its own)
-window.__nand = { L, SW, TYPES, HINTS, genTests, runTests, settle, outputs, gateCount, assemble, newCpu, stepCpu, showCircuit, showSoft, paletteFor, unlocked, softUnlocked, stars, registerChips, persist,
+window.__nand = { buildBoard, getBoard, runOnBoard, encode, L, SW, TYPES, HINTS, genTests, runTests, settle, outputs, gateCount, assemble, newCpu, stepCpu, showCircuit, showSoft, paletteFor, unlocked, softUnlocked, stars, registerChips, persist,
   get SAVE(){ return SAVE; }, get circ(){ return circ; }, set circ(c){ circ=c; nextId=c.comps.reduce((m,x)=>Math.max(m,x.id),0)+1; },
   get unstable(){ return unstable; }, get selWire(){ return selWire; }, set selWire(v){ selWire=v; }, get selComp(){ return selComp; }, get softOn(){ return softOn; }, get softCur(){ return softCur; },
   get view(){ return view; }, fitView, get packaging(){ return packaging; }, wirePts, bezPt, hitWire, get wireAnim(){ return wireAnim; }, liveSettle, setInputs(v){ inVals=v.slice(); }, reset(){ simState={}; vals={}; }, pinY, compSize, portPos };
@@ -937,7 +1057,7 @@ registerChips();
 if (!unlocked(SAVE.cur)) SAVE.cur=0;
 requestAnimationFrame(animLoop);
 showCircuit(SAVE.cur);
-if (!SAVE.seenIntro){ SAVE.seenIntro=1; persist(); RH.modal(`<h2>🔌 NAND to Everything</h2><p>You have one gate. Over 34 levels you'll build logic, arithmetic, memory and a processor out of it, then write programs that run on the CPU you built.</p><p>Each solved chip goes into your parts list for later levels. Fewer NAND gates means more stars.</p><p class="dim">Progress saves automatically.</p>`,[{label:'Start building'}]); }
+if (!SAVE.seenIntro){ SAVE.seenIntro=1; persist(); RH.modal(`<h2>🔌 NAND to Everything</h2><p>You have one gate. Over 35 levels you'll build logic, arithmetic, memory and a processor out of it, then write programs that run on the CPU you built.</p><p>Each solved chip goes into your parts list for later levels. Fewer NAND gates means more stars.</p><p class="dim">Progress saves automatically.</p>`,[{label:'Start building'}]); }
 </script>
 </body>
 </html>

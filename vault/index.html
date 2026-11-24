@@ -273,10 +273,19 @@ const TPL = [
   'THE BRIDGE WILL BE WATCHED, SO TAKE THE LONGER ROAD THROUGH THE FOREST.', 'WE NEED {NUM} HORSES AND A WAGON {WHEN}.',
   'THE WEATHER HAS DELAYED EVERYTHING. EXPECT US A WEEK LATE.', 'REMEMBER THAT THE SECOND DOOR IS ALWAYS LOCKED.',
 ];
-function genText(r, minLetters, start = '') {
+// Intel: some intercepts carry a fact you must act on once they are read (who to arrest, where to go). The fact is drawn
+// from its own seeded stream; the rest of the message avoids templates that could contradict it.
+function intelFor(v, variant) {
+  if (!v.intel) return null;
+  const r = RH.rng(S.seed + ':intel:' + v.id + ':' + variant), pool = SL[v.intel.slot], ans = r.pick(pool);
+  const opts = r.shuffle([ans, ...r.shuffle(pool.filter(x => x !== ans)).slice(0, 3)]);
+  return { ans, opts, start: v.intel.start.replace('{' + v.intel.slot + '}', ans) };
+}
+function genText(r, minLetters, start = '', excl = []) {
   const out = start ? [start] : []; let n = letters(start).length; const used = new Set();
+  const pool = excl.length ? TPL.filter(t => !excl.some(w => t.includes(w))) : TPL; // keep intel unambiguous
   while (n < minLetters) {
-    let t = r.pick(TPL); if (used.has(t) && used.size < TPL.length) continue; used.add(t);
+    let t = r.pick(pool); if (used.has(t) && used.size < pool.length) continue; used.add(t);
     t = t.replace(/\{(\w+)\}/g, (_, k) => r.pick(SL[k])); out.push(t); n += letters(t).length;
   }
   return out.join(' ');
@@ -338,10 +347,10 @@ const V = [
     story: 'Suetonius says Julius Caesar wrote his private letters by moving each letter <b>three</b> places down the alphabet. Here is one of his dispatches.<br><i>Turn the shift wheel until it reads as Latin. Well, English.</i>' },
   { id: 2, e: 0, n: "The Scribe's Mirror", fmt: 'spaced', len: 80, steps: [{ t: 'atbash' }], intro: ['atbash'],
     story: 'Hebrew scribes used <b>Atbash</b>: the first letter swaps with the last, the second with the second-to-last. Jeremiah hides "Babel" as "Sheshach" this way. There is no key. You only need to recognise it.' },
-  { id: 3, e: 0, n: 'Sealed in Rome', fmt: 'grouped', len: 110, steps: [{ t: 'caesar' }], alarm: 120,
-    story: 'A centurion copied the trick but chose his own shift, and this time the spaces are gone: the letters come in groups of five so word lengths give nothing away. Twenty-five shifts are possible. Look for a run of letters that could be THE.<br><b>The courier\'s friends will be back in two minutes.</b> If they find you still working, he swallows the tablet and you get his next one instead.' },
-  { id: 4, e: 0, n: 'The Affine Tablet', fmt: 'spaced', len: 100, steps: [{ t: 'affine' }], intro: ['affine'],
-    story: 'An <b>affine</b> cipher multiplies each letter by <i>a</i> and adds <i>b</i>, all mod 26. Only 12 values of <i>a</i> can be undone, so there are 312 keys. Short words like THE and A are your friends.' },
+  { id: 3, e: 0, n: 'Sealed in Rome', fmt: 'grouped', len: 110, steps: [{ t: 'caesar' }], carbons: 4,
+    story: 'A centurion copied the trick but chose his own shift, and this time the spaces are gone: the letters come in groups of five so word lengths give nothing away. Twenty-five shifts are possible. <br><b>You may only pull four carbon copies.</b> The output stays hidden until you pull one, and each pull uses up a sheet; if all four are wrong, the courier swallows the tablet and you get his next one. So do not guess: count the letters (the Frequency tab is open for this vault), assume the commonest is E, and work out the shift before you pull.' },
+  { id: 4, e: 0, n: 'The Affine Tablet', intel: { slot: 'WHERE', start: 'THE KEY TO THE VAULT IS HIDDEN UNDER {WHERE}.', excl: ['HIDDEN', 'KEY TO'], q: 'Where is the key to the vault hidden?' }, carbons: 6, fmt: 'spaced', len: 100, steps: [{ t: 'affine' }], intro: ['affine'],
+    story: 'An <b>affine</b> cipher multiplies each letter by <i>a</i> and adds <i>b</i>, all mod 26. Only 12 values of <i>a</i> can be undone, so there are 312 keys. Short words like THE and A are your friends.<br><b>Six carbon copies only.</b> Trying all 312 keys is out: find the cipher letters for E and T in the Frequency tab, solve the two equations for <i>a</i> and <i>b</i>, then pull a carbon.' },
   // Era 1
   { id: 6, e: 1, n: "Al-Kindi's Lesson", fmt: 'spaced', len: 380, steps: [{ t: 'subst', keyword: 1 }], intro: ['subst', 'freq'],
     story: 'Around 850 AD, in Baghdad, the philosopher al-Kindi made the first known record of <b>frequency analysis</b>: in any language some letters are far more common than others. However you disguise them, E is still the most common letter.<br><i>Each cipher letter now stands for some other letter. Use the Frequency tab, and try likely guesses for THE and AND.</i>' },
@@ -349,16 +358,16 @@ const V = [
     story: 'A random substitution alphabet: 400 septillion keys. Nobody finds that by trying them. Codebreakers guess a <b>probable word</b> instead: a letter to a vizier surely mentions GOLD, or the QUEEN, or a PASSWORD. The board now has a <b>probable word</b> slot: type a guess, and it lists the cipher words with the same <i>pattern</i> of repeated letters that do not contradict what you already have. Choose one and see if the rest of the page starts to read.' },
   { id: 9, e: 1, n: "The Queen's Secretary", fmt: 'spaced', len: 230, steps: [{ t: 'subst' }],
     story: 'In 1586 Mary, Queen of Scots, trusted a substitution cipher with her life. Thomas Phelippes, Walsingham\'s codebreaker, read every letter. She was executed the next year.' },
-  { id: 11, e: 1, n: "Phelippes' Desk", fmt: 'grouped', len: 320, steps: [{ t: 'subst' }],
+  { id: 11, e: 1, n: "Phelippes' Desk", intel: { slot: 'WHO', start: 'DO NOT TRUST {WHO}. THEY HAVE SPOKEN WITH THE ENEMY.', excl: ['TRUST', 'SPY'], q: 'Walsingham\'s men are waiting for a name. Who is to be arrested?' }, fmt: 'grouped', len: 320, steps: [{ t: 'subst' }],
     story: 'The hardest substitution yet: shorter and unspaced. Phelippes did this by candlelight. You have a frequency chart.' },
   // Era 2
   { id: 12, e: 2, n: "Leonardo's Notebook", fmt: 'spaced', len: 90, steps: [{ t: 'rev' }], intro: ['rev'],
     story: 'Leonardo da Vinci filled his notebooks with mirror writing. Ciphers that <b>move letters around</b> instead of replacing them are called <b>transpositions</b>. The frequencies are untouched; only the order changes.' },
-  { id: 14, e: 2, n: 'Fences', fmt: 'raw', len: 110, steps: [{ t: 'rail', lo: 2, hi: 7 }], intro: ['rail'], alarm: 150,
+  { id: 14, e: 2, n: 'Fences', fmt: 'raw', len: 110, steps: [{ t: 'rail', lo: 3, hi: 7 }], intro: ['rail'], alarm: 150,
     story: 'The <b>rail fence</b>, a favourite of Civil War signal corps: write the message zig-zagging across a few rows, then read the rows off one after another. The number of rails is unknown. Check the Frequency tab first: if the letter counts look like plain English, the letters have only been moved. <b>The signal station relays a new message every 2½ minutes.</b>' },
   { id: 15, e: 2, n: 'The Spartan Scytale', fmt: 'raw', len: 100, steps: [{ t: 'col', lo: 4, hi: 8, ident: 1 }], intro: ['col'],
     story: 'Spartan generals wound a leather strip around a rod (a <b>scytale</b>) and wrote along it. Unwound, it was gibberish. In columns: the message was written in rows of some width and read off column by column. Find the width. <i>(Messages are padded with X to fill the last row.)</i>' },
-  { id: 16, e: 2, n: 'Keyed Columns', fmt: 'raw', len: 100, steps: [{ t: 'col', w: 5 }],
+  { id: 16, e: 2, n: 'Keyed Columns', intel: { slot: 'WHEN', start: 'MEET ME {WHEN} BY THE OLD MILL. COME ALONE.', excl: ['MEET'], q: 'The signal corps can intercept the meeting. When is it?' }, fmt: 'raw', len: 100, steps: [{ t: 'col', w: 5 }],
     story: 'Now the columns were read off in a secret order. Five columns. Click two columns to swap them until the rows read as English. Look for the TH, HE and QU pairs.' },
   // Era 3
   { id: 18, e: 3, n: "Bellaso's Key", fmt: 'spaced', len: 220, steps: [{ t: 'vig', lo: 5, hi: 6 }], intro: ['vig'],
@@ -367,7 +376,7 @@ const V = [
     story: 'Key length unknown. Charles Babbage (and later Friedrich Kasiski) noticed that repeated words sometimes encrypt the same way, and the distance between repeats is a multiple of the key length. Check the <b>Repeats</b> and <b>Periods</b> tabs.' },
   { id: 21, e: 3, n: "Kasiski's Spacing", fmt: 'grouped', len: 400, steps: [{ t: 'vig', lo: 5, hi: 8 }],
     story: 'Unspaced Vigenère with a longer key. The Periods tab measures how "English-like" each column split looks (index of coincidence). The right key length lights up, and so do its multiples.' },
-  { id: 23, e: 3, n: 'The Confederate Ledger', fmt: 'grouped', len: 640, steps: [{ t: 'vig', kwList: ['MANCHESTERBLUFF', 'COMPLETEVICTORY', 'COMERETRIBUTION'] }],
+  { id: 23, e: 3, n: 'The Confederate Ledger', intel: { slot: 'WHAT', start: 'THE SHIP CARRYING {WHAT} SAILS AT DAWN.', excl: ['SHIP'], q: 'The blockade can stop one ship. What is it carrying?' }, fmt: 'grouped', len: 640, steps: [{ t: 'vig', kwList: ['MANCHESTERBLUFF', 'COMPLETEVICTORY', 'COMERETRIBUTION'] }],
     story: 'The Confederacy used a brass Vigenère disk and only three key phrases for most of the war. Union codebreakers read their traffic constantly. Fifteen letters.' },
   // Era 4
   { id: 24, e: 4, n: 'Double Trouble', fmt: 'spaced', len: 100, steps: [{ t: 'caesar' }, { t: 'rev' }], alarm: 180,
@@ -376,14 +385,14 @@ const V = [
     story: 'Substitution, then a rail fence. A useful fact: letter substitution and transposition <b>commute</b>, so you can undo them in either order. Frequency analysis does not care about order, but word guessing does.' },
   { id: 27, e: 4, n: 'Mirror Vigenère', fmt: 'grouped', len: 340, steps: [{ t: 'vig', lo: 4, hi: 5 }, { t: 'rev' }],
     story: 'A Vigenère, then the whole text reversed. Reversing keeps the period, but it changes which column comes first.' },
-  { id: 29, e: 4, n: "The Chamber's Pride", fmt: 'raw', len: 440, steps: [{ t: 'subst' }, { t: 'col', lo: 5, hi: 6 }],
+  { id: 29, e: 4, n: "The Chamber's Pride", intel: { slot: 'WHO', start: '{WHO} IS A SPY FOR THE OTHER SIDE.', excl: ['TRUST', 'SPY'], q: 'Yardley\'s report names a spy. Who?' }, fmt: 'raw', len: 440, steps: [{ t: 'subst' }, { t: 'col', lo: 5, hi: 6 }],
     story: 'Substitution under a keyed columnar transposition: the cipher Herbert Yardley\'s Black Chamber broke every day in the 1920s. Solve the substitution first to get an anagram, then sort the columns.' },
   // Era 5
   { id: 30, e: 5, n: 'Venona', pad: 2, len: 42, startA: 'ATTENTION',
     story: 'A <b>one-time pad</b> adds a truly random key to each letter. Used once, it is unbreakable. In the 1940s Soviet pad factories reused pages, and the US <b>Venona</b> project read the messages.<br>These two messages share a pad. Type a guess into either row and the key, and the other row, follow. <b>Message A begins with ATTENTION.</b>' },
   { id: 31, e: 5, n: 'Two Agents', pad: 2, len: 60,
     story: 'No crib this time. Use <b>crib dragging</b>: guess a common word (THE, AND, WILL, THAT), slide it along one message, and see where the other message turns into English.' },
-  { id: 32, e: 5, n: 'Three Pages', pad: 3, len: 60,
+  { id: 32, e: 5, n: 'Three Pages', intel: { slot: 'WORD', row: 1, start: 'AGENT {WORD} IS IN PLACE.', excl: ['PASSWORD'], q: 'Venona\'s goal: identify the agent. What is the cover name?' }, pad: 3, len: 60,
     story: 'Three messages on one pad. Every letter you place in one row lights up the same column in the other two, so you get three times the evidence.' },
   { id: 35, e: 5, n: 'The Last Vault', fmt: 'raw', len: 620, steps: [{ t: 'col', lo: 6, hi: 7 }, { t: 'vig', lo: 6, hi: 9 }],
     story: 'The final vault. The message was transposed in columns, then enciphered with a Vigenère key. Repeats will not help you now, but the index of coincidence still will. Peel the layers in the right order.' },
@@ -433,11 +442,12 @@ function build(i) {
   const v = V[i], r = RH.rng(S.seed + ':v' + v.id + ':' + variant); // seeded by the vault's original id so messages survive re-ordering
   let out;
   if (v.pad) {
-    const rows = []; for (let m = 0; m < v.pad; m++) rows.push(letters(genText(r, v.len + 10, m === 0 && v.startA ? v.startA : '')).slice(0, v.len));
+    const it = intelFor(v, variant), rows = [];
+    for (let m = 0; m < v.pad; m++) rows.push(letters(genText(r, v.len + 10, m === 0 && v.startA ? v.startA : it && m === v.intel.row ? it.start : '', it ? v.intel.excl : [])).slice(0, v.len));
     const pad = Array.from({ length: v.len }, () => r.int(26));
-    out = { pad: true, plains: rows, ciphers: rows.map(p => p.split('').map((c, j) => (ix(c) + pad[j]) % 26)), padKey: pad };
+    out = { intel: it, pad: true, plains: rows, ciphers: rows.map(p => p.split('').map((c, j) => (ix(c) + pad[j]) % 26)), padKey: pad };
   } else {
-    const plain = genText(r, v.len);
+    const it = intelFor(v, variant), plain = genText(r, v.len, it ? it.start : '', it ? v.intel.excl : []);
     const keys = v.steps.map(s => STEP[s.t].gen(r, s));
     const trans = v.steps.some(s => STEP[s.t].trans) || v.fmt !== 'spaced';
     let target = trans ? letters(plain) : plain;
@@ -445,7 +455,7 @@ function build(i) {
     if (col) while (target.length % col.w) target += 'X';
     let c = target; v.steps.forEach((s, j) => { c = STEP[s.t].enc(c, keys[j]); });
     const cipher = v.fmt === 'grouped' ? group5(c) : v.fmt === 'raw' ? letters(c) : c;
-    out = { plain, target: letters(target), cipher, keys };
+    out = { intel: it, plain, target: letters(target), cipher, keys };
   }
   return (cache[key] = out);
 }
@@ -578,7 +588,7 @@ function benchHTML(i) {
     <div class="lbl"><span>Workbench</span><span class="row"><select id="addSel">${TOOL_ORDER.filter(t => avail.includes(t)).map(t => `<option value="${t}">${TOOLS[t].name}</option>`).join('')}</select><button id="addBtn">+ Add tool</button></span></div>
     <div id="stages">${w.stages.map((st, k) => stageHTML(st, k, w.stages.length)).join('<div class="arrow">↓</div>')}</div>
     ${w.stages.length ? '' : '<div class="note">No tools on the bench yet. Add one above.</div>'}
-    <div class="lbl"><span>Output</span><span id="outInfo" class="small"></span></div>
+    <div class="lbl"><span>Output</span><span id="outInfo" class="small"></span>${V[i].carbons && !S.solved[i] ? `<button id="pullBtn" class="primary" title="See the output for the key as it is set now. Uses one sheet.">Pull a carbon (${V[i].carbons - (w.pulls || 0)} left)</button>` : ''}</div>
     <div class="txt" id="otext"></div>
     <div id="solvedBanner"></div>`;
 }
@@ -596,6 +606,7 @@ function stageHTML(st, k, n) {
 }
 function wireBench(i) {
   const w = workOf(i);
+  if ($('pullBtn')) $('pullBtn').onclick = () => pullCarbon(i);
   $('addBtn').onclick = () => { const t = $('addSel').value; w.stages.push({ t, s: DEF[t]() }); persist(); openVault(i); };
   document.querySelectorAll('.stage').forEach(el => {
     const k = +el.dataset.k, st = w.stages[k], s = st.s;
@@ -762,16 +773,29 @@ function update() {
   if (v.pad) { updatePad(i); return; }
   const { ins, out } = runPipeline(i); lastOut = out;
   document.querySelectorAll('.stage').forEach(el => { const k = +el.dataset.k; refreshStage(el, w.stages[k], ins[k]); });
-  const ro = renderOut(out, /\s/.test(out));
-  $('otext').innerHTML = ro.html;
+  const blind = v.carbons && !S.solved[i]; // carbon vaults: you only see output on the sheets you pull
+  const shown = blind ? (w.carbon ?? '') : out, ro = renderOut(shown, /\s/.test(shown));
+  $('otext').innerHTML = blind && w.carbon == null ? '<span class="u">NO CARBON PULLED YET. SET THE KEY YOU HAVE WORKED OUT, THEN PULL ONE.</span>' : ro.html;
   const known = letters(out).length, tot = onlyLetters(out).length;
   $('outInfo').textContent = (w.stages.some(s => s.t === 'subst') ? `${known}/${tot} letters mapped · ` : '') + (ro.words ? `${ro.words} word${ro.words > 1 ? 's' : ''} recognised` : '');
   persist(); renderAnalysis();
   const open = letters(out) === b.target;
-  if (open && !S.solved[i]) arm(i); else disarm();
+  if (blind) $('outInfo').textContent = w.carbon != null ? `carbon ${w.pulls} of ${v.carbons}` : '';
+  if (open && !S.solved[i] && !blind) arm(i); else disarm();
   $('solvedBanner').innerHTML = S.solved[i] && open ? `<div class="okbanner">🔓 Open. <span class="mono">${esc(b.plain)}</span></div>` : '';
 }
 
+// Pulling a carbon is the only way to see output in a carbon vault, and committing the right key opens it.
+function pullCarbon(i) {
+  const v = V[i], w = workOf(i), out = runPipeline(i).out;
+  w.pulls = (w.pulls || 0) + 1; w.carbon = out; SND.clack(); SND.clack(.06);
+  if (letters(out) === build(i).target) { persist(); update(); solved(i); return; }
+  if (w.pulls >= v.carbons) {
+    SND.alarm(); S.variant[i] = (S.variant[i] || 0) + 1; w.pulls = 0; w.carbon = null; w.stages = w.stages.map(st => ({ t: st.t, s: DEF[st.t]() })); persist(); openVault(i);
+    RH.toast('Out of carbon paper. The courier swallowed the tablet; this is the next one he carried.', 4200); return;
+  }
+  persist(); openVault(i);
+}
 async function solved(i) {
   disarm(); if (S.solved[i]) return;
   const w = workOf(i), h = S.hints[i] || 0, stars = h === 0 ? 3 : h === 1 ? 2 : 1;
@@ -783,11 +807,19 @@ async function solved(i) {
   SND.stamp(.25); SND.bell(.55); FX.shake?.(.25);
   await new Promise(r => setTimeout(r, 1100));
   if (cur !== i) return;
+  if (b.intel) { // act on what you read: a wrong call costs a star
+    const v = V[i], pick = await RH.modal(`<h2>Act on it</h2><p>${v.intel.q}</p><div class="txt" style="font-size:13px;word-break:normal">${plain}</div>`, b.intel.opts.map(o => ({ label: o, value: o })));
+    const right = pick === b.intel.ans; S.solved[i].intel = right;
+    if (!right) S.solved[i].stars = Math.max(1, stars - 1);
+    persist(); renderSide();
+    RH.toast(right ? 'Acted on, and correctly. The case moves on.' : `Wrong call: it was ${b.intel.ans}. You lose a star on this vault.`, 4200);
+    if (!right) SND.alarm();
+  }
   const eraWasOpen = V.map(v => eraOpen(v.e));
   const next = V.findIndex((v, j) => j > i && !S.solved[j] && eraOpen(v.e));
   const newEra = V.find(v => v.e === V[i].e + 1 && eraOpen(v.e) && V.filter((x, j) => x.e === V[i].e && S.solved[j]).length === ERA_NEED);
   const go = await RH.modal(`<div style="text-align:center"><span class="stamp small">DECRYPTED</span></div><h2 style="text-align:center">${V[i].n}</h2>
-    <p style="text-align:center;color:var(--accent);font-size:22px">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</p>
+    <p style="text-align:center;color:var(--accent);font-size:22px">${'★'.repeat(S.solved[i].stars)}${'☆'.repeat(3 - S.solved[i].stars)}</p>
     <div class="txt" style="font-size:13px;word-break:normal">${plain}</div>
     <p class="dim small" style="text-align:center">Time on this vault: ${fmtT(w.time)}${i === V.length - 1 ? '<br><b>You opened the Last Vault.</b>' : ''}${newEra ? `<br>🔓 New era unlocked: <b>${ERAS[newEra.e]}</b>` : ''}</p>`,
     next >= 0 ? [{ label: 'Stay', value: 0 }, { label: `Next: ${V[next].n}`, value: 1 }] : [{ label: 'Close', value: 0 }]);
@@ -798,7 +830,7 @@ const fmtT = s => `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
 // ---------- analysis panel ----------
 function renderAnalysis() {
   const i = cur, v = V[i], av = toolsAt(i), b = build(i);
-  const tabs = { freq: av.has('freq') || v.e >= 1, rep: av.has('kasiski'), per: av.has('period') };
+  const tabs = { freq: av.has('freq') || v.e >= 1 || !!v.carbons, rep: av.has('kasiski'), per: av.has('period') };
   document.querySelectorAll('.tabs button').forEach(bn => { const t = bn.dataset.t; bn.disabled = t !== 'notes' && !tabs[t]; bn.title = bn.disabled ? 'Unlocked in a later vault' : ''; });
   let t;
   if (v.pad) t = b.ciphers.map(r => r.map(x => A[x]).join('')).join(' ');
@@ -950,7 +982,7 @@ const help = () => RH.modal(`<h2>🔐 The Vault</h2>
 $('helpBtn').onclick = help;
 if (!S.intro) { S.intro = 1; persist(); help(); }
 openVault(eraOpen(V[cur].e) ? cur : 0);
-window.__vault = { probable, alarmLeft, alarmTick, V, build, S, workOf, openVault, update, APPLY, isOpenNow, findWords, SETTLE_MS, eraOpen, toolsAt, loadState, get cur() { return cur; } };
+window.__vault = { pullCarbon, intelFor, probable, alarmLeft, alarmTick, V, build, S, workOf, openVault, update, APPLY, isOpenNow, findWords, SETTLE_MS, eraOpen, toolsAt, loadState, get cur() { return cur; } };
 
 // phones: level drawer and folding stories
 (() => {

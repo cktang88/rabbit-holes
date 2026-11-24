@@ -70,6 +70,26 @@ module.exports = {
       ok(r.length === 12, 'scenario count');
       for (const x of r) { ok(!x.idle, `${x.id} wins with no action`); ok(x.won, `${x.id} reference line lost: ${x.msg}`); }
     },
+    'difficulty: naive beekeeping fails the last third, the plain-rules keeper wins, 3 stars need more than plain rules': async ({ page, ok }) => {
+      const r = await page.evaluate(`(() => { ${PLAY}; ${APIARY}; const B = __bee, st = r => r && r.won ? (r.stars || 1) : 0;
+        const bot = (id, pol, seed) => { B.load(id); const rnd = RH.rng(seed); for (let wk = 0; wk < 120 && !B.result(); wk++) { const w = B.world();
+          for (let i = 0; i < w.hives.length; i++) for (let a = 0; a < 3; a++) { const ids = w.allowed || ALL; const act = pol === 'random' ? ids[rnd() * ids.length | 0] : ['super', 'harvest', 'feed'][a]; if (rnd() < (pol === 'random' ? .5 : 1)) B.act(act, i); } B.step(1); } return st(B.result()); };
+        let naive = 0, runs = 0, simple3 = 0; const competent = [];
+        for (const id of ['winter', 'failing', 'apiary', 'show']) {
+          B.load(id); B.step(120); const res = [st(B.result()), ...[1, 2, 3].map(sd => bot(id, 'random', sd)), bot(id, 'greedy', 9)];
+          for (const x of res) { runs++; if (x <= 1) naive++; }
+          const c = st(id === 'apiary' ? playApiary() : play(id)); competent.push(c); if (c === 3) simple3++; }
+        // a better winter plan (brood break and oxalic before winter, three feeds) does reach 3 stars
+        B.load('winter'); for (let wk = 0; wk < 30 && !B.result(); wk++) { const w = B.world(); if (!wk) B.act('cage'); if (wk < 3) B.act('feed'); if (wk === 3) B.act('oa'); B.step(1); }
+        return { naive, runs, competent, simple3, best: st(B.result()) }; })()`);
+      ok(r.naive / r.runs >= .8, `naive bots (idle, random, always-super-harvest-feed) got 2★+ in ${r.runs - r.naive}/${r.runs} late runs`);
+      ok(r.competent.every(s => s >= 1), 'plain-rules keeper: ' + r.competent); ok(r.simple3 <= 1, 'plain rules earn 3★ on ' + r.simple3 + '/4'); ok(r.best === 3, 'better winter plan: ' + r.best);
+    },
+    'history: no varroa in 1914 (no mite tools, no mites); the mite scenarios are dated to the 2000s': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => SCEN.map(s => ({ id: s.id, n: s.n, y: new Date(Date.UTC(1914, 0, 1) + s.start * 864e5).getUTCFullYear(), oa: !!(s.allowed && s.allowed.includes('oa')), mites: s.hives.some(h => h.mites > 0) })));
+      for (const s of r) { if (s.y < 2000) { ok(!s.oa && !s.mites, `${s.id} (${s.y}) has varroa`); } else ok(/\(20/.test(s.n), `${s.id} is modern but not labelled: ${s.n}`); }
+      eq(r.filter(s => s.y >= 2000).map(s => s.id), ['varroa', 'broodless', 'winter', 'apiary']);
+    },
     'mites: they multiply while there is brood and not without it; oxalic kills riders, not sealed mites': async ({ page, ok, near }) => {
       const r = await page.evaluate(() => {
         const W = mkWorld({ ...SCEN.find(s => s.id === 'varroa'), seed: 't1' }), h = W.hives[0], m0 = mitesOf(h);

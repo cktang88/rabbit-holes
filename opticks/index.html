@@ -56,6 +56,9 @@
   .tg span{padding:0 2px;border-bottom:1px solid #6b563666;font-style:italic}
   .tg span.ok{color:#2f5a0c;border-color:#2f5a0c}
   .tg span.dim{color:#6b5636}
+  .tg span.cost{font-style:normal;color:#6b2a10;border-color:#6b2a1066}
+  .piece .price{font-size:11px;color:#f6dc8a;font-family:"IM Fell English SC",serif}
+  .qed .stars{color:#6b2a10;font-size:18px}
   .qed{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:6px;animation:ink 1s ease-out both}
   .qedMark{font-family:"IM Fell English SC",serif;font-size:30px;color:#6b2a10;transform:rotate(-4deg);animation:write 1.1s steps(6,end) both}
   .qedTxt{font-style:italic}
@@ -371,13 +374,30 @@ function calibrate(lv) {
 L.forEach(calibrate);
 
 // ================= state & UI =================
-function trayOf(lv) { return [...lv.sol, ...(lv.extra || [])].map((p, i) => ({ ...p, id: i })); }
+// The first two chapters hand you exactly the pieces you need. From Lenses on you draw from the instrument-maker's box, which
+// holds far more than the job needs, and every piece has a price: strong (short-focus) lenses and flint glass cost more.
+// Par is the price of the design Newton would build; matching it earns ★★★, within half again ★★.
+const BOX = c => [
+  ...(c >= 2 ? [3, 4, 6, 8, 12, -3, -6].map(f => ({ t: 'lens', f, L: 5 })) : []),
+  ...(c >= 3 ? [{ t: 'lens', f: -12, L: 6, g: 'flint' }, { t: 'prism', s: 3, g: 'flint' }, { t: 'prism', s: 3 }] : []),
+  ...(c >= 4 ? [{ t: 'mirror' }, { t: 'mirror' }, { t: 'arc', f: 6, L: 5 }, { t: 'block', w: 4, h: 3 }] : []),
+];
+const COST = p => ({ mirror: 2, splitter: 4, rprism: 4, block: 3, arc: 6, prism: p.g === 'flint' ? 6 : 4, lens: 2 + Math.round(12 / Math.abs(p.f || 6)) + (p.g === 'flint' ? 2 : 0) })[p.t] || 3;
+const pieceKey = p => [p.t, p.f, p.g || 'crown', p.s].join(':');
+function trayOf(lv) {
+  const own = [...lv.sol, ...(lv.extra || [])].map(p => { const q = { ...p }; delete q.x; delete q.y; delete q.a; return { ...p, ...q }; });
+  const keys = new Set(own.map(pieceKey));
+  return [...own, ...BOX(lv.c).filter(p => !keys.has(pieceKey(p)))].map((p, i) => ({ ...p, id: i }));
+}
+const parOf = lv => lv.sol.reduce((a, p) => a + COST(p), 0);
+const costOf = ps => ps.reduce((a, p) => a + COST(p), 0);
+const starsFor = (cost, par) => cost <= par ? 3 : cost <= par * 1.5 ? 2 : 1;
 // Saves are sanitised: corrupted or old data (unknown levels, pieces that no longer exist, NaN positions) is dropped.
 function cleanSave(raw) {
   const S = { done: {}, layouts: {}, cur: 0, intro: 0 };
   if (!raw || typeof raw !== 'object') return S;
   const okLv = k => /^\d+$/.test(k) && +k < L.length;
-  if (raw.done && typeof raw.done === 'object') for (const k of Object.keys(raw.done)) if (okLv(k) && raw.done[k]) S.done[k] = 1;
+  if (raw.done && typeof raw.done === 'object') for (const k of Object.keys(raw.done)) if (okLv(k) && raw.done[k]) S.done[k] = Math.min(3, Math.max(1, raw.done[k] | 0 || 1));
   if (raw.layouts && typeof raw.layouts === 'object') for (const k of Object.keys(raw.layouts)) {
     if (!okLv(k) || !Array.isArray(raw.layouts[k])) continue;
     const tray = trayOf(L[k]), seen = new Set(), out = [];
@@ -417,7 +437,7 @@ function render() {
   let h = '', last = -1;
   L.forEach((l, i) => {
     if (l.c !== last) { last = l.c; h += `<div class="ch ${chOpen(l.c) ? '' : 'locked'}"><span>${l.c + 1}. ${CHS[l.c]}</span><span>${chOpen(l.c) ? L.filter((x, j) => x.c === l.c && S.done[j]).length + '/' + L.filter(x => x.c === l.c).length : '🔒'}</span></div>`; }
-    h += `<div class="lv ${i === cur ? 'cur' : ''} ${chOpen(l.c) ? '' : 'locked'}" data-i="${i}"><span><i class="no">${ROMAN(i + 1)}.</i> ${l.n}</span><span class="st">${S.done[i] ? 'Q.E.D.' : ''}</span></div>`;
+    h += `<div class="lv ${i === cur ? 'cur' : ''} ${chOpen(l.c) ? '' : 'locked'}" data-i="${i}"><span><i class="no">${ROMAN(i + 1)}.</i> ${l.n}</span><span class="st">${S.done[i] ? '★'.repeat(S.done[i]) + '☆'.repeat(3 - S.done[i]) : ''}</span></div>`;
   });
   $('side').innerHTML = h + '<div class="note" style="margin:14px 6px;font-size:12px;color:var(--dim)">Finish two-thirds of a chapter to open the next.</div>';
   $('side').querySelectorAll('.lv').forEach(el => el.onclick = () => { const i = +el.dataset.i; if (chOpen(L[i].c)) { document.body.classList.remove('drawer'); loadLevel(i); } });
@@ -430,7 +450,9 @@ function render() {
 }
 function renderTray() {
   const un = unplaced();
-  $('tray').innerHTML = (un.length ? un.map(p => `<div class="piece" data-id="${p.id}"><canvas width="88" height="56"></canvas>${pieceName(p)}</div>`).join('') : '<span class="dim small">All pieces are on the bench.</span>') + '<span id="status"></span>';
+  const ORD = { mirror: 0, splitter: 1, lens: 2, prism: 3, rprism: 4, block: 5, arc: 6 };
+  un.sort((a, b) => ORD[a.t] - ORD[b.t] || (a.g === 'flint') - (b.g === 'flint') || (b.f || 0) - (a.f || 0) || a.id - b.id);
+  $('tray').innerHTML = (un.length ? un.map(p => `<div class="piece" data-id="${p.id}"><canvas width="88" height="56"></canvas>${pieceName(p)}${L[cur].c >= 2 ? `<span class="price">${COST(p)}s</span>` : ''}</div>`).join('') : '<span class="dim small">All pieces are on the bench.</span>') + '<span id="status"></span>';
   $('tray').querySelectorAll('.piece').forEach(el => {
     const p = un.find(q => q.id === +el.dataset.id), c = el.querySelector('canvas'), gg = c.getContext('2d');
     gg.translate(44, 28); gg.scale(9, 9); drawPiece(gg, { ...p, x: 0, y: 0, a: p.t === 'lens' ? 90 : p.t === 'arc' ? 0 : p.t === 'prism' ? 0 : 0 }, false, 1 / 9);
@@ -504,7 +526,7 @@ function recompute() {
   R.checks = lv.targets.map((t, i) => checkTarget(t, R.hits[i], lv));
   draw(); updateStatus();
   clearTimeout(winT); winT = 0;
-  if (solvedNow() && !drag && !S.done[cur]) { winT = setTimeout(() => { winT = 0; if (solvedNow() && !drag) win(); }, SETTLE); updateStatus(); }
+  if (solvedNow() && !drag && (S.done[cur] || 0) < starsNow()) { winT = setTimeout(() => { winT = 0; if (solvedNow() && !drag) win(); }, SETTLE); updateStatus(); }
 }
 function updateRotBar() {
   const p = placed[sel], on = !!p; document.querySelectorAll('#rotBar button').forEach(b => b.disabled = !on);
@@ -513,27 +535,38 @@ function updateRotBar() {
 function updateStatus() {
   updateRotBar();
   if (!R || R.lv !== cur || !$('tg')) return;
-  $('tg').innerHTML = L[cur].targets.map((t, i) => `<span class="${R.checks[i].ok ? 'ok' : ''}">${R.checks[i].ok ? '✓' : '○'} Target ${i + 1}${t.l ? ' (' + (Array.isArray(t.l) ? 'colours' : colourName(t.l)) + (t.only ? ' only' : '') + ')' : ''}${t.par != null ? ' · parallel' : ''}${t.width ? ` · width ${((t.width[0] + t.width[1]) / 2).toFixed(0)}` : ''}: ${R.checks[i].msg}</span>`).join('') + (winT ? '<span class="ok"> · Hold it there…</span>' : '') + (placed[sel] ? `<span class="dim"> · ${pieceName(placed[sel])} at ${placed[sel].a}°</span>` : '');
+  $('tg').innerHTML = L[cur].targets.map((t, i) => `<span class="${R.checks[i].ok ? 'ok' : ''}">${R.checks[i].ok ? '✓' : '○'} Target ${i + 1}${t.l ? ' (' + (Array.isArray(t.l) ? 'colours' : colourName(t.l)) + (t.only ? ' only' : '') + ')' : ''}${t.par != null ? ' · parallel' : ''}${t.width ? ` · width ${t.width[0]}–${t.width[1]}` : ''}${placed.length ? ': ' + R.checks[i].msg : ''}</span>`).join('') + (L[cur].c >= 2 ? `<span class="cost">Cost ${costOf(placed)}s · par ${parOf(L[cur])}s</span>` : '') + (winT ? '<span class="ok"> · Hold it there…</span>' : '') + (placed[sel] ? `<span class="dim"> · ${pieceName(placed[sel])} at ${placed[sel].a}°</span>` : '');
 }
 const colourName = l => ({ 650: 'red', 600: 'orange', 570: 'yellow', 530: 'green', 470: 'blue', 420: 'violet', 590: 'amber' })[l] || l + 'nm';
 // Signature moment: the paper targets catch the light, a spectrum rings out of each one, and the notebook writes Q.E.D.
 let bloom = null;
 function ROMAN(n) { const t = [[10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]; let s = ''; for (const [v, r] of t) while (n >= v) { s += r; n -= v; } return s; }
+const starsNow = () => starsFor(costOf(placed), parOf(L[cur]));
 function win() {
-  if (S.done[cur]) return;
-  S.done[cur] = 1; persist(); render(); sfx('glass');
+  const st = starsNow(); if ((S.done[cur] || 0) >= st) return;
+  S.done[cur] = st; persist(); render(); sfx('glass');
   const lv = L[cur]; bloom = { t0: performance.now(), lv: cur, at: lv.targets.map(t => t.k === 'spot' ? [t.x, t.y] : [(t.x1 + t.x2) / 2, (t.y1 + t.y2) / 2]) };
   const at = cur; setTimeout(() => { if (cur === at) showQed(); }, 900);
 }
 function showQed() {
   const nxt = L.findIndex((l, j) => j > cur && !S.done[j] && chOpen(l.c));
   const d = document.createElement('div'); d.className = 'qed'; d.setAttribute('role', 'status');
-  d.innerHTML = `<span class="qedMark">Q.E.D.</span><span class="qedTxt">Experimentum ${ROMAN(cur + 1)} confirmatum. The light goes where you sent it.</span>${nxt >= 0 ? `<button class="primary" id="nextLv">Next: ${L[nxt].n}</button>` : ''}`;
+  const cost = costOf(placed), par = parOf(L[cur]), st = S.done[cur];
+  d.innerHTML = `<span class="qedMark">Q.E.D.</span><span class="qedTxt">Experimentum ${ROMAN(cur + 1)} confirmatum. <b class="stars">${'★'.repeat(st)}${'☆'.repeat(3 - st)}</b> ${L[cur].c >= 2 ? `Cost ${cost}s against Newton's ${par}s${st < 3 ? ': a cheaper design exists.' : '.'}` : 'The light goes where you sent it.'}</span>`;
+  d.innerHTML += `${nxt >= 0 ? `<button class="primary" id="nextLv">Next: ${L[nxt].n}</button>` : ''}`;
   $('info').appendChild(d);
   if (nxt >= 0) $('nextLv').onclick = () => loadLevel(nxt);
 }
 
 // ================= drawing =================
+// F marks: a lens bends parallel light through its focal points (diverging lenses: as if from them), so the player can plan
+function focalMarks(c, p, pts, selected, lw) {
+  c.save(); c.strokeStyle = selected ? 'rgba(255,207,106,.95)' : 'rgba(255,226,160,.45)'; c.lineWidth = 1.5 * lw; c.setLineDash([3 * lw, 3 * lw]);
+  for (const [x, y] of pts) { c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(x, y); c.stroke(); }
+  c.setLineDash([]); const k = 6 * lw;
+  for (const [x, y] of pts) { c.beginPath(); c.moveTo(x - k, y - k); c.lineTo(x + k, y + k); c.moveTo(x - k, y + k); c.lineTo(x + k, y - k); c.stroke(); if (selected) { c.fillStyle = 'rgba(255,226,160,.9)'; c.font = `italic ${13 * lw}px "IM Fell English", serif`; c.fillText('F', x + k, y - k); } }
+  c.restore();
+}
 function drawPiece(c, p, selected, lw = 1 / view.s) {
   c.save();
   if (p.t === 'mirror' || p.t === 'splitter' || p.t === 'lens') {
@@ -544,6 +577,7 @@ function drawPiece(c, p, selected, lw = 1 / view.s) {
       c.quadraticCurveTo(p.x + nx * (bul + th), p.y + ny * (bul + th), p.x + dx, p.y + dy);
       c.quadraticCurveTo(p.x - nx * (bul + th), p.y - ny * (bul + th), p.x - dx, p.y - dy);
       c.fillStyle = p.g === 'flint' ? 'rgba(200,170,255,.35)' : 'rgba(150,210,255,.3)'; c.fill(); c.strokeStyle = selected ? '#ffb547' : 'rgba(180,220,255,.9)'; c.lineWidth = 2 * lw; c.stroke();
+      if (lw < .5) focalMarks(c, p, [[p.x + nx * p.f, p.y + ny * p.f], [p.x - nx * p.f, p.y - ny * p.f]], selected, lw);
     } else {
       c.beginPath(); c.moveTo(p.x - dx, p.y - dy); c.lineTo(p.x + dx, p.y + dy);
       if (p.t === 'mirror') { c.strokeStyle = '#2a1a0c'; c.lineWidth = 7 * lw; c.stroke(); } // the wooden back
@@ -552,6 +586,7 @@ function drawPiece(c, p, selected, lw = 1 / view.s) {
     }
   } else if (p.t === 'arc') {
     const a = arcOf(p); c.beginPath(); c.arc(a.cx, a.cy, a.R, a.a0, a.a1); c.strokeStyle = selected ? '#ffb547' : '#dfe6ee'; c.lineWidth = 4 * lw; c.stroke();
+    if (lw < .5) { const [fx, fy] = rot(0, -(p.f ?? 6), rad(p.a)); focalMarks(c, p, [[p.x + fx, p.y + fy]], selected, lw); }
   }
   else if (p.t === 'wall') { c.beginPath(); c.moveTo(p.x1, p.y1); c.lineTo(p.x2, p.y2); c.lineCap = 'round'; c.strokeStyle = '#0b0705'; c.lineWidth = 9 * lw; c.stroke(); c.strokeStyle = '#3d2a1a'; c.lineWidth = 6 * lw; c.stroke(); } // blackened board
   else {
@@ -673,11 +708,12 @@ const help = () => RH.modal(`<h2>Opticks</h2>
   <p>An optical bench. Light comes from lasers, lamps and the sun. You have a tray of mirrors, prisms and lenses. Put them on the bench and steer the light into the targets.</p>
   <p>Everything follows real optics: the law of reflection, Snell's law of refraction (with each colour bending by a slightly different amount), total internal reflection, and thin-lens focusing.</p>
   <p>Five chapters follow the history: from mirrors and Newton's prism, through telescopes and the achromatic lens, to optical fibres.</p>
+  <p>From the Lenses chapter on you pick from an instrument-maker's box, and every piece has a price. Any design that works confirms the experiment; matching Newton's price earns three stars. Lenses show their focal points (F): use them to plan.</p>
   <p class="dim">Drag from the tray · drag to move · scroll or Q/E to rotate (Shift for fine) · arrows to nudge · double-click to remove.</p>`, [{ label: 'Light the lamp' }]);
 $('helpBtn').onclick = help;
 render(); loadLevel(cur);
 if (!S.intro) { S.intro = 1; persist(); help(); }
-window.__opt = { get view() { return view; }, toW, VT, turnSel, L, trace, checkTarget, loadLevel, cleanSave, trayOf, chOpen, SETTLE, get R() { return R; }, get cur() { return cur; }, get sel() { return sel; }, set sel(v) { sel = v; }, get placed() { return placed; }, set placed(v) { placed = v; }, recompute, S };
+window.__opt = { BOX, COST, parOf, costOf, starsFor, starsNow,  get view() { return view; }, toW, VT, turnSel, L, trace, checkTarget, loadLevel, cleanSave, trayOf, chOpen, SETTLE, get R() { return R; }, get cur() { return cur; }, get sel() { return sel; }, set sel(v) { sel = v; }, get placed() { return placed; }, set placed(v) { placed = v; }, recompute, S };
 </script>
 </body>
 </html>

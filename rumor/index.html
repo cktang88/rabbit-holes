@@ -137,7 +137,7 @@ const VERBS=[ // [text, polarity, severity]
   ['lied to',-1,1],['owes money to',-1,1],['cheated',-1,2],['is secretly courting',-1,2],['stole from',-1,3],['poisoned the dog of',-1,4],
   ['helped',1,1],['gave a gift to',1,1],['forgave',1,2],['saved the life of',1,3]];
 const PLACES=['the mill','the tavern','the chapel','the market','the docks','the orchard','the well','the bridge'];
-const FIRST=['Mara','Tobin','Ilse','Gareth','Wren','Odo','Bess','Corin','Nell','Hamish','Rosa','Piet','Agnes','Emrys','Lotte','Jory','Fen','Mabel','Silas','Tilda','Brann','Edda','Quill','Sabe','Hollis','Ines','Rook','Vera','Alder','Juno','Cass','Dell','Ewan','Fay','Gil','Hester','Ivo','Jem','Kit','Lark','Moss','Nim','Orla','Pell','Rhea','Sim','Tam','Ulla','Vic','Wyn','Yara','Zeb'];
+const FIRST=['Mara','Tobin','Ilse','Gareth','Wren','Odo','Bess','Corin','Nell','Hamish','Rosa','Piet','Agnes','Emrys','Lotte','Jory','Fen','Mabel','Silas','Tilda','Brann','Edda','Quill','Sabe','Hollis','Ines','Rook','Vera','Alder','Juno','Cass','Dell','Ewan','Fay','Gil','Hester','Ivo','Jem','Kit','Lark','Moss','Nim','Orla','Pell','Rhea','Sim','Tam','Ulla','Vic','Wyn','Yara','Zeb','Abel','Bram','Clem','Dora','Elsie','Finn','Greta','Hugh','Isa','Jonas','Kezia','Linus','Maud','Ned','Olive','Percy','Queenie','Rufus','Sefa','Thea','Uriah','Viola','Walt','Xan','Yves','Zillah','Arno','Beck','Cyra','Dunstan','Effie','Florian','Gwen','Hal','Iona','Jasper','Kit-Anne','Lorne','Mercy','Noll','Osric','Prue','Reuben','Sorrel','Tad','Una','Vance','Winnie','Ada','Barnaby','Cora','Dirk','Enid','Fulk','Gideon','Hettie','Ike','Joan','Kester','Lettice','Merrick','Nan','Oswin','Piety','Rowan','Shem','Tibb','Ulric','Verity','Wat'];
 const FAMILIES=['Ashdown','Bramble','Cobb','Duskin','Ellery','Fairweather','Greaves','Holloway'];
 const JOBS=['baker','smith','miller','fisher','weaver','tanner','shepherd','brewer','carter','chandler','cooper','herbalist','midwife','farmer','tailor'];
 
@@ -172,7 +172,7 @@ const SC=[
 ];
 function cleanSave(s){
   if (!s || typeof s!=='object' || Array.isArray(s)) s={};
-  const done={}; if (s.done && typeof s.done==='object') for (const k in s.done){ const n=+k; if (Number.isInteger(n) && n>=0 && n<SC.length && s.done[k]) done[n]=1; }
+  const done={}; if (s.done && typeof s.done==='object') for (const k in s.done){ const n=+k; if (Number.isInteger(n) && n>=0 && n<SC.length && s.done[k]) done[n]=[1,2,3].includes(s.done[k])? s.done[k] : 1; }
   return {...s, done, cur: Number.isInteger(s.cur) && s.cur>=0 && s.cur<SC.length ? s.cur : 0, endless: Number.isFinite(s.endless) && s.endless>0 ? Math.floor(s.endless) : 0};
 }
 const esc=(t)=>String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -198,7 +198,7 @@ function buildTown(spec, seed){
   const r=RH.rng(seed); const N=spec.N; const K=spec.clusters||Math.max(3,Math.round(N/16));
   const people=[]; const usedNames=new Set();
   for (let i=0;i<N;i++){
-    let nm; do { nm=r.pick(FIRST); } while(usedNames.has(nm) && usedNames.size<FIRST.length); usedNames.add(nm);
+    let nm; do { nm=r.pick(FIRST); } while(usedNames.has(nm) && usedNames.size<FIRST.length); if (usedNames.has(nm)) nm+=' '+(i+1); usedNames.add(nm); // every villager has their own name
     const c=i%K; people.push({id:i, name:nm, fam:FAMILIES[c%FAMILIES.length], job:r.pick(JOBS), c,
       gull: Math.min(1, Math.max(0.05, r.range(0.15,0.85))), chat: Math.min(1, r.range(0.15,0.8)*(spec.chatty?1.5:1)), skeptic:false, friends:[], rivals:[], belief:null, x:0,y:0});
   }
@@ -251,6 +251,10 @@ function mutate(v, teller, r){
   else { const fr=teller.friends.map(f=>f[0]).filter(x=>x!==m.who); if (fr.length) m.whom=r.pick(fr); }
   return m;
 }
+// All chance is seeded by the scenario, the day and everything you have whispered so far, so a Restart with the same whispers plays out the same way.
+let rngNow=RH.rng(1), actionLog=[], baseSeed='';
+const rand=()=>rngNow();
+function reseed(tag){ rngNow=RH.rng(RH.hashStr(baseSeed+'|'+day+'|'+tag+'|'+actionLog.join(';'))); }
 function hear(p, v, strength, from){
   // returns true if the person adopts the version
   if (p.id===v.who && !v.neg) { return false; } // people don't believe slander about themselves
@@ -262,18 +266,19 @@ function hear(p, v, strength, from){
   if (!v.neg && VERBS[v.verb][1]<0 && p.rivals.includes(v.who)) s*=1.8;
   if (!v.neg && VERBS[v.verb][1]>0 && p.rivals.includes(v.who)) s*=0.4;
   if (p.skeptic && !v.neg){ // skeptics see through lies and start denying them
-    p.belief={...v, neg:true, verb:v.verb}; p.str=0.95; p.heardFrom=from?from.name:'?'; return true; }
+    p.belief={...v, neg:true, verb:v.verb}; p.str=0.95; p.heardFrom=from?from.name:'?'; p.via=from?from.id:-1; p.changedAt=null; return true; }
   const cur=p.belief;
-  if (cur && sameV(cur,v)){ p.str=Math.min(1,p.str+s*0.3); return false; }
-  if (cur && cur.neg && !v.neg && cur.who===v.who){ if (Math.random()<s*0.25){ p.belief={...v}; p.str=s*0.6; p.heardFrom=from?from.name:'you'; return true; } return false; }
-  if (cur && !cur.neg && v.neg && cur.who===v.who){ if (Math.random()<s*(1.1-p.gull)*1.4){ p.belief={...v}; p.str=s; p.heardFrom=from?from.name:'you'; return true; } return false; }
+  if (cur && sameV(cur,v)){ p.str=Math.min(1,p.str+s*0.3); p.again=true; return false; }
+  p.again=false; const adopt=()=>{ p.via=from?from.id:-1; p.changedAt=hear.changedBy??null; };
+  if (cur && cur.neg && !v.neg && cur.who===v.who){ if (rand()<s*0.25){ p.belief={...v}; p.str=s*0.6; p.heardFrom=from?from.name:'you'; adopt(); return true; } return false; }
+  if (cur && !cur.neg && v.neg && cur.who===v.who){ if (rand()<s*(1.1-p.gull)*1.4){ p.belief={...v}; p.str=s; p.heardFrom=from?from.name:'you'; adopt(); return true; } return false; }
   if (cur && p.str>s) return false;
-  if (Math.random() < s*(0.35+p.gull)){ p.belief={...v}; p.str=Math.min(1,s); p.heardFrom=from?from.name:'you'; return true; }
+  if (rand() < s*(0.35+p.gull)){ p.belief={...v}; p.str=Math.min(1,s); p.heardFrom=from?from.name:'you'; adopt(); return true; }
   return false;
 }
 let flashes=[];
 function simDay(){
-  const r=RH.rng(Math.random()*1e9|0); const P=T.people; const events=[];
+  reseed('day'); const r=rngNow; const P=T.people; const events=[]; let tellings=0, newBelievers=0, changes=0;
   const snapshot=P.map(p=>p.belief? {v:p.belief,s:p.str}:null);
   for (const p of P){ const b=snapshot[p.id]; if (!b || b.s<0.2) continue;
     const pol = b.v.neg? 0.95 : VERBS[b.v.verb][1]<0? 1 : 0.75;
@@ -282,7 +287,7 @@ function simDay(){
       const tot=p.friends.reduce((s,f)=>s+f[1],0); let x=r()*tot, f=p.friends[0]; for (const g of p.friends){ x-=g[1]; if (x<=0){ f=g; break; } }
       const q=P[f[0]]; let v=b.v; let mutated=false;
       if (r()<0.14*(1.2-p.gull*0.4)){ const m=mutate(v,p,r); if(!sameV(m,v)){ v=m; mutated=true; } }
-      const ok=hear(q, v, b.s*f[1]*(p.skeptic?1.2:1)*0.95, p);
+      hear.changedBy= mutated? p.id : null; const ok=hear(q, v, b.s*f[1]*(p.skeptic?1.2:1)*0.95, p); hear.changedBy=null; tellings++; if (ok) newBelievers++; if (ok && mutated) changes++;
       flashes.push({a:p.id,b:q.id,t:0,ok,neg:!!v.neg,lie:!v.neg&&VERBS[v.verb][1]<0});
       if (ok && (q.role||q.skeptic||sel===q.id||mutated&&r()<0.25)) events.push(`<b>${p.name}</b> told <b>${q.name}</b>${q.role?` (${q.role})`:''}: ${rText(v)}${mutated?' <span style="color:#e8a050">(changed in the telling)</span>':''}`);
     }
@@ -291,7 +296,8 @@ function simDay(){
   for (const p of P) if (p.belief){ p.str*=0.965; if (p.str<0.08) { p.belief=null; } }
   // enemy gossip
   if (enemy && day>=enemy.start-1){ const n=day<enemy.start+3? 2:1; for (let k=0;k<n;k++){ const q=P[r.int(P.length)]; const v={who:enemy.target, verb:4, whom:r.pick(P).id, place:r.int(PLACES.length)}; if (v.whom===v.who) v.whom=(v.who+1)%P.length; hear(q, v, 0.85, P[enemy.src]); }
-    events.push(`<span style="color:#ff6b6b">Someone is spreading lies about <b>${P[enemy.target].name}</b>.</span>`); }
+    events.push(`<span style="color:#b3241b">Someone is spreading lies about <b>${P[enemy.target].name}</b>.</span>`); }
+  events.unshift(`${tellings} tellings today; ${newBelievers} people took up a story${changes?`, ${changes} of them a changed one`:''}.`+(newBelievers? ' Click a red villager to see who told whom.' : ''));
   return events;
 }
 
@@ -333,15 +339,15 @@ function goalStatus(){
 
 // ===================== Flow =====================
 let scKey;
-function start(i, endlessSeed){
+function start(i, endlessSeed, variant){
   scKey = endlessSeed? 'endless' : i;
   sc = endlessSeed? endlessSpec(endlessSeed) : SC[i];
   T = buildTown(sc, endlessSeed? RH.hashStr(endlessSeed) : 1000+i*17);
-  day=1; wLeft=sc.w; sel=-1; log=[]; firstWhisper=null; flashes=[];
+  day=1; wLeft=sc.w; sel=-1; log=[]; firstWhisper=null; flashes=[]; actionLog=[]; baseSeed=String(scKey)+':'+(endlessSeed||'')+(variant?':v'+variant:''); reseed('setup');
   enemy=null;
   if (sc.enemy){ const tgt = sc.enemy.about==='V'? T.cast.V : T.cast.T; enemy={target:tgt.id, src:T.cast.E.id, start:sc.enemy.start};
-    if (sc.enemy.seed){ for (const p of T.people) if (p!==tgt && Math.random()<sc.enemy.seed){ p.belief={who:tgt.id, verb:4, whom:T.people[(p.id+3)%T.people.length].id, place:Math.floor(Math.random()*PLACES.length)}; p.str=0.7; p.heardFrom='someone'; } }
-    if (sc.enemy.pre){ for (const p of T.people) if (p!==tgt && Math.random()<0.75){ p.belief={who:tgt.id, verb:4, whom:T.people[(p.id+3)%T.people.length].id, place:Math.floor(Math.random()*PLACES.length)}; p.str=0.7; p.heardFrom='everyone'; } enemy=null; } }
+    if (sc.enemy.seed){ for (const p of T.people) if (p!==tgt && rand()<sc.enemy.seed){ p.belief={who:tgt.id, verb:4, whom:T.people[(p.id+3)%T.people.length].id, place:Math.floor(rand()*PLACES.length)}; p.str=0.7; p.heardFrom='someone'; } }
+    if (sc.enemy.pre){ for (const p of T.people) if (p!==tgt && rand()<0.75){ p.belief={who:tgt.id, verb:4, whom:T.people[(p.id+3)%T.people.length].id, place:Math.floor(rand()*PLACES.length)}; p.str=0.7; p.heardFrom='everyone'; } enemy=null; } }
   addLog(`Day 1. ${desc()}`); renderAll(); fitView(); lastComposed=null; document.getElementById('gazette').classList.remove('on');
 }
 function endlessSpec(seed){ const r=RH.rng(seed); const base=SC[r.int(SC.length)]; return {...base, n:'Endless · '+esc(seed), N:60+r.int(60)}; }
@@ -360,18 +366,38 @@ document.getElementById('nextDay').onclick=()=>{
 };
 document.getElementById('restart').onclick=()=> scKey==='endless'? start(0, endlessSeedCur) : start(scKey);
 let endlessSeedCur='';
+// ★ a win · ★★ a clear win · ★★★ near the best a strong player manages (fast for spreading goals, a wide margin for defensive ones)
+let lastStars=0;
+function starsFor(st){ const g=sc.goal; const used=Math.min(day-1,sc.days); if (g.type==='defend'){ const m=(g.max-st.v)/g.max; return m>=0.6?3: m>=0.3?2:1; }
+  if (['counter','redeem','mixed'].includes(g.type)){ const m=stMargin(st); return 1+(m>=0.3?1:0)+(m>=0.6?1:0); }
+  const f=used/sc.days; return f<=0.5?3: f<=0.75?2:1; }
+function stMargin(st){ const g=sc.goal; return Math.max(0,(st.v-g.pct)/Math.max(1,100-g.pct)); }
 function finish(st){
   day=sc.days+1;
-  if (st.ok){ if (scKey!=='endless'){ SAVE.done[scKey]=Math.max(SAVE.done[scKey]||0, 1); persist(); } else { SAVE.endless++; persist(); }
+  if (st.ok){ const stars=starsFor(st); lastStars=stars; if (scKey!=='endless'){ SAVE.done[scKey]=Math.max(SAVE.done[scKey]||0, stars); persist(); } else { SAVE.endless++; persist(); }
     VOICE.presses(); const t=topStory(); const head=t.v? esc(rText(t.v).replace(/[“”]/g,'')) : esc(st.label.replace(/<[^>]+>/g,''));
     RH.modal(`<div class="front"><div class="fm">The Village Gazette</div><div class="dl"><span>Vol. ${Object.keys(SAVE.done).length+1}</span><span>Day ${sc.days} · one penny</span><span>Extra!</span></div>
       <div class="big">${head}</div><svg class="cut" viewBox="0 0 120 80" aria-hidden="true"><rect width="120" height="80" fill="#f3ecda"/>${[...Array(14)].map((_,i)=>`<line x1="0" y1="${i*6}" x2="120" y2="${i*6+20}" stroke="#1b1712" stroke-width=".7"/>`).join('')}<circle cx="45" cy="34" r="13" fill="#1b1712"/><path d="M22 80 Q45 46 68 80Z" fill="#1b1712"/><circle cx="82" cy="38" r="10" fill="#b3241b"/><path d="M64 80 Q82 54 100 80Z" fill="#b3241b"/><path d="M58 30 q5 -4 10 0" stroke="#1b1712" fill="none" stroke-width="1.5"/></svg>
       <div class="cols">${st.label} ${t.v?`Our correspondent finds ${Math.round(t.pct)} in every hundred villagers repeating the tale, most of them certain of it.`:''} Somewhere in town, someone is repeating a story you made up, and is sure it is true. Asked where they heard it, they could not say.</div></div>`,[{label:'Stay'}]); }
-  else { VOICE.fail(); const h=bestEar(); RH.modal(`<h2>The town moved on.</h2><p>${st.label}</p><p class="dim">Try a different first ear. Chatty people spread rumors, trusted people make them believable, and people on the edges carry them between groups.</p>${h?`<p>Hint: <b>${h.name}</b>${h.role?` (${h.role})`:''} talks to ${h.friends.length} people and loves to gossip.</p>`:''}`,[{label:'OK'}]); }
+  else { VOICE.fail(); RH.modal(`<h2>The town moved on.</h2><p>${st.label}</p><p class="dim">${lesson()}</p>`,[{label:'OK'}]); }
   renderAll();
 }
 
+// who told whom, back to the first whisper: "You → Gil → Mara (changed at Gil) → Rosa"
+function chainOf(p){ if (!p.belief) return ''; const seen=new Set(), names=[]; let q=p, origin='someone';
+  while (q && !seen.has(q.id)){ seen.add(q.id); names.unshift(q.name+(q.changedAt!=null && q.changedAt!==undefined? ` <i style="color:#b3241b">(changed by ${T.people[q.changedAt].name})</i>`:'')); if (q.via===-1){ origin='You'; break; } if (q.via==null){ origin= q.heardFrom==='everyone'||q.heardFrom==='someone'? 'Gossip' : '?'; break; } q=T.people[q.via]; }
+  return `<b>Heard via:</b> ${origin} → ${names.join(' → ')}`; }
 // The best-connected talker who isn't the subject: used as a hint after a failed attempt
+// After a failure: where did the story stop, and why? Teach the principle, not a name.
+function lesson(){ const P=T.people, K=T.K||Math.max(...P.map(p=>p.c))+1, fam=(c)=>FAMILIES[c%FAMILIES.length]+' End';
+  const cov=[...Array(K)].map((_,c)=>{ const g=P.filter(p=>p.c===c); return g.filter(p=>p.belief && !p.belief.neg && goalFor(p)).length/g.length; });
+  const goodC=cov.map((v,c)=>[v,c]).filter(x=>x[0]>=0.25), badC=cov.map((v,c)=>[v,c]).filter(x=>x[0]<0.1);
+  const g=sc.goal.type;
+  if (g==='defend'||g==='mixed'||g==='counter'){ const top=P.filter(p=>believesBad(p,T.cast.T.id)).sort((a,b)=>b.chat*b.friends.length-a.chat*a.friends.length)[0]; return `A lie spreads fastest through its busiest carriers. Deny it early, to the people who talk most in the hamlets where it is growing${top?` (in ${fam(top.c)}, for one)`:''}. Skeptics make good allies: people believe them.`; }
+  if (g==='exact'||g==='verb') return 'Stories change as they pass. Every retelling by a careless gossip is a chance to change it, and chatty, gullible people pass it on carelessly. Seed it in several places at once, with people whose friends trust them, so it needs fewer retellings.';
+  if (goodC.length && badC.length){ const [,a]=goodC[0], [,b]=badC[0]; let bridge=null; for (const p of P) if (p.c===a) for (const [j] of p.friends) if (P[j].c===b){ bridge=[p,P[j]]; break; }
+    return `Your story took hold in ${fam(a)} but never crossed into ${fam(b)}. Rumors cross between hamlets only along a few friendships${bridge?`, such as ${bridge[0].name} and ${bridge[1].name}`:''}. Seed both sides, or whisper to someone who stands on the bridge.`; }
+  return 'One ear is not enough: a rumor needs several different starting points, each a chatty person with many friends, ideally in different hamlets. Whispering twice to the same person mostly makes them surer, not louder.'; }
 function bestEar(){ const c=T.cast; let best=null, bv=-1; for (const p of T.people){ if (p===c.T || p.skeptic || p.role==='mayor') continue; const v=p.chat*p.friends.reduce((s,f)=>s+f[1],0)*(0.4+p.gull); if (v>bv){ bv=v; best=p; } } return best; }
 
 // ===================== Rendering =====================
@@ -453,7 +479,8 @@ function renderPerson(){
   const tr=[p.gull>0.6?'gullible':p.gull<0.3?'hard to fool':'', p.chat>0.65?'chatty':p.chat<0.3?'quiet':'', p.skeptic?'checks every story':'', p.friends.length>=6?'knows everyone':p.friends.length<=2?'keeps to themselves':''].filter(Boolean);
   let h=`<h3>${p.name} ${p.fam}</h3><div class="dim small">${p.role||p.job}</div><div>${tr.map(t=>`<span class="trait">${t}</span>`).join('')}</div>`;
   h+=`<div class="small" style="margin-top:6px">Friends: ${p.friends.sort((a,b)=>b[1]-a[1]).map(f=>`<a href="#" data-p="${f[0]}">${P[f[0]].name}</a>`).join(', ')||'none'}${p.rivals.length?`<br>Can't stand: ${p.rivals.map(i=>`<a href="#" data-p="${i}" style="color:#b3241b">${P[i].name}</a>`).join(', ')}`:''}</div>`;
-  h+= p.belief? `<div class="heard ${p.belief.neg?'':VERBS[p.belief.verb][1]<0?'lie':''}">${rText(p.belief)}<div class="dim small" style="font-style:normal;margin-top:4px">heard from ${p.heardFrom||"someone"} · ${p.str>0.7?'certain':p.str>0.4?'fairly sure':'half-remembers it'}</div></div>` : `<div class="heard" style="color:#5d5446">Hasn't heard anything.</div>`;
+  const ch=chainOf(p);
+  h+= p.belief? `<div class="heard ${p.belief.neg?'':VERBS[p.belief.verb][1]<0?'lie':''}">${rText(p.belief)}${ch?`<div class="small" style="font-style:normal;margin-top:4px">${ch}</div>`:''}<div class="dim small" style="font-style:normal;margin-top:4px">heard from ${p.heardFrom||"someone"} · ${p.str>0.7?'certain':p.str>0.4?'fairly sure':'half-remembers it'}</div></div>` : `<div class="heard" style="color:#5d5446">Hasn't heard anything.</div>`;
   if (day<=sc.days && p.role==='mayor'){
     h+=`<div class="note">The mayor will not take gossip from a stranger. It has to come from someone the mayor trusts: ${p.friends.map(f=>`<a href="#" data-p="${f[0]}">${P[f[0]].name}</a>`).join(' or ')||'nobody, it seems'}.</div>`;
   } else if (day<=sc.days){
@@ -470,10 +497,11 @@ function renderPerson(){
     if (lastComposed){ w.value=lastComposed.who; document.getElementById('cVerb').value=lastComposed.neg?'neg':lastComposed.verb; document.getElementById('cWhom').value=lastComposed.whom; document.getElementById('cPlace').value=lastComposed.place; }
     document.getElementById('cGo').onclick=()=>{ const vv=document.getElementById('cVerb').value; const v={who:+w.value, verb: vv==='neg'?4:+vv, whom:+document.getElementById('cWhom').value, place:+document.getElementById('cPlace').value, neg: vv==='neg'};
       if (!v.neg && v.who===v.whom) return RH.toast('Pick two different people.');
-      if (wLeft<=0 || day>sc.days) return; wLeft--; lastComposed={...v}; const ok=hear(p, v, 0.9, null); ok? VOICE.whisper() : VOICE.scoff();
+      if (wLeft<=0 || day>sc.days) return; wLeft--; lastComposed={...v}; actionLog.push(`${day}:${p.id}:${v.who}:${v.verb}:${v.whom}:${v.place}:${v.neg?1:0}`); reseed('whisper'); const ok=hear(p, v, 0.9, null); ok? VOICE.whisper() : VOICE.scoff();
       if (!firstWhisper && !v.neg) firstWhisper={...v};
-      addLog(ok? `You whispered to <b>${p.name}</b>: ${rText(v)}` : `<b>${p.name}</b> didn't believe you.`);
-      if (!ok) RH.toast(`${p.name} doesn't believe you.`); renderAll(); if (portraitPhone.matches && wLeft<=0) setTimeout(()=>window.scrollTo({top:0,behavior:'smooth'}),500); else if (compactMQ.matches) document.getElementById('cGo')?.scrollIntoView({block:'nearest'}); }; }
+      const msg= ok? null : p.again? `${p.name} already believes that, and is now surer of it.` : `${p.name} doesn't believe you.`;
+      addLog(ok? `You whispered to <b>${p.name}</b>: ${rText(v)}` : `<b>${p.name}</b>: ${msg}`);
+      if (!ok) RH.toast(msg); renderAll(); if (portraitPhone.matches && wLeft<=0) setTimeout(()=>window.scrollTo({top:0,behavior:'smooth'}),500); else if (compactMQ.matches) document.getElementById('cGo')?.scrollIntoView({block:'nearest'}); }; }
 }
 function renderGoal(){
   const st=goalStatus(); const pct=Math.min(100,st.v);
@@ -487,7 +515,7 @@ function renderScen(){
   let h='', last=0;
   SC.forEach((s,i)=>{ if (s.act!==last){ h+=`<div class="act">${acts[s.act]}</div>`; last=s.act; }
     const open = scenOpen(i);
-    h+=`<div class="sc ${scKey===i?'cur':''} ${open?'':'lock'}" data-i="${i}"><span>${i+1}. ${s.n}</span><span class="ok">${SAVE.done[i]?'✓':''}</span></div>`; });
+    h+=`<div class="sc ${scKey===i?'cur':''} ${open?'':'lock'}" data-i="${i}"><span>${i+1}. ${s.n}</span><span class="ok">${SAVE.done[i]?'★'.repeat(Math.min(3,SAVE.done[i])):''}</span></div>`; });
   h+=`<div class="act">Endless</div><div class="row"><input id="eSeed" placeholder="town name" maxlength="32" style="width:120px"><button id="eGo">Go</button></div><div class="small dim" style="margin-top:4px">${SAVE.endless} endless towns fooled</div>`;
   const el=document.getElementById('scen'); el.innerHTML=h;
   el.querySelectorAll('.sc').forEach(d=>d.onclick=()=>{ if (!scenOpen(+d.dataset.i)) return; SAVE.cur=+d.dataset.i; persist(); start(+d.dataset.i); setScen(false); });
@@ -497,7 +525,7 @@ function renderScen(){
 function renderAll(){ renderGoal(); renderPerson(); renderScen(); }
 window.addEventListener('resize', fitView);
 start(SAVE.cur||0); requestAnimationFrame(draw);
-window.__rumor={ topStory, printGazette, SC, VERBS, buildTown, hear, mutate, simDay, goalStatus, goalFor, sameV, rText, pctOf, believesBad, believesGood, start, finish, endlessSpec, cleanSave, scenOpen, bestEar, esc, renderAll,
+window.__rumor={ chainOf, lesson, starsFor, reseed, get actionLog(){ return actionLog; }, get lastStars(){ return lastStars; }, topStory, printGazette, SC, VERBS, buildTown, hear, mutate, simDay, goalStatus, goalFor, sameV, rText, pctOf, believesBad, believesGood, start, finish, endlessSpec, cleanSave, scenOpen, bestEar, esc, renderAll,
   get T(){ return T; }, get sc(){ return sc; }, get day(){ return day; }, set day(v){ day=v; }, get wLeft(){ return wLeft; }, get firstWhisper(){ return firstWhisper; }, get SAVE(){ return SAVE; }, get log(){ return log; }, get sel(){ return sel; }, set sel(v){ sel=v; }, get view(){ return view; } };
 if (!SAVE.intro){ SAVE.intro=1; persist(); RH.modal(`<h2>The Rumor</h2><p>Every person in this town has friends, rivals, a loose tongue or a careful one, and a sense of who to trust.</p><p>Click someone and <b>whisper</b> a story. Then let the days pass. They'll tell their friends, who tell theirs, and the story changes on the way. Names get swapped, crimes get worse, places move.</p><p>Watch who carries it. Pick your first ear well.</p>`,[{label:'Lean in'}]); }
 </script>

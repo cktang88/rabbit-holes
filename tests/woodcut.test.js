@@ -2,7 +2,7 @@
 const ready = async page => { await page.waitForFunction(() => window.__wc && __wc.L); };
 // the runner clears localStorage on every navigation of `page`, so reload-style checks open a second tab in the same context
 async function reopen(page) { const p = await page.context().newPage(), errs = []; p.on('pageerror', e => errs.push(e.message)); await p.goto(page.url()); await ready(p); p.errs = errs; return p; }
-const SOLVE = `(i => { const w = __wc, n = w.LV[i].inks.length; w.load(i); for (let k = 0; k < n; k++) { w.carveState(k); w.pull(k); } return w.result; })`;
+const SOLVE = `(i => { const w = __wc, n = w.LV[i].need; w.load(i); for (let k = 0; k < n; k++) { w.carveState(k); w.pull(k); } return w.result; })`;
 
 module.exports = {
   page: 'woodcut/index.html',
@@ -20,10 +20,10 @@ module.exports = {
     },
     'traps: reversed ink order, printing without carving, and carving too early all fail': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const w = __wc, out = [];
-        for (let i = 0; i < w.NLV; i++) { const n = w.LV[i].inks.length;
+        for (let i = 0; i < w.NLV; i++) { const n = w.LV[i].need;
           w.load(i); for (let k = 0; k < n; k++) { w.carveState(k); w.pull(n - 1 - k); } const rev = w.result.lk;
           w.load(i); w.carveState(0); for (let k = 0; k < n; k++) w.pull(k); const lazy = w.result.lk;
-          out.push({ i, rev, lazy, same: w.LV[i].inks.every(x => x.hex === w.LV[i].inks[0].hex) }); }
+          out.push({ i, rev, lazy, same: w.LV[i].inks.slice(0, n).every(x => x.hex === w.LV[i].inks[0].hex) }); }
         // Red Barn: carving the barn before red is printed means red never lands on it
         w.load(3); w.carveState(0); w.pull(0); w.carveState(1); w.carveState(2); w.pull(1); w.pull(2); const barn = w.result.lk, barnHints = w.result.hints;
         // Cherries: printing red before carving the paper areas
@@ -36,12 +36,30 @@ module.exports = {
     },
     'detail matters: skipping small shapes (Moon over Sea stars) fails even above 85% likeness': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const w = __wc, out = [];
-        for (const i of [1, 11, 13, 16, 17, 19]) { const n = w.LV[i].inks.length; w.load(i); for (let k = 1; k < n; k++) { w.pull(k - 1); w.carveState(k); } w.pull(n - 1); out.push({ i, lk: w.result.lk, pass: w.result.pass, miss: w.result.miss, next: !!document.querySelector('#toast [data-a="next"]') }); }
+        for (const i of [1, 11, 13, 16, 17, 19]) { const n = w.LV[i].need; w.load(i); for (let k = 1; k < n; k++) { w.pull(k - 1); w.carveState(k); } w.pull(n - 1); out.push({ i, lk: w.result.lk, pass: w.result.pass, miss: w.result.miss, next: !!document.querySelector('#toast [data-a="next"]') }); }
         // Moon over Sea, everything right except the seven stars and the horizon line
         w.load(1); const stars = w.T.regions.filter(r => r.s === 0 && r.n < 400).length; return { out, stars }; });
       ok(r.stars >= 7, 'stars are regions: ' + r.stars);
       for (const x of r.out) { eq(x.pass, false, `level ${x.i} passes with paper details skipped (lk ${x.lk.toFixed(2)})`); ok(x.miss >= 1); eq(x.next, false, 'next-print button offered'); }
       ok(r.out[0].lk >= .85, 'Moon over Sea skipped stars still scores ' + r.out[0].lk);
+    },
+    'difficulty: naive play fails on the last third, the competent plan wins, and the textbook rule is not enough everywhere': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const w = __wc, st = r => r.pass ? r.stars : 0;
+        const runOrder = (i, order) => { w.load(i); for (const k of order) { if (w.finished) break; w.greedyCarve(); w.pull(k); } if (!w.finished) w.finish(); return w.result; };
+        const late = [13, 14, 15, 16, 17, 18, 19], out = { naive: 0, naiveRuns: 0, competent: [], simple3: 0, spares: late.filter(i => w.LV[i].inks.length > w.LV[i].need).length };
+        for (const i of late) { const L = w.LV[i], n = L.inks.length;
+          // naive bots: (1) idle/lazy: print every ink in palette order without carving, (2) the obvious light-to-dark rule with every tin on the bench, (3) random orders
+          w.load(i); for (let k = 0; k < n && !w.finished; k++) w.pull(L.inks.length - 1 - k > -1 ? k : k); const lazy = w.result || w.finish();
+          const light = runOrder(i, w.lightOrder()); const rnd = RH.rng(i * 7 + 1), rand = [];
+          for (let t = 0; t < 3; t++) { const o = [...Array(n).keys()]; rnd.shuffle(o); rand.push(runOrder(i, o)); }
+          for (const x of [lazy, light, ...rand]) { out.naiveRuns++; if (st(x) <= 1) out.naive++; }
+          out.competent.push(st(runOrder(i, [...Array(L.need).keys()])));
+          if (st(runOrder(i, w.lightOrder().filter(k => k < L.need))) === 3) out.simple3++; }
+        return out; });
+      ok(r.naive / r.naiveRuns >= .8, `naive bots got 2★+ in ${r.naiveRuns - r.naive}/${r.naiveRuns} late runs`);
+      ok(r.competent.every(s => s === 3), 'competent plan: ' + r.competent);
+      ok(r.simple3 <= 4, `light-to-dark (minus spares) still 3★ on ${r.simple3}/7 late prints`);
+      ok(r.spares === 7, 'every late commission has a spare tin');
     },
     'colour compositing: transparent multiplies, dark opaque covers, light opaque ghosts, dense covers, fountain blends': async ({ page, ok, near }) => {
       const r = await page.evaluate(() => { const w = __wc, base = w.lin('#203040'), light = w.lin('#f0e8d0');
@@ -60,14 +78,11 @@ module.exports = {
       ok(r.c0 < 1 && r.c0 > 0, 'cover light-on-dark ' + r.c0); near(r.c1, 1, 0, 'cover dark-on-light'); near(r.cd, 1, 0, 'dense cover');
       ok(r.fmid[0] > .05 && r.fmid[2] > .05, 'fountain middle is a blend'); ok(r.mono, 'fountain ramp monotonic');
     },
-    'clean Region cuts are rationed after level 5 and undo refunds them': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(() => { const w = __wc; w.load(4); const inf = w.rLeft(); w.load(8); const b = w.rLeft();
-        const T = w.T, regs = T.regions.filter(x => x.s < w.L.inks.length); const xy = reg => { const i = reg.px[reg.px.length >> 1]; return [i % 320, i / 320 | 0]; };
-        let used = 0; for (const reg of regs) { if (w.rLeft() <= 0) break; if (w.carveRegion(...xy(reg))) used++; }
-        const left0 = w.rLeft(), extra = regs.find(reg => w.carveRegion(...xy(reg)) === 0 && true); const strokes = w.strokes;
-        w.undo(); return { inf, b, used, left0, left1: w.rLeft(), strokes, s1: w.strokes }; });
-      eq(r.inf, Infinity, 'early levels unlimited'); ok(r.b > 0 && r.b < 100, 'budget ' + r.b); eq(r.used, r.b); eq(r.left0, 0);
-      eq(r.left1, 1, 'undo refunds a clean cut'); eq(r.s1, r.strokes - 1);
+    'late blocks come untraced (no pencil lines, no region highlight); clean cuts are unlimited and undo works': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const w = __wc; w.load(4); const early = { u: !!w.L.untraced, inf: w.rLeft() }; w.load(12); const late = { u: !!w.L.untraced, inf: w.rLeft() };
+        const reg = w.T.regions.find(x => x.s === 0 && x.n > 100), i0 = reg.px[reg.px.length >> 1]; const n = w.carveRegion(i0 % 320, i0 / 320 | 0), s0 = w.strokes; w.undo();
+        return { early, late, n, s0, s1: w.strokes }; });
+      eq(r.early, { u: false, inf: Infinity }); eq(r.late, { u: true, inf: Infinity }); ok(r.n > 0); eq(r.s1, r.s0 - 1);
     },
     'inks are single-use, pulling ends undo, signing with no passes does nothing': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const w = __wc; w.load(2); const f0 = w.finish(); w.carveState(0); const u0 = w.undoN; const p1 = w.pull(0); const u1 = w.undoN; const p2 = w.pull(0); return { f0, u0, p1, u1, p2, passes: w.passes }; });

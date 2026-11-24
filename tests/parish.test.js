@@ -1,4 +1,5 @@
 // Parish: genealogy deductions over a simulated parish register. Logic via window.__parish.
+const { parishBot } = require('./parish.bots.js');
 const closeModals = page => page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
 const withSave = async (page, save) => { await page.addInitScript(s => localStorage.setItem('rh:parish', s), typeof save === 'string' ? save : JSON.stringify(save)); await page.reload(); await page.waitForTimeout(600); };
 module.exports = {
@@ -59,11 +60,11 @@ module.exports = {
         const locked = c.tasks.findIndex(t => t.dep >= 0);
         if (locked >= 0) { const t = c.tasks[locked], d = P.candidates(W.R, t).find(x => x.id !== t.truth); out.locked = d ? P.strike(locked, d.id, K.strikes[0]) : null; }
         const decoys = P.candidates(W.R, k).filter(x => x.id !== k.truth);
-        const d0 = decoys[0], good = K.why(W.R, d0, k).find(code => K.strikes.includes(code)), badC = K.strikes.find(code => !K.why(W.R, d0, k).includes(code));
+        const d0 = decoys[0], good = P.proofFor(0, d0.id), badC = K.strikes.find(code => !P.CITE[code] && !K.why(W.R, d0, k).includes(code));
         if (badC) { out.bad1 = P.strike(0, d0.id, badC); out.bad2 = P.strike(0, d0.id, badC); }
         out.wrong = P.S.wrong[ci] || 0; out.truthStrike = P.strike(0, k.truth, K.strikes[0]);
-        out.good = P.strike(0, d0.id, good); out.left = P.remaining(0).length;
-        for (const d of decoys.slice(1)) P.strike(0, d.id, K.why(W.R, d, k).find(code => K.strikes.includes(code)));
+        out.good = P.strike(0, d0.id, good.code, good.cite); out.left = P.remaining(0).length;
+        for (const d of decoys.slice(1)) { const pf = P.proofFor(0, d.id); P.strike(0, d.id, pf.code, pf.cite); }
         out.prog = P.S.prog[ci][0]; out.badC = !!badC; out.wrongEnd = P.S.wrong[ci] || 0;
         return out;
       });
@@ -78,10 +79,10 @@ module.exports = {
       const t = await page.evaluate(() => {
         const P = window.__parish, W = P.W(), c = P.COMS()[P.cur], prog = P.S.prog[P.cur];
         const i = c.tasks.findIndex((k, j) => !prog[j] && (k.dep < 0 || prog[k.dep]) && P.remaining(j).length > 1); if (i < 0) return null;
-        const k = c.tasks[i], K = P.KIND[k.kind], d = P.remaining(i).find(x => x.id !== k.truth), code = K.why(W.R, d, k).find(x => K.strikes.includes(x));
+        const k = c.tasks[i], d = P.remaining(i).find(x => x.id !== k.truth && !P.proofFor(i, x.id).cite); if (!d) return { skip: 1 }; const code = P.proofFor(i, d.id).code;
         return { i, id: d.id, code, label: P.strikeLabel(code, k) };
       });
-      ok(t, 'the first letter should open on a task that needs deduction');
+      ok(t, 'the first letter should open on a task that needs deduction'); if (t.skip) return;
       await page.locator(`.cand[data-cand="${t.id}"]`).click();
       await page.locator(`.cand[data-cand="${t.id}"] [data-strike="${t.code}"]`).click();
       if (await page.evaluate(i => window.__parish.S.prog[window.__parish.cur][i], t.i)) return; // it was the only decoy: the task is answered
@@ -95,8 +96,8 @@ module.exports = {
     'completing a letter presses a seal and gives stars from blots': async ({ page, eq }) => {
       await closeModals(page);
       await page.evaluate(() => {
-        const P = window.__parish, W = P.W(), c = P.COMS()[0]; P.openLetter(0); P.S.wrong[0] = 2;
-        c.tasks.forEach((k, i) => { const K = P.KIND[k.kind]; for (const d of P.candidates(W.R, k)) if (d.id !== k.truth) P.strike(i, d.id, K.why(W.R, d, k).find(x => K.strikes.includes(x))); P.confirmTask(i); });
+        const P = window.__parish, W = P.W(), c = P.COMS()[0]; P.openLetter(0); P.S.wrong[0] = 1;
+        c.tasks.forEach((k, i) => { for (const d of P.candidates(W.R, k)) if (d.id !== k.truth) { const pf = P.proofFor(i, d.id); P.strike(i, d.id, pf.code, pf.cite); } P.confirmTask(i); });
       });
       eq(await page.locator('#right .letter .seal').count(), 1, 'seal');
       await page.waitForTimeout(1500);
@@ -113,6 +114,41 @@ module.exports = {
       if (info.d == null) return;
       await withSave(page, { seed: info.seed, intro: 1, strikes: { 0: { 0: { [info.d]: info.code, [info.truth]: info.other, 999999: 'late' } } } });
       eq(await page.evaluate(() => window.__parish.S.strikes[0][0]), { [info.d]: info.code });
+    },
+    'difficulty: naive play fails the last bundle; a careful reader wins; 3 stars needs the right evidence first time': async ({ page, ok }) => {
+      const all = { random: [], dates: [], simple: [], solver: [] };
+      for (const seed of [101, 202]) {
+        await withSave(page, { seed, intro: 1 }); await closeModals(page);
+        await page.addScriptTag({ content: parishBot.toString() });
+        const r = await page.evaluate(() => { const P = window.__parish, L = P.COMS().length, out = {};
+          for (const pol of ['random', 'dates', 'simple', 'solver']) { out[pol] = []; for (let i = L - 6; i < L; i++) { P.S.done = {}; P.S.prog = {}; P.S.strikes = {}; P.S.pins = []; const b = parishBot(i, pol); out[pol].push(b.done ? b.stars : 0); } }
+          return out; });
+        for (const k in all) all[k].push(...r[k]);
+      }
+      const naive = [...all.random, ...all.dates];
+      ok(naive.filter(x => x <= 1).length / naive.length >= .8, 'naive genealogists do too well: ' + JSON.stringify(all));
+      ok(all.simple.every(x => x >= 1), 'a careful reader should finish every late letter: ' + all.simple);
+      ok(all.solver.every(x => x === 3), 'the solver should get 3 stars');
+      ok(all.simple.filter(x => x === 3).length / all.simple.length < .6, '3 stars should need the right evidence first time: ' + all.simple);
+    },
+    'later bundles: candidates appear only when pinned; "buried as a child" must cite the burial': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(() => {
+        const P = window.__parish, W = P.W(), C = P.COMS(), R = W.R; let found = null;
+        for (let i = 12; i < C.length && !found; i++) C[i].tasks.forEach((k, ti) => { if (found || ti !== C[i].tasks.findIndex(t => t.dep < 0)) return; const d = P.candidates(R, k).find(x => x.id !== k.truth && P.KIND[k.kind].why(R, x, k).includes('dead')); if (d) found = { i, ti, d: d.id }; });
+        if (!found) return null;
+        P.openLetter(found.i); const out = { pinMode: P.needPins() };
+        out.beforePin = P.strike(found.ti, found.d, 'dead', 0);
+        P.togglePin(found.d); out.listed = !!document.querySelector(`.cand[data-cand="${found.d}"]`);
+        out.noCite = P.strike(found.ti, found.d, 'dead');
+        const k = C[found.i].tasks[found.ti], wrongB = R.find(b => b.t === 'D' && !P.isChildBurial(b, R[found.d], R[k.a].d));
+        out.badCite = P.strike(found.ti, found.d, 'dead', wrongB.id); out.blots = P.S.wrong[found.i] || 0;
+        const pf = P.proofFor(found.ti, found.d); out.good = P.strike(found.ti, found.d, 'dead', pf.cite);
+        return out;
+      });
+      if (!r) return; // this register has no such case in the later bundles
+      eq(r.pinMode, true); eq(r.beforePin, null, 'struck an unpinned entry'); ok(r.listed, 'pinned entry not listed');
+      eq(r.noCite, null, 'struck without citing'); eq(r.badCite, false); eq(r.blots, 1); eq(r.good, true);
     },
     'clicking a pinned record updates the selected-record box (answers go to what you see)': async ({ page, ok }) => {
       await closeModals(page);

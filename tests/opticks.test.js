@@ -2,7 +2,7 @@
 const closeModals = page => page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
 const placeSol = (page, i, tweak) => page.evaluate(([i, tweak]) => {
   const o = window.__opt; o.loadLevel(i);
-  o.placed = o.trayOf(o.L[i]).slice(0, o.L[i].sol.length).map((p, k) => tweak && k === 0 ? (p.t === 'lens' ? { ...p, x: p.x + 3 } : { ...p, a: p.a + tweak }) : p);
+  o.placed = o.L[i].sol.map((p, k) => ({ ...p, id: k })).map((p, k) => tweak && k === 0 ? (p.t === 'lens' ? { ...p, x: p.x + 3 } : { ...p, a: p.a + tweak }) : p);
   o.recompute(); return o.R.checks.map(c => c.ok);
 }, [i, tweak]);
 module.exports = {
@@ -128,6 +128,34 @@ module.exports = {
     },
     'the maze needs no more than four mirrors': async ({ page, eq }) => {
       eq(await page.evaluate(() => window.__opt.L.find(l => l.n === 'The Maze').sol.length), 4);
+    },
+    'difficulty: naive play fails the last third; the designed solution earns 3 stars; a pricier design only 2': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => {
+        const o = window.__opt, L = o.L, rnd = RH.rng('naive'), first = Math.ceil(L.length * 2 / 3), out = { naive: [], comp: [] };
+        const solved = (lv, ps) => { const R = o.trace(lv, ps); return lv.targets.every((t, k) => o.checkTarget(t, R.hits[k], lv).ok); };
+        const grade = (lv, ps) => solved(lv, ps) ? o.starsFor(o.costOf(ps), o.parOf(lv)) : 0;
+        for (let i = first; i < L.length; i++) {
+          const lv = L[i], tray = o.trayOf(lv), s0 = lv.sources[0];
+          out.naive.push(grade(lv, [])); // idle
+          let best = 0; // random: a handful of random pieces dropped anywhere
+          for (let t = 0; t < 300; t++) { const n = 1 + rnd.int(3), ps = []; for (let k = 0; k < n; k++) ps.push({ ...tray[rnd.int(tray.length)], x: 1 + rnd() * 30, y: 1 + rnd() * 18, a: rnd() * 360 }); best = Math.max(best, grade(lv, ps)); }
+          out.naive.push(best);
+          best = 0; // obvious: each piece in the box, slid along the beam at the textbook angles
+          for (const p of tray) for (let d = 3; d <= 28; d += 1) for (const a of [0, 45, 90, 135]) { const x = s0.x + Math.cos(s0.a * Math.PI / 180) * d, y = s0.y + Math.sin(s0.a * Math.PI / 180) * d; if (x < 0 || x > 32 || y < 0 || y > 20) continue; best = Math.max(best, grade(lv, [{ ...p, x, y, a }])); }
+          out.naive.push(best);
+          out.comp.push(grade(lv, lv.sol.map((p, k) => ({ ...p, id: k }))));
+        }
+        const kep = L.find(l => l.n === 'Keplerian Telescope'); // the same telescope from dearer, stronger lenses
+        out.kepler = 0; for (let x2 = 15.5; x2 <= 16.6 && !out.kepler; x2 += .05) out.kepler = grade(kep, [{ t: 'lens', f: 6, L: 5, x: 8, y: 10, a: 90 }, { t: 'lens', f: 2, L: 5, x: +x2.toFixed(2), y: 10, a: 90 }]);
+        return out;
+      });
+      ok(r.naive.filter(x => x <= 1).length / r.naive.length >= .8, 'naive bots do too well: ' + r.naive);
+      ok(r.comp.every(x => x === 3), 'the designed solutions should earn 3 stars: ' + r.comp);
+      eq(r.kepler, 2, 'a working but pricier telescope');
+    },
+    'the box holds more than the job needs, with prices; lenses show focal points': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const o = window.__opt, i = o.L.findIndex(l => l.n === 'Keplerian Telescope'); o.loadLevel(i); return { tray: o.trayOf(o.L[i]).length, sol: o.L[i].sol.length, prices: document.querySelectorAll('#tray .price').length, first: document.querySelector('#tray .piece').textContent }; });
+      ok(r.tray >= r.sol + 5 && r.prices === r.tray, JSON.stringify(r));
     },
     'locked chapters cannot be opened from the sidebar': async ({ page, eq }) => {
       await closeModals(page);
