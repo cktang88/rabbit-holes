@@ -4,7 +4,7 @@ Ten browser experiments in the spirit of [neal.fun](https://neal.fun), each buil
 
 Every experiment is a single static page with no build step, no backend and no accounts. Progress saves to `localStorage`, so you can close the tab and come back.
 
-**Play:** https://cktang88.github.io/rabbit-holes/
+**Play:** https://cktang88.github.io/rabbit-holes/ (after turning on GitHub Pages: Settings → Pages → deploy from `main`, root)
 
 | | Experiment | The premise | What keeps it going |
 |---|---|---|---|
