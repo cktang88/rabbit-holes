@@ -62,6 +62,8 @@
   .g.flash{animation:flash .5s ease-out}
   @keyframes flash{0%{background:#ffb000;box-shadow:0 0 12px #ffb000}100%{background:transparent}}
   .g.hl{background:#ffd76a88;outline:1px solid #a07000}
+  #chapters button{position:relative}
+  #chapters .cs{position:absolute;left:50%;bottom:-9px;transform:translateX(-50%);font-size:9px;font-style:normal;color:var(--amber);letter-spacing:-1px;white-space:nowrap}
   .sheet.decoded .chapterHead h2::after{content:" DECODED";color:var(--bad);border:2px solid var(--bad);padding:0 6px;margin-left:8px;font-size:22px;display:inline-block;transform:rotate(-4deg);animation:stampIn .4s ease-out both .2s}
   @keyframes stampIn{from{transform:scale(2.4) rotate(-12deg);opacity:0}}
   /* reply form */
@@ -182,7 +184,7 @@ function cleanSave(raw){
   const d = fresh(); d.decoded = 0; if (!raw || typeof raw!=='object' || Array.isArray(raw)) return d;
   const obj = v => v && typeof v==='object' && !Array.isArray(v);
   if (Number.isInteger(raw.seed)) d.seed = raw.seed;
-  for (const k of ['notes','conf','seti','solved','hints','known','bad']) if (obj(raw[k])) d[k] = raw[k];
+  for (const k of ['notes','conf','seti','solved','hints','known','bad','miss']) if (obj(raw[k])) d[k] = raw[k];
   for (const k of Object.keys(d.notes)) if (typeof d.notes[k]!=='string') delete d.notes[k];
   if (Number.isInteger(raw.chapter) && raw.chapter>=0) d.chapter = raw.chapter;
   if (typeof raw.gloss==='boolean') d.gloss = raw.gloss;
@@ -477,7 +479,7 @@ function render(){
   const i=S.chapter, ch=CH[i];
   seen = seenUpTo(i);
   const fresh = printed!==i; printed = i;
-  document.getElementById('chapters').innerHTML = CH.map((c,k)=>`<button data-c="${k}" class="${k===i?'cur':''} ${CH[k].qs.every((q,j)=>S.solved[k+':'+j])?'done':''}" ${chapterUnlocked(k)?'':'disabled'} aria-label="Transmission ${k+1}">${k+1}</button>`).join('');
+  document.getElementById('chapters').innerHTML = CH.map((c,k)=>`<button data-c="${k}" class="${k===i?'cur':''} ${CH[k].qs.every((q,j)=>S.solved[k+':'+j])?'done':''}" ${chapterUnlocked(k)?'':'disabled'} aria-label="Transmission ${k+1}${chStars(k)?`, ${chStars(k)} stars`:''}">${k+1}${chStars(k)?`<i class="cs">${'★'.repeat(chStars(k))}</i>`:''}</button>`).join('');
   document.querySelectorAll('#chapters button').forEach(b=>b.onclick=()=>{ S.chapter=+b.dataset.c; persist(); sfx('key'); render(); });
   document.getElementById('species').textContent = `SIGNAL ${String(S.seed).slice(0,4)}-${String(S.seed).slice(4,7)}${S.decoded? ` · ${S.decoded} DECODED`:''}`;
   let h = `<div class="sheet"><div class="chapterHead"><h2>TRANSMISSION ${String(i+1).padStart(2,'0')} : ${ch.title}</h2><span class="stamp">${new Date(Date.UTC(2031,2,4+i*9,3,7+i*4)).toISOString().slice(0,16).replace('T',' ')} UT</span></div><p class="intro">${ch.intro}</p>`;
@@ -511,16 +513,26 @@ function render(){
     qel.querySelector('[data-clear]').onclick=()=>{ comp.length=0; draw(); };
     send.onclick=()=>{
       if (Date.now()<(lockUntil[id]||0) || !comp.length) return;
-      const ok = (a)=> a.length===comp.length && a.every((w,j)=>w===comp[j]);
-      if (ok(q.ans) || (q.alt||[]).some(ok)){ sfx('send'); solve(id, q.final); return; }
-      misses[id]=(misses[id]||0)+1; lockUntil[id]=Date.now()+lockFor(id); sfx('static');
-      const right = q.ans.filter((w,j)=>w===comp[j]).length; fb.className='fb bad';
+      const res = transmit(id, comp); if (res.ok){ sfx('send'); return; }
+      lockUntil[id]=Date.now()+lockFor(id); sfx('static');
+      const right = res.right; fb.className='fb bad';
       fb.textContent = `NO ACK. ${right} of ${q.ans.length} symbol${q.ans.length>1?'s':''} in the right place${comp.length!==q.ans.length? ` (they expect ${q.ans.length>comp.length?'more':'fewer'})`:''}. Channel jammed ${Math.round(lockFor(id)/1000)}s.`;
       jam();
     };
   });
   renderNotebook();
 }
+// one transmission: the reply is checked, a miss is counted (misses cost stars and jam the channel)
+function transmit(id, comp){
+  const [ci,k]=id.split(':').map(Number), q=CH[ci].qs[k]; if (!q || S.solved[id]) return {ok:false, right:0};
+  const ok = (a)=> a.length===comp.length && a.every((w,j)=>w===comp[j]);
+  if (ok(q.ans) || (q.alt||[]).some(ok)){ solve(id, q.final); return {ok:true}; }
+  misses[id]=(misses[id]||0)+1; (S.miss ||= {})[id]=(S.miss[id]||0)+1; persist();
+  return {ok:false, right:q.ans.filter((w,j)=>w===comp[j]).length};
+}
+// stars for a decoded transmission: every missed reply costs (no misses ★★★, up to two ★★)
+const chMisses = i => CH[i].qs.reduce((a,q,k)=>a+((S.miss||{})[i+':'+k]||0),0);
+const chStars = i => CH[i].qs.every((q,k)=>S.solved[i+':'+k]) ? (chMisses(i)===0?3:chMisses(i)<=2?2:1) : 0;
 const allSolved = ()=> CH.every((c,i)=>c.qs.every((q,k)=>S.solved[i+':'+k]));
 // Every acknowledged reply confirms the symbols it used: their cards on the corkboard get the meaning typed in.
 function confirmWords(ws){ S.known ||= {}; const fresh=ws.filter(w=>!S.known[w]); fresh.forEach(w=>S.known[w]=1); return fresh; }
@@ -531,7 +543,7 @@ function solve(id, final){ if (S.solved[id]) return; S.solved[id]=1; delete draf
   if (chDone) { const g=gradeNotes([...new Set(CH[S.chapter].tx.flatMap(t=>t.words))]); persist(); setTimeout(()=>rosetta(g), 400); }
   if (allSolved() && !S.ended){ S.ended=1; persist(); setTimeout(ending, chDone? 2600 : 500); }
   else if (final) setTimeout(()=>RH.toast('They are waiting for the rest of your replies to this transmission.'),700);
-  else if (chDone) setTimeout(()=>RH.toast(`TRANSMISSION ${S.chapter+1} DECODED.`),700);
+  else if (chDone) setTimeout(()=>RH.toast(`TRANSMISSION ${S.chapter+1} DECODED. ${'★'.repeat(chStars(S.chapter))}${'☆'.repeat(3-chStars(S.chapter))}`),700);
 }
 // When a transmission is decoded, the SETI team checks the guesses pencilled on your cards against its own analysis.
 // Right guesses are confirmed (green), wrong ones are marked (red). Glyphs you never annotated stay unexplained.
@@ -612,7 +624,7 @@ function boot(){
   render();
 }
 boot();
-window.__fc = { guessRight, gradeNotes, ord, picPoly, planetIn, get S(){ return S; }, get LANG(){ return LANG; }, get CH(){ return CH; }, buildLanguage, num, np, clause, cleanSave, seenUpTo, chapterUnlocked, allSolved, solve, render, newSignal, LOCKOUT, lockFor, misses, meaningOf };
+window.__fc = { buildChapters, transmit, chStars, chMisses, guessRight, gradeNotes, ord, picPoly, planetIn, get S(){ return S; }, get LANG(){ return LANG; }, get CH(){ return CH; }, buildLanguage, num, np, clause, cleanSave, seenUpTo, chapterUnlocked, allSolved, solve, render, newSignal, LOCKOUT, lockFor, misses, meaningOf };
 if (!S.intro){ S.intro=1; persist(); RH.modal(`<h2>FIRST CONTACT</h2><p>A narrow-band signal is coming from a star 41 light-years away. It's structured. Someone made it.</p><p>You have no dictionary. You have pictures, patterns and a notebook. Work out what the symbols mean, then answer them <b>in their language</b>.</p><p class="dim">All eight transmissions come from one species. Pencil your guesses on the lexicon cards: when a transmission is decoded, the SETI team checks them. Tune in to a new signal and it's a new species with a new grammar.</p>`,[{label:'Start listening'}]); }
 </script>
 </body>

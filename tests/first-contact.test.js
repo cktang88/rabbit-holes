@@ -1,4 +1,5 @@
 // First Contact: decode a generated alien language. Logic via window.__fc.
+const { fcBot } = require('./first-contact.bots.js');
 const closeModals = page => page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
 const withSave = async (page, save) => { await page.addInitScript(s => localStorage.setItem('rh:fc', s), typeof save === 'string' ? save : JSON.stringify(save)); await page.reload(); await page.waitForTimeout(500); };
 // compose an answer by clicking palette glyphs in question k of the current chapter
@@ -72,6 +73,23 @@ module.exports = {
         }));
       }
       eq(bad, []);
+    },
+    'difficulty: naive decoders fail the last transmissions; English grammar costs stars; the language itself earns 3': async ({ page, ok }) => {
+      const all = { random: [], echo: [], english: [], solver: [] };
+      for (let seed = 1; seed <= 6; seed++) {
+        for (const pol of Object.keys(all)) {
+          await withSave(page, { seed: seed * 7727, intro: 1 }); await closeModals(page);
+          await page.addScriptTag({ content: fcBot.toString() });
+          all[pol].push(...await page.evaluate(pol => { const fc = window.__fc, n = fc.CH.length, out = [];
+            for (let c = 0; c < n; c++) fc.CH[c].qs.forEach((q, k) => { fc.S.solved[c + ':' + k] = c < n - 3 ? 1 : 0; });
+            for (let c = n - 3; c < n; c++) out.push(fcBot(c, pol)); return out; }, pol));
+        }
+      }
+      const naive = [...all.random, ...all.echo];
+      ok(naive.filter(x => x <= 1).length / naive.length >= .8, 'naive decoders do too well: ' + JSON.stringify(all));
+      ok(all.english.every(x => x >= 1), 'the competent decoder should finish');
+      ok(all.solver.every(x => x === 3), 'the solver should get 3 stars');
+      ok(all.english.filter(x => x === 3).length / all.english.length < .5, 'English grammar should usually cost stars: ' + all.english);
     },
     'palette lists digits first in numeric order': async ({ page, eq }) => {
       await closeModals(page);
