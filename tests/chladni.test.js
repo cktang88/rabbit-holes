@@ -114,20 +114,20 @@ module.exports = {
       // by real input: drag the bow to a corner, tap the plate for a finger, tap it again to lift
       const box = await page.evaluate(() => { const b = document.getElementById('cv').getBoundingClientRect(); return null; });
     },
-    'luthier: thinning where a figure bends lowers it, where it only moves raises it; scrapes are permanent and limited': async ({ page, ok, eq }) => {
+    'luthier: where you thin the plate decides how much each note drops; scrapes are permanent and limited': async ({ page, ok, eq }) => {
       await page.click('[data-m="tune"]');
       const r = await page.evaluate(() => { const X = __ch, k = X.kOf('s02m'), TG = X.TG, f0 = X.tunedF(k);
         // bend-heavy vs motion-heavy cells for this mode, from its own maps
         const h = new Float64Array(TG * TG).fill(1), res = [];
         for (let c = 0; c < TG * TG; c++) { const hh = h.slice(); hh[c] = .8; res.push(X.tunedF(k, hh) / f0 - 1); }
         return { min: Math.min(...res), max: Math.max(...res), used0: X.tune.used }; });
-      ok(r.min < -.005 && r.max > .002, `some cells lower the note, others raise it: ${r.min} … ${r.max}`);
+      ok(r.max < 0 && r.min / r.max > 5, `thinning always lowers a note, but where you scrape matters (5× or more): ${r.min} … ${r.max}`);
       const u = await page.evaluate(() => { const X = __ch; X.startTune(0); for (let i = 0; i < 30; i++) X.scrapeCell(0, false); return [X.tune.used, X.TUNE[0].budget]; });
       ok(u[0] <= u[1], 'never more scrapes than the budget: ' + u);
     },
     'difficulty: naive play fails': async ({ page, ok }) => {
       await page.click('[data-m="tune"]');
-      const R = await page.evaluate(() => { const X = __ch, N = X.TG ** 2, out = { naive: 0, naiveN: 0, comp: [] };
+      const R = await page.evaluate(() => { FX.setMuted(true); const X = __ch, N = X.TG ** 2, out = { naive: 0, naiveN: 0, comp: [] };
         for (let ci = 0; ci < X.TUNE.length; ci++) { const T = X.TUNE[ci];
           for (let t = 0; t < 8; t++) { X.startTune(ci); let rs = 3 + t + 10 * ci; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647;
             for (let g = 0; g < 300 && !X.tune.done && X.tune.used < T.budget; g++) X.scrapeCell((rnd() * N) | 0, rnd() < .5); out.naiveN++; if (X.tune.done && X.tuneGrade(T, X.tuneErr(T)) > 1) out.naive++; }

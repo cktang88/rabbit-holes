@@ -186,6 +186,16 @@ const SC = [
     first: 'First: pick <b>Field</b> and tap flat ground. Fields near the river grow most, and floods leave rich silt, but a big flood drowns them. Then guard the towns.',
     want: { harvest: 4000, floods: 2 },
     medals: [['Goal met', S => S.goalMet], ['No town ever floods', S => S.goalMet && S.maxFloods === 0], ['And 7,000 bushels', S => S.goalMet && S.maxFloods === 0 && S.harvest >= 7000]] },
+  // the campaign continues: the same valley ten years on, your 1927 works still standing, and bigger floods coming
+  { id: 'floodway', seed: 'levee', n: 'The Floodway', place: 'Mississippi · 1937', years: 20, sea: 3, erodeScale: .15, gen: valleyGen, springs: [[.45, .03, 1.2]], stormY: .45,
+    storm: y => y === 4 ? 6 : y === 11 ? 8 : y % 3 === 1 ? 1.5 : 0, rain: .03, inherit: 0,
+    defaultPlan: [['farm', [62, 75]], ['farm', [62, 88]], ['farm', [62, 101]], ['farm', [84, 75]], ['farm', [84, 86]], ['farm', [50, 80]], ['levee', [84, 94], [110, 95]]],
+    towns: [{ n: 'Upper Town', at: [[.6, .64], [.63, .7], [.57, .76]] }, { n: 'Lower Town', at: [[.52, .87], [.56, .9], [.6, .86]] }],
+    kit: { farm: 8, levee: 4, cut: 2 },
+    goal: 'Your 1927 works still stand, but the floods are bigger now. Keep both towns to <b>2 floods or fewer</b> and still harvest <b>{harvest} bushels</b>.',
+    first: 'One levee is not enough for a flood this size. Give the water somewhere else to go: a <b>Cut</b> can open a floodway onto land you can afford to lose.',
+    want: { harvest: 2500, floods: 2 },
+    medals: [['Goal met', S => S.goalMet], ['No town floods more than once', S => S.goalMet && S.maxFloods <= 1], ['And 3,500 bushels', S => S.goalMet && S.maxFloods <= 1 && S.harvest >= 3500]] },
   { id: 'nile', n: 'The High Dam', place: 'Nile · 1960s', years: 20, sea: 6, evap: .0002, springs: [[.5, .03, 2.5]], stormY: .5, storm: y => y % 5 === 3 ? 2.5 : y % 2 ? 1 : 0, rain: .006, cam: { el: 40, az: -12, d: 305, t: [0, 6, 8] },
     gen: (x, y, n) => { const v = Math.abs(x - .5), walls = 13 * sm(.03, .16, v) * sm(.22, .34, y) * sm(.6, .48, y); const h = 26 * Math.pow(1 - y, 1.2) + walls + 4 * fbm(n, x * 3, y * 3) + 1; return [h + 3.5, h - 2]; },
     coastY: .78, waves: .2, kit: { dam: 1, cut: 1 },
@@ -206,7 +216,9 @@ function cleanSave(raw) {
   const s = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}, medals = {};
   // v2 saves belonged to the old ten landscapes; nothing carries over except having played
   if (s.v === 3 && s.medals && typeof s.medals === 'object') for (const k in s.medals) if (/^\d+$/.test(k) && +k < SC.length - 1 && Number.isInteger(s.medals[k]) && s.medals[k] > 0) medals[k] = Math.min(3, s.medals[k]);
-  return { v: 3, medals, cur: s.v === 3 && Number.isInteger(s.cur) && s.cur >= 0 && s.cur < SC.length ? s.cur : 0, intro: s.intro ? 1 : 0 };
+  const plans = {}; if (s.v === 3 && s.plans && typeof s.plans === 'object') for (const k in s.plans) { const P = s.plans[k];
+    if (/^\d+$/.test(k) && +k < SC.length && Array.isArray(P) && P.length <= 60 && P.every(w => Array.isArray(w) && WORKS[w[0]] && [w[1], w[2]].every(p => Array.isArray(p) && p.length === 2 && p.every(v => Number.isFinite(v) && v >= 0 && v < N)))) plans[k] = P; }
+  return { v: 3, medals, plans, cur: s.v === 3 && Number.isInteger(s.cur) && s.cur >= 0 && s.cur < SC.length ? s.cur : 0, intro: s.intro ? 1 : 0 };
 }
 const SAVE = cleanSave(RH.load('watershed', null));
 const persist = () => { RH.save('watershed', SAVE); RH.progress('watershed', Object.values(SAVE.medals).reduce((a, m) => a + m, 0) / (3 * (SC.length - 1))); };
@@ -224,7 +236,7 @@ function buildLevel(i) {
   year = 0; yStep = 0; harvest = 0; power = 0; history = []; lastYield = 0;
   NOERODE.fill(0); NOSCULPT.fill(0); RAISED.fill(0); USE.fill(0); WORKOF.fill(-1); FH.fill(0); FDEP.fill(0); YMAX.fill(0); INB.fill(0);
   K.evap = L.evap ?? .0015; // drier sites lose shallow water faster
-  const n = noise2('ws' + L.id);
+  const n = noise2('ws' + (L.seed || L.id));
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const k = y * N + x, [h, r] = L.gen(x / (N - 1), y / (N - 1), n); B[k] = h; ROCK[k] = Math.min(r, h); HARD[k] = L.soft || 1; }
   D.fill(0); SED.fill(0); SED2.fill(0); FL.fill(0); FR.fill(0); FT.fill(0); FB.fill(0); U.fill(0); V.fill(0); DEP.fill(0);
   // the Loess site comes with an old dam across the gorge; its basin is what silts up
@@ -239,6 +251,8 @@ function buildLevel(i) {
   B0.set(B); SEA.fill(0); floodSea();
   towns = (L.towns || []).map(t => ({ n: t.n, cells: t.at.map(([x, y]) => Math.round(y * (N - 1)) * N + Math.round(x * (N - 1))), floods: 0, wet: false, flood: [], peak: 0 }));
   for (const t of towns) for (const k of t.cells) { const hx = k % N, hy = (k / N) | 0; for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) if (dx * dx + dy * dy <= 16) NOSCULPT[(hy + dy) * N + hx + dx] = 1; }
+  // inherited works from an earlier decade
+  if (L.inherit != null) { for (const [t, a, b] of SAVE.plans[L.inherit] || L.defaultPlan) { const w = placeWork(t, a, b, true); if (typeof w === 'object') w.old = 1; } }
   deltaLand0 = Math.max(1, deltaLand()); cap0 = L.dam ? L.dam.cap : 1;
   stat = {}; measure(); buildMarkers(); renderUI(); updateGeometry(true);
   $('lvName').textContent = L.n; $('place').textContent = L.place; $('goal').innerHTML = L.goal; $('first').innerHTML = L.first || '';
@@ -277,9 +291,9 @@ function workCells(t, a, b) {
   return out;
 }
 // place a piece; returns the piece or a reason it can't go there
-function placeWork(t, a, b) {
+function placeWork(t, a, b, inherited) {
   if (over) return 'The survey is over.';
-  if (kitLeft(t) <= 0) return `No ${WORKS[t].n.toLowerCase()}s left in the kit. Remove one to move it.`;
+  if (kitLeft(t) <= 0 && !inherited) return `No ${WORKS[t].n.toLowerCase()}s left in the kit. Remove one to move it.`;
   const cells = workCells(t, a, b || a), rec = [];
   if (WORKS[t].drag && Math.hypot(b[0] - a[0], b[1] - a[1]) < 4) return 'Drag to draw it: press, pull across the model, let go.';
   if (t === 'farm' || t === 'forest') {
@@ -510,7 +524,9 @@ function countUse(u) { let n = 0; for (let k = 0; k < NN; k++) if (USE[k] === u)
 function finish() {
   over = true; setSpeed(0); measure();
   const got = L.medals.map(([label, f]) => [label, !!f(stat)]), n = got.filter(g => g[1]).length;
-  if (n > (SAVE.medals[cur] || 0)) SAVE.medals[cur] = n; persist(); renderUI();
+  if (n > (SAVE.medals[cur] || 0)) SAVE.medals[cur] = n;
+  if (n) SAVE.plans[cur] = works.map(w => [w.t, w.a.map(Math.round), w.b.map(Math.round)]); // what you built carries into the next decade
+  persist(); renderUI();
   const K = ['bronze', 'silver', ''];
   $('report').innerHTML = `<h2>${n ? 'Survey report: approved' : 'Survey report: failed'}</h2><div class="place">${L.place} · after ${L.years} years</div>
     <ul>${got.map(([label, ok], j) => `<li class="${ok ? '' : 'no'}"><span class="medal ${ok ? K[j] + ' drop' : 'none'}" style="animation-delay:${.25 + j * .35}s">${j + 1}</span>${label}</li>`).join('')}</ul>
@@ -751,7 +767,7 @@ function renderUI() {
 }
 // the list of placed pieces on the clipboard, each removable
 function renderWorks() {
-  $('works').innerHTML = works.length ? works.map((w, i) => `<button class="wk" data-i="${i}" title="Remove this ${WORKS[w.t].n.toLowerCase()}">${WORKS[w.t].icon} ${WORKS[w.t].n} ${i + 1}${w.yr ? ` · ${w.t === 'farm' ? Math.round(w.yr.bu) + ' bu' : ''}` : ''} ✕</button>`).join('') : '<span class="none">No works yet. Pick a piece below and place it on the model.</span>';
+  $('works').innerHTML = works.length ? works.map((w, i) => `<button class="wk" data-i="${i}" title="Remove this ${WORKS[w.t].n.toLowerCase()}">${WORKS[w.t].icon} ${WORKS[w.t].n} ${i + 1}${w.old ? ' (old)' : ''}${w.yr ? ` · ${w.t === 'farm' ? Math.round(w.yr.bu) + ' bu' : ''}` : ''} ✕</button>`).join('') : '<span class="none">No works yet. Pick a piece below and place it on the model.</span>';
   $('works').querySelectorAll('.wk').forEach(b => b.onclick = () => { if (removeWork(+b.dataset.i)) { snd.plaster(); renderWorks(); renderUI(); } });
 }
 // a site opens once the one before has at least one medal; the sandbox is always open
