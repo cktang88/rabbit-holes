@@ -111,7 +111,7 @@ const C = [
   { a: 0, n: 'The Comma', tools: ['pure'], goals: [...[0, 7, 2, 9, 4, 11, 6, 1, 3, 10, 5].map(i => ({ k: 'f', i, d: 0, tol: [1, .3, .1] })), { k: 'wolfAt', i: 8 }],
     s: 'Keep going round the circle. Twelve pure fifths <i>should</i> come back to C seven octaves up, but they overshoot by about a quarter of a semitone: the <b>Pythagorean comma</b>. One fifth has to absorb all of it, and it howls. Musicians called it the <b>wolf</b>. Tune 11 fifths pure and put the wolf between <b>G♯ and E♭</b>, the fifth nobody plays.' },
   { a: 1, n: 'A Pure Third', tools: ['pure'], goals: [{ k: 't', i: 0, d: 0, tol: [2, .5, .1] }],
-    s: 'Listen to the Pythagorean major third C–E (press ▶ on the thirds grid). It is 408¢, harsh and fast-beating. Renaissance ears wanted the <b>pure third, 5:4 = 386¢</b>. Tune C–E pure.' },
+    s: 'Click the C–E line in the inner star (or its cell in the major-thirds row of the grid) and listen. In equal temperament it is 400¢. Pythagoras\'s chain of fifths makes it even wider, 408¢: harsh and fast-beating. Renaissance ears wanted the <b>pure third, 5:4 = 386¢</b>. Tune C–E pure.' },
   { a: 1, n: 'Just C Major', tools: ['pure'], goals: [{ k: 'ch', list: ['C', 'F', 'G'], tol: [2, .5, .1] }], piece: [['C'], ['F'], ['G'], ['C']],
     s: 'Make the three main chords of C major (C, F and G) perfectly pure: pure fifths and pure thirds. This is <b>just intonation</b>. Play the piece to hear how still it sounds.' },
   { a: 1, n: 'The Syntonic Comma', tools: ['pure'], goals: [{ k: 'ch', list: ['C', 'F', 'G', 'Dm'], tol: [10, 6.5, 5.5] }], piece: [['C'], ['Dm'], ['G'], ['C'], ['F'], ['Dm'], ['G'], ['C']],
@@ -249,12 +249,13 @@ function update() {
     <div class="row" style="gap:18px"><div><div class="big" style="color:${col(d, k === 7 ? 12 : 22)}">${d >= 0 ? '+' : ''}${d.toFixed(2)}¢</div><div class="note">${iv(c, i, k).toFixed(2)}¢ vs pure ${IV[k].pure.toFixed(2)}¢</div></div>
     <div><div class="big beats">${b.toFixed(2)}</div><div class="note">beats per second</div></div></div>
     <div class="meter"><div style="width:${Math.min(100, b * 10)}%"></div></div>
-    <div class="ctl"><button class="primary" id="ivPlay">▶ Listen</button><button id="ivPure" ${cm.tools.includes('pure') ? '' : 'disabled title="Unlocked in commission 3"'}>Make pure</button>
+    <div class="ctl"><button class="primary" id="ivPlay">▶ Listen</button>${cm.tools.includes('pure') ? `<button id="ivPure" ${j === 0 ? 'disabled' : ''}>Make pure (move ${NM[j]})</button><button id="ivPureL" ${i === 0 ? 'disabled' : ''}>Make pure (move ${NM[i]})</button>` : '<button disabled title="Unlocked in commission 3">Make pure</button>'}
     ${cm.tools.includes('temper') && k === 7 ? `<select id="tempSel"><option value="${-SC / 4}">narrow ¼ syntonic comma (−5.38¢)</option><option value="${-PC / 4}">narrow ¼ Pythagorean (−5.86¢)</option><option value="${-PC / 6}">narrow ⅙ Pythagorean (−3.91¢)</option><option value="${-PC / 12}">narrow 1/12 Pythagorean (−1.96¢)</option><option value="${-SC / 3}">narrow ⅓ syntonic (−7.17¢)</option><option value="${-SC / 6}">narrow ⅙ syntonic (−3.58¢)</option></select><button id="ivTemp">Temper</button>` : ''}</div>
-    <div class="note" style="margin-top:4px">${j === 0 ? 'C is the reference, so this moves the lower note instead.' : `Adjusting moves ${NM[j]}.`}</div>`;
+    <div class="note" style="margin-top:4px">Choose which note moves, so you don't undo intervals you've already tuned. C is the fixed reference.${cm.tools.includes('temper') && k === 7 ? ' Temper moves the upper note (or the lower one when the upper is C).' : ''}</div>`;
   $('ivPlay').onclick = () => playNotes(ivNotes(i, k));
-  const setIv = target => { const t = tun(); if (j !== 0) { t[j] = t[i] + target - (i + k >= 12 ? 1200 : 0); } else { t[i] = t[j] + (i + k >= 12 ? 1200 : 0) - target; } persist(); update(); playNotes(ivNotes(i, k)); };
+  const setIv = (target, lower) => { const t = tun(); if (j !== 0 && !lower) { t[j] = t[i] + target - (i + k >= 12 ? 1200 : 0); } else { t[i] = t[j] + (i + k >= 12 ? 1200 : 0) - target; } persist(); update(); playNotes(ivNotes(i, k)); };
   if ($('ivPure')) $('ivPure').onclick = () => setIv(IV[k].pure);
+  if ($('ivPureL')) $('ivPureL').onclick = () => setIv(IV[k].pure, true);
   if ($('ivTemp')) $('ivTemp').onclick = () => setIv(IV[k].pure + +$('tempSel').value);
   // note box
   const o = c[selN] - 100 * selN;
@@ -279,23 +280,25 @@ function update() {
 function updateSoft() { // during slider drag: just goals + labels
   updateGoals();
 }
-let celebrating = false;
+let celebTimer = null, celebFor = -1;
+// The result dialog waits until the player has stopped nudging for a moment, so it never interrupts fine-tuning.
+function celebrate() {
+  celebTimer = null; if (celebFor !== cur) return;
+  const cm = C[cur], stars = S.done[cur], nxt = C.findIndex((x, j) => j > cur && !S.done[j] && actOpen(x.a));
+  if (cm.piece) playPiece(cm.piece); else playNotes([[0, 3], [4, 4], [7, 4], [0, 5]], 2.5);
+  RH.modal(`<h2>🎼 ${cm.n}</h2><p class="stars" style="font-size:26px;text-align:center">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</p><p style="text-align:center">${stars < 3 ? 'The commission is met. Tighter tuning earns more stars.' : 'Beautifully in tune.'}</p>`, nxt >= 0 ? [{ label: 'Keep tuning', value: 0 }, { label: `Next: ${C[nxt].n}`, value: 1 }] : [{ label: 'Close', value: 0 }])
+    .then(go => { if (go) { cur = nxt; S.cur = cur; persist(); render(); } });
+}
 function updateGoals() {
   const c = tun(), cm = C[cur], ev = cm.goals.map(g => goalEval(g, c));
   $('goals').innerHTML = ev.map(e => `<div class="g"><span>${e.label}</span><span class="${e.stars === 3 ? 'ok' : e.stars ? 'mid' : 'no'}">${e.val ?? ''} ${e.stars ? '★'.repeat(e.stars) : '✗'}</span></div>`).join('') +
     (cm.goals[0].tol ? `<div class="note" style="margin-top:4px">Thresholds for ★/★★/★★★: ${cm.goals[0].tol.map(x => x + '¢').join(' / ')}${cm.goals.length > 1 ? ' (per goal)' : ''}.</div>` : '');
   const stars = Math.min(...ev.map(e => e.stars));
+  if (celebTimer) { clearTimeout(celebTimer); celebTimer = setTimeout(celebrate, 1600); }
   if (stars > 0 && (S.done[cur] || 0) < stars) {
     const first = !S.done[cur]; S.done[cur] = stars; persist(); renderSide();
-    if (first && !celebrating) {
-      celebrating = true;
-      const nxt = C.findIndex((x, j) => j > cur && !S.done[j] && actOpen(x.a));
-      setTimeout(async () => {
-        if (cm.piece) playPiece(cm.piece); else playNotes([[0, 3], [4, 4], [7, 4], [0, 5]], 2.5);
-        const go = await RH.modal(`<h2>🎼 ${cm.n}</h2><p class="stars" style="font-size:26px;text-align:center">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</p><p style="text-align:center">${stars < 3 ? 'The commission is met. Tighter tuning earns more stars.' : 'Beautifully in tune.'}</p>`, nxt >= 0 ? [{ label: 'Keep tuning', value: 0 }, { label: `Next: ${C[nxt].n}`, value: 1 }] : [{ label: 'Close', value: 0 }]);
-        celebrating = false; if (go) { cur = nxt; S.cur = cur; persist(); render(); }
-      }, 250);
-    } else if (!first) RH.toast(`Improved: ${'★'.repeat(stars)}`);
+    if (first) { celebFor = cur; celebTimer = setTimeout(celebrate, 1600); }
+    else if (!celebTimer) RH.toast(`Improved: ${'★'.repeat(stars)}`);
   }
 }
 
