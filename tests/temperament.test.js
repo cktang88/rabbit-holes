@@ -6,7 +6,7 @@ const solutions = () => {
   // Remote Keys: minimax optimum (worst error ~3.26 cents), found offline by smoothed-max descent.
   const remote = [0, 105.213, 208.801, 283.275, 387.944, 494.786, 600, 705.214, 808.795, 882.728, 987.397, 1094.786];
   const P = k => T.PRESET[k].c();
-  return [P('pyth'), P('pyth'), P('pyth'), P('pyth'), P('mean'), just, P('mean'), P('mean'), T.chainFrom(-SC / 4, -SC / 4, 11, 0), P('werck'), P('vallotti'), P('et'), P('vallotti'), P('mean'), remote, P('et')];
+  return [P('pyth'), P('pyth'), P('pyth'), T.wolfAt(2), P('mean'), just, P('mean'), P('mean'), T.chainFrom(-SC / 4, -SC / 4, 11, 0), P('werck'), P('vallotti'), P('et'), P('vallotti'), P('mean'), remote, P('et')];
 };
 
 module.exports = {
@@ -31,9 +31,27 @@ module.exports = {
       ok(r.every(x => x.start === 0), 'met at start: ' + r.filter(x => x.start).map(x => x.i));
       ok(r.every(x => x.sol >= 1), 'unsolvable: ' + JSON.stringify(r.filter(x => x.sol < 1)));
     },
-    'the wolf goal moves with the wolf': async ({ page, eq }) => {
-      const r = await page.evaluate(() => { const T = window.__tm, g = T.C[3].goals.at(-1); return [T.goalEval(g, T.PRESET.pyth.c()).ok, T.goalEval(g, T.chainFrom(0, 0, 11, 0)).ok, T.goalEval(g, T.ET()).ok]; });
-      eq(r, [true, false, false]);
+    'The Comma: the wolf tool tunes eleven pure fifths, and where you put the wolf decides the commission': async ({ page, eq, near }) => {
+      const r = await page.evaluate(() => {
+        const T = window.__tm, [f11, off] = T.C[3].goals, out = [];
+        for (let w = 0; w < 12; w++) { const c = T.wolfAt(w), d = [...Array(12).keys()].map(i => T.dev(c, i, 7));
+          out.push({ w, c0: c[0], wolf: d[w], others: Math.max(...d.filter((_, i) => i !== w).map(Math.abs)), f11: T.goalEval(f11, c).stars, off: T.goalEval(off, c).ok }); }
+        return out;
+      });
+      r.forEach(x => { eq(x.c0, 0, 'C moved'); near(x.wolf, -23.46, .01, 'wolf size'); near(x.others, 0, 1e-6, 'other fifths'); eq(x.f11, 3); });
+      // the piece is in flats down to A-flat: C, F, B-flat, E-flat, A-flat (G#), G fifths are taken
+      eq(r.filter(x => x.off).map(x => x.w), [1, 2, 4, 6, 9, 11]);
+    },
+    'wolf button: select a fifth, press it, the tuning follows': async ({ page, ok }) => {
+      await page.evaluate(() => { const T = window.__tm; T.S.done = { 0: 3, 1: 3, 2: 3 }; T.setCur(3); });
+      await page.click('#wheel .arc[data-k="7"][data-i="2"]');
+      await page.click('#ivWolf');
+      const r = await page.evaluate(() => { const T = window.__tm, t = T.tun(); return Math.abs(T.dev(t, 2, 7) + 23.46) < .01; });
+      ok(r, 'wolf not placed on D–A');
+      await page.waitForTimeout(1300);
+      ok(await page.evaluate(() => window.__tm.S.done[3] === 3), 'commission not met');
+      ok(await page.locator('.modal .seal').count() === 1, 'no seal');
+      ok(await page.evaluate(() => document.getElementById('kbd').classList.contains('gliss')), 'no glissando');
     },
     'regression: dragging the note slider through the target does not complete the commission': async ({ page, ok }) => {
       const box = await page.locator('#nSl').boundingBox(), y = box.y + box.height / 2, xAt = v => box.x + 8 + (box.width - 16) * (v + 50) / 100;

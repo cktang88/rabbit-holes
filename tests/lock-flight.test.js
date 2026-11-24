@@ -43,10 +43,19 @@ module.exports = {
     'a staircase wants convoys: BATCH beats ALT on Bingley, and the AHA charts tell the truth': async ({ page, ok, near }) => {
       const r = await page.evaluate(`(() => { const run = ${RUN}, L = __lock, off = L2 => L2.state().basins.forEach(b => b.kind === 'ch' && L2.ponds(b.i, 0));
         return { 5: [run(5, 'FIFO'), run(5, 'ALT')], 6: [run(6, 'ALT'), run(6, 'BATCH')], 7: [run(7, 'ALT'), run(7, 'ALT', L2 => L2.policy(2, 'BATCH'))],
-          8: [run(8, 'FIFO', L2 => L2.ponds(1, 0)), run(8, 'FIFO', L2 => L2.ponds(1, 1))], 16: [run(16, 'BATCH', off), run(16, 'BATCH')] }; })()`);
-      const AHA = { 5: [[.60, 1], [.39]], 6: [[3.27, 1], [1.18]], 7: [[1.30], [1.16]], 8: [[.54], [.45]], 16: [[1.36, 1], [.62]] };
+          8: [run(8, 'FIFO', L2 => L2.ponds(1, 0)), run(8, 'FIFO', L2 => L2.ponds(1, 1))], 16: [run(16, 'BATCH', off), run(16, 'BATCH')],
+          4: [run(4, 'FIFO'), run(4, 'ALT')], 9: [run(9, 'BATCH'), run(9, 'ALT')], 15: [run(15, 'FIFO'), run(15, 'PAIR')] }; })()`);
+      const AHA = { 5: [[.60, 1], [.39]], 6: [[3.27, 1], [1.18]], 7: [[1.30], [1.16]], 8: [[.54], [.45]], 16: [[1.36, 1], [.62]], 4: [[.53], [.41]], 9: [[.84, 1], [.65]], 15: [[1.21, 1], [.99]] };
       for (const k in AHA) AHA[k].forEach(([w, dry], j) => { const m = r[k][j]; near(m.wpb, w, .03, `level ${+k + 1} chart row ${j}`); ok(dry ? m.state === 'lost' : m.state === 'won', `level ${+k + 1} row ${j} state ${m.state}`); });
       ok(r[6][1].wpb < r[6][0].wpb / 2, 'BATCH should more than halve staircase water');
+    },
+    'policy is a real decision on The Lock-Keeper, Caen Hill and Wide Locks (the default loses or drops a star)': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(`(() => { const run = ${RUN}, L = __lock, dflt = i => { L.load(i); return L.state().units[0].policy; };
+        return { d4: dflt(4), d9: dflt(9), d15: dflt(15), f4: run(4, 'FIFO'), a4: run(4, 'ALT'), b9: run(9, 'BATCH'), a9: run(9, 'ALT'), f15: run(15, 'FIFO'), p15: run(15, 'PAIR') }; })()`);
+      eq([r.d4, r.d9, r.d15], ['FIFO', 'BATCH', 'FIFO'], 'defaults');
+      ok(r.f4.state === 'won' && r.f4.stars < 3 && r.a4.stars === 3, 'Lock-Keeper: ALT must earn the water star FIFO misses');
+      eq(r.b9.state, 'lost', 'Caen Hill on BATCH should run dry'); eq(r.a9.stars, 3);
+      eq(r.f15.state, 'lost', 'Wide Locks on FIFO should run dry'); eq(r.p15.stars, 3);
     },
     'side ponds catch water: a pond is filled on draining and empties on refilling': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const L = __lock; L.load(8); L.ponds(1, true); L.tick(1);

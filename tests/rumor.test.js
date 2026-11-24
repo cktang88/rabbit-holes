@@ -95,7 +95,7 @@ module.exports = {
         document.getElementById('nextDay').click();
         return { clicks, days: R.sc.days, dup, done: R.SAVE.done[0], hub: JSON.parse(localStorage.getItem('rh:hub')).rumor, disabled: document.getElementById('nextDay').disabled, modal: window.__lastModal };
       });
-      eq(r.clicks, r.days); eq(r.dup, false); eq(r.done, 1); ok(r.hub > 0 && r.hub <= 1, 'hub ' + r.hub); eq(r.disabled, true); ok(/It worked/.test(r.modal), 'win modal');
+      eq(r.clicks, r.days); eq(r.dup, false); eq(r.done, 1); ok(r.hub > 0 && r.hub <= 1, 'hub ' + r.hub); eq(r.disabled, true); ok(/Village Gazette/.test(r.modal) && /class="big"/.test(r.modal), 'the win prints a gazette front page');
     },
     'a lost scenario explains why and names a promising first ear': async ({ page, ok }) => {
       const m = await page.evaluate(() => { const R = window.__rumor; R.start(2); R.T.people.forEach(p => p.belief = null); while (!document.getElementById('nextDay').disabled) document.getElementById('nextDay').click(); return window.__lastModal; });
@@ -126,6 +126,42 @@ module.exports = {
       const pos = await page.evaluate(() => { const R = window.__rumor, p = R.T.people[5], r = document.getElementById('cv').getBoundingClientRect(); return [r.left + p.x * R.view.s + R.view.ox, r.top + p.y * R.view.s + R.view.oy]; });
       await page.mouse.click(pos[0], pos[1]);
       eq(await page.evaluate(() => [window.__rumor.sel, !!document.getElementById('cGo')]), [5, true]);
+    },
+    "The Mayor's Ear: the mayor never takes a stranger's whisper, but listens to a confidant": async ({ page, ok, eq }) => {
+      await seedRandom(page, 21);
+      const r = await page.evaluate(() => {
+        const R = window.__rumor; R.start(1); const m = R.T.people[R.T.roleOf.mayor], t = R.T.cast.T.id, v = { who: t, verb: 4, whom: (t + 1) % R.T.people.length, place: 0 };
+        let direct = 0; for (let k = 0; k < 300; k++) { m.belief = null; if (R.hear(m, v, 0.9, null)) direct++; }
+        const conf = R.T.people[m.friends[0][0]]; let via = 0; for (let k = 0; k < 300; k++) { m.belief = null; if (R.hear(m, v, 0.9, conf)) via++; }
+        R.sel = m.id; R.renderAll(); const ui = [!!document.getElementById('cGo'), document.querySelectorAll('#person .note [data-p]').length];
+        // a naive player who only ever whispers to the mayor's confidants
+        let wins = 0, directWins = 0;
+        for (let k = 0; k < 20; k++) { R.start(1); const M = R.T.people[R.T.roleOf.mayor], tid = R.T.cast.T.id; const cf = M.friends.map(f => R.T.people[f[0]]);
+          while (R.day <= R.sc.days && !R.goalStatus().ok) { for (let w = 0; w < R.sc.w; w++) R.hear(cf[w % cf.length], { who: tid, verb: 4, whom: (tid + 1) % R.T.people.length, place: 0 }, 0.9, null); R.simDay(); R.day = R.day + 1; } wins += !!R.goalStatus().ok;
+          R.start(1); while (R.day <= R.sc.days && !R.goalStatus().ok) { R.hear(R.T.people[R.T.roleOf.mayor], { who: R.T.cast.T.id, verb: 4, whom: 0, place: 0 }, 0.9, null); R.simDay(); R.day = R.day + 1; } directWins += !!R.goalStatus().ok; }
+        return { direct, via, ui, wins, directWins };
+      });
+      eq(r.direct, 0); ok(r.via > 50, 'a confidant convinces the mayor sometimes: ' + r.via); eq(r.ui[0], false, 'no whisper button for the mayor'); ok(r.ui[1] >= 1, 'the note names the confidants');
+      ok(r.wins >= 4, 'working through confidants wins ' + r.wins + '/20'); eq(r.directWins, 0);
+    },
+    'the gazette prints the most repeated version each day and notices when it has drifted': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => {
+        const R = window.__rumor; R.start(0); const P = R.T.people, t = R.T.cast.T.id; P.forEach(p => p.belief = null);
+        const a = { who: t, verb: 2, whom: (t + 1) % P.length, place: 3 }, b = { ...a, place: 5 };
+        P.slice(0, 10).forEach(p => { p.belief = { ...a }; p.str = 0.9; }); P.slice(10, 14).forEach(p => { p.belief = { ...b }; p.str = 0.9; }); P[20].belief = { ...a, neg: true }; P[20].str = 0.9;
+        const top = R.topStory(); return { same: R.sameV(top.v, a), pct: top.pct, neg: top.negPct, n: P.length };
+      });
+      eq(r.same, true); ok(Math.abs(r.pct - 1000 / r.n) < 1e-9 && Math.abs(r.neg - 100 / r.n) < 1e-9, JSON.stringify(r));
+      await page.evaluate(() => { const R = window.__rumor; R.start(0); const t = R.T.cast.T.id; R.sel = R.T.people.find(p => p.id !== t && !p.role).id; R.renderAll(); document.getElementById('cVerb').value = '3'; document.getElementById('cGo').click(); });
+      await page.click('#nextDay');
+      const g = await page.evaluate(() => [document.getElementById('gazette').className, document.getElementById('gazette').textContent, document.getElementById('cVerb') ? document.getElementById('cVerb').value : 'none']);
+      ok(/on/.test(g[0]) && /Village Gazette/.test(g[1]) && /Day 2/.test(g[1]), g[1]);
+    },
+    'the whisper form remembers your last story so repeating it is one click': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const R = window.__rumor; R.start(3); const P = R.T.people, t = R.T.cast.T.id; const ears = P.filter(p => p.id !== t && !p.role);
+        R.sel = ears[0].id; R.renderAll(); document.getElementById('cVerb').value = '5'; document.getElementById('cPlace').value = '6'; document.getElementById('cGo').click();
+        R.sel = ears[1].id; R.renderAll(); return [document.getElementById('cVerb').value, document.getElementById('cPlace').value]; });
+      eq(r, ['5', '6']);
     },
     'mobile layout: no horizontal scroll, town and Next day visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
