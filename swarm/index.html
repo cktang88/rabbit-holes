@@ -188,9 +188,11 @@ function cellsOf(h) {
   return { brood, nectar, honey, pollen: h.pollen, cap, free: cap - brood - nectar - honey - h.pollen };
 }
 function superFree(h) { return M.SUPER_CELLS * h.supers - h.sH / M.HONEY_G - h.sN / M.NECTAR_G; }
+// bees only occupy the supers they have started on plus one more: a tower of empty boxes is not "room" to them
+const effSupers = h => Math.min(h.supers, (h.sH / M.HONEY_G + h.sN / M.NECTAR_G) / M.SUPER_CELLS + 1);
 function congestion(h) {
   const c = cellsOf(h), bbFill = (c.brood + c.nectar + c.honey + c.pollen) / c.cap;
-  const space = 27000 * h.boxes + 17000 * h.supers, beeFill = adultsOf(h) / space;
+  const space = 27000 * h.boxes + 17000 * effSupers(h), beeFill = adultsOf(h) / space;
   return { cong: .6 * clamp(bbFill, 0, 1.2) + .4 * clamp(beeFill, 0, 1.5), bbFill, beeFill };
 }
 
@@ -215,6 +217,7 @@ function stepDay(w, h) {
     if (mo >= 6 && mo <= 9 && adults / space < .4) L *= .65;          // cold, oversized box: can't keep brood warm
     if (h.pollen < 300) L *= .5;
     if (storesKg(h) < 1.5) L *= .3;
+    if (h.qc.some(q => q.type === 'swarm' && q.age >= 6)) L *= .35; // workers slim the queen down before a swarm
     L = Math.min(L, Math.max(0, c.free) * .3, Math.max(0, 3 * nurses - totalBrood) / 4);
     const df = (mo >= 8 && mo <= 11 ? .04 : mo <= 0 ? .015 : 0) + (h.trap && S > .3 ? .07 : 0);
     layW = L * (1 - df); layD = L * df;
@@ -259,7 +262,7 @@ function stepDay(w, h) {
   const rb = h.bbN * M.RIPEN, rs = h.sN * M.RIPEN;
   h.bbN -= rb; h.bbH += rb / 3; h.sN -= rs; h.sH += rs / 3;
   // bees move brood-box honey up into supers during flow when there's room
-  if (h.supers && F > .05 && superFree(h) > 2000 && h.bbH > 7000) { const mv = (h.bbH - 7000) * .03; h.bbH -= mv; h.sH += mv; }
+  if (h.supers && F > .05 && superFree(h) > 2000 && h.bbH > 7000) { const mv = (h.bbH - 7000) * .008; h.bbH -= mv; h.sH += mv; }
   // pollen
   h.pollen = clamp(h.pollen + foragers * F * .6 - sum(h.WB, 3, 9) * .05, 0, 9000);
   // consumption (honey-equivalent grams)
@@ -287,9 +290,10 @@ function stepDay(w, h) {
     const nSw = h.qc.filter(q => q.type === 'swarm').length;
     if (h.imp > .65 && h.cups > 0 && nSw < 9 && young > 200 && wrand(w) < .55) {
       if (!nSw) logEv(h, w, `impulse ${f2(h.imp)} → cups charged with eggs (swarm cells)`, 'warn');
-      h.qc.push({ age: 0, type: 'swarm' }); h.cups--;
+      // after cells are cut, the bees re-start them over older larvae: sealed sooner each time
+      h.qc.push({ age: Math.min(5, 2 * (h.cutN || 0)), type: 'swarm' }); h.cups--;
     }
-    if (h.imp < .3) { const before = h.qc.length; h.qc = h.qc.filter(q => q.age >= 8 || wrand(w) > .2); if (before && !h.qc.length) logEv(h, w, 'impulse fell → bees tore down their open queen cells', 'good'); if (h.cups && wrand(w) < .2) h.cups--; }
+    if (h.imp < .3) { h.cutN = 0; const before = h.qc.length; h.qc = h.qc.filter(q => q.age >= 8 || wrand(w) > .2); if (before && !h.qc.length) logEv(h, w, 'impulse fell → bees tore down their open queen cells', 'good'); if (h.cups && wrand(w) < .2) h.cups--; }
     if (h.q.eff < .55 && S > .3 && !h.qc.length && wrand(w) < .03) { h.qc.push({ age: 3, type: 'super' }, { age: 2, type: 'super' }); logEv(h, w, `queen failing (laying ${Math.round(h.q.eff * 100)}%) → supersedure cells mid-comb`, 'warn'); }
   }
   if (h.q.st === 'none' && !h.qc.length) {
@@ -323,6 +327,7 @@ function stepDay(w, h) {
     if (h.noneDays > 24 && sum(h.WB) < 50) { q.st = 'lw'; logEv(h, w, `no queen, no young brood for ${h.noneDays} days → laying workers`, 'bad'); }
   } else if (q.st !== 'none') h.noneDays = 0;
   // ---- timers ----
+  if (h.oaTox) h.oaTox *= .965;
   if (h.feedT > 0) h.feedT--; if (h.checkT > 0) h.checkT--;
   if (h.demT > 0 && --h.demT === 0) { h.boxes = 1; h.supers++; logEv(h, w, 'Demaree top box now broodless → it becomes a honey super', 'info'); }
   // ---- death ----
@@ -335,7 +340,8 @@ function doSwarm(w, h) {
   const ad = adultsOf(h);
   for (let i = 0; i < M.A_LEN; i++) h.A[i] *= .4; h.W *= .4; h.Mp *= .45;
   const take = Math.min(h.bbH, 1500); h.bbH -= take;
-  h.q = { st: 'none', age: 0, qual: 0, t: 0 }; h.qc = h.qc.filter(q => q.age >= 4); h.imp = 0; h.cups = 0; h.swarms++;
+  for (let i = 0; i < 7; i++) h.WB[i] = 0; // the queen was slimmed for flight and stopped laying days before
+  h.q = { st: 'none', age: 0, qual: 0, t: 0 }; h.qc = h.qc.filter(q => q.age >= 4); h.imp = 0; h.cups = 0; h.cutN = 0; h.swarms++;
   if (!h.qc.length) h.qc.push({ age: 8, type: 'swarm' });
   logEv(h, w, `first swarm cell capped → PRIME SWARM left with ${Math.round(ad * .6 / 1000)}k bees and the old queen`, 'swarm');
   w.swarmEvents.push(h);
@@ -343,10 +349,11 @@ function doSwarm(w, h) {
 
 function snapshot(w, h) {
   const { nurses, foragers } = castes(h, w.day), cg = congestion(h);
+  const r = Math.round, r3 = x => Math.round(x * 1000) / 1000; // compact: these are kept for every day of the run
   return {
-    d: w.day, adults: adultsOf(h), nurses, foragers, winter: h.W, brood: sum(h.WB), drone: sum(h.DB),
-    honey: (h.bbH + h.sH) / 1000, superH: h.sH / 1000, nectar: (h.bbN + h.sN) / 1000, imp: h.imp, cong: cg.cong,
-    load: loadOf(h), mites: mitesOf(h), flow: seasonal(FLOW_T, w.day) * w.weather,
+    d: w.day, adults: r(adultsOf(h)), nurses: r(nurses), foragers: r(foragers), winter: r(h.W), brood: r(sum(h.WB)), drone: r(sum(h.DB)),
+    honey: r3((h.bbH + h.sH) / 1000), superH: r3(h.sH / 1000), nectar: r3((h.bbN + h.sN) / 1000), imp: r3(h.imp), cong: r3(cg.cong),
+    load: r3(loadOf(h)), mites: r(mitesOf(h)), flow: r3(seasonal(FLOW_T, w.day) * w.weather),
   };
 }
 
@@ -359,7 +366,11 @@ function dayTick(w) {
 }
 function endWeek(w) {
   w.week++; w.nextWeather = weekWeather(w);
-  for (const h of w.hives) { h.acts = 0; h.drivenOff = 0; }
+  for (const h of w.hives) {
+    h.acts = 0; h.drivenOff = 0;
+    // long runs: keep the last 20 weeks daily, older history weekly (bounded memory & save size)
+    const H = h.hist; if (H.length > 400) { const d0 = H[0].d % 7, n = H.length; h.hist = H.filter((s, i) => i >= n - 140 || s.d % 7 === d0); }
+  }
   w.actsLeft = w.actsPerWeek;
 }
 function stepWeek(w) { beginWeek(w); for (let k = 0; k < 7; k++) dayTick(w); endWeek(w); }
@@ -404,21 +415,30 @@ const ACT = {
     go(w, h) { h.q.st = 'caged'; h.q.t = 24; h.q.wasCaged = 1; h.imp *= .5; logEv(h, w, 'queen caged for 24 days → brood break begins', 'info'); return 'Queen caged for 24 days. In three weeks the comb will be broodless.'; } },
   destroy: { n: 'Cut queen cells', ic: '✕', tip: 'Destroy cups and cells. Only delays a swarm ~1 week if the colony is still congested.',
     ok: h => (h.qc.length + h.cups > 0) || 'No queen cells or cups to cut.',
-    go(w, h) { const n = h.qc.length; h.qc = []; h.cups = 0; h.imp = Math.max(.52, h.imp - .08); if (h.q.st !== 'laying') { logEv(h, w, `cut ${n} cells with no laying queen present`, 'bad'); return 'Cells cut — but there is no laying queen! Unless there are young larvae, the colony is now hopelessly queenless.'; } logEv(h, w, `cut ${n} queen cells (impulse still ${f2(h.imp)})`, 'warn'); return `Cut ${n} cell${n === 1 ? '' : 's'}. If the bees are still crowded they will start again.`; } },
+    go(w, h) {
+      const all = h.qc.length, sw = h.qc.filter(q => q.type === 'swarm').length;
+      // a cell tucked into a fold of comb is easily missed — likelier the more cells there are and the more often they've been cut
+      const miss = h.q.st === 'laying' && sw >= 2 && wrand(w) < .2 + .15 * (h.cutN || 0) + .03 * sw ? h.qc.filter(q => q.type === 'swarm').sort((a, b) => b.age - a.age)[0] : null;
+      h.qc = miss ? [miss] : []; const n = all - (miss ? 1 : 0); h.cups = 0;
+      if (h.q.st === 'laying' && sw) { h.cutN = (h.cutN || 0) + 1; h.imp = Math.min(1, h.imp + .03); }
+      if (h.q.st !== 'laying') { logEv(h, w, `cut ${n} cells with no laying queen present`, 'bad'); return 'Cells cut — but there is no laying queen! Unless there are young larvae, the colony is now hopelessly queenless.'; } logEv(h, w, `cut ${n} queen cells (impulse still ${f2(h.imp)}${h.cutN > 1 ? `; cut ${h.cutN} times — new cells now started over older larvae` : ''})`, 'warn'); return `Cut ${n} cell${n === 1 ? '' : 's'}. ${h.cutN > 1 ? 'The bees are starting them over older larvae now — they will be sealed sooner. Cutting alone will not hold them.' : 'If the bees are still crowded they will start again — and faster.'}`; } },
   requeen: { n: 'Requeen', ic: '♛', tip: 'Introduce a young mated queen in a cage (≈5 days to release). Young queens rarely swarm.',
     ok: () => true,
     go(w, h) { const lw = h.q.st === 'lw'; h.q = { st: 'intro', age: 0, qual: .92, t: lw ? 9 : 5 }; h.qc = []; h.cups = 0; h.imp *= .5; h.noneDays = 0; logEv(h, w, `requeened with a young mated queen${lw ? ' (laying workers: slow acceptance)' : ''}`, 'good'); return 'New queen introduced in a cage with a candy plug.'; } },
   feed: { n: 'Feed syrup', ic: '⚗', tip: '6 kg of sugar syrup. Builds stores; stimulates spring laying. Syrup that ends up in supers spoils show honey.',
     ok: () => true,
     go(w, h) { h.feedSyrup = (h.feedSyrup || 0) + 6000; h.feedT = 10; logEv(h, w, `fed 6 kg syrup (stores ${storesKg(h).toFixed(1)} kg)`, 'info'); return 'Feeder filled with 6 kg of syrup.' + (h.supers && seasonal(FLOW_T, w.day) > .05 ? ' With supers on, some will be stored above.' : ''); } },
-  oa: { n: 'Oxalic acid', ic: '☁', tip: 'Kills ~97% of mites riding on bees — but none sealed in brood. Broodless = near-total kill.',
+  oa: { n: 'Oxalic acid', ic: '☁', tip: 'Kills ~97% of mites riding on bees — but none sealed in brood. Broodless = near-total kill. Harsh on bees if repeated within weeks.',
     ok: () => true,
     go(w, h) {
       const before = mitesOf(h), kill = h.Mp * .97; h.Mp -= kill; const pct = kill / Math.max(1, before) * 100;
-      for (let i = 0; i < 3; i++) h.WB[i] *= .9; h.oaKills.push({ d: w.day, pct, before });
+      // oxalic is hard on bees: a second dose within a few weeks burns open brood, adults and the queen
+      const tox = h.oaTox || 0, harm = clamp(tox, 0, 2); h.oaTox = tox + 1;
+      for (let i = 0; i < 9; i++) h.WB[i] *= .9 - .25 * harm;
+      if (harm > .25) { const k = 1 - .1 * harm; for (let i = 0; i < M.A_LEN; i++) h.A[i] *= k; h.W *= k; if (h.q.st === 'laying' || h.q.st === 'caged') h.q.qual = Math.max(.3, h.q.qual - .1 * harm); logEv(h, w, `repeated oxalic within weeks → open brood burned, ${Math.round(10 * harm)}% of adults lost, queen set back`, 'bad'); } h.oaKills.push({ d: w.day, pct, before });
       if (h.supers && h.sH + h.sN > 1000) { h.oaTaint = h.sH + h.sN; logEv(h, w, 'oxalic applied with honey supers on → that honey cannot be sold', 'bad'); }
       logEv(h, w, `oxalic acid: killed ${pct.toFixed(0)}% of ${Math.round(before)} mites (${Math.round(h.Mw + h.Md)} safe under cappings)`, pct > 90 ? 'good' : 'warn');
-      return `Dribbled oxalic. Killed ${pct.toFixed(0)}% of the mites.` + (pct < 70 ? ' The rest are sealed in brood.' : '');
+      return `Dribbled oxalic. Killed ${pct.toFixed(0)}% of the mites.` + (pct < 70 ? ' The rest are sealed in brood.' : '') + (harm > .25 ? ' <b>The bees suffered for the second dose.</b>' : '');
     } },
   drone: { n: 'Drone trap', ic: '⬢', tip: 'Insert a drone-comb frame; mites prefer drone brood. Cut it out once capped to remove them.',
     ok: h => h.q.st === 'laying' || h.trap || 'Needs a laying queen to fill the drone comb.',
@@ -460,7 +480,7 @@ const alive = w => w.hives.filter(h => h.alive);
 const swarmsOf = w => w.hives.reduce((a, h) => a + h.swarms, 0);
 const queenright = h => h.alive && ['laying', 'caged', 'intro'].includes(h.q.st);
 // clean honey = harvested minus syrup- or acid-tainted honey (kg)
-const cleanKg = w => w.hives.reduce((a, h) => a + (h.harvested - (h.harvestTaint || 0) - (h.oaHarvest || 0)), 0) / 1000;
+const cleanKg = w => w.hives.reduce((a, h) => a + Math.max(0, h.harvested - Math.min(h.harvested, (h.harvestTaint || 0) + (h.oaHarvest || 0))), 0) / 1000;
 const grossKg = w => w.hives.reduce((a, h) => a + h.harvested, 0) / 1000;
 const ALL = ['super', 'harvest', 'checker', 'demaree', 'split', 'cage', 'destroy', 'requeen', 'feed', 'oa', 'drone', 'wash'];
 const noSwarm = w => swarmsOf(w) ? 'A swarm left the apiary.' : null;
@@ -485,7 +505,7 @@ const SCEN = [
   { id: 'swarm', n: 'Swarm Season', start: D(1914, 10, 15), weeks: 11, acts: 2, maxHives: 2, allowed: ['super', 'checker', 'demaree', 'split', 'destroy', 'requeen', 'harvest'],
     intro: `<b>Notes for October.</b> "A swarm in November" — every beekeeper knows the rhyme and every beekeeper has watched his profits disappear over the hedge. This colony is strong, honey-bound and headed by a two-year-old queen. Watch the bottom bars.`,
     goal: 'Keep the colony from swarming until the New Year, and finish queenright.',
-    hives: [{ adults: 24000, lay: 1300, honey: 9, mites: 80, qAge: 2, imp: .05, pollen: 4000 }],
+    hives: [{ adults: 24000, lay: 1300, honey: 12, mites: 80, qAge: 2, imp: .05, pollen: 4000 }],
     fail: noSwarm,
     win(w) { if (!w.hives.some(queenright)) return { won: false, msg: 'No swarm — but no laying queen either.' }; const kg = cleanKg(w) + w.hives.reduce((a, h) => a + h.sH, 0) / 1000; return { won: true, stars: kg >= 20 ? 3 : kg >= 10 ? 2 : 1, msg: `No swarm, and ${kg.toFixed(1)} kg of honey in hand or in the supers.` }; } },
 
@@ -559,7 +579,7 @@ const SCEN = [
     fail: w => alive(w).length ? null : 'Every colony is dead.', win: () => ({ won: true, stars: 3, msg: '' }) },
 ];
 const TUT_TARGETS = ['egg', 'larva', 'capped', 'drone', 'honey', 'nectar', 'pollen', 'queen'];
-const TUT_NAMES = { egg: 'an egg', larva: 'a larva in jelly', capped: 'capped worker brood', drone: 'drone brood (domed caps)', honey: 'capped honey', nectar: 'unripe nectar', pollen: 'pollen', queen: 'the queen' };
+const TUT_NAMES = { egg: 'an egg', larva: 'a larva in jelly', capped: 'capped worker brood', drone: 'drone brood (domed caps)', honey: 'capped honey', nectar: 'unripe nectar', pollen: 'pollen', queen: 'the queen (look where the eggs are)' };
 
 // end-of-run: take the remaining ripe honey off and judge
 function finalize(w) {
@@ -733,20 +753,34 @@ function spriteFor(t, p) {
   const s = SPR.s;
   switch (t) { case 1: return s.egg; case 2: return s.larva[p]; case 3: return s.cap; case 4: return s.dcap; case 5: return s.dlarva[(p - 3 + 3) % 3]; case 6: return s.nectar[p]; case 7: return s.honey; case 8: return s.pollen[p]; case 9: return s.found; case 10: return s.lw; case 11: return s.bullet; default: return s.empty; }
 }
-// render one frame-side into an offscreen canvas (cached until the colony changes)
+// render one frame-side into an offscreen canvas. Each (box, side, scale) keeps its canvas plus a copy of the
+// cell types it shows; when the colony changes only the cells that differ are repainted.
 const combCache = new Map();
+const combStats = { full: 0, cells: 0 };
 function combCanvas(b, side, scalePx) {
-  const key = b.ver + ':' + side + ':' + scalePx.toFixed(3);
-  if (combCache.has(key)) return combCache.get(key);
-  if (combCache.size > 12) combCache.clear();
-  const rp = R0 * scalePx; if (!SPR || Math.abs(SPR.rp - rp) > .01) SPR = makeSprites(rp);
-  const c = document.createElement('canvas'); c.width = Math.ceil(CW * scalePx); c.height = Math.ceil(CH * scalePx);
-  const g = c.getContext('2d'); g.fillStyle = b.box ? '#d9bd80' : '#c9964e'; g.fillRect(0, 0, c.width, c.height);
-  const o = side * PER, hs = SPR.S / 2;
-  for (let r = 0; r < ROWS; r++) for (let col = 0; col < COLS; col++) { const i = o + r * COLS + col; g.drawImage(spriteFor(b.type[i], b.par[i]), cellX(col, r) * scalePx - hs, cellY(r) * scalePx - hs); }
-  const sh = g.createLinearGradient(0, 0, 0, c.height); sh.addColorStop(0, 'rgba(255,240,200,.08)'); sh.addColorStop(1, 'rgba(40,20,5,.18)'); g.fillStyle = sh; g.fillRect(0, 0, c.width, c.height);
-  combCache.set(key, c); return c;
+  const key = b.box + ':' + side + ':' + scalePx.toFixed(3);
+  let e = combCache.get(key);
+  const rp = R0 * scalePx; if (!SPR || Math.abs(SPR.rp - rp) > .01) { SPR = makeSprites(rp); combCache.clear(); e = null; }
+  if (e && e.ver === b.ver) return e.c;
+  const o = side * PER, hs = SPR.S / 2, bg = b.box ? '#d9bd80' : '#c9964e';
+  if (!e) {
+    if (combCache.size > 24) combCache.clear();
+    const c = document.createElement('canvas'); c.width = Math.ceil(CW * scalePx); c.height = Math.ceil(CH * scalePx);
+    e = { c, g: c.getContext('2d'), type: new Uint8Array(PER), par: new Uint8Array(PER), ver: -1 };
+    e.g.fillStyle = bg; e.g.fillRect(0, 0, c.width, c.height); e.type.fill(255); combCache.set(key, e); combStats.full++;
+  }
+  const g = e.g;
+  for (let j = 0; j < PER; j++) {
+    const t = b.type[o + j], pp = b.par[o + j]; if (e.type[j] === t && e.par[j] === pp) continue;
+    const r = j / COLS | 0, col = j % COLS, x = cellX(col, r) * scalePx, y = cellY(r) * scalePx;
+    if (e.type[j] !== 255) { g.save(); g.translate(x, y); hexPath(g, rp * 1.06); g.fillStyle = bg; g.fill(); g.restore(); }
+    g.drawImage(spriteFor(t, pp), x - hs, y - hs); e.type[j] = t; e.par[j] = pp; combStats.cells++;
+  }
+  e.ver = b.ver; return e.c;
 }
+// gradients are made once and reused (they live in fixed local coordinates)
+const GR = new Map();
+function grad(key, mk) { let g = GR.get(key); if (!g) { if (GR.size > 80) GR.clear(); GR.set(key, g = mk()); } return g; }
 
 // ---------- bee sprites ----------
 const BEE = (() => {
@@ -759,12 +793,13 @@ const BEE = (() => {
     g.beginPath(); g.arc(len * .3, 0, wid * (eyes ? .2 : .15), 0, TAU); g.fillStyle = '#2a1608'; g.fill();
     return c;
   };
-  return { worker: mk(16, 11, '#d79a32', 4, .26, 0), queen: mk(24, 11, '#e0902c', 3, .2, 0), drone: mk(19, 14, '#b47c34', 4, .3, 1), L: { worker: 16, queen: 24, drone: 19 }, Wd: { worker: 11, queen: 11, drone: 14 } };
+  return { worker: mk(16, 11, '#d79a32', 4, .26, 0), queen: mk(30, 12, '#eca442', 2, .17, 0), drone: mk(19, 14, '#b47c34', 4, .3, 1), L: { worker: 16, queen: 30, drone: 19 }, Wd: { worker: 11, queen: 12, drone: 14 } };
 })();
 
 // ---------- layout ----------
 function resize() { dpr = FX.fit(cv, 2); VW = cv.width / dpr; VH = cv.height / dpr; }
 addEventListener('resize', () => { resize(); measurePads(); });
+if (window.ResizeObserver) new ResizeObserver(() => resize()).observe(cv);
 const isMobile = () => VW < 860;
 // measure the floating chips so the comb never hides under them
 const PAD = { top: 70, bot: 150, left: 0 };
@@ -846,6 +881,7 @@ function doAct(id) {
     if (W.hives.length > before) banner('A new hive', W.hives[W.hives.length - 1].name + ' stands in the apiary');
     rebuildComb(); renderUI();
     if (checkEnd()) return;
+    autosave();
   } catch (e) { toast(e.message, 1); FX.sfx('fail'); }
 }
 
@@ -856,6 +892,7 @@ function openHive(i) {
   if (h.drivenOff) { toast('The bees drove you off this hive for the week.', 1); return; }
   view = 'inspect'; document.body.classList.add('insp'); $('notes').classList.remove('open');
   const flow = seasonal(FLOW_T, W.day);
+  for (const s of SMOKE) s.age = s.life = 0; for (const f of FLY) f.t = f.life = 0;
   insp = { box: 0, frame: 4, side: 0, pull: 0, agit: .32 + (flow < .03 ? .2 : 0) + (h.q.st === 'none' || h.q.st === 'lw' ? .15 : 0), smoked: 0, t: 0, label: null, bees: [], flyers: [], smoke: [], brush: null, queen: null, ver: 0, angryT: 0, hint: 1 };
   rebuildComb(); spawnBees(); FX.sfx('whoosh'); FX.tween(insp, { pull: 1 }, 520, 'outBack');
   renderUI();
@@ -871,10 +908,10 @@ function spawnBees() {
   const h = hive(), b = curB(), si = sideIdx();
   let brood = 0; if (b.box === 0) for (let j = 0; j < PER; j++) { const t = b.type[si * PER + j]; if (t >= 1 && t <= 5 || t >= 10) brood++; }
   const share = b.box === 0 ? (.25 + brood / PER) / 20 * 1.6 : .35 / 20;
-  const n = Math.round(clamp(adultsOf(h) * share / 7, 25, 420));
+  const n = Math.round(clamp(adultsOf(h) * share / 7, 25, BEEPOOL.length));
   const rnd = RH.rng(W.day + ':' + si + ':' + insp.box);
-  insp.bees = [];
-  for (let i = 0; i < n; i++) { const x = rnd() * CW, y = rnd() * CH; insp.bees.push({ x, y, hx: x, hy: y, a: rnd() * TAU, v: 4 + rnd() * 8, px: 0, py: 0, kind: rnd() < (b.box === 0 ? .04 : .01) && h.drones > 300 ? 'drone' : 'worker', ret: -1 }); }
+  insp.bees = insp.bees || []; insp.bees.length = 0;
+  for (let i = 0; i < n; i++) { const be = BEEPOOL[i], x = rnd() * CW, y = rnd() * CH; be.x = be.hx = x; be.y = be.hy = y; be.a = rnd() * TAU; be.v = 4 + rnd() * 8; be.px = be.py = 0; be.kind = rnd() < (b.box === 0 ? .04 : .01) && h.drones > 300 ? 'drone' : 'worker'; be.ret = -1; insp.bees.push(be); }
   insp.queen = null;
   if (b.box === 0 && b.queenSide === si && b.queenPos) {
     const q = h.q.st === 'virgin' ? .8 : 1;
@@ -899,8 +936,8 @@ function smokePuff() {
   if (!insp) return; FX.sfx('whoosh'); insp.smoked++; insp.hint = 0;
   insp.agit = Math.max(0, insp.agit - .26);
   const sx = isMobile() ? 34 : PAD.left + 40, sy = VH - PAD.bot - 20;
-  for (let i = 0; i < 26; i++) insp.smoke.push({ x: sx, y: sy, vx: 60 + Math.random() * 220, vy: -40 - Math.random() * 120, r: 8 + Math.random() * 14, life: 2.2 + Math.random(), age: 0 });
-  if (insp.smoke.length > 160) insp.smoke.splice(0, insp.smoke.length - 160);
+  // pooled: reuse the oldest dead (or oldest) puff
+  for (let i = 0; i < 18; i++) { const s = SMOKE[SMOKE.k = (SMOKE.k + 1) % SMOKE.length]; s.x = sx; s.y = sy; s.vx = 60 + Math.random() * 200; s.vy = -50 - Math.random() * 120; s.r = 8 + Math.random() * 12; s.life = 1.6 + Math.random() * .8; s.age = 0; }
   for (const b of insp.bees) { b.v *= .6; }
   renderUI();
 }
@@ -923,7 +960,7 @@ function clickComb(lx, ly) {
     if (!insp.qFound) { insp.qFound = 1; FX.sfx('chime', 4); FX.hitstop(60); const p = toScreen(q.x, q.y, frameGeom()); burst(p.x, p.y, 40, ['#ffd27a', '#fbe7b8']); h.queenSeen = W.day; }
     tutHit('queen'); return;
   }
-  for (const o of b.over[si] || []) if (Math.hypot(lx - o.x, ly - (o.y + (o.hang ? 8 : 0))) < 14) {
+  for (const o of b.over[si] || []) if (Math.hypot(lx - o.x, ly - (o.y + (o.kind === 'cell' ? 16 : 0))) < 20) {
     const t = o.kind === 'cup' ? ['Queen cup', 'An empty cup on the bottom bar. Harmless — until it is charged with an egg.'] : o.hang ? [o.age >= 8 ? 'Capped swarm cell' : 'Swarm cell (open)', o.age >= 8 ? 'Sealed. The prime swarm leaves about now — with your queen.' : 'Charged and fed. Sealed on day 8; the swarm goes when it is.'] : ['Supersedure / emergency cell', 'Mid-comb: the bees are replacing a failing or missing queen.'];
     insp.label = { x: o.x, y: o.y, t: 3.2, title: t[0], sub: t[1] }; FX.sfx('pop'); return;
   }
@@ -992,14 +1029,30 @@ const SKY = [['#f7c873', '#e98f4a'], ['#f0b866', '#d98447'], ['#d9a36a', '#9e6a4
 const fly = { pts: [] };
 function drawApiary(dt) {
   const m = monthOf(W.day), sk = SKY[m];
-  const g = ctx.createLinearGradient(0, 0, 0, VH); g.addColorStop(0, sk[1]); g.addColorStop(.62, sk[0]); g.addColorStop(.63, '#7b8a4a'); g.addColorStop(1, '#3d3a1c');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
+  ctx.fillStyle = grad('sky' + m + ':' + VH, () => { const g = ctx.createLinearGradient(0, 0, 0, VH); g.addColorStop(0, sk[1]); g.addColorStop(.62, sk[0]); g.addColorStop(.63, '#7b8a4a'); g.addColorStop(1, '#3d3a1c'); return g; });
+  ctx.fillRect(0, 0, VW, VH);
   const gy = VH * (isMobile() ? .68 : .74);
   // sun
   const dayF = ff ? (ff.acc / ff.dayDur) : .45;
   const sunA = Math.PI * (1 - dayF), sx = VW / 2 + Math.cos(sunA) * VW * .42, sy = gy - Math.sin(sunA) * VH * .5;
-  const sg = ctx.createRadialGradient(sx, sy, 0, sx, sy, 90); sg.addColorStop(0, 'rgba(255,244,200,.95)'); sg.addColorStop(.25, 'rgba(255,220,140,.5)'); sg.addColorStop(1, 'rgba(255,200,120,0)');
-  ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = sg; ctx.fillRect(sx - 90, sy - 90, 180, 180); ctx.globalCompositeOperation = 'source-over';
+  ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = grad('sun', () => { const sg = ctx.createRadialGradient(0, 0, 0, 0, 0, 90); sg.addColorStop(0, 'rgba(255,244,200,.95)'); sg.addColorStop(.25, 'rgba(255,220,140,.5)'); sg.addColorStop(1, 'rgba(255,200,120,0)'); return sg; });
+  ctx.translate(sx, sy); ctx.fillRect(-90, -90, 180, 180); ctx.translate(-sx, -sy); ctx.globalCompositeOperation = 'source-over';
+  // static scenery (hills, scrub, ground, clover, swarm tree) is painted once per month/size into an offscreen layer
+  const flow = seasonal(FLOW_T, W.day), nf = Math.round(flow * 500), bgKey = m + '|' + VW + '|' + VH + '|' + nf + '|' + dpr;
+  if (!drawApiary.bg || drawApiary.key !== bgKey) { drawApiary.key = bgKey; drawApiary.bg = paintScenery(m, gy, nf); }
+  ctx.drawImage(drawApiary.bg, 0, 0, VW, VH);
+  // hives
+  const L = hiveLayout();
+  L.forEach((p, i) => drawHive(W.hives[i], p, i));
+  // weather
+  if (W.weather < .45 || (ff && W.weather < .5)) { ctx.strokeStyle = 'rgba(200,215,230,.35)'; ctx.lineWidth = 1; ctx.beginPath(); for (let i = 0; i < 120; i++) { const x = (i * 131 + T * 300) % VW, y = (i * 77 + T * 700) % VH; ctx.moveTo(x, y); ctx.lineTo(x - 4, y + 14); } ctx.stroke(); }
+  // night during fast-forward
+  if (ff) { const k = Math.max(0, -Math.sin(dayF * TAU)) * .45; if (k > 0) { ctx.globalAlpha = k; ctx.fillStyle = 'rgb(12,16,34)'; ctx.fillRect(0, 0, VW, VH); ctx.globalAlpha = 1; } }
+  drawSwarm(dt);
+}
+function paintScenery(m, gy, nf) {
+  const c = document.createElement('canvas'); c.width = Math.ceil(VW * dpr); c.height = Math.ceil(VH * dpr);
+  const ctx = c.getContext('2d'); ctx.scale(dpr, dpr);
   // hills & bush
   const hill = (yy, amp, col, ph) => { ctx.beginPath(); ctx.moveTo(0, VH); for (let x = 0; x <= VW; x += 16) ctx.lineTo(x, yy - Math.sin(x * .004 + ph) * amp - Math.sin(x * .011 + ph * 2) * amp * .4); ctx.lineTo(VW, VH); ctx.fill(); };
   ctx.fillStyle = m >= 5 && m <= 7 ? '#5d6a63' : '#6f7b48'; hill(gy - 70, 28, 0, 1.3);
@@ -1008,20 +1061,12 @@ function drawApiary(dt) {
   for (let i = 0; i < 9; i++) { const x = (i * 211 + 40) % VW, y = gy - 26 + (i % 3) * 6, r = 18 + (i * 7) % 16; ctx.fillStyle = '#3f4a24'; ctx.beginPath(); ctx.arc(x, y, r, Math.PI, 0); ctx.fill(); if (m >= 10 || m <= 0) { ctx.fillStyle = 'rgba(255,250,240,.7)'; for (let k = 0; k < 6; k++) { ctx.beginPath(); ctx.arc(x - r * .7 + k * r * .28, y - r * .4 - (k % 2) * 6, 1.6, 0, TAU); ctx.fill(); } } }
   // ground + clover
   const gg = ctx.createLinearGradient(0, gy, 0, VH); gg.addColorStop(0, m >= 5 && m <= 7 ? '#5f6b45' : '#7e8f3e'); gg.addColorStop(1, '#3a3a1a'); ctx.fillStyle = gg; ctx.fillRect(0, gy, VW, VH - gy);
-  const flow = seasonal(FLOW_T, W.day), nf = Math.round(flow * 500);
   for (let i = 0; i < nf; i++) { const x = (i * 97.13) % VW, y = gy + 8 + ((i * 53.7) % (VH - gy - 8)); ctx.fillStyle = i % 5 ? 'rgba(255,252,240,.8)' : 'rgba(240,180,200,.8)'; ctx.beginPath(); ctx.arc(x, y, 1.6 + (y - gy) / 140, 0, TAU); ctx.fill(); }
   // swarm tree (right)
   const tx = VW * .9, ty = gy - VH * .28;
   ctx.strokeStyle = '#3a2614'; ctx.lineWidth = 12; ctx.beginPath(); ctx.moveTo(tx, gy); ctx.lineTo(tx - 6, ty); ctx.stroke(); ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(tx - 4, ty + 30); ctx.lineTo(tx - 70, ty + 10); ctx.stroke();
   ctx.fillStyle = m >= 4 && m <= 7 ? 'rgba(80,90,60,.8)' : 'rgba(70,96,40,.9)'; for (let k = 0; k < 7; k++) { ctx.beginPath(); ctx.arc(tx - 40 + Math.cos(k) * 46, ty - 20 + Math.sin(k * 1.7) * 26, 34, 0, TAU); ctx.fill(); }
-  // hives
-  const L = hiveLayout();
-  L.forEach((p, i) => drawHive(W.hives[i], p, i));
-  // weather
-  if (W.weather < .45 || (ff && W.weather < .5)) { ctx.strokeStyle = 'rgba(200,215,230,.35)'; ctx.lineWidth = 1; ctx.beginPath(); for (let i = 0; i < 120; i++) { const x = (i * 131 + T * 300) % VW, y = (i * 77 + T * 700) % VH; ctx.moveTo(x, y); ctx.lineTo(x - 4, y + 14); } ctx.stroke(); }
-  // night during fast-forward
-  if (ff) { const k = Math.max(0, -Math.sin(dayF * TAU)) * .45; if (k > 0) { ctx.fillStyle = `rgba(12,16,34,${k})`; ctx.fillRect(0, 0, VW, VH); } }
-  drawSwarm(dt);
+  return c;
 }
 function drawHive(h, p, i) {
   const u = p.u, w = u * 1.8, x0 = p.x - w / 2; let y = p.y;
@@ -1029,7 +1074,7 @@ function drawHive(h, p, i) {
   // stand
   ctx.fillStyle = '#4a321a'; ctx.fillRect(x0 + 4, y - u * .3, 6, u * .3); ctx.fillRect(x0 + w - 10, y - u * .3, 6, u * .3); y -= u * .3;
   ctx.fillStyle = '#6a4a26'; ctx.fillRect(x0 - 6, y - 5, w + 12, 6); y -= 5;
-  const box = (hh, col, col2) => { const gr = ctx.createLinearGradient(x0, 0, x0 + w, 0); gr.addColorStop(0, col); gr.addColorStop(1, col2); ctx.fillStyle = gr; ctx.fillRect(x0, y - hh, w, hh); ctx.strokeStyle = 'rgba(60,35,12,.6)'; ctx.lineWidth = 1; ctx.strokeRect(x0 + .5, y - hh + .5, w - 1, hh - 1); ctx.strokeStyle = 'rgba(80,48,18,.25)'; for (let k = 1; k < 3; k++) { ctx.beginPath(); ctx.moveTo(x0 + 3, y - hh * k / 3); ctx.lineTo(x0 + w - 3, y - hh * k / 3); ctx.stroke(); } ctx.fillStyle = 'rgba(40,24,8,.55)'; ctx.fillRect(x0 + w * .2, y - hh * .55, w * .6, 3); y -= hh; };
+  const box = (hh, col, col2) => { ctx.fillStyle = grad('box' + w + col, () => { const gr = ctx.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, col); gr.addColorStop(1, col2); return gr; }); ctx.translate(x0, 0); ctx.fillRect(0, y - hh, w, hh); ctx.translate(-x0, 0); ctx.strokeStyle = 'rgba(60,35,12,.6)'; ctx.lineWidth = 1; ctx.strokeRect(x0 + .5, y - hh + .5, w - 1, hh - 1); ctx.strokeStyle = 'rgba(80,48,18,.25)'; for (let k = 1; k < 3; k++) { ctx.beginPath(); ctx.moveTo(x0 + 3, y - hh * k / 3); ctx.lineTo(x0 + w - 3, y - hh * k / 3); ctx.stroke(); } ctx.fillStyle = 'rgba(40,24,8,.55)'; ctx.fillRect(x0 + w * .2, y - hh * .55, w * .6, 3); y -= hh; };
   const dead = !h.alive;
   box(u, dead ? '#7d6a55' : '#c08a4a', dead ? '#5e4d3c' : '#94602e');
   const entY = y + u - 4;
@@ -1057,6 +1102,13 @@ function drawHive(h, p, i) {
   if (!dead && view === 'apiary' && !ff && (W.actsLeft > 0)) { const pul = .5 + .5 * Math.sin(T * 4 + i); ctx.strokeStyle = `rgba(242,181,68,${.25 + pul * .4})`; ctx.lineWidth = 2; ctx.strokeRect(x0 - 8, top - 2, w + 16, p.y - top + 2); }
 }
 
+// ---------- particle pools & a save/restore-free transform helper ----------
+const SMOKE = Array.from({ length: 140 }, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 0, life: 0, age: 0 })); SMOKE.k = 0;
+const FLY = Array.from({ length: 40 }, () => ({ x: 0, y: 0, vx: 0, vy: 0, t: 0, life: 0 }));
+const BEEPOOL = Array.from({ length: 440 }, () => ({ x: 0, y: 0, hx: 0, hy: 0, a: 0, v: 0, px: 0, py: 0, kind: 'worker', ret: -1 }));
+// set ctx to base · translate(x,y) · rotate(a) · scale(k) without allocating
+function setXf(m, x, y, a, k) { const c = Math.cos(a) * k, s = Math.sin(a) * k; ctx.setTransform(m.a * c + m.c * s, m.b * c + m.d * s, m.c * c - m.a * s, m.d * c - m.b * s, m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f); }
+
 // ---------- swarm vortex (pooled) ----------
 const SWN = 3500;
 const swarmP = { n: 0, x: new Float32Array(SWN), y: new Float32Array(SWN), r: new Float32Array(SWN), a: new Float32Array(SWN), born: new Float32Array(SWN), t: 0, active: 0, src: null };
@@ -1073,13 +1125,14 @@ function drawSwarm(dt) {
   const tx = VW * .9 - 50, ty = VH * (isMobile() ? .68 : .74) - VH * .28 + 30;
   const k = clamp((t - 1.5) / 2, 0, 1), k2 = clamp((t - 4.6) / 1.6, 0, 1);
   const cx = FX.lerp(S.src.x, tx, FX.ease.inOutCubic(k)) + k2 * VW * .6, cy = FX.lerp(S.src.y - 120, ty, FX.ease.inOutCubic(k)) - k2 * VH * .4;
-  ctx.fillStyle = '#2a1708';
+  ctx.fillStyle = '#2a1708'; ctx.beginPath();
   for (let i = 0; i < S.n; i++) {
     const age = t - S.born[i]; if (age < 0) continue;
     const em = clamp(age / .8, 0, 1), rr = S.r[i] * (1.3 - k * .9 + k2 * 1.5) * em, an = S.a[i] + t * (3 + 60 / (S.r[i] + 10));
     const x = FX.lerp(S.src.x, cx + Math.cos(an) * rr * 1.6, em), y = FX.lerp(S.src.y, cy + Math.sin(an) * rr * .6 + Math.sin(an * 3 + i) * 6, em);
-    ctx.fillRect(x, y, 2, 2);
+    ctx.rect(x, y, 2, 2);
   }
+  ctx.fill();
   if (t > 6.4) S.active = 0;
 }
 
@@ -1087,7 +1140,7 @@ function drawSwarm(dt) {
 function drawInspect(dt) {
   const h = hive(), b = curB(), si = sideIdx(), fg = frameGeom();
   // backdrop: warm blurred apiary
-  const g = ctx.createRadialGradient(VW / 2, VH * .4, 50, VW / 2, VH / 2, Math.max(VW, VH) * .8); g.addColorStop(0, '#5a3b1c'); g.addColorStop(1, '#1d120a'); ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
+  ctx.fillStyle = grad('ib' + VW + 'x' + VH, () => { const g = ctx.createRadialGradient(VW / 2, VH * .4, 50, VW / 2, VH / 2, Math.max(VW, VH) * .8); g.addColorStop(0, '#5a3b1c'); g.addColorStop(1, '#1d120a'); return g; }); ctx.fillRect(0, 0, VW, VH);
   // the open box below (top bars)
   drawStrip(h, fg);
   // parallax from pointer
@@ -1099,11 +1152,12 @@ function drawInspect(dt) {
   const comb = combCanvas(b, si, sp);
   ctx.save(); ctx.translate(fgo.cx, fgo.cy); ctx.rotate(fgo.rot); ctx.scale(fg.s, fg.s);
   // wooden frame
-  const wood = (x, y, w, hh) => { const gr = ctx.createLinearGradient(x, y, x, y + hh); gr.addColorStop(0, '#c99a5e'); gr.addColorStop(1, '#94633a'); ctx.fillStyle = gr; ctx.fillRect(x, y, w, hh); ctx.strokeStyle = 'rgba(90,55,25,.35)'; ctx.lineWidth = .8; for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.moveTo(x, y + hh * (k + 1) / 4); ctx.lineTo(x + w, y + hh * (k + 1) / 4 + 1); ctx.stroke(); } };
+  const wood = (x, y, w, hh) => { ctx.fillStyle = grad('wood' + y + ':' + hh, () => { const gr = ctx.createLinearGradient(x, y, x, y + hh); gr.addColorStop(0, '#c99a5e'); gr.addColorStop(1, '#94633a'); return gr; }); ctx.fillRect(x, y, w, hh); ctx.strokeStyle = 'rgba(90,55,25,.35)'; ctx.lineWidth = .8; for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.moveTo(x, y + hh * (k + 1) / 4); ctx.lineTo(x + w, y + hh * (k + 1) / 4 + 1); ctx.stroke(); } };
   ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 12;
   wood(-CW / 2 - 16, -CH / 2 - 34, CW + 32, CH + 58); ctx.shadowColor = 'transparent';
   wood(-CW / 2 - 70, -CH / 2 - 34, CW + 140, 22); // top bar with lugs
   ctx.drawImage(comb, -CW / 2, -CH / 2, CW, CH);
+  ctx.fillStyle = grad('combShade', () => { const sh = ctx.createLinearGradient(0, -CH / 2, 0, CH / 2); sh.addColorStop(0, 'rgba(255,240,200,.08)'); sh.addColorStop(1, 'rgba(40,20,5,.18)'); return sh; }); ctx.fillRect(-CW / 2, -CH / 2, CW, CH);
   ctx.translate(-CW / 2, -CH / 2);
   // queen cells & cups
   for (const o of b.over[si] || []) drawQCell(o);
@@ -1112,10 +1166,12 @@ function drawInspect(dt) {
   if (q) drawQueen(q, dt);
   // bees
   updateBees(dt, q);
+  const bm = ctx.getTransform();
   for (const be of insp.bees) {
     const spr = BEE[be.kind], L = BEE.L[be.kind], Wd = BEE.Wd[be.kind];
-    ctx.save(); ctx.translate(be.x, be.y); ctx.rotate(be.a); ctx.drawImage(spr, -L / 2, -Wd / 2, L, Wd); ctx.restore();
+    setXf(bm, be.x, be.y, be.a, 1); ctx.drawImage(spr, -L / 2, -Wd / 2, L, Wd);
   }
+  ctx.setTransform(bm);
   // label
   if (insp.label) { insp.label.t -= dt; if (insp.label.t <= 0) insp.label = null; else drawLabel(insp.label, fgo); }
   ctx.restore();
@@ -1123,12 +1179,16 @@ function drawInspect(dt) {
   drawHands(fgo);
   // smoke
   ctx.save();
-  for (let i = insp.smoke.length - 1; i >= 0; i--) { const s = insp.smoke[i]; s.age += dt; if (s.age > s.life) { insp.smoke.splice(i, 1); continue; } s.x += s.vx * dt; s.y += s.vy * dt; s.vx *= .985; s.vy *= .985; s.r += dt * 26; const a = (1 - s.age / s.life) * .28; ctx.fillStyle = `rgba(226,218,200,${a})`; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, TAU); ctx.fill(); }
+  ctx.fillStyle = 'rgb(226,218,200)';
+  for (const s of SMOKE) { if (s.age >= s.life) continue; s.age += dt; s.x += s.vx * dt; s.y += s.vy * dt; s.vx *= .985; s.vy *= .985; s.r += dt * 20; ctx.globalAlpha = Math.max(0, 1 - s.age / s.life) * .18; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, TAU); ctx.fill(); }
+  ctx.globalAlpha = 1;
   ctx.restore();
   drawSmoker();
   // angry bees
   agitation(dt);
-  for (let i = insp.flyers.length - 1; i >= 0; i--) { const f = insp.flyers[i]; f.t += dt; if (f.t > f.life) { insp.flyers.splice(i, 1); continue; } f.x += f.vx * dt; f.y += f.vy * dt; f.vx += Math.sin(T * 13 + i) * 400 * dt; f.vy += Math.cos(T * 11 + i) * 400 * dt; const s = 1 + f.t * 1.6; ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(Math.atan2(f.vy, f.vx)); ctx.globalAlpha = .9; ctx.drawImage(BEE.worker, -8 * s, -5.5 * s, 16 * s, 11 * s); ctx.restore(); }
+  ctx.globalAlpha = .9; const fm = ctx.getTransform();
+  for (let i = 0; i < FLY.length; i++) { const f = FLY[i]; if (f.t >= f.life) continue; f.t += dt; f.x += f.vx * dt; f.y += f.vy * dt; f.vx += Math.sin(T * 13 + i) * 400 * dt; f.vy += Math.cos(T * 11 + i) * 400 * dt; const s = 1 + f.t * 1.6, an = Math.atan2(f.vy, f.vx); setXf(fm, f.x, f.y, an, 1); ctx.drawImage(BEE.worker, -8 * s, -5.5 * s, 16 * s, 11 * s); }
+  ctx.setTransform(fm); ctx.globalAlpha = 1;
   // agitation meter
   const mw = isMobile() ? 110 : 180, mx = VW - mw - 18, my = isMobile() ? PAD.top + 22 : VH - PAD.bot + 40;
   ctx.fillStyle = 'rgba(30,18,8,.7)'; ctx.fillRect(mx - 6, my - 18, mw + 12, 30); ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fillRect(mx, my, mw, 6);
@@ -1156,16 +1216,19 @@ function stripHit(px, py) { for (const s of insp.strip || []) if (px >= s.x && p
 function drawQCell(o) {
   ctx.save(); ctx.translate(o.x, o.y);
   if (o.kind === 'cup') { ctx.beginPath(); ctx.ellipse(0, 4, 7, 6, 0, 0, Math.PI); ctx.fillStyle = '#d8ae6a'; ctx.fill(); ctx.strokeStyle = 'rgba(90,55,20,.6)'; ctx.lineWidth = 1; ctx.stroke(); ctx.restore(); return; }
-  const len = o.age >= 8 ? 30 : 12 + o.age * 2.2, capped = o.age >= 8;
-  const gr = ctx.createLinearGradient(-8, 0, 8, 0); gr.addColorStop(0, '#b8853f'); gr.addColorStop(.4, '#e6c07a'); gr.addColorStop(1, '#9e6b30');
-  ctx.beginPath(); ctx.ellipse(0, len / 2, 8, len / 2 + 2, 0, 0, TAU); ctx.fillStyle = gr; ctx.fill();
-  ctx.fillStyle = 'rgba(110,64,24,.35)'; for (let k = 0; k < 10; k++) { ctx.beginPath(); ctx.arc(Math.cos(k * 2.3) * 4.5, len / 2 + Math.sin(k * 1.7) * len * .4, 1.4, 0, TAU); ctx.fill(); }
-  if (!capped) { ctx.beginPath(); ctx.ellipse(0, len + 1, 5, 3, 0, 0, TAU); ctx.fillStyle = '#fff3d6'; ctx.fill(); }
+  const capped = o.age >= 8, len = capped ? 38 : 14 + o.age * 2.6;
+  ctx.fillStyle = grad('qcell', () => { const gr = ctx.createLinearGradient(-10, 0, 10, 0); gr.addColorStop(0, '#b8853f'); gr.addColorStop(.4, '#ecc985'); gr.addColorStop(1, '#9e6b30'); return gr; });
+  ctx.beginPath(); ctx.ellipse(0, len / 2, 10, len / 2 + 2, 0, 0, TAU); ctx.fill();
+  ctx.strokeStyle = 'rgba(70,38,12,.6)'; ctx.lineWidth = 1.2; ctx.stroke();
+  // peanut-shell pitting on the wax
+  ctx.fillStyle = 'rgba(110,64,24,.4)'; for (let k = 0; k < 14; k++) { ctx.beginPath(); ctx.arc(Math.cos(k * 2.3) * 5.5, len / 2 + Math.sin(k * 1.7) * len * .42, 1.5, 0, TAU); ctx.fill(); }
+  if (capped) { ctx.beginPath(); ctx.ellipse(0, len - 2, 7, 5, 0, 0, TAU); ctx.fillStyle = '#7a4a1c'; ctx.fill(); }
+  else { ctx.beginPath(); ctx.ellipse(0, len + 1, 7, 4, 0, 0, TAU); ctx.fillStyle = '#fff3d6'; ctx.fill(); ctx.beginPath(); ctx.arc(-2, len + 0.5, 1.6, 0, TAU); ctx.fillStyle = '#fff'; ctx.fill(); }
   ctx.restore();
 }
 function drawQueen(q, dt) {
   if (!q.caged) { q.a += (Math.sin(T * .7) * .6) * dt; q.x += Math.cos(q.a) * 3 * dt + (q.hx - q.x) * .02 * dt; q.y += Math.sin(q.a) * 3 * dt + (q.hy - q.y) * .02 * dt; q.x = clamp(q.x, 20, CW - 20); q.y = clamp(q.y, 15, CH - 15); }
-  ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.a); const s = q.sc; ctx.drawImage(BEE.queen, -12 * s, -5.5 * s, 24 * s, 11 * s); ctx.restore();
+  ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.a); const s = q.sc; ctx.drawImage(BEE.queen, -15 * s, -6 * s, 30 * s, 12 * s); ctx.restore();
   if (q.caged) { ctx.save(); ctx.translate(q.x, q.y); ctx.fillStyle = 'rgba(160,110,60,.85)'; ctx.fillRect(-18, -9, 36, 18); ctx.strokeStyle = '#e9d8b6'; ctx.lineWidth = .8; for (let k = -16; k <= 16; k += 4) { ctx.beginPath(); ctx.moveTo(k, -9); ctx.lineTo(k, 9); ctx.stroke(); } ctx.restore(); }
   if (insp.qFound) { ctx.strokeStyle = `rgba(255,210,122,${.5 + .3 * Math.sin(T * 5)})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(q.x, q.y, 18, 0, TAU); ctx.stroke(); }
 }
@@ -1222,7 +1285,7 @@ function agitation(dt) {
   insp.t += dt; insp.agit = Math.min(1.1, insp.agit + dt * (.014 + (insp.smoked ? 0 : .016)));
   const ag = insp.agit;
   if (ag > .6) {
-    if (Math.random() < (ag - .6) * 14 * dt && insp.flyers.length < 40) insp.flyers.push({ x: VW / 2 + (Math.random() - .5) * VW * .5, y: VH * .45 + (Math.random() - .5) * VH * .3, vx: (Math.random() - .5) * 300, vy: (Math.random() - .5) * 300, t: 0, life: 1.2 + Math.random() });
+    if (Math.random() < (ag - .6) * 14 * dt) { const f = FLY.find(f => f.t >= f.life); if (f) { f.x = VW / 2 + (Math.random() - .5) * VW * .5; f.y = VH * .45 + (Math.random() - .5) * VH * .3; f.vx = (Math.random() - .5) * 300; f.vy = (Math.random() - .5) * 300; f.t = 0; f.life = 1.2 + Math.random(); } }
     insp.angryT += dt; if (insp.angryT > .5) { insp.angryT = 0; FX.tone({ f: 220 + Math.random() * 60, type: 'sawtooth', dur: .35, vol: .025 + ag * .03 }); FX.shake(.05 + (ag - .6) * .2); }
     if (ag > .78 && Math.random() < (ag - .75) * 1.2 * dt) { toast('Ouch — a sting on the wrist!', 1); FX.sfx('fail'); FX.shake(.35); FX.hitstop(70); insp.agit += .04; }
   }
@@ -1234,10 +1297,20 @@ function agitation(dt) {
 }
 
 // ---------- sim view (model curves) ----------
+// the curves only change once a simulated day, so they are drawn into a cached layer
+const simLayer = { c: document.createElement('canvas'), key: '' };
 function drawSim() {
   const h = hive(), H = h.hist; if (!H.length) return;
   const mob = isMobile(), x0 = mob ? 10 : 360, y0 = mob ? PAD.top : 70, w = VW - x0 - (mob ? 10 : 330), hh = Math.max(200, (mob ? $('tray').getBoundingClientRect().top - (W.hives.length > 1 ? 66 : 10) : VH - 110) - y0);
-  ctx.fillStyle = 'rgba(26,16,8,.93)'; ctx.strokeStyle = 'rgba(255,214,150,.16)'; ctx.beginPath(); ctx.roundRect(x0, y0, w, hh, 14); ctx.fill(); ctx.stroke();
+  const key = [SC.id, curHive, H.length, h.log.length, VW, VH, dpr, x0, y0, w, hh].join('|');
+  if (simLayer.key !== key) {
+    simLayer.key = key; const c = simLayer.c; c.width = Math.ceil(w * dpr); c.height = Math.ceil(hh * dpr);
+    const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, -x0 * dpr, -y0 * dpr); paintSim(g, h, H, mob, x0, y0, w, hh);
+  }
+  ctx.drawImage(simLayer.c, x0, y0, w, hh);
+}
+function paintSim(g, h, H, mob, x0, y0, w, hh) {
+  g.fillStyle = 'rgba(26,16,8,.93)'; g.strokeStyle = 'rgba(255,214,150,.16)'; g.beginPath(); g.roundRect(x0, y0, w, hh, 14); g.fill(); g.stroke();
   const panels = [
     { t: 'Bees (thousands)', s: [['adults', '#f2b544', 1e-3], ['nurses', '#fbe7b8', 1e-3], ['foragers', '#c47a2c', 1e-3], ['winter', '#8fb3d9', 1e-3], ['brood', '#b98a52', 1e-3, 1]] },
     { t: 'Stores (kg)', s: [['honey', '#f2b544', 1], ['superH', '#fbe7b8', 1], ['nectar', '#e3913a', 1, 1]] },
@@ -1245,26 +1318,26 @@ function drawSim() {
     { t: 'Mites per 100 bees (wash)', s: [['load', '#e8684a', 1], ['flow', '#9bd06b', 30, 1]], lines: [[3, 'threshold']] },
   ];
   const cols = mob ? 1 : 2, rows = Math.ceil(panels.length / cols), pw = (w - 30) / cols, ph = (hh - 50) / rows;
-  ctx.font = '600 13px "Space Grotesk",sans-serif'; ctx.fillStyle = '#fbe7b8'; ctx.textAlign = 'left';
-  ctx.fillText(`Sim view · ${h.name} · the model behind the comb`, x0 + 14, y0 + 22);
+  g.font = '600 13px "Space Grotesk",sans-serif'; g.fillStyle = '#fbe7b8'; g.textAlign = 'left';
+  g.fillText(`Sim view · ${h.name} · the model behind the comb`, x0 + 14, y0 + 22);
   const d0 = H[0].d, d1 = Math.max(H[H.length - 1].d, d0 + 7);
   panels.forEach((P, k) => {
     const px = x0 + 14 + (k % cols) * (pw + 4), py = y0 + 38 + Math.floor(k / cols) * ph, iw = pw - 14, ih = ph - 30;
     let mx = P.max || 0; if (!P.max) for (const s of H) for (const [key, , sc] of P.s) mx = Math.max(mx, s[key] * sc); if (P.lines) for (const [v] of P.lines) mx = Math.max(mx, v * 1.3); mx = mx || 1;
-    ctx.fillStyle = 'rgba(255,255,255,.03)'; ctx.fillRect(px, py + 14, iw, ih);
-    ctx.fillStyle = '#d9c39b'; ctx.font = '12px "Space Grotesk",sans-serif'; ctx.fillText(P.t, px, py + 9);
+    g.fillStyle = 'rgba(255,255,255,.03)'; g.fillRect(px, py + 14, iw, ih);
+    g.fillStyle = '#d9c39b'; g.font = '12px "Space Grotesk",sans-serif'; g.fillText(P.t, px, py + 9);
     const X = d => px + (d - d0) / (d1 - d0) * iw, Y = v => py + 14 + ih - v / mx * ih;
     // week grid + month labels
-    ctx.strokeStyle = 'rgba(255,255,255,.05)'; ctx.lineWidth = 1; for (let d = d0; d <= d1; d += 7) { ctx.beginPath(); ctx.moveTo(X(d), py + 14); ctx.lineTo(X(d), py + 14 + ih); ctx.stroke(); }
-    if (P.lines) for (const [v, lab] of P.lines) { ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(255,214,150,.35)'; ctx.beginPath(); ctx.moveTo(px, Y(v)); ctx.lineTo(px + iw, Y(v)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = 'rgba(255,214,150,.6)'; ctx.font = '10px "Space Grotesk",sans-serif'; ctx.fillText(lab, px + 4, Y(v) - 3); }
+    g.strokeStyle = 'rgba(255,255,255,.05)'; g.lineWidth = 1; for (let d = d0; d <= d1; d += 7) { g.beginPath(); g.moveTo(X(d), py + 14); g.lineTo(X(d), py + 14 + ih); g.stroke(); }
+    if (P.lines) for (const [v, lab] of P.lines) { g.setLineDash([4, 4]); g.strokeStyle = 'rgba(255,214,150,.35)'; g.beginPath(); g.moveTo(px, Y(v)); g.lineTo(px + iw, Y(v)); g.stroke(); g.setLineDash([]); g.fillStyle = 'rgba(255,214,150,.6)'; g.font = '10px "Space Grotesk",sans-serif'; g.fillText(lab, px + 4, Y(v) - 3); }
     // events as ticks
-    for (const e of h.log) { if (e.d < d0) continue; ctx.fillStyle = e.kind === 'swarm' || e.kind === 'bad' ? '#e8684a' : e.kind === 'warn' ? '#f2b544' : e.kind === 'good' ? '#9bd06b' : '#d9c39b'; ctx.fillRect(X(e.d) - 1, py + 14 + ih - 6, 2, 6); }
+    for (const e of h.log) { if (e.d < d0) continue; g.fillStyle = e.kind === 'swarm' || e.kind === 'bad' ? '#e8684a' : e.kind === 'warn' ? '#f2b544' : e.kind === 'good' ? '#9bd06b' : '#d9c39b'; g.fillRect(X(e.d) - 1, py + 14 + ih - 6, 2, 6); }
     for (const [key, col, sc, dash] of P.s) {
-      ctx.strokeStyle = col; ctx.lineWidth = dash ? 1.2 : 2; if (dash) ctx.setLineDash([3, 3]); ctx.beginPath();
-      H.forEach((s, j) => { const x = X(s.d), y = Y(s[key] * sc); j ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke(); ctx.setLineDash([]);
-      const last = H[H.length - 1]; ctx.fillStyle = col; ctx.font = '10px "Space Grotesk",sans-serif'; ctx.fillText(key === 'superH' ? 'in supers' : key, Math.min(X(last.d) + 4, px + iw - 40), Y(last[key] * sc) + 3);
+      g.strokeStyle = col; g.lineWidth = dash ? 1.2 : 2; if (dash) g.setLineDash([3, 3]); g.beginPath();
+      H.forEach((s, j) => { const x = X(s.d), y = Y(s[key] * sc); j ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); g.setLineDash([]);
+      const last = H[H.length - 1]; g.fillStyle = col; g.font = '10px "Space Grotesk",sans-serif'; g.fillText(key === 'superH' ? 'in supers' : key, Math.min(X(last.d) + 4, px + iw - 40), Y(last[key] * sc) + 3);
     }
-    ctx.fillStyle = 'rgba(217,195,155,.6)'; ctx.font = '10px "Space Grotesk",sans-serif'; ctx.fillText(mx >= 10 ? Math.round(mx) : mx.toFixed(1), px + iw - 22, py + 24); ctx.fillText(dateStr(d0), px, py + 14 + ih + 12); ctx.textAlign = 'right'; ctx.fillText(dateStr(d1), px + iw, py + 14 + ih + 12); ctx.textAlign = 'left';
+    g.fillStyle = 'rgba(217,195,155,.6)'; g.font = '10px "Space Grotesk",sans-serif'; g.fillText(mx >= 10 ? Math.round(mx) : mx.toFixed(1), px + iw - 22, py + 24); g.fillText(dateStr(d0), px, py + 14 + ih + 12); g.textAlign = 'right'; g.fillText(dateStr(d1), px + iw, py + 14 + ih + 12); g.textAlign = 'left';
   });
 }
 
@@ -1317,7 +1390,9 @@ function tickFF(dt) {
   updateHud();
 }
 function yearLedger() { const kg = cleanKg(W); banner('1 September', `Year ${Math.round((W.day - SC.start) / 365)}: ${alive(W).length} colonies, ${kg.toFixed(0)} kg of honey all told`, 3200); }
-function autosave() { try { const o = { sc: SC.id, w: { ...W, sc: null, onEvent: null } }; localStorage.setItem('rh:swarm-run', JSON.stringify(o)); } catch (e) {} }
+// floats are rounded to 5 significant figures: the run save stays well under the localStorage quota
+const saveNum = (k, v) => typeof v === 'number' && !Number.isInteger(v) ? +v.toPrecision(5) : v;
+function autosave() { try { const o = { sc: SC.id, w: { ...W, sc: null, onEvent: null, swarmEvents: [] } }; localStorage.setItem('rh:swarm-run', JSON.stringify(o, saveNum)); } catch (e) {} }
 function resume() {
   try { const o = JSON.parse(localStorage.getItem('rh:swarm-run') || 'null'); if (!o) return false; const i = SCEN.findIndex(s => s.id === o.sc); if (i < 0) return false;
     startScenario.resuming = 1; startScenario(i); startScenario.resuming = 0; Object.assign(W, o.w); W.sc = SCEN[i]; W.onEvent = onModelEvent; if (SC.tutorial) W.tut = W.tut || { found: {}, wrong: 0, driven: 0 }; notes.push({ html: `<i>Resumed at week ${W.week}.</i>` }); renderUI(); return true; } catch (e) { return false; }
@@ -1382,9 +1457,9 @@ let last = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = Math.min(.05, (now - last) / 1000); last = now;
+  if (document.hidden) return;
   if (FX.frozen()) dt = 0;
   T += dt;
-  resize();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const [sx, sy] = FX.shakeOffset(10);
   ctx.translate(sx, sy);
@@ -1396,7 +1471,7 @@ function frame(now) {
   if (simOn) drawSim();
   ps.update(dt); ps.draw(ctx);
   // vignette
-  const vg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * .35, VW / 2, VH / 2, Math.max(VW, VH) * .75); vg.addColorStop(0, 'rgba(20,10,0,0)'); vg.addColorStop(1, 'rgba(20,10,0,.45)'); ctx.fillStyle = vg; ctx.fillRect(-20, -20, VW + 40, VH + 40);
+  ctx.fillStyle = grad('vg' + VW + 'x' + VH, () => { const vg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * .35, VW / 2, VH / 2, Math.max(VW, VH) * .75); vg.addColorStop(0, 'rgba(20,10,0,0)'); vg.addColorStop(1, 'rgba(20,10,0,.45)'); return vg; }); ctx.fillRect(-20, -20, VW + 40, VH + 40);
 }
 
 // ---------- debug / test handle ----------

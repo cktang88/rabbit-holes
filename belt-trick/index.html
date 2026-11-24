@@ -138,8 +138,8 @@ const scene = new THREE.Scene();
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; scene.background = t; }
 scene.fog = new THREE.Fog('#1c1832', 16, 34);
 const camera = new THREE.PerspectiveCamera(30, 1, .1, 100);
-scene.add(new THREE.HemisphereLight('#c8d6ff', '#3b2740', .85));
-const key = new THREE.DirectionalLight('#ffd7a8', 1.5); key.position.set(4, 7, 6); scene.add(key);
+const hemi = new THREE.HemisphereLight('#c8d6ff', '#3b2740', .7); scene.add(hemi);
+const key = new THREE.DirectionalLight('#ffd7a8', 1.2); key.position.set(4, 7, 6); scene.add(key);
 const rim = new THREE.DirectionalLight('#8fb4ff', 1.2); rim.position.set(-5, 2, -6); scene.add(rim);
 
 // pointer handling must register before OrbitControls so we can claim drags that start on a cube
@@ -148,10 +148,10 @@ canvas.addEventListener('pointerdown', e => onDown(e), { capture: true });
 const controls = new OrbitControls(camera, canvas); controls.enableDamping = true; controls.enablePan = false; controls.rotateSpeed = .55; controls.minDistance = 4; controls.maxDistance = 26;
 controls.addEventListener('change', () => wake(200));
 
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .55, .4, .93); composer.addPass(bloom);
-composer.addPass(new OutputPass());
+// bloom only on desktop; phones render straight to the canvas (tone mapping still applies)
+let composer = null, bloom = null;
+if (!MOBILE) { composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera));
+  bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .5, .35, .98); composer.addPass(bloom); composer.addPass(new OutputPass()); }
 
 // ---------- shared materials ----------
 const glowU = { value: 0 };
@@ -163,7 +163,7 @@ function ribbonMat(color, side, glowCol) {
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGlow = glow; vAcross = across;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vGlow; varying float vAcross; uniform vec3 glowCol; uniform float pulse;')
       .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - 0.45 * smoothstep(0.62, 1.0, abs(vAcross)) + 0.12 * (1.0 - smoothstep(0.0, 0.18, abs(vAcross)));')
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += glowCol * (vGlow * (1.0 + pulse));');
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += glowCol * (vGlow * (1.0 + pulse)) + diffuseColor.rgb * 0.22;');
   };
   m.userData.shared = true; return m;
 }
@@ -193,11 +193,11 @@ pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttri
 const dotTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, '#fff'); gr.addColorStop(.3, 'rgba(255,255,255,.8)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
 const pts = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: .09, map: dotTex, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
 pts.frustumCulled = false; scene.add(pts);
-let pAlive = 0; const tmpC = new THREE.Color();
+let pAlive = 0, pNext = 0; const tmpC = new THREE.Color(), pV = new THREE.Vector3();
 function burst(x, y, z, n, color, speed = 2, life = .7) {
-  tmpC.set(color);
-  for (let k = 0; k < n; k++) { let i = -1; for (let j = 0; j < MAXP; j++) if (pLife[j] <= 0) { i = j; break; } if (i < 0) return;
-    const v = new THREE.Vector3().randomDirection().multiplyScalar(speed * (.3 + Math.random() * .7));
+  tmpC.set(color); wake(100);
+  for (let k = 0; k < n; k++) { let i = -1; for (let j = 0; j < MAXP; j++) { const c = (pNext + j) % MAXP; if (pLife[c] <= 0) { i = c; break; } } if (i < 0) return; pNext = i + 1;
+    const v = pV.randomDirection().multiplyScalar(speed * (.3 + Math.random() * .7));
     pPos[i * 3] = x; pPos[i * 3 + 1] = y; pPos[i * 3 + 2] = z; pVel[i * 3] = v.x; pVel[i * 3 + 1] = v.y; pVel[i * 3 + 2] = v.z;
     pLife[i] = pMax[i] = life * (.6 + Math.random() * .4); pBase[i * 3] = tmpC.r; pBase[i * 3 + 1] = tmpC.g; pBase[i * 3 + 2] = tmpC.b; pAlive++; }
 }
@@ -253,6 +253,12 @@ class Ribbon {
         m = 1 / Math.sqrt(m); g[o] *= m; g[o + 1] *= m; g[o + 2] *= m; g[o + 3] *= m; } }
     this.dirty = true;
   }
+  // a smooth random kick (ends fixed) so RELAX visibly *tries*: a stuck ribbon flails and settles back still twisted
+  jiggle(a) {
+    const N = this.N, g = this.g, v = [Math.random() - .5, Math.random() - .5, Math.random() - .5, Math.random() - .5], f = Math.random() < .5 ? 1 : 2;
+    for (let i = 1; i < N; i++) { const o = i * 4, k = a * Math.sin(Math.PI * f * i / N); let m = 0; for (let c = 0; c < 4; c++) { g[o + c] += k * v[c]; m += g[o + c] * g[o + c]; } m = 1 / Math.sqrt(m); for (let c = 0; c < 4; c++) g[o + c] *= m; }
+    this.dirty = true;
+  }
   length() { const N = this.N, g = this.g; let L = 0; for (let i = 0; i < N; i++) { const o = i * 4, d = g[o] * g[o + 4] + g[o + 1] * g[o + 5] + g[o + 2] * g[o + 6] + g[o + 3] * g[o + 7]; L += Math.acos(Math.min(1, Math.max(-1, d))); } return L; }
   endDot() { const g = this.g, o = this.N * 4; return g[0] * g[o] + g[1] * g[o + 1] + g[2] * g[o + 2] + g[3] * g[o + 3]; }
   dmin() { return Math.acos(Math.min(1, Math.max(-1, this.endDot()))); }
@@ -287,7 +293,7 @@ class Ribbon {
 // World: objects (cubes / tray / rotor) + ribbons
 // ======================================================================
 let OBJ = [], RIB = [], EXTRA = [], MECH = null, ghost = null;
-function disposeTree(o) { o.traverse(c => { if (c.geometry) c.geometry.dispose(); const m = c.material; if (m) (Array.isArray(m) ? m : [m]).forEach(mm => { if (!mm.userData.shared) mm.dispose(); }); }); }
+function disposeTree(o) { o.traverse(c => { if (c.geometry) c.geometry.dispose(); const m = c.material; if (m) (Array.isArray(m) ? m : [m]).forEach(mm => { if (!mm.userData.shared) { if (mm.map) mm.map.dispose(); mm.dispose(); } }); }); }
 function clearWorld() {
   RIB.forEach(r => r.dispose()); OBJ.forEach(o => { scene.remove(o.mesh); disposeTree(o.mesh); }); EXTRA.forEach(e => { scene.remove(e); disposeTree(e); });
   if (MECH) { MECH.cable.dispose(); } RIB = []; OBJ = []; EXTRA = []; MECH = null; ghost = null;
@@ -316,16 +322,25 @@ function linkRibbon(o0, o1, opt) { // +x face of o0 to -x face of o1
   const F = qFromTo([1, 0, 0]); const r = new Ribbon({ obj: o0, p: [o0.size / 2, 0, 0], F }, { obj: o1, p: [-o1.size / 2, 0, 0], F }, opt); RIB.push(r); return r;
 }
 
+const CAMS = {
+  single: { cam: [6.6, 3.9, 3.6], pcam: [4.4, 6.6, 3.4], tgt: [0, -.2, -1.5] },
+  bundle: { cam: [6.8, 4.1, 3.8], pcam: [4.5, 6.8, 3.5], tgt: [0, -.2, -1.5] },
+  six: { cam: [6.6, 5, 8.4], tgt: [0, 0, 0] },
+  pair: { cam: [1.2, 3.4, 8.6], pcam: [4.6, 5.2, 5.8], tgt: [0, -.2, 0] },
+  chain: { cam: [1.5, 4, 11], pcam: [6.4, 6.6, 7.4], tgt: [0, -.2, 0] },
+  waiter: { cam: [0, 1.6, 8.2], tgt: [0, -1, 0] },
+  mech: { cam: [4.4, 2.2, 6.4], tgt: [0, -.2, 0] },
+};
 const SETUPS = {
-  single() { const o = makeCube([0, 0, 0], 1); backWall(-3.3); anchorPlate([0, 0, -3.26], [0, 0, 1]); wallRibbon(o, [0, 0, -3.25], [0, 0, -.5], [0, 0, 1]); return { cam: [5.6, 3.6, 6.4], tgt: [0, -.1, -1.3] }; },
+  single() { const o = makeCube([0, 0, 0], 1); backWall(-3.3); anchorPlate([0, 0, -3.26], [0, 0, 1]); wallRibbon(o, [0, 0, -3.25], [0, 0, -.5], [0, 0, 1]); return CAMS.single; },
   bundle() { const o = makeCube([0, 0, 0], 1.1); backWall(-3.3);
     for (const [x, y] of [[-.28, -.28], [.28, -.28], [-.28, .28], [.28, .28]]) { anchorPlate([x * 1.6, y * 1.6, -3.26], [0, 0, 1], .26); wallRibbon(o, [x * 1.6, y * 1.6, -3.25], [x, y, -.55], [0, 0, 1], { width: .15 }); }
-    return { cam: [5.6, 3.8, 6.6], tgt: [0, -.1, -1.3] }; },
+    return CAMS.bundle; },
   six() { const o = makeCube([0, 0, 0], 1);
     for (const d of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) { const a = d.map(v => v * 2.7), t = d.map(v => -v); anchorPlate(a, t, .36); wallRibbon(o, a, d.map(v => v * .5), t, { width: .2 }); }
-    return { cam: [6.6, 5, 8.4], tgt: [0, 0, 0] }; },
-  pair() { const A = makeCube([-1.55, 0, 0], .9, 'A'), B = makeCube([1.55, 0, 0], .9, 'B'); linkRibbon(A, B); return { cam: [1.2, 3.4, 8.6], tgt: [0, -.2, 0] }; },
-  chain() { const A = makeCube([-2.5, 0, 0], .8, 'A'), B = makeCube([0, 0, 0], .8, 'B'), C = makeCube([2.5, 0, 0], .8, 'C'); linkRibbon(A, B, { width: .2 }); linkRibbon(B, C, { width: .2 }); return { cam: [1.5, 4, 11], tgt: [0, -.2, 0] }; },
+    return CAMS.six; },
+  pair() { const A = makeCube([-1.55, 0, 0], .9, 'A'), B = makeCube([1.55, 0, 0], .9, 'B'); linkRibbon(A, B); return CAMS.pair; },
+  chain() { const A = makeCube([-2.5, 0, 0], .8, 'A'), B = makeCube([0, 0, 0], .8, 'B'), C = makeCube([2.5, 0, 0], .8, 'C'); linkRibbon(A, B, { width: .2 }); linkRibbon(B, C, { width: .2 }); return CAMS.chain; },
   waiter() {
     const g = new THREE.Group(); scene.add(g);
     const tray = new THREE.Mesh(new THREE.CylinderGeometry(1.05, .95, .07, 48), new THREE.MeshPhysicalMaterial({ color: '#d7dbe6', metalness: .85, roughness: .22, clearcoat: 1 })); g.add(tray);
@@ -340,9 +355,9 @@ const SETUPS = {
     const o = { kind: 'tray', pos: [0, 0, 0], q: [1, 0, 0, 0], size: 1.6, mesh: g, wpivot, glitch: 0 }; OBJ.push(o);
     const sh = new THREE.Mesh(new THREE.SphereGeometry(.32, 24, 16), MAT.anchor); sh.position.set(0, -2.9, 0); addExtra(sh);
     wallRibbon(o, [0, -2.7, 0], [0, -.05, 0], [0, 1, 0], { width: .3, matF: MAT.armF, matB: MAT.armB });
-    return { cam: [0, 1.6, 8.2], tgt: [0, -1, 0] };
+    return CAMS.waiter;
   },
-  mech(sat) { buildMech(sat); return { cam: [4.4, 2.2, 6.4], tgt: [0, -.2, 0] }; },
+  mech(sat) { buildMech(sat); return CAMS.mech; },
 };
 
 // ---------- anti-twister mechanism ----------
@@ -439,13 +454,13 @@ function flushQueue() { // finish all pending animation instantly (scripted test
   while (queue.length) { const c = queue.shift(), q0 = [...c.o.q]; rotateBy(c.o, c.ax, c.ang); setExact(c.o, qmul(qaa(c.ax, c.ang), q0)); }
   if (had) onMovesSettled();
 }
-const busy = () => !!cur || queue.length > 0 || relax.on || intro;
+const busy = () => !!cur || queue.length > 0 || relax.on || intro || snaps.length > 0;
 
 // ---------- RELAX: curve shortening on S³ ----------
 const relax = { on: false, frames: 0, L0: [], fb: null, zipT: 0 };
 function startRelax(silent) {
   if (!RIB.length) return; relax.on = true; relax.frames = 0; relax.iters = 0; relax.fb = null; relax.L0 = RIB.map(r => r.length()); relax.done = RIB.map(() => false); relax.silent = silent;
-  if (!silent) FX.sfx('whoosh'); wake(500);
+  if (!silent) { FX.sfx('whoosh'); RIB.forEach(r => r.jiggle(.5)); } wake(500);
 }
 function relaxDone(r) { const L = r.length(), dm = r.dmin(); return L < dm + .02 || (dm > Math.PI - .02 && L < Math.PI + .03); }
 function stepRelax(dt, iters) {
@@ -500,7 +515,7 @@ const LV = [
     story: 'Half-turns now. Try Z, then Y, then X: the cube comes <b>home</b>. But the ribbon has its own opinion. Does the <b>order</b> matter?', goal: 'Half-turns only. Use <b>every axis</b> at least once and end home with a flat ribbon.',
     win: ['i·j·k = −1', 'In 1843 Hamilton carved i² = j² = k² = ijk = −1 into a Dublin bridge. Those are these half-turns, with the sign the ribbon remembers.'] },
   { n: 'Place Your Bets', setup: 'single', kind: 'bet',
-    story: 'Watch a sequence. When the cube is home again, <b>bet</b>: will the ribbon relax flat, or stay stuck?', goal: 'Get 3 predictions right.' },
+    story: 'Watch a sequence. When the cube is home again, <b>bet</b>: will the ribbon relax flat, or stay stuck? The sign lamp is covered, so read the ribbon, or do the algebra.', goal: 'Get 3 predictions right.' },
   { n: 'One Move', setup: 'single', start: ['Y+180', 'Z+90', 'Y+180'], moves: { ax: 'XYZ', ang: [-270, -180, -90, 90, 180, 270] }, maxMoves: 1, par: 1,
     story: 'Someone left the cube like this (watch). You get <b>exactly one move</b>. Pick an axis and an angle.', goal: 'One move: home, with a ribbon that relaxes flat.',
     win: ['The long way round', 'The short way home leaves a full twist. 270° the other way picks up the missing sign.'] },
@@ -545,21 +560,33 @@ let L, LI = 0, sel = 0, won = false, intro = false, S = {}, bet = null, golf = n
 function loadLevel(i, opt = {}) {
   LI = i; L = LV[i]; SAVE.cur = i; persist();
   queue = []; cur = null; relax.on = false; userMoves = []; axesUsed = new Set(); yawAcc = 0; won = false; sel = L.objs ? L.objs[0] : 0; recording = null;
-  clearWorld(); const cam = (L.setup === 'mech' ? SETUPS.mech(L.kind === 'sat') : SETUPS[L.setup]()); placeCamera(cam);
+  clearWorld(); const cam = (L.setup === 'mech' ? SETUPS.mech(L.kind === 'sat') : SETUPS[L.setup]());
   bet = L.kind === 'bet' ? { right: 0, tries: 0, phase: 'idle', seq: null } : null;
   golf = L.kind === 'golf' ? { hole: 0, strokes: 0, total: 0, par: 0, results: [] } : null;
   waiter = L.kind === 'waiter' ? { spill: 0, bumpT: 1.5, bump: null, t: 0, started: false, done: false } : null;
   if (golf) setupHole();
   if (L.start && !opt.noStart) { L.start.forEach(t => enqueue(t, false, true)); intro = true; }
   if (L.start && L.moves && !L.par && L.setup !== 'pair' && L.setup !== 'chain') L.par = bfsPar(seqQ(L.start), gensOf(L));
-  $('lvname').textContent = `Level ${i + 1} · ${L.n}`; $('story').innerHTML = L.story; renderGoal(); renderLevels(); renderCtrl(); renderBets(); $('meter').style.display = 'none';
+  $('lvname').textContent = `Level ${i + 1} · ${L.n}`; $('story').innerHTML = L.story; renderGoal(); renderLevels(); renderCtrl(); renderBets(); $('meter').style.display = 'none'; placeCamera(cam);
   $('lamp').style.display = L.setup === 'mech' ? 'none' : ''; $('lens').style.display = (L.setup === 'mech' || L.setup === 'waiter') ? 'none' : '';
   if (bet) setTimeout(() => nextBet(), 600);
   wake(800);
 }
 function gensOf(L) { const g = []; for (const a of L.moves.ax) for (const d of L.moves.ang) g.push(a + (d > 0 ? '+' : '') + d); return g; }
-function placeCamera(c) { const asp = innerWidth / innerHeight, k = FX.clamp(1.05 / asp, 1, 2.1); const t = new THREE.Vector3(...c.tgt), p = new THREE.Vector3(...c.cam).sub(t).multiplyScalar(k).add(t);
-  if (asp < .8) t.y += 0.9 + (k - 1) * .5; camera.position.copy(p); controls.target.copy(t); controls.update(); }
+// Fit the scene's framing sphere (radius implied by the desktop shot) into the part of the screen the HUD leaves free.
+// Portrait phones get their own, steeper angle where one exists, so long ribbons run up the screen instead of across it.
+const camT = new THREE.Vector3(), camD = new THREE.Vector3(), camU = new THREE.Vector3();
+function placeCamera(c) {
+  const asp = innerWidth / innerHeight, portrait = asp < .8, src = portrait && c.pcam ? c.pcam : c.cam;
+  camT.set(...c.tgt); camD.set(...src).sub(camT); const d0 = Math.hypot(c.cam[0] - c.tgt[0], c.cam[1] - c.tgt[1], c.cam[2] - c.tgt[2]); camD.normalize();
+  const vf = camera.fov * D2R / 2, hf = Math.atan(Math.tan(vf) * asp), r = d0 * Math.sin(vf);
+  const hud = $('hud').getBoundingClientRect(), ctl = $('ctrl').getBoundingClientRect(), H = innerHeight;
+  const top = portrait ? Math.min(hud.bottom, H * .45) : 0, bot = portrait ? Math.max(ctl.top, H * .75) : H, band = Math.max(.35, (bot - top) / H);
+  const dist = Math.max(d0, r / Math.sin(hf) * 1.08, portrait ? r / Math.sin(Math.atan(Math.tan(vf) * band)) : 0);
+  // shift the aim so the sphere sits in the middle of the free band: move the target along the camera's screen-up axis
+  const off = ((top + bot) / 2 - H / 2) / H * 2 * Math.tan(vf) * dist; camU.set(0, 1, 0).addScaledVector(camD, -camD.y).normalize();
+  camT.addScaledVector(camU, off); camera.position.copy(camT).addScaledVector(camD, dist); controls.target.copy(camT); controls.update();
+}
 
 // ---------- golf ----------
 function setupHole() {
@@ -610,7 +637,7 @@ function onRelaxEnd() {
     if (ok) { bet.right++; FX.sfx('coin'); burstAll('#7fe8b0', 40); } else { FX.sfx('fail'); FX.shake(.3); }
     toast(ok ? 'Called it' : 'Nope', `${bet.seq.join(' · ')} → ${flat ? 'relaxes flat (+1)' : 'stays stuck (−1)'}`, 2600);
     bet.phase = 'done'; renderBets(); renderGoal();
-    if (bet.right >= 3) setTimeout(() => winLevel(['Prophet', `${bet.right} of ${bet.tries} right. Count the full turns' worth of sign flips: the axes don't matter.`]), 900);
+    if (bet.right >= 3) setTimeout(() => winLevel(['Prophet', `${bet.right} of ${bet.tries} right. Every full turn flips the sign; half-turns multiply like i, j, k. The cube never shows it. The ribbon always does.`]), 900);
     else setTimeout(nextBet, 2400); return;
   }
   if (stuck && OBJ.every(o => rotAngle(o.q) < .14)) { glitchT = 1.2; FX.sfx('fail'); FX.shake(.35); FX.hitstop(90); }
@@ -659,7 +686,7 @@ function burstAll(col, n) { const ps = OBJ.length ? OBJ.map(o => o.pos) : [[0, .
 // UI
 // ======================================================================
 function msg(t) { lastMsg = t; toast('', t, 1800); }
-function toast(big, small, ms = 5000) { const t = $('toast'); t.innerHTML = (big ? big : '') + (small ? `<small>${small}</small>` : ''); t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms); }
+function toast(big, small, ms = 5000) { wake(100); const t = $('toast'); t.innerHTML = (big ? big : '') + (small ? `<small>${small}</small>` : ''); t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms); }
 const maxOpen = () => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; };
 function renderLevels() {
   const mo = maxOpen();
@@ -881,30 +908,36 @@ function coda() {
 // ======================================================================
 // Loop (render on demand)
 // ======================================================================
-let activeUntil = 0; function wake(ms = 300) { activeUntil = Math.max(activeUntil, performance.now() + ms); }
-function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); composer.setSize(w, h); bloom.resolution.set(w * (MOBILE ? .4 : .6), h * (MOBILE ? .4 : .6)); camera.aspect = w / h; camera.updateProjectionMatrix(); if (L) placeCamera(SETUPS_CAM()); wake(300); }
-const SETUPS_CAM = () => ({ single: { cam: [5.6, 3.6, 6.4], tgt: [0, -.1, -1.3] }, bundle: { cam: [5.6, 3.8, 6.6], tgt: [0, -.1, -1.3] }, six: { cam: [6.6, 5, 8.4], tgt: [0, 0, 0] }, pair: { cam: [1.2, 3.4, 8.6], tgt: [0, -.2, 0] }, chain: { cam: [1.5, 4, 11], tgt: [0, -.2, 0] }, waiter: { cam: [0, 1.6, 8.2], tgt: [0, -1, 0] }, mech: { cam: [4.4, 2.2, 6.4], tgt: [0, -.2, 0] } })[L.setup];
+// The rAF loop only runs while something moves; wake() restarts it. Hidden tabs stop it entirely.
+let activeUntil = 0, rafOn = false, last = 0, glitchSkip = 0;
+function wake(ms = 300) { activeUntil = Math.max(activeUntil, performance.now() + ms); if (!rafOn && !document.hidden) { rafOn = true; last = performance.now(); requestAnimationFrame(frame); } }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(300); });
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); if (composer) { composer.setSize(w, h); bloom.resolution.set(w * .6, h * .6); } camera.aspect = w / h; camera.updateProjectionMatrix(); if (L) placeCamera(SETUPS_CAM()); wake(300); }
+const SETUPS_CAM = () => CAMS[L.setup];
 addEventListener('resize', resize);
-let last = performance.now();
+const render = () => composer ? composer.render() : renderer.render(scene, camera);
 function frame(now) {
-  requestAnimationFrame(frame);
+  if (document.hidden) { rafOn = false; return; }
   const dt = Math.min(.05, (now - last) / 1000); last = now;
-  if (FX.frozen()) { return; }
+  if (FX.frozen()) { requestAnimationFrame(frame); return; }
   stepQueue(dt); stepSnaps(dt); stepPlayback();
   if (relax.on) stepRelax(dt);
   if (waiter) stepWaiter(dt);
   if (MECH) stepMech(dt);
   if (glitchT > 0) glitchT = Math.max(0, glitchT - dt);
-  for (const r of RIB) { if (r.flash > 0) { r.flash = Math.max(0, r.flash - dt * 1.5); r.dirty = true; } r.update(); }
+  let flashing = false;
+  for (const r of RIB) { if (r.flash > 0) { r.flash = Math.max(0, r.flash - dt * 1.5); r.dirty = flashing = true; } r.update(); }
   stepParticles(dt);
-  const glitchy = syncMeshes(now);
-  const continuous = relax.on || cur || queue.length || snaps.length || drag.on || pAlive || waiter && waiter.started || MECH && (MECH.running || MECH.hold) || glitchy || playback || RIB.some(r => r.flash > 0);
-  drawLamp(now); if ((now / 50 | 0) !== (frame.lt | 0)) { frame.lt = now / 50 | 0; drawLens(now); }
+  const glitchy = syncMeshes(now), so = FX.shakeOffset(10), shaking = so[0] !== 0 || so[1] !== 0;
+  const busyNow = relax.on || cur || queue.length || snaps.length || drag.on || pAlive || (waiter && waiter.started && !won) || (MECH && (MECH.running || MECH.hold)) || glitchT > 0 || playback || flashing || shaking;
+  drawLamp(); if ((now / 50 | 0) !== frame.lt) { frame.lt = now / 50 | 0; drawLens(now); }
   controls.update();
-  if (continuous || now < activeUntil) {
-    const [sx, sy] = FX.shakeOffset(10); canvas.style.transform = sx || sy ? `translate(${sx}px,${sy}px)` : '';
-    composer.render();
+  const live = busyNow || now < activeUntil;
+  if (live || (glitchy && ++glitchSkip % 3 === 0)) { // an idle stuck cube only needs ~20 fps for its glitch
+    const t = shaking ? `translate(${so[0]}px,${so[1]}px)` : ''; if (canvas.style.transform !== t) canvas.style.transform = t;
+    render();
   }
+  if (live || glitchy) requestAnimationFrame(frame); else rafOn = false;
 }
 
 // ======================================================================
@@ -927,6 +960,8 @@ window.__belt = {
   sim(sec, fn) { const dt = 1 / 60; for (let t = 0; t < sec; t += dt) { fn && fn(t); if (relax.on) stepRelax(dt, 30); if (waiter) stepWaiter(dt); if (MECH) stepMech(dt); stepSnaps(dt); stepQueue(dt); } },
   setRatio: r => setGearB(r), run: () => { MECH.running = true; }, hold: v => { if (v && !MECH.running) MECH.running = true; MECH.hold = v; },
   startWaiter: () => { waiter.started = true; }, calm: false, sel: i => { sel = i; },
+  three: { key: () => key, hemi, rim, camera, controls, get bloom() { return bloom; }, render: () => render(), placeCamera: c => placeCamera(c), FACEmats: () => OBJ[0].mats },
+  screen: (i = 0) => screenOf(OBJ[i].pos), mem: () => ({ ...renderer.info.memory, programs: renderer.info.programs.length }),
 };
 
 // boot
@@ -934,7 +969,7 @@ resize();
 const hash = /#seq=([xyz234\-]+)/.exec(location.hash);
 if (hash) { loadLevel(LV.length - 1); const seq = decode(hash[1]); setTimeout(() => { seq.forEach(t => userMove(t)); toast('', 'Playing a shared sequence: ' + seq.join(' · '), 2500); }, 700); }
 else loadLevel(Math.min(SAVE.cur || 0, LV.length - 1) > maxOpen() && !LV[SAVE.cur]?.free ? maxOpen() : Math.min(SAVE.cur || 0, LV.length - 1));
-requestAnimationFrame(frame);
+wake(800);
 </script>
 </body>
 </html>
