@@ -1,5 +1,7 @@
 // Rumor: town generation, the belief model, every goal type, scenario balance, saves and the whisper UI.
 const seedRandom = (page, k) => page.evaluate((k) => { let a = k >>> 0; Math.random = () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }, k);
+// The harness clears localStorage on every navigation; this injects a save that survives the reload (init scripts run in order)
+const reloadWith = async (page, key, v) => { await page.addInitScript(([k, val]) => { try { localStorage.setItem(k, val); } catch (e) {} }, [key, v]); await page.reload(); };
 module.exports = {
   page: 'rumor/index.html',
   ready: async (page) => { await page.waitForFunction(() => window.__rumor && window.__rumor.T); await page.evaluate(() => { document.querySelectorAll('.modal-bg').forEach(m => m.remove()); RH.modal = (h) => { window.__lastModal = h; return Promise.resolve(); }; }); },
@@ -113,7 +115,7 @@ module.exports = {
       const r = await page.evaluate(() => { const R = window.__rumor; document.querySelector('.sc[data-i="7"]').click(); return [R.sc.n, R.scenOpen(7), R.cleanSave(null), R.cleanSave({ done: { 3: 1, 99: 1, x: 1 }, cur: 50, endless: 'lots' })]; });
       eq(r[0], 'Village Talk'); eq(r[1], false); eq(r[2], { done: {}, cur: 0, endless: 0 }); eq(r[3], { done: { 3: 1 }, cur: 0, endless: 0 });
       for (const bad of ['{oops', 'null', '[]', '{"done":"x","cur":"3"}', '{"done":{},"cur":12}']) {
-        await page.evaluate((v) => localStorage.setItem('rh:rumor', v), bad); await page.reload(); await page.waitForFunction(() => window.__rumor && window.__rumor.T);
+        await reloadWith(page, 'rh:rumor', bad); await page.waitForFunction(() => window.__rumor && window.__rumor.T);
         eq(await page.evaluate(() => window.__rumor.sc.n), 'Village Talk', bad);
       }
     },

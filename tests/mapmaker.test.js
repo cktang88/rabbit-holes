@@ -1,6 +1,8 @@
 // Mapmaker: map-accuracy scoring, world generation, commissions, port economy, saves and controls.
 // Two synthetic round islands (radius 80) so expected scores are exact
 const ROUND = `const useRoundIsles = (M) => { M.islands = [[300, 450], [900, 450]].map(([cx, cy], id) => ({ id, cx, cy, name: 'I' + id, cells: [], coast: [...Array(240)].map((_, k) => [cx + 80 * Math.cos(k / 240 * 2 * Math.PI), cy + 80 * Math.sin(k / 240 * 2 * Math.PI)]) })); M.islands[1].reefy = true; M.hashCoast(); };`;
+// The harness clears localStorage on every navigation; this injects a save that survives the reload (init scripts run in order)
+const reloadWith = async (page, key, v) => { await page.addInitScript(([k, val]) => { try { localStorage.setItem(k, val); } catch (e) {} }, [key, v]); await page.reload(); };
 module.exports = {
   page: 'mapmaker/index.html',
   ready: async (page) => { await page.waitForFunction(() => window.__map && window.__map.ship); await page.evaluate(() => { document.querySelectorAll('.modal-bg').forEach(m => m.remove()); RH.modal = (h) => { window.__lastModal = h; return Promise.resolve(); }; }); },
@@ -107,7 +109,7 @@ module.exports = {
     },
     'corrupted, old and hostile saves load into a playable game': async ({ page, ok, eq }) => {
       for (const bad of ['{bad', 'null', '[]', '{"seed":"x"}', '{"seed":12345}', '{"seed":5,"ink":"x","done":[1],"inst":"all","gold":"lots","ship":{"x":"a"}}', '{"seed":5,"ink":[[1,2],[3],"z",[null,4]],"visited":[[1,1]],"gold":1e99,"hull":-5}']) {
-        await page.evaluate((v) => localStorage.setItem('rh:mapmaker', v), bad); await page.reload();
+        await reloadWith(page, 'rh:mapmaker', bad);
         await page.waitForFunction(() => window.__map && window.__map.ship);
         const st = await page.evaluate(() => { const S = window.__map.S; return [Array.isArray(S.ink), S.ink.every(p => p.length === 2 && p.every(Number.isFinite)), Number.isFinite(S.gold), S.hull > 0, !!S.inst.compass, window.__map.islands.length >= 1, Number.isFinite(window.__map.ship.x)]; });
         eq(st, [true, true, true, true, true, true, true], bad);
@@ -129,6 +131,33 @@ module.exports = {
       if (off[4]) { await page.mouse.click(off[0], off[1]); eq(await page.evaluate(() => window.__map.target), null, 'margin click'); }
       await page.mouse.click(off[2], off[3]); const t = await page.evaluate(() => [Math.round(window.__map.target[0]), Math.round(window.__map.target[1]), window.__map.ship.sail]);
       eq([a, b], [1, 0]); eq(t, [700, 450, 2]);
+    },
+    'landfall: heave to beside an unvisited island to go ashore once for water and a reward; never at home or under sail': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => {
+        const M = window.__map, is = M.islands[1]; const c = is.coast[0];
+        let sx = c[0], sy = c[1]; for (let k = 0; k < 400 && M.isLand(sx, sy); k++) { sx += (c[0] - is.cx) * 0.01; sy += (c[1] - is.cy) * 0.01; } sx += (c[0] - is.cx) / Math.hypot(c[0] - is.cx, c[1] - is.cy) * 6; sy += (c[1] - is.cy) / Math.hypot(c[0] - is.cx, c[1] - is.cy) * 6;
+        M.atPort = false; M.ship = { x: sx, y: sy, bx: sx + 30, by: sy, h: 0, sail: 2, voyageDmg: 0 }; const underSail = M.landfallIsle();
+        M.ship.sail = 0; const here = M.landfallIsle(); M.S.prov = 50; const g0 = M.S.gold; const what = M.goAshore();
+        const after = { prov: M.S.prov, gold: M.S.gold - g0, landed: !!M.S.landed[1], again: M.landfallIsle(), log: M.S.log[0] && M.S.log[0].t, unc: M.uncertainty() };
+        const h = M.islands[0].coast[0]; M.ship = { x: h[0] + 8, y: h[1], bx: h[0] + 8, by: h[1], h: 0, sail: 0, voyageDmg: 0 }; const home = M.landfallIsle();
+        return { underSail, here, what, after, home };
+      });
+      eq(r.underSail, -1); eq(r.here, 1); ok(r.what, 'went ashore'); ok(r.after.prov >= 75, 'water ' + r.after.prov); eq(r.after.landed, true); eq(r.after.again, -1, 'only once per island');
+      ok(/ashore/i.test(r.after.log), r.after.log); ok(r.after.gold === 15 || r.after.prov >= 90 || r.after.unc === 0, 'one of the three rewards'); ok(r.home !== 0, 'home is not a landfall');
+    },
+    'squalls turn the currents and are written in the log; the log survives a reload and junk entries are dropped': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const M = window.__map; const before = JSON.stringify(M.currents); M.atPort = false; M.squall(); return [before !== JSON.stringify(M.currents), M.S.log[0].t]; });
+      ok(r[0], 'currents changed'); ok(/squall/i.test(r[1]) && /(east|west|north|south)/.test(r[1]), r[1]);
+      eq(await page.evaluate(() => [window.__map.dirOf(1, 0), window.__map.dirOf(0, 1), window.__map.dirOf(-1, -1)]), ['east', 'south', 'north-west']);
+      const c = await page.evaluate(() => window.__map.cleanSave({ seed: 5, log: [{ d: 1, t: 'ok' }, { d: 'x', t: 'bad' }, 'junk', null], landed: { 2: 1, x: 1 } }));
+      eq(c.log, [{ d: 1, t: 'ok' }]); eq(c.landed, { 2: 1 });
+      // save round trip (the harness clears storage on reload, so go through the same JSON + cleanSave + boot path)
+      ok(await page.evaluate(() => { const M = window.__map; M.S = M.cleanSave(JSON.parse(JSON.stringify(M.S))); M.boot(); return /squall/i.test(document.getElementById('log').textContent); }), 'log rendered after a save round trip');
+    },
+    'delivering presses the Admiralty seal and marks the commission sealed': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const M = window.__map; M.S.ink = M.islands[0].coast.map(([x, y]) => [x, y]); M.hashInk(); M.atPort = true; M.renderPort(); document.getElementById('sell').click(); M.renderAll();
+        return [document.getElementById('sealFx').classList.contains('on'), document.getElementById('sealTxt').textContent, document.querySelectorAll('#coms .seal').length]; });
+      ok(r[0] && r[1].length > 0 && r[2] >= 1, JSON.stringify(r));
     },
     'mobile layout: no horizontal scroll, chart and sail buttons visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);

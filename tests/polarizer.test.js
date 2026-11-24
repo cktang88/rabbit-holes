@@ -162,7 +162,7 @@ module.exports = {
       await pick(boomKey); await page.evaluate(() => __pz.fire(40)); await page.waitForTimeout(40 * 90 + 1200);
       eq(await page.evaluate(() => __pz.won), false);
       eq(await page.evaluate(() => __pz.fires.boom || 0), 0, 'counters reset after 40 explosions');
-      ok(await page.$eval('#toast', t => /destroyed/.test(t.textContent)));
+      ok(await page.$eval('#toast', t => /destroyed/i.test(t.textContent)));
       await pick('D2'); await page.evaluate(() => __pz.fire(10)); await page.waitForTimeout(10 * 90 + 1200);
       eq(await page.evaluate(() => __pz.won), true);
       eq(await page.evaluate(() => __pz.SAVE.stars[7]), 3);
@@ -175,6 +175,46 @@ module.exports = {
       await page.waitForTimeout(20 * 90 + 1200);
       const booms = await page.evaluate(() => __pz.fires.boom || 0);
       eq(booms <= 3, true, 'bombs kept exploding after removal: ' + booms);
+    },
+    'tactile bench: drag an optic from the drawer onto a hole, twist it by its ring, hold to win': async ({ page, ok, eq }) => {
+      await page.evaluate(() => __pz.load(0));
+      const tray = await page.locator('#tray [data-t="pol"]').boundingBox();
+      const [hx, hy, c] = await page.evaluate(() => __pz.screenOf(7, 4));
+      await page.mouse.move(tray.x + tray.width / 2, tray.y + tray.height / 2); await page.mouse.down();
+      await page.mouse.move(hx, hy, { steps: 12 }); await page.mouse.up();
+      eq(await page.evaluate(() => __pz.parts.map(p => [p.t, p.x, p.y, p.a])), [['pol', 7, 4, 0]], 'dropped into the hole');
+      eq(await page.$eval('#tray [data-t="pol"] i', e => e.textContent), '0', 'drawer count');
+      // grab the ring at 3 o'clock and turn it anticlockwise by 45°
+      const r = c * .38;
+      await page.mouse.move(hx + r, hy); await page.mouse.down();
+      for (let k = 1; k <= 9; k++) { const a = k / 9 * Math.PI / 4; await page.mouse.move(hx + r * Math.cos(a), hy - r * Math.sin(a)); }
+      eq(await page.evaluate(() => __pz.parts[0].a), 45, 'twisted to 45');
+      await page.waitForTimeout(1300); eq(await page.evaluate(() => __pz.won), false, 'won while still gripping the ring');
+      await page.mouse.up(); await page.waitForTimeout(1300);
+      eq(await page.evaluate(() => __pz.won), true, 'released at 45 and held');
+      ok(await page.evaluate(() => __pz.celeb > 0), 'signature light pulse started');
+    },
+    'twisting the ring past the answer and on does not win': async ({ page, eq }) => {
+      await page.evaluate(() => { __pz.load(0); __pz.addPart('pol', 7, 4, 0); });
+      const [hx, hy, c] = await page.evaluate(() => __pz.screenOf(7, 4)), r = c * .38;
+      await page.mouse.move(hx + r, hy); await page.mouse.down();
+      for (let k = 1; k <= 18; k++) { const a = k / 18 * Math.PI / 2; await page.mouse.move(hx + r * Math.cos(a), hy - r * Math.sin(a)); await page.waitForTimeout(30); }
+      await page.mouse.up(); await page.waitForTimeout(1400);
+      eq(await page.evaluate(() => __pz.parts[0].a), 90); eq(await page.evaluate(() => __pz.won), false);
+    },
+    'carry a mount to another hole, tap a mirror twice to flip it, drag off the board to remove': async ({ page, eq }) => {
+      await page.evaluate(() => { const S = __pz.SAVE; for (let i = 0; i < 8; i++) S.done[i] = 1; __pz.load(8); __pz.addPart('mirror', 5, 4, 0, 1); __pz.addPart('pol', 3, 4, 30); });
+      let [hx, hy] = await page.evaluate(() => __pz.screenOf(3, 4)); const [tx, ty] = await page.evaluate(() => __pz.screenOf(3, 6));
+      await page.mouse.move(hx, hy); await page.mouse.down(); await page.mouse.move(tx, ty, { steps: 8 }); await page.mouse.up();
+      eq(await page.evaluate(() => { const p = __pz.parts.find(p => p.t === 'pol'); return [p.x, p.y, p.a]; }), [3, 6, 30]);
+      // can't drop onto an occupied hole
+      [hx, hy] = await page.evaluate(() => __pz.screenOf(3, 6)); const [mx, my] = await page.evaluate(() => __pz.screenOf(5, 4));
+      await page.mouse.move(hx, hy); await page.mouse.down(); await page.mouse.move(mx, my, { steps: 8 }); await page.mouse.up();
+      eq(await page.evaluate(() => { const p = __pz.parts.find(p => p.t === 'pol'); return [p.x, p.y]; }), [3, 6], 'landed on top of the mirror');
+      await page.mouse.click(mx, my); await page.mouse.click(mx, my);
+      eq(await page.evaluate(() => __pz.parts.find(p => p.t === 'mirror').m), 0, 'second tap flips the mirror');
+      await page.mouse.move(mx, my); await page.mouse.down(); await page.mouse.move(mx, 4, { steps: 10 }); await page.mouse.up();
+      eq(await page.evaluate(() => __pz.parts.map(p => p.t)), ['pol'], 'dragged off the board goes back in the drawer');
     },
     'progress and locked levels': async ({ page, eq, ok }) => {
       const locked = await page.$$eval('#levels .lv.lock', els => els.map(e => +e.dataset.i));

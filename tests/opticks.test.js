@@ -117,6 +117,18 @@ module.exports = {
       eq(await page.evaluate(() => Object.keys(window.__opt.S.done).length), await page.evaluate(() => window.__opt.L.length));
       ok(await page.evaluate(() => window.__opt.placed.length === 0));
     },
+    'a confirmed experiment writes Q.E.D. in the notebook and offers the next one (no blocking modal)': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      await placeSol(page, 0); await page.waitForTimeout(2000);
+      eq(await page.locator('.modal-bg').count(), 0, 'modal');
+      ok(await page.locator('#info .qed').isVisible(), 'no Q.E.D.');
+      await page.click('#nextLv');
+      eq(await page.evaluate(() => window.__opt.cur), 1);
+      eq(await page.locator('#info .qed').count(), 0, 'stale Q.E.D. on the next level');
+    },
+    'the maze needs no more than four mirrors': async ({ page, eq }) => {
+      eq(await page.evaluate(() => window.__opt.L.find(l => l.n === 'The Maze').sol.length), 4);
+    },
     'locked chapters cannot be opened from the sidebar': async ({ page, eq }) => {
       await closeModals(page);
       const i = await page.evaluate(() => window.__opt.L.findIndex(l => l.c === 1));

@@ -107,6 +107,22 @@ module.exports = {
       await page.evaluate((PAT) => { const R = __rh; R.setRule(R.parseRule('B3/S23')); R.place(PAT.glider); R.scan(); R.setRule(R.parseRule('B36/S23')); }, PAT);
       const p2 = await reopen(page); eq(await p2.evaluate(() => [__rh.ruleStr(__rh.S.rule), Object.keys(__rh.S.species).length]), ['B36/S23', 1]); await p2.close();
     },
+    'click a colony in the dish: it is examined alone and catalogued once (lens)': async ({ page, eq, ok }) => {
+      await dismiss(page);
+      await page.evaluate((PAT) => { const R = __rh; R.setRule(R.parseRule('B3/S23')); R.place(PAT.glider, 40, 40); }, PAT);
+      const pt = await page.evaluate(() => { const r = document.getElementById('world').getBoundingClientRect(), d = __rh.dish, sc = d.sq / __rh.W; return [r.left + d.x0 + 41.5 * sc, r.top + d.y0 + 41.5 * sc]; });
+      await page.mouse.click(...pt);
+      const a = await page.evaluate(() => [Object.values(__rh.S.species).map(s => s.type), document.getElementById('log').textContent, __rh.S.scans]);
+      eq(a[0], ['diag']); ok(/New diagonal ship/.test(a[1]), a[1]); eq(a[2], 0, 'examining is not a scan');
+      await page.mouse.click(...pt); ok(/Already in the field guide/.test(await page.textContent('#log')));
+      await page.evaluate(() => __rh.examineAt(120, 120)); ok(/Nothing under the lens/.test(await page.textContent('#log')));
+    },
+    'the assistant (auto-hunt) is locked until 10 hand scans': async ({ page, eq }) => {
+      await dismiss(page);
+      eq(await page.isDisabled('#autoBtn'), true); await page.click('#autoBtn', { force: true }); eq(await page.evaluate(() => __rh.auto), false);
+      await page.evaluate(() => { for (let i = 0; i < 10; i++) __rh.scan(true); });
+      eq(await page.isDisabled('#autoBtn'), false); await page.click('#autoBtn'); eq(await page.evaluate(() => __rh.auto), true);
+    },
     'phone layout: no horizontal scroll and the dish is visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(150);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, w: document.getElementById('world').getBoundingClientRect() }));

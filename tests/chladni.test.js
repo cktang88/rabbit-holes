@@ -90,6 +90,18 @@ module.exports = {
       await page.evaluate(() => __ch.setPlate('circle')); ok(/Target 1 of 8/.test(await page.textContent('#goal')));
       await page.evaluate(() => __ch.setPlate('nonsense')); eq(await page.evaluate(() => __ch.plate), 'circle');
     },
+    'later targets are by ear: a sealed note and a hum button, matched by holding the right pitch': async ({ page, ok, eq }) => {
+      await toMatch(page);
+      await page.evaluate(() => { for (const t of __ch.targetsOf('square').slice(0, __ch.EAR_FROM)) __ch.SAVE.solved[t.id] = 1; __ch.setPlate('square'); });
+      ok(/By ear/.test(await page.textContent('#goal')), 'by-ear goal');
+      ok(await page.isVisible('#hum')); await page.click('#hum');
+      // the target canvas shows a sealed note, not the figure: its centre pixel is wax red
+      const px = await page.evaluate(() => Array.from(document.getElementById('target').getContext('2d').getImageData(100, 110, 1, 1).data));
+      ok(px[0] > 120 && px[1] < 90, 'sealed note pixel ' + px);
+      const t = await page.evaluate(() => { const t = __ch.curTarget(); __ch.setFreq(t.f); return t.id; });
+      await page.waitForFunction(id => __ch.SAVE.solved[id], t, { timeout: 7000 });
+      ok(await page.evaluate(() => __ch.flights >= 1), 'figure flew into the book');
+    },
     'corrupted / odd saves load without errors': async ({ page, eq, ok }) => {
       for (const save of ['null', '3', '[]', '"s"', '{"got":7,"solved":"x","mode":"match","tgt":{"square":999}}', '{"plate":"hexagon","tgt":[1]}', '{"tgt":-5,"mode":"match"}',
         '{"tgt":{"square":"abc"},"mode":"match"}', '{"got":{"s01p":"data:image/png;base64,AAAA"},"tgt":3,"plate":"circle"}', '{bad']) {

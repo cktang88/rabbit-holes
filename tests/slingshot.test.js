@@ -1,4 +1,6 @@
 // Slingshot: gravity integrator, live flight, level data, saves and input.
+// The harness clears localStorage on every navigation; this injects a save that survives the reload (init scripts run in order)
+const reloadWith = async (page, key, v) => { await page.addInitScript(([k, val]) => { try { localStorage.setItem(k, val); } catch (e) {} }, [key, v]); await page.reload(); };
 module.exports = {
   page: 'slingshot/index.html',
   ready: async (page) => { await page.waitForFunction(() => window.__sling && window.__sling.L); await page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove())); },
@@ -114,8 +116,7 @@ module.exports = {
       const m = await page.evaluate(() => window.__sling.cleanSave({ best: { 9: { stars: 2, fuel: 0.1 }, 12: { stars: 3, fuel: 0 }, 33: { stars: 1, fuel: 1 } }, cur: 9 }));
       eq(m.best, { 5: { stars: 2, fuel: 0.1 }, 17: { stars: 1, fuel: 1 } }); eq(m.v, 2); eq(m.cur, 0);
       for (const bad of ['{not json', 'null', '{"best":5,"cur":"7"}', '{"cur":30,"best":{}}']) {
-        await page.evaluate((v) => localStorage.setItem('rh:sling', v), bad);
-        await page.reload(); await page.waitForFunction(() => window.__sling && window.__sling.L);
+        await reloadWith(page, 'rh:sling', bad); await page.waitForFunction(() => window.__sling && window.__sling.L);
         const st = await page.evaluate(() => [window.__sling.levelKey, window.__sling.mode]);
         eq(st, ['0', 'aim'], 'save ' + bad);
       }
@@ -130,8 +131,7 @@ module.exports = {
       // win mission 4 directly: the result box must not offer Next into a locked program
       const nextShown = await page.evaluate(() => { const s = window.__sling; s.hold(true); s.openLevel('3'); s.end('win'); return !!document.getElementById('nextL'); });
       eq(nextShown, false);
-      await page.evaluate(() => { localStorage.setItem('rh:sling', JSON.stringify({ v: 2, best: {}, cur: 9, intro: 1 })); });
-      await page.reload(); await page.waitForFunction(() => window.__sling && window.__sling.L);
+      await reloadWith(page, 'rh:sling', JSON.stringify({ v: 2, best: {}, cur: 9, intro: 1 })); await page.waitForFunction(() => window.__sling && window.__sling.L);
       eq(await page.evaluate(() => window.__sling.levelKey), '0');
     },
     'real mouse: a tiny drag does not launch, a real drag does; the last path is kept after a retry': async ({ page, eq, ok }) => {

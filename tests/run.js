@@ -20,7 +20,8 @@ const up = () => new Promise(r => http.get(BASE + 'index.html', res => { res.res
       const ctx = await browser.newContext({ viewport: spec.viewport || { width: 1280, height: 800 } });
       const page = await ctx.newPage(); const errors = [];
       page.on('pageerror', e => errors.push(e.message));
-      await page.addInitScript(() => { try { localStorage.clear(); } catch (e) {} });
+      // fresh storage for each test, cleared once: reloads inside a test keep what the test saved
+      await page.addInitScript(() => { try { if (!sessionStorage.getItem('__rhTestCleared')) { localStorage.clear(); sessionStorage.setItem('__rhTestCleared', '1'); } } catch (e) {} });
       const t0 = Date.now();
       try {
         await page.goto(BASE + spec.page); await page.waitForLoadState('load'); if (spec.ready) await spec.ready(page); else await page.waitForTimeout(800);

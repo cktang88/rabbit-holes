@@ -103,9 +103,36 @@ const CONSTS = [
   {k:'D', n:'Space dimensions', d:'How many directions there are to move in.', opts:[['2',2],['3 (ours)',3],['4',4]], def:1},
 ];
 
+// ===================== Forks: one decision per era =====================
+// Each new era poses a real cosmological fork. The choice is permanent for this universe and changes what thrives later.
+const FORKS = {
+  1:{q:'Baryogenesis', d:'Matter has just won out over antimatter. How fast does the excess freeze out?',
+     a:{n:'Sudden freeze-out', d:'Quarks ×1.6 now.', m:{Q:1.6}}, b:{n:'Slow freeze-out', d:'Nucleons and atoms ×1.3.', m:{N:1.3,A:1.3}}},
+  2:{q:'The neutron ratio', d:'Free neutrons decay while the universe cools. How many get locked into helium?',
+     a:{n:'Helium-rich', d:'Metals ×1.5 later, nucleons ×0.9.', m:{M:1.5,N:.9}}, b:{n:'Hydrogen-rich', d:'Stars ×1.4.', m:{S:1.4}}},
+  3:{q:'Dark matter', d:'Invisible mass is pooling. Is it cold and clumpy, or warm and smooth?',
+     a:{n:'Cold and clumpy', d:'Galaxies ×1.5, and stars ×1.15.', m:{G:1.5,S:1.15}}, b:{n:'Warm and smooth', d:'Atoms ×1.6.', m:{A:1.6}}},
+  4:{q:'The first stars', d:'Population III stars ignite from pure hydrogen. Giants or modest suns?',
+     a:{n:'Giants', d:'Metals ×1.8, but stars ×0.8.', m:{M:1.8,S:.8}}, b:{n:'Modest suns', d:'Stars ×1.5.', m:{S:1.5}}},
+  5:{q:'How stars die', d:'Which explosions seed the cosmos with heavy elements?',
+     a:{n:'Core collapse', d:'Galaxies ×1.4 (shock waves trigger star birth).', m:{G:1.4}}, b:{n:'Thermonuclear', d:'Planets ×1.5 (iron-rich dust).', m:{P:1.5}}},
+  6:{q:'Where to look', d:'Life needs a galaxy, but which part of it?',
+     a:{n:'The crowded centre', d:'Galaxies ×1.6, but life ×0.75.', m:{G:1.6,L:.75}}, b:{n:'The quiet outskirts', d:'Life ×1.4.', m:{L:1.4}}},
+  7:{q:'The home world', d:'A young star has worlds. Which one gets the attention?',
+     a:{n:'A water world', d:'Life ×1.6.', m:{L:1.6}}, b:{n:'Rocky continents', d:'Minds ×1.4, planets ×1.2.', m:{I:1.4,P:1.2}}},
+  8:{q:'The first replicator', d:'Which came first: the copying molecule or the chemistry that feeds it?',
+     a:{n:'RNA first', d:'Life ×1.5.', m:{L:1.5}}, b:{n:'Metabolism first', d:'Life ×1.15 and minds ×1.3.', m:{L:1.15,I:1.3}}},
+  9:{q:'Kinds of mind', d:'Brains are getting large. Do they think together or alone?',
+     a:{n:'Social minds', d:'Civilization ×1.6.', m:{K:1.6}}, b:{n:'Solitary minds', d:'Minds ×1.6.', m:{I:1.6}}},
+  10:{q:'Power', d:'The civilization looks up at its star.',
+     a:{n:'Fusion at home', d:'Civilization ×1.5.', m:{K:1.5}}, b:{n:'A Dyson swarm', d:'Civilization ×1.2 and life ×1.3.', m:{K:1.2,L:1.3}}},
+};
+function forkMult(k){ let x=1; for (const [t,c] of Object.entries(U.choices||{})){ const f=FORKS[t]; if (f && f[c]) x*= f[c].m[k] ?? 1; } return x; }
+function choose(t, c){ if (!FORKS[t] || U.choices[t] || !['a','b'].includes(c) || U.tier<+t) return false; U.choices[t]=c; SND.gong(.8); persist(); renderFork(); renderBuild(); renderRes(); return true; }
+
 // ===================== State =====================
 function newRun(keepMeta){
-  const st = {r:{}, total:{}, gens:{}, ups:{}, tier:0, t:0, started:Date.now(), consts:{}, maxTier:0};
+  const st = {r:{}, total:{}, gens:{}, ups:{}, tier:0, t:0, started:Date.now(), consts:{}, maxTier:0, choices:{}};
   for (const k of KEYS){ st.r[k]=0; st.total[k]=0; }
   for (const c of CONSTS) st.consts[c.k] = c.def;
   if (keepMeta){ Object.assign(st.consts, keepMeta.nextConsts||{}); st.r.E = 1000*(keepMeta.seedUps?.start||0); }
@@ -123,7 +150,9 @@ function cleanRun(u){ if (!isObj(u)) return null; for (const k of ['r','total','
   for (const c of CONSTS) if (!Number.isInteger(u.consts[c.k]) || !c.opts[u.consts[c.k]]) u.consts[c.k]=c.def;
   for (const k of Object.keys(u.gens)) u.gens[k]=Math.floor(num(u.gens[k])); for (const k of Object.keys(u.ups)) u.ups[k]=Math.floor(num(u.ups[k]));
   u.tier=Math.min(TIERS.length-1, Math.floor(num(u.tier))); u.maxTier=Math.max(u.tier, Math.min(TIERS.length-1, Math.floor(num(u.maxTier)))); u.t=num(u.t);
-  if (u.kAt!=null && !Number.isFinite(u.kAt)) delete u.kAt; return u; }
+  if (u.kAt!=null && !Number.isFinite(u.kAt)) delete u.kAt;
+  if (!isObj(u.choices)) u.choices={}; for (const k of Object.keys(u.choices)) if (!FORKS[k] || !['a','b'].includes(u.choices[k])) delete u.choices[k];
+  return u; }
 let M = cleanMeta(RH.load('us-meta', null));
 let U = cleanRun(RH.load('us-run', null)) || newRun(M);
 const persist=()=>{ U.saved=Date.now(); RH.save('us-run',U); RH.save('us-meta',M); RH.progress('universe-seed', Object.keys(M.codex).length/CODEX.length); };
@@ -163,6 +192,7 @@ function tierMult(k){
   // upgrades and meta
   x *= Math.pow(2, U.ups[k]||0);
   x *= Math.pow(2, M.seedUps.mem||0);
+  x *= forkMult(k);
   return x;
 }
 function genCost(t,i){ const base=TIERS[t].gens[i][1]; const n=U.gens[t+':'+i]||0; return base*Math.pow(1.15,n); }

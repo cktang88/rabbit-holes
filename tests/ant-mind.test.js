@@ -7,6 +7,8 @@ const paintTrail = `(mi) => { const A = window.__ant; const cv = document.getEle
     for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= A.W || Y >= A.H) continue; if (A.home[A.idx(X, Y)] < bv) { bv = A.home[A.idx(X, Y)]; bx = X; by = Y; } }
     if (bx === x && by === y) break; x = bx; y = by; }
   path.reverse(); A.painting = 1; A.brush = 'forage'; for (let i = 0; i < path.length; i += 2) A.paint(ev(path[i][0] + 0.5, path[i][1] + 0.5)); A.painting = 0; }`;
+// The harness clears localStorage on every navigation; this injects a save that survives the reload (init scripts run in order)
+const reloadWith = async (page, key, v) => { await page.addInitScript(([k, val]) => { try { localStorage.setItem(k, val); } catch (e) {} }, [key, v]); await page.reload(); };
 module.exports = {
   page: 'ant-mind/index.html',
   ready: async (page) => { await page.waitForFunction(() => window.__ant && window.__ant.G); await page.evaluate(() => { document.querySelectorAll('.modal-bg').forEach(m => m.remove()); window.__ant.paused = true; RH.modal = (h) => { window.__lastModal = h; return Promise.resolve(); }; }); },
@@ -92,7 +94,7 @@ module.exports = {
         return [A.mapI, A.cleanSave(null), A.cleanSave({ stars: { 0: 3, 1: 7, 50: 2 }, ups: ['legs', 'bogus', 3], cur: 99 })]; });
       eq(r[0], 0); eq(r[1], { stars: {}, ups: [], cur: 0 }); eq(r[2], { stars: { 0: 3 }, ups: ['legs'], cur: 0 });
       for (const bad of ['{bad', 'null', '"str"', '{"stars":[],"ups":"x","cur":15}']) {
-        await page.evaluate((v) => localStorage.setItem('rh:ant', v), bad); await page.reload(); await page.waitForFunction(() => window.__ant && window.__ant.G);
+        await reloadWith(page, 'rh:ant', bad); await page.waitForFunction(() => window.__ant && window.__ant.G);
         eq(await page.evaluate(() => window.__ant.mapI), 0, bad);
       }
     },
