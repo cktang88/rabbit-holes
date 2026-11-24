@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ant Mind</title>
+<link rel="stylesheet" href="../shared/common.css">
+<style>
+  body{display:flex;flex-direction:column;height:100vh;overflow:hidden;background:#17120c}
+  main{flex:1;display:flex;min-height:0}
+  #stage{flex:1;position:relative;min-width:0;display:flex;align-items:center;justify-content:center}
+  #cv{image-rendering:auto;cursor:crosshair;border-radius:6px;box-shadow:0 10px 40px #0008}
+  #side{width:290px;background:var(--panel);border-left:1px solid var(--line);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px}
+  .scents{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .scents button{text-align:left;padding:8px;font-size:13px}
+  .scents button.on{outline:2px solid var(--accent)}
+  .scents button i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+  .scents .k{float:right;color:var(--dim);font-size:11px}
+  .gland{height:8px;background:#2a2218;border-radius:4px;overflow:hidden}
+  .gland div{height:100%;background:linear-gradient(90deg,#9be36a,#ffd36a)}
+  .stat{display:flex;justify-content:space-between;font-size:13px}
+  #goalBox{font-size:14px;line-height:1.4}
+  .maps{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+  .maps button{padding:5px 0;font-size:12px}
+  .maps button.cur{border-color:var(--accent)}
+  .maps .st{display:block;font-size:8px;color:var(--accent);height:9px}
+  .season{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin:8px 0 4px}
+  #banner{position:absolute;top:14px;left:50%;transform:translateX(-50%);background:#1d1710ee;border:1px solid var(--line);border-radius:20px;padding:6px 16px;font-size:14px;pointer-events:none}
+  .ups{display:flex;flex-direction:column;gap:8px}
+  .ups button{text-align:left;padding:10px}
+</style>
+</head>
+<body>
+<div class="topbar"><a class="home" href="../">← Rabbit Holes</a><h1>🐜 Ant Mind</h1><span class="spacer"></span><span class="small dim" id="total"></span></div>
+<main>
+  <div id="stage"><canvas id="cv"></canvas><div id="banner"></div></div>
+  <div id="side">
+    <div id="goalBox"></div>
+    <div><div class="dim small" style="margin-bottom:6px">Scents (paint with the mouse · right-drag erases)</div><div class="scents" id="scents"></div>
+      <div class="dim small" style="margin-top:8px">Gland reserve</div><div class="gland"><div id="glandBar"></div></div></div>
+    <div>
+      <div class="stat"><span>Workers</span><b id="sW"></b></div><div class="stat"><span>Soldiers</span><b id="sS"></b></div><div class="stat"><span>Food stored</span><b id="sF"></b></div>
+      <div class="small" style="margin-top:8px">Hatch soldiers: <b id="ratioV"></b><input type="range" id="ratio" min="0" max="60" value="10" style="width:100%"></div>
+      <div class="row small"><button id="pauseBtn">⏸ Pause</button><button id="fastBtn">⏩ 1×</button><button id="retryBtn">Retry</button></div>
+    </div>
+    <div id="mapList"></div>
+    <div class="small dim" id="traits"></div>
+  </div>
+</main>
+<script src="../shared/common.js"></script>
+<script>
+const W=192, H=120;
+const SCENTS=[
+  {k:'forage', n:'Forage', c:'#7be36a', key:'1', d:'Workers follow it outward to find food.'},
+  {k:'alarm', n:'Alarm', c:'#ff5a4a', key:'2', d:'Soldiers rush toward it. Workers stay away.', unlock:5},
+  {k:'dig', n:'Dig', c:'#c8a060', key:'3', d:'Workers dig through soft earth here.', unlock:3},
+  {k:'calm', n:'Retreat', c:'#7ab8ff', key:'4', d:'Everyone heads home.', unlock:10},
+];
+const SEASONS=['Spring','Summer','Autumn','Winter'];
+// map specs
+const MAPS=[
+  {n:'First Light', g:{type:'food',n:40}, t:180, food:3, rock:0.04, dirt:0},
+  {n:'Breadcrumbs', g:{type:'food',n:80}, t:200, food:4, rock:0.08, dirt:0},
+  {n:'Behind the Stone', g:{type:'food',n:80}, t:220, food:3, rock:0.12, dirt:0, far:1},
+  {n:'Underground', g:{type:'food',n:70}, t:300, food:3, rock:0.06, dirt:0.22},
+  {n:'Picnic', g:{type:'food',n:160}, t:240, food:6, rock:0.06, dirt:0.12, big:1},
+  {n:'Eight Legs', g:{type:'kill',n:1}, t:220, food:4, rock:0.06, dirt:0.08, spider:1},
+  {n:'Hungry Summer', g:{type:'food',n:100}, t:260, food:5, rock:0.08, dirt:0.1, spider:1},
+  {n:'The Web', g:{type:'food',n:100}, t:240, food:4, rock:0.1, dirt:0.12, spider:2},
+  {n:'Thunderstorm', g:{type:'food',n:100}, t:240, food:5, rock:0.06, dirt:0.1, rain:1},
+  {n:'Spider Season', g:{type:'kill',n:3}, t:280, food:5, rock:0.06, dirt:0.08, spider:3},
+  {n:'Neighbours', g:{type:'food',n:120}, t:260, food:6, rock:0.06, dirt:0.1, rival:1},
+  {n:'Border War', g:{type:'nest'}, t:300, food:5, rock:0.05, dirt:0.08, rival:1},
+  {n:'Wet Season', g:{type:'food',n:140}, t:280, food:6, rock:0.06, dirt:0.12, rival:1, rain:1},
+  {n:'Two Fronts', g:{type:'nest'}, t:320, food:5, rock:0.06, dirt:0.1, rival:1, spider:1},
+  {n:'Harvest', g:{type:'food',n:220}, t:300, food:8, rock:0.05, dirt:0.1, rival:1, big:1},
+  {n:'First Frost', g:{type:'food',n:160}, t:200, food:5, rock:0.08, dirt:0.14, cold:1},
+  {n:'Lean Times', g:{type:'food',n:120}, t:220, food:3, rock:0.1, dirt:0.15, cold:1, spider:1},
+  {n:'Siege', g:{type:'nest'}, t:300, food:5, rock:0.06, dirt:0.12, rival:2, cold:1},
+  {n:'Blizzard', g:{type:'food',n:160}, t:240, food:5, rock:0.06, dirt:0.12, cold:1, rain:1, spider:1},
+  {n:'The Long Winter', g:{type:'food',n:260}, t:320, food:7, rock:0.08, dirt:0.15, cold:1, rival:1, spider:2, rain:1},
+];
+const UPS=[
+  ['legs','Swift legs','Ants move 15% faster.'],['jaws','Strong jaws','Soldiers deal 35% more damage.'],['glands','Deep glands','Gland reserve +35%, refills faster.'],
+  ['queen','Fertile queen','Hatching costs 25% less food.'],['nose','Keen antennae','Ants sense scent from farther away.'],['memory','Lingering scent','Scent fades 35% slower.'],
+  ['shell','Thick carapace','Ants have 30% more health.'],['haul','Big mandibles','Workers carry 2 food at a time.'],['start','Large founding','Start each map with 50% more ants.'],
+];
+const SAVE=RH.load('ant',{stars:{}, cur:0, ups:[], pendingUp:false});
+const persist=()=>{ RH.save('ant',SAVE); RH.progress('ant-mind', Object.keys(SAVE.stars).length/MAPS.length); };
+const has=(k)=>SAVE.ups.filter(u=>u===k).length;
+
+// ===================== World =====================
+let G, ants, enemies, nests, food, scent, home, rivalHome, mapI, timeLeft, stored, gland, gameOver, rainT, kills, killsNeeded, rng, paused=false, speed=1, brush='forage', spiders;
+const idx=(x,y)=>y*W+x;
+const PASS=0, ROCK=1, DIRT=2;
+function build(i){
+  mapI=i; const M=MAPS[i]; rng=RH.rng(4242+i*97);
+  G=new Uint8Array(W*H); food=new Float32Array(W*H);
+  scent={}; for (const s of SCENTS) scent[s.k]=new Float32Array(W*H);
+  // terrain via blobs
+  const blob=(type, frac)=>{ let target=W*H*frac, n=0; while(n<target){ const cx=rng.int(W), cy=rng.int(H), r=3+rng.int(9); for (let y=-r;y<=r;y++) for (let x=-r;x<=r;x++){ const X=cx+x, Y=cy+y; if (X<0||Y<0||X>=W||Y>=H) continue; if (x*x+y*y*1.4<r*r*(0.7+rng()*0.3) && G[idx(X,Y)]===PASS){ G[idx(X,Y)]=type; n++; } } } };
+  blob(DIRT, M.dirt); blob(ROCK, M.rock);
+  nests=[{x:24+rng.int(20), y:20+rng.int(H-40), team:0, hp:1}];
+  if (M.rival) nests.push({x:W-30-rng.int(16), y:20+rng.int(H-40), team:1, hp:220*M.rival, maxhp:220*M.rival});
+  for (const n of nests) for (let y=-6;y<=6;y++) for (let x=-6;x<=6;x++){ const X=n.x+x,Y=n.y+y; if(X>=0&&Y>=0&&X<W&&Y<H) G[idx(X,Y)]=PASS; }
+  // dirt walls around far food in dig maps
+  for (let k=0;k<M.food;k++){
+    let fx, fy, tries=0; do { fx=20+rng.int(W-40); fy=10+rng.int(H-20); tries++; } while ((Math.hypot(fx-nests[0].x,fy-nests[0].y)< (M.far?100:45)) && tries<200);
+    const r=M.big? 5:3+rng.int(2); const amt=(M.big?14:9)*(M.cold?0.8:1);
+    for (let y=-r;y<=r;y++) for (let x=-r;x<=r;x++){ const X=fx+x,Y=fy+y; if(X<0||Y<0||X>=W||Y>=H) continue; if (x*x+y*y<=r*r){ G[idx(X,Y)]=PASS; food[idx(X,Y)]=amt; } }
+    if (M.dirt>0.1 && k%2===0) for (let a=0;a<40;a++){ const ang=a/40*Math.PI*2; for (let rr=r+2; rr<=r+4; rr++){ const X=Math.round(fx+Math.cos(ang)*rr), Y=Math.round(fy+Math.sin(ang)*rr); if(X>=0&&Y>=0&&X<W&&Y<H && G[idx(X,Y)]===PASS && food[idx(X,Y)]===0) G[idx(X,Y)]=DIRT; } }
+  }
+  home=bfs(nests[0]); if (nests[1]) rivalHome=bfs(nests[1]);
+  ants=[]; enemies=[]; spiders=[];
+  const startN=Math.round(45*(1+0.5*has('start')));
+  for (let k=0;k<startN;k++) spawnAnt(0, k<startN*0.12?'soldier':'worker');
+  if (nests[1]) for (let k=0;k<40*M.rival;k++) spawnAnt(1, k%4===0?'soldier':'worker');
+  for (let k=0;k<(M.spider||0);k++){ spiders.push({x:W*0.5+rng.range(-30,40), y:rng.range(15,H-15), hp:70+k*15, maxhp:70+k*15, cd:0, tx:0, ty:0, t:0}); }
+  timeLeft=M.t; stored=30; gland=1; gameOver=false; rainT=0; kills=0; nextRain= M.rain? 40+rng.int(30) : 1e9;
+  killsNeeded=M.g.type==='kill'? M.g.n : 0;
+  renderSide();
+}
+let nextRain=1e9;
+function bfs(n){ const d=new Float32Array(W*H).fill(1e9); const q=[idx(n.x,n.y)]; d[q[0]]=0; let h=0;
+  while(h<q.length){ const i=q[h++]; const x=i%W, y=(i/W)|0; for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]){ const X=x+dx, Y=y+dy; if(X<0||Y<0||X>=W||Y>=H) continue; const j=idx(X,Y); if (G[j]!==PASS) continue; const nd=d[i]+(dx&&dy?1.41:1); if (nd<d[j]){ d[j]=nd; q.push(j); } } }
+  return d; }
+function spawnAnt(team, role){ const n=nests[team]; const hpb= team===0? (1+0.3*has('shell')) : 1; ants.push({x:n.x+rng.range(-2,2), y:n.y+rng.range(-2,2), a:rng()*7, team, role, carry:0, hp:(role==='soldier'?14:6)*hpb, maxhp:(role==='soldier'?14:6)*hpb, wander:rng()*100}); }
+
+// ===================== Simulation =====================
+const passable=(x,y)=> x>=0&&y>=0&&x<W&&y<H && G[idx(x|0,y|0)]===PASS;
+function sense(field, x, y, a, dist){ const X=Math.round(x+Math.cos(a)*dist), Y=Math.round(y+Math.sin(a)*dist); if (X<0||Y<0||X>=W||Y>=H) return -1; const g=G[idx(X,Y)]; if (g===ROCK) return -1; if (g===DIRT) return scent.dig[idx(X,Y)]>0.05? field[idx(X,Y)] : -1; return field[idx(X,Y)]; }
+function sensePos(x,y,a,dist){ const X=Math.round(x+Math.cos(a)*dist), Y=Math.round(y+Math.sin(a)*dist); return [X,Y]; }
+function stepWorld(dt){
+  const M=MAPS[mapI]; const spd=(team)=> (team===0? 9*(1+0.15*has('legs')) : 8.5) * (M.cold?0.85:1);
+  const sd= 3+has('nose')*1.5;
+  // scent decay + light diffusion
+  const decay = Math.pow(rainT>0? 0.6 : 0.985 + 0.0052*has('memory'), dt*4);
+  for (const s of SCENTS){ const f=scent[s.k]; for (let i=0;i<f.length;i++) if (f[i]>0.001) f[i]*=decay; else f[i]=0; }
+  if (rainT>0) rainT-=dt;
+  nextRain-=dt; if (nextRain<=0){ rainT=7; nextRain=45+rng.int(30); banner('🌧️ Rain! The scent is washing away.'); }
+  gland=Math.min(1, gland + dt*0.05*(1+0.35*has('glands')));
+  digMixT-=dt; if (digMixT<=0){ digMixT=0.25; updDigMix(); }
+  // ants
+  for (const ant of ants){
+    if (ant.hp<=0) continue;
+    const homeF = ant.team===0? home : rivalHome;
+    let target=null;
+    if (ant.team===0){
+      const calm=scent.calm[idx(ant.x|0,ant.y|0)]>0.05;
+      if (ant.carry>0 || calm){ target='home'; }
+      else if (ant.role==='soldier'){ target='alarm'; }
+      else target='forage';
+      // workers avoid alarm
+    } else { target = ant.carry>0? 'home' : 'wander'; }
+    // soldiers lock on to nearby enemies by instinct
+    if (ant.role==='soldier' && target!=='home'){
+      let foe=null, fd= ant.team===0? 12 : 8;
+      for (const sp of spiders) if (sp.hp>0 && ant.team===0){ const d=Math.hypot(sp.x-ant.x,sp.y-ant.y); if (d<fd){ fd=d; foe=sp; } }
+      if (!foe && (ant.lockT=(ant.lockT||0)-dt)<=0){ ant.lockT=0.5; ant.foe=null; for (const e of ants) if (e.team!==ant.team && e.hp>0){ const d=Math.hypot(e.x-ant.x,e.y-ant.y); if (d<7){ ant.foe=e; break; } } }
+      if (!foe && ant.foe && ant.foe.hp>0) foe=ant.foe;
+      if (!foe && ant.team===0 && nests[1] && nests[1].hp>0 && Math.hypot(nests[1].x-ant.x,nests[1].y-ant.y)<14) foe=nests[1];
+      if (foe){ ant.a=Math.atan2(foe.y-ant.y, foe.x-ant.x)+rng.range(-0.3,0.3); target='fight'; }
+    }
+    if (target==='fight'){}
+    else if (target==='home'){
+      // descend home gradient
+      let best=ant.a, bv=1e9; for (const da of [-0.8,-0.4,0,0.4,0.8]){ const [X,Y]=sensePos(ant.x,ant.y,ant.a+da,2); if (X<0||Y<0||X>=W||Y>=H||G[idx(X,Y)]!==PASS) continue; const v=homeF[idx(X,Y)]+rng()*0.6; if (v<bv){ bv=v; best=ant.a+da; } }
+      ant.a=best;
+    } else if (target==='forage'||target==='alarm'){
+      const f= (target==='forage' && digField())? digMix : scent[target]; const l=sense(f,ant.x,ant.y,ant.a-0.6,sd), c=sense(f,ant.x,ant.y,ant.a,sd), r=sense(f,ant.x,ant.y,ant.a+0.6,sd);
+      if (c>=l && c>=r && c>0.02) {} else if (l>r && l>0.02) ant.a-=0.45; else if (r>0.02) ant.a+=0.45; else ant.a+=rng.range(-0.5,0.5);
+      if (ant.role==='worker'){ const al=sense(scent.alarm,ant.x,ant.y,ant.a,2); if (al>0.1) ant.a+=Math.PI*0.7; }
+      // soldiers idle near nest when no alarm
+      if (ant.role==='soldier' && c<=0.02 && l<=0.02 && r<=0.02){ const hd=home[idx(ant.x|0,ant.y|0)]; if (hd>18) { let best=ant.a,bv=1e9; for (const da of [-0.6,0,0.6]){ const [X,Y]=sensePos(ant.x,ant.y,ant.a+da,2); if (X<0||Y<0||X>=W||Y>=H||G[idx(X,Y)]!==PASS) continue; const v=home[idx(X,Y)]; if(v<bv){bv=v;best=ant.a+da;} } ant.a=best; } }
+      // dig
+      if (ant.role==='worker'){ const [X,Y]=sensePos(ant.x,ant.y,ant.a,1.5); if (X>=0&&Y>=0&&X<W&&Y<H && G[idx(X,Y)]===DIRT && scent.dig[idx(X,Y)]>0.05 && rng()<0.25){ G[idx(X,Y)]=PASS; digDirty=true; } }
+      // drawn toward nearby dig scent edges
+      if (ant.role==='worker' && c<=0.02){ const dg=sense(scent.dig,ant.x,ant.y,ant.a,sd); if (dg>0.05){} }
+    } else { // rival AI: wander with a bias toward food they remember
+      ant.wander+=dt; ant.a+=rng.range(-0.35,0.35); if (ant.mem && rng()<0.08) ant.a=Math.atan2(ant.mem[1]-ant.y, ant.mem[0]-ant.x);
+    }
+    // move
+    const s=spd(ant.team)*dt; const nx=ant.x+Math.cos(ant.a)*s, ny=ant.y+Math.sin(ant.a)*s;
+    if (passable(nx,ny)){ ant.x=nx; ant.y=ny; } else ant.a+=Math.PI*(0.5+rng()*0.8);
+    // food pickup / drop
+    const ci=idx(ant.x|0, ant.y|0);
+    if (ant.role==='worker' && ant.carry===0 && food[ci]>0){ const cap= ant.team===0? 1+has('haul') : 1; const take=Math.min(cap, food[ci]); food[ci]-=take; ant.carry=take; ant.a+=Math.PI; if (ant.team===1) ant.mem=[ant.x,ant.y]; }
+    const n=nests[ant.team]; if (ant.carry>0 && Math.hypot(ant.x-n.x, ant.y-n.y)<3){ if (ant.team===0){ stored+=ant.carry; delivered+=ant.carry; } else n.food=(n.food||0)+ant.carry; ant.carry=0; ant.a+=Math.PI; }
+  }
+  // combat (spatial hash)
+  const cell={}; for (const a of ants) if (a.hp>0){ const k=((a.x/3)|0)+','+((a.y/3)|0); (cell[k] ||= []).push(a); }
+  for (const k in cell){ const list=cell[k]; if (list.length<2) continue; const t0=list.filter(a=>a.team===0), t1=list.filter(a=>a.team===1); if (!t0.length||!t1.length) continue;
+    for (const a of t0){ const e=t1[rng.int(t1.length)]; e.hp -= (a.role==='soldier'? 6*(1+0.35*has('jaws')) : 1.2)*dt; }
+    for (const e of t1){ const a=t0[rng.int(t0.length)]; a.hp -= (e.role==='soldier'? 4 : 1)*dt; } }
+  // spiders
+  for (const sp of spiders){ if (sp.hp<=0) continue; sp.t-=dt;
+    if (sp.t<=0){ let best=null, bd=40; for (const a of ants) if (a.hp>0){ const d=Math.hypot(a.x-sp.x,a.y-sp.y); if (d<bd){ bd=d; best=a; } } if (best){ sp.tx=best.x; sp.ty=best.y; } else { sp.tx=sp.x+rng.range(-20,20); sp.ty=sp.y+rng.range(-20,20); } sp.t=1.2; }
+    const a=Math.atan2(sp.ty-sp.y, sp.tx-sp.x); const nx=sp.x+Math.cos(a)*4*dt, ny=sp.y+Math.sin(a)*4*dt; if (passable(nx,ny)){ sp.x=nx; sp.y=ny; } else sp.t=0;
+    sp.cd-=dt;
+    let attackers=0; for (const ant of ants){ if (ant.hp<=0) continue; const d=Math.hypot(ant.x-sp.x,ant.y-sp.y); if (d<3.2){ if (ant.team===0) { attackers++; sp.hp -= (ant.role==='soldier'? 3.2*(1+0.35*has('jaws')) : 0.25)*dt; } if (sp.cd<=0){ ant.hp-=ant.role==='soldier'?8:20; sp.cd=1.0; } } }
+    if (sp.hp<=0){ kills++; banner(`🕷️ Spider down! (${kills}${killsNeeded?'/'+killsNeeded:''})`); burstAt(sp.x,sp.y); for (let y=-3;y<=3;y++) for (let x=-3;x<=3;x++){ const X=(sp.x|0)+x, Y=(sp.y|0)+y; if (X>=0&&Y>=0&&X<W&&Y<H&&G[idx(X,Y)]===PASS) food[idx(X,Y)]+=1.5; } }
+  }
+  // rival nest damage from our soldiers
+  if (nests[1] && nests[1].hp>0){ for (const a of ants) if (a.team===0 && a.hp>0 && Math.hypot(a.x-nests[1].x,a.y-nests[1].y)<4) nests[1].hp -= (a.role==='soldier'? 2.5*(1+0.35*has('jaws')) : 0.3)*dt; if (nests[1].hp<=0){ banner('🏰 The rival nest has fallen!'); for (const a of ants) if (a.team===1) a.hp=0; } }
+  ants = ants.filter(a=>a.hp>0);
+  // hatching
+  hatchT+=dt; if (hatchT>0.5){ hatchT=0; const cost=5*(1-0.25*has('queen')); const ours=ants.filter(a=>a.team===0).length;
+    if (stored>=cost+10 && ours<1400){ stored-=cost; spawnAnt(0, rng()*100 < +document.getElementById('ratio').value ? 'soldier':'worker'); }
+    if (nests[1] && nests[1].hp>0 && (nests[1].food||0)>=5 && ants.length<2200){ nests[1].food-=5; spawnAnt(1, rng()<0.3?'soldier':'worker'); }
+    if (nests[1] && nests[1].hp>0 && rng()<0.05) spawnAnt(1, rng()<0.3?'soldier':'worker'); }
+  if (digDirty){ digT+=dt; if (digT>0.5){ digT=0; digDirty=false; home=bfs(nests[0]); if (nests[1]) rivalHome=bfs(nests[1]); } }
+  // cold: ants slowly die if colony has no food
+  if (M.cold){ coldT+=dt; if (coldT>4){ coldT=0; const ours=ants.filter(a=>a.team===0); const need=ours.length*0.02; if (stored>=need) stored-=need; else { for (let k=0;k<3&&ours[k];k++) ours[k].hp=0; } } }
+  timeLeft-=dt; checkEnd();
+}
+let digMix=new Float32Array(W*H), digMixT=0;
+function digField(){ return digMixOn; }
+let digMixOn=false;
+function updDigMix(){ let any=false; const d=scent.dig, f=scent.forage; for (let i=0;i<W*H;i++){ digMix[i]=Math.max(f[i], d[i]*0.9); if (d[i]>0.01) any=true; } digMixOn=any; }
+let hatchT=0, digDirty=false, digT=0, coldT=0, delivered=0;
+let fx=[]; function burstAt(x,y){ for (let k=0;k<30;k++){ const a=Math.random()*7, s=Math.random()*3; fx.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,l:1}); } }
+function goalProgress(){ const g=MAPS[mapI].g; if (g.type==='food') return [delivered, g.n, `Bring ${g.n} food home`]; if (g.type==='kill') return [kills, g.n, `Kill ${g.n} spider${g.n>1?'s':''}`]; if (g.type==='nest') return [nests[1]? (nests[1].maxhp-Math.max(0,nests[1].hp)) : 0, nests[1]?.maxhp||1, 'Destroy the rival nest']; }
+function checkEnd(){
+  if (gameOver) return; const [v,n]=goalProgress(); const ours=ants.filter(a=>a.team===0).length;
+  if (v>=n){ gameOver=true; const frac=timeLeft/MAPS[mapI].t; const stars= frac>0.4?3: frac>0.15?2:1; const prev=SAVE.stars[mapI]||0; const first=!prev; SAVE.stars[mapI]=Math.max(prev,stars); persist();
+    const pool=[...UPS].sort(()=>Math.random()-.5).slice(0,3);
+    RH.modal(`<h2>${'★'.repeat(stars)}${'☆'.repeat(3-stars)} Colony thrives</h2><p>${Math.round(timeLeft)}s to spare.</p>${first?`<p><b>The colony adapts.</b> Choose a trait for every map from now on:</p><div class="ups">${pool.map(u=>`<button data-u="${u[0]}"><b>${u[1]}</b><br><span class="small dim">${u[2]}</span></button>`).join('')}</div>`:''}`, first? [] : [{label:'Next map'}]).then(()=>{ if(!first) openMap(Math.min(MAPS.length-1,mapI+1)); });
+    if (first) setTimeout(()=>document.querySelectorAll('.modal [data-u]').forEach(b=>b.onclick=()=>{ SAVE.ups.push(b.dataset.u); persist(); document.querySelector('.modal-bg').remove(); openMap(Math.min(MAPS.length-1,mapI+1)); }),50);
+    return; }
+  if (timeLeft<=0 || ours===0){ gameOver=true; RH.modal(`<h2>${ours===0?'The colony is gone.':'The season ended.'}</h2><p>${goalProgress()[2]}: ${Math.floor(v)}/${n}.</p>`,[{label:'Try again'}]).then(()=>openMap(mapI)); }
+}
+
+// ===================== Painting =====================
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d'); let cell=5;
+function fit(){ const r=document.getElementById('stage').getBoundingClientRect(); cell=Math.max(2,Math.floor(Math.min((r.width-20)/W,(r.height-20)/H)*10)/10); cv.width=W*cell*devicePixelRatio; cv.height=H*cell*devicePixelRatio; cv.style.width=W*cell+'px'; cv.style.height=H*cell+'px'; }
+let painting=0, lastP=null;
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+cv.addEventListener('mousedown',e=>{ painting=e.button===2? -1 : 1; lastP=null; strokeLen=0; paint(e); });
+let strokeLen=0;
+window.addEventListener('mouseup',()=>{ painting=0; });
+cv.addEventListener('mousemove',e=>{ mouseC=toCell(e); if (painting) paint(e); });
+let mouseC=null;
+const toCell=(e)=>{ const r=cv.getBoundingClientRect(); return [(e.clientX-r.left)/cell, (e.clientY-r.top)/cell]; };
+function paint(e){
+  const [cx,cy]=toCell(e); const pts=[[cx,cy]];
+  if (lastP){ const d=Math.hypot(cx-lastP[0],cy-lastP[1]); for (let t=1;t<d;t++) pts.push([lastP[0]+(cx-lastP[0])*t/d, lastP[1]+(cy-lastP[1])*t/d]); }
+  if (lastP) strokeLen+=Math.hypot(cx-lastP[0],cy-lastP[1]);
+  lastP=[cx,cy];
+  const f=scent[brush]; const R=2.6;
+  for (const [px,py] of pts){
+    for (let y=-3;y<=3;y++) for (let x=-3;x<=3;x++){ const X=(px|0)+x, Y=(py|0)+y; if(X<0||Y<0||X>=W||Y>=H) continue; const d=Math.hypot(x,y); if (d>R) continue; const i=idx(X,Y);
+      if (painting<0){ for (const s of SCENTS) scent[s.k][i]=0; continue; }
+      if (gland<=0.002) continue; const add=(1-d/R)*0.6*(0.35+Math.min(1,strokeLen/70)); const before=f[i]; f[i]=Math.min(1.5, f[i]+add); gland=Math.max(0, gland-(f[i]-before)*0.0016/(1+0.35*has('glands')));
+      // forage scent painted on far points should still be followable: add a gentle gradient toward the stroke end
+    }
+  }
+}
+window.addEventListener('keydown',e=>{ const s=SCENTS.find(s=>s.key===e.key); if (s && unlockedScent(s)){ brush=s.k; renderScents(); } if (e.key===' '){ paused=!paused; e.preventDefault(); updBtns(); } });
+const unlockedScent=(s)=> !s.unlock || mapI>=s.unlock;
+
+// ===================== Rendering =====================
+const off=document.createElement('canvas'); off.width=W; off.height=H; const octx=off.getContext('2d'); const img=octx.createImageData(W,H);
+function draw(){
+  const d=img.data, cold=MAPS[mapI].cold;
+  for (let i=0;i<W*H;i++){ const k=i*4; let r,g,b;
+    if (G[i]===ROCK){ r=78;g=74;b=70; } else if (G[i]===DIRT){ r=92;g=64;b=38; } else { r=cold?54:46; g=cold?52:36; b=cold?58:24; }
+    const fo=scent.forage[i], al=scent.alarm[i], dg=scent.dig[i], ca=scent.calm[i];
+    r+= al*170 + dg*80; g+= fo*150 + dg*50 + ca*60; b+= fo*40 + ca*170;
+    if (food[i]>0){ r=230; g=200; b=90; }
+    if (G[i]===DIRT && dg>0.05){ r+=30; g+=20; }
+    d[k]=Math.min(255,r); d[k+1]=Math.min(255,g); d[k+2]=Math.min(255,b); d[k+3]=255; }
+  octx.putImageData(img,0,0);
+  const dpr=devicePixelRatio; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.imageSmoothingEnabled=true; ctx.drawImage(off,0,0,W*cell,H*cell);
+  if (rainT>0){ ctx.strokeStyle='rgba(150,180,255,.35)'; ctx.lineWidth=1; for (let k=0;k<160;k++){ const x=Math.random()*W*cell, y=Math.random()*H*cell; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-3,y+12); ctx.stroke(); } }
+  // nests
+  nests.forEach((n,t)=>{ if (t===1 && n.hp<=0) return; ctx.fillStyle=t?'#7a2a2a':'#3a2a18'; ctx.strokeStyle=t?'#ff6b6b':'#ffd36a'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(n.x*cell,n.y*cell,cell*3.2,0,7); ctx.fill(); ctx.stroke();
+    if (t===1){ ctx.fillStyle='#ff6b6b'; ctx.fillRect(n.x*cell-20, n.y*cell-cell*4.5, 40*n.hp/n.maxhp, 3); } });
+  // ants
+  for (const a of ants){ ctx.fillStyle= a.team? (a.role==='soldier'?'#ff6b6b':'#c85a4a') : (a.role==='soldier'?'#ffd36a':'#1a1008'); const s=a.role==='soldier'? cell*0.9 : cell*0.6;
+    ctx.save(); ctx.translate(a.x*cell,a.y*cell); ctx.rotate(a.a); ctx.fillRect(-s,-s*0.4,s*2,s*0.8); if (a.carry){ ctx.fillStyle='#ffe08a'; ctx.fillRect(s*0.8,-s*0.5,s,s); } ctx.restore(); }
+  // spiders
+  for (const sp of spiders){ if (sp.hp<=0) continue; const x=sp.x*cell, y=sp.y*cell; ctx.strokeStyle='#111'; ctx.lineWidth=2; for (let k=0;k<8;k++){ const a=k/8*Math.PI*2+Math.sin(performance.now()/120+k)*0.2; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+Math.cos(a)*cell*4,y+Math.sin(a)*cell*4); ctx.stroke(); }
+    ctx.fillStyle='#2a1a2a'; ctx.beginPath(); ctx.arc(x,y,cell*2,0,7); ctx.fill(); ctx.fillStyle='#ff3a3a'; ctx.fillRect(x-cell*0.8,y-cell*0.8,3,3); ctx.fillRect(x+cell*0.4,y-cell*0.8,3,3);
+    ctx.fillStyle='#ff6b6b'; ctx.fillRect(x-15,y-cell*3.5,30*sp.hp/sp.maxhp,3); }
+  fx=fx.filter(p=>{ p.x+=p.vx*0.1; p.y+=p.vy*0.1; p.l-=0.02; ctx.fillStyle=`rgba(255,200,120,${p.l})`; ctx.fillRect(p.x*cell,p.y*cell,3,3); return p.l>0; });
+  if (mouseC){ ctx.strokeStyle=SCENTS.find(s=>s.k===brush).c; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(mouseC[0]*cell,mouseC[1]*cell,2.6*cell,0,7); ctx.stroke(); }
+}
+function banner(t){ const b=document.getElementById('banner'); b.textContent=t; b.style.opacity=1; clearTimeout(banner.t); banner.t=setTimeout(()=>b.style.opacity=0,3000); }
+
+// ===================== UI =====================
+function renderScents(){ document.getElementById('scents').innerHTML=SCENTS.map(s=>{ const u=unlockedScent(s); return `<button data-s="${s.k}" class="${brush===s.k?'on':''}" ${u?'':'disabled'} title="${u?s.d:'Unlocks on map '+(s.unlock+1)}"><i style="background:${s.c}"></i>${s.n}<span class="k">${u?s.key:'🔒'}</span><br><span class="small dim">${u?s.d:'Unlocks on map '+(s.unlock+1)}</span></button>`; }).join('');
+  document.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{ brush=b.dataset.s; renderScents(); }); }
+function renderSide(){
+  const M=MAPS[mapI]; const tags=[M.spider?`🕷️×${M.spider}`:'', M.rival?'🔴 rival colony':'', M.rain?'🌧️ rain':'', M.cold?'❄️ cold: the colony eats its stores':'', M.dirt>0.1?'🟫 soft earth':''].filter(Boolean).join(' · ');
+  document.getElementById('goalBox').innerHTML=`<div class="dim small">${SEASONS[Math.floor(mapI/5)]} · map ${mapI+1}/20</div><b style="font-size:17px">${M.n}</b><div style="margin-top:4px">🎯 <span id="gText"></span></div><div class="small dim">${tags}</div><div class="small" style="margin-top:4px">⏳ <span id="tText"></span></div>`;
+  renderScents(); renderMaps();
+  document.getElementById('traits').innerHTML = SAVE.ups.length? 'Colony traits: '+SAVE.ups.map(u=>UPS.find(x=>x[0]===u)[1]).join(', ') : 'Clear a map for the first time to choose a colony trait.';
+  const tot=Object.values(SAVE.stars).reduce((a,b)=>a+b,0); document.getElementById('total').textContent=`${Object.keys(SAVE.stars).length}/20 maps · ${tot}/60 ★`;
+}
+function renderMaps(){
+  let h=''; for (let s=0;s<4;s++){ h+=`<div class="season">${SEASONS[s]}</div><div class="maps">`; for (let i=s*5;i<s*5+5;i++){ const open=i===0||SAVE.stars[i-1]||SAVE.stars[i]; h+=`<button data-m="${i}" class="${i===mapI?'cur':''}" ${open?'':'disabled'}>${i+1}<span class="st">${SAVE.stars[i]?'★'.repeat(SAVE.stars[i]):''}</span></button>`; } h+='</div>'; }
+  const el=document.getElementById('mapList'); el.innerHTML=h; el.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>openMap(+b.dataset.m));
+}
+function hud(){
+  const [v,n,t]=goalProgress(); document.getElementById('gText').textContent=`${t}: ${Math.floor(v)} / ${Math.round(n)}`; document.getElementById('tText').textContent=`${Math.max(0,Math.ceil(timeLeft))}s left in the season`;
+  const ours=ants.filter(a=>a.team===0); document.getElementById('sW').textContent=ours.filter(a=>a.role==='worker').length; document.getElementById('sS').textContent=ours.filter(a=>a.role==='soldier').length; document.getElementById('sF').textContent=Math.floor(stored);
+  document.getElementById('glandBar').style.width=(gland*100)+'%'; document.getElementById('ratioV').textContent=document.getElementById('ratio').value+'%';
+}
+function updBtns(){ document.getElementById('pauseBtn').textContent=paused?'▶ Play':'⏸ Pause'; document.getElementById('fastBtn').textContent='⏩ '+speed+'×'; }
+document.getElementById('pauseBtn').onclick=()=>{ paused=!paused; updBtns(); };
+document.getElementById('fastBtn').onclick=()=>{ speed=speed===1?2:speed===2?4:1; updBtns(); };
+document.getElementById('retryBtn').onclick=()=>openMap(mapI);
+function openMap(i){ SAVE.cur=i; persist(); delivered=0; build(i); brush='forage'; fit(); banner(`${MAPS[i].n}`); }
+
+let last=performance.now(), hudT=0;
+function frame(now){ const dt=Math.min(0.05,(now-last)/1000); last=now;
+  if (!paused && !gameOver) for (let k=0;k<speed;k++) stepWorld(dt);
+  draw(); hudT+=dt; if (hudT>0.2){ hudT=0; hud(); } requestAnimationFrame(frame); }
+window.addEventListener('resize', fit);
+openMap(SAVE.cur||0); requestAnimationFrame(frame);
+if (!SAVE.intro){ SAVE.intro=1; persist(); RH.modal(`<h2>🐜 Ant Mind</h2><p>You can't give orders. You're the colony's chemistry: a smell in the dirt.</p><p><b>Paint forage scent</b> from the nest toward food and the workers will follow it. Loaded ants find their own way home. Scent fades, your glands run dry, and rain washes everything away.</p><p>Later you get alarm scent for soldiers, dig scent for tunnels, and a retreat scent for when it all goes wrong.</p>`,[{label:'Begin'}]); }
+</script>
+</body>
+</html>
