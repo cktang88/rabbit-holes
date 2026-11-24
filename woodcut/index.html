@@ -529,7 +529,7 @@ function finish() {
   const sc = score(), w = waste(), par = L.studio ? 0 : L.inks.length;
   let stars = 0;
   if (T && !L.studio && sc.lk >= PASS) { stars = 1; if (passes.length <= par && strokes <= L.parStrokes) stars++; if (stars === 2 && sc.lk >= .93 && w <= .03) stars++; }
-  result = { lk: sc.lk, rs: sc.rs, waste: w, passes: passes.length, par, strokes, parStrokes: L.parStrokes, stars, ed: ++SAVE.ed };
+  result = { lk: sc.lk, rs: sc.rs, waste: w, passes: passes.length, par, strokes, parStrokes: L.parStrokes, stars, ed: ++SAVE.ed, hints: T && !L.studio ? missHints(sc.rs) : [] };
   // diff overlay: tint regions that missed
   const img = diffCtx.createImageData(R, R);
   if (T) T.regions.forEach((r, ri) => { if (sc.rs[ri] >= .8) return; for (let i = 0; i < N; i++) if (T.comp[i] === r.comp) { img.data[i * 4] = 255; img.data[i * 4 + 1] = 40; img.data[i * 4 + 2] = 40; img.data[i * 4 + 3] = 150; } });
@@ -543,6 +543,17 @@ function finish() {
   showResult(); renderLevels(); renderTray(); updateHUD();
   return result;
 }
+// After a miss, say what went wrong in the biggest missed areas instead of leaving it to trial and error:
+// "carved too early" (it stopped short of the colour it needed) or "left too long" (it took extra inks).
+function targetName(s) { if (!s) return 'paper'; let j = s - 1; while (j > 0 && L.inks[ORDER[j]].m === 't') j--; const out = (L.inks[ORDER[j]].m === 't' ? ['paper'] : []).concat(ORDER.slice(j, s).map(k => L.inks[k].n)); return out.join(' + '); }
+function missHints(rs) {
+  const where = r => { let sx = 0, sy = 0; for (const i of r.px) { sx += i % R; sy += i / R | 0; } const x = sx / r.px.length / R, y = sy / r.px.length / R;
+    return (y < .33 ? 'top' : y > .67 ? 'bottom' : 'middle') + (x < .33 ? ' left' : x > .67 ? ' right' : y > .33 && y < .67 ? '' : ''); };
+  const miss = T.regions.map((r, ri) => ({ r, sc: rs[ri] })).filter(o => o.sc < .5).sort((a, b) => b.r.n - a.r.n).slice(0, 2);
+  return miss.map(({ r }) => { const cnt = new Int32Array(16); for (const i of r.px) cnt[pt[i]]++; let m = 0; for (let k = 1; k < 16; k++) if (cnt[k] > cnt[m]) m = k;
+    const got = nameForT(m), want = targetName(r.s);
+    return `${where(r).trim().replace(/^middle$/, 'centre')} area: should be <b>${want}</b>, printed as <b>${got}</b>` + (m < r.s ? ' (carved too early)' : m > r.s ? ' (left on the block too long)' : ' (wrong order of inks)'); });
+}
 function saveGallery() {
   try {
     const c = mk(112, 112), x = c.getContext('2d'); x.drawImage(printCv, 0, 0, 112, 112);
@@ -554,7 +565,7 @@ const starStr = n => '★'.repeat(n) + '☆'.repeat(3 - n);
 function showResult() {
   const r = result, nxt = Li < NLV - 1 && r.lk >= PASS ? '<button class="tb pull" data-a="next">Next print →</button>' : Li === NLV - 1 && r.lk >= PASS ? '<button class="tb pull" data-a="studio">Open the studio →</button>' : '';
   const big = L.studio ? `Edition no. ${r.ed} signed` + (T ? ` · ${Math.round(r.lk * 100)}% likeness` : '') : `${Math.round(r.lk * 100)}% likeness · ${r.passes}/${r.par} passes · <span class="stars">${starStr(r.stars)}</span>`;
-  const small = L.studio ? L.fact + ' Your block is now nearly empty: a souvenir.' : (r.lk >= PASS ? '' : `<b>Not quite:</b> you need ${PASS * 100}% to move on. Toggle the diff to see which regions missed.<br>`) + `Strokes ${r.strokes} (par ${r.parStrokes}) · waste ${Math.round(r.waste * 100)}% · edition no. ${r.ed}<br>${L.fact}`;
+  const small = L.studio ? L.fact + ' Your block is now nearly empty: a souvenir.' : (r.lk >= PASS ? '' : `<b>Not quite:</b> you need ${PASS * 100}% to move on. Toggle the diff to see which regions missed.<br>${r.hints && r.hints.length ? r.hints.map(h => '• ' + h).join('<br>') + '<br>' : ''}`) + `Strokes ${r.strokes} (par ${r.parStrokes}) · waste ${Math.round(r.waste * 100)}% · edition no. ${r.ed}<br>${L.fact}`;
   toast(big, small, 60000, `<div class="btns">${T ? '<button class="tb" data-a="diff">Diff</button>' : ''}<button class="tb" data-a="retry">${L.studio ? 'New block' : 'Retry'}</button>${nxt}</div>`);
 }
 

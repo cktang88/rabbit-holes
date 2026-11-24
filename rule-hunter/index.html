@@ -36,6 +36,17 @@
   .filter{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
   .filter button{font-size:11px;padding:2px 8px}
   .filter button.on{border-color:var(--accent);color:var(--accent)}
+  .tip{font-size:12px;color:var(--dim);margin:0 0 4px;line-height:1.4}
+  .tip a{cursor:pointer}
+  @media (max-width:760px){
+    body{height:auto;min-height:100vh;overflow:auto}
+    main{flex-direction:column}
+    #center{order:1;flex:none;min-height:430px;padding:34px 0 30px}
+    #left{order:2;width:auto;border-right:0;border-bottom:1px solid var(--line)}
+    #right{order:3;width:auto;border-left:0;min-height:60vh}
+    #log{max-width:94%}
+    .topbar{flex-wrap:wrap}
+  }
 </style>
 </head>
 <body>
@@ -76,12 +87,21 @@
 <script src="../shared/common.js"></script>
 <script>
 // ===================== State =====================
-const S = RH.load('rh', {rule:{b:0b000001000,s:0b000001100}, species:{}, rules:{}, bounties:{}, scans:0});
-const persist=()=>{ RH.save('rh', S); RH.progress('rule-hunter', Object.keys(S.bounties).length/BOUNTIES.length); };
+const isObj=(o)=>o&&typeof o==='object'&&!Array.isArray(o);
+let S = RH.load('rh', null); if (!isObj(S)) S = {};
+if (!isObj(S.rule) || !Number.isInteger(S.rule.b) || !Number.isInteger(S.rule.s)) S.rule={b:0b000001000,s:0b000001100};
+S.rule={b:S.rule.b&0b111111110, s:S.rule.s&0b111111111};
+for (const k of ['species','rules','bounties']) if (!isObj(S[k])) S[k]={};
+for (const [id,sp] of Object.entries(S.species)) if (!isObj(sp) || typeof sp.rule!=='string' || !Array.isArray(sp.phases) || !sp.phases.length || typeof sp.phases[0]!=='string' || !(sp.type in {still:1,osc:1,ship:1,diag:1,knight:1,grower:1})) delete S.species[id];
+for (const [k,v] of Object.entries(S.rules)) if (!isObj(v) || !/^\d+:\d+$/.test(k)) delete S.rules[k];
+if (!Number.isFinite(S.scans) || S.scans<0) S.scans=0;
+// Only bounties that still exist count (ids are their text, so an edited bounty must not push the total past 100%)
+const claimed=()=>BOUNTIES.filter(b=>S.bounties[b.id]).length;
+const persist=()=>{ RH.save('rh', S); RH.progress('rule-hunter', claimed()/BOUNTIES.length); };
 const W=160, H=160;
 let grid=new Uint8Array(W*H), next=new Uint8Array(W*H), gen=0, running=true, seedBox=null;
 const ruleStr=(r)=>'B'+[...Array(9)].map((_,i)=>(r.b>>i)&1?i:'').join('')+'/S'+[...Array(9)].map((_,i)=>(r.s>>i)&1?i:'').join('');
-function parseRule(t){ const m=t.toUpperCase().replace(/\s/g,'').match(/^B([0-8]*)\/S([0-8]*)$/); if(!m) return null; let b=0,s=0; for(const c of m[1]) b|=1<<+c; for(const c of m[2]) s|=1<<+c; b&=~1; return {b,s}; }
+function parseRule(t){ const m=String(t).toUpperCase().replace(/\s/g,'').match(/^B([0-8]*)\/?S([0-8]*)$/); if(!m) return null; let b=0,s=0; for(const c of m[1]) b|=1<<+c; for(const c of m[2]) s|=1<<+c; b&=~1; return {b,s}; }
 const rkey=(r)=>r.b+':'+r.s;
 
 // ===================== Simulation =====================
@@ -285,8 +305,16 @@ bty(6,'Species in 50 different rules', ()=>new Set(sps().map(s=>s.rule)).size>=5
 function checkBounties(){ let n=0; for (const b of BOUNTIES) if(!S.bounties[b.id] && b.test()){ S.bounties[b.id]=Date.now(); n++; RH.toast(`🏅 Bounty: ${b.text}`, 3500); } if(n){ persist(); renderBounties(); } }
 function renderBounties(){
   const tiers=['','Still lifes','Oscillators','Orthogonal ships','Diagonal & knight ships','Growth','Rule-space explorer'];
-  let h=`<div class="small dim">${Object.keys(S.bounties).length} / ${BOUNTIES.length} claimed</div>`;
-  for (let t=1;t<=6;t++){ const bs=BOUNTIES.filter(b=>b.tier===t); const d=bs.filter(b=>S.bounties[b.id]).length; h+=`<div class="tierH">${tiers[t]} · ${d}/${bs.length}</div>`;
+  // Where to look, so the hunt isn't blind trial and error. Rule names are clickable.
+  const tips=['','Almost any rule with S2 or S3 leaves still lifes behind. Try <a data-r="B3/S23">B3/S23</a> first.',
+    'Life is full of blinkers (period 2). Longer periods hide in other rules: try <a data-r="B36/S125">B36/S125</a> or <a data-r="B34/S34">B34/S34</a>.',
+    'Life itself throws out the odd c/2 ship: <a data-r="B3/S23">B3/S23</a>. <a data-r="B34/S34">B34/S34</a> has c/3 ships. Let soups settle before scanning.',
+    'Life\'s glider is a c/4 diagonal ship: <a data-r="B3/S23">B3/S23</a>, also in <a data-r="B36/S23">B36/S23</a>. Knightships are very rare; turn on auto-hunt with drift.',
+    'Rules on the edge of exploding are good hunting grounds: <a data-r="B34/S34">B34/S34</a>, or <a data-r="B3/S12345">B3/S12345</a> (Maze).',
+    'Auto-hunt with “drift” on explores rules for you.'];
+  setTimeout(()=>document.querySelectorAll('#p-bounty [data-r]').forEach(a=>a.onclick=()=>{ const r=parseRule(a.dataset.r); if (r){ setRule(r); soup(); RH.toast('Rule set to '+a.dataset.r+'. Let it settle, then scan.'); } }));
+  let h=`<div class="small dim">${claimed()} / ${BOUNTIES.length} claimed</div>`;
+  for (let t=1;t<=6;t++){ const bs=BOUNTIES.filter(b=>b.tier===t); const d=bs.filter(b=>S.bounties[b.id]).length; h+=`<div class="tierH">${tiers[t]} · ${d}/${bs.length}</div>`+(d<bs.length? `<p class="tip">${tips[t]}</p>` : '');
     h+=bs.map(b=>`<div class="bounty ${S.bounties[b.id]?'done':''}"><span class="ck">${S.bounties[b.id]?'✓':'·'}</span><span>${b.text}</span></div>`).join(''); }
   document.getElementById('p-bounty').innerHTML=h;
 }
@@ -330,7 +358,7 @@ function renderBits(){
 }
 function renderRuleInfo(){ const v=S.rules[rkey(S.rule)]; const here=sps().filter(s=>s.rule===ruleStr(S.rule));
   document.getElementById('ruleInfo').innerHTML = `<b>${ruleStr(S.rule)}</b>${ruleStr(S.rule)==='B3/S23'?' (Conway\'s Life)':''}<br>${v?`Behaviour: <b style="color:${BEHC[v.beh]}">${v.beh}</b> · ${v.scans} scan${v.scans>1?'s':''}`:'<span class="dim">Unexplored. Scan to chart it.</span>'}<br>Species here: ${here.length}${here.length?` (${['still','osc','ship','diag','knight','grower'].map(t=>[t,here.filter(s=>s.type===t).length]).filter(x=>x[1]).map(x=>x[1]+' '+TYPEN[x[0]]+(x[1]>1?'s':'')).join(', ')})`:''}`; }
-function renderTotals(){ document.getElementById('totals').textContent = `${sps().length} species · ${Object.keys(S.rules).length} rules explored · ${Object.keys(S.bounties).length}/${BOUNTIES.length} bounties`; }
+function renderTotals(){ document.getElementById('totals').textContent = `${sps().length} species · ${Object.keys(S.rules).length} rules explored · ${claimed()}/${BOUNTIES.length} bounties`; }
 function log(t){ document.getElementById('log').textContent=t; }
 document.getElementById('ruleStr').onchange=(e)=>{ const r=parseRule(e.target.value); if(r){ setRule(r); soup(); } else RH.toast('Use the form B3/S23'); };
 document.getElementById('mutBtn').onclick=()=>{ const r={...S.rule}; const k=Math.random()<.5?'b':'s'; const i=k==='b'?1+Math.floor(Math.random()*8):Math.floor(Math.random()*9); r[k]^=1<<i; setRule(r); soup(); };
@@ -355,6 +383,9 @@ function autoStep(){
   }
 }
 
+window.__rh={ stepGrid, components, normalize, canon, unwrap, analyzeObject, growthCheck, classifyRule, parseRule, ruleStr, speedStr, nameFor, scan, setRule, soup, tick, checkBounties, renderBounties, BOUNTIES, claimed, W, H,
+  get S(){ return S; }, get grid(){ return grid; }, get gen(){ return gen; }, setBudget(n){ growthBudget=n; }, get running(){ return running; }, set running(v){ running=v; }, get auto(){ return auto; },
+  place(pts, ox=70, oy=70){ grid.fill(0); gen=0; for (const [x,y] of pts) grid[(oy+y)*W+ox+x]=1; draw(); } };
 // Main loop
 function loop(){ if (running){ const sp=+document.getElementById('speed').value; tick(auto? Math.max(sp,10) : sp); draw(); autoStep(); } requestAnimationFrame(loop); }
 renderBits(); renderRuleInfo(); renderGuide(); renderBounties(); renderTotals(); soup(); loop();

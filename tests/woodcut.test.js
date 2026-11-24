@@ -25,12 +25,14 @@ module.exports = {
           w.load(i); w.carveState(0); for (let k = 0; k < n; k++) w.pull(k); const lazy = w.result.lk;
           out.push({ i, rev, lazy, same: w.LV[i].inks.every(x => x.hex === w.LV[i].inks[0].hex) }); }
         // Red Barn: carving the barn before red is printed means red never lands on it
-        w.load(3); w.carveState(0); w.pull(0); w.carveState(1); w.carveState(2); w.pull(1); w.pull(2); const barn = w.result.lk;
+        w.load(3); w.carveState(0); w.pull(0); w.carveState(1); w.carveState(2); w.pull(1); w.pull(2); const barn = w.result.lk, barnHints = w.result.hints;
         // Cherries: printing red before carving the paper areas
         w.load(0); w.pull(0); w.carveState(0); w.carveState(1); w.pull(1); const cher = w.result.lk;
-        return { out, barn, cher }; });
+        return { out, barn, cher, barnHints }; });
       for (const x of r.out) { if (!x.same) ok(x.rev < .85, `level ${x.i}: reversed order passes (${x.rev})`); ok(x.lazy < .85, `level ${x.i}: carve-nothing passes (${x.lazy})`); }
-      ok(r.barn < .85, 'barn trap passes ' + r.barn); ok(r.cher < .85, 'cherries out of order passes ' + r.cher);
+      ok(r.barn < .85, 'barn trap passes ' + r.barn);
+      // the result card explains the miss instead of leaving it to trial and error
+      ok(r.barnHints.length && /Barn red/.test(r.barnHints[0]) && /carved too early/.test(r.barnHints[0]), 'barn hint: ' + r.barnHints); ok(r.cher < .85, 'cherries out of order passes ' + r.cher);
     },
     'colour compositing: transparent multiplies, dark opaque covers, light opaque ghosts, dense covers, fountain blends': async ({ page, ok, near }) => {
       const r = await page.evaluate(() => { const w = __wc, base = w.lin('#203040'), light = w.lin('#f0e8d0');

@@ -87,7 +87,7 @@ module.exports = {
       await page.click('#skip'); ok(/Target 2 of 10/.test(await page.textContent('#goal')));
       await page.evaluate(() => { for (const t of __ch.targetsOf('square')) __ch.SAVE.solved[t.id] = 1; __ch.setPlate('circle'); __ch.setPlate('square'); });
       ok(/All matched/.test(await page.textContent('#goal'))); eq(await page.evaluate(() => __ch.curTarget()), null);
-      await page.evaluate(() => __ch.setPlate('circle')); ok(/Target 1 of 10/.test(await page.textContent('#goal')));
+      await page.evaluate(() => __ch.setPlate('circle')); ok(/Target 1 of 8/.test(await page.textContent('#goal')));
       await page.evaluate(() => __ch.setPlate('nonsense')); eq(await page.evaluate(() => __ch.plate), 'circle');
     },
     'corrupted / odd saves load without errors': async ({ page, eq, ok }) => {

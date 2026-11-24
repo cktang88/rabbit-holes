@@ -38,6 +38,14 @@
   .const .opts button{font-size:12px;padding:3px 8px}
   .const .opts button.on{background:var(--accent);color:#1a1205}
   .endBtn{width:100%;margin-top:10px}
+  @media (max-width:760px){
+    body{height:auto;min-height:100vh;overflow:auto}
+    main{flex-direction:column}
+    #sky{flex:none;height:56vh}
+    #side{width:auto;border-left:0;border-top:1px solid var(--line);min-height:70vh}
+    #eraBox{max-width:92%} #eraBox .n{font-size:20px} #eraBox .f{font-size:12px}
+    .topbar{flex-wrap:wrap}
+  }
 </style>
 </head>
 <body>
@@ -75,13 +83,13 @@ const TIERS = [
   {k:'G', n:'Galaxies', era:'Galaxies', f:'Stars fall together in their billions, wound into spirals by their own rotation.',
     gens:[['Dark matter halo',300,0.05],['Spiral arms',5000,0.4],['Galactic merger',60000,3]], unlock:['M',30000]},
   {k:'P', n:'Planets', era:'Worlds', f:'Leftover dust and metal clump around young stars. Rock, ice and gas giants.',
-    gens:[['Accretion',1500,0.5],['Protoplanetary disk',20000,3.75],['Solar system',250000,25]], unlock:['M',100000]},
+    gens:[['Accretion',1500,0.5],['Protoplanetary disk',20000,3.75],['Solar system',250000,25]], unlock:['M',50000]},
   {k:'L', n:'Life',  era:'Biogenesis', f:'In warm water on a rocky world, a molecule makes a copy of itself, and keeps going.',
     gens:[['Tide pool',100,0.125],['First cell',1500,1],['Biosphere',20000,7.5]], unlock:['P',15000]},
   {k:'I', n:'Minds', era:'Awakening', f:'Nerves, then brains, then something that looks up and asks where all this came from.',
     gens:[['Nervous system',200,0.125],['Language',3000,1],['Culture',40000,7.5]], unlock:['L',20000]},
   {k:'K', n:'Civilization', era:'Civilization', f:'Minds that cooperate and harness their star. How far can they go before the lights go out?',
-    gens:[['Agriculture',200,0.125],['Industry',3000,1],['Dyson swarm',40000,7.5]], unlock:['I',20000]},
+    gens:[['Agriculture',200,0.125],['Industry',3000,1],['Dyson swarm',40000,7.5]], unlock:['I',10000]},
 ];
 const KEYS = TIERS.map(t=>t.k);
 
@@ -103,8 +111,21 @@ function newRun(keepMeta){
   if (keepMeta){ Object.assign(st.consts, keepMeta.nextConsts||{}); st.r.E = 1000*(keepMeta.seedUps?.start||0); }
   return st;
 }
-let M = RH.load('us-meta', {seeds:0, totalSeeds:0, rebirths:0, codex:{}, seedUps:{}, nextConsts:{}});
-let U = RH.load('us-run', null) || newRun(M);
+const isObj=(o)=>o&&typeof o==='object'&&!Array.isArray(o);
+const num=(v,d=0)=>Number.isFinite(v)&&v>=0? v : d;
+function cleanMeta(m){ if (!isObj(m)) m={}; for (const k of ['seeds','totalSeeds','rebirths']) m[k]=num(m[k]); m.rebirths=Math.floor(m.rebirths);
+  for (const k of ['codex','seedUps','nextConsts']) if (!isObj(m[k])) m[k]={};
+  for (const k of Object.keys(m.seedUps)) m.seedUps[k]=Math.floor(num(m.seedUps[k]));
+  for (const k of Object.keys(m.nextConsts)){ const c=CONSTS.find(c=>c.k===k); if (!c || !Number.isInteger(m.nextConsts[k]) || !c.opts[m.nextConsts[k]]) delete m.nextConsts[k]; }
+  return m; }
+function cleanRun(u){ if (!isObj(u)) return null; for (const k of ['r','total','gens','ups','consts']) if (!isObj(u[k])) return null;
+  for (const k of KEYS){ u.r[k]=num(u.r[k]); u.total[k]=num(u.total[k]); }
+  for (const c of CONSTS) if (!Number.isInteger(u.consts[c.k]) || !c.opts[u.consts[c.k]]) u.consts[c.k]=c.def;
+  for (const k of Object.keys(u.gens)) u.gens[k]=Math.floor(num(u.gens[k])); for (const k of Object.keys(u.ups)) u.ups[k]=Math.floor(num(u.ups[k]));
+  u.tier=Math.min(TIERS.length-1, Math.floor(num(u.tier))); u.maxTier=Math.max(u.tier, Math.min(TIERS.length-1, Math.floor(num(u.maxTier)))); u.t=num(u.t);
+  if (u.kAt!=null && !Number.isFinite(u.kAt)) delete u.kAt; return u; }
+let M = cleanMeta(RH.load('us-meta', null));
+let U = cleanRun(RH.load('us-run', null)) || newRun(M);
 const persist=()=>{ U.saved=Date.now(); RH.save('us-run',U); RH.save('us-meta',M); RH.progress('universe-seed', Object.keys(M.codex).length/CODEX.length); };
 const C = (k)=> CONSTS.find(c=>c.k===k).opts[U.consts[k]][1];
 const nonDefault = ()=> CONSTS.filter(c=>U.consts[c.k]!==c.def).length;
@@ -185,7 +206,7 @@ cx('Kardashev I','A civilization that harnesses a whole planet.',()=>U.total.K>=
 cx('Kardashev II','A civilization that harnesses its star.',()=>U.total.K>=1e6);
 cx('Kardashev III','A civilization that harnesses its galaxy.',()=>U.total.K>=1e9);
 cx('Empire of the Furnace','Kardashev II under strong gravity.',()=>C('G')===3&&U.total.K>=1e6);
-cx('Speedrun','Reach civilization in under 20 minutes of cosmic play.',()=>reached('K')&&U.t<1200);
+cx('Speedrun','Reach civilization in under 20 minutes of cosmic play.',()=>reached('K')&&(U.kAt??U.t)<1200);
 cx('Long Night','Let one universe run for over 2 hours.',()=>U.t>=7200);
 cx('Two Changes','Life with two laws changed.',()=>nonDefault()>=2&&reached('L'));
 cx('Three Changes','Life with three laws changed.',()=>nonDefault()>=3&&reached('L'));
@@ -279,7 +300,7 @@ function update(dt){
   U.t += dt;
   for (const k of KEYS){ const r=rate(k); if (r) add(k, r*dt); }
   // unlocks
-  for (let i=1;i<TIERS.length;i++){ const u=TIERS[i].unlock; if (U.tier<i && U.total[u[0]]>=u[1] && U.tier===i-1){ U.tier=i; U.maxTier=Math.max(U.maxTier,i); announce(i); } }
+  for (let i=1;i<TIERS.length;i++){ const u=TIERS[i].unlock; if (U.tier<i && U.total[u[0]]>=u[1] && U.tier===i-1){ U.tier=i; U.maxTier=Math.max(U.maxTier,i); if (i===TIERS.length-1 && U.kAt==null) U.kAt=U.t; announce(i); } }
   if (M.seedUps.buy){ autoT+=dt; if (autoT>1){ autoT=0; autoBuy(); } }
 }
 let autoT=0;
@@ -341,11 +362,18 @@ function renderSeeds(){
   const el=document.getElementById('p-seeds'); el.innerHTML=h;
   el.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{ const s=SEEDUPS.find(x=>x.k===b.dataset.s); const l=M.seedUps[s.k]||0; const c=s.cost(l); if (M.seeds<c) return; M.seeds-=c; M.seedUps[s.k]=l+1; persist(); renderSeeds(); renderRes(); });
 }
+let ending=false;
 async function endUniverse(){
-  const seeds=seedsForRun();
-  const newly = CODEX.filter(c=>!M.codex[c.id] && c.test());
+  if (ending || U.tier<3) return; ending=true;
+  try { await endUniverseInner(); } finally { ending=false; }
+}
+async function endUniverseInner(){
+  let seeds=seedsForRun();
+  let newly = CODEX.filter(c=>!M.codex[c.id] && c.test());
   const ok = await RH.modal(`<h2>End this universe?</h2><p>The stars burn out, black holes evaporate, and everything drifts into cold, even darkness.</p><p>You'll get <b>${seeds} seeds</b>.${newly.length? ` This universe will be recorded in the codex as: <b>${newly.map(c=>c.n).join(', ')}</b>.` : ' No new codex entries.'}</p>`,[{label:'Keep going',value:0},{label:'Let it end',value:1}]);
   if (!ok) return;
+  // the universe kept running while the dialog was open: pay out whatever it reached by now
+  seeds=Math.max(seeds, seedsForRun()); newly = CODEX.filter(c=>!M.codex[c.id] && c.test());
   M.rebirths++; M.seeds+=seeds; M.totalSeeds+=seeds;
   for (const c of newly) M.codex[c.id]=M.rebirths;
   U = newRun(M); persist();
@@ -365,9 +393,14 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 // offline progress (capped at 8 hours)
-if (U.saved){ const off=Math.min(8*3600,(Date.now()-U.saved)/1000); if (off>30){ const before=U.r[KEYS[U.tier]]; for (let i=0;i<60;i++) update(off/60); RH.toast(`While you were away, ${Math.round(off/60)} minutes passed in this universe.`); } }
+function catchUp(){ if (!U.saved) return; const off=Math.min(8*3600,Math.max(0,(Date.now()-U.saved)/1000)); if (off>30){ for (let i=0;i<60;i++) update(off/60); U.saved=Date.now(); RH.toast(`While you were away, ${Math.round(off/60)} minutes passed in this universe.`); renderAll(); } }
+catchUp();
+// a hidden tab gets no animation frames: save on hide, and credit the time away on return
+document.addEventListener('visibilitychange', ()=>{ if (document.hidden) persist(); else { catchUp(); last=performance.now(); } });
 resize(); window.addEventListener('resize', resize); renderAll(); requestAnimationFrame(frame);
 window.addEventListener('beforeunload', persist);
+window.__us={ TIERS, CONSTS, CODEX, SEEDUPS, KEYS, gate, tierMult, genCost, costRes, rate, upCost, update, buy, buyUp, autoBuy, add, seedsForRun, endUniverse, newRun, reward, catchUp, persist, renderAll, cleanMeta, cleanRun,
+  get U(){ return U; }, set U(v){ U=v; }, get M(){ return M; }, get targets(){ return targets; }, spawn };
 if (!M.intro){ M.intro=1; persist(); RH.modal(`<h2>🌌 Universe Seed</h2><p>You are a universe a fraction of a second old. Grow it through eleven eras, from raw energy to civilizations that harness their stars.</p><p>Then end it, and start another with <b>different laws of physics</b>. Weaken gravity, remove dark energy, add a dimension. Some universes never form a star. Some are full of black holes. A few might be stranger than ours.</p><p>The codex has 40 kinds of universe to find.</p>`,[{label:'Bang'}]); }
 </script>
 </body>

@@ -137,7 +137,7 @@ module.exports = {
     'reference circuits also agree with the independent reference on extra random vectors': async ({ page, eq }) => {
       await solveAll(page); await dismissModals(page);
       const bad = await page.evaluate(({ SOL, BUILD_SRC, REF_SRC }) => {
-        const N = __nand, build = eval(BUILD_SRC), REF = eval(REF_SRC), bad = []; let seed = 7; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+        const N = __nand, build = eval(BUILD_SRC), REF = eval(REF_SRC), bad = []; let seed = 7; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) % n; };
         for (let i = 0; i < N.L.length; i++) { const l = N.L[i]; if (l.seq) continue; N.showCircuit(i); N.circ = build(SOL[l.id]); N.reset();
           for (let k = 0; k < 200; k++) { const inp = l.ins.map(p => rnd(p[1] === 1 ? 2 : 256)); N.setInputs(inp); N.settle(); const g = N.outputs(), e = REF[l.id](inp, {}); if (g.join() !== e.join()) { bad.push(l.id + ' ' + inp); break; } } }
         return bad;

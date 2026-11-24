@@ -80,6 +80,7 @@
     #notes.open{display:block}
     body.insp #notes.open{display:block}
     #notesBtn{display:inline-block}
+    #tray .lbl{display:none} /* icons only on phones, so Notes and Sim view still fit */
     #tray{left:6px;right:6px;bottom:6px;transform:none;max-width:none;padding:6px;gap:5px}
     #acts{left:6px;right:6px;bottom:58px;transform:none;max-width:none;padding:6px;gap:4px;max-height:30vh;overflow:auto}
     .b{font-size:12px;padding:8px 10px}
@@ -631,6 +632,7 @@ function externalSigns(w, h) {
   if (!h.alive) return [`${h.name} is silent. ${h.cause ? 'Dead — ' + h.cause + '.' : ''}`];
   const l = loadOf(h), s = storesKg(h);
   if (h.cong > .86) out.push(`${h.name}: bees hang in a beard from the entrance of an evening.`);
+  else if (h.cong > .66 && h.q.st === 'laying' && seasonal(LAY_T, w.day) > .5) out.push(`${h.name}: bees cover every frame; the box is filling up.`); // early warning: time to give room
   if (h.imp > .42 && h.q.st === 'laying') out.push(`${h.name}: an idle, expectant air; foragers loaf at the entrance.`);
   if (h.q.st === 'none' || h.q.st === 'lw') out.push(`${h.name}: a restless roar when the lid is lifted.`);
   if (l > 8) out.push(`${h.name}: many crawling bees with crumpled wings at the entrance.`);
@@ -648,7 +650,10 @@ const cv = $('cv'), cvb = $('cvb'), mctx = cv.getContext('2d'), bctx = cvb.getCo
 let ctx = mctx, SHK = [0, 0];
 const TAU = Math.PI * 2, SQ3 = Math.sqrt(3);
 let dpr = 1, VW = 0, VH = 0, T = 0;
-const SAVE = RH.load('swarm', { done: {}, cur: 0 });
+const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+const SAVE = (v => isObj(v) ? v : {})(RH.load('swarm', {})); // a hand-edited or foreign save must not crash the page
+SAVE.done = isObj(SAVE.done) ? SAVE.done : {}; for (const k in SAVE.done) if (!(SAVE.done[k] >= 1)) delete SAVE.done[k];
+SAVE.cur = Number.isInteger(SAVE.cur) && SAVE.cur >= 0 ? SAVE.cur : 0;
 let SCI = 0, SC = null, W = null, view = 'apiary', curHive = 0, result = null, simOn = false;
 let insp = null, ff = null, endAnim = null;
 
@@ -1502,7 +1507,7 @@ function unpackWorld(o) {
 }
 function autosave() { try { localStorage.setItem('rh:swarm-run', JSON.stringify({ v: 2, sc: SC.id, w: packWorld(W) }, saveNum)); } catch (e) {} }
 function resume() {
-  try { const o = JSON.parse(localStorage.getItem('rh:swarm-run') || 'null'); if (!o) return false; const i = SCEN.findIndex(s => s.id === o.sc); if (i < 0) return false;
+  try { const o = JSON.parse(localStorage.getItem('rh:swarm-run') || 'null'); if (!o) return false; const i = SCEN.findIndex(s => s.id === o.sc); if (i < 0 || i > unlockedUpTo() || !o.w || !Array.isArray(o.w.hives) || !o.w.hives.length) return false;
     const ws = o.v === 2 ? unpackWorld(o.w) : { ...o.w, swarmEvents: [] }; // v1 (plain JSON) saves migrate on load, re-saved compact below
     startScenario.resuming = 1; startScenario(i); startScenario.resuming = 0; Object.assign(W, ws); W.sc = SCEN[i]; W.onEvent = onModelEvent; W.swarmEvents = []; if (SC.tutorial) W.tut = W.tut || { found: {}, wrong: 0, driven: 0 }; notes.push({ html: `<i>Resumed at week ${W.week}.</i>` }); renderUI();
     if (o.v !== 2) autosave(); return true; } catch (e) { return false; }
@@ -1531,12 +1536,13 @@ function renderUI() {
   // tray
   const tr = $('tray'); let html = '';
   if (view === 'inspect') {
-    html += `<button class="b ghost ${insp && insp.hint ? 'pulse' : ''}" id="tSmoke" title="Smoke (S)">💨 Smoke</button><button class="b ghost" id="tPrev" title="Previous frame (←)">◂</button><button class="b ghost" id="tFlip" title="Turn frame over (F)">⟲ Turn</button><button class="b ghost" id="tNext" title="Next frame (→)">▸</button><button class="b" id="tClose">Close up</button>`;
+    html += `<button class="b ghost ${insp && insp.hint ? 'pulse' : ''}" id="tSmoke" title="Smoke (S)">💨<span class="lbl"> Smoke</span></button><button class="b ghost" id="tPrev" title="Previous frame (←)">◂</button><button class="b ghost" id="tFlip" title="Turn frame over (F)">⟲<span class="lbl"> Turn</span></button><button class="b ghost" id="tNext" title="Next frame (→)">▸</button><button class="b" id="tClose">Close up</button>`;
   } else if (view === 'apiary') {
     const al = W.hives.map((h, i) => [h, i]).filter(x => x[0].alive);
-    html += al.length <= 4 ? al.map(([h, i]) => `<button class="b ghost" data-open="${i}">Open ${h.name}</button>`).join('') : `<span class="fell" style="font-size:14px;padding:0 6px">Tap a hive to open it</span>`;
+    html += al.length <= (isMobile() ? 1 : 4) ? al.map(([h, i]) => `<button class="b ghost" data-open="${i}"><span class="lbl">Open </span>${h.name}</button>`).join('') : isMobile() ? '' : `<span class="fell" style="font-size:14px;padding:0 6px">Tap a hive to open it</span>`;
     html += `<button class="b ${W.actsLeft === 0 ? 'pulse' : ''}" id="tWeek" ${ff ? 'disabled' : ''}>Next week ▸</button>`;
-    if (SC.long || SC.weeks >= 20) html += `<button class="b ghost" id="tSkip" ${ff ? 'disabled' : ''} title="Four weeks at once">▸▸ 4 weeks</button><button class="b ghost" id="tUntil" ${ff ? 'disabled' : ''} title="Run on (up to 26 weeks) until the notes or the colonies show something new">▸▸ Until something happens</button>`;
+    // every multi-week scenario gets the fast-forwards: quiet weeks are waiting, not decisions (a warning stops the run)
+    if (!SC.tutorial) html += (SC.long || SC.weeks >= 20 ? `<button class="b ghost" id="tSkip" ${ff ? 'disabled' : ''} title="Four weeks at once">▸▸<span class="lbl"> 4 weeks</span></button>` : '') + `<button class="b ghost" id="tUntil" ${ff ? 'disabled' : ''} title="Run on (up to 26 weeks) until the notes or the colonies show something new">⏭<span class="lbl"> Until something happens</span></button>`;
   } else html += `<button class="b ghost" id="tRetry">Try again</button>` + (simOn ? '' : '');
   html += `<button class="b ghost ${simOn ? 'on' : ''}" id="tSim" title="Model curves (V)">Sim view</button><button class="b ghost" id="notesBtn">Notes</button>`;
   tr.innerHTML = html;

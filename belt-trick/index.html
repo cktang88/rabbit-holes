@@ -583,7 +583,7 @@ function loadLevel(i, opt = {}) {
   if (L.start && L.moves && !L.par && L.setup !== 'pair' && L.setup !== 'chain') L.par = bfsPar(seqQ(L.start), gensOf(L));
   $('lvname').textContent = `Level ${i + 1} · ${L.n}`; $('story').innerHTML = L.story; renderGoal(); renderLevels(); renderCtrl(); renderBets(); $('meter').style.display = 'none'; placeCamera(cam);
   $('lamp').style.display = L.setup === 'mech' ? 'none' : ''; $('lens').style.display = (L.setup === 'mech' || L.setup === 'waiter') ? 'none' : '';
-  if (bet) setTimeout(() => nextBet(), 600);
+  if (bet) setTimeout(sameLevel(nextBet), 600);
   wake(800);
 }
 function gensOf(L) { const g = []; for (const a of L.moves.ax) for (const d of L.moves.ang) g.push(a + (d > 0 ? '+' : '') + d); return g; }
@@ -647,11 +647,13 @@ function onRelaxEnd() {
   const stuck = RIB.some(r => !r.flat() && r.dmin() > Math.PI - .05);
   if (bet && bet.phase === 'relax') {
     const flat = RIB.every(r => r.flat()); bet.tries++; const ok = bet.guess === flat;
-    if (ok) { bet.right++; FX.sfx('coin'); burstAll('#7fe8b0', 40); } else { bet.right = 0; FX.sfx('fail'); FX.shake(.3); } // a streak: guessing at random rarely gets three in a row
-    toast(ok ? 'Called it' : 'Nope', `${bet.seq.join(' · ')} → ${flat ? 'relaxes flat (+1)' : 'stays stuck (−1)'}`, 2600);
+    if (ok) { bet.right++; bet.miss = 0; FX.sfx('coin'); burstAll('#7fe8b0', 40); } else { bet.right = 0; bet.miss = (bet.miss || 0) + 1; FX.sfx('fail'); FX.shake(.3); } // a streak: guessing at random rarely gets three in a row
+    // two misses in a row: teach the rule instead of letting the player keep guessing
+    const tip = !ok && bet.miss >= 2 ? '<br><b>Rule:</b> every 360° flips the hidden sign (so does X180·X180). Count the flips: even → flat, odd → stuck. Half-turns about two different axes multiply like i·j = k.' : '';
+    toast(ok ? `Called it · streak ${bet.right}/3` : 'Nope · streak reset', `${bet.seq.join(' · ')} → ${flat ? 'relaxes flat (+1)' : 'stays stuck (−1)'}${tip}`, tip ? 5200 : 2600);
     bet.phase = 'done'; renderBets(); renderGoal();
     if (bet.right >= 3) setTimeout(sameLevel(() => winLevel(['Prophet', `Three in a row (${bet.tries} bets in all). Every full turn flips the sign; half-turns multiply like i, j, k. The cube never shows it. The ribbon always does.`])), 900);
-    else setTimeout(nextBet, 2400); return;
+    else setTimeout(sameLevel(nextBet), tip ? 4200 : 2400); return;
   }
   if (stuck && OBJ.every(o => rotAngle(o.q) < .14)) { glitchT = 1.2; FX.sfx('fail'); FX.shake(.35); FX.hitstop(90); }
   check('relax');

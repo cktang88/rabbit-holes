@@ -72,6 +72,14 @@ module.exports = {
       const s = await page.evaluate(() => __lock.state());
       eq(s.state, 'won', 'state'); eq(s.delivered, 1); ok(s.wpb > .8 && s.wpb < 1.2, 'one lockful ' + s.wpb);
     },
+    'dead time between boats runs fast, but never through weather or with a boat on the water': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const L = __lock; L.load(1); L.keeper(true, 'ALT'); const busy = L.quiet(); let s; for (let k = 0; k < 200; k++) { s = L.tick(1); if (s.delivered >= 2 && !s.boats.length) break; } return { busy, quiet: L.quiet(), T: s.T }; });
+      eq(r.busy, false, 'warping at the start with boats arriving'); eq(r.quiet, true, 'gap before boat 3 not detected');
+      const T0 = await page.evaluate(() => __lock.state().T); await page.waitForTimeout(1000); const T1 = await page.evaluate(() => __lock.state().T);
+      ok(T1 - T0 > 3, 'idle gap ran at only ' + (T1 - T0) + ' s per real second');
+      // storm level: the storm event is pending, so no skipping ahead into it
+      eq(await page.evaluate(() => { const L = __lock; L.load(14); L.schedule([{ t: 400, d: 1 }]); L.tick(1); return L.quiet(); }), false);
+    },
     'policy labels cycle on tap and the keeper button toggles': async ({ page, eq }) => {
       await page.evaluate(() => __lock.load(5));
       const p = await page.evaluate(() => __lock.unitPos(0)); const seen = [];

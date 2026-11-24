@@ -290,7 +290,7 @@ function load(i, opts = {}) {
   LI = i; SAVE.cur = i; persist(); L = LV[i];
   const extra = opts.extra ?? null;
   L.Aover = opts.A || 0; build(L, extra);
-  boats = []; T = 0; nextBoat = 0; bid = 0; delivered = 0; spoiled = 0; receipts = []; floats = []; evI = 0;
+  boats = []; T = 0; nextBoat = 0; quiet.shown = 0; bid = 0; delivered = 0; spoiled = 0; receipts = []; floats = []; evI = 0;
   ledger = { fed: 0, river: 0, flood: 0, drawn: 0, draw: 0, pumped: 0, spill: 0, energy: 0 };
   feedMul = 1; rain = 0; rainT = 0; storm = 0; stormT = 0; ice = 1; iceT = 0; outflowEMA = 0; state = 'play';
   sched = (opts.sched || L.boats).map(o => ({ ...o })).sort((a, b) => a.t - b.t);
@@ -1368,7 +1368,8 @@ function loop(now) {
   raf = requestAnimationFrame(loop);
   const rdt = Math.min(.05, (now - last) / 1000); last = now;
   if (!FX.frozen()) {
-    acc += rdt * speed;
+    const warp = quiet(); if (warp && !quiet.shown) { quiet.shown = 1; banner('⏩', 'Quiet canal: skipping ahead to the next boat', 1400); }
+    acc += rdt * speed * (warp ? 6 : 1);
     const t0 = performance.now();
     let n = 0; while (acc >= DT && n < 40) { step(DT); acc -= DT; n++; }
     if (n >= 40) acc = 0;
@@ -1380,6 +1381,13 @@ function loop(now) {
   draw(now);
   PERF.draw += performance.now() - t1; PERF.frames++;
   if ((hudT += rdt) > .15) { hudT = 0; hud(); renderQueueThrottled(); }
+}
+// dead time (no boat on the water, nothing draining, no weather or leak coming before the next boat) runs at 6x
+function quiet() {
+  if (state !== 'play' || !speed || ops.length || storm > 0 || rain > 0 || boats.some(b => b.state !== 'done')) return false;
+  const nt = nextBoat < sched.length ? sched[nextBoat].t : Infinity; if (!(nt - T > 2)) return false;
+  const ev = (L.events || [])[evI]; if (ev && ev.t < nt) return false;
+  return !G.some(g => g && (g.leak > 0 || (g.want ? g.o < 1 : g.o > 0))); // no leak, no gate in motion
 }
 let qT = 0; function renderQueueThrottled() { if ((qT += 1) % 4 === 0) renderQueue(); }
 document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; } else if (!raf) { last = performance.now(); raf = requestAnimationFrame(loop); } });
@@ -1406,6 +1414,7 @@ window.__lock = {
   view: () => ({ ...cam, W, H, dpr }),
   bench: (n = 200, flush) => { const t0 = performance.now(); for (let i = 0; i < n; i++) { draw(performance.now()); if (flush) g.getImageData(0, 0, 1, 1); } const t1 = performance.now(); for (let i = 0; i < n; i++) step(DT); return { draw: (t1 - t0) / n, step: (performance.now() - t1) / n }; },
   perf: reset => { const r = { ...PERF }; if (reset) { PERF.step = PERF.draw = PERF.frames = PERF.steps = 0; } return r; },
+  quiet: () => quiet(),
   hint: () => { const h0 = hintOn; hintOn = true; const h = hintTarget0(); hintOn = h0; return h; },
   scr: (x, z) => [sx(x) / dpr, sy(z) / dpr],
   unitPos: ui => { const p = unitLabelPos(U[ui]); return [sx(p.x) / dpr, sy(p.z) / dpr]; },

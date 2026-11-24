@@ -149,25 +149,27 @@ const LV = [
     goal: 'Place your bet, then release the ducks. The first duck ashore settles the bet.' },
   { n: 'Message in a Bottle', years: 3, focus: [40, -50], target: 'uk', westOf: -60,
     story: 'A sailor on the coast of <b>Florida or the Carolinas</b> wants to send a bottle to <b>Britain</b>. The Atlantic is wide, but a river runs through it, and the wind is on your side.',
-    goal: 'Drop ducks off the American coast (west of 60°W) so that <b>at least 15</b> of 100 reach Britain & Ireland within 3 years.', win: S => S.regions.uk >= 15 },
-  { n: 'Garbage Patch', years: 6, focus: [25, -175], patch: 1, need: 30,
+    goal: 'Drop ducks off the American coast (west of 60°W) so that <b>at least 15</b> of 100 reach Britain & Ireland within 3 years.', win: S => S.regions.uk >= 15, score: S => [S.regions.uk, 15, 'reached Britain & Ireland'] },
+  { n: 'Garbage Patch', years: 6, focus: [25, -175], patch: 1, need: 30, outsidePatch: 1,
     story: 'Some ducks never reach shore. The currents circle round each ocean basin and collect drifting things in the middle. That\'s why there\'s a <b>Great Pacific Garbage Patch</b>.',
-    goal: 'Get <b>30 ducks</b> trapped, still floating, in the gyre\'s garbage patch (the dashed ring) after 6 years.', win: S => S.t >= 6 && S.patch >= 30 },
+    goal: 'Drop ducks <b>outside</b> the dashed ring and let the currents herd them in: get <b>30</b> trapped, still floating, in the garbage patch after 6 years.', win: S => S.t >= 6 && S.patch >= 30, score: S => [S.patch, 30, 'ended up in the patch'] },
   { n: 'Why the West?', years: 1, focus: [35, -60], physics: 1, measure: 1,
     story: 'Every ocean\'s fastest current hugs its <b>western</b> side (the Gulf Stream, the Kuroshio, the Brazil Current). Is that Earth\'s spin? Do the experiment: measure the current with the spin on, then <b>stop the Earth</b> and measure again.',
     goal: 'Drop ducks just off the US East Coast with Earth\'s spin <b>normal</b>, then again with it <b>off</b>. The tally records the fastest current your ducks ride in the western Atlantic.', win: S => S.meas[1] > 0 && S.meas[0] > 0 && S.meas[1] >= 1.25 * S.meas[0] },
-  { n: 'Backwards Planet', years: 3, focus: [35, -35], physics: 1,
+  { n: 'Backwards Planet', years: 3, focus: [35, -35], physics: 1, dropBox: [0, 50, -100, -45],
     story: 'What if Earth spun the other way? The sun would rise in the west, and the western boundary currents would move to the <b>eastern</b> sides of the oceans.',
-    goal: 'Reverse the rotation. Land <b>10 ducks in Europe</b> (Britain counts) from a drop in the western Atlantic.', win: S => S.rot === -1 && S.regions.europe + S.regions.uk >= 10 },
+    goal: 'Reverse the rotation. Land <b>30 ducks in Europe</b> (Britain counts) from a drop in the western Atlantic (west of 45°W).', win: S => S.rot === -1 && S.regions.europe + S.regions.uk >= 30, score: S => [S.regions.europe + S.regions.uk, 30, 'reached Europe'] },
   { n: 'Round the World', years: 8, focus: [-45, -70], physics: 0,
     story: 'Around Antarctica nothing blocks the water, so the <b>Antarctic Circumpolar Current</b>, the largest current on Earth, circles the planet forever.',
-    goal: 'Get a duck to travel <b>all the way around</b> the world (360° of longitude) within 8 years.', win: S => S.maxLap >= 360 },
+    goal: 'Get a duck to travel <b>all the way around</b> the world (360° of longitude) within 8 years.', win: S => S.maxLap >= 360, score: S => [Math.round(S.maxLap), 360, 'degrees: the furthest any duck went round'] },
   { n: 'Open Ocean', years: Infinity, free: 1, physics: 1,
     story: 'A sandbox. Drop ducks anywhere, change the planet, and watch for decades.', goal: 'No goal. Have fun.', win: () => false },
 ];
 
 // ================= state =================
-const SAVE = RH.load('floatees', { done: {}, cur: 0 });
+const obj = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+const SAVE = obj(RH.load('floatees', { done: {}, cur: 0 })); SAVE.done = obj(SAVE.done); // tolerate corrupted / hand-edited saves
+for (const k in SAVE.done) if (!(Number.isInteger(+k) && +k >= 0 && +k < LV.length - 1)) delete SAVE.done[k];
 const persist = () => { RH.save('floatees', SAVE); RH.progress('floatees', Object.keys(SAVE.done).length / (LV.length - 1)); };
 let L, ducks = [], simT = 0, running = false, speed = 1, rot = 1, bet = null, won = false, resolved = false, follow = false, meas = {}, pending = null;
 
@@ -307,7 +309,7 @@ function drop(lat, lon, n = 100) {
   }
   for (let i = 0; i < n && ducks.length < MAXD; i++) ducks.push({ lat: lat + (Math.random() - .5) * 1.5, lon: lon + (Math.random() - .5) * 1.5, beached: null, lap: 0, bt: 0 });
   won = false; resolved = false; // every drop is a fresh attempt
-  running = true; duckDirty = true; FX.sfx('pop'); FX.sfx('whoosh'); renderCtrl();
+  running = true; duckDirty = true; FX.sfx('pop'); FX.sfx('whoosh'); renderCtrl(); if (L.bet) renderBets();
 }
 function moveDucks(dtYears) {
   if (!CU) return;
@@ -350,6 +352,8 @@ function dropAt(lat, lon) {
   if (L.drop) { toast('This one is history', 'The 1992 spill happened where it happened. Use the button.', 2000); return false; }
   if (isLand(lat, lon)) { FX.sfx('fail'); toast('That\'s land', 'Ducks need water.', 1500); return false; }
   if (L.westOf != null && (lon > L.westOf || lon < -100)) { FX.sfx('fail'); toast('Too far out', 'The sailor is on the American coast: drop west of 60°W.', 2200); return false; }
+  if (L.dropBox && !(lat >= L.dropBox[0] && lat <= L.dropBox[1] && lon >= L.dropBox[2] && lon <= L.dropBox[3])) { FX.sfx('fail'); toast('Not in the western Atlantic', 'Drop between the Americas and 45°W: dropping next to Europe proves nothing.', 2400); return false; }
+  if (L.outsidePatch && patchDist(lat, lon) < 14) { FX.sfx('fail'); toast('Inside the patch already', 'Drop them outside the ring and let the gyre do the herding.', 2200); return false; }
   if (!CU) { toast('Still charting the oceans…', '', 1200); return false; }
   if (!L.free && ducks.length) { ducks = []; simT = 0; }
   drop(lat, lon, 100); if (!L.free) simT = 0;
@@ -358,8 +362,10 @@ function dropAt(lat, lon) {
 canvas.addEventListener('pointermove', e => { const ll = latLonAt(e), tip = $('tip'); if (!ll) { tip.style.display = 'none'; return; } tip.style.display = 'block'; tip.style.left = e.clientX + 14 + 'px'; tip.style.top = e.clientY + 10 + 'px'; tip.textContent = `${Math.abs(ll[0]).toFixed(1)}°${ll[0] >= 0 ? 'N' : 'S'} ${Math.abs(ll[1]).toFixed(1)}°${ll[1] >= 0 ? 'E' : 'W'}${isLand(...ll) ? ' · land' : ''}`; });
 
 // ================= UI =================
-const maxOpen = () => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; };
+function maxOpen() { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; }
 function load(i) {
+  if (!(Number.isInteger(i) && i >= 0 && i < LV.length && (i <= maxOpen() || SAVE.done[i] || LV[i].free))) i = maxOpen(); // locked or nonsense: furthest open voyage
+  speed = LV[i].years > 2 ? 4 : 1; // long voyages start fast-forwarded: nobody wants to watch six years at 1×
   SAVE.cur = i; persist(); L = LV[i]; ducks = []; simT = 0; running = false; won = false; resolved = false; bet = null; meas = {};
   if (!L.physics && rot !== 1) setSpin(1, true);
   patchRing.visible = !!L.patch; $('story').innerHTML = L.story; renderBets(); renderGoal(); renderLevels(); renderCtrl();
@@ -373,9 +379,11 @@ function setSpin(r, quiet) {
   if (!quiet && OCEAN[r]) toast(r === 1 ? 'Normal spin' : r === 0 ? 'Earth stops spinning' : 'Earth spins backwards', r === 1 ? 'Back to the real Earth.' : 'Every ocean re-solved. Look at the currents now.', 1500);
   renderCtrl();
 }
+const betLocked = () => !!(L.bet && ducks.length && !won && !resolved);
 function renderBets() {
-  $('bets').innerHTML = L.bet ? L.bet.map(k => `<button class="b ${bet === k ? 'on' : ''}" data-k="${k}">${REG[k].n}</button>`).join('') : '';
-  $('bets').querySelectorAll('[data-k]').forEach(b => b.onclick = () => { bet = b.dataset.k; FX.sfx('click'); renderBets(); renderCtrl(); });
+  const lockd = betLocked(); // no changing the bet while the ducks are at sea
+  $('bets').innerHTML = L.bet ? L.bet.map(k => `<button class="b ${bet === k ? 'on' : ''}" data-k="${k}" ${lockd ? 'disabled' : ''} style="${lockd && bet !== k ? 'opacity:.4' : ''}">${REG[k].n}</button>`).join('') : '';
+  $('bets').querySelectorAll('[data-k]').forEach(b => b.onclick = () => { if (betLocked()) return; bet = b.dataset.k; FX.sfx('click'); renderBets(); renderCtrl(); });
 }
 function renderGoal() { const ok = SAVE.done[SAVE.cur]; $('goal').className = ok ? 'ok' : ''; $('goal').innerHTML = (ok ? '✓ ' : '🎯 ') + L.goal; $('next').style.display = ok && SAVE.cur < LV.length - 1 ? 'inline-block' : 'none'; }
 function renderLevels() {
@@ -404,12 +412,13 @@ function renderCtrl() {
 function layout() { // keep the tally clear of the control bar on narrow screens
   if (innerWidth <= 860) { const c = $('ctrl').getBoundingClientRect(); $('tally').style.bottom = (innerHeight - c.top + 8) + 'px'; } else $('tally').style.bottom = '';
 }
+function patchDist(lat, lon) { const dLat = lat - PATCH[0], dLon = ((lon - PATCH[1] + 540) % 360) - 180; return Math.hypot(dLat, dLon * Math.cos(PATCH[0] * Math.PI / 180)); }
 function stats() {
   const regions = {}; for (const k in REG) regions[k] = 0; regions.other = 0;
   let patch = 0, maxLap = 0, first = null, firstT = 1e9, afloat = 0;
   for (const d of ducks) {
     if (d.beached) { regions[d.beached]++; if (d.bt < firstT && d.beached !== 'other') { firstT = d.bt; first = d.beached; } }
-    else { afloat++; const dLat = d.lat - PATCH[0], dLon = ((d.lon - PATCH[1] + 540) % 360) - 180; if (Math.hypot(dLat, dLon * Math.cos(PATCH[0] * Math.PI / 180)) < 12) patch++; }
+    else { afloat++; if (patchDist(d.lat, d.lon) < 12) patch++; }
     maxLap = Math.max(maxLap, Math.abs(d.lap));
   }
   let top = null; for (const k in REG) if (regions[k] > 0 && (!top || regions[k] > regions[top])) top = k;
@@ -455,19 +464,24 @@ function frame(now) {
   tallyT += dt; if (tallyT > .2) { tallyT = 0; const S = stats(); renderTally(S); check(S); layout(); }
   controls.update(); renderer.render(scene, camera);
 }
-function win() { won = true; SAVE.done[SAVE.cur] = 1; persist(); FX.sfx('win'); FX.shake(.3); renderGoal(); renderLevels(); toast('✓ ' + L.n, LESSON[SAVE.cur] || '', 9000, true); }
+// after a miss: how close it was and where the ducks went instead, so the next drop is an informed guess
+function failHint(S) {
+  const [got, need, what] = L.score ? L.score(S) : [0, 0, ''], top = S.top ? REG[S.top].n : null;
+  return (L.score ? `<b>${got}</b> ${what} (need ${need}). ` : '') + (L.patch ? `${S.afloat} still afloat, ${100 - S.afloat} washed ashore. ` : top ? `Most washed up in ${top}. ` : '') + 'Try a different drop point: watch the bright streaks, they are the fast currents.';
+}
+function win() { won = true; if (L.bet) renderBets(); SAVE.done[SAVE.cur] = 1; persist(); FX.sfx('win'); FX.shake(.3); renderGoal(); renderLevels(); toast('✓ ' + L.n, LESSON[SAVE.cur] || '', 9000, true); }
 function check(S) {
   if (won || resolved || L.free || !ducks.length) return;
   if (L.bet) { // judged by the first duck ashore, as the question asks
-    if (S.first) { if (S.first === bet) win(); else { resolved = true; FX.sfx('fail'); toast('Not this time', `The first duck came ashore in <b>${REG[S.first].n}</b> after ${(S.firstT * 12).toFixed(0)} months. (In 30 runs of this model, North America came first every time.) Try again.`, 6000); } }
-    else if (simT >= L.years) { resolved = true; toast('No landfall yet', 'Two years and every duck is still at sea. Try again.', 4000); }
+    if (S.first) { if (S.first === bet) win(); else { resolved = true; renderBets(); FX.sfx('fail'); toast('Not this time', `The first duck came ashore in <b>${REG[S.first].n}</b> after ${(S.firstT * 12).toFixed(0)} months. (In 30 runs of this model, North America came first every time.) Try again.`, 6000); } }
+    else if (simT >= L.years) { resolved = true; renderBets(); toast('No landfall yet', 'Two years and every duck is still at sea. Try again.', 4000); }
     return;
   }
   if (L.win(S)) return win();
   if (simT >= L.years) {
     resolved = true; FX.sfx('fail');
     if (L.measure) toast(S.meas[1] && S.meas[0] ? 'Measure again' : 'One more run', S.meas[1] && S.meas[0] ? 'Those two are close. Drop right against the US coast, between 30° and 40°N, for both runs.' : `Now switch Earth's spin to <b>${S.meas[1] ? 'off' : 'normal'}</b> and drop ducks in the same place.`, 5000);
-    else toast('Not this time', 'Try a different drop point.', 4000);
+    else toast('Not this time', failHint(S), 6000);
   }
 }
 const LESSON = [
@@ -478,10 +492,10 @@ const LESSON = [
   'On a backwards Earth the Gulf Stream would run up the coast of Africa and Europe. Western intensification follows the direction of the spin.',
   'The Antarctic Circumpolar Current carries about 100 times the flow of all the world\'s rivers combined.',
 ];
-load(Math.min(SAVE.cur || 0, LV.length - 1));
+load(+SAVE.cur || 0);
 requestAnimationFrame(frame);
 const proj = new THREE.Vector3();
-window.__fl = { LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, get ready2() { return !!CU; },
+window.__fl = { LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; },
   screenOf: (lat, lon) => { proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>

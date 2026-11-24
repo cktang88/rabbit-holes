@@ -57,6 +57,12 @@ module.exports = {
         return { s2, s0, w0, won: B.won, lamp: document.getElementById('lampt').textContent }; });
       eq(r.s2, 2); eq(r.s0, 0, 'a miss resets the streak'); eq(r.w0, false); eq(r.won, true);
     },
+    'two wrong bets in a row teach the rule instead of leaving it to guesswork': async ({ page, ok }) => {
+      const r = await page.evaluate(async () => { const B = __belt, sl = ms => new Promise(r => setTimeout(r, ms)); B.level(4); const tx = [];
+        for (let n = 0; n < 2; n++) { for (let k = 0; k < 60 && !(B.bet.seq && B.bet.phase === 'watch'); k++) await sl(50); B.flush(); B.placeBet(!(B.seqQ(B.bet.seq)[0] > 0)); B.relax(); tx.push(document.getElementById('toast').textContent); if (!n) B.nextBet(); }
+        return tx; });
+      ok(!/Rule/.test(r[0]), 'rule shown after one miss'); ok(/Rule/.test(r[1]) && /360/.test(r[1]), 'no rule after two misses: ' + r[1]);
+    },
     'regression: a delayed win from the previous level never lands on the next one': async ({ page, eq }) => {
       const r = await page.evaluate(async () => { const B = __belt, sl = ms => new Promise(r => setTimeout(r, ms)); B.level(4);
         for (let n = 0; n < 3; n++) { for (let k = 0; k < 60 && !(B.bet.seq && B.bet.phase === 'watch'); k++) await sl(50); B.flush(); B.placeBet(B.seqQ(B.bet.seq)[0] > 0); B.relax(); if (n < 2) B.nextBet(); }

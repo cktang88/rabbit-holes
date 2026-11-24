@@ -10,7 +10,7 @@
   main{flex:1;display:flex;min-height:0}
   #left{width:280px;background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:12px}
   #stage{flex:1;position:relative;min-width:0}
-  canvas{position:absolute;inset:0;width:100%;height:100%}
+  canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
   #right{width:300px;background:var(--panel);border-left:1px solid var(--line);overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
   .grp{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin:12px 0 4px}
   .lv{display:flex;justify-content:space-between;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:13px}
@@ -25,7 +25,20 @@
   .tool .k{min-width:22px;color:var(--accent)}
   .tool.lock{opacity:.4}
   #hint{position:absolute;bottom:10px;left:12px;font-size:12px;color:var(--dim)}
-  #hud{position:absolute;top:10px;left:12px;display:flex;gap:8px}
+  #hud{position:absolute;top:10px;left:12px;right:12px;display:flex;gap:8px;flex-wrap:wrap}
+  #pivots{display:none;gap:4px} #pivots.on{display:flex}
+  #score.pop{animation:pop .35s ease-out}
+  @keyframes pop{0%{transform:scale(1.35);color:#ffd36a}100%{transform:scale(1)}}
+  #nextBtn{display:none;width:100%} #nextBtn.on{display:block}
+  @media (max-width:760px){
+    body{height:auto;min-height:100vh;overflow:auto}
+    main{flex-direction:column}
+    #stage{flex:none;height:62vh;order:1}
+    #right{width:auto;order:2;border-left:0;border-top:1px solid var(--line)}
+    #left{width:auto;order:3;border-right:0;border-top:1px solid var(--line);max-height:none}
+    #hint{display:none}
+    .topbar{flex-wrap:wrap}
+  }
 </style>
 </head>
 <body>
@@ -33,10 +46,10 @@
 <main>
   <div id="left"><div id="levels"></div></div>
   <div id="stage"><canvas id="cv"></canvas>
-    <div id="hud"><button id="undo">↶ Undo</button><button id="redo">↷</button><button id="unfold">Unfold</button><button id="loadBest">Load my best</button></div>
+    <div id="hud"><button id="undo">↶ Undo</button><button id="redo">↷</button><button id="unfold">Unfold</button><button id="loadBest">Load my best</button><span id="pivots"><button data-pv="ccw" title="Rotate (Q)">⟲</button><button data-pv="cw" title="Rotate (E)">⟳</button><button data-pv="mirror" title="Mirror (W)">⇋</button></span></div>
     <div id="hint"></div></div>
   <div id="right">
-    <div><div class="dim small" id="lvName"></div><div class="row" style="align-items:baseline"><span id="score">0</span><span class="dim">contacts</span></div><div class="meter" style="margin-top:6px"><div id="meter"></div></div><div class="small" style="margin-top:4px" id="vs"></div></div>
+    <div><div class="dim small" id="lvName"></div><div class="row" style="align-items:baseline"><span id="score">0</span><span class="dim">contacts</span></div><div class="meter" style="margin-top:6px"><div id="meter"></div></div><div class="small" style="margin-top:4px" id="vs"></div><button class="primary" id="nextBtn" style="margin-top:8px">Next level →</button></div>
     <div class="small" id="story"></div>
     <div><div class="dim small" style="margin-bottom:4px">Sequence</div><div class="seq" id="seq"></div></div>
     <div><div class="dim small" style="margin-bottom:4px">Moves</div><div id="tools"></div></div>
@@ -188,10 +201,10 @@ function draw(){
   if (burst>0){ burst-=0.01; ctx.fillStyle=`rgba(255,211,106,${burst*0.15})`; ctx.fillRect(0,0,r.width,r.height); }
   requestAnimationFrame(draw);
 }
-cv.addEventListener('mousedown',e=>{ const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left, my=e.clientY-r.top; let best=-1, bd=cell*0.45;
+cv.addEventListener('pointerdown',e=>{ if (e.pointerType!=='mouse') e.preventDefault(); const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left, my=e.clientY-r.top; let best=-1, bd=cell*(e.pointerType==='touch'?0.7:0.45);
   pos.forEach((p,i)=>{ const [x,y]=sp(p); const d=Math.hypot(x-mx,y-my); if (d<bd){ bd=d; best=i; } });
   if (best>=0){ drag={i:best, moved:false}; sel=best; } else { sel=-1; drag={pan:true, sx:e.clientX, sy:e.clientY, ox, oy}; } });
-window.addEventListener('mousemove',e=>{ const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left, my=e.clientY-r.top;
+window.addEventListener('pointermove',e=>{ const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left, my=e.clientY-r.top;
   hover=-1; pos.forEach((p,i)=>{ const [x,y]=sp(p); if (Math.hypot(x-mx,y-my)<cell*0.45) hover=i; });
   if (!drag) return;
   if (drag.pan){ ox=drag.ox+e.clientX-drag.sx; oy=drag.oy+e.clientY-drag.sy; return; }
@@ -202,13 +215,16 @@ window.addEventListener('mousemove',e=>{ const r=cv.getBoundingClientRect(); con
   const here=Math.hypot(cur[0]-fx,cur[1]-fy);
   for (const c of cands){ if (Math.hypot(c[0]-fx,c[1]-fy)>=here) break; const P=tryMove(drag.i,c); if (P){ if (!drag.moved){ hist.push(pos); fut=[]; drag.moved=true; } pos=P; afterChangeLight(); break; } }
 });
-window.addEventListener('mouseup',()=>{ if (drag&&drag.moved) afterChange(); drag=null; });
+const endDrag=()=>{ if (drag&&drag.moved) afterChange(); drag=null; };
+window.addEventListener('pointerup',endDrag); window.addEventListener('pointercancel',endDrag);
 function afterChangeLight(){ renderRight(); }
 cv.addEventListener('wheel',e=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top; const k=Math.exp(-e.deltaY*0.0015); const nc=Math.max(8,Math.min(70,cell*k)); ox=mx-(mx-ox)*nc/cell; oy=my-(my-oy)*nc/cell; cell=nc; },{passive:false});
 window.addEventListener('keydown',e=>{ if ((e.ctrlKey||e.metaKey)&&e.key==='z'){ e.preventDefault(); undo(); } if ((e.ctrlKey||e.metaKey)&&e.key==='y'){ e.preventDefault(); redo(); }
-  const k=e.key.toLowerCase(); if (k==='q') pivot(sel,'ccw'); if (k==='e') pivot(sel,'cw'); if (k==='w') pivot(sel,'mirror'); });
+  if (document.querySelector('.modal-bg')) return; const k=e.key.toLowerCase(); if (k==='q') pivot(sel,'ccw'); if (k==='e') pivot(sel,'cw'); if (k==='w') pivot(sel,'mirror'); });
 function undo(){ if (!hist.length) return; fut.push(pos); pos=hist.pop(); afterChange(); }
 function redo(){ if (!fut.length) return; hist.push(pos); pos=fut.pop(); afterChange(); }
+document.querySelectorAll('#pivots button').forEach(b=>b.onclick=()=>{ if (sel<0) RH.toast('Tap a bead first, then rotate the shorter end of the chain around it.'); else pivot(sel,b.dataset.pv); });
+document.getElementById('nextBtn').onclick=()=>{ if (li+1<LV.length && unlocked(li+1)) open(li+1); };
 document.getElementById('undo').onclick=undo; document.getElementById('redo').onclick=redo;
 document.getElementById('unfold').onclick=()=>{ commit(seq.split('').map((_,i)=>[i,0])); center(); };
 document.getElementById('loadBest').onclick=()=>{ const b=SAVE.bestFold[li]; if (validFold(b,seq.length)){ commit(b.map(p=>p.slice())); center(); } };
@@ -222,9 +238,13 @@ function renderLevels(){ let h='', g=''; LV.forEach((L,i)=>{ if (L.grp!==g){ g=L
   h+=`<div class="lv ${i===li?'cur':''} ${u?'':'lock'}" data-i="${i}"><span>${L.name}</span><span class="s">${s?'★'.repeat(s)+'☆'.repeat(3-s):SAVE.best[i]?SAVE.best[i]:''}</span></div>`; });
   const el=document.getElementById('levels'); el.innerHTML=h; el.querySelectorAll('.lv').forEach(d=>d.onclick=()=>{ if (d.classList.contains('lock')) return; open(+d.dataset.i); });
   const tot=LV.reduce((s,_,i)=>s+stars(i),0); document.getElementById('tot').textContent=`${LV.filter((_,i)=>stars(i)>=1).length}/${LV.length} folded · ${tot}/${LV.length*3} ★`; }
+let lastShown={li:-1,c:0};
 function renderRight(){
   const L=LV[li]; const {c}=contacts(); const t=target();
-  document.getElementById('lvName').textContent=L.name; document.getElementById('score').textContent=c;
+  const sc=document.getElementById('score'); if (lastShown.li===li && c>lastShown.c){ sc.classList.remove('pop'); void sc.offsetWidth; sc.classList.add('pop'); } lastShown={li,c};
+  document.getElementById('lvName').textContent=L.name; sc.textContent=c;
+  document.getElementById('pivots').classList.toggle('on', toolOn('pivot'));
+  const nb=document.getElementById('nextBtn'); const canNext = li+1<LV.length && stars(li)>=1 && unlocked(li+1); nb.classList.toggle('on', canNext); if (canNext) nb.textContent=`Next: ${LV[li+1].name} →`;
   document.getElementById('meter').style.width= t? Math.min(100,c/t*100)+'%' : '0%';
   document.getElementById('vs').innerHTML = t? `${Math.round(c/t*100)}% of ${L.exact?'the perfect fold':L.machine?'the computer\'s best':'the best known'} (${t}) · your best ${SAVE.best[li]||0}<br><span class="dim">★ 70% · ★★ 90% · ★★★ match it</span>` : (L.machine? 'The computer is folding…' : '');
   document.getElementById('story').innerHTML=L.story||'';
@@ -237,6 +257,9 @@ function open(i){
   hist=[]; fut=[]; sel=-1; center(); renderRight(); renderLevels();
   if (L.machine && SAVE.machine[i]==null) machineFoldAsync(i, 900+seq.length*25);
 }
+window.__fold={ LV, TOOLS, contacts, valid, validFold, optimum, stars, unlocked, tryMove, pullMove, pivot, makeMachine, machineFold, open, undo, redo, commit,
+  get SAVE(){ return SAVE; }, get pos(){ return pos; }, set pos(P){ pos=P; }, get li(){ return li; }, get sel(){ return sel; }, set sel(v){ sel=v; }, get hist(){ return hist; },
+  screen(i){ const r=cv.getBoundingClientRect(); const [x,y]=sp(pos[i]); return [r.left+x, r.top+y]; }, cellPx(){ return cell; }, machineRuns };
 fit(); window.addEventListener('resize',()=>{ fit(); });
 open(Math.min(SAVE.cur||0, LV.length-1)); requestAnimationFrame(draw);
 if (!SAVE.intro){ SAVE.intro=1; persist(); RH.modal(`<h2>🧬 Fold</h2><p>A protein is a chain. Some links are oily (<b style="color:#ff8a3a">H</b>) and some like water (<b style="color:#5ab8f0">P</b>). In water the chain folds itself so the oily links crowd together in the middle, and that shape decides what the protein does.</p><p>This is the HP model, a simplified version that scientists have used for decades to test folding algorithms. The puzzle is easy to state and very hard to solve: <b>fold the chain on the grid to get as many orange–orange contacts as possible.</b></p><p>Later levels are the classic benchmark chains, and a computer that folds against you.</p>`,[{label:'Start folding'}]); }
