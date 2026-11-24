@@ -197,7 +197,8 @@ function cleanSave(s){
   if (!s || typeof s!=='object' || Array.isArray(s)) s={};
   const stars={}; if (s.stars && typeof s.stars==='object') for (const k in s.stars){ const n=+k, v=s.stars[k]; if (Number.isInteger(n) && n>=0 && n<MAPS.length && [1,2,3].includes(v)) stars[n]=v; }
   const ups=Array.isArray(s.ups)? s.ups.filter(u=>UPS.some(x=>x[0]===u)).slice(0,MAPS.length) : [];
-  return {...s, stars, ups, cur: Number.isInteger(s.cur) && s.cur>=0 && s.cur<MAPS.length ? s.cur : 0};
+  const chemSet={}; if (s.chemSet && typeof s.chemSet==='object') for (const k in s.chemSet){ const n=+k; if (Number.isInteger(n) && n>=0 && n<MAPS.length) chemSet[n]=1; }
+  return {...s, stars, ups, chem:cleanChem(s.chem), chemSet, cur: Number.isInteger(s.cur) && s.cur>=0 && s.cur<MAPS.length ? s.cur : 0};
 }
 const mapOpen=(i)=> i===0 || !!SAVE.stars[i-1] || !!SAVE.stars[i];
 const SAVE=cleanSave(RH.load('ant',null));
@@ -218,8 +219,9 @@ function build(i){
   blob(DIRT, M.dirt); blob(ROCK, M.rock);
   nests=[{x:24+rng.int(20), y:20+rng.int(H-40), team:0, hp:1}];
   if (M.layout==='bridge'){ // one big rock between nest and food: a short way round (top) and a long way round (bottom)
-    G.fill(PASS); for (let y=0;y<H;y++) for (let x=0;x<W;x++){ if (x>=40 && x<=152 && y>=26 && y<=110) G[idx(x,y)]=ROCK; if (y<2||y>H-3) G[idx(x,y)]=ROCK; }
-    nests=[{x:14, y:44, team:0, hp:1}]; bridgeLog=[]; }
+    G.fill(PASS); for (let y=0;y<H;y++) for (let x=0;x<W;x++){ if (x>=40 && x<=152 && y>=22 && y<=108) G[idx(x,y)]=ROCK; if (y<2||y>H-3) G[idx(x,y)]=ROCK; }
+    nests=[{x:14, y:36, team:0, hp:1}]; }
+  bridgeLog = M.layout==='bridge'? [] : null; patches=[];
   if (M.rival) nests.push({x:W-30-rng.int(16), y:20+rng.int(H-40), team:1, hp:220*M.rival, maxhp:220*M.rival});
   for (const n of nests) for (let y=-6;y<=6;y++) for (let x=-6;x<=6;x++){ const X=n.x+x,Y=n.y+y; if(X>=0&&Y>=0&&X<W&&Y<H) G[idx(X,Y)]=PASS; }
   // dirt walls around far food in dig maps
@@ -229,12 +231,12 @@ function build(i){
     for (let y=-r;y<=r;y++) for (let x=-r;x<=r;x++){ const X=fx+x,Y=fy+y; if(X<0||Y<0||X>=W||Y>=H) continue; if (x*x+y*y<=r*r){ G[idx(X,Y)]=PASS; food[idx(X,Y)]=amt; } }
     if (M.dirt>0.1 && k%2===0) for (let a=0;a<40;a++){ const ang=a/40*Math.PI*2; for (let rr=r+2; rr<=r+4; rr++){ const X=Math.round(fx+Math.cos(ang)*rr), Y=Math.round(fy+Math.sin(ang)*rr); if(X>=0&&Y>=0&&X<W&&Y<H && G[idx(X,Y)]===PASS && food[idx(X,Y)]===0) G[idx(X,Y)]=DIRT; } }
   }
-  if (M.layout==='bridge'){ const fx=178, fy=44; for (let y=-5;y<=5;y++) for (let x=-5;x<=5;x++) if (x*x+y*y<=25 && fx+x<W && fy+y>=0){ G[idx(fx+x,fy+y)]=PASS; food[idx(fx+x,fy+y)]=20; } }
+  if (M.layout==='bridge'){ const fx=178, fy=36; for (let y=-5;y<=5;y++) for (let x=-5;x<=5;x++) if (x*x+y*y<=25 && fx+x<W && fy+y>=0){ G[idx(fx+x,fy+y)]=PASS; food[idx(fx+x,fy+y)]=20; } }
   if (M.moving) for (let i=0;i<W*H;i++) if (food[i]>0) food[i]=Math.min(food[i],2.5);
   home=bfs(nests[0]); if (nests[1]) rivalHome=bfs(nests[1]);
   trail={h0:new Float32Array(W*H), h1:new Float32Array(W*H), f1:new Float32Array(W*H)};
   if (M.layout==='bridge'){ // yesterday's trail still runs the long way round
-    const path=[[14,44],[24,60],[30,90],[34,116],[100,116],[158,116],[166,90],[172,60],[178,44]]; for (let k=0;k<path.length-1;k++){ const [x0,y0]=path[k],[x1,y1]=path[k+1], n=Math.ceil(Math.hypot(x1-x0,y1-y0)); for (let j=0;j<=n;j++){ const x=Math.round(x0+(x1-x0)*j/n), y=Math.round(y0+(y1-y0)*j/n); for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++){ const X=x+dx,Y=y+dy; if (X>=0&&Y>=0&&X<W&&Y<H&&G[idx(X,Y)]===PASS){ scent.forage[idx(X,Y)]=Math.max(scent.forage[idx(X,Y)], 1.2+1.3*(k*40+j)/360); trail.h0[idx(X,Y)]=Math.max(trail.h0[idx(X,Y)],2.5-2*(k*40+j)/360); } } } } }
+    const path=[[14,36],[24,60],[30,90],[34,114],[100,114],[158,114],[166,90],[172,60],[178,36]]; for (let k=0;k<path.length-1;k++){ const [x0,y0]=path[k],[x1,y1]=path[k+1], n=Math.ceil(Math.hypot(x1-x0,y1-y0)); for (let j=0;j<=n;j++){ const x=Math.round(x0+(x1-x0)*j/n), y=Math.round(y0+(y1-y0)*j/n); for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++){ const X=x+dx,Y=y+dy; if (X>=0&&Y>=0&&X<W&&Y<H&&G[idx(X,Y)]===PASS){ scent.forage[idx(X,Y)]=Math.max(scent.forage[idx(X,Y)], 1.2+1.3*(k*40+j)/360); trail.h0[idx(X,Y)]=Math.max(trail.h0[idx(X,Y)],2.5-2*(k*40+j)/360); } } } } }
   if (M.chem && !SAVE.chemSet?.[i]) setChem(M.chem); else setChem(SAVE.chem||CHEM0);
   ants=[]; enemies=[]; spiders=[];
   const startN=Math.round(45*(1+0.5*has('start')));
@@ -275,7 +277,7 @@ function stepWorld(dt){
   // pheromone evaporation: your colony's trail uses the player's chemistry; home trails and the rival's are fixed
   const ch=chemNow(), rainK=rainT>0? Math.pow(has('tandem')?0.8:0.6, dt*4) : 1;
   const ev=(f,half,k)=>{ const m=Math.pow(0.5,dt/half)*k; for (let i=0;i<f.length;i++){ const v=f[i]; if (v>0.002) f[i]=v*m; else if (v) f[i]=0; } };
-  ev(trail.h0, 20*(1+0.35*has('memory')), rainK); ev(trail.h1, 20, rainK); ev(trail.f1, 15, rainK);
+  ev(trail.h0, ch.half*1.3, rainK); ev(trail.h1, 20, rainK); ev(trail.f1, 15, rainK);
   // ants
   for (const ant of ants){
     if (ant.hp<=0) continue;
@@ -317,7 +319,7 @@ function stepWorld(dt){
     // move
     const ox=ant.x; const s=spd(ant.team)*dt; const nx=ant.x+Math.cos(ant.a)*s, ny=ant.y+Math.sin(ant.a)*s;
     if (passable(nx,ny)){ ant.x=nx; ant.y=ny; } else ant.a+=Math.PI*(0.5+rng()*0.8)*(rng()<0.5?1:-1);
-    if (bridgeLog && T0 && ant.role==='worker' && (ox<96)!==(ant.x<96)){ bridgeLog.push(ant.y<H/2?1:0); if (bridgeLog.length>40) bridgeLog.shift(); }
+    if (bridgeLog && T0 && ant.role==='worker' && (ox<96)!==(ant.x<96)){ bridgeLog.push(ant.y<22?1:0); if (bridgeLog.length>40) bridgeLog.shift(); }
     // food pickup / drop
     const ci=idx(ant.x|0, ant.y|0);
     if (ant.role==='worker' && ant.carry===0 && !ant.lost && food[ci]>0){ const cap= ant.team===0? 1+has('haul') : 1; const take=Math.min(cap, food[ci]); food[ci]-=take; ant.carry=take; ant.a+=Math.PI; ant.trip=0; }
@@ -347,7 +349,7 @@ function stepWorld(dt){
   if (digDirty){ digT+=dt; if (digT>0.5){ digT=0; digDirty=false; home=bfs(nests[0]); if (nests[1]) rivalHome=bfs(nests[1]); } }
   // cold: ants slowly die if colony has no food
   if (M.cold){ coldT+=dt; if (coldT>4){ coldT=0; const ours=ants.filter(a=>a.team===0); const need=ours.length*0.02; if (stored>=need) stored-=need; else { for (let k=0;k<3&&ours[k];k++) ours[k].hp=0; } } }
-  windT-=dt; if (windT<=0){ windT=34+rng.int(18); windfall(); }
+  windT-=dt; if (windT<=0){ windT= M.moving? 22+rng.int(8) : 34+rng.int(18); windfall(); }
   for (const w of windfalls) w.t+=dt; windfalls=windfalls.filter(w=>w.t<12);
   timeLeft-=dt;
   // a nudge for newcomers who haven't painted anything yet
@@ -360,6 +362,7 @@ function stepWorld(dt){
 // turn toward the strongest of three smells ahead; returns the strongest value
 function steer(ant, f, sd, turn){ const l=sense(f,ant.x,ant.y,ant.a-0.6,sd), c=sense(f,ant.x,ant.y,ant.a,sd), r=sense(f,ant.x,ant.y,ant.a+0.6,sd); const m=Math.max(l,c,r);
   if (m<=0.02) return m; if (c>=l && c>=r) return m; ant.a += l>r? -turn : turn; return m; }
+let patches=[];
 let trail={h0:new Float32Array(W*H), h1:new Float32Array(W*H), f1:new Float32Array(W*H)}, bridgeLog=null;
 const RIVAL_CHEM={dep:1, noise:0.35};
 // the three knobs of ant chemistry: how much pheromone a forager lays, how fast it evaporates, how much ants wander off the trail
@@ -377,8 +380,12 @@ let hatchT=0, digDirty=false, digT=0, coldT=0, delivered=0, painted=0, milestone
 function windfall(){
   for (let tries=0; tries<200; tries++){ const x=8+rng.int(W-16), y=6+rng.int(H-12), i=idx(x,y), d=home[i];
     if (G[i]!==PASS || !(d>=28 && d<=95)) continue;
+    if (MAPS[mapI].moving && patches.length && Math.hypot(x-patches[patches.length-1].x, y-patches[patches.length-1].y)<60) continue; // the feast moves somewhere new
     const r=3; for (let yy=-r;yy<=r;yy++) for (let xx=-r;xx<=r;xx++){ const X=x+xx, Y=y+yy; if (X<0||Y<0||X>=W||Y>=H||xx*xx+yy*yy>r*r) continue; const j=idx(X,Y); if (G[j]===PASS) food[j]+=8; }
-    windfalls.push({x,y,t:0}); const what=['A beetle fell into the soil','A seed pod split open','A worm was caught by the frost','Crumbs from a picnic above'][rng.int(4)];
+    windfalls.push({x,y,t:0});
+    if (MAPS[mapI].moving){ patches.push({x,y}); if (patches.length>2){ const o=patches.shift(); for (let yy=-6;yy<=6;yy++) for (let xx=-6;xx<=6;xx++){ const X=o.x+xx, Y=o.y+yy; if (X>=0&&Y>=0&&X<W&&Y<H) food[idx(X,Y)]=0; } }
+      if (patches.length===1) for (let j=0;j<W*H;j++) if (food[j]>0 && Math.hypot(j%W-x,((j/W)|0)-y)>8) food[j]=0; } // the old larders rot
+    const what=['A beetle fell into the soil','A seed pod split open','A worm was caught by the frost','Crumbs from a picnic above'][rng.int(4)];
     banner(`${what}! Fresh food.`); VOICE.thud(); return {x,y}; }
   return null; }
 let fx=[]; function burstAt(x,y){ for (let k=0;k<30;k++){ const a=Math.random()*7, s=Math.random()*3; fx.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,l:1}); } }

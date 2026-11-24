@@ -34,20 +34,33 @@ module.exports = {
       eq(r.bad, []); eq(r.zero, ['D0']);
       eq([...r.one].sort(), ['D0', 'D1']);
     },
-    'grammar: clause() follows the word order, negation, tense and question markers': async ({ page, eq }) => {
+    'grammar: clause() follows word order, negation, tense, question and plural settings': async ({ page, eq }) => {
       const r = await page.evaluate(() => {
-        const { LANG, clause } = window.__fc, out = {};
-        for (const o of ['SVO', 'SOV', 'VSO']) { LANG.order = o; out[o] = clause({ s: ['S'], v: 'V', o: ['O'] }); }
+        const { LANG, clause, np } = window.__fc, out = {};
+        LANG.neg = 'before'; LANG.qPos = 'initial';
+        for (const o of ['SVO', 'SOV', 'VSO', 'VOS', 'OSV']) { LANG.order = o; out[o] = clause({ s: ['S'], v: 'V', o: ['O'] }); }
         LANG.order = 'SVO'; LANG.tenseFinal = true; out.past = clause({ s: ['S'], v: 'V', o: ['O'], neg: 1, past: 1, q: 1 });
         LANG.tenseFinal = false; out.past2 = clause({ s: ['S'], v: 'V', past: 1 });
+        LANG.neg = 'after'; out.negA = clause({ s: ['S'], v: 'V', o: ['O'], neg: 1 });
+        LANG.neg = 'final'; LANG.qPos = 'final'; out.negF = clause({ s: ['S'], v: 'V', o: ['O'], neg: 1, q: 1 });
+        LANG.numAfter = true; LANG.littleEndian = false;
+        for (const m of ['marker', 'redup', 'none']) { LANG.plural = m; out[m] = np('ARM', 2); }
         return out;
       });
-      eq(r.SVO, ['S', 'V', 'O']); eq(r.SOV, ['S', 'O', 'V']); eq(r.VSO, ['V', 'S', 'O']);
+      eq(r.SVO, ['S', 'V', 'O']); eq(r.SOV, ['S', 'O', 'V']); eq(r.VSO, ['V', 'S', 'O']); eq(r.VOS, ['V', 'O', 'S']); eq(r.OSV, ['O', 'S', 'V']);
       eq(r.past, ['Q', 'S', 'NOT', 'V', 'O', 'PAST']); eq(r.past2, ['PAST', 'S', 'V']);
+      eq(r.negA, ['S', 'V', 'NOT', 'O']); eq(r.negF, ['S', 'V', 'O', 'NOT', 'Q']);
+      eq(r.marker, ['ARM', 'PL', 'D2']); eq(r.redup, ['ARM', 'ARM', 'D2']); eq(r.none, ['ARM', 'D2']);
+    },
+    'new signals vary the grammar and the third transmission, not just the glyphs': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const f = { base: new Set(), order: new Set(), plural: new Set(), neg: new Set(), qPos: new Set(), module: new Set() };
+        for (let i = 1; i <= 60; i++) { const L = window.__fc.buildLanguage(i * 7919); for (const k in f) f[k].add(L[k]); }
+        return Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.size])); });
+      ok(r.base >= 6 && r.order === 5 && r.plural === 3 && r.neg === 3 && r.qPos === 2 && r.module === 2, JSON.stringify(r));
     },
     'many seeds: every reply can be composed from glyphs already received; no quiz questions remain': async ({ page, eq }) => {
       const bad = [];
-      for (let seed = 1; seed <= 8; seed++) {
+      for (let seed = 1; seed <= 16; seed++) {
         await withSave(page, { seed: seed * 104729, intro: 1 });
         bad.push(...await page.evaluate(() => {
           const fc = window.__fc, out = [];
@@ -101,18 +114,32 @@ module.exports = {
       await q.locator('[data-send]').click();
       ok(await page.evaluate(() => !!window.__fc.S.solved['0:0']), 'right answer after the jam');
     },
-    'acknowledged replies confirm their symbols; a decoded transmission confirms all of its symbols': async ({ page, ok, eq }) => {
+    'replies confirm the symbols they used; no English is printed for glyphs the player never annotated': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(() => { const fc = window.__fc, q = fc.CH[0].qs[0]; fc.solve('0:0');
+        return { conf: q.ans.every(w => fc.S.known[w]), gl: [...document.querySelectorAll('#feed .g[data-w] .gl')].map(e => e.textContent).filter(Boolean).length }; });
+      ok(r.conf, 'reply symbols not confirmed'); eq(r.gl, 0, 'glosses printed without notes');
+    },
+    'decoding a transmission grades pencilled guesses: right ones confirmed, wrong ones marked, blanks left alone': async ({ page, ok, eq }) => {
       await closeModals(page);
       const r = await page.evaluate(async () => {
-        const fc = window.__fc, q = fc.CH[0].qs[0]; fc.solve('0:0');
-        const after1 = q.ans.every(w => fc.S.known[w]);
-        fc.solve('0:1'); fc.solve('0:2');
-        const all = fc.CH[0].tx.flatMap(t => t.words).every(w => fc.S.known[w]);
-        await new Promise(r => setTimeout(r, 1500));
-        return { after1, all, gl: document.querySelector('#feed .tx .g[data-w="D1"] .gl').textContent, decoded: !!document.querySelector('.sheet.decoded'), cards: document.querySelectorAll('.nbRow.kn').length };
+        const fc = window.__fc, S = fc.S, L = fc.LANG;
+        S.notes.D2 = 'two'; S.notes.D1 = '7'; // one right, one wrong
+        fc.solve('0:0'); fc.solve('0:1'); fc.solve('0:2');
+        await new Promise(r => setTimeout(r, 1800));
+        const other = 'D' + (L.base - 1);
+        return { d2: !!S.known.D2, d1bad: !!(S.bad && S.bad.D1), d1known: !!S.known.D1, blank: !!S.known[other] && !fc.CH[0].qs.some(q => q.ans.includes(other)), redCard: !!document.querySelector('.nbRow.bad'), glD2: document.querySelector('#feed .tx .g[data-w="D2"] .gl').textContent };
       });
-      ok(r.after1, 'reply symbols not confirmed'); ok(r.all, 'chapter symbols not confirmed');
-      eq(r.gl, '1'); ok(r.cards > 3, 'corkboard cards not confirmed');
+      ok(r.d2, 'right guess not confirmed'); ok(r.d1bad, 'wrong guess not marked'); ok(!r.blank, 'unannotated glyph was confirmed'); ok(r.redCard); eq(r.glD2, 'two');
+    },
+    'guess checking accepts sensible wordings and rejects others': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const g = window.__fc.guessRight; return [g('HOT', 'warm'), g('COLD', 'icy'), g('PAST', 'was / past'), g('WE', 'the aliens'), g('D3', '3'), g('D3', 'three'), g('HOT', 'cold'), g('D3', '13'), g('IS', 'island'), g('PLUS', '+')]; });
+      eq(r, [true, true, true, true, true, true, false, false, true, true]);
+    },
+    'newcomer: intro says one species per signal; hot and cold planets are drawn differently': async ({ page, ok }) => {
+      const r = await page.evaluate(() => [document.querySelector('.modal')?.textContent || '', window.__fc.planetIn(1), window.__fc.planetIn(0)]);
+      ok(/All eight transmissions come from one species/.test(r[0]), 'intro');
+      ok(r[1].includes('path') && /stroke="#468"/.test(r[2]) && r[1] !== r[2], 'hot vs cold');
     },
     'locked transmissions cannot be opened; finishing one unlocks the next': async ({ page, ok }) => {
       await closeModals(page);
