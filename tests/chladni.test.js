@@ -133,7 +133,7 @@ module.exports = {
             for (let g = 0; g < 300 && !X.tune.done && X.tune.used < T.budget; g++) X.scrapeCell((rnd() * N) | 0, rnd() < .5); out.naiveN++; if (X.tune.done && X.tuneGrade(T, X.tuneErr(T)) > 1) out.naive++; }
           X.startTune(ci); out.naiveN++; // idle: never scrape
           // competent: greedy least squares, light or heavy, one scrape at a time
-          X.startTune(ci); while (!X.tune.done && X.tune.used < T.budget) { let best = [X.tuneSq(T, X.tune.h), -1, 0]; for (let c = 0; c < N; c++) for (const d of [.98, .9]) { const h = X.tune.h.slice(); h[c] *= d; const e = X.tuneSq(T, h); if (e < best[0]) best = [e, c, d]; } if (best[1] < 0) break; X.scrapeCell(best[1], best[2] > .95); }
+          X.startTune(ci); for (let g = 0; g < 60 && !X.tune.done && X.tune.used < T.budget; g++) { let best = [X.tuneSq(T, X.tune.h), -1, 0]; for (let c = 0; c < N; c++) for (const d of [.98, .9]) { if (X.tune.h[c] * d < .35) continue; const h = X.tune.h.slice(); h[c] *= d; const e = X.tuneSq(T, h); if (e < best[0]) best = [e, c, d]; } if (best[1] < 0) break; X.scrapeCell(best[1], best[2] > .95); }
           out.comp.push(X.tune.done ? X.tuneGrade(T, X.tuneErr(T)) : 0);
         }
         // matching: holding the right pitch with the bow left where it is fails on the twins

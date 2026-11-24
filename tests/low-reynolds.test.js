@@ -123,7 +123,7 @@ module.exports = {
       const r = await page.evaluate(() => { unlock(); const X = __lr; X.load(4); X.setLoop(circ(.6, .5, .4)); X.load(4); const p = X.pred, sw = X.sw(), s0 = X.St().strokes, e0 = X.St().energy;
         while (X.St().strokes - s0 < 1) X.advance(.01); return [p.dx, p.turn, p.e, sw.x * Math.cos(0) , sw.phi * 180 / Math.PI, X.St().energy - e0]; });
       near(r[0], r[3], .03, 'forward per stroke'); near(r[1], r[4], 1.5, 'turn per stroke'); near(r[2], r[5], .25, 'energy per stroke');
-      await page.click('#mapT'); ok(await page.$eval('#mapT', b => /turning/.test(b.textContent)));
+      await page.click('#mapT'); ok(await page.$eval('#mapT', b => /turning/.test(b.textContent + b.title)));
     },
     'Reset keeps the drawn loop (Lazy Swimmer used to snap back to the square)': async ({ page, eq, ok }) => {
       await setup(page);
