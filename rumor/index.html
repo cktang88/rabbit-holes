@@ -93,15 +93,33 @@
     #legend{font-size:11px;left:6px;right:6px;bottom:4px}
     #log{max-height:160px}
     .topbar{flex-wrap:wrap;row-gap:0} .topbar h1{font-size:22px} .topbar h1 small{display:none} #total{min-width:0}
+    #hud button{min-height:36px}
   }
+  #scenBtn,#scenClose{display:none}
+  /* landscape phones: the town beside a slim column; the scenario list is a drawer */
+  @media (max-height:500px) and (min-width:600px){
+    body{height:100dvh}
+    .topbar{padding:2px 12px;flex-wrap:nowrap} .topbar h1{font-size:20px} .topbar h1 small{display:none} #total{min-width:0;white-space:nowrap}
+    #left{position:fixed;z-index:60;left:0;top:0;bottom:0;width:280px;background:var(--paper);box-shadow:8px 0 24px #0005;visibility:hidden;transform:translateX(-102%);transition:transform .25s,visibility 0s .25s}
+    body.drawer #left{visibility:visible;transform:none;transition:transform .25s}
+    #scenBtn,#scenClose{display:inline-block;min-height:36px}
+    #right{width:270px;padding:8px 10px;gap:8px}
+    #goal{font-size:13px} #goal b.t{font-size:18px} #goal p{margin:3px 0}
+    #hud{top:4px;left:6px;gap:4px} #hud .pill{font-size:12px;padding:2px 6px} #hud button{padding:3px 8px;font-size:13px;min-height:36px}
+    #gazette{top:44px;font-size:12px;padding:2px 6px}
+    #legend{font-size:10px;bottom:3px;left:6px;padding:1px 4px}
+    #legend i{width:9px;height:9px;margin-left:5px}
+    .sc{min-height:32px;align-items:center}
+  }
+  @media (pointer:coarse){ button{min-height:36px} select{min-height:34px} }
 </style>
 </head>
 <body>
 <div class="topbar"><a class="home" href="../index.html">← Rabbit Holes</a><h1>The Rumor<small>· a village gazette ·</small></h1><span class="spacer"></span><span class="small" id="total"></span></div>
 <main>
-  <div id="left"><div id="scen"></div></div>
+  <div id="left"><button id="scenClose">Close ✕</button><div id="scen"></div></div>
   <div id="stage"><canvas id="cv" aria-label="The village"></canvas>
-    <div id="hud"><span class="pill" id="dayP"></span><span class="pill" id="wP"></span><button class="primary" id="nextDay">Next day ☀</button><button id="restart">Restart</button></div>
+    <div id="hud"><span class="pill" id="dayP"></span><span class="pill" id="wP"></span><button class="primary" id="nextDay">Next day ☀</button><button id="restart">Restart</button><button id="scenBtn" aria-expanded="false" aria-controls="left">Scenarios ☰</button></div>
     <div id="gazette" aria-live="polite"></div>
     <div id="legend"><i style="background:#b3241b"></i>believes your story<i style="background:#1b1712"></i>heard another version<i style="background:#fff;border-style:dashed"></i>calls it a lie<i style="background:transparent"></i>heard nothing</div>
   </div>
@@ -360,7 +378,8 @@ function bestEar(){ const c=T.cast; let best=null, bv=-1; for (const p of T.peop
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d'); let view={s:1,ox:0,oy:0};
 function fitView(){ const r=cv.getBoundingClientRect(), dp=Math.min(2,devicePixelRatio||1); cv.width=Math.max(1,r.width*dp|0); cv.height=Math.max(1,r.height*dp|0); if(!T) return;
   let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for (const p of T.people){ x0=Math.min(x0,p.x); x1=Math.max(x1,p.x); y0=Math.min(y0,p.y); y1=Math.max(y1,p.y); }
-  view.s=Math.min((r.width-100)/(x1-x0+1),(r.height-170)/(y1-y0+1)); view.ox=r.width/2-(x0+x1)/2*view.s; view.oy=r.height/2-(y0+y1)/2*view.s+30; }
+  const small=r.height<520, mx=small? 40 : 100, top=small? 78 : 110, bot=small? 34 : 60;
+  view.s=Math.min((r.width-mx)/(x1-x0+1),(r.height-top-bot)/(y1-y0+1)); view.ox=r.width/2-(x0+x1)/2*view.s; view.oy=top+(r.height-top-bot)/2-(y0+y1)/2*view.s; }
 const sp=(p)=>[p.x*view.s+view.ox, p.y*view.s+view.oy];
 const INK='#1b1712', RED='#b3241b', PAPER='#ece4d0';
 function nodeColor(p){ if (!p.belief) return 'none'; if (p.belief.neg) return 'neg'; return goalFor(p)? 'goal' : 'other'; }
@@ -408,7 +427,8 @@ function draw(){
   flashes = flashes.filter(f=>{ f.t+=0.02; const [x1,y1]=sp(P[f.a]),[x2,y2]=sp(P[f.b]); const k=Math.min(1,f.t), x=x1+(x2-x1)*k, y=y1+(y2-y1)*k;
     ctx.save(); ctx.translate(x,y-4*Math.sin(k*Math.PI)); ctx.rotate(f.t*4); ctx.fillStyle=f.neg? '#fff' : f.ok? (f.lie? RED : '#f7f1e2') : 'rgba(247,241,226,.5)'; ctx.strokeStyle=INK; ctx.lineWidth=0.8; ctx.fillRect(-3.5,-2.5,7,5); ctx.strokeRect(-3.5,-2.5,7,5); ctx.beginPath(); ctx.moveTo(-3.5,-2.5); ctx.lineTo(0,0.5); ctx.lineTo(3.5,-2.5); ctx.stroke(); ctx.restore(); return f.t<1.3; });
   const c=T.cast;
-  for (const p of P){ const [x,y]=sp(p); const r=p.role?10:8;
+  const k=Math.max(0.55,Math.min(1,view.s/0.84));
+  for (const p of P){ const [x,y]=sp(p); const r=(p.role?10:8)*k;
     ctx.globalAlpha = p.belief? 0.55+0.45*Math.min(1,p.str*1.4) : 1;
     bust(x,y,r,nodeColor(p),p); ctx.globalAlpha=1;
     if (p.skeptic){ ctx.strokeStyle=INK; ctx.lineWidth=1.2; ctx.beginPath(); ctx.arc(x-r*0.25,y-r*0.4,r*0.22,0,7); ctx.arc(x+r*0.25,y-r*0.4,r*0.22,0,7); ctx.stroke(); }
@@ -420,8 +440,12 @@ function draw(){
   }
   requestAnimationFrame(draw);
 }
-cv.addEventListener('click', e=>{ const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left, my=e.clientY-r.top; let best=-1, bd=16;
-  for (const p of T.people){ const [x,y]=sp(p); const d=Math.hypot(x-mx,y-my); if (d<bd){ bd=d; best=p.id; } } sel=best; renderPerson(); });
+const coarse=matchMedia('(pointer:coarse)'), portraitPhone=matchMedia('(max-width:760px)'), compactMQ=matchMedia('(max-width:760px), (max-height:500px)');
+function setScen(open){ document.body.classList.toggle('drawer',open); document.getElementById('scenBtn').setAttribute('aria-expanded',String(open)); }
+document.getElementById('scenBtn').onclick=()=>setScen(!document.body.classList.contains('drawer'));
+document.getElementById('scenClose').onclick=()=>setScen(false);
+cv.addEventListener('click', e=>{ setScen(false); const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left, my=e.clientY-r.top; let best=-1, bd=coarse.matches? 26 : 16;
+  for (const p of T.people){ const [x,y]=sp(p); const d=Math.hypot(x-mx,y-my); if (d<bd){ bd=d; best=p.id; } } sel=best; renderPerson(); if (best>=0 && compactMQ.matches) (document.getElementById('cGo')||document.getElementById('person')).scrollIntoView({block:'nearest',behavior:'smooth'}); });
 
 function renderPerson(){
   const el=document.getElementById('person'); if (sel<0){ el.innerHTML='<div class="dim small">Click a person to see who they are and what they\'ve heard.</div>'; return; }
@@ -449,7 +473,7 @@ function renderPerson(){
       if (wLeft<=0 || day>sc.days) return; wLeft--; lastComposed={...v}; const ok=hear(p, v, 0.9, null); ok? VOICE.whisper() : VOICE.scoff();
       if (!firstWhisper && !v.neg) firstWhisper={...v};
       addLog(ok? `You whispered to <b>${p.name}</b>: ${rText(v)}` : `<b>${p.name}</b> didn't believe you.`);
-      if (!ok) RH.toast(`${p.name} doesn't believe you.`); renderAll(); }; }
+      if (!ok) RH.toast(`${p.name} doesn't believe you.`); renderAll(); if (portraitPhone.matches && wLeft<=0) setTimeout(()=>window.scrollTo({top:0,behavior:'smooth'}),500); else if (compactMQ.matches) document.getElementById('cGo')?.scrollIntoView({block:'nearest'}); }; }
 }
 function renderGoal(){
   const st=goalStatus(); const pct=Math.min(100,st.v);
@@ -466,7 +490,7 @@ function renderScen(){
     h+=`<div class="sc ${scKey===i?'cur':''} ${open?'':'lock'}" data-i="${i}"><span>${i+1}. ${s.n}</span><span class="ok">${SAVE.done[i]?'✓':''}</span></div>`; });
   h+=`<div class="act">Endless</div><div class="row"><input id="eSeed" placeholder="town name" maxlength="32" style="width:120px"><button id="eGo">Go</button></div><div class="small dim" style="margin-top:4px">${SAVE.endless} endless towns fooled</div>`;
   const el=document.getElementById('scen'); el.innerHTML=h;
-  el.querySelectorAll('.sc').forEach(d=>d.onclick=()=>{ if (!scenOpen(+d.dataset.i)) return; SAVE.cur=+d.dataset.i; persist(); start(+d.dataset.i); });
+  el.querySelectorAll('.sc').forEach(d=>d.onclick=()=>{ if (!scenOpen(+d.dataset.i)) return; SAVE.cur=+d.dataset.i; persist(); start(+d.dataset.i); setScen(false); });
   document.getElementById('eGo').onclick=()=>{ endlessSeedCur=document.getElementById('eSeed').value.trim().slice(0,32)||('town'+Date.now()%10000); start(0, endlessSeedCur); };
   document.getElementById('total').textContent=`${Object.keys(SAVE.done).length}/${SC.length} scenarios`;
 }

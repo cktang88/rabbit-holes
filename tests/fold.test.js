@@ -134,7 +134,7 @@ module.exports = {
       await dismiss(page); await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(300);
       const vis = () => page.evaluate(() => { const r = document.getElementById('left').getBoundingClientRect(); return r.right > 5; });
       eq(await vis(), false); await page.click('#lvBtn'); await page.waitForTimeout(350); eq(await vis(), true);
-      await page.evaluate(() => { __fold.SAVE.best[0] = 1; __fold.open(0); }); await page.click('#lvBtn'); await page.waitForTimeout(350);
+      await page.evaluate(() => { __fold.SAVE.best[0] = 1; __fold.open(0); }); eq(await vis(), true);
       await page.click('#levels .lv[data-i="1"]'); await page.waitForTimeout(350); eq(await vis(), false); eq(await page.evaluate(() => __fold.li), 1);
       const st = await page.locator('#cv').boundingBox(); ok(st.width * st.height > 0.45 * 844 * 390, 'stage ' + st.width + 'x' + st.height);
     },

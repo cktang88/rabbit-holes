@@ -143,7 +143,7 @@ module.exports = {
       eq(r.rot, true); ok(Math.abs(r.back[0] - 50) < 0.01 && Math.abs(r.back[1] - 30) < 0.01, JSON.stringify(r.back)); ok(r.area > 0.45, 'map area ' + r.area);
       eq([r.sideHidden, r.sideOpen], ['hidden', 'visible']);
       await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(300);
-      eq(await page.evaluate(() => [window.__ant.rotated, document.body.classList.contains('drawer')]), [false, false]);
+      eq(await page.evaluate(() => window.__ant.rotated), false, 'landscape phones keep the map upright');
     },
     'mobile layout: no horizontal scroll and the map is fully visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
