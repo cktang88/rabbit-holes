@@ -149,7 +149,7 @@ module.exports = {
       ok(r.comp.every(s => s === 3), 'competent: ' + r.comp); ok(r.simple.some(s => s < 3), 'greedy golf (blind to the hidden sign) still gets 3★: ' + r.simple);
     },
     'the lamp: lit while the cable is flat, dark when twisted or stuck — success is visible without reading': async ({ page, ok }) => {
-      const lv = async () => { await page.waitForTimeout(700); return page.evaluate(() => __belt.lampLevel()); };
+      const lv = async () => { await page.waitForTimeout(200); return page.evaluate(() => __belt.lampLevel()); };
       await page.evaluate(() => __belt.level(0)); const start = await lv();
       await page.evaluate(() => { ['X+90', 'X+90'].forEach(t => __belt.move(t)); }); const twisted = await lv();
       await page.evaluate(() => { ['X+90', 'X+90'].forEach(t => __belt.move(t)); __belt.swing(); }); const stuck = await lv();

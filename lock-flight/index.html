@@ -70,6 +70,10 @@
   .qb{display:flex;gap:3px;align-items:center;padding:4px 8px 2px;border-radius:1px;background:var(--paper);color:var(--ink);cursor:grab;white-space:nowrap;font-variant-numeric:tabular-nums;transition:transform .15s;font-weight:700}
   .qb.drag{background:var(--yellow);cursor:grabbing;transition:none;z-index:2}
   .qb em{width:9px;height:9px;border-radius:50%;display:inline-block;box-shadow:0 0 0 1px #0005}
+  .qb.held{background:var(--red);color:var(--cream)}
+  #queue .fcl{margin-left:8px;color:var(--cream);font-size:11px;font-family:"Josefin Sans";text-transform:uppercase;letter-spacing:.1em}
+  #queue .fc{font-style:normal;color:var(--cream);opacity:.85;padding:2px 5px;border:1px dashed rgba(243,230,196,.5);font-size:11.5px;white-space:nowrap}
+  #queue .fc.per{border-color:#9fe0a8}#queue .fc.vip{border-color:var(--yellow)}
   /* water receipts: a tear-off ticket */
   #receipts{right:14px;bottom:14px;padding:12px 16px 10px;width:236px;font-size:12px;display:none;color:var(--ink);
     background:radial-gradient(circle at 0 50%,transparent 5px,var(--paper) 5.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,transparent 5px,var(--paper) 5.5px) right/51% 100% no-repeat;box-shadow:0 8px 18px -10px #000a}
@@ -212,6 +216,13 @@ const flight = (n, dz = 1, pl = 80, pA = 3, o = {}) => { const a = []; for (let 
 const bt = (t, d, o = {}) => ({ t, d, ...o });
 const pat = (s, t0, gap) => [...s].map((c, i) => bt(t0 + i * gap, c === '+' || c === 'V' || c === 'F' ? 1 : -1, { vip: c === 'V' || c === 'v', per: c === 'F' || c === 'f' ? 240 : 0 }));
 
+// the canal company's catalogue for the last act: the same 4-rise hill, built four ways
+const BUILDS = [
+  { id: 'stair4', n: 'One four-rise staircase', cost: 3000, seq: () => [R(150), ...stair(4), S(220, 12)], note: 'Cheapest: no pounds to dig. Every chamber must be full for a boat to climb and empty to descend.' },
+  { id: 'stair22', n: 'Two two-rise staircases', cost: 5000, seq: () => [R(150), ...stair(2), P(100, 4), ...stair(2), S(220, 12)], note: 'One passing pound halfway up.' },
+  { id: 'flight4', n: 'A flight of four', cost: 8000, seq: () => [R(150), ...flight(4, 1, 80, 3), S(220, 12)], note: 'Pounds between every lock: boats can pass anywhere.' },
+  { id: 'ponds4', n: 'Flight of four with side ponds', cost: 11000, seq: () => [R(150), ...flight(4, 1, 80, 3, { ponds: 1 }), S(220, 12)], note: 'Each chamber saves a third of every emptying.' },
+];
 const LV = [
   { n: 'One Lock', story: 'A boat wants to climb. <b>Tap the bottom gate</b> to let it in, <b>tap the chamber</b> to fill it from the pound above, then <b>tap the top gate</b>. Gates only open when the water on both sides is level.',
     seq: [R(160), K(1), S(230, 8)], feed: .3, boats: [bt(1, 1)], goal: 1, time: 150, wpb: 1.05, wait: 25, hint: 1 },
@@ -252,6 +263,8 @@ const LV = [
   { n: 'Panama', story: 'Atlantic to Pacific over Gatun Lake. A drought is forecast. Endless mode: keep ships moving for as long as the lake lasts. Deliver 20 to clear.',
     seq: [R(170), ...stair(3, 1, { ponds: 3, pondsOff: 1 }), S(300, 40), ...stair(3, -1, { ponds: 3, pondsOff: 1 }), R(170)], feed: 1.3, draw: .3, boats: pat('+-+-V-+F-+', 1, 50), goal: 20, time: 0, endless: 1, wpb: 1.3, wait: 220, keeper: 'on', policy: 'BATCH', picks: 1,
     events: [{ t: 700, type: 'drought' }] },
+  { n: 'Your Own Canal', story: 'The company will pay for one canal up this hill, and you choose how to build it. Cheap staircases or a dear flight with pounds; then run it. Freight pays; every lockful from the summit costs. Under £8,000 for the third star.',
+    build: 1, seq: BUILDS[0].seq(), feed: .45, boats: [0, 160, 320].flatMap(t => [...'++-+--+-'].map((c, i) => bt(t + 1 + i * 9, c === '+' ? 1 : -1, { vip: i === 3, per: i === 6 ? 200 : 0 }))), goal: 24, time: 1500, wpb: .9, wait: 160, keeper: 'on', policy: 'ALT', budget: 8000 },
 ];
 
 // What each level is trying to teach, shown with a water chart after it ends.
@@ -310,6 +323,7 @@ SAVE.cur = Number.isInteger(SAVE.cur) && SAVE.cur >= 0 ? SAVE.cur : 0;
 const persist = () => { RH.save('lock-flight', SAVE); RH.progress('lock-flight', Object.keys(SAVE.done).length / LV.length); };
 let L, LI = 0, B = [], G = [], U = [], ops = [], boats = [], sIdx = -1, T = 0, nextBoat = 0, bid = 0;
 let ledger, state = 'play', speed = 1, keeperOn = false, feedMul = 1, rain = 0, rainT = 0, storm = 0, stormT = 0, ice = 1, iceT = 0;
+let freight = 0;
 let pump = null, res = null, plane = null, crew = null, evI = 0, delivered = 0, spoiled = 0, receipts = [], floats = [], outflowEMA = 0, lastUsable = 0, hintOn = false, pickUp = null;
 const lev = b => b.inf ? b.nom : b.floor + b.V / b.A;
 
@@ -351,8 +365,9 @@ function load(i, opts = {}) {
   document.querySelectorAll('.modal-bg').forEach(e => e.remove()); // a stale win/lose card never outlives its level
   LI = i; SAVE.cur = i; persist(); L = LV[i];
   const extra = opts.extra ?? null;
+  if (L.build) { const b = BUILDS.find(x => x.id === opts.build) || BUILDS.find(x => x.id === L.built) || BUILDS[0]; L.seq = b.seq(); L.cost = b.cost; L.built = b.id; }
   L.Aover = opts.A || 0; build(L, extra);
-  boats = []; T = 0; nextBoat = 0; quiet.shown = 0; bid = 0; delivered = 0; spoiled = 0; receipts = []; floats = []; evI = 0;
+  boats = []; T = 0; nextBoat = 0; quiet.shown = 0; freight = 0; bid = 0; delivered = 0; spoiled = 0; receipts = []; floats = []; evI = 0;
   ledger = { fed: 0, river: 0, flood: 0, drawn: 0, draw: 0, pumped: 0, spill: 0, energy: 0 };
   feedMul = 1; rain = 0; rainT = 0; storm = 0; stormT = 0; ice = 1; iceT = 0; outflowEMA = 0; state = 'play';
   sched = (opts.sched || L.boats).map(o => ({ ...o })).sort((a, b) => a.t - b.t);
@@ -576,7 +591,7 @@ function stepBoats(dt) {
         const gi = Math.min(bt.b, ni), g = G[gi];
         if (cb.kind === 'ch') { bt.tx = slotX(cb, bt); }
         else { const q = queueIdx(bt); bt.q = q; bt.tx = g.x - bt.dir * (BL / 2 + 7 + q * (BL + 5)); }
-        if (Math.abs(bt.x - bt.tx) < .6 && (cb.kind === 'ch' || bt.q === 0) && g.o >= 1 && !bt.grounded && !crossing(gi) && canEnter(bt, ni)) {
+        if (Math.abs(bt.x - bt.tx) < .6 && (cb.kind === 'ch' || bt.q === 0) && !(bt.hold && cb.kind !== 'ch') && g.o >= 1 && !bt.grounded && !crossing(gi) && canEnter(bt, ni)) {
           const fromOutside = B[ni].kind === 'ch' && cb.kind !== 'ch';
           bt.lane = B[ni].kind === 'ch' ? boats.filter(o => o !== bt && o.state === 'canal' && o.b === ni).length : 0;
           bt.b = ni; bt.cross = gi;
@@ -598,7 +613,11 @@ function stepBoats(dt) {
   }
   for (let i = boats.length - 1; i >= 0; i--) if (boats[i].state === 'done') boats.splice(i, 1);
 }
+// hold a boat at the lock (to wait for one coming the other way, or to let a perishable go first); tap again to send it
+function toggleHold(bt) { bt.hold = !bt.hold; FX.sfx(bt.hold ? 'place' : 'pop'); floatText(bt.x, bt.y + 1.2, bt.hold ? 'held at the lock' : 'sent on', bt.hold ? '#b3261e' : '#2f7fa6'); renderQueue(); }
+const VALUE = bt => bt.vip ? 3 : bt.per ? 2 : 1; // freight: a VIP packet pays most, perishables pay well if they arrive fresh
 function deliver(bt) {
+  if (!bt.spoiled) freight += VALUE(bt);
   bt.state = 'done';
   if (!bt.spoiled) delivered++; else spoiled++;
   receipts.unshift({ id: bt.id, dir: bt.dir, water: bt.water, wait: bt.wait, col: bt.col, spoiled: bt.spoiled });
@@ -611,7 +630,7 @@ function deliver(bt) {
 // ================= the lock-keeper =================
 function fronts(u, side) {
   const bi = side > 0 ? u.L : u.R, dir = side > 0 ? 1 : -1, out = [];
-  for (const b of boats) if (b.state === 'canal' && b.b === bi && b.dir === dir && b.cross < 0 && !b.grounded && Math.abs(b.x - b.tx) < 4) out.push(b);
+  for (const b of boats) if (b.state === 'canal' && b.b === bi && b.dir === dir && b.cross < 0 && !b.grounded && !b.hold && Math.abs(b.x - b.tx) < 4) out.push(b);
   out.sort((p, q) => (p.q ?? 0) - (q.q ?? 0));
   return out;
 }
@@ -687,7 +706,7 @@ function keeperStep(u) {
   }
   const dir = k.dir, chs = dir > 0 ? u.chs : u.rchs, outI = dir > 0 ? u.L : u.R, eg = Math.min(outI, chs[0]);
   if (k.phase === 'prep') {
-    if (!k.boats.every(id => { const b = boatById(id); return b && b.state === 'canal' && b.b === outI; })) { k.phase = 'idle'; k.boats = []; return; }
+    if (!k.boats.every(id => { const b = boatById(id); return b && b.state === 'canal' && b.b === outI && !b.hold; })) { k.phase = 'idle'; k.boats = []; return; }
     if (prepare(u, dir, chs, outI)) { if (G[eg].o >= 1) { k.phase = 'enter'; k.t = T; } else if (!G[eg].want) requestOpen(eg, true); }
     return;
   }
@@ -806,10 +825,11 @@ function checkEnd() {
 }
 
 // ================= win / lose =================
-function stars() { let s = 1; if (wpb() <= L.wpb + 1e-9) s++; const r = receipts.filter(x => !x.spoiled); const aw = r.length ? r.reduce((a, x) => a + x.wait, 0) / r.length : 0; if (aw <= L.wait) s++; return s; }
+function stars() { let s = 1; if (wpb() <= L.wpb + 1e-9) s++; const r = receipts.filter(x => !x.spoiled); const aw = r.length ? r.reduce((a, x) => a + x.wait, 0) / r.length : 0; if (aw <= L.wait) s++; if (L.build && L.cost > L.budget) s = Math.min(s, 2); return s; }
 function ledgerHtml() {
   const r = receipts.filter(x => !x.spoiled); const aw = r.length ? r.reduce((a, x) => a + x.wait, 0) / r.length : 0;
   return `<div class="ledger"><span>Boats delivered</span><b>${delivered}${spoiled ? ` (+${spoiled} spoiled)` : ''}</b>
+  <span>Freight earned</span><b>£${freight * 100}</b>${L.build ? `<span>Canal built for</span><b>£${(L.cost || 0).toLocaleString()}</b>` : ''}
   <span>Summit water used by locks</span><b>${ledger.draw.toFixed(2)} lockfuls</b>
   ${ledger.pumped ? `<span>Pumped back up</span><b>${ledger.pumped.toFixed(2)}</b>` : ''}
   <span>Water per boat ${L.wpb ? `(★ ≤ ${L.wpb})` : ''}</span><b>${isFinite(wpb()) ? wpb().toFixed(2) : '–'}</b>
@@ -854,6 +874,8 @@ function lose(title, msg) {
 }
 function startLevel(i) {
   const Lv = LV[i];
+  if (Lv.build) return RH.modal(`<h2 style="margin:0">The Canal Company</h2><p style="margin:6px 0 0">Four rises to climb. Choose how to build it:</p>${BUILDS.map(b => `<p style="margin:6px 0 0"><b>${b.n}</b> · £${b.cost.toLocaleString()}<br><small>${b.note}</small></p>`).join('')}`,
+    BUILDS.map(b => ({ label: `${b.n.split(' ').slice(0, 3).join(' ')} · £${b.cost / 1000}k`, value: b.id }))).then(v => load(i, { build: v || 'stair4' }));
   if (!Lv.picks) return load(i);
   const owned = ['ponds', 'pump', 'res'].filter(k => ({ ponds: SAVE.done[8], pump: SAVE.done[10], res: SAVE.done[11] })[k]);
   if (!owned.length) return load(i);
@@ -1181,6 +1203,7 @@ function drawBoat(bt, t) {
     g.strokeStyle = k < .7 ? 'rgba(42,38,34,.5)' : '#c8452f'; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(X, Y - 16 * s, 4.5 * s, -1.57, -1.57 + 6.283 * k); g.stroke();
   }
   if (bt.per && !bt.spoiled) { const k = 1 - (T - bt.born) / bt.per; g.strokeStyle = '#5fa04e'; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(X - 8 * s * bt.dir, Y - 16 * s, 4 * s, -1.57, -1.57 + 6.283 * Math.max(0, k)); g.stroke(); }
+  if (bt.hold) { g.fillStyle = '#b3261e'; g.font = fs(10); g.textAlign = 'center'; g.fillText('HOLD', X, Y - 22 * s); }
   if (bt.grounded) { g.fillStyle = '#c8452f'; g.font = fs(10); g.textAlign = 'center'; g.fillText('aground', X, Y - 14 * s); }
   // direction chevron
   g.fillStyle = 'rgba(42,38,34,.55)'; g.beginPath(); const cx = X + bt.dir * (BL / 2 + 5) * s, cy = Y - 4 * s; g.moveTo(cx, cy); g.lineTo(cx - bt.dir * 4 * s, cy - 3 * s); g.lineTo(cx - bt.dir * 4 * s, cy + 3 * s); g.fill();
@@ -1288,7 +1311,7 @@ function act(h) {
     else FX.shake(.08);
     return;
   }
-  if (h.kind === 'boat') { const min = Math.min(...boats.map(b => b.pri)); h.bt.pri = min - 1; FX.sfx('pop'); floatText(h.bt.x, h.bt.y + 1.2, 'priority', '#e0663a'); renderQueue(); return; }
+  if (h.kind === 'boat') { toggleHold(h.bt); return; }
   if (h.kind === 'pound') { h.b.fw = h.b.fw ? 0 : 1; FX.sfx(h.b.fw ? 'whoosh' : 'click'); return; }
   if (h.kind === 'res') { res.on = res.on ? 0 : 1; FX.sfx('whoosh'); renderTools(); return; }
 }
@@ -1381,7 +1404,9 @@ let qDrag = null;
 function renderQueue() {
   if (!L || !L.keeper || qDrag) return;
   const live = boats.filter(b => b.state !== 'done').sort((a, b) => a.pri - b.pri).slice(0, 9);
-  const html = `<span>Queue</span>` + (live.length ? live.map(b => `<div class="qb" data-id="${b.id}"><em style="background:${b.col}"></em>${b.dir > 0 ? '→' : '←'}${b.id}${b.vip ? '★' : ''}</div>`).join('') : '<span>empty</span>');
+  const fc = []; for (let k = nextBoat; k < sched.length && fc.length < 4; k++) { const dt = sched[k].t - T; if (dt > 180) break; fc.push(`<i class="fc${sched[k].per ? ' per' : ''}${sched[k].vip ? ' vip' : ''}">${sched[k].d > 0 ? '→' : '←'}${fmtT(dt)}</i>`); }
+  const html = `<span>Queue</span>` + (live.length ? live.map(b => `<div class="qb${b.hold ? ' held' : ''}" data-id="${b.id}"><em style="background:${b.col}"></em>${b.dir > 0 ? '→' : '←'}${b.id}${b.vip ? '★' : ''}${b.hold ? ' ⏸' : ''}</div>`).join('') : '<span>empty</span>')
+    + (fc.length ? `<span class="fcl">coming</span>${fc.join('')}` : '');
   if ($('queue').innerHTML !== html) $('queue').innerHTML = html;
 }
 $('queue').addEventListener('pointerdown', e => {
@@ -1397,7 +1422,8 @@ $('queue').addEventListener('pointerup', e => {
   if (!qDrag) return;
   const els = [...$('queue').querySelectorAll('.qb')], ids = els.map(x => +x.dataset.id);
   const r = qDrag.el.getBoundingClientRect(), cx = r.left + r.width / 2;
-  let to = qDrag.moved ? els.filter(x => x !== qDrag.el && x.getBoundingClientRect().left + x.getBoundingClientRect().width / 2 < cx).length : 0;
+  if (!qDrag.moved) { const b = boatById(qDrag.id); qDrag.el.classList.remove('drag'); qDrag = null; if (b) toggleHold(b); return; } // a tap holds or sends
+  let to = els.filter(x => x !== qDrag.el && x.getBoundingClientRect().left + x.getBoundingClientRect().width / 2 < cx).length;
   const order = ids.filter(i => i !== qDrag.id); order.splice(to, 0, qDrag.id);
   const base = Math.min(...boats.map(b => b.pri)) - order.length;
   order.forEach((id, k) => { const b = boatById(id); if (b) b.pri = base + k; });
@@ -1484,6 +1510,7 @@ window.__lock = {
   bench: (n = 200, flush) => { const t0 = performance.now(); for (let i = 0; i < n; i++) { draw(performance.now()); if (flush) g.getImageData(0, 0, 1, 1); } const t1 = performance.now(); for (let i = 0; i < n; i++) step(DT); return { draw: (t1 - t0) / n, step: (performance.now() - t1) / n }; },
   perf: reset => { const r = { ...PERF }; if (reset) { PERF.step = PERF.draw = PERF.frames = PERF.steps = 0; } return r; },
   quiet: () => quiet(),
+  hold: id => { const b = boatById(id); if (b) toggleHold(b); return !!(b && b.hold); }, get freight() { return freight; }, BUILDS,
   prio: id => { const b = boatById(id); if (!b) return false; b.pri = Math.min(...boats.map(x => x.pri)) - 1; return true; },
   hint: () => { const h0 = hintOn; hintOn = true; const h = hintTarget0(); hintOn = h0; return h; },
   scr: (x, z) => [sx(x) / dpr, sy(z) / dpr],

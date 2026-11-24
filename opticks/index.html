@@ -154,7 +154,7 @@ const rad = a => a * Math.PI / 180;
 const rot = (x, y, a) => { const c = Math.cos(a), s = Math.sin(a); return [x * c - y * s, x * s + y * c]; };
 
 // Piece geometry in world space
-const SIZE = { mirror: 3, splitter: 3, lens: 4, screen: 3 };
+const SIZE = { mirror: 3, splitter: 3, lens: 4, screen: 3, marker: 1.6 };
 function segOf(p) { const L = p.L ?? SIZE[p.t] ?? 3, [dx, dy] = rot(L / 2, 0, rad(p.a)); return [p.x - dx, p.y - dy, p.x + dx, p.y + dy]; }
 function polyOf(p) {
   let pts;
@@ -268,7 +268,7 @@ function checkTarget(tg, hits, level) {
 // Every level is authored from a working solution (sol); the tray holds the solution's pieces.
 const W = (x1, y1, x2, y2) => ({ t: 'wall', x1, y1, x2, y2 });
 const LASER = (x, y, a, l = 650) => ({ k: 'beam', x, y, a, l, n: 1 });
-const CHS = ['Reflection', 'Refraction', 'Lenses', 'Colour', 'Instruments'];
+const CHS = ['Reflection', 'Refraction', 'Lenses', 'Colour', 'Instruments', 'Foresight'];
 const L = [];
 // ---- Reflection
 L.push({ c: 0, n: 'Bounce', s: 'Light travels in straight lines until something turns it. A mirror reflects at the same angle it arrives. <i>Drag the mirror onto the bench and rotate it until the laser hits the target.</i>',
@@ -302,14 +302,10 @@ L.push({ c: 1, n: 'Bent Light', s: 'The target is out of plain sight, and the ga
 const SUN = (x, y, a, w = 3, n = 9) => ({ k: 'beam', x, y, a, l: 650, n, w });
 L.push({ c: 2, n: 'Burning Glass', s: 'A converging lens bends every parallel ray through one point, the <b>focus</b>, one focal length away. Archimedes supposedly set ships alight this way.',
   sources: [SUN(2, 10, 0, 3, 9)], targets: [{ k: 'spot', x: 18, y: 10, r: .25 }], sol: [{ t: 'lens', x: 12, y: 10, a: 90, f: 6 }] });
-L.push({ c: 2, n: 'Searchlight', s: 'Run it backwards: a lamp at the focus of a lens comes out as a parallel beam. Make the light parallel and hit the screen.',
-  sources: [{ k: 'fan', x: 6, y: 10, a: 0, spread: 30, n: 9, l: 590 }], targets: [{ k: 'screen', x1: 28, y1: 8, x2: 28, y2: 12, par: 1 }], sol: [{ t: 'lens', x: 12, y: 10, a: 90, f: 6, L: 5 }] });
 L.push({ c: 2, n: 'Keplerian Telescope', s: 'Two converging lenses that share a focus make a telescope. The beam comes out parallel again, but narrower by the ratio of the focal lengths. Shrink this 3-unit beam to 1 unit.',
   sources: [SUN(2, 10, 0, 3, 7)], targets: [{ k: 'screen', x1: 30, y1: 8, x2: 30, y2: 12, par: 1, width: [.9, 1.1] }], sol: [{ t: 'lens', x: 8, y: 10, a: 90, f: 9, L: 4 }, { t: 'lens', x: 20, y: 10, a: 90, f: 3, L: 4 }] });
 L.push({ c: 2, n: 'Galilean Telescope', s: 'Galileo used a <b>diverging</b> lens as his eyepiece. It is shorter, and the image stays upright. Shrink the beam 3× again with a converging and a diverging lens.',
   sources: [SUN(2, 10, 0, 3, 7)], targets: [{ k: 'screen', x1: 30, y1: 8, x2: 30, y2: 12, par: 1, width: [.9, 1.1] }], sol: [{ t: 'lens', x: 8, y: 10, a: 90, f: 9, L: 4 }, { t: 'lens', x: 14, y: 10, a: 90, f: -3, L: 4 }] });
-L.push({ c: 2, n: 'Beam Expander', s: 'Now widen a laser beam from 1 to 4 units. Expanding a beam is how you send a laser to the Moon without it spreading.',
-  sources: [SUN(2, 10, 0, 1, 7)], targets: [{ k: 'screen', x1: 30, y1: 7, x2: 30, y2: 13, par: 1, width: [3.8, 4.2] }], sol: [{ t: 'lens', x: 6, y: 10, a: 90, f: 2, L: 3 }, { t: 'lens', x: 16, y: 10, a: 90, f: 8, L: 5 }] });
 L.push({ c: 2, n: 'Relay', s: 'Two separate beams, two lenses, one tiny target.',
   sources: [SUN(2, 4, 0, 2, 7), SUN(2, 16, 0, 2, 7)], targets: [{ k: 'spot', x: 24, y: 10, r: .35, src: 0 }, { k: 'spot', x: 24, y: 10, r: .35, src: 1 }], sol: [{ t: 'lens', x: 12, y: 10, a: 90, f: 12, L: 16 }] });
 // ---- Colour
@@ -319,8 +315,8 @@ L.push({ c: 3, n: 'Newton\'s Prism', s: 'In 1666 Isaac Newton let a sunbeam thro
   sources: [WHITE(2, 14, 0)], targets: [{ k: 'spot', x: 0, y: 3, r: .3, l: 650, probe: 650 }, { k: 'spot', x: 0, y: 3, r: .3, l: 420, probe: 420 }], sol: [FP] });
 L.push({ c: 3, n: 'Only Green', s: 'Let <b>only</b> green light through the slit to the target. Every other colour must be stopped by the wall.',
   sources: [WHITE(2, 14, 0)], fixed: [], slit: { y: 4, l: 530, w: .16 }, targets: [{ k: 'spot', x: 0, y: 1.5, r: .4, l: 530, only: [530], probe: 530 }], sol: [FP] });
-L.push({ c: 3, n: 'Experimentum Crucis', s: 'Newton\'s "crucial experiment": the colours are not made by the prism. A second, upside-down prism puts the rainbow back together into a single white beam.',
-  sources: [WHITE(2, 14, 0)], targets: [{ k: 'screen', x1: 30, y1: 0, x2: 30, y2: 0, par: .5, probeX: 30 }], sol: [FP, { t: 'prism', x: 0, y: 0, a: 345, s: 3, g: 'flint', crucis: 3 }] });
+L.push({ c: 3, n: 'Experimentum Crucis', s: 'Newton\'s "crucial experiment": the colours are not made by the prism. A second, upside-down prism puts the rainbow back together into a single white beam. (The shelf stops you sneaking the beam round with one prism.)',
+  sources: [WHITE(2, 14, 0)], fixed: [W(14, 12, 32, 12)], targets: [{ k: 'screen', x1: 30, y1: 0, x2: 30, y2: 0, par: .12, probeX: 30 }], sol: [FP, { t: 'prism', x: 0, y: 0, a: 345, s: 3, g: 'flint', crucis: 3 }] });
 L.push({ c: 3, n: 'Chromatic Aberration', s: 'A glass lens is a prism too, so it focuses violet closer than red. The pin-sharp target needs every colour at once. Try the simple lens: it can\'t manage. Lenses made of two glasses (crown and flint) can cancel the error: the <b>achromatic doublet</b>, invented in 1733. Put the two lenses together.',
   sources: [{ k: 'beam', x: 2, y: 10, a: 0, l: 'white', n: 9, w: 5 }], targets: [{ k: 'spot', x: 0, y: 10, r: .02, focus: 1 }], sol: [{ t: 'lens', x: 10, y: 10, a: 90, f: 6.1, L: 6, g: 'crown' }, { t: 'lens', x: 10.25, y: 10, a: 90, f: -12, L: 6, g: 'flint' }], extra: [{ t: 'lens', f: 12, L: 6, g: 'crown' }] });
 
@@ -331,8 +327,8 @@ L.push({ c: 4, n: 'Solar Furnace', s: 'In the Pyrenees, a hillside of flat mirro
   sources: [{ k: 'beam', x: 2, y: 10, a: 0, l: 650, n: 11, w: 4 }], targets: [{ k: 'spot', x: 0, y: 0, r: .35, frac: .9, focus: 1 }], sol: [{ t: 'arc', x: 28, y: 10, a: -65, f: 6, L: 5 }] });
 L.push({ c: 4, n: 'Optical Fibre', s: 'A long glass rod traps light by total internal reflection, however many times it bounces. Get the beam into the fibre at an angle that stays trapped.',
   sources: [LASER(2, 4, 0)], fixed: [{ t: 'block', x: 18, y: 10, a: 0, w: 20, h: 1.6 }, W(14, 0, 14, 9.2), W(14, 10.8, 14, 20)], targets: [{ k: 'screen', x1: 29.5, y1: 3, x2: 29.5, y2: 17 }], sol: [{ t: 'mirror', x: 5, y: 4, a: 31.7 }] });
-L.push({ c: 4, n: 'Lighthouse', s: 'A lamp in a lighthouse shines in every direction. Collect its light into a tight parallel beam aimed at the screen far away. You may use any of your pieces.',
-  sources: [{ k: 'fan', x: 10, y: 10, a: 0, spread: 50, n: 11, l: 590 }], targets: [{ k: 'screen', x1: 30, y1: 5, x2: 30, y2: 15, par: 1.5, frac: .99 }], sol: [{ t: 'lens', x: 15, y: 10, a: 90, f: 5, L: 6 }] });
+L.push({ c: 4, n: 'Lighthouse', s: 'The lamp sits low in the tower, but the windows of the lantern room are high above it. A lamp at the focus of a lens comes out as a parallel beam. Make the light parallel <i>and</i> send it up to the windows, as cheaply as you can.',
+  sources: [{ k: 'fan', x: 6, y: 14, a: 0, spread: 40, n: 11, l: 590 }], fixed: [W(0, 10, 16, 10)], targets: [{ k: 'screen', x1: 19, y1: 1.5, x2: 25, y2: 1.5, par: 1.5, frac: .99 }], sol: [{ t: 'lens', x: 11, y: 14, a: 90, f: 5, L: 6 }, { t: 'mirror', x: 22, y: 14, a: -45, L: 6 }] });
 
 // Some levels mark targets for calibration: their exact position is computed from the authored solution,
 // so a target always sits precisely where the solved light lands.
@@ -370,7 +366,15 @@ function calibrate(lv) {
     if (t.probeX) { const ys = R.paths.filter(p => (p.x1 - t.probeX) * (p.x2 - t.probeX) < 0).map(p => p.y1 + (p.y2 - p.y1) * (t.probeX - p.x1) / (p.x2 - p.x1)); const my = ys.reduce((a, b) => a + b, 0) / ys.length; if (t.k === 'screen') { t.y1 = +(my - .7).toFixed(2); t.y2 = +(my + .7).toFixed(2); } else t.y = +my.toFixed(3); delete t.probeX; }
     if (t.focus) { const [x, y] = focusOf(R); t.x = +x.toFixed(3); t.y = +y.toFixed(3); delete t.focus; }
   }
+  if (lv.predict) { const t = lv.targets[0]; lv.sol[0].x = t.x; lv.sol[0].y = t.y; } // the answer is where the light really gathers
 }
+// ---- Foresight: the lamp is dark. Put the paper screen where you think the light will gather, then light it. First guess: ★★★.
+L.push({ c: 5, n: 'Where the Sun Burns', predict: true, tol: .45, s: 'No light until you are ready. The sun comes from the left, and the lens is f = 7. Put the paper screen where the light will gather, then <b>light the lamp</b>. Use the ruler along the top of the bench: one tick per unit.',
+  sources: [SUN(2, 10, 0, 3, 9)], fixed: [{ t: 'lens', x: 10, y: 10, a: 90, f: 7, L: 4 }], targets: [{ k: 'spot', x: 0, y: 10, r: .02, focus: 1 }], sol: [{ t: 'marker', x: 0, y: 0, a: 90 }] });
+L.push({ c: 5, n: 'Two Lenses, One Point', predict: true, tol: .45, s: 'The first lens (f = 8) would gather the light 8 units beyond it, but a second lens (f = 4) stands in the way, 6 units on. Where does the light really gather? For a thin lens, 1/v = 1/f + 1/u, with distances measured from the lens. Place the screen, then light the lamp.',
+  sources: [SUN(2, 10, 0, 3, 9)], fixed: [{ t: 'lens', x: 8, y: 10, a: 90, f: 8, L: 4 }, { t: 'lens', x: 14, y: 10, a: 90, f: 4, L: 4 }], targets: [{ k: 'spot', x: 0, y: 10, r: .02, focus: 1 }], sol: [{ t: 'marker', x: 0, y: 0, a: 90 }] });
+L.push({ c: 5, n: 'The Bent Image', predict: true, tol: .5, s: 'A concave mirror (f = 6) is tilted to throw the sunlight down and back. Where does it gather? Think about the axis the mirror faces. Place the screen, then light the lamp.',
+  sources: [{ k: 'beam', x: 2, y: 6, a: 0, l: 650, n: 9, w: 3 }], fixed: [{ t: 'arc', x: 27, y: 6, a: -60, f: 6, L: 5 }], targets: [{ k: 'spot', x: 0, y: 0, r: .02, focus: 1 }], sol: [{ t: 'marker', x: 0, y: 0, a: 90 }] });
 L.forEach(calibrate);
 
 // ================= state & UI =================
@@ -382,20 +386,32 @@ const BOX = c => [
   ...(c >= 3 ? [{ t: 'lens', f: -12, L: 6, g: 'flint' }, { t: 'prism', s: 3, g: 'flint' }, { t: 'prism', s: 3 }] : []),
   ...(c >= 4 ? [{ t: 'mirror' }, { t: 'mirror' }, { t: 'arc', f: 6, L: 5 }, { t: 'block', w: 4, h: 3 }] : []),
 ];
-const COST = p => ({ mirror: 2, splitter: 4, rprism: 4, block: 3, arc: 6, prism: p.g === 'flint' ? 6 : 4, lens: 2 + Math.round(12 / Math.abs(p.f || 6)) + (p.g === 'flint' ? 2 : 0) })[p.t] || 3;
+const COST = p => ({ marker: 0, mirror: 2, splitter: 4, rprism: 4, block: 3, arc: 6, prism: p.g === 'flint' ? 6 : 4, lens: 2 + Math.round(12 / Math.abs(p.f || 6)) + (p.g === 'flint' ? 2 : 0) })[p.t] ?? 3;
 const pieceKey = p => [p.t, p.f, p.g || 'crown', p.s].join(':');
 function trayOf(lv) {
   const own = [...lv.sol, ...(lv.extra || [])].map(p => { const q = { ...p }; delete q.x; delete q.y; delete q.a; return { ...p, ...q }; });
   const keys = new Set(own.map(pieceKey));
-  return [...own, ...BOX(lv.c).filter(p => !keys.has(pieceKey(p)))].map((p, i) => ({ ...p, id: i }));
+  return [...own, ...(lv.predict ? [] : BOX(lv.c).filter(p => !keys.has(pieceKey(p))))].map((p, i) => ({ ...p, id: i }));
 }
 const parOf = lv => lv.sol.reduce((a, p) => a + COST(p), 0);
 const costOf = ps => ps.reduce((a, p) => a + COST(p), 0);
 const starsFor = (cost, par) => cost <= par ? 3 : cost <= par * 1.5 ? 2 : 1;
+// Saves from before the level list changed: carry progress over by level name (removed or redesigned levels are dropped)
+const OLD_NAMES = ['Bounce', 'Around the Wall', 'Two Targets', 'Return to Sender', 'Three Lasers', 'The Maze', 'A Slab of Glass', 'Through the Prism', 'Total Internal Reflection', 'Periscope of Glass', 'Under Water', 'Bent Light', 'Burning Glass', 'Searchlight', 'Keplerian Telescope', 'Galilean Telescope', 'Beam Expander', 'Relay', "Newton's Prism", 'Only Green', 'Experimentum Crucis', 'Chromatic Aberration', "Newton's Telescope", 'Solar Furnace', 'Optical Fibre', '-Lighthouse'];
+function migrate(raw) {
+  const map = k => { const n = OLD_NAMES[k]; const j = n ? L.findIndex(l => l.n === n) : -1; return j; };
+  const out = { ...raw, done: {}, layouts: {} };
+  for (const k of Object.keys(raw.done || {})) { const j = map(+k); if (j >= 0) out.done[j] = raw.done[k]; }
+  for (const k of Object.keys(raw.layouts || {})) { const j = map(+k); if (j >= 0 && L[j].c < 2) out.layouts[j] = raw.layouts[k]; } // the parts box changed piece ids from Lenses on
+  if (Number.isInteger(raw.cur)) out.cur = Math.max(0, map(raw.cur));
+  return out;
+}
 // Saves are sanitised: corrupted or old data (unknown levels, pieces that no longer exist, NaN positions) is dropped.
 function cleanSave(raw) {
-  const S = { done: {}, layouts: {}, cur: 0, intro: 0 };
+  const S = { done: {}, layouts: {}, tries: {}, cur: 0, intro: 0, v: 2 };
   if (!raw || typeof raw !== 'object') return S;
+  if (raw.v !== 2) raw = migrate(raw);
+  if (raw.tries && typeof raw.tries === 'object') for (const k of Object.keys(raw.tries)) if (/^\d+$/.test(k) && +k < L.length && L[k].predict && raw.tries[k] > 0) S.tries[k] = raw.tries[k] | 0;
   const okLv = k => /^\d+$/.test(k) && +k < L.length;
   if (raw.done && typeof raw.done === 'object') for (const k of Object.keys(raw.done)) if (okLv(k) && raw.done[k]) S.done[k] = Math.min(3, Math.max(1, raw.done[k] | 0 || 1));
   if (raw.layouts && typeof raw.layouts === 'object') for (const k of Object.keys(raw.layouts)) {
@@ -418,19 +434,32 @@ const chOpen = c => c === 0 || L.filter((l, i) => l.c === c - 1 && S.done[i]).le
 let cur = S.cur; if (!L[cur] || !chOpen(L[cur].c)) cur = 0;
 const $ = id => document.getElementById(id);
 const cv = $('cv'), g = cv.getContext('2d');
-let placed = [], sel = -1, drag = null, R = null, winT = 0, view = { s: 30, ox: 0, oy: 0 };
+let placed = [], sel = -1, drag = null, R = null, winT = 0, revealed = false, view = { s: 30, ox: 0, oy: 0 };
 
 function loadLevel(i) {
   cur = i; S.cur = i; persist();
   const lv = L[i], saved = S.layouts[i];
   placed = saved ? saved.map(p => ({ ...p })) : [];
   // R holds the previous level's trace (its checks match the old target list): drop it before anything draws
-  R = null; sel = -1; drag = null; clearTimeout(winT); render(); recompute();
+  R = null; sel = -1; drag = null; revealed = false; clearTimeout(winT); render(); recompute();
+}
+// ---- Foresight levels: predict first. Every lighting of the lamp is an attempt; a hit on the first earns ★★★.
+const markerOf = () => placed.find(p => p.t === 'marker');
+const predictHit = (lv, m) => !!m && Math.hypot(m.x - lv.targets[0].x, m.y - lv.targets[0].y) <= (lv.tol ?? .5);
+const predictStars = n => n <= 1 ? 3 : n === 2 ? 2 : 1;
+function lightLamp() {
+  const lv = L[cur], m = markerOf(); if (!lv.predict || !m || revealed) return null;
+  S.tries ||= {}; S.tries[cur] = (S.tries[cur] || 0) + 1; persist();
+  revealed = true; sfx('glass'); draw();
+  const hit = predictHit(lv, m), off = Math.hypot(m.x - lv.targets[0].x, m.y - lv.targets[0].y);
+  if (hit) { const st = predictStars(S.tries[cur]); if ((S.done[cur] || 0) < st) { S.done[cur] = st; persist(); render(); bloom = { t0: performance.now(), lv: cur, at: [[lv.targets[0].x, lv.targets[0].y]] }; setTimeout(showQed, 900); } }
+  else RH.toast(`The light gathers ${off.toFixed(1)} units from your screen. Move it and light the lamp again.`, 3600);
+  updateStatus(); return hit;
 }
 const unplaced = () => trayOf(L[cur]).filter(p => !placed.some(q => q.id === p.id));
 function pieceName(p) {
   const gl = p.g && p.g !== 'crown' ? ` (${p.g})` : '';
-  return { mirror: 'Mirror', splitter: 'Splitter', lens: (p.f > 0 ? 'Converging lens' : 'Diverging lens') + ` f=${Math.abs(p.f)}` + gl, prism: 'Prism' + gl, rprism: 'Right-angle prism', block: 'Glass slab', arc: `Concave mirror f=${p.f}` }[p.t];
+  return { marker: 'Paper screen', mirror: 'Mirror', splitter: 'Splitter', lens: (p.f > 0 ? 'Converging lens' : 'Diverging lens') + ` f=${Math.abs(p.f)}` + gl, prism: 'Prism' + gl, rprism: 'Right-angle prism', block: 'Glass slab', arc: `Concave mirror f=${p.f}` }[p.t];
 }
 function render() {
   const lv = L[cur];
@@ -452,7 +481,7 @@ function renderTray() {
   const un = unplaced();
   const ORD = { mirror: 0, splitter: 1, lens: 2, prism: 3, rprism: 4, block: 5, arc: 6 };
   un.sort((a, b) => ORD[a.t] - ORD[b.t] || (a.g === 'flint') - (b.g === 'flint') || (b.f || 0) - (a.f || 0) || a.id - b.id);
-  $('tray').innerHTML = (un.length ? un.map(p => `<div class="piece" data-id="${p.id}"><canvas width="88" height="56"></canvas>${pieceName(p)}${L[cur].c >= 2 ? `<span class="price">${COST(p)}s</span>` : ''}</div>`).join('') : '<span class="dim small">All pieces are on the bench.</span>') + '<span id="status"></span>';
+  $('tray').innerHTML = (un.length ? un.map(p => `<div class="piece" data-id="${p.id}"><canvas width="88" height="56"></canvas>${pieceName(p)}${L[cur].c >= 2 && !L[cur].predict ? `<span class="price">${COST(p)}s</span>` : ''}</div>`).join('') : '<span class="dim small">All pieces are on the bench.</span>') + '<span id="status"></span>';
   $('tray').querySelectorAll('.piece').forEach(el => {
     const p = un.find(q => q.id === +el.dataset.id), c = el.querySelector('canvas'), gg = c.getContext('2d');
     gg.translate(44, 28); gg.scale(9, 9); drawPiece(gg, { ...p, x: 0, y: 0, a: p.t === 'lens' ? 90 : p.t === 'arc' ? 0 : p.t === 'prism' ? 0 : 0 }, false, 1 / 9);
@@ -523,6 +552,7 @@ const SETTLE = 800;
 const solvedNow = () => !!(R && R.lv === cur && R.checks.every(c => c.ok));
 function recompute() {
   const lv = L[cur]; R = trace(lv, placed); R.lv = cur;
+  if (lv.predict) { revealed = false; R.checks = lv.targets.map(() => ({ ok: false, msg: '' })); draw(); updateStatus(); return; } // moving the screen puts the lamp out again
   R.checks = lv.targets.map((t, i) => checkTarget(t, R.hits[i], lv));
   draw(); updateStatus();
   clearTimeout(winT); winT = 0;
@@ -535,6 +565,7 @@ function updateRotBar() {
 function updateStatus() {
   updateRotBar();
   if (!R || R.lv !== cur || !$('tg')) return;
+  if (L[cur].predict) { const n = (S.tries || {})[cur] || 0; $('tg').innerHTML = `<span>${markerOf() ? 'Screen placed' : 'Place the paper screen'}</span><span class="cost">Lamp lit ${n} time${n === 1 ? '' : 's'}</span><button id="lampBtn" class="primary" ${markerOf() && !revealed ? '' : 'disabled'}>Light the lamp</button>`; $('lampBtn').onclick = lightLamp; return; }
   $('tg').innerHTML = L[cur].targets.map((t, i) => `<span class="${R.checks[i].ok ? 'ok' : ''}">${R.checks[i].ok ? '✓' : '○'} Target ${i + 1}${t.l ? ' (' + (Array.isArray(t.l) ? 'colours' : colourName(t.l)) + (t.only ? ' only' : '') + ')' : ''}${t.par != null ? ' · parallel' : ''}${t.width ? ` · width ${t.width[0]}–${t.width[1]}` : ''}${placed.length ? ': ' + R.checks[i].msg : ''}</span>`).join('') + (L[cur].c >= 2 ? `<span class="cost">Cost ${costOf(placed)}s · par ${parOf(L[cur])}s</span>` : '') + (winT ? '<span class="ok"> · Hold it there…</span>' : '') + (placed[sel] ? `<span class="dim"> · ${pieceName(placed[sel])} at ${placed[sel].a}°</span>` : '');
 }
 const colourName = l => ({ 650: 'red', 600: 'orange', 570: 'yellow', 530: 'green', 470: 'blue', 420: 'violet', 590: 'amber' })[l] || l + 'nm';
@@ -552,7 +583,7 @@ function showQed() {
   const nxt = L.findIndex((l, j) => j > cur && !S.done[j] && chOpen(l.c));
   const d = document.createElement('div'); d.className = 'qed'; d.setAttribute('role', 'status');
   const cost = costOf(placed), par = parOf(L[cur]), st = S.done[cur];
-  d.innerHTML = `<span class="qedMark">Q.E.D.</span><span class="qedTxt">Experimentum ${ROMAN(cur + 1)} confirmatum. <b class="stars">${'★'.repeat(st)}${'☆'.repeat(3 - st)}</b> ${L[cur].c >= 2 ? `Cost ${cost}s against Newton's ${par}s${st < 3 ? ': a cheaper design exists.' : '.'}` : 'The light goes where you sent it.'}</span>`;
+  d.innerHTML = `<span class="qedMark">Q.E.D.</span><span class="qedTxt">Experimentum ${ROMAN(cur + 1)} confirmatum. <b class="stars">${'★'.repeat(st)}${'☆'.repeat(3 - st)}</b> ${L[cur].predict ? `Predicted on lighting ${(S.tries || {})[cur] || 1}.` : L[cur].c >= 2 ? `Cost ${cost}s against Newton's ${par}s${st < 3 ? ': a cheaper design exists.' : '.'}` : 'The light goes where you sent it.'}</span>`;
   d.innerHTML += `${nxt >= 0 ? `<button class="primary" id="nextLv">Next: ${L[nxt].n}</button>` : ''}`;
   $('info').appendChild(d);
   if (nxt >= 0) $('nextLv').onclick = () => loadLevel(nxt);
@@ -577,7 +608,7 @@ function drawPiece(c, p, selected, lw = 1 / view.s) {
       c.quadraticCurveTo(p.x + nx * (bul + th), p.y + ny * (bul + th), p.x + dx, p.y + dy);
       c.quadraticCurveTo(p.x - nx * (bul + th), p.y - ny * (bul + th), p.x - dx, p.y - dy);
       c.fillStyle = p.g === 'flint' ? 'rgba(200,170,255,.35)' : 'rgba(150,210,255,.3)'; c.fill(); c.strokeStyle = selected ? '#ffb547' : 'rgba(180,220,255,.9)'; c.lineWidth = 2 * lw; c.stroke();
-      if (lw < .5) focalMarks(c, p, [[p.x + nx * p.f, p.y + ny * p.f], [p.x - nx * p.f, p.y - ny * p.f]], selected, lw);
+      if (lw < .5 && !L[cur].predict) focalMarks(c, p, [[p.x + nx * p.f, p.y + ny * p.f], [p.x - nx * p.f, p.y - ny * p.f]], selected, lw);
     } else {
       c.beginPath(); c.moveTo(p.x - dx, p.y - dy); c.lineTo(p.x + dx, p.y + dy);
       if (p.t === 'mirror') { c.strokeStyle = '#2a1a0c'; c.lineWidth = 7 * lw; c.stroke(); } // the wooden back
@@ -586,7 +617,13 @@ function drawPiece(c, p, selected, lw = 1 / view.s) {
     }
   } else if (p.t === 'arc') {
     const a = arcOf(p); c.beginPath(); c.arc(a.cx, a.cy, a.R, a.a0, a.a1); c.strokeStyle = selected ? '#ffb547' : '#dfe6ee'; c.lineWidth = 4 * lw; c.stroke();
-    if (lw < .5) { const [fx, fy] = rot(0, -(p.f ?? 6), rad(p.a)); focalMarks(c, p, [[p.x + fx, p.y + fy]], selected, lw); }
+    if (lw < .5 && !L[cur].predict) { const [fx, fy] = rot(0, -(p.f ?? 6), rad(p.a)); focalMarks(c, p, [[p.x + fx, p.y + fy]], selected, lw); }
+  }
+  else if (p.t === 'marker') { // a paper screen on a little wooden foot
+    const [dx, dy] = rot(.8, 0, rad(p.a)); c.lineCap = 'round';
+    c.strokeStyle = '#3a2413'; c.lineWidth = 8 * lw; c.beginPath(); c.moveTo(p.x - dx, p.y - dy); c.lineTo(p.x + dx, p.y + dy); c.stroke();
+    c.strokeStyle = selected ? '#ffcf6a' : '#efe4c8'; c.lineWidth = 5 * lw; c.stroke();
+    c.strokeStyle = '#6b2a10'; c.lineWidth = 1.2 * lw; c.beginPath(); c.arc(p.x, p.y, .18, 0, 7); c.moveTo(p.x - .3, p.y); c.lineTo(p.x + .3, p.y); c.moveTo(p.x, p.y - .3); c.lineTo(p.x, p.y + .3); c.stroke();
   }
   else if (p.t === 'wall') { c.beginPath(); c.moveTo(p.x1, p.y1); c.lineTo(p.x2, p.y2); c.lineCap = 'round'; c.strokeStyle = '#0b0705'; c.lineWidth = 9 * lw; c.stroke(); c.strokeStyle = '#3d2a1a'; c.lineWidth = 6 * lw; c.stroke(); } // blackened board
   else {
@@ -651,11 +688,12 @@ function draw() {
   g.setTransform(...VT());
   // light falling on the wood: a warm wash under every beam
   g.globalCompositeOperation = 'lighter'; g.lineCap = 'round';
-  for (const p of R.paths) { g.strokeStyle = wlColor(p.l, .05 * Math.min(1, p.I * 3)); g.lineWidth = .9; g.beginPath(); g.moveTo(p.x1, p.y1); g.lineTo(p.x2, p.y2); g.stroke(); }
+  const dark = lv.predict && !revealed;
+  if (!dark) for (const p of R.paths) { g.strokeStyle = wlColor(p.l, .05 * Math.min(1, p.I * 3)); g.lineWidth = .9; g.beginPath(); g.moveTo(p.x1, p.y1); g.lineTo(p.x2, p.y2); g.stroke(); }
   g.globalCompositeOperation = 'source-over';
   (lv.fixed || []).forEach(p => drawPiece(g, p, false));
   // targets: paper cards, or paper screens
-  lv.targets.forEach((t, i) => {
+  if (!lv.predict) lv.targets.forEach((t, i) => {
     const ok = R.checks[i].ok, col = t.l && !Array.isArray(t.l) ? wlColor(t.l) : '#8a2a10';
     if (t.k === 'spot') {
       const rr = Math.max(t.r, .3) + .15;
@@ -672,15 +710,16 @@ function draw() {
   });
   // light: glow, body and a hot core
   g.globalCompositeOperation = 'lighter'; g.lineCap = 'round';
-  for (const p of R.paths) {
+  if (!dark) for (const p of R.paths) {
     const a = Math.min(1, .35 + p.I * 1.2);
     g.beginPath(); g.moveTo(p.x1, p.y1); g.lineTo(p.x2, p.y2);
     g.strokeStyle = wlColor(p.l, .07 * a); g.lineWidth = .32; g.stroke();
     g.strokeStyle = wlColor(p.l, .35 * a); g.lineWidth = 4 / view.s; g.stroke();
     g.strokeStyle = `rgba(255,250,235,${.55 * a * Math.min(1, p.I * 2)})`; g.lineWidth = 1.1 / view.s; g.stroke();
   }
-  drawMotes();
+  if (!dark) drawMotes();
   g.globalCompositeOperation = 'source-over';
+  if (lv.predict && revealed) { const t = lv.targets[0]; g.strokeStyle = '#ffe2a0'; g.lineWidth = 1.5 / view.s; g.beginPath(); g.arc(t.x, t.y, lv.tol ?? .5, 0, 7); g.stroke(); }
   // sources: brass lanterns with a shutter slit
   lv.sources.forEach(s => {
     g.save(); g.translate(s.x, s.y); g.rotate(rad(s.a));
@@ -713,7 +752,7 @@ const help = () => RH.modal(`<h2>Opticks</h2>
 $('helpBtn').onclick = help;
 render(); loadLevel(cur);
 if (!S.intro) { S.intro = 1; persist(); help(); }
-window.__opt = { BOX, COST, parOf, costOf, starsFor, starsNow,  get view() { return view; }, toW, VT, turnSel, L, trace, checkTarget, loadLevel, cleanSave, trayOf, chOpen, SETTLE, get R() { return R; }, get cur() { return cur; }, get sel() { return sel; }, set sel(v) { sel = v; }, get placed() { return placed; }, set placed(v) { placed = v; }, recompute, S };
+window.__opt = { lightLamp, predictHit, predictStars, migrate, get revealed() { return revealed; },  BOX, COST, parOf, costOf, starsFor, starsNow,  get view() { return view; }, toW, VT, turnSel, L, trace, checkTarget, loadLevel, cleanSave, trayOf, chOpen, SETTLE, get R() { return R; }, get cur() { return cur; }, get sel() { return sel; }, set sel(v) { sel = v; }, get placed() { return placed; }, set placed(v) { placed = v; }, recompute, S };
 </script>
 </body>
 </html>

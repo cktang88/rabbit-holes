@@ -10,7 +10,9 @@ module.exports = {
   tests: {
     'every level is solved by its authored solution': async ({ page, ok }) => {
       const n = await page.evaluate(() => window.__opt.L.length);
-      for (let i = 0; i < n; i++) { const c = await placeSol(page, i); ok(c.length && c.every(Boolean), `level ${i} solution fails: ${c}`); }
+      for (let i = 0; i < n; i++) {
+        if (await page.evaluate(i => window.__opt.L[i].predict, i)) { ok(await page.evaluate(i => { const o = window.__opt, lv = o.L[i]; return o.predictHit(lv, lv.sol[0]) && !o.predictHit(lv, { ...lv.sol[0], x: lv.sol[0].x + 1 }); }, i), `prediction level ${i}`); continue; }
+        const c = await placeSol(page, i); ok(c.length && c.every(Boolean), `level ${i} solution fails: ${c}`); }
     },
     'no level is solved with an empty bench': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const o = window.__opt; return o.L.map((l, i) => { o.loadLevel(i); o.placed = []; o.recompute(); return o.R.checks.every(c => c.ok); }); });
@@ -96,7 +98,7 @@ module.exports = {
       });
       eq(Object.keys(r[0].done), ['0']); eq(r[0].layouts[0].length, 1, 'one valid unique piece'); eq(r[0].layouts[0][0].f, undefined, 'piece props come from the tray'); eq(r[0].cur, 0);
       ok(!r[0].layouts[3] && !r[0].layouts[77]);
-      for (const x of r.slice(1)) eq(x, { done: {}, layouts: {}, cur: 0, intro: 0 });
+      for (const x of r.slice(1)) eq(x, { done: {}, layouts: {}, tries: {}, cur: 0, intro: 0, v: 2 });
       await page.addInitScript(() => localStorage.setItem('rh:opticks', '{"done":{"0":1,"500":1},"layouts":{"0":"x"},"cur":"7"}'));
       await page.reload(); await page.waitForTimeout(500);
       eq(await page.evaluate(() => Object.keys(window.__opt.S.done).length), 1);
@@ -134,28 +136,53 @@ module.exports = {
         const o = window.__opt, L = o.L, rnd = RH.rng('naive'), first = Math.ceil(L.length * 2 / 3), out = { naive: [], comp: [] };
         const solved = (lv, ps) => { const R = o.trace(lv, ps); return lv.targets.every((t, k) => o.checkTarget(t, R.hits[k], lv).ok); };
         const grade = (lv, ps) => solved(lv, ps) ? o.starsFor(o.costOf(ps), o.parOf(lv)) : 0;
+        // a bot plays a stream of layouts: on normal levels its best layout counts; on Foresight levels every layout is a lighting of the lamp
+        const play = (lv, layouts) => { let best = 0, n = 0; for (const ps of layouts) { if (lv.predict) { const m = ps.find(p => p.t === 'marker'); if (!m) continue; n++; if (o.predictHit(lv, m)) return o.predictStars(n); } else best = Math.max(best, grade(lv, ps)); } return best; };
         for (let i = first; i < L.length; i++) {
           const lv = L[i], tray = o.trayOf(lv), s0 = lv.sources[0];
-          out.naive.push(grade(lv, [])); // idle
-          let best = 0; // random: a handful of random pieces dropped anywhere
-          for (let t = 0; t < 300; t++) { const n = 1 + rnd.int(3), ps = []; for (let k = 0; k < n; k++) ps.push({ ...tray[rnd.int(tray.length)], x: 1 + rnd() * 30, y: 1 + rnd() * 18, a: rnd() * 360 }); best = Math.max(best, grade(lv, ps)); }
-          out.naive.push(best);
-          best = 0; // obvious: each piece in the box, slid along the beam at the textbook angles
-          for (const p of tray) for (let d = 3; d <= 28; d += 1) for (const a of [0, 45, 90, 135]) { const x = s0.x + Math.cos(s0.a * Math.PI / 180) * d, y = s0.y + Math.sin(s0.a * Math.PI / 180) * d; if (x < 0 || x > 32 || y < 0 || y > 20) continue; best = Math.max(best, grade(lv, [{ ...p, x, y, a }])); }
-          out.naive.push(best);
-          out.comp.push(grade(lv, lv.sol.map((p, k) => ({ ...p, id: k }))));
+          out.naive.push(play(lv, [[]])); // idle
+          const rand = []; for (let t = 0; t < 300; t++) { const n = 1 + rnd.int(3), ps = []; for (let k = 0; k < n; k++) ps.push({ ...tray[rnd.int(tray.length)], x: 1 + rnd() * 30, y: 1 + rnd() * 18, a: rnd() * 360 }); rand.push(ps); }
+          out.naive.push(play(lv, rand)); // random: a handful of random pieces dropped anywhere
+          const obv = []; for (const p of tray) for (let d = 3; d <= 28; d += 1) for (const a of [0, 45, 90, 135]) { const x = s0.x + Math.cos(s0.a * Math.PI / 180) * d, y = s0.y + Math.sin(s0.a * Math.PI / 180) * d; if (x < 0 || x > 32 || y < 0 || y > 20) continue; obv.push([{ ...p, x, y, a }]); }
+          out.naive.push(play(lv, obv)); // obvious: each piece in the box, slid along the beam at the textbook angles
+          out.comp.push(play(lv, [lv.sol.map((p, k) => ({ ...p, id: k }))]));
         }
         const kep = L.find(l => l.n === 'Keplerian Telescope'); // the same telescope from dearer, stronger lenses
         out.kepler = 0; for (let x2 = 15.5; x2 <= 16.6 && !out.kepler; x2 += .05) out.kepler = grade(kep, [{ t: 'lens', f: 6, L: 5, x: 8, y: 10, a: 90 }, { t: 'lens', f: 2, L: 5, x: +x2.toFixed(2), y: 10, a: 90 }]);
         return out;
       });
-      ok(r.naive.filter(x => x <= 1).length / r.naive.length >= .8, 'naive bots do too well: ' + r.naive);
+      ok(r.naive.filter(x => x <= 1).length / r.naive.length >= .9, 'naive bots do too well: ' + r.naive);
       ok(r.comp.every(x => x === 3), 'the designed solutions should earn 3 stars: ' + r.comp);
       eq(r.kepler, 2, 'a working but pricier telescope');
     },
     'the box holds more than the job needs, with prices; lenses show focal points': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const o = window.__opt, i = o.L.findIndex(l => l.n === 'Keplerian Telescope'); o.loadLevel(i); return { tray: o.trayOf(o.L[i]).length, sol: o.L[i].sol.length, prices: document.querySelectorAll('#tray .price').length, first: document.querySelector('#tray .piece').textContent }; });
       ok(r.tray >= r.sol + 5 && r.prices === r.tray, JSON.stringify(r));
+    },
+    'foresight: the lamp stays dark until lit; a first-time prediction earns 3 stars, a second 2; moving the screen darkens it again': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(() => {
+        const o = window.__opt, i = o.L.findIndex(l => l.predict), lv = o.L[i], out = {}; o.loadLevel(i);
+        out.tray = o.trayOf(lv).map(p => p.t);
+        o.placed = [{ ...o.trayOf(lv)[0], x: lv.targets[0].x + 2, y: lv.targets[0].y, a: 90 }]; o.recompute();
+        out.dark = !o.revealed; out.miss = o.lightLamp(); out.lit = o.revealed;
+        o.placed[0].x = lv.targets[0].x; o.recompute(); out.darkAgain = !o.revealed;
+        out.hit = o.lightLamp(); out.stars = o.S.done[i];
+        return out;
+      });
+      eq(r.tray, ['marker']); ok(r.dark); eq(r.miss, false); ok(r.lit); ok(r.darkAgain); eq(r.hit, true); eq(r.stars, 2);
+    },
+    'redesigned late levels: Lighthouse needs a lens and a fold; one prism cannot pass the crucial experiment': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const o = window.__opt, lh = o.L.find(l => l.n === 'Lighthouse'), ec = o.L.find(l => l.n === 'Experimentum Crucis');
+        const ok = (lv, ps) => { const R = o.trace(lv, ps); return lv.targets.every((t, k) => o.checkTarget(t, R.hits[k], lv).ok); };
+        let lens = false; for (let x = 7; x <= 30 && !lens; x += .25) lens = ok(lh, [{ t: 'lens', f: 5, L: 6, x, y: 14, a: 90 }]);
+        let prism = false; for (let a = 0; a < 360 && !prism; a += 1) for (const g of ['crown', 'flint']) prism = prism || ok(ec, [{ t: 'prism', s: 3, g, x: 8, y: 14, a }]);
+        return { lens, prism, lhSol: ok(lh, lh.sol) }; });
+      ok(!r.lens && !r.prism && r.lhSol, JSON.stringify(r));
+    },
+    'old saves carry progress over by level name': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const o = window.__opt; const s = o.cleanSave({ done: { 0: 1, 13: 1, 18: 1, 25: 1 }, cur: 18 }); return [Object.keys(s.done).map(k => o.L[k].n).sort(), o.L[s.cur].n]; });
+      eq(r, [["Bounce", "Newton's Prism"], "Newton's Prism"]);
     },
     'locked chapters cannot be opened from the sidebar': async ({ page, eq }) => {
       await closeModals(page);

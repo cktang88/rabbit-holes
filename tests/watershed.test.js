@@ -60,7 +60,7 @@ module.exports = {
       eq([r.river, r.town, r.okField, r.lev, r.full], ['string', 'string', 'object', 'object', 'string']); eq(r.left, 2); eq(r.diff, 0); eq(r.use, 0);
     },
     'rounds: the clock stops after a flood year and the inquest names what happened where': async ({ page, ok }) => {
-      await page.evaluate(() => { __ws.buildLevel(0); __ws.plan([['farm', [62, 75]], ['levee', [84, 94], [110, 95]]]); __ws.runYears(6); __ws.setSpeed(3); });
+      await page.evaluate(() => { __ws.buildLevel(0); __ws.plan([['farm', [62, 75]], ['levee', [84, 94], [110, 95]]]); __ws.runYears(6); __ws.stepN(450); __ws.setSpeed(3); });
       await page.waitForFunction(() => __ws.inquest && __ws.speed === 0, null, { timeout: 40000 });
       const txt = await page.locator('#inq').textContent(); ok(/Year 7/.test(txt) && /Upper Town/.test(txt) && /Fields/.test(txt), txt);
       ok(await page.locator('.tag').count() >= 3, 'map tags missing');

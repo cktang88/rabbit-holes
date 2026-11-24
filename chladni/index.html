@@ -197,9 +197,9 @@ function field(k) {
 // where C is where the mode BENDS (curvature²) and K where it MOVES (amplitude²). Thin a bending region and the note drops;
 // thin a region that only moves (a free edge, an antinode) and it rises. Every scrape is permanent.
 const TG = 6, NU = .3, TUNE = [
-  { n: 'A lower twin', story: 'A customer wants the two look-alike figures pulled apart: lower the <b>(0,2)+</b> figure by 4% but keep its twin <b>(0,2)−</b> where it is.', track: ['s02p', 's02m'], mult: [.96, 1], tol: .008, budget: 14 },
-  { n: 'Split the pair', story: 'Lower the <b>(1,2)+</b> figure by 3%, but the <b>(0,2)−</b> figure must not move. Where does one bend while the other only moves?', track: ['s02m', 's12p'], mult: [1, .97], tol: .006, budget: 14 },
-  { n: 'Master plate', story: '<b>Master commission.</b> Three notes at once: <b>(0,2)+</b> down 3%, <b>(1,2)−</b> down 2%, <b>(0,3)+</b> unchanged. Scraping helps one and spoils another.', track: ['s02p', 's12m', 's03p'], mult: [.97, .98, 1], tol: .005, budget: 16, master: 1 },
+  { n: 'Split the twins', story: 'The two look-alike figures <b>(0,2)−</b> and <b>(0,2)+</b> sing barely 1% apart, so they blur together. Scrape the plate until the + figure sits <b>2% higher</b> relative to its twin than it does now.', track: ['s02m', 's02p'], mult: [1, 1.02], tol: .004, budget: 14 },
+  { n: 'A quarter-tone', story: 'Raise <b>(0,3)−</b> by 2.5% against <b>(1,2)−</b>. Thinning lowers every note a little; what matters is which one drops more.', track: ['s12m', 's03m'], mult: [1, 1.025], tol: .004, budget: 12 },
+  { n: 'Master plate', story: '<b>Master commission.</b> Three notes at once: <b>(1,2)+</b> and <b>(0,3)−</b> both 2% higher relative to <b>(0,2)−</b>. Scraping helps one and spoils the other.', track: ['s02m', 's12p', 's03m'], mult: [1, 1.02, 1.02], tol: .004, budget: 13, master: 1 },
 ];
 let tune = null; // { c: commission index, h: Float64Array, used, light, done }
 const tuneOn = () => SAVE.mode === 'tune' && plate === 'square' && tune;
@@ -213,30 +213,38 @@ function tuneMaps() { // per-mode curvature and motion maps on the thickness gri
 }
 function tunedF(k, h = tune.h) { const M = tuneMaps()[k]; let a = 0, b = 0; for (let c = 0; c < TG * TG; c++) { a += h[c] ** 3 * M.C[c]; b += h[c] * M.K[c]; } return PLATES.square.modes[k].f * Math.sqrt(a / b); }
 const kOf = id => PLATES.square.modes.findIndex(m => m.id === id);
-function tuneTargets(T) { const f0 = T.track.map(id => PLATES.square.modes[kOf(id)].f); return T.mult.map((m, i) => m === 'oct' ? 2 * f0[0] * T.mult[0] : f0[i] * m); }
-function tuneSq(T, h = tune.h) { const tg = tuneTargets(T); return T.track.reduce((a, id, i) => a + (tunedF(kOf(id), h) / tg[i] - 1) ** 2, 0); }
-function tuneErr(T, h = tune.h) { const tg = tuneTargets(T); return Math.max(...T.track.map((id, i) => Math.abs(tunedF(kOf(id), h) / tg[i] - 1))); }
+// commissions are about INTERVALS (a luthier can always thin the whole plate to move everything down): targets are pitch ratios to the first note
+function tuneTargets(T) { const f0 = T.track.map(id => PLATES.square.modes[kOf(id)].f); return T.mult.map((m, i) => f0[i] / f0[0] * m); }
+const ratios = (T, h) => { const f = T.track.map(id => tunedF(kOf(id), h)); return f.map(v => v / f[0]); };
+function tuneSq(T, h = tune.h) { const tg = tuneTargets(T), r = ratios(T, h); return r.reduce((a, v, i) => a + (i ? (v / tg[i] - 1) ** 2 : 0), 0); }
+function tuneErr(T, h = tune.h) { const tg = tuneTargets(T), r = ratios(T, h); return Math.max(...r.slice(1).map((v, i) => Math.abs(v / tg[i + 1] - 1))); }
 function startTune(c) { tune = { c, h: new Float64Array(TG * TG).fill(1), used: 0, light: true, done: false }; dirty = true; }
 function scrapeAt(px, py) {
-  if (!tune || tune.done) return; if (px < 0 || px > 1 || py < 0 || py > 1) return;
+  if (!tune) return; if (px < 0 || px > 1 || py < 0 || py > 1) return;
   const T = TUNE[tune.c]; if (tune.used >= T.budget) { toast('Plate ruined', 'You have used all your scrapes. Start a new plate.', 2600); return; }
   const c = Math.min(TG - 1, (py * TG) | 0) * TG + Math.min(TG - 1, (px * TG) | 0);
   if (tune.h[c] < .35) { FX.sfx('fail'); toast('Too thin', 'Scrape any more here and the plate cracks.', 1600); return; }
-  tune.h[c] *= tune.light ? .96 : .86; tune.used++; FX.sfx('scrape', tune.light ? 0 : 1); dirty = true; tuneCheck(); renderUI();
+  tune.h[c] *= tune.light ? .98 : .9; tune.used++; FX.sfx('scrape', tune.light ? 0 : 1); dirty = true; tuneCheck(); tuneGoal();
 }
 function tuneGrade(T, e) { return e <= T.tol / 4 ? 3 : e <= T.tol / 2 ? 2 : 1; }
+// a delivered plate can still be refined (more scrapes, better stars) until the budget runs out
 function tuneCheck() {
   const T = TUNE[tune.c], e = tuneErr(T);
-  if (e <= T.tol) { tune.done = true; const st = tuneGrade(T, e); SAVE.tune[tune.c] = Math.max(SAVE.tune[tune.c] || 0, st); persist(); FX.sfx('win'); FX.shake(.2);
-    toast('Commission delivered ' + '★'.repeat(st) + '☆'.repeat(3 - st), `Worst note off by ${(e * 100).toFixed(2)}%, after ${tune.used} scrapes.`, 4200); }
+  if (e <= T.tol) { const st = tuneGrade(T, e), was = tune.done ? tune.st : 0; tune.done = true; tune.st = Math.max(was, st); if (st > was) { SAVE.tune[tune.c] = Math.max(SAVE.tune[tune.c] || 0, st); persist(); FX.sfx('win'); FX.shake(.2);
+    toast((was ? 'Even better ' : 'Commission delivered ') + '★'.repeat(st) + '☆'.repeat(3 - st), `Worst interval off by ${(e * 100).toFixed(2)}%, after ${tune.used} scrapes.${st < 3 ? ' Keep refining for more stars, if you dare.' : ''}`, 4200); } }
   else if (tune.used >= T.budget) { FX.sfx('fail'); toast('Out of scrapes', `Worst note still ${(e * 100).toFixed(1)}% off. Every scrape is permanent: plan before you cut.`, 4200); }
+}
+function tuneGoal() {
+  $('goal').innerHTML = '<b>The luthier\'s bench.</b> Tap the plate to scrape it thinner there (the darker, the thinner). Thinning where a figure bends lowers its note; thinning where it only moves raises it. Bow it to hear and see.' + tuneUI();
+  $('goal').querySelectorAll('[data-tc]').forEach(b => b.onclick = () => { startTune(+b.dataset.tc); FX.sfx('click'); tuneGoal(); });
+  $('lightT').onclick = () => { tune.light = true; tuneGoal(); }; $('heavyT').onclick = () => { tune.light = false; tuneGoal(); }; $('newPlate').onclick = () => { startTune(tune.c); FX.sfx('whoosh'); tuneGoal(); };
 }
 function tuneUI() {
   const T = TUNE[tune.c], tg = tuneTargets(T);
-  const rows = T.track.map((id, i) => { const k = kOf(id), f = tunedF(k), d = f / tg[i] - 1; return `<tr><td>${PLATES.square.modes[k].name}</td><td>${f.toFixed(1)} Hz</td><td>→ ${tg[i].toFixed(1)}</td><td style="color:${Math.abs(d) <= T.tol ? '#2d6a2a' : '#a8541e'}">${d >= 0 ? '+' : ''}${(d * 100).toFixed(2)}%</td></tr>`; }).join('');
+  const r = ratios(T, tune.h), rows = T.track.map((id, i) => { const k = kOf(id), f = tunedF(k), d = i ? r[i] / tg[i] - 1 : 0; return `<tr><td>${PLATES.square.modes[k].name}</td><td>${f.toFixed(1)} Hz</td><td>${i ? `× ${r[i].toFixed(4)} → ${tg[i].toFixed(4)}` : 'reference'}</td><td style="color:${Math.abs(d) <= T.tol ? '#2d6a2a' : '#a8541e'}">${i ? (d >= 0 ? '+' : '') + (d * 100).toFixed(2) + '%' : ''}</td></tr>`; }).join('');
   return `<div class="tabs">${TUNE.map((c, i) => `<button class="b ${i === tune.c ? 'on' : ''}" data-tc="${i}">${i + 1}. ${c.n} ${SAVE.tune[i] ? '★'.repeat(SAVE.tune[i]) : ''}</button>`).join('')}</div>`
     + `<div style="margin-top:6px">${T.story}</div><table class="tt">${rows}</table>`
-    + `Scrapes <b>${tune.used}</b> / ${T.budget} · tolerance ±${(T.tol * 100).toFixed(1)}%<br><button class="b ${tune.light ? 'on' : ''}" id="lightT">light scrape</button> <button class="b ${tune.light ? '' : 'on'}" id="heavyT">heavy scrape</button> <button class="b" id="newPlate">New plate</button>`;
+    + `Scrapes <b>${tune.used}</b> / ${T.budget} · interval tolerance ±${(T.tol * 100).toFixed(1)}% (★★ ±${(T.tol * 50).toFixed(1)}, ★★★ ±${(T.tol * 25).toFixed(1)})<br><button class="b ${tune.light ? 'on' : ''}" id="lightT">light scrape</button> <button class="b ${tune.light ? '' : 'on'}" id="heavyT">heavy scrape</button> <button class="b" id="newPlate">New plate</button>`;
 }
 // Chladni's own controls: where you BOW (an antinode: the bowed point must move) and where you hold a FINGER (a node: that point
 // must stay still). Together they pick one figure out of look-alikes that sing at almost the same pitch.
@@ -476,9 +484,7 @@ function renderUI() {
   if (SAVE.mode === 'tune') {
     if (plate !== 'square') { setPlate('square'); return; }
     if (!tune) startTune(0); $('target').style.display = 'none';
-    $('goal').innerHTML = '<b>The luthier\'s bench.</b> Tap the plate to scrape it thinner there (the darker, the thinner). Thinning where a figure bends lowers its note; thinning where it only moves raises it. Bow it to hear and see.' + tuneUI();
-    $('goal').querySelectorAll('[data-tc]').forEach(b => b.onclick = () => { startTune(+b.dataset.tc); FX.sfx('click'); renderUI(); });
-    $('lightT').onclick = () => { tune.light = true; renderUI(); }; $('heavyT').onclick = () => { tune.light = false; renderUI(); }; $('newPlate').onclick = () => { startTune(tune.c); FX.sfx('whoosh'); renderUI(); };
+    tuneGoal();
   }
   else if (SAVE.mode === 'explore') { $('goal').innerHTML = `<b>${got}</b> of ${P.modes.length} figures on this plate collected. Hold a resonance until the sand settles to record it.`; $('target').style.display = 'none'; }
   else {
