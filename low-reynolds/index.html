@@ -331,6 +331,7 @@ const cam = { x: 0, y: 0, z: 110 };
 function resize() { dpr = FX.fit(cv, 2); W = cv.width; H = cv.height; cam.z = Math.min(110, W / dpr / 5.2); bgC = null; layout(); }
 // keep the swimmer in the open space between the panels; keep the stats chip clear of the pad
 function layout() {
+  pd = FX.fit(pad, 2);
   if (!L) return;
   const narrow = innerWidth <= 860, pb = $('padBox').getBoundingClientRect();
   $('stat').style.bottom = narrow ? (innerHeight - pb.top + 8) + 'px' : '';
@@ -396,7 +397,7 @@ function render(now) {
 const particles = FX.particles();
 function renderPad() {
   if ($('padBox').classList.contains('min')) return;
-  pd = FX.fit(pad, 2); const w = pad.width, h = pad.height;
+  const w = pad.width, h = pad.height;
   if (!heat) heat = buildHeat();
   pg.imageSmoothingEnabled = true; pg.drawImage(heat, 0, 0, w, h);
   if (L.hinges === 1) { pg.fillStyle = 'rgba(2,11,9,.75)'; pg.fillRect(0, 0, w, h / 2 - 10 * pd); pg.fillRect(0, h / 2 + 10 * pd, w, h / 2 - 10 * pd); }
@@ -439,7 +440,7 @@ function hintText() {
   if (flash && performance.now() - flash[1] < 1500) return flash[0];
   return '';
 }
-let last = performance.now(), frameN = 0;
+let last = performance.now(), frameN = 0, lastStat = '';
 function frame(now) {
   requestAnimationFrame(frame);
   if (document.hidden) { last = now; return; }
@@ -455,8 +456,9 @@ function frame(now) {
   if (!won && L.test(St)) { won = true; SAVE.done[SAVE.cur] = 1; persist(); FX.sfx('win'); FX.shake(.25); particles.burst(W / 2, H / 2, { n: 120, color: ['#7dffd0', '#ffffff', '#ffd27a'], speed: 480 * dpr, life: 1.1 }); toast('✓ ' + L.n, L.lesson, 9000, true); renderGoal(); renderLevels(); }
   if (!won && !failed && L.fail && L.fail(St)) { failed = true; FX.sfx('fail'); toast('Out of ' + (L.budget ? 'energy' : 'strokes'), 'Press Reset and try a different loop.', 3500); }
   const hint = hintText();
-  $('stat').innerHTML = `strokes <b>${St.strokes.toFixed(1)}</b>${L.maxCycles ? ` / ${L.maxCycles}` : ''} · moved <b>${St.dist.toFixed(2)}</b> body lengths<br>turned <b>${(St.phi * 180 / Math.PI).toFixed(0)}°</b>${L.budget ? ` · energy <b style="color:${St.energy > L.budget ? '#ff7a7a' : '#fff'}">${St.energy.toFixed(1)}</b> / ${L.budget}` : ''}${hint ? `<br><span class="hint">${hint}</span>` : ''}`;
-  if (++frameN % 30 === 0) layout();
+  const sh = `strokes <b>${St.strokes.toFixed(1)}</b>${L.maxCycles ? ` / ${L.maxCycles}` : ''} · moved <b>${St.dist.toFixed(2)}</b> body lengths<br>turned <b>${(St.phi * 180 / Math.PI).toFixed(0)}°</b>${L.budget ? ` · energy <b style="color:${St.energy > L.budget ? '#ff7a7a' : '#fff'}">${St.energy.toFixed(1)}</b> / ${L.budget}` : ''}${hint ? `<br><span class="hint">${hint}</span>` : ''}`;
+  if (sh !== lastStat) { $('stat').innerHTML = sh; lastStat = sh; }
+  if (++frameN % 60 === 0) layout();
   render(now); renderPad();
 }
 load(Math.min(SAVE.cur || 0, LV.length - 1));

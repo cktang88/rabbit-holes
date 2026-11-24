@@ -131,15 +131,15 @@ function bfsPar(start, gens, goal = [1, 0, 0, 0]) {
 const canvas = $('gl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: !MOBILE, powerPreference: 'high-performance' });
 const DPR = Math.min(devicePixelRatio || 1, MOBILE ? 1.6 : 2);
-renderer.setPixelRatio(DPR); renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
+renderer.setPixelRatio(DPR); renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
 const scene = new THREE.Scene();
 { const c = document.createElement('canvas'); c.width = 4; c.height = 256; const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 256);
   gr.addColorStop(0, '#2a2147'); gr.addColorStop(.55, '#1a1730'); gr.addColorStop(1, '#2c1a2e'); g.fillStyle = gr; g.fillRect(0, 0, 4, 256);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; scene.background = t; }
 scene.fog = new THREE.Fog('#1c1832', 16, 34);
 const camera = new THREE.PerspectiveCamera(30, 1, .1, 100);
-scene.add(new THREE.HemisphereLight('#c8d6ff', '#3b2740', 1.1));
-const key = new THREE.DirectionalLight('#ffd7a8', 1.9); key.position.set(4, 7, 6); scene.add(key);
+scene.add(new THREE.HemisphereLight('#c8d6ff', '#3b2740', .85));
+const key = new THREE.DirectionalLight('#ffd7a8', 1.5); key.position.set(4, 7, 6); scene.add(key);
 const rim = new THREE.DirectionalLight('#8fb4ff', 1.2); rim.position.set(-5, 2, -6); scene.add(rim);
 
 // pointer handling must register before OrbitControls so we can claim drags that start on a cube
@@ -150,7 +150,7 @@ controls.addEventListener('change', () => wake(200));
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .6, .45, .88); composer.addPass(bloom);
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .55, .4, .93); composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
 // ---------- shared materials ----------
@@ -294,7 +294,7 @@ function clearWorld() {
 }
 function addExtra(m) { scene.add(m); EXTRA.push(m); return m; }
 function makeCube(pos, size, label) {
-  const mats = FACE.map(c => new THREE.MeshPhysicalMaterial({ color: c, roughness: .28, metalness: .05, clearcoat: .6, clearcoatRoughness: .35, emissive: '#ff2040', emissiveIntensity: 0 }));
+  const mats = FACE.map(c => new THREE.MeshPhysicalMaterial({ color: c, roughness: .42, metalness: .0, clearcoat: .35, clearcoatRoughness: .45, emissive: '#ff2040', emissiveIntensity: 0 }));
   const mesh = new THREE.Mesh(roundedBox(size, size * .13), mats); mesh.position.set(...pos); scene.add(mesh);
   if (label) { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); g.fillStyle = '#fff'; g.font = 'bold 44px Space Grotesk, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(label, 32, 34);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthTest: false })); sp.scale.setScalar(.38); sp.position.set(pos[0], pos[1] + size * .95, pos[2]); addExtra(sp); }
@@ -381,7 +381,7 @@ function buildMech(sat) {
   const plate = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.45, .22, 48), MAT.dark); plate.position.y = -1.78; base.add(plate);
   const col = new THREE.Mesh(new THREE.CylinderGeometry(.16, .2, .3, 20), MAT.metal); col.position.y = -1.55; base.add(col);
   const carrier = new THREE.Group(); addExtra(carrier);
-  const armMat = new THREE.MeshPhysicalMaterial({ color: '#6c5ba8', metalness: .5, roughness: .3, clearcoat: 1 });
+  const armMat = new THREE.MeshStandardMaterial({ color: '#6c5ba8', metalness: .4, roughness: .45 });
   const lo = new THREE.Mesh(new THREE.BoxGeometry(1.5, .08, .2), armMat); lo.position.set(.72, -1.04, 0); carrier.add(lo);
   const post = new THREE.Mesh(new THREE.BoxGeometry(.1, 2.5, .2), armMat); post.position.set(1.52, .14, 0); carrier.add(post);
   const hi = new THREE.Mesh(new THREE.BoxGeometry(1.5, .08, .2), armMat); hi.position.set(.72, 1.42, 0); carrier.add(hi);
@@ -434,9 +434,10 @@ function stepQueue(dt) {
     const p = c.o.pos; burst(p[0], p[1], p[2], 8, '#ffd08a', 1.6, .4); if (!queue.length) onMovesSettled(); }
 }
 function flushQueue() { // finish all pending animation instantly (scripted tests)
+  const had = intro || !!cur || queue.length > 0;
   if (cur) { const c = cur; cur = null; const rem = c.ang * (1 - c.e); rotateBy(c.o, c.ax, rem); setExact(c.o, qmul(qaa(c.ax, c.ang), c.q0)); }
   while (queue.length) { const c = queue.shift(), q0 = [...c.o.q]; rotateBy(c.o, c.ax, c.ang); setExact(c.o, qmul(qaa(c.ax, c.ang), q0)); }
-  intro = false;
+  if (had) onMovesSettled();
 }
 const busy = () => !!cur || queue.length > 0 || relax.on || intro;
 
@@ -562,7 +563,7 @@ function placeCamera(c) { const asp = innerWidth / innerHeight, k = FX.clamp(1.0
 
 // ---------- golf ----------
 function setupHole() {
-  const h = L.holes[golf.hole]; golf.target = qnorm(seqQ(h)); golf.par = bfsPar([1, 0, 0, 0], gensOf(L), golf.target); golf.strokes = 0;
+  const h = L.holes[golf.hole]; golf.target = qnorm(seqQ(h)); golf.par = bfsPar([1, 0, 0, 0], gensOf(L), golf.target); golf.strokes = 0; golf.matched = false;
   if (ghost) { scene.remove(ghost); disposeTree(ghost); EXTRA.splice(EXTRA.indexOf(ghost), 1); }
   ghost = homeGhost(OBJ[0], golf.target, signOf(golf.target) === '−' ? '#ff7a7a' : '#7fe8b0', .8);
 }
@@ -588,7 +589,7 @@ function resetState() { // put the level back to its start (no intro animation)
   wake(500); renderCtrl(); renderGoal();
 }
 function userMove(tok) {
-  if (won && !L.free) return; if (intro || relax.on) return;
+  if (won && !L.free) return; if (relax.on || (bet && bet.phase !== 'idle' && intro)) return; if (intro) flushQueue();
   const p = parseTok(tok); if (!p) return; const oi = p.o ?? sel;
   if (L.objs && !L.objs.includes(oi)) { msg('That cube is locked'); return; }
   if (L.maxMoves && userMoves.length >= L.maxMoves) { FX.sfx('fail'); msg('Out of moves. Press reset.'); return; }
@@ -625,7 +626,9 @@ function check(ev) {
     return;
   }
   if (golf) {
+    if (golf.matched) return;
     if (qdot(OBJ[0].q, golf.target) > Math.cos(.07)) { // matched, sign included
+      golf.matched = true;
       golf.results.push([golf.strokes, golf.par]); golf.total += golf.strokes; FX.sfx('coin'); FX.hitstop(60); burstAll('#7fe8b0', 60);
       toast(golf.strokes <= golf.par ? (golf.strokes < golf.par ? 'Birdie!' : 'Par') : `+${golf.strokes - golf.par}`, `Hole ${golf.hole + 1}: ${golf.strokes} strokes (par ${golf.par})`, 1800);
       if (golf.hole + 1 >= L.holes.length) { const par = golf.results.reduce((a, r) => a + r[1], 0); setTimeout(() => winLevel(['Clubhouse', `${golf.total} strokes, par ${par}.`], golf.total - par), 900); }
@@ -659,7 +662,7 @@ function toast(big, small, ms = 5000) { const t = $('toast'); t.innerHTML = (big
 const maxOpen = () => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; };
 function renderLevels() {
   const mo = maxOpen();
-  $('levels').innerHTML = '<h4>Levels</h4>' + LV.map((l, i) => `<div class="lv ${i === LI ? 'cur' : ''} ${i > mo && !SAVE.done[i] && !l.free ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><em>${SAVE.done[i] ? '★'.repeat(SAVE.done[i]) : ''}</em></div>`).join('') + (SAVE.done[3] ? '<div class="lv" data-why="1"><span>❓ Why does this happen?</span></div>' : '');
+  $('levels').innerHTML = '<h4>Levels</h4>' + LV.map((l, i) => `<div class="lv ${i === LI ? 'cur' : ''} ${i > mo && i !== LI && !SAVE.done[i] && !l.free ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><em>${SAVE.done[i] ? '★'.repeat(SAVE.done[i]) : ''}</em></div>`).join('') + (SAVE.done[3] ? '<div class="lv" data-why="1"><span>❓ Why does this happen?</span></div>' : '');
   $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { FX.sfx('click'); $('levels').classList.remove('open'); if (el.dataset.why) return coda(); loadLevel(+el.dataset.i); });
   $('lvbtn').textContent = `☰ ${LI + 1}/${LV.length}`;
 }
@@ -900,7 +903,7 @@ function frame(now) {
 // ======================================================================
 window.__belt = {
   LV, G48, bfsPar, seqQ,
-  solve(start, gens, goal = [1, 0, 0, 0]) { const gq = gens.map(tokQ), gk = qkey(goal), prev = new Map([[qkey(start), null]]); let fr = [start];
+  solve(start, gens, goal = [1, 0, 0, 0]) { const gq = gens.map(tokQ), gk = qkey(goal), prev = new Map([[qkey(start), null]]); let fr = [start]; if (qkey(start) === gk) return [];
     while (fr.length) { const nf = []; for (const q of fr) for (let i = 0; i < gq.length; i++) { const r = qnorm(qmul(gq[i], q)), k = qkey(r); if (prev.has(k)) continue; prev.set(k, [qkey(q), gens[i]]); nf.push(r);
       if (k === gk) { const path = []; let c = k; while (prev.get(c)) { path.unshift(prev.get(c)[1]); c = prev.get(c)[0]; } return path; } } fr = nf; } return null; },
   level: i => { loadLevel(i); flushQueue(); },

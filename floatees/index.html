@@ -44,7 +44,7 @@
     #levels{display:none} #lvsel{display:block}
     #hud{left:8px;right:8px;top:8px;width:auto;padding:10px 12px;max-height:38vh;overflow:auto}
     #hud h1{font-size:21px;margin:2px 0} #story{font-size:13px;line-height:1.4} #goal{margin-top:6px;padding:6px 10px;font-size:12px}
-    #ctrl{bottom:8px;padding:6px;gap:4px;max-width:calc(100vw - 16px)} #ctrl .sep{display:none} #ctrl .b{padding:6px 8px}
+    #ctrl{bottom:8px;left:8px;right:8px;transform:none;padding:6px;gap:4px;max-width:none} #ctrl .sep{display:none} #ctrl .b{padding:6px 8px}
     #tally{right:8px;width:170px;padding:8px 10px;font-size:11.5px;line-height:1.45}
     #toast{font-size:30px;max-width:92vw} #toast small{font-size:13px}
   }
@@ -104,7 +104,7 @@ function* solveGen(rot) {
     }
     if (!(mx < 1e6)) { omega = 1; psi.fill(0); for (let k = 0; k < NG; k++) if (LANDG[k] && (k / GW | 0) > GH * .75) psi[k] = 6; continue; } // safety: fall back to Gauss-Seidel
     if (md < TOL * mx) break;
-    if ((it & 7) === 7) yield;
+    if ((it & 3) === 3) yield;
   }
   const U = new Float32Array(NG), V = new Float32Array(NG), SP = new Float32Array(NG); let vmax = 0;
   for (let j = 1; j < GH - 1; j++) { const dx = Math.cos(glat(j)); for (let i = 0; i < GW; i++) { const k = j * GW + i; if (LANDG[k]) continue;
@@ -207,14 +207,14 @@ function* paintBaseGen() {
         opix[no] = o; ogrid[no] = Math.min(GH - 1, (y / TH * GH) | 0) * GW + Math.min(GW - 1, (x / TW * GW) | 0); no++;
       }
     }
-    if ((y & 31) === 31) yield;
+    if ((y & 7) === 7) yield;
   }
   OPIX = opix.slice(0, no); OGRID = ogrid.slice(0, no); baseReady = true;
 }
 function* paintState(st) { // brighten the ocean where the current runs fast; ~10× cheaper than repainting from scratch
   const c = document.createElement('canvas'); c.width = TW; c.height = TH; const g = c.getContext('2d'), im = g.createImageData(TW, TH), d = im.data;
   d.set(BASE); const k = 2.2 * VS / 260; yield;
-  for (let n = 0; n < OPIX.length; n++) { const o = OPIX[n], s = Math.min(1, st.SP[OGRID[n]] * k); d[o] += s * 40; d[o + 1] += s * 85; d[o + 2] += s * 80; if ((n & 262143) === 262143) yield; }
+  for (let n = 0; n < OPIX.length; n++) { const o = OPIX[n], s = Math.min(1, st.SP[OGRID[n]] * k); d[o] += s * 40; d[o + 1] += s * 85; d[o + 2] += s * 80; if ((n & 65535) === 65535) yield; }
   g.putImageData(im, 0, 0);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MOBILE ? 2 : 8; st.tex = t;
 }
@@ -228,20 +228,20 @@ const atmo = new THREE.Mesh(new THREE.SphereGeometry(1.06, 64, 48), new THREE.Sh
 scene.add(atmo);
 
 // ================= background work: sliced so the page never freezes =================
-const jobs = []; const perf = { solve: {}, paint: {}, slices: [] };
+const jobs = []; const perf = { cpu: {}, slices: [] }; // perf: CPU ms per job, and the length of each work slice
 function pump() {
   const t0 = performance.now();
-  while (jobs.length && performance.now() - t0 < 8) { const j = jobs[0], r = j.it.next(); if (r.done) { jobs.shift(); j.done && j.done(r.value); } }
+  while (jobs.length && performance.now() - t0 < 8) { const j = jobs[0], a = performance.now(), r = j.it.next(); const dd = performance.now() - a; j.cpu = (j.cpu || 0) + dd; j.mx = Math.max(j.mx || 0, dd); if (r.done) { jobs.shift(); perf.cpu[j.rot] = +j.cpu.toFixed(1); perf.maxStep = Object.assign(perf.maxStep || {}, { [j.rot]: +j.mx.toFixed(1) }); j.done && j.done(r.value); } }
   perf.slices.push(performance.now() - t0); if (perf.slices.length > 200) perf.slices.shift();
   if (jobs.length) setTimeout(pump, 0);
 }
 function enqueue(job, front) { front ? jobs.unshift(job) : jobs.push(job); if (jobs.length === 1) setTimeout(pump, 0); }
 function* oceanJob(r) {
   while (!baseReady) yield;
-  const t0 = performance.now(); const st = yield* solveGen(r); perf.solve[r] = performance.now() - t0;
+  const st = yield* solveGen(r);
   if (r === 1) VS = 260 / st.vmax; // one fixed scale: every planet feels the same wind, so speeds compare honestly
   else while (!OCEAN[1]) yield;
-  const t1 = performance.now(); yield* paintState(st); perf.paint[r] = performance.now() - t1;
+  yield* paintState(st);
   return st;
 }
 function ensureOcean(r, cb) {
@@ -295,8 +295,8 @@ globe.add(patchRing); patchRing.visible = false;
 const MAXD = 600, dGeo = new THREE.BufferGeometry(), dPos = new Float32Array(MAXD * 3), dCol = new Float32Array(MAXD * 3);
 dGeo.setAttribute('position', new THREE.BufferAttribute(dPos, 3)); dGeo.setAttribute('color', new THREE.BufferAttribute(dCol, 3));
 const dot = (inner, outer) => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, '#fff'); gr.addColorStop(inner, 'rgba(255,255,255,.95)'); gr.addColorStop(outer, 'rgba(255,255,255,.25)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); };
-const duckPts = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .05, map: dot(.45, .7), vertexColors: true, transparent: true, depthWrite: false }));
-const duckHalo = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .12, map: dot(.05, .3), color: '#ffd23a', transparent: true, opacity: .35, blending: THREE.AdditiveBlending, depthWrite: false }));
+const duckPts = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .06, map: dot(.45, .7), vertexColors: true, transparent: true, depthWrite: false }));
+const duckHalo = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .15, map: dot(.05, .3), color: '#ffd23a', transparent: true, opacity: .45, blending: THREE.AdditiveBlending, depthWrite: false }));
 globe.add(duckHalo); globe.add(duckPts); dGeo.setDrawRange(0, 0);
 function drop(lat, lon, n = 100) {
   if (L.free && ducks.length + n > MAXD) { // recycle: beached ducks first, then the oldest still afloat
@@ -307,7 +307,7 @@ function drop(lat, lon, n = 100) {
   }
   for (let i = 0; i < n && ducks.length < MAXD; i++) ducks.push({ lat: lat + (Math.random() - .5) * 1.5, lon: lon + (Math.random() - .5) * 1.5, beached: null, lap: 0, bt: 0 });
   won = false; resolved = false; // every drop is a fresh attempt
-  running = true; FX.sfx('pop'); FX.sfx('whoosh'); renderCtrl();
+  running = true; duckDirty = true; FX.sfx('pop'); FX.sfx('whoosh'); renderCtrl();
 }
 function moveDucks(dtYears) {
   if (!CU) return;
@@ -433,7 +433,7 @@ function toast(big, small, ms = 6000, next = false) {
 // ================= loop =================
 function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); layout(); }
 addEventListener('resize', resize); resize();
-let last = performance.now(), tallyT = 0, duckDirty = true;
+let last = performance.now(), tallyT = 0, duckDirty = true, drawnN = -1;
 const cen = new THREE.Vector3(), tmpV = new THREE.Vector3();
 document.addEventListener('visibilitychange', () => { last = performance.now(); });
 function frame(now) {
@@ -446,20 +446,20 @@ function frame(now) {
     const dy = dt * .08 * speed; simT = Math.min(L.years, simT + dy); moveDucks(dy); duckDirty = true;
     if (simT >= L.years) { running = false; renderCtrl(); }
   }
-  if (duckDirty) { updateDuckGeo(); duckDirty = false; }
+  if (duckDirty || ducks.length !== drawnN) { updateDuckGeo(); duckDirty = false; drawnN = ducks.length; }
   if (!running && ducks.length === 0) globe.rotation.y += dt * .03;
   if (follow && ducks.length) { // ease the camera towards the flock
     cen.set(0, 0, 0); let n = 0; for (let i = 0; i < ducks.length; i++) if (!ducks[i].beached) { cen.x += dPos[i * 3]; cen.y += dPos[i * 3 + 1]; cen.z += dPos[i * 3 + 2]; n++; }
     if (n && cen.lengthSq() > 1e-6) { globe.localToWorld(cen); const dist = camera.position.length(); tmpV.copy(cen).normalize().multiplyScalar(dist); camera.position.lerp(tmpV, 1 - Math.exp(-dt * 1.5)).setLength(dist); }
   }
-  tallyT += dt; if (tallyT > .2) { tallyT = 0; const S = stats(); renderTally(S); check(S); }
+  tallyT += dt; if (tallyT > .2) { tallyT = 0; const S = stats(); renderTally(S); check(S); layout(); }
   controls.update(); renderer.render(scene, camera);
 }
 function win() { won = true; SAVE.done[SAVE.cur] = 1; persist(); FX.sfx('win'); FX.shake(.3); renderGoal(); renderLevels(); toast('✓ ' + L.n, LESSON[SAVE.cur] || '', 9000, true); }
 function check(S) {
   if (won || resolved || L.free || !ducks.length) return;
   if (L.bet) { // judged by the first duck ashore, as the question asks
-    if (S.first) { if (S.first === bet) win(); else { resolved = true; FX.sfx('fail'); toast('Not this time', `The first duck came ashore in <b>${REG[S.first].n}</b> after ${(S.firstT * 12).toFixed(0)} months. Try again.`, 5000); } }
+    if (S.first) { if (S.first === bet) win(); else { resolved = true; FX.sfx('fail'); toast('Not this time', `The first duck came ashore in <b>${REG[S.first].n}</b> after ${(S.firstT * 12).toFixed(0)} months. (In 30 runs of this model, North America came first every time.) Try again.`, 6000); } }
     else if (simT >= L.years) { resolved = true; toast('No landfall yet', 'Two years and every duck is still at sea. Try again.', 4000); }
     return;
   }
