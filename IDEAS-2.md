@@ -70,3 +70,20 @@ Boids toy. Shallow. Cut.
 3. **Escapement**: built (`escapement/`). 28 commissions in 4 acts, all verified to reach 3 stars.
 
 New experiments go in their own folders and appear in a second hub section ("Round 2"), so they don't collide with ongoing finalist work.
+
+---
+
+# Round 3
+
+## M. Parish
+**Premise:** Descendants overseas write to you, the village genealogist. Trace their ancestors through 100 years of a parish register: baptisms, marriages and burials, in a clerk's handwriting habits.
+**Core loop:** A family-history commission is a chain of tasks ("find the marriage of Mary's parents", "find the groom's baptism", "find his burial"). Each answer is a record you pick out of about 2,000. The register is simulated from a living village, so names repeat across cousins, children are named after siblings who died, ages at burial are approximate, surnames are spelt three ways, and some years are lost.
+**Depth engine:** About 24 commissions in 4 tiers, each generated so that its answer is *uniquely deducible* (a checker proves that only the true record survives the constraints a careful genealogist would apply) while being ambiguous on name alone. When the parish runs out, a new seed generates a new village.
+**Wow moment:** Three John Coopers were baptised within six years. You rule one out with a burial aged 2, another with a marriage the year before, and the third fits.
+**Verdict:** **BUILD.** Deduction under uncertainty (a gap in the set), a real-world obsession (genealogy), and infinite procedural content. Risk: unsolvable questions; mitigated by the uniqueness checker.
+
+## N. Kepler's Notebook (revisited)
+Parked again. Better as a guided course than a sandbox.
+
+## O. Polyrhythm Garden (revisited)
+Still parked. The music gap stays open; the best bet is a later "phase music" toy.

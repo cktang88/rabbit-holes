@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Parish</title>
+<link rel="stylesheet" href="../shared/common.css">
+<link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  body{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  main{flex:1;display:flex;min-height:0}
+  #side{width:230px;border-right:1px solid var(--line);background:var(--panel);overflow:auto;padding:10px}
+  .tier{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);margin:12px 4px 4px;display:flex;justify-content:space-between}
+  .tier.locked{color:var(--dim)}
+  .cm{display:flex;justify-content:space-between;gap:6px;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:13px}
+  .cm:hover{background:var(--panel2)}
+  .cm.cur{background:var(--panel2);outline:1px solid var(--accent)}
+  .cm.locked{opacity:.35;cursor:default}
+  .cm .st{color:var(--accent);font-size:11px;white-space:nowrap}
+  #reg{flex:1;display:flex;flex-direction:column;min-width:0;background:#15130f}
+  .search{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px 12px;border-bottom:1px solid #3a3224;background:#1b1813;font-size:13px}
+  .search input{width:110px}
+  .search input[type=checkbox]{width:auto;padding:0}
+  .search label{display:flex;align-items:center;gap:3px;color:var(--dim)}
+  .modes{display:flex;gap:4px}
+  .modes button.on{border-color:var(--accent);color:var(--accent)}
+  #book{flex:1;overflow:auto;padding:10px 18px 40px}
+  .page{max-width:820px;margin:0 auto;background:#e9dfc8;color:#2b2014;border-radius:4px;padding:16px 22px;box-shadow:0 8px 30px #000a;font-family:"IM Fell English",Georgia,serif}
+  .page h3{font-weight:400;text-align:center;font-size:22px;margin:4px 0 10px;letter-spacing:.04em}
+  .sec{font-style:italic;text-align:center;margin:12px 0 4px;color:#6b5636;font-size:15px}
+  .rec{display:flex;gap:10px;padding:3px 6px;border-radius:3px;cursor:pointer;font-size:16.5px;line-height:1.35}
+  .rec:hover{background:#d9cba9}
+  .rec.sel{background:#f4c96b;box-shadow:0 0 0 1px #a17416}
+  .rec.done{background:#c8dfb7}
+  .rec .dt{flex:0 0 70px;color:#6b5636}
+  .rec .ty{flex:0 0 18px;color:#8a6a3a}
+  .rec .tx{flex:1}
+  .rec .pin{opacity:.5}
+  .lost{text-align:center;font-style:italic;color:#8a6a3a;padding:20px}
+  .nav{display:flex;justify-content:center;gap:8px;align-items:center;margin:10px 0}
+  #right{width:370px;border-left:1px solid var(--line);background:var(--panel);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+  .letter{background:#e9dfc8;color:#2b2014;font-family:"IM Fell English",Georgia,serif;font-size:15.5px;line-height:1.45;padding:12px 14px;border-radius:4px}
+  .task{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;background:var(--panel2)}
+  .task.active{border-color:var(--accent)}
+  .task.done{border-color:#2c5a3b;background:#17221b}
+  .task.locked{opacity:.4}
+  .task .ans{font-family:"IM Fell English",Georgia,serif;font-size:14px;color:#c8dfb7;margin-top:4px}
+  .selbox{border:1px dashed var(--accent);border-radius:8px;padding:8px;font-size:13px}
+  .selbox .txt{font-family:"IM Fell English",Georgia,serif;font-size:15px;margin:4px 0 8px}
+  .pins .p{display:flex;justify-content:space-between;gap:6px;font-size:12px;padding:3px 0;border-bottom:1px solid #222a38;cursor:pointer}
+  textarea{width:100%;height:110px;font-size:12px;font-family:ui-monospace,monospace;resize:vertical}
+  .note{font-size:12px;color:var(--dim);line-height:1.45}
+  .h{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim)}
+  mark{background:#f4c96b;color:inherit;padding:0 1px}
+  @media (max-width:1000px){#side{display:none}}
+</style>
+</head>
+<body>
+<div class="topbar"><a class="home" href="../">← Rabbit Holes</a><h1>⛪ Parish</h1><span class="spacer"></span><span class="dim small" id="totals"></span><button id="newParish" title="A new village with a new register">New parish</button><button id="helpBtn">?</button></div>
+<main>
+  <div id="side"></div>
+  <div id="reg">
+    <div class="search">
+      <span class="modes"><button id="mBook" class="on">📖 Book</button><button id="mIdx">🔎 Index</button></span>
+      <input id="qG" placeholder="Given name"><input id="qS" placeholder="Surname">
+      <label title="Match surnames that sound alike (Soundex), so Cooper also finds Couper"><input type="checkbox" id="qSx" checked> sounds-like</label>
+      <label><input type="checkbox" id="qB" checked>Bap</label><label><input type="checkbox" id="qM" checked>Mar</label><label><input type="checkbox" id="qD" checked>Bur</label>
+      <input id="qY0" placeholder="from yr" style="width:70px"><input id="qY1" placeholder="to yr" style="width:70px">
+    </div>
+    <div id="book"></div>
+  </div>
+  <div id="right"></div>
+</main>
+<script src="../shared/common.js"></script>
+<script>
+'use strict';
+// ================= simulation =================
+const YD = 365.25, Y0 = 1650, REG0 = 1700, REG1 = 1800;
+const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const dayToDate = d => { const t = new Date(Date.UTC(Y0, 0, 1) + Math.floor(d) * 864e5); return { y: t.getUTCFullYear(), m: t.getUTCMonth(), d: t.getUTCDate() }; };
+const fmtD = d => { const x = dayToDate(d); return `${x.d} ${MN[x.m]} ${x.y}`; };
+const yearOf = d => dayToDate(d).y;
+const yrs = n => n * YD;
+
+const GM = ['John','William','Thomas','James','Richard','Robert','Joseph','George','Edward','Henry','Samuel','Charles'];
+const GF = ['Mary','Elizabeth','Ann','Sarah','Jane','Margaret','Hannah','Martha','Susanna','Alice','Catherine','Frances'];
+const WM = [20, 18, 14, 10, 7, 6, 6, 5, 4, 4, 3, 3], WF = [20, 17, 15, 10, 8, 7, 6, 5, 4, 3, 3, 2];
+const ABBR = { William: 'Wm', John: 'Jno', Thomas: 'Thos', James: 'Jas', Richard: 'Richd', Robert: 'Robt', Joseph: 'Jos', George: 'Geo', Edward: 'Edwd', Charles: 'Chas', Samuel: 'Saml', Elizabeth: 'Eliz', Margaret: 'Margt', Catherine: 'Cath', Susanna: 'Susan' };
+const UNABBR = Object.fromEntries(Object.entries(ABBR).map(([a, b]) => [b.toLowerCase(), a]));
+const SUR = [['Cooper','Couper'],['Smith','Smyth'],['Thatcher','Thacher'],['Baker'],['Fletcher','Flecher'],['Turner'],['Walker','Waker'],['Harris','Harries'],['Wright','Write','Right'],['Hughes','Hewes'],['Allen','Allin','Allan'],['Webb','Web'],['Barker'],['Hobbs','Hobbes'],['Pearce','Pierce','Pearse'],['Price','Pryce'],['Shepherd','Sheppard','Shepard'],['Mason'],['Cox','Cocks'],['Gardner','Gardiner'],['Phillips','Philips'],['Moore','More'],['Kemp'],['Lambert']];
+const CANON = {}; SUR.forEach(v => v.forEach(s => CANON[s.toLowerCase()] = v[0]));
+const canon = s => CANON[(s || '').toLowerCase()] || s;
+const OCC = ['labourer','labourer','labourer','husbandman','weaver','blacksmith','carpenter','yeoman','shoemaker','tailor','miller','mason','thatcher','shepherd'];
+const PLACES = ['Ashby','Kirton','Lowfield','Market Harrow','Stoke Abbas','Wendle','Brayford','Othery'];
+const VILLAGES = ['Little Wenham','Ashcombe','Kingsbury Episcopi','Thornley','Saxby St Mary','Hollowell','Upper Swell','Chilton Foliat','Broadwater','Fenny Compton'];
+
+function soundex(s) {
+  s = (s || '').toUpperCase().replace(/[^A-Z]/g, ''); if (!s) return '';
+  const code = { B: 1, F: 1, P: 1, V: 1, C: 2, G: 2, J: 2, K: 2, Q: 2, S: 2, X: 2, Z: 2, D: 3, T: 3, L: 4, M: 5, N: 5, R: 6 };
+  let out = s[0], last = code[s[0]] || 0;
+  for (let i = 1; i < s.length && out.length < 4; i++) { const c = code[s[i]] || 0; if (c && c !== last) out += c; if (s[i] !== 'H' && s[i] !== 'W') last = c; }
+  return (out + '000').slice(0, 4);
+}
+
+function simulate(seed) {
+  const r = RH.rng('parish:' + seed);
+  const wpick = (arr, w) => { const t = w.reduce((a, b) => a + b, 0); let x = r() * t; for (let i = 0; i < arr.length; i++) { x -= w[i]; if (x < 0) return arr[i]; } return arr[0]; };
+  const P = [];
+  const mk = o => { const p = { id: P.length, sex: 'M', given: '', sur: '', cur: '', born: 0, father: -1, mother: -1, spouse: -1, spouses: [], died: null, left: null, outsider: 0, occ: null, kids: [], lastBirth: -1e9, ...o }; P.push(p); return p; };
+  const famSur = SUR.map(v => v[0]);
+  const marriages = []; // {g, b, d, gWid, bWid, bSurAtMar, of}
+  // founders
+  for (let i = 0; i < 42; i++) {
+    const s = famSur[i % famSur.length];
+    const h = mk({ sex: 'M', given: wpick(GM, WM), sur: s, cur: s, born: -yrs(20 + r() * 18), outsider: 1, occ: r.pick(OCC) });
+    const ws = r.pick(famSur);
+    const w = mk({ sex: 'F', given: wpick(GF, WF), sur: ws, cur: s, born: -yrs(18 + r() * 15), outsider: 1 });
+    h.spouse = w.id; w.spouse = h.id; h.spouses.push(w.id); w.spouses.push(h.id);
+    marriages.push({ g: h.id, b: w.id, d: -yrs(r() * 8), pre: 1 });
+  }
+  const alive = p => p.died === null && p.left === null;
+  const age = (p, d) => (d - p.born) / YD;
+  const q = a => a < 1 ? .16 : a < 5 ? .03 : a < 15 ? .007 : a < 45 ? .012 : a < 65 ? .026 : a < 75 ? .065 : .16;
+  const sibs = (f, m) => P.filter(x => x.father === f && x.mother === m);
+  const nameFor = (f, m, sex) => {
+    const F = P[f], M = P[m], kids = sibs(f, m).filter(k => k.sex === sex), n = kids.length;
+    const gpF = sex === 'M' ? P[F.father] : P[F.mother], gpM = sex === 'M' ? P[M.father] : P[M.mother];
+    const prefs = sex === 'M' ? [gpF?.given, gpM?.given, F.given] : [gpM?.given, gpF?.given, M.given];
+    const living = new Set(kids.filter(alive).map(k => k.given));
+    // necronym: a child who died young often has the name re-used
+    const deadName = kids.filter(k => k.died !== null).map(k => k.given).find(g => !living.has(g));
+    if (deadName && r() < .6) return deadName;
+    for (let i = n; i < prefs.length; i++) if (prefs[i] && !living.has(prefs[i]) && r() < .75) return prefs[i];
+    let g; do g = wpick(sex === 'M' ? GM : GF, sex === 'M' ? WM : WF); while (living.has(g) && r() < .95);
+    return g;
+  };
+  for (let y = Y0; y < REG1; y++) {
+    const ys = (y - Y0) * YD;
+    const pop = P.filter(alive);
+    // deaths & migration
+    for (const p of pop) {
+      const d = ys + r() * YD; if (d < p.born) continue;
+      const a = age(p, d);
+      if (r() < q(a)) { p.died = d; if (p.spouse >= 0) P[p.spouse].spouse = -1; continue; }
+      if (a > 16 && a < 32 && p.spouse < 0 && r() < (pop.length > 420 ? .07 : .02)) p.left = d;
+    }
+    // marriages
+    const singleM = P.filter(p => alive(p) && p.sex === 'M' && p.spouse < 0 && age(p, ys) >= 21 && age(p, ys) < 55);
+    for (const m of singleM) {
+      if (r() > (m.spouses.length ? .35 : .22)) continue;
+      const d = ys + r() * YD;
+      const pool = P.filter(w => alive(w) && w.sex === 'F' && w.spouse < 0 && age(w, d) >= 19 && age(w, d) < (m.spouses.length ? 45 : 36) && w.father !== m.father | m.father < 0 && w.id !== m.mother);
+      let w;
+      if (pool.length && r() < .82) w = r.pick(pool);
+      else w = mk({ sex: 'F', given: wpick(GF, WF), sur: r.pick(famSur), cur: '', born: d - yrs(20 + r() * 8), outsider: 1, from: r.pick(PLACES) });
+      const rec = { g: m.id, b: w.id, d, gWid: m.spouses.length > 0, bWid: w.spouses.length > 0, bSur: w.cur || w.sur, of: w.from || null };
+      if (w.from) w.from = null;
+      marriages.push(rec);
+      m.spouse = w.id; w.spouse = m.id; m.spouses.push(w.id); w.spouses.push(m.id); w.cur = m.cur;
+    }
+    // occupations
+    for (const p of pop) if (p.sex === 'M' && !p.occ && age(p, ys) >= 16) p.occ = p.father >= 0 && r() < .6 ? P[p.father].occ : r.pick(OCC);
+    // births
+    const wives = P.filter(w => alive(w) && w.sex === 'F' && w.spouse >= 0 && age(w, ys) >= 18 && age(w, ys) < 45);
+    for (const w of wives) {
+      if (r() > .34) continue;
+      const d = ys + r() * YD; if (d - w.lastBirth < 400) continue;
+      const h = P[w.spouse]; if (!alive(h)) continue;
+      const sex = r() < .51 ? 'M' : 'F';
+      const c = mk({ sex, given: nameFor(h.id, w.id, sex), sur: h.cur, cur: h.cur, born: d, father: h.id, mother: w.id });
+      w.lastBirth = d; h.kids.push(c.id); w.kids.push(c.id);
+    }
+  }
+  return { P, marriages, r };
+}
+
+// ================= the register =================
+function buildRegister(seed) {
+  const { P, marriages, r } = simulate(seed);
+  const lostY0 = 1735 + r.int(20), lostY1 = lostY0 + 2 + r.int(2);
+  const inReg = d => { const y = yearOf(d); return y >= REG0 && y < REG1 && !(y >= lostY0 && y <= lostY1); };
+  const spell = s => { const v = SUR.find(x => x[0] === s); return v && v.length > 1 && r() < .3 ? r.pick(v.slice(1)) : s; };
+  const R = [];
+  const add = o => { o.id = R.length; R.push(o); return o; };
+  // baptisms
+  for (const p of P) {
+    if (p.outsider || p.father < 0) continue;
+    const d = p.born + r.int(28);
+    if (!inReg(d)) continue;
+    const F = P[p.father], M = P[p.mother];
+    p.bap = add({ t: 'B', d, g: p.given, sex: p.sex, fg: F.given, fs: spell(F.cur), mg: M.given, ms: yearOf(d) >= 1755 && r() < .55 ? spell(M.sur) : null, occ: r() < .7 ? F.occ : null, pid: p.id, f: F.id, m: M.id }).id;
+  }
+  // marriages
+  for (const m of marriages) {
+    if (m.pre || !inReg(m.d)) continue;
+    const G = P[m.g], B = P[m.b];
+    m.rec = add({ t: 'M', d: m.d, gg: G.given, gs: spell(G.cur), gst: m.gWid ? 'widower' : 'bachelor', bg: B.given, bs: spell(m.bSur), bst: m.bWid ? 'widow' : 'spinster', of: m.of, groom: G.id, bride: B.id }).id;
+  }
+  // burials
+  for (const p of P) {
+    if (p.died === null) continue;
+    const d = p.died + 1 + r.int(4); if (!inReg(d)) continue;
+    const a = (p.died - p.born) / YD;
+    let age = null, about = false;
+    if (a < 1) age = 0;
+    else if (a < 16 || r() < .78) { age = Math.floor(a); if (a >= 16) { const n = r(); if (n < .25) age += r.pick([-2, -1, 1, 2]); else if (n < .32) { age = Math.round(a / 5) * 5; about = true; } } }
+    let rel = null;
+    if (a < 16 && p.father >= 0) rel = { k: p.sex === 'M' ? 'son' : 'dau', fg: P[p.father].given, fs: spell(P[p.father].cur) };
+    else if (p.sex === 'F' && p.spouses.length) { const h = P[p.spouses[p.spouses.length - 1]]; rel = { k: h.died !== null && h.died < p.died ? 'widow' : 'wife', hg: h.given }; }
+    p.bur = add({ t: 'D', d, g: p.given, s: spell(p.cur), age, about, rel, occ: p.sex === 'M' && a >= 16 && r() < .6 ? p.occ : null, pid: p.id }).id;
+  }
+  R.sort((a, b) => a.d - b.d); R.forEach((x, i) => x.id = i);
+  // remap ids after sort
+  const byPid = {}; R.forEach(x => { if (x.t === 'B') (byPid[x.pid] ||= {}).bap = x.id; if (x.t === 'D') (byPid[x.pid] ||= {}).bur = x.id; });
+  P.forEach(p => { p.bap = byPid[p.id]?.bap; p.bur = byPid[p.id]?.bur; });
+  const marRec = {}; R.forEach(x => { if (x.t === 'M') marRec[x.groom + ':' + x.bride] = x.id; });
+  return { P, R, lostY0, lostY1, marRec, village: VILLAGES[r.int(VILLAGES.length)] };
+}
+
+// ================= deduction model =================
+// Each task kind lists the records a careful genealogist could not rule out, using only what the anchor records say.
+const sameSur = (a, b) => canon(a) === canon(b);
+function bornFromBurial(b) { return b.age == null ? null : b.d - (b.age + .5) * YD; }
+function deadBefore(R, c, before) {
+  // a burial that plausibly is this baptised child, before the date we know they were alive
+  return R.some(b => b.t === 'D' && b.d < before && b.d > c.d && b.g === c.g && sameSur(b.s, c.fs) && (
+    (b.rel && (b.rel.k === 'son' || b.rel.k === 'dau') && b.rel.fg === c.fg && (b.age == null || Math.abs(bornFromBurial(b) - c.d) < yrs(1.5))) ||
+    (!b.rel && b.age != null && Math.abs(bornFromBurial(b) - c.d) < yrs(2.5))));
+}
+const WHY = {
+  name: 'The names do not match.', sex: 'Wrong sex.', type: 'Wrong kind of record.',
+  early: 'Too early to fit.', late: 'Too late to fit.', dead: 'This child was buried before the date we know they were alive.',
+  age: 'The age at burial does not fit the baptism.', rel: 'The burial says whose relative this was, and it is someone else.', maiden: "The bride's surname does not match the mother's maiden name.",
+};
+const KIND = {
+  // parents' marriage, from a baptism
+  A: { fits: (R, c, k) => {
+      const b = R[k.a];
+      if (c.t !== 'M') return 'type';
+      if (c.gg !== b.fg || !sameSur(c.gs, b.fs) || c.bg !== b.mg) return 'name';
+      if (b.ms && !sameSur(c.bs, b.ms)) return 'maiden';
+      if (c.d > b.d) return 'late'; if (c.d < b.d - yrs(26)) return 'early';
+      return null; } },
+  // groom's baptism, from a marriage
+  B: { fits: (R, c, k) => {
+      const m = R[k.a]; if (c.t !== 'B') return 'type'; if (c.sex !== 'M') return 'sex';
+      if (c.g !== m.gg || !sameSur(c.fs, m.gs)) return 'name';
+      if (c.d > m.d - yrs(16)) return 'late'; if (c.d < m.d - yrs(55)) return 'early';
+      if (deadBefore(R, c, m.d)) return 'dead'; return null; } },
+  // bride's baptism, from a marriage (spinster)
+  C: { fits: (R, c, k) => {
+      const m = R[k.a]; if (c.t !== 'B') return 'type'; if (c.sex !== 'F') return 'sex';
+      if (c.g !== m.bg || !sameSur(c.fs, m.bs)) return 'name';
+      if (c.d > m.d - yrs(14)) return 'late'; if (c.d < m.d - yrs(46)) return 'early';
+      if (deadBefore(R, c, m.d)) return 'dead'; return null; } },
+  // groom's burial, from his marriage + baptism
+  D: { fits: (R, c, k) => {
+      const m = R[k.a], b = R[k.b]; if (c.t !== 'D') return 'type';
+      if (c.g !== m.gg || !sameSur(c.s, m.gs)) return 'name';
+      if (c.rel) return 'rel';
+      if (c.d < k.after) return 'early';
+      if (c.age != null && Math.abs(bornFromBurial(c) - b.d) > yrs(c.about ? 5.5 : 3.5)) return 'age';
+      return null; } },
+  // bride's burial, from her marriage + baptism
+  E: { fits: (R, c, k) => {
+      const m = R[k.a], b = R[k.b]; if (c.t !== 'D') return 'type';
+      if (c.g !== m.bg || !sameSur(c.s, m.gs)) return 'name';
+      if (c.rel && (c.rel.k === 'son' || c.rel.k === 'dau' || c.rel.hg !== m.gg)) return 'rel';
+      if (c.d < k.after) return 'early';
+      if (c.age != null && Math.abs(bornFromBurial(c) - b.d) > yrs(c.about ? 5.5 : 3.5)) return 'age';
+      return null; } },
+};
+const naive = (R, k) => { // name-only matches: how many decoys there are
+  const a = R[k.a];
+  if (k.kind === 'A') return R.filter(c => c.t === 'M' && c.gg === a.fg && sameSur(c.gs, a.fs)).length;
+  if (k.kind === 'B') return R.filter(c => c.t === 'B' && c.sex === 'M' && c.g === a.gg && sameSur(c.fs, a.gs)).length;
+  if (k.kind === 'C') return R.filter(c => c.t === 'B' && c.sex === 'F' && c.g === a.bg && sameSur(c.fs, a.bs)).length;
+  if (k.kind === 'D') return R.filter(c => c.t === 'D' && c.g === a.gg && sameSur(c.s, a.gs)).length;
+  if (k.kind === 'E') return R.filter(c => c.t === 'D' && c.g === a.bg && sameSur(c.s, a.gs)).length;
+};
+const solveTask = (R, k) => R.filter(c => KIND[k.kind].fits(R, c, k) === null);
+
+// ================= commissions =================
+function buildCommissions(W) {
+  const { P, R, marRec } = W, r = RH.rng('parish:com:' + S.seed);
+  const cands = [];
+  const starts = R.filter(x => x.t === 'B' && yearOf(x.d) >= 1765);
+  r.shuffle(starts);
+  const parentsOf = bapId => { const b = R[bapId]; return marRec[b.f + ':' + b.m]; };
+  for (const st of starts) {
+    if (cands.length >= 90) break;
+    const tasks = [], maxT = 3 + r.int(5);
+    const tryTask = (kind, a, b, after, truth) => {
+      if (truth == null || tasks.length >= maxT) return null;
+      const k = { kind, a, b, after, truth };
+      const c = solveTask(R, k);
+      if (c.length !== 1 || c[0].id !== truth) return null;
+      k.naive = naive(R, k); tasks.push(k); return k;
+    };
+    const first = tryTask('A', st.id, null, 0, parentsOf(st.id));
+    if (!first) continue;
+    // walk up the tree: each found marriage can yield the couple's baptisms, burials, and through the baptisms their parents' marriage
+    const queue = [first];
+    while (queue.length && tasks.length < maxT) {
+      const mt = queue.shift(), M = R[mt.truth], G = P[M.groom], B = P[M.bride];
+      const kids = R.filter(x => x.t === 'B' && x.f === G.id && x.m === B.id);
+      const lastKid = kids.length ? Math.max(...kids.map(x => x.d)) : M.d;
+      const order = r.shuffle(['G', 'B']);
+      for (const side of order) {
+        if (side === 'G') {
+          const gb = tryTask('B', mt.truth, null, 0, G.bap);
+          if (gb) {
+            if (r() < .55) tryTask('D', mt.truth, gb.truth, lastKid, G.bur);
+            const up = tryTask('A', gb.truth, null, 0, parentsOf(gb.truth)); if (up) queue.push(up);
+          }
+        } else if (M.bst === 'spinster' && !M.of) {
+          const bb = tryTask('C', mt.truth, null, 0, B.bap);
+          if (bb) {
+            if (r() < .45) tryTask('E', mt.truth, bb.truth, lastKid, B.bur);
+            const up = tryTask('A', bb.truth, null, 0, parentsOf(bb.truth)); if (up && r() < .7) queue.push(up);
+          }
+        }
+      }
+    }
+    if (tasks.length < 2) continue;
+    tasks.forEach(t => { t.dep = tasks.findIndex(u => u.truth === t.a); if (t.b != null) t.dep2 = tasks.findIndex(u => u.truth === t.b); });
+    const diff = tasks.length * 2 + tasks.reduce((a, t) => a + Math.min(6, t.naive - 1), 0);
+    cands.push({ start: st.id, tasks, diff, client: clientFor(r, R[st.id]) });
+  }
+  // prefer longer letters; keep a spread of difficulty
+  // one letter per family (siblings share every ancestor), a few short ones to start, then the longest
+  const seen = new Set(), uniq = [];
+  for (const c of cands) { const k = c.tasks[0].truth, st = R[c.start], nm = st.g + canon(st.fs); if (!seen.has(k) && !seen.has(nm)) { seen.add(k); seen.add(nm); uniq.push(c); } }
+  const short = uniq.filter(c => c.tasks.length <= 3).sort((a, b) => a.diff - b.diff).slice(0, 4);
+  const long = uniq.filter(c => !short.includes(c)).sort((a, b) => b.tasks.length - a.tasks.length || b.diff - a.diff);
+  const out = [...short, ...long].slice(0, 24);
+  out.sort((a, b) => a.diff - b.diff);
+  return out;
+}
+const CLIENT_N = ['Mrs Eleanor Hartwell, of Boston','Mr Josiah Penrose, of Adelaide','The Rev. Arthur Quill','Miss Dorothea Vane, of Toronto','Mr Ezekiel Marsh, of Philadelphia','Mrs Clara Oakes, of Dunedin','Mr Barnaby Croft','Miss Henrietta Lyle, of Cape Town','Mr Silas Whitlock, of Ohio','Mrs Winifred Ashe'];
+function clientFor(r, child) {
+  return { name: r.pick(CLIENT_N), rel: r.pick(child.sex === 'M' ? ['great-great-grandfather','ancestor','great-grandfather'] : ['great-great-grandmother','ancestor','great-grandmother']) };
+}
+
+// ================= state =================
+const S = RH.load('parish', { seed: (Math.random() * 1e9) | 0, done: {}, prog: {}, cur: 0, pins: [], notes: '', intro: 0, parishes: 0, total: 0 });
+const persist = () => { RH.save('parish', S); RH.progress('parish', Math.min(1, (S.total + Object.keys(S.done).length) / COMS.length / (S.parishes + 1))); };
+let W, COMS;
+function boot() { W = buildRegister(S.seed); COMS = buildCommissions(W); }
+boot();
+const TIERN = ['Simple enquiries', 'Family matters', 'Tangled branches', 'The hard cases'];
+const tierOf = i => Math.min(3, Math.floor(i / 6));
+const tierOpen = t => t === 0 || COMS.filter((c, i) => tierOf(i) === t - 1 && S.done[i]).length >= 4;
+
+// ================= rendering records =================
+const G = (g) => RH_abbr(g);
+let abbrR = RH.rng('abbr');
+const abbrMemo = {};
+function RH_abbr(g, key) { const k = g + ':' + key; if (!(k in abbrMemo)) abbrMemo[k] = ABBR[g] && abbrR() < .45 ? ABBR[g] : g; return abbrMemo[k]; }
+function recText(x) {
+  const A = g => RH_abbr(g, x.id);
+  if (x.t === 'B') return `${A(x.g)}, ${x.sex === 'M' ? 'son' : 'daughter'} of ${A(x.fg)} ${x.fs}${x.occ ? ', ' + x.occ : ''}, and ${A(x.mg)}${x.ms ? ` his wife, late ${x.ms}` : ' his wife'}.`;
+  if (x.t === 'M') return `${A(x.gg)} ${x.gs}, ${x.gst}, and ${A(x.bg)} ${x.bs}, ${x.bst}, ${x.of ? `of ${x.of} in this county` : 'both of this parish'}.`;
+  let s = `${A(x.g)} ${x.s}`;
+  if (x.rel?.k === 'son' || x.rel?.k === 'dau') s += `, ${x.rel.k === 'son' ? 'son' : 'daughter'} of ${A(x.rel.fg)} ${x.rel.fs}`;
+  else if (x.rel) s += `, ${x.rel.k} of ${A(x.rel.hg)}`;
+  if (x.occ) s += `, ${x.occ}`;
+  if (x.age === 0) s += ', an infant'; else if (x.age != null) s += `, aged ${x.about ? 'about ' : ''}${x.age}`;
+  return s + '.';
+}
+const TY = { B: 'Baptisms', M: 'Marriages', D: 'Burials' };
+const TYI = { B: '✝', M: '⚭', D: '☩' };
+function recRow(x, hl) {
+  const dt = dayToDate(x.d), solvedIds = solvedRecIds();
+  return `<div class="rec ${x.id === sel ? 'sel' : ''} ${solvedIds.has(x.id) ? 'done' : ''}" data-id="${x.id}"><span class="dt">${MN[dt.m]} ${dt.d}${mode === 'idx' ? ' ' + dt.y : ''}</span><span class="ty">${TYI[x.t]}</span><span class="tx">${hl ? hl(recText(x)) : recText(x)}</span>${S.pins.includes(x.id) ? '<span class="pin">📌</span>' : ''}</div>`;
+}
+function solvedRecIds() { const s = new Set(); const c = COMS[cur]; if (c) { s.add(c.start); (S.prog[cur] || []).forEach((v, i) => { if (v) s.add(c.tasks[i].truth); }); } return s; }
+
+// ================= UI =================
+const $ = id => document.getElementById(id);
+let mode = 'book', year = 1700, sel = null, cur = S.cur || 0;
+if (!COMS[cur]) cur = 0;
+
+function renderBook() {
+  const b = $('book');
+  if (mode === 'book') {
+    const lost = year >= W.lostY0 && year <= W.lostY1;
+    let h = `<div class="nav"><button id="py">◀</button><select id="ysel">${Array.from({ length: REG1 - REG0 }, (_, i) => `<option ${REG0 + i === year ? 'selected' : ''}>${REG0 + i}</option>`).join('')}</select><button id="ny">▶</button></div><div class="page"><h3>${W.village} · Anno Domini ${year}</h3>`;
+    if (lost) h += `<div class="lost">The leaves for ${W.lostY0}–${W.lostY1} are missing from the register. Damp, by the look of the binding.</div>`;
+    else for (const t of ['B', 'M', 'D']) {
+      const xs = W.R.filter(x => x.t === t && yearOf(x.d) === year);
+      h += `<div class="sec">${TY[t]}</div>` + (xs.length ? xs.map(x => recRow(x)).join('') : '<div class="lost" style="padding:4px">none</div>');
+    }
+    b.innerHTML = h + '</div>';
+    $('py').onclick = () => { year = Math.max(REG0, year - 1); renderBook(); };
+    $('ny').onclick = () => { year = Math.min(REG1 - 1, year + 1); renderBook(); };
+    $('ysel').onchange = () => { year = +$('ysel').value; renderBook(); };
+  } else {
+    const g = $('qG').value.trim().toLowerCase(), s = $('qS').value.trim(), sx = $('qSx').checked;
+    const gN = UNABBR[g] ? UNABBR[g].toLowerCase() : g;
+    const types = { B: $('qB').checked, M: $('qM').checked, D: $('qD').checked };
+    const y0 = +$('qY0').value || REG0, y1 = +$('qY1').value || REG1;
+    const sCode = soundex(s);
+    const gMatch = n => !gN || n.toLowerCase().startsWith(gN);
+    const sMatch = n => !s || (sx ? soundex(n) === sCode : n.toLowerCase().startsWith(s.toLowerCase()));
+    const res = W.R.filter(x => types[x.t] && yearOf(x.d) >= y0 && yearOf(x.d) <= y1 && (
+      x.t === 'B' ? (gMatch(x.g) && sMatch(x.fs)) || (!g && sMatch(x.ms || '~')) :
+      x.t === 'M' ? (gMatch(x.gg) && sMatch(x.gs)) || (gMatch(x.bg) && sMatch(x.bs)) :
+      gMatch(x.g) && sMatch(x.s)));
+    const words = [g && (ABBR[gN[0].toUpperCase() + gN.slice(1)] || ''), g, s].filter(Boolean);
+    const hl = t => words.length ? t.replace(new RegExp(`\\b(${words.map(w => w.replace(/[^a-z]/gi, '')).filter(Boolean).join('|')})`, 'gi'), '<mark>$1</mark>') : t;
+    let h = `<div class="page"><h3>Index · ${res.length} entr${res.length === 1 ? 'y' : 'ies'}</h3>`;
+    if (!g && !s) h += '<div class="lost">Type a given name or a surname above. With sounds-like on, surnames match by Soundex code (Cooper = Couper = C160).</div>';
+    else h += res.slice(0, 400).map(x => recRow(x, hl)).join('') + (res.length > 400 ? '<div class="lost">… narrow the search to see more.</div>' : '');
+    b.innerHTML = h + '</div>';
+  }
+  b.querySelectorAll('.rec').forEach(el => el.onclick = () => { sel = +el.dataset.id; renderBook(); renderRight(); });
+}
+
+function renderSide() {
+  let h = '';
+  COMS.forEach((c, i) => {
+    const t = tierOf(i);
+    if (i % 6 === 0) h += `<div class="tier ${tierOpen(t) ? '' : 'locked'}"><span>${TIERN[t]}</span><span>${tierOpen(t) ? COMS.filter((_, j) => tierOf(j) === t && S.done[j]).length + '/' + COMS.filter((_, j) => tierOf(j) === t).length : '🔒'}</span></div>`;
+    const d = S.done[i], st = W.R[c.start];
+    h += `<div class="cm ${i === cur ? 'cur' : ''} ${tierOpen(t) ? '' : 'locked'}" data-i="${i}"><span>${d ? '✉️' : '📜'} ${st.g} ${st.fs}, ${yearOf(st.d)}</span><span class="st">${d ? '★'.repeat(d.stars) + '☆'.repeat(3 - d.stars) : (S.prog[i] || []).filter(Boolean).length + '/' + c.tasks.length}</span></div>`;
+  });
+  h += `<div class="note" style="margin:14px 6px">Answer 4 letters in a tier to open the next. <i>New parish</i> (top right) moves you to a new village.</div>`;
+  $('side').innerHTML = h;
+  $('side').querySelectorAll('.cm').forEach(el => el.onclick = () => { const i = +el.dataset.i; if (tierOpen(tierOf(i))) { cur = i; S.cur = i; persist(); sel = null; renderAll(); } });
+  const n = Object.keys(S.done).length;
+  $('totals').textContent = `${W.village} · ${n}/${COMS.length} letters answered${S.parishes ? ` · ${S.parishes} parish${S.parishes > 1 ? 'es' : ''} before` : ''}`;
+}
+
+function taskText(c, k, i) {
+  const R = W.R, a = R[k.a];
+  const ref = j => j < 0 ? 'the baptism in the letter' : `task ${j + 1}`;
+  if (k.kind === 'A') return `Find the <b>marriage</b> of the parents named in ${ref(k.dep)}: ${a.fg} ${a.fs} and ${a.mg}${a.ms ? ` (née ${a.ms})` : ''}.`;
+  if (k.kind === 'B') return `Find the <b>baptism</b> of the groom in ${ref(k.dep)}: ${a.gg} ${a.gs}, married ${yearOf(a.d)}.`;
+  if (k.kind === 'C') return `Find the <b>baptism</b> of the bride in ${ref(k.dep)}: ${a.bg} ${a.bs}, married ${yearOf(a.d)}.`;
+  if (k.kind === 'D') return `Find the <b>burial</b> of ${a.gg} ${a.gs}, the groom in ${ref(k.dep)}. He was still alive in ${yearOf(k.after)}, when his last child was baptised.`;
+  if (k.kind === 'E') return `Find the <b>burial</b> of ${a.bg}, who married ${a.gg} ${a.gs} in ${ref(k.dep)}. She was alive in ${yearOf(k.after)}.`;
+}
+function renderRight() {
+  const c = COMS[cur], prog = S.prog[cur] ||= c.tasks.map(() => 0), st = W.R[c.start];
+  const active = prog.findIndex(v => !v);
+  const wrong = S.wrong?.[cur] || 0;
+  let h = `<div class="letter">Dear Sir,<br>I am told the register of ${W.village} survives. My ${c.client.rel}, <b>${st.g} ${st.fs}</b>, was baptised there on <b>${fmtD(st.d)}</b>. I would be grateful for anything you can find about the family.<br><span style="float:right">${c.client.name}</span><br style="clear:both"></div>`;
+  h += `<div class="row" style="justify-content:space-between"><span class="h">Tasks</span><span class="note">${wrong ? `${wrong} wrong answer${wrong > 1 ? 's' : ''}` : 'no mistakes yet'}</span></div>`;
+  c.tasks.forEach((k, i) => {
+    const locked = i > active && active >= 0 && !prog[i];
+    const depOk = (k.dep < 0 || prog[k.dep]) && (k.dep2 == null || k.dep2 < 0 || prog[k.dep2]);
+    h += `<div class="task ${prog[i] ? 'done' : i === active ? 'active' : ''} ${!prog[i] && !depOk ? 'locked' : ''}"><b>${i + 1}.</b> ${taskText(c, k, i)}${prog[i] ? `<div class="ans">✓ ${fmtD(W.R[k.truth].d)}: ${recText(W.R[k.truth])}</div>` : ''}</div>`;
+  });
+  if (sel != null) {
+    const x = W.R[sel];
+    const opts = c.tasks.map((k, i) => ({ k, i })).filter(({ k, i }) => !prog[i] && (k.dep < 0 || prog[k.dep]) && (k.dep2 == null || k.dep2 < 0 || prog[k.dep2]));
+    h += `<div class="selbox"><span class="h">Selected record</span><div class="txt">${fmtD(x.d)}. ${TY[x.t].slice(0, -1)}: ${recText(x)}</div><div class="row">${opts.map(({ i }) => `<button class="primary" data-ans="${i}">Answer task ${i + 1}</button>`).join('')}<button id="pinBtn">${S.pins.includes(sel) ? 'Unpin' : '📌 Pin'}</button><button id="goYr">Open ${yearOf(x.d)}</button></div></div>`;
+  }
+  h += `<div><span class="h">Pinned</span><div class="pins">${S.pins.length ? S.pins.map(id => `<div class="p" data-id="${id}"><span>${fmtD(W.R[id].d)} ${TYI[W.R[id].t]}</span><span style="flex:1;text-align:right" class="dim">${recText(W.R[id]).slice(0, 40)}…</span></div>`).join('') : '<div class="note">Pin records you want to compare.</div>'}</div></div>`;
+  h += `<div><span class="h">Notes</span><textarea id="notes" placeholder="John Cooper b.1741 d.1743 (inf.) — not him">${S.notes || ''}</textarea></div>`;
+  $('right').innerHTML = h;
+  $('notes').oninput = () => { S.notes = $('notes').value; persist(); };
+  $('right').querySelectorAll('[data-ans]').forEach(bn => bn.onclick = () => answer(+bn.dataset.ans));
+  if ($('pinBtn')) $('pinBtn').onclick = () => { S.pins = S.pins.includes(sel) ? S.pins.filter(x => x !== sel) : [...S.pins, sel]; persist(); renderRight(); renderBook(); };
+  if ($('goYr')) $('goYr').onclick = () => { year = yearOf(W.R[sel].d); setMode('book'); };
+  $('right').querySelectorAll('.pins .p').forEach(el => el.onclick = () => { sel = +el.dataset.id; year = yearOf(W.R[sel].d); setMode('book'); });
+}
+
+async function answer(i) {
+  const c = COMS[cur], k = c.tasks[i], x = W.R[sel];
+  if (x.id === k.truth) {
+    S.prog[cur][i] = 1; persist();
+    RH.toast('✓ That fits.');
+    if (S.prog[cur].every(Boolean)) {
+      const w = S.wrong?.[cur] || 0, stars = w === 0 ? 3 : w <= 2 ? 2 : 1;
+      S.done[cur] = { stars }; persist();
+      const nxt = COMS.findIndex((cc, j) => j > cur && !S.done[j] && tierOpen(tierOf(j)));
+      renderAll();
+      const go = await RH.modal(`<h2>✉️ Letter answered</h2><p>You trace ${W.R[c.start].g}'s family through ${c.tasks.length} records.</p><p style="text-align:center;color:var(--accent);font-size:24px">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</p><p class="dim small" style="text-align:center">${w ? w + ' wrong answer' + (w > 1 ? 's' : '') + ' along the way.' : 'No wrong answers. The client will recommend you to their friends.'}</p>`, nxt >= 0 ? [{ label: 'Stay', value: 0 }, { label: 'Next letter', value: 1 }] : [{ label: 'Close', value: 0 }]);
+      if (go) { cur = nxt; S.cur = cur; sel = null; persist(); renderAll(); }
+      return;
+    }
+  } else {
+    (S.wrong ||= {})[cur] = (S.wrong[cur] || 0) + 1; persist();
+    const why = KIND[k.kind].fits(W.R, x, k);
+    RH.toast(`✗ Not that one. ${why ? WHY[why] : ''}`, 4200);
+  }
+  renderAll();
+}
+
+function setMode(m) { mode = m; $('mBook').classList.toggle('on', m === 'book'); $('mIdx').classList.toggle('on', m === 'idx'); renderBook(); }
+$('mBook').onclick = () => setMode('book');
+$('mIdx').onclick = () => setMode('idx');
+['qG', 'qS', 'qY0', 'qY1'].forEach(id => $(id).oninput = () => setMode('idx'));
+['qSx', 'qB', 'qM', 'qD'].forEach(id => $(id).onchange = () => setMode('idx'));
+function renderAll() { renderSide(); renderBook(); renderRight(); }
+
+$('newParish').onclick = async () => {
+  if (!(await RH.modal('<h2>Move to a new parish?</h2><p>A different village with a different register and new letters. Your answered letters here count towards your lifetime total.</p>', [{ label: 'Stay', value: 0 }, { label: 'Move', value: 1 }]))) return;
+  S.total += Object.keys(S.done).length; S.parishes++; S.seed = (Math.random() * 1e9) | 0; S.done = {}; S.prog = {}; S.wrong = {}; S.pins = []; S.cur = 0; cur = 0; sel = null; year = 1700; persist(); boot(); renderAll();
+};
+const help = () => RH.modal(`<h2>⛪ Parish</h2>
+  <p>You keep the old register of <b>${W.village}</b>: every baptism, marriage and burial from 1700 to 1799, in the clerk's own hand. Letters arrive from descendants who emigrated. Trace their families.</p>
+  <p>Each letter is a chain of tasks. Find a record in the <b>Book</b> (year by year) or the <b>Index</b> (search by name), select it, and answer. Each task has exactly one record that fits. Proving it is up to you.</p>
+  <p>Watch out for the clerk's habits. The same names come back in every generation. Surnames are spelt several ways (Cooper, Couper). Ages at burial are approximate. When a baby died, the next child was often given the same name.</p>
+  <p class="dim">Mistakes cost stars. Pin records and keep notes. When you're done here, move to a new parish.</p>`, [{ label: 'Open the register' }]);
+$('helpBtn').onclick = help;
+renderAll();
+if (!S.intro) { S.intro = 1; persist(); help(); }
+year = yearOf(W.R[COMS[cur].start].d); renderBook();
+window.__parish = { W: () => W, COMS: () => COMS, S, KIND, solveTask, answer, setSel: v => { sel = v; }, renderAll };
+</script>
+</body>
+</html>
