@@ -172,7 +172,7 @@ function fit() {
   // reserve the screen space taken by the panels
   const wide = innerWidth > 900, hud = $('hud').getBoundingClientRect(), tools = $('tools').getBoundingClientRect();
   let left = 12, right = 12, top = 12, bottom = innerHeight - tools.top + 8;
-  if (wide) { left = hud.right + 12; right = innerWidth - $('lvBox').getBoundingClientRect().left + 12; }
+  if (wide) { left = hud.right + 12; right = innerWidth - $('levels').getBoundingClientRect().left + 12; }
   else top = hud.bottom + 6;
   if (L.tools.toll) bottom += 58;
   left *= dpr; right *= dpr; top *= dpr; bottom *= dpr;
@@ -204,15 +204,17 @@ const JAM = []; { const c1 = [58, 165, 140], c2 = [233, 162, 59], c3 = [216, 69,
 function jamColor(r) { const x = r.k ? Math.min(1, (time(r) - r.t0) / Math.max(8, r.t0 + 10)) : 0; return JAM[(x * 64) | 0]; }
 const ORIG = ['#3a7bd5', '#c2459b', '#2f9e74', '#d98b2b'];
 
+const nsc = () => Math.min(fs, 1.7); // node scale on small screens
+const ghostLabel = r => `+ build${r.name ? ' ' + r.name.replace(/^the /, '') : ''} · ${r.t0}${r.k ? '+' : ''} min`;
 // labels: placed once per layout change, avoiding nodes and each other
 function layoutLabels() {
   if (!roads || !L) return;
   g.font = `700 ${15 * fs}px Space Grotesk`;
   const boxes = [];
-  for (const [x, y, kind] of Object.values(L.nodes)) { const rr = kind ? 36 : 16; boxes.push([x - rr, y - rr, x + rr, y + rr]); }
+  for (const [x, y, kind] of Object.values(L.nodes)) { const rr = (kind ? 36 : 16) * nsc(); boxes.push([x - rr, y - rr, x + rr, y + rr]); }
   const hit = (a) => boxes.some(b => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]);
   for (const r of roads) {
-    const tw = g.measureText(r.ghost && !r.built ? '+ build' : r.toll || L.tools.toll ? '88 min +$40' : '188 min').width + 14 * fs, th = 24 * fs;
+    const tw = g.measureText(r.ghost && !r.built ? ghostLabel(r) : r.toll || L.tools.toll ? '88 min +$40' : '188 min').width + 14 * fs, th = 24 * fs;
     let best = null;
     outer: for (const d of [26, 40, 56, 76]) for (const t of [.5, .4, .6, .3, .7, .22, .78]) for (const side of [1, -1]) {
       const [mx, my] = bez(r.G, t), [dx, dy] = bezD(r.G, t), nl = Math.hypot(dx, dy), off = d * fs * side, x = mx - dy / nl * off, y = my + dx / nl * off;
@@ -266,6 +268,7 @@ function draw(now) {
     const r = roads[i], G = r.G, w = r.hw ? 16 : 11;
     if (r.ghost && !r.built) {
       g.setLineDash([2, 14]); g.lineWidth = i === hover ? 9 : 6; g.strokeStyle = `rgba(42,38,34,${pulse})`; g.stroke(r.path); g.setLineDash([]);
+      g.strokeStyle = `rgba(42,38,34,${pulse + .2})`; g.lineWidth = 2.5; chevrons(G);
       continue;
     }
     // casing
@@ -273,8 +276,7 @@ function draw(now) {
     g.lineWidth = w; g.strokeStyle = r.closed ? '#cfc6b6' : jamColor(r); g.stroke(r.path);
     if (r.hw && !r.closed) { g.setLineDash([10, 12]); g.lineWidth = 2; g.strokeStyle = 'rgba(255,255,255,.8)'; g.stroke(r.path); g.setLineDash([]); }
     // direction chevrons
-    g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 2.5;
-    for (let t = .3; t < .8; t += .4) { const [px, py] = bez(G, t), [dx, dy] = bezD(G, t), l = Math.hypot(dx, dy), cx = dx / l, cy = dy / l; g.beginPath(); g.moveTo(px - 4 * cx + 4 * cy, py - 4 * cy - 4 * cx); g.lineTo(px + 2 * cx, py + 2 * cy); g.lineTo(px - 4 * cx - 4 * cy, py - 4 * cy + 4 * cx); g.stroke(); }
+    g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 2.5; chevrons(G);
   }
   // cars
   for (const c of cars) {
@@ -289,7 +291,7 @@ function draw(now) {
   for (let i = 0; i < roads.length; i++) {
     const r = roads[i];
     let label;
-    if (r.ghost && !r.built) label = '+ build';
+    if (r.ghost && !r.built) label = r.gl || (r.gl = ghostLabel(r));
     else if (r.closed) label = 'closed';
     else { const tm = Math.round(time(r)); if (r.lt !== tm || r.ltl !== r.toll) { r.lt = tm; r.ltl = r.toll; r.lab = `${tm} min${r.toll ? ` +$${r.toll}` : ''}`; r.lw = g.measureText(r.lab).width + 14 * fs; } label = r.lab; }
     const tw = label === r.lab ? r.lw : g.measureText(label).width + 14 * fs, th = 24 * fs;
@@ -302,8 +304,10 @@ function draw(now) {
     if (r.closed) { g.strokeStyle = '#d8452f'; g.lineWidth = 4; g.beginPath(); g.moveTo(r.mx - 9, r.my - 9); g.lineTo(r.mx + 9, r.my + 9); g.moveTo(r.mx + 9, r.my - 9); g.lineTo(r.mx - 9, r.my + 9); g.stroke(); }
   }
   // nodes
+  const ns = nsc();
   for (const k in L.nodes) {
-    const [x, y, kind] = L.nodes[k];
+    const [nx, ny, kind] = L.nodes[k], x = 0, y = 0;
+    g.setTransform(view.s * ns, 0, 0, view.s * ns, view.ox + sx + nx * view.s, view.oy + sy + ny * view.s);
     if (kind === 'work') { g.fillStyle = '#2a2622'; roundRect(x - 30, y - 30, 60, 60, 12); g.fill(); g.fillStyle = '#fffdf8'; g.font = '700 13px Space Grotesk'; g.fillText('WORK', x, y + 1); }
     else if (kind === 'home') {
       const j = L.demand.findIndex(d => d.o === k), r = 30 + 3 * Math.sin(now / 400 + j);
@@ -312,6 +316,7 @@ function draw(now) {
     } else { g.fillStyle = '#fffdf8'; g.strokeStyle = '#2a2622'; g.lineWidth = 3; g.beginPath(); g.arc(x, y, 13, 0, 7); g.fill(); g.stroke(); g.fillStyle = '#2a2622'; g.font = '700 13px Space Grotesk'; g.fillText(k, x, y + 1); }
   }
 }
+function chevrons(G) { for (let t = .3; t < .8; t += .4) { const [px, py] = bez(G, t), [dx, dy] = bezD(G, t), l = Math.hypot(dx, dy), cx = dx / l, cy = dy / l; g.beginPath(); g.moveTo(px - 4 * cx + 4 * cy, py - 4 * cy - 4 * cx); g.lineTo(px + 2 * cx, py + 2 * cy); g.lineTo(px - 4 * cx - 4 * cy, py - 4 * cy + 4 * cx); g.stroke(); } }
 function roundRect(x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
 
 // ================= input =================

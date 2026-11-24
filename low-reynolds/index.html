@@ -132,7 +132,7 @@ const LV = [
     goal: 'Cross the line behind you.', test: S => S.reached, lesson: 'Running the loop the other way round reverses the motion. The direction is in the stroke itself.' },
   { n: 'Nine Strokes', hinges: 2, start: [0, 0, 0], line: 2, maxCycles: 9, obstacles: [],
     story: 'The colours under shape space are a map. For a loop run the way the <b>default circle</b> goes (clockwise on the pad), green regions push you forward and pink regions push you back, for every bit of area the loop encloses there. Reverse the loop and they swap. <b>Big loops over the bright patches go furthest.</b>',
-    goal: 'Cross a line in <b>9 strokes or fewer</b>, in either direction. Reset to try again.', test: S => S.reached && S.cycles <= 9, fail: S => S.cycles >= 9 && !S.reached, lesson: 'Displacement ≈ area × field strength. Mathematicians call this the <b>geometric phase</b>: the same maths as Foucault\'s pendulum and a falling cat righting itself.' },
+    goal: 'Cross a line in <b>9 strokes or fewer</b>, in either direction. Reset to try again.', test: S => S.reached && S.strokes <= 9.001, fail: S => S.strokes > 9.001 && !S.reached, lesson: 'Displacement ≈ area × field strength. Mathematicians call this the <b>geometric phase</b>: the same maths as Foucault\'s pendulum and a falling cat righting itself.' },
   { n: 'About Turn', hinges: 2, start: [0, 0, 0], target: null, turn: Math.PI / 2, obstacles: [],
     story: 'A loop centred on the middle of shape space swims straight. Push the loop off into a <b>corner</b> and the swimmer starts to <b>turn</b>.',
     goal: 'Turn the swimmer at least 90°.', test: S => Math.abs(S.phi) >= Math.PI / 2, lesson: 'Off-centre loops rotate the body. Swimmers steer by choosing where in shape space they stroke.' },
@@ -141,8 +141,8 @@ const LV = [
     goal: 'Reach the ring. Change your loop as often as you like.', test: S => S.reached, lesson: 'Steering is just switching between a turning loop and a swimming loop.' },
   { n: 'Slalom', hinges: 2, start: [0, 0, 0], target: [8, 0], tr: .75, obstacles: [[3.2, 1.35, .7], [5.8, -1.35, .7]],
     story: 'Weave between the grains.', goal: 'Reach the far ring.', test: S => S.reached, lesson: 'You\'re navigating with nothing but geometry.' },
-  { n: 'Lazy Swimmer', hinges: 2, start: [0, 0, 0], line: 1.5, obstacles: [], budget: 24,
-    story: 'Bacteria run on a tiny energy budget. Every stroke burns energy fighting the honey. Small loops are cheap but slow, and big loops travel further but cost more.',
+  { n: 'Lazy Swimmer', hinges: 2, start: [0, 0, 0], line: 1.5, obstacles: [], budget: 24, init: 'square',
+    story: 'Bacteria run on a tiny energy budget. Every stroke burns energy fighting the honey. Small loops are cheap but slow, and big loops travel further but cost more. Corners are expensive too: sharp turns in a stroke waste effort. You start with a square.',
     goal: 'Cross a line, in either direction, using no more than <b>24 units of energy</b>.', test: S => S.reached && S.energy <= L.budget, fail: S => S.energy > L.budget && !S.reached, lesson: 'The best stroke balances enclosed area against path length, like a cyclist choosing the right gear.' },
 ];
 for (const l of LV) l.goalBase = l.goal;
@@ -159,7 +159,8 @@ function load(i) {
   SAVE.cur = i; persist(); L = LV[i]; won = false; failed = false;
   sw = { x: L.start[0], y: L.start[1], phi: L.start[2], t1: 0, t2: 0 };
   trail = []; St = { cycles: 0, strokes: 0, reached: false, energy: 0, phi: 0, dist: 0, blocked: false };
-  if (!loop.length || (L.hinges === 1 && loop.some(p => p[1] !== 0)) || (L.hinges === 2 && loop.every(p => p[1] === 0))) loop = presetLoop(L.hinges === 1 ? 'line' : 'circle');
+  if (L.init) loop = presetLoop(L.init);
+  else if (!loop.length || (L.hinges === 1 && loop.some(p => p[1] !== 0)) || (L.hinges === 2 && loop.every(p => p[1] === 0))) loop = presetLoop(L.hinges === 1 ? 'line' : 'circle');
   if (L.hinges === 1) asym = false;
   setLoop(loop, true); // a fresh start: nothing measured yet, so the pose may start on the loop
   $('title').textContent = L.n; $('story').innerHTML = L.story; renderGoal(); renderLevels();
@@ -195,7 +196,7 @@ function setLoop(nl, snap = false) {
 
 // ================= simulation step =================
 // Fixed small steps along the shape path (independent of frame rate), midpoint rule for the body's rotation.
-const DS = .004, ESCALE = 1;
+const DS = .004, ESCALE = 2;
 let DSX = DS; // exposed for the step-size convergence test
 function stepShape(dt1, dt2, rate) {
   const d = Math.hypot(dt1, dt2); if (d < 1e-12) return true;
