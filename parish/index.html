@@ -242,52 +242,55 @@ const WHY = {
   early: 'Too early to fit.', late: 'Too late to fit.', dead: 'This child was buried before the date we know they were alive.',
   age: 'The age at burial does not fit the baptism.', rel: 'The burial says whose relative this was, and it is someone else.', maiden: "The bride's surname does not match the mother's maiden name.",
 };
+// Each kind lists its tests in order; a record fits when none of them fail. The first failure is "the" reason,
+// but every failing test is a valid reason to strike a candidate out.
+const ageOff = (c, b) => c.age != null && Math.abs(bornFromBurial(c) - b.d) > yrs(c.about ? 5.5 : 3.5);
 const KIND = {
   // parents' marriage, from a baptism
-  A: { fits: (R, c, k) => {
-      const b = R[k.a];
-      if (c.t !== 'M') return 'type';
-      if (c.gg !== b.fg || !sameSur(c.gs, b.fs) || c.bg !== b.mg) return 'name';
-      if (b.ms && !sameSur(c.bs, b.ms)) return 'maiden';
-      if (c.d > b.d) return 'late'; if (c.d < b.d - yrs(26)) return 'early';
-      return null; } },
+  A: { strikes: ['name', 'maiden', 'late', 'early'], tests: (R, c, k) => { const b = R[k.a]; return [
+      ['type', c.t !== 'M'],
+      ['name', c.gg !== b.fg || !sameSur(c.gs, b.fs) || c.bg !== b.mg],
+      ['maiden', !!b.ms && !sameSur(c.bs, b.ms)],
+      ['late', c.d > b.d], ['early', c.d < b.d - yrs(26)]]; } },
   // groom's baptism, from a marriage
-  B: { fits: (R, c, k) => {
-      const m = R[k.a]; if (c.t !== 'B') return 'type'; if (c.sex !== 'M') return 'sex';
-      if (c.g !== m.gg || !sameSur(c.fs, m.gs)) return 'name';
-      if (c.d > m.d - yrs(16)) return 'late'; if (c.d < m.d - yrs(55)) return 'early';
-      if (deadBefore(R, c, m.d)) return 'dead'; return null; } },
+  B: { strikes: ['late', 'early', 'dead'], tests: (R, c, k) => { const m = R[k.a]; return [
+      ['type', c.t !== 'B'], ['sex', c.sex !== 'M'],
+      ['name', c.g !== m.gg || !sameSur(c.fs, m.gs)],
+      ['late', c.d > m.d - yrs(16)], ['early', c.d < m.d - yrs(55)],
+      ['dead', () => deadBefore(R, c, m.d)]]; } },
   // bride's baptism, from a marriage (spinster)
-  C: { fits: (R, c, k) => {
-      const m = R[k.a]; if (c.t !== 'B') return 'type'; if (c.sex !== 'F') return 'sex';
-      if (c.g !== m.bg || !sameSur(c.fs, m.bs)) return 'name';
-      if (c.d > m.d - yrs(14)) return 'late'; if (c.d < m.d - yrs(46)) return 'early';
-      if (deadBefore(R, c, m.d)) return 'dead'; return null; } },
+  C: { strikes: ['late', 'early', 'dead'], tests: (R, c, k) => { const m = R[k.a]; return [
+      ['type', c.t !== 'B'], ['sex', c.sex !== 'F'],
+      ['name', c.g !== m.bg || !sameSur(c.fs, m.bs)],
+      ['late', c.d > m.d - yrs(14)], ['early', c.d < m.d - yrs(46)],
+      ['dead', () => deadBefore(R, c, m.d)]]; } },
   // groom's burial, from his marriage + baptism
-  D: { fits: (R, c, k) => {
-      const m = R[k.a], b = R[k.b]; if (c.t !== 'D') return 'type';
-      if (c.g !== m.gg || !sameSur(c.s, m.gs)) return 'name';
-      if (c.rel) return 'rel';
-      if (c.d < k.after) return 'early';
-      if (c.age != null && Math.abs(bornFromBurial(c) - b.d) > yrs(c.about ? 5.5 : 3.5)) return 'age';
-      return null; } },
+  D: { strikes: ['rel', 'early', 'age'], tests: (R, c, k) => { const m = R[k.a], b = R[k.b]; return [
+      ['type', c.t !== 'D'],
+      ['name', c.g !== m.gg || !sameSur(c.s, m.gs)],
+      ['rel', !!c.rel], ['early', c.d < k.after], ['age', ageOff(c, b)]]; } },
   // bride's burial, from her marriage + baptism
-  E: { fits: (R, c, k) => {
-      const m = R[k.a], b = R[k.b]; if (c.t !== 'D') return 'type';
-      if (c.g !== m.bg || !sameSur(c.s, m.gs)) return 'name';
-      if (c.rel && (c.rel.k === 'son' || c.rel.k === 'dau' || c.rel.hg !== m.gg)) return 'rel';
-      if (c.d < k.after) return 'early';
-      if (c.age != null && Math.abs(bornFromBurial(c) - b.d) > yrs(c.about ? 5.5 : 3.5)) return 'age';
-      return null; } },
+  E: { strikes: ['rel', 'early', 'age'], tests: (R, c, k) => { const m = R[k.a], b = R[k.b]; return [
+      ['type', c.t !== 'D'],
+      ['name', c.g !== m.bg || !sameSur(c.s, m.gs)],
+      ['rel', !!c.rel && (c.rel.k === 'son' || c.rel.k === 'dau' || c.rel.hg !== m.gg)],
+      ['early', c.d < k.after], ['age', ageOff(c, b)]]; } },
 };
-const naive = (R, k) => { // name-only matches: how many decoys there are
+const failed = v => typeof v === 'function' ? v() : v;
+for (const K of Object.values(KIND)) {
+  K.fits = (R, c, k) => { for (const [code, v] of K.tests(R, c, k)) if (failed(v)) return code; return null; };
+  K.why = (R, c, k) => K.tests(R, c, k).filter(([, v]) => failed(v)).map(([code]) => code);
+}
+// the name-matching records: what a search by name turns up, decoys and all
+const candidates = (R, k) => {
   const a = R[k.a];
-  if (k.kind === 'A') return R.filter(c => c.t === 'M' && c.gg === a.fg && sameSur(c.gs, a.fs)).length;
-  if (k.kind === 'B') return R.filter(c => c.t === 'B' && c.sex === 'M' && c.g === a.gg && sameSur(c.fs, a.gs)).length;
-  if (k.kind === 'C') return R.filter(c => c.t === 'B' && c.sex === 'F' && c.g === a.bg && sameSur(c.fs, a.bs)).length;
-  if (k.kind === 'D') return R.filter(c => c.t === 'D' && c.g === a.gg && sameSur(c.s, a.gs)).length;
-  if (k.kind === 'E') return R.filter(c => c.t === 'D' && c.g === a.bg && sameSur(c.s, a.gs)).length;
+  if (k.kind === 'A') return R.filter(c => c.t === 'M' && c.gg === a.fg && sameSur(c.gs, a.fs));
+  if (k.kind === 'B') return R.filter(c => c.t === 'B' && c.sex === 'M' && c.g === a.gg && sameSur(c.fs, a.gs));
+  if (k.kind === 'C') return R.filter(c => c.t === 'B' && c.sex === 'F' && c.g === a.bg && sameSur(c.fs, a.bs));
+  if (k.kind === 'D') return R.filter(c => c.t === 'D' && c.g === a.gg && sameSur(c.s, a.gs));
+  if (k.kind === 'E') return R.filter(c => c.t === 'D' && c.g === a.bg && sameSur(c.s, a.gs));
 };
+const naive = (R, k) => candidates(R, k).length;
 const solveTask = (R, k) => R.filter(c => KIND[k.kind].fits(R, c, k) === null);
 
 // ================= commissions =================
