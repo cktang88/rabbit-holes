@@ -141,9 +141,9 @@ const LV = [
     goal: 'Reach the ring. Change your loop as often as you like.', test: S => S.reached, lesson: 'Steering is just switching between a turning loop and a swimming loop.' },
   { n: 'Slalom', hinges: 2, start: [0, 0, 0], target: [8, 0], tr: .75, obstacles: [[3.2, 1.35, .7], [5.8, -1.35, .7]],
     story: 'Weave between the grains.', goal: 'Reach the far ring.', test: S => S.reached, lesson: 'You\'re navigating with nothing but geometry.' },
-  { n: 'Lazy Swimmer', hinges: 2, start: [0, 0, 0], line: 1.5, obstacles: [], budget: 24, init: 'square',
+  { n: 'Lazy Swimmer', hinges: 2, start: [0, 0, 0], line: 1.5, obstacles: [], budget: 28, init: 'square',
     story: 'Bacteria run on a tiny energy budget. Every stroke burns energy fighting the honey. Small loops are cheap but slow, and big loops travel further but cost more. Corners are expensive too: sharp turns in a stroke waste effort. You start with a square.',
-    goal: 'Cross a line, in either direction, using no more than <b>24 units of energy</b>.', test: S => S.reached && S.energy <= L.budget, fail: S => S.energy > L.budget && !S.reached, lesson: 'The best stroke balances enclosed area against path length, like a cyclist choosing the right gear.' },
+    goal: 'Cross a line, in either direction, using no more than <b>28 units of energy</b>.', test: S => S.reached && S.energy <= L.budget, fail: S => S.energy > L.budget && !S.reached, lesson: 'The best stroke balances enclosed area against path length, like a cyclist choosing the right gear.' },
 ];
 for (const l of LV) l.goalBase = l.goal;
 
@@ -184,7 +184,7 @@ function setLoop(nl, snap = false) {
   loop = nl.map(p => [p[0], p[1]]); const n = loop.length; perim = 0;
   for (let i = 0; i < n; i++) { const A = loop[i], B = loop[(i + 1) % n]; perim += Math.hypot(B[0] - A[0], B[1] - A[1]); }
   perim = Math.max(perim, .05);
-  if (snap) { sw.t1 = loop[0][0]; sw.t2 = loop[0][1]; seg = 0; trans = null; return; }
+  if (snap) { sw.t1 = loop[0][0]; sw.t2 = loop[0][1]; seg = 0; trans = null; hLen = 0; return; }
   let best = Infinity, bi = 0, bx = 0, by = 0;
   for (let i = 0; i < n; i++) {
     const A = loop[i], B = loop[(i + 1) % n], ex = B[0] - A[0], ey = B[1] - A[1], l2 = ex * ex + ey * ey;
@@ -210,22 +210,35 @@ function stepShape(dt1, dt2, rate) {
   St.energy += P / d * rate * ESCALE;
   return true;
 }
+// recent shapes, so a swimmer pressed against a grain can always retrace the way it came (and back off)
+const HN = 4000, HIST = new Float64Array(HN * 2); let hLen = 0, hHead = 0;
+function histPush(t1, t2) { HIST[hHead * 2] = t1; HIST[hHead * 2 + 1] = t2; hHead = (hHead + 1) % HN; hLen = Math.min(HN, hLen + 1); }
 function advance(budget) { // budget: shape-space path length to travel (at the normal stroke rate)
   if (loop.length < 2) return;
-  let guard = 0;
+  let guard = 0, blocked = false;
   while (budget > 1e-12 && guard++ < 100000) {
     const T = trans || loop[(seg + 1) % loop.length], ex = T[0] - sw.t1, ey = T[1] - sw.t2, rem = Math.hypot(ex, ey);
     if (rem < 1e-10) { if (trans) trans = null; else seg = (seg + 1) % loop.length; continue; }
     const rate = asym && L.hinges === 1 ? (ex > 0 ? 2.5 : .4) : 1; // "open fast, close slow"
-    const d = Math.min(DSX, rem, budget * rate);
-    if (!stepShape(ex / rem * d, ey / rem * d, rate)) { St.blocked = true; return; }
-    St.blocked = false;
-    if (d >= rem - 1e-12) { sw.t1 = T[0]; sw.t2 = T[1]; if (trans) trans = null; else seg = (seg + 1) % loop.length; }
+    let d = Math.min(DSX, rem, budget * rate);
+    const p1 = sw.t1, p2 = sw.t2;
+    if (stepShape(ex / rem * d, ey / rem * d, rate)) {
+      histPush(p1, p2);
+      if (d >= rem - 1e-12) { sw.t1 = T[0]; sw.t2 = T[1]; if (trans) trans = null; else seg = (seg + 1) % loop.length; }
+    } else {
+      // The grain pushes back. The swimmer gives way by retracing its last shape change, which is always possible.
+      blocked = true;
+      if (!hLen) break;
+      hHead = (hHead + HN - 1) % HN; hLen--;
+      const q1 = HIST[hHead * 2], q2 = HIST[hHead * 2 + 1]; d = Math.hypot(q1 - sw.t1, q2 - sw.t2);
+      if (!stepShape(q1 - sw.t1, q2 - sw.t2, 1)) break;
+    }
     budget -= d / rate;
     // one stroke = travelling one loop's length in shape space, however you got there
     const before = St.cycles; St.strokes += d / perim; St.cycles = Math.floor(St.strokes + 1e-9);
     if (St.cycles > before) FX.sfx('chime', St.cycles);
   }
+  St.blocked = blocked;
 }
 const HB = new Float64Array(2 * (NP + 2));
 function hits(x, y, phi, t1, t2) {
