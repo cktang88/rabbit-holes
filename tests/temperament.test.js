@@ -3,15 +3,10 @@ const closeModals = page => page.evaluate(() => document.querySelectorAll('.moda
 const solutions = () => {
   const T = window.__tm, SC = 1200 * Math.log2(81 / 80);
   const just = [0, 1200 * Math.log2(16 / 15), 1200 * Math.log2(9 / 8), 1200 * Math.log2(6 / 5), 1200 * Math.log2(5 / 4), 1200 * Math.log2(4 / 3), 1200 * Math.log2(45 / 32), 1200 * Math.log2(3 / 2), 1200 * Math.log2(8 / 5), 1200 * Math.log2(5 / 3), 1200 * Math.log2(9 / 5), 1200 * Math.log2(15 / 8)];
-  const optimise = i => { // coordinate descent on the worst error, from equal temperament
-    const g = T.C[i].goals, err = c => Math.max(...g.map(x => T.goalEval(x, c).err)); let c = T.ET(), e = err(c);
-    for (const step of [8, 4, 2, 1, .5, .25, .1, .05]) for (let pass = 0; pass < 40; pass++) { let imp = false;
-      for (let n = 1; n < 12; n++) for (const d of [step, -step]) { c[n] += d; const e2 = err(c); if (e2 < e - 1e-9) { e = e2; imp = true; } else c[n] -= d; }
-      if (!imp) break; }
-    return c;
-  };
+  // Remote Keys: minimax optimum (worst error ~3.26 cents), found offline by smoothed-max descent.
+  const remote = [0, 105.213, 208.801, 283.275, 387.944, 494.786, 600, 705.214, 808.795, 882.728, 987.397, 1094.786];
   const P = k => T.PRESET[k].c();
-  return [P('pyth'), P('pyth'), P('pyth'), P('pyth'), P('mean'), just, P('mean'), P('mean'), T.chainFrom(-SC / 4, -SC / 4, 11, 0), P('werck'), P('vallotti'), P('et'), P('vallotti'), P('mean'), optimise(14), P('et')];
+  return [P('pyth'), P('pyth'), P('pyth'), P('pyth'), P('mean'), just, P('mean'), P('mean'), T.chainFrom(-SC / 4, -SC / 4, 11, 0), P('werck'), P('vallotti'), P('et'), P('vallotti'), P('mean'), remote, P('et')];
 };
 
 module.exports = {

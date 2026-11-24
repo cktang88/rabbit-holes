@@ -172,6 +172,14 @@ module.exports = {
       });
       eq(r.a, 3); eq(r.b, ['LANTERN', 'HARBOUR']); ok(r.solved); eq(r.stages, 1); eq(r.variant, 1);
     },
+    'a half-made column swap does not carry over to another vault': async ({ page, eq }) => {
+      await page.evaluate(() => { const X = window.__vault; for (let j = 0; j < 8; j++) X.S.solved[j] = { stars: 3, time: 0 }; X.openVault(11); });
+      await page.evaluate(() => { const X = window.__vault; X.workOf(11).stages = [{ t: 'col', s: { w: X.build(11).keys[0].w, pos: null } }]; X.openVault(11); });
+      await page.click('.colx[data-p="0"]');
+      await page.evaluate(() => { window.__vault.openVault(10); window.__vault.openVault(11); });
+      await page.click('.colx[data-p="2"]');
+      eq(await page.evaluate(() => window.__vault.workOf(11).stages[0].s.pos.slice(0, 3)), [0, 1, 2]);
+    },
     'phone layout: no horizontal scroll, no errors': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
       for (const i of [0, 4, 11]) {

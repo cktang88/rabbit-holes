@@ -56,6 +56,8 @@
     #center{overflow:visible}
     .topbar{flex-wrap:wrap}
     table.tg{display:block;overflow-x:auto;white-space:nowrap}
+    details.tool{max-width:100%;box-sizing:border-box;min-width:0}
+    #bOut{overflow-x:auto}
     .rules{font-size:11px}
   }
 </style>
@@ -139,7 +141,20 @@ const red = (p, q) => { const g = gcd(p, q) || 1n; return [p / g, q / g]; };
 function factor(n) { const f = []; let d = 2; while (n > 1 && d * d <= n) { while (n % d === 0) { f.push(d); n /= d; } d++; } if (n > 1) f.push(n); return f; }
 
 // ---------- state ----------
-const S = RH.load('esc', { done: {}, designs: {}, cur: 0, intro: 0 });
+const S = loadState();
+function loadState() {
+  let s = RH.load('esc', null);
+  if (!s || typeof s !== 'object' || Array.isArray(s)) s = {};
+  const obj = x => x && typeof x === 'object' && !Array.isArray(x) ? x : {};
+  s.done = obj(s.done); s.designs = obj(s.designs);
+  const tooth = x => Number.isInteger(x) && x > 0 && x < 1e6;
+  for (const k in s.done) { const d = s.done[k]; if (!C[k] || !d || typeof d !== 'object' || !(d.stars >= 1)) delete s.done[k]; else { d.stars = Math.min(3, d.stars | 0); d.gears = d.gears | 0; } }
+  for (const k in s.designs) { const ax = s.designs[k]?.ax;
+    if ((k !== 'free' && !C[k]) || !Array.isArray(ax) || ax.length < 2 || ax.length > 40 || !tooth(ax[0]?.o) || ax.slice(1).some(a => !a || !tooth(a.i) || !(a.o == null || tooth(a.o)))) delete s.designs[k]; }
+  if (s.cur !== 'free' && !(Number.isInteger(s.cur) && C[s.cur])) s.cur = 0;
+  if (s.freeX != null && typeof s.freeX !== 'string') delete s.freeX;
+  return s;
+}
 const persist = () => { RH.save('esc', S); RH.progress('escapement', Object.keys(S.done).length / C.length); };
 const actOpen = a => a === 0 || C.filter(c => c.a === a - 1 && S.done[C.indexOf(c)]).length >= 5;
 let cur = S.cur ?? 0;
@@ -222,7 +237,7 @@ function renderSide() {
   $('totals').textContent = `${n}/${C.length} commissions · ${st}★`;
 }
 
-function open(i) { cur = i; S.cur = i; persist(); render(); }
+function open(i) { disarm(); cur = i; S.cur = i; persist(); render(); }
 
 function render() {
   const c = com(), d = design(), L = limits(c);
@@ -272,7 +287,7 @@ function renderAxles() {
   h += `<div class="addax"><button id="addAx">+ Axle</button></div>`;
   $('axles').innerHTML = h;
   const set = (k, f, v) => { ax[k][f] = v; persist(); update(); };
-  $('axles').querySelectorAll('input[data-f]').forEach(inp => inp.oninput = () => { const v = parseInt(inp.value); if (v > 0) set(+inp.dataset.k, inp.dataset.f, v); });
+  $('axles').querySelectorAll('input[data-f]').forEach(inp => { inp.oninput = () => { const v = parseInt(inp.value); if (v > 0 && v < 1e6) set(+inp.dataset.k, inp.dataset.f, v); }; inp.onchange = () => { inp.value = ax[+inp.dataset.k][inp.dataset.f]; }; });
   $('axles').querySelectorAll('select[data-f]').forEach(sel => sel.onchange = () => set(+sel.dataset.k, sel.dataset.f, sel.value === '' ? null : +sel.value));
   $('axles').querySelectorAll('button[data-d]').forEach(bn => bn.onclick = () => { const k = +bn.dataset.k, f = bn.dataset.f, v = Math.max(1, (ax[k][f] || 8) + +bn.dataset.d); ax[k][f] = v; bn.parentNode.querySelector('input').value = v; persist(); update(); });
   $('axles').querySelectorAll('button[data-add]').forEach(bn => bn.onclick = () => { ax[+bn.dataset.k].o = c.inv ? c.inv[0] : 10; persist(); renderAxles(); update(); });
@@ -298,8 +313,17 @@ function update() {
   document.querySelectorAll('.ax').forEach(el => { const k = +el.dataset.ax, a = d.ax[k], gs = [a.o, a.i].filter(x => x != null); el.classList.toggle('bad', gs.some(g => R.bad.has(g))); });
   const st = $('status');
   st.innerHTML = `<span class="pill ${c.maxG && R.gears.length > c.maxG ? 'bad' : ''}">${R.gears.length} gears</span>` + R.problems.map(p => `<span class="pill bad">${p}</span>`).join('') + (R.ok ? `<span class="pill ok">✓ Commission met ${'★'.repeat(R.stars)}</span>` : '');
-  if (R.ok && cur !== 'free') record();
+  if (R.ok && cur !== 'free') scheduleRecord(); else disarm();
 }
+// Deliberate commit: a design only counts once it has stood unchanged for SETTLE_MS with no pointer held down,
+// so stepping a tooth count through a working value (or typing through it) never delivers the commission.
+const SETTLE_MS = 1000;
+let recT = null, recFor = null, ptrDown = false, awaitUp = false;
+const disarm = () => { clearTimeout(recT); recT = null; awaitUp = false; };
+function scheduleRecord() { disarm(); recFor = cur; recT = setTimeout(() => { recT = null; if (recFor !== cur) return; if (ptrDown) { awaitUp = true; return; } R = analyse(com(), design()); if (R.ok) record(); }, SETTLE_MS); }
+addEventListener('pointerdown', () => { ptrDown = true; }, true);
+const ptrUp = () => { ptrDown = false; if (awaitUp) { awaitUp = false; scheduleRecord(); } };
+addEventListener('pointerup', ptrUp, true); addEventListener('pointercancel', ptrUp, true); addEventListener('blur', ptrUp);
 let celebrating = false;
 async function record() {
   const prev = S.done[cur], st = R.stars, g = R.gears.length;
@@ -417,7 +441,7 @@ const help = () => RH.modal(`<h2>⚙️ Escapement</h2>
 $('helpBtn').onclick = help;
 if (!S.intro) { S.intro = 1; persist(); help(); }
 open(cur);
-window.__esc = { C, S, analyse, open, design, render, get R() { return R; } };
+window.__esc = { loadState, actOpen, SETTLE_MS, get cur() { return cur; }, C, S, analyse, open, design, render, update, get R() { return R; } };
 </script>
 </body>
 </html>

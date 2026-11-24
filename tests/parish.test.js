@@ -88,6 +88,18 @@ module.exports = {
       const truth = await page.evaluate(() => window.__parish.COMS()[window.__parish.cur].tasks[0].truth);
       ok(await page.locator(`#book .rec[data-id="${truth}"]`).count() === 1, 'truth not found by look up');
     },
+    'look up finds the true record for every open task of every letter (variant spellings included)': async ({ page, eq }) => {
+      await closeModals(page);
+      const miss = await page.evaluate(() => {
+        const P = window.__parish, out = [];
+        P.COMS().forEach((c, ci) => { P.S.prog[ci] = c.tasks.map(() => 1); c.tasks.forEach((k, ti) => {
+          P.openLetter(ci); P.lookUp(ti);
+          if (!document.querySelector(`#book .rec[data-id="${k.truth}"]`)) out.push(ci + ':' + ti);
+        }); });
+        return out;
+      });
+      eq(miss, []);
+    },
     'moving parish never lowers hub progress': async ({ page, ok }) => {
       await closeModals(page);
       const before = await page.evaluate(() => { const P = window.__parish; P.COMS().forEach((c, i) => { P.S.done[i] = { stars: 3 }; }); P.renderAll(); P.openLetter(0); return JSON.parse(localStorage.getItem('rh:hub')).parish; });

@@ -9,7 +9,7 @@
   body{display:flex;flex-direction:column;height:100vh;overflow:hidden;background:#2a2218}
   main{flex:1;display:flex;min-height:0}
   #stage{flex:1;position:relative;min-width:0}
-  #chart{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
+  #chart{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none}
   #look{position:absolute;right:14px;top:14px;width:220px;height:220px;border-radius:50%;border:3px solid #6b5432;box-shadow:0 6px 30px #000a;background:#0d2a3a}
   #lookL{position:absolute;right:14px;top:240px;width:220px;text-align:center;font-size:12px;color:#d8c8a0;text-shadow:0 1px 3px #000}
   #side{width:320px;background:#1d1812;border-left:1px solid #3a2f22;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px;color:#e8dcc0}
@@ -27,6 +27,15 @@
   button{background:#3a2f22;border-color:#5a4a32;color:#f0e4c8}
   button.primary{background:#c89a4a;color:#1a1205;border-color:#c89a4a}
   h3{margin:0 0 6px;font-family:Georgia,serif}
+  .sails{display:flex;gap:4px;margin-top:6px} .sails button{flex:1;font-size:12px;padding:5px 4px} .sails button.on{border-color:#c89a4a;color:#ffd98a}
+  @media (max-width:760px){
+    main{flex-direction:column}
+    #stage{flex:none;height:48vh}
+    #side{width:auto;flex:1;min-height:0;border-left:0;border-top:1px solid #3a2f22}
+    #look{width:110px;height:110px;right:8px;top:8px} #lookL{display:none}
+    #hud{left:8px;bottom:6px}
+    .topbar h1{font-size:13px} .topbar #tot{font-size:10px}
+  }
 </style>
 </head>
 <body>
@@ -39,7 +48,8 @@
       <div class="stat"><span>Provisions</span><b id="prov"></b></div><div class="bar"><div id="provBar" style="background:#9be36a"></div></div>
       <div class="stat"><span>Hull</span><b id="hull"></b></div><div class="bar"><div id="hullBar" style="background:#e8a050"></div></div>
       <div class="stat" style="margin-top:4px"><span>Position uncertainty</span><b id="unc"></b></div>
-      <div class="row" style="margin-top:8px"><button id="fixBtn">⊕ Take a fix</button><button id="inkBtn">🖋 Ink: on</button></div>
+      <div class="sails" id="sails"><button data-sail="0">⚓ Furl</button><button data-sail="1">Half sail</button><button data-sail="2">Full sail</button></div>
+      <div class="row" style="margin-top:8px"><button id="fixBtn">⊕ Take a fix</button><button id="inkBtn" title="Stray ink lowers a chart's accuracy: turn it off when you're unsure where you are">🖋 Ink: on</button></div>
       <div class="small" style="color:#b8a888;margin-top:6px"><kbd>W</kbd>/<kbd>S</kbd> sails · <kbd>A</kbd>/<kbd>D</kbd> helm · or click the chart to steer toward a point. <kbd>F</kbd> fix · <kbd>Space</kbd> stop</div>
     </div>
     <div class="box" id="portBox"></div>
@@ -49,12 +59,24 @@
   </div>
 </main>
 <script src="../shared/common.js"></script>
+<script src="../shared/fx.js"></script>
 <script>
 const WX=1400, WY=900, CELL=5, GW=WX/CELL, GH=WY/CELL;
 // ===================== World =====================
 let S = RH.load('mapmaker', null);
-function freshSave(seed){ return {seed, gold:40, prov:100, hull:100, inst:{compass:1}, ship:null, ink:[], done:{}, visited:[], rep:0, worlds:(S&&S.worlds)||0}; }
-if (!S) S=freshSave(Math.floor(Math.random()*1e9));
+function freshSave(seed){ return {seed:playableSeed(seed), gold:40, prov:100, hull:100, inst:{compass:1}, ship:null, ink:[], done:{}, visited:[], rep:0, worlds:(S&&S.worlds)||0}; }
+// every commission needs at least five islands (home + four to chart); skip the rare seeds that make fewer
+function playableSeed(seed){ seed=Math.floor(Math.abs(+seed||0))%1e9; for (let k=0;k<50;k++){ buildWorld(seed+k); if (islands.length>=5) return seed+k; } return seed; }
+const num=(v,d,lo,hi)=> Number.isFinite(v)? Math.max(lo,Math.min(hi,v)) : d;
+function cleanSave(s){
+  if (!s || typeof s!=='object' || Array.isArray(s) || !Number.isFinite(s.seed)) return null;
+  const pt=(p)=>Array.isArray(p) && p.length===2 && Number.isFinite(p[0]) && Number.isFinite(p[1]);
+  const inst={compass:1}; if (s.inst && typeof s.inst==='object') for (const k in s.inst) if (INST.some(x=>x.k===k) && s.inst[k]) inst[k]=1;
+  const done={}; if (s.done && typeof s.done==='object') for (const k in s.done){ const n=+k; if (Number.isInteger(n) && n>=0 && n<COMS.length && s.done[k]) done[n]=1; }
+  const sh=s.ship; const ship= sh && typeof sh==='object' && ['x','y','bx','by','h'].every(k=>Number.isFinite(sh[k])) ? {...sh, sail:[0,1,2].includes(sh.sail)?sh.sail:0, voyageDmg:num(sh.voyageDmg,0,0,1e4)} : null;
+  return {...s, seed:Math.floor(Math.abs(s.seed))%1e9, gold:Math.floor(num(s.gold,40,0,1e9)), prov:num(s.prov,100,0,100), hull:num(s.hull,100,1,100), inst, done, ship,
+    ink:Array.isArray(s.ink)? s.ink.filter(pt) : [], visited:Array.isArray(s.visited)? s.visited.filter(pt).slice(-3000) : [], worlds:Math.floor(num(s.worlds,0,0,1e6))};
+}
 const persist=()=>{ RH.save('mapmaker', S); RH.progress('mapmaker', Object.keys(S.done).length/COMS.length); };
 let land, islands, coast, port, currents, reefs, rng, names;
 function noise2(r){ const N=24; const g=[...Array(N*N)].map(()=>r()); const f=(x,y)=>{ const X=Math.floor(x), Y=Math.floor(y), fx=x-X, fy=y-Y; const v=(i,j)=>g[((Y+j)%N+N)%N*N+((X+i)%N+N)%N]; const s=t=>t*t*(3-2*t); return (v(0,0)*(1-s(fx))+v(1,0)*s(fx))*(1-s(fy))+(v(0,1)*(1-s(fx))+v(1,1)*s(fx))*s(fy); }; return (x,y)=>f(x,y)*0.6+f(x*2.1,y*2.1)*0.3+f(x*4.3,y*4.3)*0.1; }
@@ -84,6 +106,7 @@ function buildWorld(seed){
   // reefs near island 2 or 3
   reefs=[]; const ri=islands[Math.min(3,islands.length-1)]; for (let k=0;k<26;k++){ const c=rng.pick(ri.coast); const a=rng()*7, d=rng.range(10,30); const x=c[0]+Math.cos(a)*d, y=c[1]+Math.sin(a)*d; if (!isLand(x,y)) reefs.push({x,y}); }
   ri.reefy=true;
+  hashCoast();
 }
 const isLand=(x,y)=>{ const X=Math.floor(x/CELL), Y=Math.floor(y/CELL); if(X<0||Y<0||X>=GW||Y>=GH) return true; return land[Y*GW+X]===1; };
 const currentAt=(x,y)=> currents[Math.min(3,Math.floor(x/WX*4))+4*Math.min(2,Math.floor(y/WY*3))];
@@ -111,22 +134,30 @@ const COMS=[
   {n:'The Far Isle', d:'Chart 50% of the island farthest from port.', reward:150, test:()=>acc(farthest())>=50, prog:()=>`${islands[farthest()].name}: ${acc(farthest())|0}%`},
   {n:'The Island That Isn\'t There', d:'An old chart shows an island at the marked spot. Sail within 40 leagues of it and confirm it doesn\'t exist.', reward:90, test:()=>S.ghostSeen, prog:()=>S.ghostSeen?'confirmed':'unvisited'},
   {n:'Four Coasts', d:'Chart four islands at 60% or better.', reward:160, test:()=>islands.filter(is=>acc(is.id)>=60).length>=4, prog:()=>`${islands.filter(is=>acc(is.id)>=60).length}/4`},
-  {n:'Precision', d:'Chart any island at 92% or better. Your position has to be very good for this.', reward:200, test:()=>islands.some(is=>acc(is.id)>=92), prog:()=>`best ${Math.max(...islands.map(is=>acc(is.id)))|0}%`},
+  {n:'Precision', d:'Chart any island at 92% or better. Your position has to be very good for this: ink drawn while you were lost counts against you.', reward:200, test:()=>islands.some(is=>acc(is.id)>=92), prog:()=>`best ${Math.max(...islands.map(is=>acc(is.id)))|0}%`},
   {n:'The Archipelago', d:'Chart 60% of the coastline in the whole archipelago.', reward:250, test:()=>accAll()>=60, prog:()=>`${accAll()|0}%`},
   {n:'Every Island', d:'Chart every island to at least 40%.', reward:250, test:()=>islands.every(is=>acc(is.id)>=40), prog:()=>`${islands.filter(is=>acc(is.id)>=40).length}/${islands.length}`},
   {n:'Master Chart', d:'80% of all coastline. The Admiralty will print it.', reward:500, test:()=>accAll()>=80, prog:()=>`${accAll()|0}%`},
 ];
-const nearest=()=>{ let b=1, bd=1e9; for (let i=1;i<islands.length;i++){ const d=Math.hypot(islands[i].cx-port.x,islands[i].cy-port.y); if (d<bd){ bd=d; b=i; } } return b; };
-const farthest=()=>{ let b=1, bd=0; for (let i=1;i<islands.length;i++){ const d=Math.hypot(islands[i].cx-port.x,islands[i].cy-port.y); if (d>bd){ bd=d; b=i; } } return b; };
-const reefIsle=()=>islands.findIndex(is=>is.reefy);
+const nearest=()=>{ let b=Math.min(1,islands.length-1), bd=1e9; for (let i=1;i<islands.length;i++){ const d=Math.hypot(islands[i].cx-port.x,islands[i].cy-port.y); if (d<bd){ bd=d; b=i; } } return b; };
+const farthest=()=>{ let b=Math.min(1,islands.length-1), bd=0; for (let i=1;i<islands.length;i++){ const d=Math.hypot(islands[i].cx-port.x,islands[i].cy-port.y); if (d>bd){ bd=d; b=i; } } return b; };
+const reefIsle=()=>Math.max(0,islands.findIndex(is=>is.reefy));
 const others=()=>islands.slice(1).map(is=>is.id);
-// accuracy: fraction of true coast points with an inked point within tolerance
-let inkHash=new Map(), accCache={}, accDirty=true;
-const TOL=14;
-function hashInk(){ inkHash=new Map(); for (const [x,y] of S.ink){ const k=((x/TOL)|0)+','+((y/TOL)|0); (inkHash.get(k)||inkHash.set(k,[]).get(k)).push([x,y]); } accDirty=true; }
+// accuracy: how much of the true coast is inked (recall), discounted by stray ink near that island that matches no coast (precision).
+// Stray ink costs up to a quarter of the score, so a smeared chart drawn while lost can't pass for a precise one.
+let inkHash=new Map(), accCache={}, accDirty=true, precCache=null;
+const TOL=14, STRAY=1.5*TOL, NEAR_ISLE=70, PREC_W=0.25;
+function hashInk(){ inkHash=new Map(); precCache=null; for (const [x,y] of S.ink){ const k=((x/TOL)|0)+','+((y/TOL)|0); (inkHash.get(k)||inkHash.set(k,[]).get(k)).push([x,y]); } accDirty=true; }
 function near(x,y){ const cx=(x/TOL)|0, cy=(y/TOL)|0; for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++){ const l=inkHash.get((cx+dx)+','+(cy+dy)); if (l) for (const p of l) if ((p[0]-x)**2+(p[1]-y)**2<TOL*TOL) return true; } return false; }
-function acc(i){ if (accDirty){ accCache={}; accDirty=false; } if (accCache[i]!=null) return accCache[i]; const is=islands[i]; let c=0; for (const [x,y] of is.coast) if (near(x,y)) c++; return accCache[i]=100*c/is.coast.length; }
-function accAll(){ let c=0,t=0; for (const is of islands){ t+=is.coast.length; c+=acc(is.id)*is.coast.length/100; } return 100*c/t; }
+let coastHash=new Map();
+function hashCoast(){ coastHash=new Map(); for (const is of islands) for (const [x,y] of is.coast){ const k=((x/NEAR_ISLE)|0)+','+((y/NEAR_ISLE)|0); (coastHash.get(k)||coastHash.set(k,[]).get(k)).push([x,y,is.id]); } }
+// nearest true coast point to (x,y) within NEAR_ISLE: [distance, island id] or null
+function nearestCoast(x,y){ const cx=(x/NEAR_ISLE)|0, cy=(y/NEAR_ISLE)|0; let bd=NEAR_ISLE*NEAR_ISLE, bi=-1; for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++){ const l=coastHash.get((cx+dx)+','+(cy+dy)); if (l) for (const p of l){ const d=(p[0]-x)**2+(p[1]-y)**2; if (d<bd){ bd=d; bi=p[2]; } } } return bi<0? null : [Math.sqrt(bd), bi]; }
+function precisions(){ if (precCache) return precCache; const good={}, all={}; for (const [x,y] of S.ink){ const n=nearestCoast(x,y); if (!n) continue; all[n[1]]=(all[n[1]]||0)+1; if (n[0]<=STRAY) good[n[1]]=(good[n[1]]||0)+1; }
+  precCache={}; for (const is of islands) precCache[is.id]= all[is.id]? (good[is.id]||0)/all[is.id] : 1; return precCache; }
+function recall(i){ const is=islands[i]; let c=0; for (const [x,y] of is.coast) if (near(x,y)) c++; return c/is.coast.length; }
+function acc(i){ if (accDirty){ accCache={}; precCache=null; accDirty=false; } if (accCache[i]!=null) return accCache[i]; if (!islands[i]) return 0; return accCache[i]=100*recall(i)*(1-PREC_W+PREC_W*precisions()[i]); }
+function accAll(){ let c=0,t=0; for (const is of islands){ t+=is.coast.length; c+=acc(is.id)*is.coast.length/100; } return t? 100*c/t : 0; }
 
 // ===================== Ship =====================
 let ship;
@@ -191,7 +222,7 @@ function renderPort(){
     <button id="compare" style="width:100%;margin-top:6px">Compare your chart with the truth</button>`;
   document.getElementById('resup').onclick=()=>{ const c=Math.ceil((100-S.prov)*0.3); if (S.gold<c) return RH.toast('Not enough gold.'); S.gold-=c; S.prov=100; persist(); renderAll(); };
   document.getElementById('repair').onclick=()=>{ const c=Math.ceil((100-S.hull)*0.6); if (S.gold<c) return RH.toast('Not enough gold.'); S.gold-=c; S.hull=100; persist(); renderAll(); };
-  document.getElementById('sell')?.addEventListener('click',()=>{ let g=0; for (const [c,i] of ready){ S.done[i]=1; g+=c.reward; } S.gold+=g; persist(); RH.toast(`The harbourmaster pays ${g} gold.`); renderAll();
+  document.getElementById('sell')?.addEventListener('click',()=>{ let g=0; for (const [c,i] of ready){ if (S.done[i]) continue; S.done[i]=1; g+=c.reward; } if (!g) return; S.gold+=g; persist(); FX.sfx('win'); RH.toast(`The harbourmaster pays ${g} gold.`); renderAll();
     if (Object.keys(S.done).length===COMS.length) RH.modal('<h2>The Admiralty prints your chart.</h2><p>Your name is in the corner of every copy. Sailors will use it for a hundred years.</p><p>A new archipelago has been sighted. Every new one is a new set of islands.</p>'); });
   document.getElementById('compare').onclick=()=>{ showTruth=performance.now()+5000; RH.toast('Truth overlay for 5 seconds: blue is the real coast, ink is yours.'); };
 }
@@ -200,7 +231,7 @@ document.getElementById('fixBtn').onclick=()=>tryFix();
 function tryFix(){ if (!has('quadrant')&&!has('sextant')) return RH.toast('You need a quadrant or sextant to take a fix.'); ship.sail=0; fixing=2; RH.toast('Taking a sighting…'); }
 document.getElementById('inkBtn').onclick=()=>{ inkOn=!inkOn; document.getElementById('inkBtn').textContent='🖋 Ink: '+(inkOn?'on':'off'); };
 document.getElementById('exportBtn').onclick=()=>{ const c=document.createElement('canvas'); c.width=WX; c.height=WY; drawChart(c.getContext('2d'), 1, 0, 0, true); const a=document.createElement('a'); a.download='my-chart.png'; a.href=c.toDataURL(); a.click(); };
-document.getElementById('newWorld').onclick=async()=>{ if (await RH.modal('<h2>Sail for a new archipelago?</h2><p>You keep your instruments and gold. Your chart and commissions start over.</p>',[{label:'Stay',value:0},{label:'Set sail',value:1}])){ const keep={inst:S.inst,gold:S.gold,worlds:(S.worlds||0)+1}; S=freshSave(Math.floor(Math.random()*1e9)); Object.assign(S,keep); boot(); } };
+document.getElementById('newWorld').onclick=async()=>{ if (await RH.modal('<h2>Sail for a new archipelago?</h2><p>You keep your instruments and gold. Your chart and commissions start over.</p>',[{label:'Stay',value:0},{label:'Set sail',value:1}])){ const keep={inst:S.inst,gold:S.gold,worlds:(S.worlds||0)+1,intro:S.intro}; S=freshSave(Math.floor(Math.random()*1e9)); Object.assign(S,keep); boot(); } };
 
 // ===================== Rendering =====================
 const cv=document.getElementById('chart'), ctx=cv.getContext('2d'); const lk=document.getElementById('look'), lctx=lk.getContext('2d');
@@ -260,8 +291,11 @@ function renderStatus(){
   const u=uncertainty(); document.getElementById('unc').textContent= u<4? 'precise' : `~${Math.round(u)} leagues`;
   document.getElementById('hud').textContent = fixing>0? 'Taking a sighting…' : ['Sails furled','Half sail','Full sail'][ship.sail] + (atPort?' · in port':'');
   document.getElementById('fixBtn').disabled = !(has('quadrant')||has('sextant'));
-  renderComs();
+  document.querySelectorAll('#sails [data-sail]').forEach(b=>b.classList.toggle('on', +b.dataset.sail===ship.sail));
+  noteReady(); renderComs();
 }
+let readySeen=new Set();
+function noteReady(){ COMS.forEach((c,i)=>{ if (S.done[i] || readySeen.has(i)) return; if (c.test()){ readySeen.add(i); FX.sfx('coin'); RH.toast(`📜 <b>${c.n}</b> is ready. Deliver it at port for ${c.reward}g.`, 3600); } }); }
 function renderComs(){ document.getElementById('coms').innerHTML=COMS.map((c,i)=>`<div class="com ${S.done[i]?'done':''}"><div class="t">${S.done[i]?'✓ ':''}${c.n} <span style="float:right;color:#c89a4a">${c.reward}g</span></div><div class="p">${c.d}</div>${S.done[i]?'':`<div class="p">Progress: ${c.prog()}${c.test()?' · <b style="color:#9be36a">ready, deliver at port</b>':''}</div>`}</div>`).join('');
   document.getElementById('tot').textContent=`${Object.keys(S.done).length}/${COMS.length} commissions · ${Math.round(accAll())}% of coast charted${S.worlds?` · archipelago #${S.worlds+1}`:''}`; }
 function renderInsts(){ document.getElementById('insts').innerHTML=INST.map(it=>`<div class="inst"><div><b>${it.n}</b><div class="p small" style="color:#b8a888">${it.d}</div></div>${has(it.k)?'<span>✓</span>':`<button data-i="${it.k}" ${!atPort||S.gold<it.cost?'disabled':''}>${it.cost}g</button>`}</div>`).join('');
@@ -270,23 +304,31 @@ function renderAll(){ renderStatus(); renderPort(); renderInsts(); }
 setInterval(()=>{ if (atPort) renderInsts(); }, 1000);
 
 // ===================== Input =====================
-window.addEventListener('keydown',e=>{ const k=e.key.toLowerCase(); if (document.activeElement.tagName==='INPUT') return;
-  if (k==='w'||e.key==='ArrowUp'){ ship.sail=Math.min(2,ship.sail+1); }
+window.addEventListener('keydown',e=>{ const k=e.key.toLowerCase(); if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) || e.ctrlKey || e.metaKey) return;
+  if ((k==='w'||e.key==='ArrowUp') && fixing<=0){ ship.sail=Math.min(2,ship.sail+1); }
   if (k==='s'||e.key==='ArrowDown'){ ship.sail=Math.max(0,ship.sail-1); }
   if (k==='a'||e.key==='ArrowLeft') keys.a=1; if (k==='d'||e.key==='ArrowRight') keys.d=1;
   if (k==='f') tryFix(); if (e.key===' '){ ship.sail=0; e.preventDefault(); } });
 window.addEventListener('keyup',e=>{ const k=e.key.toLowerCase(); if (k==='a'||e.key==='ArrowLeft') keys.a=0; if (k==='d'||e.key==='ArrowRight') keys.d=0; if (keys.a||keys.d) target=null; });
-cv.addEventListener('mousedown',e=>{ const r=cv.getBoundingClientRect(); target=[(e.clientX-r.left-view.ox)/view.s,(e.clientY-r.top-view.oy)/view.s]; if (!ship.sail) ship.sail=2; });
+cv.addEventListener('pointerdown',e=>{ const r=cv.getBoundingClientRect(); const x=(e.clientX-r.left-view.ox)/view.s, y=(e.clientY-r.top-view.oy)/view.s; if (!(x>=0&&y>=0&&x<=WX&&y<=WY)) return; target=[x,y]; if (!ship.sail && fixing<=0) ship.sail=2; });
+document.querySelectorAll('#sails [data-sail]').forEach(b=>b.onclick=()=>{ if (fixing>0) return; ship.sail=+b.dataset.sail; if (!ship.sail) target=null; renderStatus(); });
+window.addEventListener('blur',()=>{ keys={}; });
 
 function boot(){
-  buildWorld(S.seed); hashInk(); inkSet=new Set(S.ink.map(([x,y])=>((x/4)|0)+','+((y/4)|0)));
-  const gr=RH.rng(S.seed+5); do { ghost={x:gr.range(300,WX-100), y:gr.range(100,WY-100)}; } while (islands.some(is=>Math.hypot(is.cx-ghost.x,is.cy-ghost.y)<200));
+  buildWorld(S.seed);
+  if (islands.length<5 && !S.ink.length){ S.seed=playableSeed(S.seed+1); S.ship=null; buildWorld(S.seed); } // an old save on an unplayable world, not started yet
+  hashInk(); inkSet=new Set(S.ink.map(([x,y])=>((x/4)|0)+','+((y/4)|0))); target=null; fixing=0; keys={}; readySeen=new Set(COMS.map((c,i)=>i).filter(i=>!S.done[i] && COMS[i].test()));
+  const gr=RH.rng(S.seed+5); let gt=0; do { ghost={x:gr.range(300,WX-100), y:gr.range(100,WY-100)}; } while (islands.some(is=>Math.hypot(is.cx-ghost.x,is.cy-ghost.y)<200) && ++gt<500);
   ship = S.ship && !isLand(S.ship.x,S.ship.y) ? S.ship : newShip();
   document.getElementById('shipName').textContent = ['The Wandering Gull','The Patient Heron','The Small Hours','The Last Lantern'][(S.worlds||0)%4];
   fit(); renderAll(); persist();
 }
 window.addEventListener('resize', fit);
+S = cleanSave(S) || freshSave(Math.floor(Math.random()*1e9));
 boot(); requestAnimationFrame(frame);
+window.__map={ hashCoast, buildWorld, acc, accAll, recall, precisions, nearestCoast, near, hashInk, cleanSave, freshSave, playableSeed, boot, step, ink, doFix, damage, renderAll, renderPort, COMS, INST, TOL, PREC_W, isLand, currentAt, uncertainty,
+  get S(){ return S; }, set S(v){ S=v; }, get islands(){ return islands; }, set islands(v){ islands=v; }, get port(){ return port; }, get reefs(){ return reefs; }, get ship(){ return ship; }, set ship(v){ ship=v; }, get ghost(){ return ghost; },
+  get target(){ return target; }, set target(v){ target=v; }, get fixing(){ return fixing; }, get atPort(){ return atPort; }, set atPort(v){ atPort=v; }, get view(){ return view; }, get inkOn(){ return inkOn; }, set inkOn(v){ inkOn=v; } };
 if (!S.intro){ S.intro=1; persist(); RH.modal(`<h2>🧭 Mapmaker of Lost Islands</h2><p>It's 1680. Nobody has charted these islands. You will.</p><p>The big view is <b>your chart</b>, drawn where you <i>think</i> you are. The round lookout shows what's <i>really</i> there. Currents push you off course and your compass is a little off, so your chart drifts away from the truth unless you navigate well.</p><p>Sail close to coasts to ink them. Come back to port to deliver commissions and buy better instruments. Watch out for reefs.</p>`,[{label:'Weigh anchor'}]); }
 </script>
 </body>
