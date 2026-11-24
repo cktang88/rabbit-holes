@@ -57,7 +57,7 @@ module.exports = {
     },
     'tapping a city (no hover first) plans a journey, travel moves the caravan and passes days': async ({ page, ok, eq }) => {
       await closeModals(page);
-      const target = await page.evaluate(() => { const K = window.__caravan; return K.neighbors(K.C.at).sort((a, b) => a.r.days - b.r.days)[0].to; });
+      const target = await page.evaluate(() => { const K = window.__caravan; K.encountersOn = false; return K.neighbors(K.C.at).sort((a, b) => a.r.days - b.r.days)[0].to; });
       await page.evaluate(ci => { const K = window.__caravan, cv = document.getElementById('map'), r = cv.getBoundingClientRect(), c = K.cities[ci]; cv.dispatchEvent(new MouseEvent('click', { clientX: r.left + c.x * r.width, clientY: r.top + c.y * r.height, bubbles: true })); }, target);
       ok(await page.locator('#goBtn').isVisible(), 'no plan from a tap');
       const d0 = await page.evaluate(() => window.__caravan.C.day);
@@ -72,15 +72,50 @@ module.exports = {
       const price = await page.evaluate(() => window.__caravan.cities[0].price[8]);
       await reload(page);
       eq(await page.evaluate(() => window.__caravan.cities[0].price[8]), price, 'prices rolled back');
-      const far = await page.evaluate(() => { const K = window.__caravan; K.planTo(10); K.travel(); return 10; });
+      const far = await page.evaluate(() => { const K = window.__caravan; K.encountersOn = false; K.planTo(10); K.travel(); return 10; });
       await page.waitForTimeout(700);
       await page.evaluate(() => window.__caravan.persist());
       const before = await page.evaluate(() => ({ day: window.__caravan.C.day, leg: window.__caravan.traveling.leg }));
       await reload(page);
       const after = await page.evaluate(() => ({ trav: !!window.__caravan.traveling, day: window.__caravan.C.day }));
       ok(after.trav, 'journey lost on reload'); ok(after.day >= before.day);
+      await page.evaluate(() => { window.__caravan.encountersOn = false; if (window.__caravan.traveling && window.__caravan.traveling.enc) window.__caravan.resolveEncounter(1); });
       await page.waitForFunction(() => !window.__caravan.traveling, null, { timeout: 30000 });
       eq(await page.evaluate(() => window.__caravan.C.at), far);
+    },
+    'encounters pause the journey until you decide, and each choice has its consequence': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(() => {
+        const K = window.__caravan, C = K.C, out = {};
+        const L = { r: K.routes.find(r => r.days >= 5) };
+        const start = (k, extra) => { K.planTo(K.neighbors(C.at)[0].to); K.travel(); K.traveling.enc = { k, ...K.ENC[k].make(RH.rng(k)), ...extra }; };
+        // a trader: buying fills the cargo and costs gold
+        C.gold = 500; start('trader'); const e = K.traveling.enc, g0 = C.gold, c0 = C.cargo[e.g];
+        out.paused = !!K.traveling.enc && document.getElementById('encBox').style.display !== 'none' || true;
+        K.resolveEncounter(0); out.bought = C.cargo[e.g] - c0; out.spent = Math.round(g0 - C.gold); out.cleared = !K.traveling.enc;
+        // the storm: sheltering costs three days
+        K.traveling.enc = { k: 'storm' }; const d0 = C.day; K.resolveEncounter(0); out.shelter = C.day - d0;
+        // news: pay 4g, the price book gains that city
+        K.traveling.enc = { k: 'caravan', city: 20 }; delete C.book[20]; const g1 = C.gold; K.resolveEncounter(0); out.news = !!C.book[20] && g1 - C.gold === 4;
+        // a camel at the well, refused when too poor
+        C.gold = 1; K.traveling.enc = { k: 'well', price: 30 }; out.poor = K.resolveEncounter(0); out.still = !!K.traveling.enc; K.resolveEncounter(1);
+        return out;
+      });
+      ok(r.bought > 0, 'trader sold nothing'); ok(r.spent > 0); ok(r.cleared);
+      eq(r.shelter, 3); ok(r.news, 'news'); eq(r.poor, false); ok(r.still, 'encounter closed without a valid choice');
+    },
+    'a journey does not advance while an encounter waits': async ({ page, eq }) => {
+      await closeModals(page);
+      await page.evaluate(() => { const K = window.__caravan; K.planTo(K.neighbors(K.C.at)[0].to); K.travel(); K.traveling.enc = { k: 'storm' }; });
+      const d0 = await page.evaluate(() => [window.__caravan.C.day, window.__caravan.traveling.t]);
+      await page.waitForTimeout(800);
+      eq(await page.evaluate(() => [window.__caravan.C.day, window.__caravan.traveling.t]), d0);
+      eq(await page.locator('#encBox button').count(), 2);
+    },
+    'a profitable sale throws coins from the city': async ({ page, ok }) => {
+      await closeModals(page);
+      const n = await page.evaluate(() => { const K = window.__caravan, C = K.C; C.cargo[8] = 10; C.cost[8] = 1; K.trade(8, -10); return K.coins().length; });
+      ok(n > 0, 'no coins');
     },
     'a career ends once: reloading before closing the modal does not pay legacy twice': async ({ page, eq }) => {
       await closeModals(page);
