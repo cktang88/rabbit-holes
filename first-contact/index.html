@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>First Contact</title>
+<link rel="stylesheet" href="../shared/common.css">
+<style>
+  :root{--sig:#7cf0c8}
+  body{display:flex;flex-direction:column;height:100vh;overflow:hidden;background:#06090d}
+  main{flex:1;display:flex;min-height:0}
+  #feed{flex:1;overflow:auto;padding:18px 24px 40px;min-width:0}
+  #nb{width:330px;border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
+  #nbList{flex:1;overflow:auto;padding:8px 12px}
+  .chapterHead{display:flex;align-items:baseline;gap:12px;margin:6px 0 14px}
+  .chapterHead h2{margin:0;font-size:22px;color:var(--sig);font-family:ui-monospace,monospace;letter-spacing:.04em}
+  .tx{display:flex;gap:16px;align-items:center;background:#0b1016;border:1px solid #17222c;border-radius:10px;padding:12px;margin-bottom:10px;animation:fade .5s}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}}
+  .tx .pic{flex:0 0 auto;width:170px;height:110px;background:#05070a;border-radius:8px;display:flex;align-items:center;justify-content:center}
+  .tx .pic svg{width:100%;height:100%}
+  .tx .num{font-family:ui-monospace,monospace;color:#3d5566;font-size:11px;width:28px}
+  .sentence{display:flex;flex-wrap:wrap;gap:4px;align-items:flex-start}
+  .g{display:inline-flex;flex-direction:column;align-items:center;cursor:pointer;border-radius:6px;padding:2px;min-width:36px}
+  .g:hover{background:#13202a}
+  .g svg{width:34px;height:34px}
+  .g svg path,.g svg circle{stroke:var(--sig)}
+  .g .gl{font-size:10px;color:#c8b27a;max-width:64px;text-align:center;line-height:1.1;min-height:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .g.hl{background:#1d3a35;outline:1px solid var(--sig)}
+  .gap{width:10px}
+  .nbRow{display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #1c2230}
+  .nbRow svg{width:30px;height:30px;flex:0 0 auto;cursor:pointer}
+  .nbRow svg path,.nbRow svg circle{stroke:var(--sig)}
+  .nbRow input{flex:1;min-width:0;font-size:13px}
+  .nbRow .conf{width:28px;padding:2px;font-size:12px}
+  .nbRow.hl{background:#14262a}
+  .nbRow .seti{font-size:11px;color:var(--accent)}
+  .qs{margin-top:24px;border-top:1px dashed #2a3a44;padding-top:16px}
+  .q{background:#0e141c;border:1px solid #223040;border-radius:10px;padding:14px;margin-bottom:12px}
+  .q.done{border-color:#2f6b55;opacity:.8}
+  .q .prompt{margin-bottom:10px;line-height:1.5}
+  .compose{min-height:46px;background:#05070a;border:1px solid #2a3a44;border-radius:8px;padding:4px;display:flex;flex-wrap:wrap;gap:2px;align-items:center}
+  .palette{display:flex;flex-wrap:wrap;gap:2px;margin-top:8px;max-height:150px;overflow:auto}
+  .palette .g{min-width:0}
+  .palette .g svg{width:28px;height:28px}
+  .choices{display:flex;flex-direction:column;gap:6px}
+  .choices button{text-align:left}
+  .fb{margin-top:8px;font-size:13px}
+  .fb.bad{color:var(--bad)} .fb.good{color:var(--good)}
+  #chapters{display:flex;gap:4px}
+  #chapters button{padding:3px 9px;font-size:12px}
+  #chapters button.cur{border-color:var(--sig);color:var(--sig)}
+  .static{font-family:ui-monospace,monospace;color:#4a6a78;font-size:12px}
+</style>
+</head>
+<body>
+<div class="topbar"><a class="home" href="../">← Rabbit Holes</a><h1>📡 First Contact</h1><div id="chapters"></div><span class="spacer"></span><span class="dim small" id="species"></span><button id="glossBtn">Gloss: on</button><button id="hintBtn">SETI hint</button><button id="newBtn">New signal</button></div>
+<main>
+  <div id="feed"></div>
+  <div id="nb">
+    <div style="padding:12px 12px 6px"><b>Lexicon notebook</b><div class="dim small">Click any glyph to see every place it appears. Write your guess next to it, and your notes show up under the glyphs in the transmissions.<br>Confidence: ? guess · ~ likely · ✓ sure</div></div>
+    <div id="nbList"></div>
+  </div>
+</main>
+<script src="../shared/common.js"></script>
+<script>
+// ===================== Save / seed =====================
+let S = RH.load('fc', null);
+function fresh(){ return {seed: Math.floor(Math.random()*1e9), notes:{}, conf:{}, seti:{}, solved:{}, chapter:0, hints:{}, gloss:true, decoded: (S&&S.decoded)||0}; }
+if (!S) S = fresh();
+const persist = ()=>{ RH.save('fc', S); RH.progress('first-contact', (S.decoded? 1 : Object.keys(S.solved).length / TOTALQ)); };
+let TOTALQ = 1;
+
+// ===================== Language generation =====================
+let LANG;
+function buildLanguage(seed){
+  const r = RH.rng(seed);
+  const base = r.pick([5,6,7,8,12]);
+  const hand = {5:[1,5],6:[2,3],7:[1,7],8:[4,2],12:[4,3]}[base];
+  const lang = {
+    base, arms: hand[0], fingers: hand[1],
+    littleEndian: r() < 0.35,
+    order: r.pick(['SVO','SOV','VSO']),
+    numAfter: r() < 0.6,
+    tenseFinal: r() < 0.6,
+    eyes: r.pick([1,3,4,5]),
+    legs: r.pick([3,4,6]),
+    planets: 5 + r.int(5), home: 0, moons: 2 + r.int(3), oldHome: 0,
+    name: '', glyph: {},
+  };
+  lang.home = 3 + r.int(lang.planets-3);              // they live now on this planet
+  lang.oldHome = Math.max(1, lang.home - 1 - r.int(2)); // and used to live here
+  const syl=['ka','zu','th','vor','ee','ix','qa','lun','sh','oro','ny','ae','tk','mi','rr'];
+  lang.name = (r.pick(syl)+r.pick(syl)+r.pick(syl)).replace(/^./,c=>c.toUpperCase());
+  // concepts
+  const words = ['PLUS','MINUS','TIMES','EQUALS','YES','NO','IS','H','HE','C','N','O','WATER','AND','STAR','PLANET','MOON','HAVE','LIVE','WE','YOU','PL',
+    'HEAD','EYE','ARM','FINGER','LEG','PAST','NOT','BIG','SMALL','HOT','COLD','GO','SEE','SEND','SIGNAL','Q','HOWMANY'];
+  const used = new Set();
+  const mk = (isDigit)=>{
+    for (let tries=0; tries<500; tries++){
+      const pts=[[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]];
+      const segs=[]; const n = isDigit? 1+r.int(3) : 2+r.int(3);
+      for (let k=0;k<n;k++){ const a=r.int(9); let b=r.int(9); if (a===b) continue; const s=[a,b].sort().join('-'); if(!segs.includes(s)) segs.push(s); }
+      const dot = !isDigit && r()<0.3 ? r.int(9) : -1;
+      const key = (isDigit?'D':'W')+segs.sort().join(',')+'|'+dot;
+      if (segs.length===0 || used.has(key)) continue;
+      used.add(key); return {segs:segs.map(s=>s.split('-').map(Number).map(i=>pts[i])), dot: dot>=0?pts[dot]:null, digit:isDigit};
+    }
+  };
+  for (let d=0; d<base; d++) lang.glyph['D'+d] = mk(true);
+  for (const w of words) lang.glyph[w] = mk(false);
+  return lang;
+}
+function glyphSVG(id){
+  const g = LANG.glyph[id]; const P=([x,y])=>[7+x*10, 6+y*10];
+  let d=''; for (const [a,b] of g.segs){ const [x1,y1]=P(a),[x2,y2]=P(b); d+=`M${x1} ${y1}L${x2} ${y2}`; }
+  if (g.digit) d += 'M4 31L30 31';
+  let c = g.dot? `<circle cx="${P(g.dot)[0]}" cy="${P(g.dot)[1]}" r="3" fill="none" stroke-width="2"/>` : '';
+  return `<svg viewBox="0 0 34 34"><path d="${d}" fill="none" stroke-width="2.4" stroke-linecap="round"/>${c}</svg>`;
+}
+
+// ===================== Grammar =====================
+function num(n){ const b=LANG.base; const ds=[]; do { ds.unshift('D'+(n%b)); n=Math.floor(n/b); } while(n>0); return LANG.littleEndian? ds.reverse() : ds; }
+function np(noun, n){ // noun phrase with optional number
+  if (n===undefined) return [noun];
+  const pl = (typeof n==='number' && n>1) ? ['PL'] : [];
+  const numW = n==='?' ? ['HOWMANY'] : num(n);
+  return LANG.numAfter ? [noun, ...pl, ...numW] : [...numW, noun, ...pl];
+}
+function clause({s, v, o, neg, past, q}){ // s, o are arrays (phrases)
+  const vp = neg? ['NOT', v] : [v];
+  let w;
+  switch (LANG.order){ case 'SVO': w=[...s,...vp,...(o||[])]; break; case 'SOV': w=[...s,...(o||[]),...vp]; break; default: w=[...vp,...s,...(o||[])]; }
+  if (past) w = LANG.tenseFinal? [...w,'PAST'] : ['PAST',...w];
+  if (q) w = ['Q', ...w];
+  return w;
+}
+
+// ===================== Pictures =====================
+const svg = (inner, vb='0 0 170 110') => `<svg viewBox="${vb}">${inner}</svg>`;
+function picDots(n, cols){ cols = cols || Math.min(10, Math.max(4, Math.ceil(Math.sqrt(n*1.6)))); let s=''; const rows=Math.ceil(n/cols);
+  const sp=Math.min(14, 150/cols, 90/Math.max(rows,1)); const ox=85-(Math.min(n,cols)-1)*sp/2, oy=55-(rows-1)*sp/2;
+  for (let i=0;i<n;i++) s+=`<circle cx="${ox+(i%cols)*sp}" cy="${oy+Math.floor(i/cols)*sp}" r="${sp*0.3}" fill="#e8e6df"/>`;
+  if (n===0) s=`<rect x="55" y="25" width="60" height="60" fill="none" stroke="#333" stroke-dasharray="4 4"/>`;
+  return svg(s); }
+function picSum(a,b){ let s=''; const dot=(x,y)=>`<circle cx="${x}" cy="${y}" r="3.5" fill="#e8e6df"/>`;
+  const grp=(n,x0)=>{ let t=''; for(let i=0;i<n;i++) t+=dot(x0+(i%3)*9, 30+Math.floor(i/3)*9); return t; };
+  s+=grp(a,12)+`<text x="50" y="60" fill="#7cf0c8" font-size="18">+</text>`+grp(b,68)+`<text x="104" y="60" fill="#7cf0c8" font-size="18">→</text>`+grp(a+b,128);
+  return svg(s); }
+function picAtom(p){ let s=`<circle cx="85" cy="55" r="40" fill="none" stroke="#2a4a5a"/>`; if(p>2) s+=`<circle cx="85" cy="55" r="24" fill="none" stroke="#2a4a5a"/>`;
+  for (let i=0;i<p;i++){ const a=i*2.4; const rr=Math.sqrt(i)*3.2; s+=`<circle cx="${85+Math.cos(a)*rr}" cy="${55+Math.sin(a)*rr}" r="3.6" fill="#ff7a59"/>`; }
+  for (let i=0;i<p;i++){ const inner = i<2; const R = (p>2&&inner)?24:40; const k = inner? i : i-2; const tot = inner? Math.min(p,2) : p-2; const a=k/tot*Math.PI*2 + (inner?0.4:0); s+=`<circle cx="${85+Math.cos(a)*R}" cy="${55+Math.sin(a)*R}" r="2.6" fill="#6aa8ff"/>`; }
+  return svg(s); }
+function picWater(){ return svg(`<circle cx="85" cy="58" r="16" fill="#ff7a59"/><circle cx="60" cy="38" r="10" fill="#e8e6df"/><circle cx="110" cy="38" r="10" fill="#e8e6df"/><line x1="70" y1="44" x2="76" y2="50" stroke="#aaa" stroke-width="3"/><line x1="100" y1="44" x2="94" y2="50" stroke="#aaa" stroke-width="3"/>`); }
+function picSystem(P, home, moons, opts={}){
+  let s=`<circle cx="-14" cy="55" r="${opts.bigStar?44:30}" fill="${opts.bigStar?'#ff6a3a':'#ffd36a'}"/>`;
+  const gap = 140/(P+0.5);
+  for (let i=1;i<=P;i++){ const x=24+i*gap, r=3+((i*7)%5); const hot = opts.hot===i; const blue = opts.earth&&i===3;
+    s+=`<circle cx="${x}" cy="55" r="${r}" fill="${hot?'#ff5a3a':blue?'#4a9aff':'#a8b0c0'}"/>`;
+    if (i===home) { s+=`<circle cx="${x}" cy="55" r="${r+6}" fill="none" stroke="#7cf0c8" stroke-width="1.5"/>`; for(let m=0;m<moons;m++) s+=`<circle cx="${x+Math.cos(m*2.1)*(r+12)}" cy="${55+Math.sin(m*2.1)*(r+12)}" r="1.8" fill="#ccc"/>`; }
+    if (opts.arrow && i===opts.arrow[0]){ const x2=24+opts.arrow[1]*gap; s+=`<path d="M${x} 40 Q ${(x+x2)/2} 15 ${x2} 40" fill="none" stroke="#7cf0c8" stroke-width="1.5" marker-end="url(#ah)"/>`; }
+  }
+  s = `<defs><marker id="ah" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0 0L6 3L0 6z" fill="#7cf0c8"/></marker></defs>`+s;
+  return svg(s);
+}
+function picAlien(hl){
+  const L=LANG; let s='';
+  const hc = (k)=> hl===k? '#7cf0c8' : '#9aa6b8';
+  s+=`<ellipse cx="85" cy="58" rx="16" ry="22" fill="#2c3644" stroke="${hc('body')}"/>`;
+  s+=`<circle cx="85" cy="24" r="13" fill="#2c3644" stroke="${hc('HEAD')}" stroke-width="${hl==='HEAD'?2:1}"/>`;
+  for (let i=0;i<L.eyes;i++){ const x=85+(i-(L.eyes-1)/2)*6; s+=`<circle cx="${x}" cy="22" r="2.2" fill="${hl==='EYE'?'#7cf0c8':'#fff'}"/>`; }
+  for (let i=0;i<L.arms;i++){ const side=i%2?1:-1, row=Math.floor(i/2); const y=46+row*12; const x2=85+side*44;
+    s+=`<line x1="${85+side*12}" y1="${y}" x2="${x2}" y2="${y-8}" stroke="${hc('ARM')}" stroke-width="${hl==='ARM'?3:2}"/>`;
+    for (let f=0;f<L.fingers;f++){ const a=-1.2+(f/(Math.max(L.fingers-1,1)))*1.2; s+=`<line x1="${x2}" y1="${y-8}" x2="${x2+side*Math.cos(a)*9}" y2="${y-8+Math.sin(a)*9}" stroke="${hl==='FINGER'?'#ffb547':'#9aa6b8'}" stroke-width="1.5"/>`; } }
+  for (let i=0;i<L.legs;i++){ const x=85+(i-(L.legs-1)/2)*9; s+=`<line x1="${x}" y1="76" x2="${x+(i-(L.legs-1)/2)*4}" y2="104" stroke="${hc('LEG')}" stroke-width="${hl==='LEG'?3:2}"/>`; }
+  return svg(s);
+}
+function picHuman(hl){
+  const c=(k)=>hl===k?'#ffb547':'#d8c8a8'; let s='';
+  s+=`<circle cx="85" cy="20" r="11" fill="none" stroke="${c('HEAD')}" stroke-width="2"/><circle cx="81" cy="18" r="1.6" fill="${hl==='EYE'?'#ffb547':'#d8c8a8'}"/><circle cx="89" cy="18" r="1.6" fill="${hl==='EYE'?'#ffb547':'#d8c8a8'}"/>`;
+  s+=`<line x1="85" y1="31" x2="85" y2="70" stroke="#d8c8a8" stroke-width="2"/>`;
+  s+=`<line x1="85" y1="40" x2="62" y2="58" stroke="${c('ARM')}" stroke-width="2"/><line x1="85" y1="40" x2="108" y2="58" stroke="${c('ARM')}" stroke-width="2"/>`;
+  for (const [x,side] of [[62,-1],[108,1]]) for (let f=0;f<5;f++){ const a=0.3+f*0.35; s+=`<line x1="${x}" y1="58" x2="${x+side*Math.cos(a)*7}" y2="${58+Math.sin(a)*7}" stroke="${hl==='FINGER'?'#ffb547':'#d8c8a8'}" stroke-width="1.2"/>`; }
+  s+=`<line x1="85" y1="70" x2="72" y2="102" stroke="${c('LEG')}" stroke-width="2"/><line x1="85" y1="70" x2="98" y2="102" stroke="${c('LEG')}" stroke-width="2"/>`;
+  s+=`<text x="6" y="104" font-size="8" fill="#556">(the image of us they received)</text>`;
+  return svg(s);
+}
+function picTime(before, after, which){ // before/after: inner svg strings drawn in 70x90 frames
+  const f=(inner,x,on)=>`<g transform="translate(${x},10)"><rect width="70" height="90" rx="6" fill="#0a0e14" stroke="${on?'#7cf0c8':'#222'}" stroke-width="${on?2:1}"/>${inner}</g>`;
+  return svg(f(before,6,which===0)+`<text x="80" y="60" fill="#556" font-size="14">→</text>`+f(after,94,which===1)+`<text x="6" y="8" font-size="7" fill="#556">long ago</text><text x="94" y="8" font-size="7" fill="#556">now</text>`);
+}
+const starIn=(big)=>`<circle cx="35" cy="45" r="${big?28:10}" fill="${big?'#ff6a3a':'#ffd36a'}"/>`;
+const planetIn=(hot)=>`<circle cx="35" cy="45" r="18" fill="${hot?'#ff5a3a':'#7aa0c8'}"/>${hot?'<path d="M20 20q5-8 10 0q5-8 10 0" stroke="#ff5a3a" fill="none"/>':''}`;
+function picSignal(){ return svg(`<circle cx="30" cy="55" r="10" fill="#a8b0c0" stroke="#7cf0c8"/>`+[20,34,48,62].map(r=>`<path d="M${30+r} ${55-r*0.7} A ${r} ${r} 0 0 1 ${30+r} ${55+r*0.7}" fill="none" stroke="#7cf0c8" opacity="${1-r/80}"/>`).join('')+`<circle cx="148" cy="55" r="8" fill="#4a9aff"/>`); }
+function picSee(){ return svg(`<ellipse cx="45" cy="55" rx="22" ry="12" fill="none" stroke="#7cf0c8" stroke-width="2"/><circle cx="45" cy="55" r="6" fill="#7cf0c8"/><line x1="70" y1="55" x2="130" y2="55" stroke="#7cf0c8" stroke-dasharray="3 4"/><circle cx="145" cy="55" r="9" fill="#4a9aff"/>`); }
+
+// ===================== Chapters =====================
+function buildChapters(){
+  const L=LANG, r=RH.rng(S.seed+77), b=L.base;
+  const T=(pic, words)=>({pic, words});
+  const C=[];
+  // 1 Counting
+  { const tx=[]; for (let n=1;n<=b+3;n++) tx.push(T(picDots(n), num(n)));
+    tx.splice(0,0,T(picDots(0), num(0)));
+    for (const n of [b*2, b*2+1, b*3-1]) tx.push(T(picDots(n), num(n)));
+    const v1 = b*2+2+r.int(b-2), v2 = b*3+1+r.int(b-1);
+    C.push({title:'COUNTING', intro:'The first transmission repeats every 41 minutes. Each frame is a picture followed by symbols.', tx, qs:[
+      {type:'compose', prompt:`Reply with the number of dots.`, pic:picDots(v1), ans:num(v1)},
+      {type:'compose', prompt:`And this one.`, pic:picDots(v2), ans:num(v2)},
+      {type:'choice', prompt:'What number base do they count in?', opts:[...new Set([b, 10, b===12?8:12, b===5?7:5])].map(String), ans:String(b)},
+    ]}); }
+  // 2 Arithmetic
+  { const tx=[]; const eq=(a,op,c,d,ok)=>[...num(a),op,...num(c),'EQUALS',...num(d), ok?'YES':'NO'];
+    tx.push(T(picSum(1,2), eq(1,'PLUS',2,3,1)), T(picSum(2,2), eq(2,'PLUS',2,4,1)), T(picSum(3,1), eq(3,'PLUS',1,4,1)));
+    tx.push(T(picSum(2,2), eq(2,'PLUS',2,5,0)));
+    for (let k=0;k<3;k++){ const a=2+r.int(b*2), c=1+r.int(b*2); tx.push(T(null, eq(a,'PLUS',c,a+c,1))); }
+    for (let k=0;k<3;k++){ const a=b+r.int(b*2), c=1+r.int(b-1); tx.push(T(null, eq(a,'MINUS',c,a-c,1))); }
+    for (let k=0;k<3;k++){ const a=2+r.int(b), c=2+r.int(4); tx.push(T(null, eq(a,'TIMES',c,a*c,1))); }
+    const fa=3+r.int(b), fc=2+r.int(3); tx.push(T(null, eq(fa,'TIMES',fc,fa*fc+1,0)));
+    const qa=b+2+r.int(b*2), qc=b+1+r.int(b*2); const ma=4+r.int(4), mc=3+r.int(4);
+    C.push({title:'ARITHMETIC', intro:'The second signal uses the same number symbols, with some new ones between them.', tx, qs:[
+      {type:'compose', prompt:'Complete their equation:', words:[...num(qa),'PLUS',...num(qc),'EQUALS'], ans:num(qa+qc)},
+      {type:'compose', prompt:'Complete their equation:', words:[...num(ma),'TIMES',...num(mc),'EQUALS'], ans:num(ma*mc)},
+      {type:'compose', prompt:'Is this statement true? Answer the way they would.', words:[...num(ma+1),'MINUS',...num(2),'EQUALS',...num(ma-2)], ans:['NO']},
+    ]}); }
+  // 3 Matter
+  { const els=[['H',1],['HE',2],['C',6],['N',7],['O',8]]; const tx=[];
+    for (const [e,p] of els) tx.push(T(picAtom(p), clause({s:[e], v:'IS', o:num(p)})));
+    tx.push(T(picWater(), clause({s:['WATER'], v:'IS', o:[...np('H',2),'AND',...np('O',1)]})));
+    const qe = r.pick(els.slice(2));
+    C.push({title:'MATTER', intro:'Pictures of atoms: red is protons, blue is electrons. They are naming chemistry.', tx, qs:[
+      {type:'compose', prompt:'Which element is this? Answer with their word.', pic:picAtom(qe[1]), ans:[qe[0]]},
+      {type:'choice', prompt:`What does ${gl('IS')} most likely mean?`, opts:['is / equals','plus','water','has'], ans:'is / equals'},
+      {type:'compose', prompt:'Say "helium is 2".', ans:clause({s:['HE'], v:'IS', o:num(2)})},
+    ]}); }
+  // 4 Home
+  { const tx=[];
+    tx.push(T(picSystem(L.planets,0,0), clause({s:['STAR'], v:'HAVE', o:np('PLANET', L.planets)})));
+    tx.push(T(picSystem(L.planets,L.home,0), clause({s:['WE'], v:'LIVE', o:np('PLANET', L.home).filter(w=>w!=='PL')})));
+    tx.push(T(picSystem(L.planets,L.home,L.moons), clause({s:np('PLANET',L.home).filter(w=>w!=='PL'), v:'HAVE', o:np('MOON',L.moons)})));
+    tx.push(T(picSystem(8,3,1,{earth:true}), clause({s:['YOU'], v:'LIVE', o:np('PLANET',3).filter(w=>w!=='PL')})));
+    tx.push(T(picSystem(8,0,0,{earth:true}), clause({s:['STAR'], v:'HAVE', o:np('PLANET',8)})));
+    C.push({title:'HOME', intro:'Now diagrams of star systems: theirs, and one that looks a lot like ours.', tx, qs:[
+      {type:'choice', prompt:`Who is ${gl('WE')}?`, opts:['the senders','humans','the star','the planets'], ans:'the senders'},
+      {type:'compose', prompt:`How many planets orbit <i>their</i> star? Answer with a number.`, ans:num(L.planets)},
+      {type:'compose', prompt:`Tell them: "planet 3 has 1 moon" (that's Earth).`, ans:clause({s:np('PLANET',3).filter(w=>w!=='PL'), v:'HAVE', o:np('MOON',1)})},
+    ]}); }
+  // 5 Bodies
+  { const tx=[];
+    tx.push(T(picAlien('HEAD'), clause({s:['WE'], v:'HAVE', o:np('HEAD',1)})));
+    tx.push(T(picAlien('EYE'), clause({s:['WE'], v:'HAVE', o:np('EYE',L.eyes)})));
+    tx.push(T(picAlien('ARM'), clause({s:['WE'], v:'HAVE', o:np('ARM',L.arms)})));
+    tx.push(T(picAlien('LEG'), clause({s:['WE'], v:'HAVE', o:np('LEG',L.legs)})));
+    tx.push(T(picAlien('FINGER'), clause({s:['ARM'], v:'HAVE', o:np('FINGER',L.fingers)})));
+    tx.push(T(picAlien('FINGER'), clause({s:['WE'], v:'HAVE', o:np('FINGER',b)})));
+    tx.push(T(picHuman('EYE'), clause({s:['YOU'], v:'HAVE', o:np('EYE',2)})));
+    tx.push(T(picHuman('ARM'), clause({s:['YOU'], v:'HAVE', o:np('ARM',2)})));
+    C.push({title:'BODIES', intro:'They are describing themselves. The last frames show a figure that looks like us.', tx, qs:[
+      {type:'choice', prompt:`Why do they count in base ${b}?`, opts:[`They have ${b} fingers in total`, `Their star has ${b} planets`, `Their atoms have ${b} protons`, `It's arbitrary`], ans:`They have ${b} fingers in total`},
+      {type:'compose', prompt:'Tell them how many fingers <i>you</i> (humans) have. Careful: from your side, who is "we"?', ans:clause({s:['WE'], v:'HAVE', o:np('FINGER',10)})},
+      {type:'compose', prompt:'Tell them humans have 2 legs.', ans:clause({s:['WE'], v:'HAVE', o:np('LEG',2)})},
+    ]}); }
+  // 6 Time
+  { const tx=[];
+    tx.push(T(picTime(starIn(0),starIn(1),0), clause({s:['STAR'], v:'IS', o:['SMALL'], past:1})));
+    tx.push(T(picTime(starIn(0),starIn(1),1), clause({s:['STAR'], v:'IS', o:['BIG']})));
+    tx.push(T(picTime(starIn(0),starIn(1),1), clause({s:['STAR'], v:'IS', o:['SMALL'], neg:1})));
+    tx.push(T(picTime(planetIn(0),planetIn(1),0), clause({s:np('PLANET',L.oldHome).filter(w=>w!=='PL'), v:'IS', o:['COLD'], past:1})));
+    tx.push(T(picTime(planetIn(0),planetIn(1),1), clause({s:np('PLANET',L.oldHome).filter(w=>w!=='PL'), v:'IS', o:['HOT']})));
+    tx.push(T(picTime(planetIn(0),planetIn(1),1), clause({s:np('PLANET',L.oldHome).filter(w=>w!=='PL'), v:'IS', o:['COLD'], neg:1})));
+    C.push({title:'TIME', intro:'Two-panel images, before and after. The outlined panel is the one each sentence describes.', tx, qs:[
+      {type:'choice', prompt:`Translate: ${glSeq(clause({s:['STAR'], v:'IS', o:['HOT'], neg:1, past:1}))}`, opts:['The star was not hot','The star is not hot','The star was hot','The star will be cold'], ans:'The star was not hot'},
+      {type:'compose', prompt:'Say: "the star was big".', ans:clause({s:['STAR'], v:'IS', o:['BIG'], past:1})},
+      {type:'compose', prompt:`Say: "planet ${L.oldHome} is not cold".`, ans:clause({s:np('PLANET',L.oldHome).filter(w=>w!=='PL'), v:'IS', o:['COLD'], neg:1})},
+    ]}); }
+  // 7 History
+  { const tx=[]; const P=(n)=>np('PLANET',n).filter(w=>w!=='PL');
+    tx.push(T(picSystem(L.planets,L.oldHome,0), clause({s:['WE'], v:'LIVE', o:P(L.oldHome), past:1})));
+    tx.push(T(picTime(starIn(0),starIn(1),1), clause({s:['STAR'], v:'IS', o:['BIG']})));
+    tx.push(T(picSystem(L.planets,0,0,{bigStar:1,hot:L.oldHome}), clause({s:P(L.oldHome), v:'IS', o:['HOT']})));
+    tx.push(T(picSystem(L.planets,0,0,{arrow:[L.oldHome,L.home]}), clause({s:['WE'], v:'GO', o:P(L.home), past:1})));
+    tx.push(T(picSystem(L.planets,L.home,L.moons), clause({s:['WE'], v:'LIVE', o:P(L.home)})));
+    tx.push(T(picSee(), clause({s:['WE'], v:'SEE', o:['YOU'], past:1})));
+    tx.push(T(picSignal(), clause({s:['WE'], v:'SEND', o:['SIGNAL']})));
+    C.push({title:'HISTORY', intro:'A longer message. It reads like a story.', tx, qs:[
+      {type:'choice', prompt:`Why did they move from planet ${L.oldHome} to planet ${L.home}?`, opts:['Their star grew and the planet got hot','The planet got cold','They saw us','Planet '+L.oldHome+' had no moons'], ans:'Their star grew and the planet got hot'},
+      {type:'choice', prompt:`Translate: ${glSeq(clause({s:['WE'], v:'SEE', o:['YOU'], past:1}))}`, opts:['We saw you','You saw us','We see you','We did not see you'], ans:'We saw you'},
+      {type:'compose', prompt:'Reply: "we see you". (Remember: "we" is you, the humans, now.)', ans:clause({s:['WE'], v:'SEE', o:['YOU']})},
+    ]}); }
+  // 8 Dialogue
+  { const tx=[]; const P=(n)=>np('PLANET',n).filter(w=>w!=='PL');
+    tx.push(T(picAlien('ARM'), clause({s:['WE'], v:'HAVE', o:np('ARM','?'), q:1})));
+    tx.push(T(picAlien('ARM'), clause({s:['WE'], v:'HAVE', o:np('ARM',L.arms)})));
+    tx.push(T(picAlien('LEG'), clause({s:['WE'], v:'HAVE', o:np('LEG','?'), q:1})));
+    tx.push(T(picAlien('LEG'), clause({s:['WE'], v:'HAVE', o:np('LEG',L.legs)})));
+    tx.push(T(picHuman('EYE'), clause({s:['YOU'], v:'HAVE', o:np('EYE','?'), q:1})));
+    C.push({title:'DIALOGUE', intro:'They are asking questions now and waiting for answers.', tx, qs:[
+      {type:'compose', prompt:'They ask:', words:clause({s:['YOU'], v:'HAVE', o:np('EYE','?'), q:1}), ans:clause({s:['WE'], v:'HAVE', o:np('EYE',2)})},
+      {type:'compose', prompt:'They ask:', words:clause({s:['YOU'], v:'LIVE', o:np('PLANET','?'), q:1}), ans:clause({s:['WE'], v:'LIVE', o:P(3)})},
+      {type:'compose', prompt:'They ask:', words:clause({s:['YOU'], v:'SEE', o:['WE'], q:1}), ans:['YES']},
+      {type:'compose', prompt:'Last question. They ask:', words:clause({s:['YOU'], v:'SEND', o:['SIGNAL'], q:1}), ans:clause({s:['WE'], v:'SEND', o:['SIGNAL']}), final:true, alt:[['YES']]},
+    ]}); }
+  return C;
+}
+function gl(id){ return `<span class="g" data-w="${id}" style="vertical-align:middle">${glyphSVG(id)}</span>`; }
+function glSeq(ws){ return `<span class="sentence" style="display:inline-flex">${ws.map(w=>gl(w)).join('')}</span>`; }
+
+// ===================== Rendering =====================
+let CH, seen;
+function sentenceHTML(ws, cls=''){
+  return `<div class="sentence ${cls}">`+ws.map(w=>`<span class="g" data-w="${w}">${glyphSVG(w)}<span class="gl">${S.gloss? esc(S.notes[w]||S.seti[w]||'') : ''}</span></span>`).join('')+`</div>`;
+}
+const esc=(s)=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function chapterUnlocked(i){ return i===0 || CH[i-1].qs.every((q,k)=>S.solved[(i-1)+':'+k]); }
+function seenUpTo(i){ const set=[]; for (let c=0;c<=i;c++){ for (const t of CH[c].tx) for (const w of t.words) if(!set.includes(w)) set.push(w); for (const q of CH[c].qs) for (const w of (q.words||[])) if(!set.includes(w)) set.push(w); }
+  // digits in numeric order so the palette is usable
+  return set.sort((a,b)=> (a[0]==='D'&&b[0]==='D')? 0 : 0); }
+function render(){
+  const i=S.chapter, ch=CH[i];
+  seen = seenUpTo(i);
+  document.getElementById('chapters').innerHTML = CH.map((c,k)=>`<button data-c="${k}" class="${k===i?'cur':''}" ${chapterUnlocked(k)?'':'disabled'}>${k+1}</button>`).join('');
+  document.querySelectorAll('#chapters button').forEach(b=>b.onclick=()=>{ S.chapter=+b.dataset.c; persist(); render(); });
+  document.getElementById('species').textContent = `Signal ${String(S.seed).slice(0,4)}-${String(S.seed).slice(4,7)}${S.decoded? ` · ${S.decoded} species decoded`:''}`;
+  let h = `<div class="chapterHead"><h2>TRANSMISSION ${i+1} · ${ch.title}</h2><span class="static">${'▂▃▅▇▅▃▂'.split('').sort(()=>Math.random()-.5).join('')}</span></div><p class="dim">${ch.intro}</p>`;
+  ch.tx.forEach((t,k)=>{ h += `<div class="tx"><div class="num">${String(k+1).padStart(2,'0')}</div>${t.pic? `<div class="pic">${t.pic}</div>`:''}${sentenceHTML(t.words)}</div>`; });
+  h += `<div class="qs"><h3 style="margin:0 0 10px">Reply</h3>`;
+  ch.qs.forEach((q,k)=>{ const id=i+':'+k; const done=S.solved[id];
+    h += `<div class="q ${done?'done':''}" data-q="${k}"><div class="prompt">${q.prompt}</div>`;
+    if (q.pic) h += `<div class="pic" style="width:170px;height:110px;background:#05070a;border-radius:8px;margin-bottom:8px">${q.pic}</div>`;
+    if (q.words) h += sentenceHTML(q.words)+'<div style="height:8px"></div>';
+    if (done) h += `<div class="fb good">✓ Received. ${q.type==='compose'? sentenceHTML(q.ans).replace('class="sentence ','class="sentence ') : esc(q.ans)}</div>`;
+    else if (q.type==='choice') h += `<div class="choices">${q.opts.map(o=>`<button data-opt="${esc(o)}">${esc(o)}</button>`).join('')}</div><div class="fb"></div>`;
+    else h += `<div class="compose" data-compose></div><div class="row" style="margin-top:6px"><button data-back>⌫</button><button data-clear>Clear</button><span class="spacer" style="flex:1"></span><button class="primary" data-send>Transmit</button></div><div class="palette">${seen.map(w=>`<span class="g" data-pw="${w}" title="${esc(S.notes[w]||'')}">${glyphSVG(w)}</span>`).join('')}</div><div class="fb"></div>`;
+    h += `</div>`; });
+  h += `</div>`;
+  if (ch.qs.every((q,k)=>S.solved[i+':'+k]) && i<CH.length-1) h += `<div style="text-align:center;margin:20px"><button class="primary" id="nextCh">Receive transmission ${i+2} →</button></div>`;
+  const feed=document.getElementById('feed'); feed.innerHTML=h;
+  document.getElementById('nextCh')?.addEventListener('click',()=>{ S.chapter++; persist(); render(); feed.scrollTop=0; });
+  // wiring
+  feed.querySelectorAll('.g[data-w]').forEach(el=> el.onclick=()=>focusGlyph(el.dataset.w));
+  feed.querySelectorAll('.q').forEach(qel=>{
+    const k=+qel.dataset.q, q=ch.qs[k], id=i+':'+k; if (S.solved[id]) return;
+    const fb=qel.querySelector('.fb');
+    if (q.type==='choice') qel.querySelectorAll('[data-opt]').forEach(bt=> bt.onclick=()=>{
+      if (bt.dataset.opt===q.ans){ solve(id); } else { fb.className='fb bad'; fb.textContent='No reply from the signal. Try again.'; bt.disabled=true; } });
+    else {
+      const comp=[]; const box=qel.querySelector('[data-compose]');
+      const draw=()=>{ box.innerHTML = comp.map(w=>`<span class="g">${glyphSVG(w)}</span>`).join('') || '<span class="dim small" style="padding:8px">click glyphs below to compose</span>'; };
+      draw();
+      qel.querySelectorAll('[data-pw]').forEach(p=> p.onclick=()=>{ comp.push(p.dataset.pw); draw(); });
+      qel.querySelector('[data-back]').onclick=()=>{ comp.pop(); draw(); };
+      qel.querySelector('[data-clear]').onclick=()=>{ comp.length=0; draw(); };
+      qel.querySelector('[data-send]').onclick=()=>{
+        const ok = (a)=> a.length===comp.length && a.every((w,j)=>w===comp[j]);
+        if (ok(q.ans) || (q.alt||[]).some(ok)){ solve(id, q.final); }
+        else { const right = q.ans.filter((w,j)=>w===comp[j]).length; fb.className='fb bad'; fb.textContent = `Signal returned: ${right} of ${q.ans.length} symbols in the right place${comp.length!==q.ans.length? ` (they expect ${q.ans.length>comp.length?'more':'fewer'} symbols)`:''}.`; }
+      };
+    }
+  });
+  renderNotebook();
+}
+function solve(id, final){ S.solved[id]=1; persist(); RH.toast('📡 Reply acknowledged.'); render();
+  if (final) setTimeout(ending, 500);
+  else if (CH[S.chapter].qs.every((q,k)=>S.solved[S.chapter+':'+k])) setTimeout(()=>RH.toast(`Transmission ${S.chapter+1} decoded.`),700);
+}
+async function ending(){
+  S.decoded = (S.decoded||0)+1; persist();
+  const L=LANG;
+  await RH.modal(`<h2>Contact.</h2><p>Forty-one years from now, the <b>${L.name}</b> on planet ${L.home} of their star will receive your reply.</p>
+  <p>What you worked out:</p><ul style="line-height:1.6">
+  <li>They count in <b>base ${L.base}</b>: ${L.arms} arm${L.arms>1?'s':''} × ${L.fingers} fingers${L.littleEndian?', and they write the <b>smallest digit first</b>':''}.</li>
+  <li>Word order is <b>${L.order}</b>. Numbers go ${L.numAfter?'after':'before'} the noun, and the past marker goes at the ${L.tenseFinal?'end':'start'} of the sentence.</li>
+  <li>They have ${L.eyes} eye${L.eyes>1?'s':''} and ${L.legs} legs, and they moved from planet ${L.oldHome} when their star swelled.</li></ul>
+  <p class="dim">Every new signal is a different species with a different grammar, number base and history. Want to decode another?</p>`, [{label:'Stay here',value:0},{label:'Receive a new signal',value:1}]).then(v=>{ if(v) newSignal(true); });
+}
+function focusGlyph(w){
+  document.querySelectorAll('.g.hl,.nbRow.hl').forEach(e=>e.classList.remove('hl'));
+  document.querySelectorAll(`#feed .g[data-w="${w}"]`).forEach(e=>e.classList.add('hl'));
+  const row=document.querySelector(`.nbRow[data-w="${w}"]`); if(row){ row.classList.add('hl'); row.scrollIntoView({block:'nearest'}); row.querySelector('input').focus(); }
+}
+function renderNotebook(){
+  const confs=['?','~','✓'];
+  const order=[...seen].sort((a,b)=>{ const da=a[0]==='D'&&a.length<=3&&/^D\d+$/.test(a), db=/^D\d+$/.test(b); return (db-da) || 0; });
+  document.getElementById('nbList').innerHTML = order.map(w=>`<div class="nbRow" data-w="${w}">${glyphSVG(w)}<input value="${esc(S.notes[w]||'')}" placeholder="${S.seti[w]? '' : 'meaning?'}"><button class="conf">${confs[S.conf[w]||0]}</button>${S.seti[w]?`<span class="seti" title="SETI hint">${esc(S.seti[w])}</span>`:''}</div>`).join('');
+  document.querySelectorAll('.nbRow').forEach(row=>{ const w=row.dataset.w;
+    row.querySelector('svg').onclick=()=>focusGlyph(w);
+    const inp=row.querySelector('input');
+    inp.oninput=()=>{ S.notes[w]=inp.value; persist(); document.querySelectorAll(`#feed .g[data-w="${w}"] .gl`).forEach(e=>e.textContent=S.gloss?inp.value:''); };
+    inp.onfocus=()=>{ document.querySelectorAll('#feed .g.hl').forEach(e=>e.classList.remove('hl')); document.querySelectorAll(`#feed .g[data-w="${w}"]`).forEach(e=>e.classList.add('hl')); };
+    row.querySelector('.conf').onclick=(e)=>{ S.conf[w]=((S.conf[w]||0)+1)%3; e.target.textContent=confs[S.conf[w]]; persist(); };
+  });
+}
+const MEANING = {PLUS:'plus',MINUS:'minus',TIMES:'times',EQUALS:'equals',YES:'yes / true',NO:'no / false',IS:'is',H:'hydrogen',HE:'helium',C:'carbon',N:'nitrogen',O:'oxygen',WATER:'water',AND:'and',STAR:'star',PLANET:'planet',MOON:'moon',HAVE:'have',LIVE:'live (on)',WE:'we',YOU:'you',PL:'(plural)',HEAD:'head',EYE:'eye',ARM:'arm',FINGER:'finger',LEG:'leg',PAST:'(past tense)',NOT:'not',BIG:'big',SMALL:'small',HOT:'hot',COLD:'cold',GO:'go',SEE:'see',SEND:'send',SIGNAL:'signal',Q:'(question)',HOWMANY:'how many?'};
+document.getElementById('hintBtn').onclick=()=>{
+  const i=S.chapter; const used=S.hints[i]||0;
+  if (used>=3) return RH.toast('The SETI team has no more ideas for this transmission. (3 hints per transmission.)');
+  const cand = seen.filter(w=>!S.seti[w] && !(S.conf[w]===2));
+  if (!cand.length) return RH.toast('Nothing left to hint.');
+  // prefer words from the current chapter
+  const cur = new Set(CH[i].tx.flatMap(t=>t.words)); const pool = cand.filter(w=>cur.has(w)); const w = (pool.length?pool:cand)[Math.floor(Math.random()*(pool.length||cand.length))];
+  S.seti[w] = w[0]==='D' && /^D\d+$/.test(w) ? `digit ${w.slice(1)}` : MEANING[w]; S.hints[i]=used+1; persist(); render(); focusGlyph(w);
+  RH.toast(`SETI team: "We're fairly sure this one means <b>${S.seti[w]}</b>." (${2-used} left)`);
+};
+document.getElementById('glossBtn').onclick=()=>{ S.gloss=!S.gloss; document.getElementById('glossBtn').textContent='Gloss: '+(S.gloss?'on':'off'); persist(); render(); };
+document.getElementById('newBtn').onclick=async()=>{ if (await RH.modal('<h2>New signal?</h2><p>A different species with a new language. Your notebook for this signal will be cleared.</p>',[{label:'Cancel',value:0},{label:'Tune in',value:1}])) newSignal(); };
+function newSignal(){ const d=S.decoded; S=fresh(); S.decoded=d; persist(); boot(); }
+function boot(){
+  LANG = buildLanguage(S.seed); CH = buildChapters(); TOTALQ = CH.reduce((s,c)=>s+c.qs.length,0);
+  if (!chapterUnlocked(S.chapter)) S.chapter=0;
+  document.getElementById('glossBtn').textContent='Gloss: '+(S.gloss?'on':'off');
+  render();
+}
+boot();
+if (!S.intro){ S.intro=1; persist(); RH.modal(`<h2>📡 First Contact</h2><p>A narrow-band signal is coming from a star 41 light-years away. It's structured. Someone made it.</p><p>You have no dictionary. You have pictures, patterns and a notebook. Work out what the symbols mean, then answer them <b>in their language</b>.</p><p class="dim">Eight transmissions. Every new signal is a different species with a different language.</p>`,[{label:'Start listening'}]); }
+</script>
+</body>
+</html>
