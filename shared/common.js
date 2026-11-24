@@ -16,7 +16,7 @@ const RH = (() => {
   const modal = (html, buttons = [{ label: 'OK' }]) => new Promise(res => {
     const bg = document.createElement('div'); bg.className = 'modal-bg';
     const m = document.createElement('div'); m.className = 'modal'; m.innerHTML = html;
-    const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '14px'; row.style.justifyContent = 'flex-end';
+    const row = document.createElement('div'); row.className = 'row modal-actions'; row.style.marginTop = '14px'; row.style.justifyContent = 'flex-end';
     buttons.forEach((b, i) => {
       const el = document.createElement('button'); el.textContent = b.label;
       if (i === buttons.length - 1) el.className = 'primary';
