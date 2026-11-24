@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Snowfall</title>
+<link rel="stylesheet" href="../shared/common.css">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  html,body{height:100%;overflow:hidden;background:#060b18;font-family:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;color:#e8f1ff}
+  #sky{position:fixed;inset:0;width:100%;height:100%}
+  .chip{position:fixed;background:rgba(14,24,48,.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(160,200,255,.12);border-radius:18px;box-shadow:0 16px 40px -18px rgba(0,0,0,.8)}
+  #hud{top:16px;left:16px;padding:14px 18px;width:330px}
+  #hud .home{color:#8ea3c4;font-size:12px;text-decoration:none}
+  #hud h1{font-family:Fraunces,Georgia,serif;font-weight:700;margin:4px 0;font-size:28px;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+  #storyT{display:none;border:0;background:rgba(255,255,255,.08);color:#cfe6ff;border-radius:50%;width:26px;height:26px;font:inherit;font-size:14px;cursor:pointer;margin-left:auto}
+  #story{font-size:14px;line-height:1.5;color:#bcd0ee}
+  #story b{color:#fff}
+  .btn{border:0;background:#cfe6ff;color:#0b1a33;font:inherit;font-weight:700;border-radius:12px;padding:10px 16px;cursor:pointer;transition:transform .08s,opacity .2s}
+  .btn:active{transform:scale(.95)} .btn.ghost{background:rgba(255,255,255,.08);color:#e8f1ff;font-weight:500}
+  .btn.ghost.on{background:rgba(207,230,255,.22);color:#fff}
+  .btn:disabled{opacity:.45;cursor:default}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+  #padBox{right:16px;bottom:16px;padding:12px;width:284px;box-sizing:border-box}
+  #pad{width:100%;height:200px;border-radius:12px;display:block;cursor:crosshair;touch-action:none}
+  .padLbl{display:flex;justify-content:space-between;font-size:11px;color:#8ea3c4;margin-top:6px}
+  #status{font-size:13px;color:#bcd0ee;margin:0 2px 8px;min-height:36px;line-height:1.35}
+  #status b{color:#fff;font-size:15px}
+  #bar{height:4px;border-radius:2px;background:rgba(255,255,255,.08);margin:0 2px 10px;overflow:hidden}
+  #bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#9fd0ff,#fff);border-radius:2px}
+  #mode{top:16px;right:16px;padding:6px;display:flex;gap:4px}
+  #mode button{border:0;background:transparent;color:#bcd0ee;font:inherit;font-size:13px;padding:8px 12px;border-radius:10px;cursor:pointer}
+  #mode button.on{background:rgba(207,230,255,.18);color:#fff}
+  body.busy #mode button,body.busy .tg{opacity:.45;pointer-events:none}
+  #side{top:70px;right:16px;padding:12px;width:284px;box-sizing:border-box;max-height:calc(100vh - 460px);min-height:120px;overflow:auto}
+  #side h4{margin:2px 4px 8px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#8ea3c4;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+  #side h4 button{display:none;border:0;background:rgba(255,255,255,.08);color:#e8f1ff;border-radius:8px;padding:4px 10px;font:inherit;font-size:12px;letter-spacing:0;text-transform:none;cursor:pointer}
+  .cat{display:flex;gap:10px;align-items:center;padding:6px;border-radius:10px;font-size:13px}
+  .cat img,.cat .sil{width:44px;height:44px;border-radius:8px;background:#0b1530;flex:0 0 auto}
+  .cat .sil{display:flex;align-items:center;justify-content:center;color:#3a4d73;font-size:22px}
+  .cat.got{background:rgba(207,230,255,.06)}
+  .cat small{display:block;color:#8ea3c4;font-size:11px;line-height:1.35}
+  .tg{display:flex;gap:8px;align-items:center;padding:6px;border-radius:10px;cursor:pointer;font-size:13px}
+  .tg:hover{background:rgba(255,255,255,.06)} .tg.cur{background:rgba(207,230,255,.16)} .tg.lock{opacity:.35;pointer-events:none}
+  .tg img,.tg .sil{width:40px;height:40px;border-radius:8px;background:#0b1530;flex:0 0 auto}
+  .tg small{color:#8ea3c4;font-size:11px}
+  .gal{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .gal img,.gal .sil{width:100%;aspect-ratio:1;border-radius:8px;background:#0b1530;display:block}
+  img.pending{opacity:.25}
+  .stars{color:#ffd27a}
+  #toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.85);opacity:0;font-family:Fraunces,Georgia,serif;font-size:36px;font-weight:700;pointer-events:none;transition:opacity .35s,transform .6s cubic-bezier(.3,1.6,.5,1);text-align:center;background:rgba(6,12,28,.78);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(160,200,255,.18);border-radius:18px;padding:16px 24px;max-width:min(440px,calc(100vw - 48px));box-sizing:border-box;z-index:10;box-shadow:0 20px 60px -20px #000}
+  #toast.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  #toast small{display:block;font-family:"Space Grotesk",sans-serif;font-size:15px;font-weight:400;color:#cfe0f8;margin-top:6px;line-height:1.4}
+  #sideT{display:none}
+  @media (max-width:860px){
+    #hud{top:8px;left:8px;right:8px;width:auto;padding:8px 12px;z-index:3}
+    #hud h1{font-size:20px;margin:2px 0 0}
+    #storyT{display:block}
+    #story{display:none;font-size:13px;margin-top:6px}
+    body.story #story{display:block}
+    #mode{top:72px;left:8px;right:8px;justify-content:center;padding:4px}
+    #mode button{padding:6px 10px;flex:1}
+    #padBox{left:8px;right:8px;bottom:8px;width:auto;padding:10px}
+    #pad{height:118px}
+    #status{min-height:0;margin-bottom:6px}
+    .row{margin-top:8px}
+    #sideT{display:inline-block}
+    #side{display:none;top:auto;left:8px;right:8px;bottom:8px;width:auto;max-height:62vh;z-index:6;background:rgba(10,18,38,.94)}
+    body.sheet #side{display:block}
+    #side h4 button{display:inline-block}
+    #toast{font-size:28px}
+  }
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+<div id="hud" class="chip"><a class="home" href="../index.html">← Rabbit Holes</a><h1>❄️ Snowfall <button id="storyT" aria-label="How it works">?</button></h1><div id="story"></div></div>
+<div id="mode" class="chip"><button data-m="free" class="on">Collect</button><button data-m="copy">Copy a flake</button><button data-m="gallery">Gallery</button></div>
+<div id="side" class="chip"></div>
+<div id="padBox" class="chip"><div id="status"></div><div id="bar"><i></i></div><canvas id="pad"></canvas><div class="padLbl"><span>denser vapour →</span><span>faster freezing ↑</span></div><div class="row"><button class="btn" id="rel">❄ Release a crystal</button><button class="btn ghost" id="slow" title="Slow motion">🐢 Slow</button><button class="btn ghost" id="sideT">Catalogue</button></div></div>
+<div id="toast"></div>
+<script src="../shared/common.js"></script>
+<script src="../shared/fx.js"></script>
+<script>
+'use strict';
+/*SIM-BEGIN*/
+// ================= Reiter's snow crystal model (2005) =================
+// Hexagonal cells hold water. Cells that are ice, or touch ice, are "receptive": they keep their water and gain gamma each step.
+// Elsewhere water diffuses. A cell freezes when its water reaches 1. Two numbers decide the shape:
+//   beta  = background vapour density, gamma = vapour added at the crystal surface.
+const N = 181, C = N >> 1, NN = N * N, RMAX = C - 8;
+const NB = [1, -1, N, -N, N - 1, -N + 1];
+const DIST = new Float32Array(NN), OFF = new Float32Array(NN); // hex distance from centre; angular distance from the nearest arm axis (0..0.5)
+for (let k = 0; k < NN; k++) { const q = k % N - C, r = (k / N | 0) - C, d = (Math.abs(q) + Math.abs(r) + Math.abs(q + r)) / 2; DIST[k] = d; OFF[k] = d ? Math.min(Math.abs(q), Math.abs(r), Math.abs(q + r)) / d : 0; }
+// the conditions pad: x = vapour density (beta), y = freezing rate (gamma, log scale)
+const BMIN = .3, BMAX = .55, GMIN = .0001, GMAX = .05, PADQ = 200;
+const ptToParams = p => [BMIN + (BMAX - BMIN) * p.x, Math.exp(Math.log(GMIN) + (Math.log(GMAX) - Math.log(GMIN)) * p.y)];
+// a simulation instance owns all of its buffers, so a background replay never touches the falling crystal
+function Sim() { return { s: new Float32Array(NN), u: new Float32Array(NN), v: new Float32Array(NN), un: new Float32Array(NN), fr: new Uint8Array(NN), born: new Uint16Array(NN), R: 0, steps: 0, beta: .4, gamma: .001 }; }
+function seed(o, b, g) { o.beta = b; o.gamma = g; o.s.fill(b); o.fr.fill(0); o.born.fill(0); o.R = 0; o.steps = 0; const c = C * N + C; o.s[c] = 1; o.fr[c] = 1; }
+function step(o) {
+  const { s, u, v, un, fr, born } = o, beta = o.beta, gamma = o.gamma;
+  // only work inside the active disc: everything beyond R+14 is untouched background
+  const lim = Math.min(C - 1, o.R + 14);
+  for (let y = C - lim; y <= C + lim; y++) for (let x = C - lim, k = y * N + x; x <= C + lim; x++, k++) {
+    if (DIST[k] > lim) continue;
+    let rec = fr[k]; if (!rec) for (let d = 0; d < 6; d++) if (fr[k + NB[d]]) { rec = 1; break; }
+    if (rec) { u[k] = 0; v[k] = s[k] + gamma; } else { u[k] = s[k]; v[k] = 0; }
+  }
+  for (let y = C - lim; y <= C + lim; y++) for (let x = C - lim, k = y * N + x; x <= C + lim; x++, k++) {
+    if (DIST[k] > lim) continue;
+    if (DIST[k] > lim - 1) { un[k] = beta; continue; }
+    const a = u[k + 1] + u[k - 1] + u[k + N] + u[k - N] + u[k + N - 1] + u[k - N + 1];
+    un[k] = u[k] + .5 * (a / 6 - u[k]);
+  }
+  for (let y = C - lim; y <= C + lim; y++) for (let x = C - lim, k = y * N + x; x <= C + lim; x++, k++) {
+    if (DIST[k] > lim) continue;
+    s[k] = un[k] + v[k];
+    if (!fr[k] && s[k] >= 1) { fr[k] = 1; born[k] = o.steps; if (DIST[k] > o.R) o.R = DIST[k]; }
+  }
+  o.steps++;
+}
+// Schedules. kind 'frac': [[growthFraction, padX, padY], ...] switch when R reaches that fraction of full size (puzzles, prototypes).
+// kind 'pad': [[step, padXq, padYq], ...] quantised pad points, recorded during a real fall; kind 'raw': [[step, beta, gamma], ...] (old saves).
+// Replaying a 'pad' or 'raw' schedule reproduces the flake exactly.
+function toParams(sc, kind) { return kind === 'pad' ? sc.map(([t, x, y]) => [t, ...ptToParams({ x: x / PADQ, y: y / PADQ })]) : kind === 'frac' ? sc.map(([f, x, y]) => [f, ...ptToParams({ x, y })]) : sc; }
+function Runner(o, sc, kind) {
+  const P = toParams(sc, kind); seed(o, P[0][1], P[0][2]); let i = 0;
+  return { o, done: false, run(maxSteps) {
+    for (let n = 0; n < maxSteps; n++) {
+      if (o.R >= RMAX || o.steps >= 9000) { this.done = true; return true; }
+      while (i + 1 < P.length && (kind === 'frac' ? o.R >= P[i + 1][0] * RMAX : o.steps >= P[i + 1][0])) { i++; o.beta = P[i][1]; o.gamma = P[i][2]; }
+      step(o);
+    }
+    return false;
+  } };
+}
+// ================= shape descriptor =================
+// Fold the crystal into rings (finer towards the tips) x 4 angular bands (on the arm axis ... midway between arms) and take the
+// ice fraction in each cell. Tolerant to small shifts in timing or conditions, sensitive to where the ice is.
+const DR = 12, DA = [.06, .15, .28], DB = DA.length + 1, DLEN = DR * DB, DBIN = new Int16Array(NN).fill(-1), DTOT = new Float32Array(DLEN);
+for (let k = 0; k < NN; k++) { const d = DIST[k]; if (d > RMAX + 1) continue; const b = Math.min(DR - 1, Math.pow(d / (RMAX + 1), 2) * DR | 0); let a = 0; while (a < DA.length && OFF[k] >= DA[a]) a++; DBIN[k] = b * DB + a; DTOT[b * DB + a]++; }
+function desc(mask) { const c = new Float32Array(DLEN); for (let k = 0; k < NN; k++) if (mask[k] && DBIN[k] >= 0) c[DBIN[k]]++; for (let i = 0; i < DLEN; i++) c[i] = Math.round(c[i] / Math.max(1, DTOT[i]) * 1000) / 1000; return c; }
+function ddist(a, b) { let s = 0; for (let i = 0; i < DLEN; i++) s += Math.abs(a[i] - b[i]); return s / DLEN; }
+// ================= catalogue =================
+const FORMS = [
+  { id: 'plate', n: 'Hexagonal plate', d: 'A solid six-sided plate. Grows when ice freezes fast: the top of the pad.' },
+  { id: 'broad', n: 'Broad branches', d: 'Six wide, flat arms. Just below the plates on the pad.' },
+  { id: 'stellar', n: 'Stellar dendrite', d: 'The classic snowflake: six arms with side branches. The middle of the pad.' },
+  { id: 'fern', n: 'Fernlike dendrite', d: 'Thin, feathery arms dense with side branches. Slow freezing: the bottom of the pad.' },
+  { id: 'platearms', n: 'Plate with arms', d: 'Needs a change mid-fall: grow a plate, then about halfway down drag to stars or ferns and arms shoot out of the corners.', combo: 1 },
+  { id: 'tips', n: 'Dendrite with plate tips', d: 'Needs a late change: grow ferns almost all the way, then flick to plates in the last moments (around 80–85%).', combo: 1 },
+  { id: 'seasons', n: 'Three seasons', d: 'Two changes: ferns, then plates at about 25–30% grown, then ferns again at about 60–65%.', combo: 1 },
+];
+// prototypes: schedules whose shape stands for each form (pure forms at several vapour levels)
+const PROTOS = [
+  ['plate', [[0, .15, 1]]], ['plate', [[0, .5, .96]]], ['plate', [[0, .85, .93]]],
+  ['broad', [[0, .15, .75]]], ['broad', [[0, .5, .75]]], ['broad', [[0, .85, .72]]],
+  ['stellar', [[0, .15, .5]]], ['stellar', [[0, .5, .5]]], ['stellar', [[0, .85, .5]]],
+  ['fern', [[0, .15, .12]]], ['fern', [[0, .5, .15]]], ['fern', [[0, .85, .15]]],
+  ['platearms', [[0, .3, 1], [.45, .1, .1]]], ['platearms', [[0, .3, 1], [.45, .3, .5]]], ['platearms', [[0, .7, .95], [.35, .5, .2]]], ['platearms', [[0, .3, 1], [.55, .2, .3]]], ['platearms', [[0, .5, .95], [.6, .4, .5]]],
+  ['tips', [[0, .1, .1], [.85, .3, 1]]], ['tips', [[0, .3, .4], [.85, .5, 1]]], ['tips', [[0, .5, .25], [.85, .4, 1]]], ['tips', [[0, .2, .15], [.8, .5, .9]]],
+  ['seasons', [[0, .1, .1], [.3, .3, 1], [.6, .1, .1]]], ['seasons', [[0, .1, .1], [.25, .3, 1], [.65, .1, .1]]],
+];
+// ================= copy puzzles (growth-fraction schedules in pad coordinates) =================
+const TARGETS = [
+  { n: 'Steady star', f: 'stellar', sc: [[0, .3, .5]], hint: 'The middle of the pad, the whole way down.' },
+  { n: 'Fat plate', f: 'plate', sc: [[0, .3, 1]], hint: 'The very top of the pad: the fastest freezing.' },
+  { n: 'Fern', f: 'fern', sc: [[0, .1, .1]], hint: 'Bottom left: thin vapour, slow freezing.' },
+  { n: 'Broad branches', f: 'broad', sc: [[0, .3, .75]], hint: 'Between the stars and the plates.' },
+  { n: 'Plate, then arms', f: 'platearms', sc: [[0, .3, 1], [.45, .1, .1]], hint: 'Start among the plates; at about 45% grown, drop to the ferns.' },
+  { n: 'Plate, then star', f: 'platearms', sc: [[0, .3, 1], [.45, .3, .5]], hint: 'Start among the plates; at about 45% grown, move to the stars.' },
+  { n: 'Fern with plate tips', f: 'tips', sc: [[0, .1, .1], [.8, .3, 1]], hint: 'Ferns nearly all the way; flick up to the plates at about 80%.' },
+  { n: 'Three seasons', f: 'seasons', sc: [[0, .1, .1], [.25, .3, 1], [.65, .1, .1]], hint: 'Ferns, then plates at about 25%, then ferns again at about 65%.' },
+];
+/*SIM-END*/
+// Precomputed by replaying every prototype, target and an 11x11 grid of pad points with the code above (see __snow.selfCheck()).
+/*TABLES*/const TABLES = {"padN":11,"pad":["fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","fern","stellar","stellar","fern","fern","fern","fern","fern","fern","fern","fern","fern","stellar","stellar","stellar","stellar","stellar","stellar","stellar","stellar","fern","fern","fern","stellar","stellar","stellar","stellar","stellar","stellar","stellar","stellar","stellar","stellar","stellar","broad","broad","stellar","broad","stellar","broad","stellar","stellar","stellar","stellar","stellar","broad","broad","broad","broad","broad","broad","broad","broad","broad","broad","broad","plate","broad","broad","broad","broad","broad","broad","broad","broad","broad","stellar","plate","plate","plate","plate","plate","plate","plate","plate","plate","broad","broad","plate","plate","plate","plate","plate","plate","plate","plate","plate","plate","plate"],"protos":[[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0.9570000171661377,1,1,1,0.6069999933242798,1,1,0.39500001072883606,0.014999999664723873,1,0.42899999022483826,0,0,0.3610000014305115,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0.8100000023841858,1,1,0.9440000057220459,0.19699999690055847,1,0.8460000157356262,0.2630000114440918,0,1,0.17900000512599945,0,0,0.25,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0.8360000252723694,1,1,0.9169999957084656,0.5740000009536743,1,0.8460000157356262,0.39500001072883606,0.12300000339746475,0.9440000057220459,0.25,0,0,0.25,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0.9629999995231628,1,1,1,0.5849999785423279,1,1,0.9750000238418579,0.164000004529953,1,1,0.6179999709129333,0.017000000923871994,1,0.9580000042915344,0.1940000057220459,0,1,0.5379999876022339,0,0,0.8889999985694885,0.07100000232458115,0,0,0.25,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0.7950000166893005,1,1,1,0.621999979019165,1,1,0.9440000057220459,0.37400001287460327,1,1,0.800000011920929,0.014999999664723873,1,1,0.26499998569488525,0,1,0.7080000042915344,0.02800000086426735,0,0.9440000057220459,0.30799999833106995,0,0,0.722000002861023,0.035999998450279236,0,0,0.1940000057220459,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,0.8709999918937683,1,1,1,0.6150000095367432,1,1,1,0.2669999897480011,1,1,0.8610000014305115,0.01600000075995922,1,1,0.4000000059604645,0,1,0.875,0.11800000071525574,0,1,0.5,0,0,0.777999997138977,0.19200000166893005,0,0,0.722000002861023,0.035999998450279236,0,0,0.1940000057220459,0,0,0],[1,1,1,0.9259999990463257,1,1,1,0.39399999380111694,1,1,1,0.3179999887943268,1,1,0.8859999775886536,0.03400000184774399,1,1,0.4869999885559082,0.08900000154972076,1,0.9599999785423279,0.1940000057220459,0,1,0.7860000133514404,0.07500000298023224,0,1,0.4169999957084656,0,0,0.9440000057220459,0.125,0,0,0.8330000042915344,0.03799999877810478,0,0,0.6110000014305115,0,0,0,0.1940000057220459,0,0,0],[1,1,1,0.7519999742507935,1,1,1,0.42500001192092896,1,1,0.8970000147819519,0.27300000190734863,1,1,0.6570000052452087,0.17100000381469727,1,0.7689999938011169,0.5640000104904175,0.16300000250339508,1,0.6800000071525574,0.4169999957084656,0.04899999871850014,1,0.5,0.15000000596046448,0,1,0.2919999957084656,0,0,0.8889999985694885,0.125,0,0,0.8330000042915344,0.03799999877810478,0,0,0.5559999942779541,0,0,0,0.1940000057220459,0,0,0],[1,1,1,0.6200000047683716,1,1,0.8379999995231628,0.5199999809265137,1,1,0.7440000176429749,0.36399999260902405,1,0.8799999952316284,0.6290000081062317,0.27399998903274536,1,0.6919999718666077,0.4620000123977661,0.13300000131130219,0.8859999775886536,0.5600000023841858,0.25,0.01600000075995922,0.8289999961853027,0.3569999933242798,0.125,0,0.8669999837875366,0.25,0.028999999165534973,0,0.777999997138977,0.125,0,0,0.777999997138977,0.03799999877810478,0,0,0.5559999942779541,0,0,0,0.13899999856948853,0,0,0],[1,0.9570000171661377,0.8330000042915344,0.09099999815225601,1,0.7409999966621399,0.5680000185966492,0.01600000075995922,1,0.47999998927116394,0.4869999885559082,0,1,0.47999998927116394,0.11400000005960464,0,0.8949999809265137,0.4230000078678131,0.20499999821186066,0,0.8859999775886536,0.3199999928474426,0.16699999570846558,0,0.8859999775886536,0.32100000977516174,0.125,0,0.8669999837875366,0.125,0.028999999165534973,0,0.722000002861023,0.08299999684095383,0,0,0.6669999957084656,0,0,0,0.5,0,0,0,0.13899999856948853,0,0,0],[1,0.9570000171661377,0.5830000042915344,0.1899999976158142,1,0.6669999957084656,0.5139999985694885,0.10999999940395355,1,0.47999998927116394,0.4620000123977661,0,1,0.5199999809265137,0.2290000021457672,0,0.8949999809265137,0.5,0.10300000011920929,0,0.8289999961853027,0.4399999976158142,0,0,0.8289999961853027,0.3930000066757202,0.05000000074505806,0,0.6669999957084656,0.25,0,0,0.6669999957084656,0.041999999433755875,0,0,0.6669999957084656,0,0,0,0.5,0,0,0,0.13899999856948853,0,0,0],[1,0.9570000171661377,0.5830000042915344,0.16500000655651093,1,0.8149999976158142,0.4320000112056732,0.17299999296665192,1,0.47999998927116394,0.4099999964237213,0,1,0.5199999809265137,0.17100000381469727,0,0.8949999809265137,0.5,0.050999999046325684,0,0.8289999961853027,0.4000000059604645,0,0,0.8859999775886536,0.25,0,0,0.800000011920929,0.20800000429153442,0,0,0.777999997138977,0,0,0,0.722000002861023,0,0,0,0.5,0,0,0,0.13899999856948853,0,0,0],[1,1,1,1,1,1,1,0.9290000200271606,0.8999999761581421,0.5600000023841858,0.5130000114440918,0.3790000081062317,0.800000011920929,0.2800000011920929,0.2290000021457672,0.34200000762939453,0.8420000076293945,0.23100000619888306,0.30799999833106995,0.014999999664723873,0.8289999961853027,0.4399999976158142,0.25,0,0.8859999775886536,0.14300000667572021,0.07500000298023224,0,0.800000011920929,0.20800000429153442,0,0,0.777999997138977,0.041999999433755875,0,0,0.722000002861023,0,0,0,0.4440000057220459,0,0,0,0.13899999856948853,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,0.9700000286102295,1,1,0.8289999961853027,0.7440000176429749,1,0.8849999904632568,0.38499999046325684,0.3109999895095825,1,0.6800000071525574,0.4169999957084656,0.01600000075995922,1,0.5,0.375,0,1,0.2919999957084656,0.17599999904632568,0,0.8330000042915344,0.125,0,0,0.777999997138977,0.03799999877810478,0,0,0.6110000014305115,0,0,0,0.1940000057220459,0,0,0],[1,1,1,0.9589999914169312,1,0.6669999957084656,0.5410000085830688,0.3310000002384186,0.8500000238418579,0.5199999809265137,0.23100000619888306,0.3179999887943268,0.8669999837875366,0.4399999976158142,0.42899999022483826,0.22200000286102295,0.7889999747276306,0.34599998593330383,0.15399999916553497,0.32600000500679016,0.8859999775886536,0.23999999463558197,0.3889999985694885,0.25999999046325684,0.7710000276565552,0.28600001335144043,0.20000000298023224,0.07500000298023224,0.7329999804496765,0.16699999570846558,0,0,0.6669999957084656,0.08299999684095383,0,0,0.6110000014305115,0,0,0,0.5,0,0,0,0.13899999856948853,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,0.9850000143051147,1,0.9599999785423279,0.9139999747276306,0.5809999704360962,0.8949999809265137,0.4230000078678131,0.5130000114440918,0.3409999907016754,0.8859999775886536,0.3199999928474426,0.3889999985694885,0.04899999871850014,0.8859999775886536,0.3569999933242798,0.02500000037252903,0.05999999865889549,0.8669999837875366,0.25,0.028999999165534973,0,0.777999997138977,0.041999999433755875,0,0,0.6669999957084656,0.07699999958276749,0,0,0.5,0,0,0,0.13899999856948853,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0.8889999985694885,1,0.9620000123977661,0.8970000147819519,0.5479999780654907,1,0.6399999856948853,0.5,0.40700000524520874,1,0.75,0.4000000059604645,0.17900000512599945,0.9330000281333923,0.375,0.17599999904632568,0,0.777999997138977,0.125,0,0,0.777999997138977,0.07699999958276749,0,0,0.5,0,0,0,0.1940000057220459,0,0,0],[1,1,1,1,1,1,1,0.8349999785423279,1,1,1,0.4699999988079071,1,1,1,0.4790000021457672,1,1,1,0.578000009059906,1,1,0.722000002861023,0.24400000274181366,1,1,0.5249999761581421,0,1,1,0.26499998569488525,0,1,1,0.08299999684095383,0,1,0.8849999904632568,0.026000000536441803,0,1,0.75,0,0,0.4169999957084656,0.03200000151991844,0,0],[1,1,1,1,1,1,1,0.906000018119812,1,1,1,0.9549999833106995,1,1,1,0.6150000095367432,1,1,1,0.3700000047683716,1,1,0.972000002861023,0.04899999871850014,1,1,0.625,0,1,1,0.2939999997615814,0,1,0.9580000042915344,0.11100000143051147,0,1,0.8460000157356262,0,0,1,0.6430000066757202,0,0,0.3610000014305115,0,0,0],[1,1,1,1,1,1,1,0.984000027179718,1,1,1,0.7049999833106995,1,1,1,0.13699999451637268,1,1,0.9229999780654907,0,1,1,0.5559999942779541,0,1,1,0.30000001192092896,0,1,1,0.17599999904632568,0,1,0.9580000042915344,0.02800000086426735,0,1,0.8080000281333923,0,0,1,0.6430000066757202,0,0,0.3610000014305115,0.03200000151991844,0,0],[1,1,1,0.9919999837875366,1,1,1,0.7400000095367432,1,1,1,0.5910000205039978,1,1,1,0.4620000123977661,1,1,0.8970000147819519,0.2370000034570694,1,1,0.5559999942779541,0,1,1,0.375,0,1,1,0.17599999904632568,0,1,0.875,0.08299999684095383,0,1,1,0.05299999937415123,0,0.9440000057220459,0.28600001335144043,0.0729999989271164,0,0.3059999942779541,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,0.9919999837875366,1,1,0.8859999775886536,0.7860000133514404,0.7889999747276306,0.5379999876022339,0.3330000042915344,0.4519999921321869,0.6570000052452087,0.20000000298023224,0.47200000286102295,0.19499999284744263,0.7139999866485596,0.21400000154972076,0.10000000149011612,0.26899999380111694,0.7329999804496765,0.16699999570846558,0,0.2590000033378601,0.6110000014305115,0.125,0,0.09799999743700027,0.6110000014305115,0,0,0,0.5,0,0,0,0.13899999856948853,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0.9660000205039978,1,0.8849999904632568,0.7440000176429749,0.4000000059604645,0.7139999866485596,0.3199999928474426,0.1940000057220459,0.5040000081062317,0.6570000052452087,0.25,0.10000000149011612,0.40299999713897705,0.800000011920929,0.20800000429153442,0.05900000035762787,0.2590000033378601,0.6669999957084656,0.041999999433755875,0,0.0820000022649765,0.6110000014305115,0.03799999877810478,0,0,0.4440000057220459,0,0,0,0.1940000057220459,0,0,0]],"targets":[[1,1,1,0.8180000185966492,1,1,1,0.29899999499320984,1,1,0.8209999799728394,0.48500001430511475,1,1,0.8289999961853027,0.17100000381469727,1,1,0.4620000123977661,0.04399999976158142,1,0.9599999785423279,0.11100000143051147,0,1,0.75,0.02500000037252903,0,1,0.3330000042915344,0,0,0.8330000042915344,0.125,0,0,0.777999997138977,0.03799999877810478,0,0,0.6110000014305115,0,0,0,0.1940000057220459,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0.8109999895095825,1,1,0.9470000267028809,0.12300000339746475,1,0.7860000133514404,0.12200000137090683,0,0.47200000286102295,0,0,0],[1,0.9570000171661377,0.777999997138977,0.09099999815225601,1,0.6669999957084656,0.5410000085830688,0.03099999949336052,1,0.6000000238418579,0.25600001215934753,0,1,0.36000001430511475,0.5139999985694885,0,0.8949999809265137,0.4620000123977661,0.07699999958276749,0.13300000131130219,0.8859999775886536,0.36000001430511475,0,0,0.8289999961853027,0.32100000977516174,0,0,0.8669999837875366,0.16699999570846558,0,0,0.777999997138977,0.041999999433755875,0,0,0.722000002861023,0,0,0,0.4440000057220459,0,0,0,0.13899999856948853,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0.8629999756813049,1,1,1,0.6370000243186951,1,1,1,0.45500001311302185,1,1,0.800000011920929,0.05999999865889549,1,1,0.3529999852180481,0,1,0.875,0.02800000086426735,0,1,0.38499999046325684,0,0,0.777999997138977,0.035999998450279236,0,0,0.1940000057220459,0,0,0],[1,1,1,1,1,1,1,0.9290000200271606,0.8999999761581421,0.5600000023841858,0.5130000114440918,0.3790000081062317,0.800000011920929,0.2800000011920929,0.2290000021457672,0.34200000762939453,0.8420000076293945,0.23100000619888306,0.30799999833106995,0.014999999664723873,0.8289999961853027,0.4399999976158142,0.25,0,0.8859999775886536,0.14300000667572021,0.07500000298023224,0,0.800000011920929,0.20800000429153442,0,0,0.777999997138977,0.041999999433755875,0,0,0.722000002861023,0,0,0,0.4440000057220459,0,0,0,0.13899999856948853,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,0.9700000286102295,1,1,0.8289999961853027,0.7440000176429749,1,0.8849999904632568,0.38499999046325684,0.3109999895095825,1,0.6800000071525574,0.4169999957084656,0.01600000075995922,1,0.5,0.375,0,1,0.2919999957084656,0.17599999904632568,0,0.8330000042915344,0.125,0,0,0.777999997138977,0.03799999877810478,0,0,0.6110000014305115,0,0,0,0.1940000057220459,0,0,0],[1,1,1,1,1,1,1,0.9760000109672546,1,1,1,0.7120000123977661,1,1,1,0.6499999761581421,1,1,1,0.6370000243186951,1,1,0.8889999985694885,0.37400001287460327,1,1,0.699999988079071,0,1,1,0.5590000152587891,0,1,1,0.3330000042915344,0,1,1,0.210999995470047,0,1,0.75,0.2680000066757202,0,0.3610000014305115,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0.9660000205039978,1,0.8849999904632568,0.7440000176429749,0.4000000059604645,0.7139999866485596,0.3199999928474426,0.1940000057220459,0.5040000081062317,0.6570000052452087,0.25,0.10000000149011612,0.40299999713897705,0.800000011920929,0.20800000429153442,0.05900000035762787,0.2590000033378601,0.6669999957084656,0.041999999433755875,0,0.0820000022649765,0.6110000014305115,0.03799999877810478,0,0,0.4440000057220459,0,0,0,0.1940000057220459,0,0,0]]};/*TABLES-END*/
+
+// ================= classification and scoring =================
+const formById = id => FORMS.find(f => f.id === id);
+function nearest(dv, allowCombo = true, comboBias = 0) {
+  let best = null, bd = 9;
+  TABLES.protos.forEach((p, i) => { const combo = formById(PROTOS[i][0]).combo; if (!allowCombo && combo) return; const v = ddist(dv, p) - (combo ? comboBias : 0); if (v < bd) { bd = v; best = PROTOS[i][0]; } });
+  return { id: best, d: bd };
+}
+// a flake grown under one condition can only be a pure form; switching opens up the two-personality forms
+// (when the conditions did change, the two-personality forms get a small head start)
+function classify(mask, switched) { const dv = desc(mask), r = nearest(dv, switched, .02); return r.d < .13 ? formById(r.id) : null; }
+function scoreCopy(mask, ti) {
+  const dv = desc(mask), d = ddist(dv, TABLES.targets[ti]), near = nearest(dv), tf = TARGETS[ti].f;
+  // other puzzles count as decoys too, so a different two-step recipe can't sneak a good score
+  let decoy = near; TABLES.targets.forEach((t, j) => { if (j !== ti && TARGETS[j].f !== tf) { const v = ddist(dv, t); if (v < decoy.d) decoy = { id: TARGETS[j].f, d: v }; } });
+  const wrong = decoy.id !== tf && decoy.d < d - .005;
+  const stars = wrong ? 0 : d < .04 ? 3 : d < .085 ? 2 : d < .12 ? 1 : 0;
+  return { stars, d, match: Math.max(0, Math.round((1 - d / .2) * 100)), looks: wrong ? formById(decoy.id) : null };
+}
+
+// ================= state & saves =================
+const DEF = { v: 2, got: {}, gallery: [], copies: {}, tried: {}, mode: 'free', slow: 0 };
+const SAVE = RH.load('snowfall', DEF);
+if (SAVE.v !== 2) { // v1 stored PNG thumbnails (~1MB). Keep the schedules (they replay exactly) and re-render thumbnails on demand.
+  const got = {}; for (const f of FORMS) if (SAVE.got && SAVE.got[f.id]) got[f.id] = 1;
+  SAVE.got = got;
+  SAVE.gallery = (SAVE.gallery || []).filter(e => e && Array.isArray(e.sc) && e.sc.length).map(e => ({ sc: e.sc, k: 'raw', name: e.name || 'Crystal' }));
+  SAVE.copies = {}; SAVE.tried = {}; SAVE.v = 2; delete SAVE.intro;
+}
+for (const k in DEF) if (SAVE[k] === undefined) SAVE[k] = DEF[k];
+const persist = () => { RH.save('snowfall', SAVE); RH.progress('snowfall', (Object.keys(SAVE.got).length + Object.keys(SAVE.copies).filter(k => SAVE.copies[k] >= 2).length) / (FORMS.length + TARGETS.length)); };
+persist();
+let mode = ['free', 'copy', 'gallery'].includes(SAVE.mode) ? SAVE.mode : 'free', target = 0, targetMask = null;
+const live = Sim(), bg = Sim(); // the falling crystal, and a separate instance for background replays
+let growing = false, fallT = 0, sched = [], lastSwitch = 0, curQ = [0, 0];
+
+// ================= rendering =================
+const $ = id => document.getElementById(id);
+const sky = $('sky'), g = sky.getContext('2d');
+const OS = 360, off = document.createElement('canvas'); off.width = off.height = OS; const og = off.getContext('2d'), img = og.createImageData(OS, OS);
+const GS = 96, glow = document.createElement('canvas'); glow.width = glow.height = GS; const glg = glow.getContext('2d');
+let dpr = 1, W = 1, H = 1, skyGrad = null, flakeBox = { cx: .5, cy: .5, size: 300 };
+// map a pixel of a square render to axial hex coordinates (pointy-top layout)
+function makePX(S) { const P = new Int32Array(S * S), sc = S / (N * .95); for (let py = 0; py < S; py++) for (let px = 0; px < S; px++) { const x = (px - S / 2) / sc, y = (py - S / 2) / sc; const r = y / (Math.sqrt(3) / 2), q = x - r / 2; const rq = Math.round(q) + C, rr = Math.round(r) + C; P[py * S + px] = rr >= 0 && rr < N && rq >= 0 && rq < N ? rr * N + rq : -1; } return P; }
+const PX = makePX(OS);
+function paint(d, P, o, mask, ghost) {
+  const s = o.s, born = o.born, st = o.steps || 1;
+  for (let i = 0, n = P.length; i < n; i++) {
+    const k = P[i], q = i * 4;
+    if (k < 0) { d[q + 3] = 0; continue; }
+    if (mask[k]) {
+      // thickness and age give the ice its relief: ridges glow, fresh edges are bright
+      const th = Math.min(1.6, s[k]) - 1, age = 1 - born[k] / st;
+      const nx = (s[k + 1] || 1) - (s[k - 1] || 1), ny = (s[k + N] || 1) - (s[k - N] || 1), lit = Math.max(0, Math.min(1, .55 + (nx - ny) * 2.2 + th * .9));
+      d[q] = 150 + 105 * lit; d[q + 1] = 190 + 65 * lit; d[q + 2] = 235 + 20 * lit; d[q + 3] = 170 + 85 * Math.min(1, .3 + age);
+    } else if (ghost && ghost[k]) { d[q] = 255; d[q + 1] = 200; d[q + 2] = 120; d[q + 3] = 60; }
+    else d[q + 3] = 0;
+  }
+}
+let flakeDirty = true;
+function renderFlake() {
+  paint(img.data, PX, live, live.fr, mode === 'copy' ? targetMask : null); og.putImageData(img, 0, 0);
+  // the glow is a blur of a small copy, made once per change instead of a full-screen filter every frame
+  glg.clearRect(0, 0, GS, GS); glg.filter = 'blur(3px)'; glg.drawImage(off, 0, 0, GS, GS); glg.filter = 'none';
+  flakeDirty = false;
+}
+// thumbnails: small, rendered from schedules in idle time, cached in memory only
+const TS = 72, TPX = makePX(TS), tcv = document.createElement('canvas'); tcv.width = tcv.height = TS; const tcg = tcv.getContext('2d'), timg = tcg.createImageData(TS, TS);
+const thumbCache = new Map(), jobs = [];
+function thumbKey(sc, kind) { return kind + ':' + JSON.stringify(sc); }
+function want(sc, kind, done) { const key = thumbKey(sc, kind); if (thumbCache.has(key)) return thumbCache.get(key); if (!jobs.some(j => j.key === key)) jobs.push({ key, sc, kind, done }); return ''; }
+function runJobs(budgetMs) {
+  const t0 = performance.now();
+  while (jobs.length && performance.now() - t0 < budgetMs) {
+    const j = jobs[0]; if (!j.r) j.r = Runner(bg, j.sc, j.kind);
+    if (!j.r.run(12)) continue;
+    jobs.shift();
+    if (!j.mask) { paint(timg.data, TPX, bg, bg.fr, null); tcg.putImageData(timg, 0, 0); const c = document.createElement('canvas'); c.width = c.height = TS; const cg = c.getContext('2d'); cg.fillStyle = '#0b1530'; cg.fillRect(0, 0, TS, TS); cg.drawImage(tcv, 0, 0); thumbCache.set(j.key, c.toDataURL('image/png')); }
+    if (j.done) j.done(bg); else sideDirty = true;
+  }
+}
+const thumbImg = (sc, kind, cls = '') => { const u = want(sc, kind); return u ? `<img class="${cls}" src="${u}" alt="">` : `<div class="sil ${cls}"></div>`; };
+
+// bokeh snow in the background
+const flakes = Array.from({ length: 120 }, () => { const r = Math.random(); return { x: Math.random(), y: Math.random(), r, v: .02 + Math.random() * .05, ph: Math.random() * 6, col: `rgba(200,220,255,${(.08 + r * .18).toFixed(3)})` }; });
+function layout() {
+  dpr = FX.fit(sky, 1.5); W = sky.width; H = sky.height;
+  skyGrad = g.createLinearGradient(0, 0, 0, H); skyGrad.addColorStop(0, '#081129'); skyGrad.addColorStop(.6, '#0c1838'); skyGrad.addColorStop(1, '#16244a');
+  // the flake sits in the free space between the panels
+  const wide = innerWidth > 860, hud = $('hud').getBoundingClientRect(), pb = $('padBox').getBoundingClientRect(), md = $('mode').getBoundingClientRect();
+  let l, r, t, b;
+  if (wide) { l = hud.right + 8; r = pb.left - 8; t = 16; b = innerHeight - 16; } else { l = 0; r = innerWidth; t = md.bottom + 4; b = pb.top - 4; }
+  flakeBox = { cx: (l + r) / 2, cy: (t + b) / 2, size: Math.max(120, Math.min(r - l, (b - t) * 1.02)) };
+  const ts = $('toast').style; ts.left = flakeBox.cx + 'px'; ts.top = flakeBox.cy + 'px';
+  padDirty = true;
+}
+let lastNow = 0;
+function draw(now, dt) {
+  const t = now / 1000;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = skyGrad; g.fillRect(0, 0, W, H);
+  for (const f of flakes) { f.y += f.v * dt; if (f.y > 1.05) { f.y = -.05; f.x = Math.random(); } const x = (f.x + Math.sin(t * .3 + f.ph) * .02) * W, y = f.y * H, rr = (1 + f.r * 3.5) * dpr; g.fillStyle = f.col; g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill(); }
+  const size = flakeBox.size * dpr, [sx, sy] = FX.shakeOffset(8 * dpr);
+  // glow, then crisp flake; slow rotation like a falling crystal
+  g.translate(flakeBox.cx * dpr + sx, flakeBox.cy * dpr + sy); g.rotate(Math.sin(t * .15) * .06);
+  g.globalCompositeOperation = 'lighter'; g.globalAlpha = .5; g.imageSmoothingEnabled = true; g.drawImage(glow, -size * .53, -size * .53, size * 1.06, size * 1.06);
+  g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.drawImage(off, -size / 2, -size / 2, size, size);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  particles.update(dt); particles.draw(g);
+}
+const particles = FX.particles(400);
+
+// ================= conditions pad =================
+const pad = $('pad'), pg = pad.getContext('2d'); let padD = 1, padDirty = true, padBg = null;
+let padPt = { x: .3, y: .5 };
+const FCOL = { plate: [178, 216, 255], broad: [104, 156, 222], stellar: [58, 102, 176], fern: [30, 54, 110] }, FLBL = { plate: 'plates', broad: 'broad arms', stellar: 'stars', fern: 'ferns' };
+function buildPadBg(w, h) {
+  // coloured by what each point actually grows (a replayed 11x11 grid), so the labels tell the truth
+  const n = TABLES.padN, m = TABLES.pad, tiny = document.createElement('canvas'); tiny.width = tiny.height = n; const tc = tiny.getContext('2d'), id = tc.createImageData(n, n);
+  const cent = {};
+  for (let yi = 0; yi < n; yi++) for (let xi = 0; xi < n; xi++) { const f = m[yi * n + xi], c = FCOL[f], q = ((n - 1 - yi) * n + xi) * 4; id.data[q] = c[0]; id.data[q + 1] = c[1]; id.data[q + 2] = c[2]; id.data[q + 3] = 255; (cent[f] = cent[f] || [0, 0, 0]); cent[f][0] += xi / (n - 1); cent[f][1] += yi / (n - 1); cent[f][2]++; }
+  tc.putImageData(id, 0, 0);
+  padBg = document.createElement('canvas'); padBg.width = w; padBg.height = h; const c = padBg.getContext('2d');
+  c.imageSmoothingEnabled = true; c.drawImage(tiny, 0, 0, n, n, -w / (n - 1) / 2, -h / (n - 1) / 2, w + w / (n - 1), h + h / (n - 1));
+  c.fillStyle = 'rgba(6,12,30,.35)'; c.fillRect(0, 0, w, h);
+  c.font = `600 ${11 * padD}px Space Grotesk, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  for (const f in cent) { const [x, y, k] = cent[f]; c.fillStyle = 'rgba(0,0,0,.45)'; c.fillText(FLBL[f], x / k * w + padD, (1 - y / k) * h + padD); c.fillStyle = 'rgba(255,255,255,.88)'; c.fillText(FLBL[f], x / k * w, (1 - y / k) * h); }
+}
+function drawPad() {
+  padD = FX.fit(pad, 2); const w = pad.width, h = pad.height;
+  if (!padBg || padBg.width !== w || padBg.height !== h) buildPadBg(w, h);
+  pg.drawImage(padBg, 0, 0);
+  // the path you steered during this fall
+  if (sched.length > 1) { pg.strokeStyle = 'rgba(255,255,255,.7)'; pg.lineWidth = 2 * padD; pg.beginPath(); sched.forEach(([, x, y], i) => { const X = x / PADQ * w, Y = (1 - y / PADQ) * h; i ? pg.lineTo(X, Y) : pg.moveTo(X, Y); }); pg.stroke(); }
+  pg.fillStyle = '#fff'; pg.shadowColor = '#cfe6ff'; pg.shadowBlur = 12 * padD; pg.beginPath(); pg.arc(padPt.x * w, (1 - padPt.y) * h, 7 * padD, 0, 7); pg.fill(); pg.shadowBlur = 0;
+  padDirty = false;
+}
+const quant = p => [Math.round(p.x * PADQ), Math.round(p.y * PADQ)];
+function setPad(x, y) { padPt = { x: FX.clamp(x, 0, 1), y: FX.clamp(y, 0, 1) }; padDirty = true; }
+let padDrag = false;
+const padSet = e => { const r = pad.getBoundingClientRect(); setPad((e.clientX - r.left) / r.width, 1 - (e.clientY - r.top) / r.height); };
+pad.addEventListener('pointerdown', e => { padDrag = true; pad.setPointerCapture(e.pointerId); padSet(e); FX.sfx('tick'); });
+pad.addEventListener('pointermove', e => { if (padDrag) padSet(e); });
+pad.addEventListener('pointerup', () => { padDrag = false; });
+pad.addEventListener('pointercancel', () => { padDrag = false; });
+
+// ================= the fall =================
+// A fall always takes about FALL seconds: each frame runs as many model steps as it takes for the crystal to reach its scheduled size,
+// so slow-growing ferns and fast-growing plates both unfold at the same visible pace and mid-fall steering is about visible growth.
+const FALL = 8;
+const fallDur = () => FALL * (SAVE.slow ? 2 : 1);
+function applyPad() { // the pad steers the live sim; changes are recorded (at most every 3 steps) so the fall can be replayed exactly
+  const q = quant(padPt); if (q[0] === curQ[0] && q[1] === curQ[1]) return;
+  if (live.steps - lastSwitch < 3 && sched.length > 1) return;
+  curQ = q; [live.beta, live.gamma] = ptToParams({ x: q[0] / PADQ, y: q[1] / PADQ });
+  if (sched.length && sched[sched.length - 1][0] === live.steps) sched[sched.length - 1] = [live.steps, q[0], q[1]]; else sched.push([live.steps, q[0], q[1]]);
+  lastSwitch = live.steps; padDirty = true;
+}
+function release() {
+  if (growing) return;
+  curQ = quant(padPt); const [b, gm] = ptToParams({ x: curQ[0] / PADQ, y: curQ[1] / PADQ });
+  seed(live, b, gm); sched = [[0, curQ[0], curQ[1]]]; lastSwitch = 0; fallT = 0; growing = true; flakeDirty = true; padDirty = true;
+  document.body.classList.add('busy'); FX.sfx('whoosh'); renderAll();
+}
+function grow(dt) {
+  fallT += dt;
+  const goal = RMAX * Math.min(1, fallT / fallDur()), t0 = performance.now();
+  let n = 0;
+  while (growing && live.R < goal && n < 120 && performance.now() - t0 < 9) { applyPad(); step(live); n++; if (live.R >= RMAX || live.steps >= 9000) land(); }
+  if (n) flakeDirty = true;
+}
+function land() {
+  growing = false; document.body.classList.remove('busy');
+  const mask = live.fr, switched = new Set(sched.map(e => e[1] + ',' + e[2])).size > 1;
+  FX.sfx('chime', 5); FX.shake(.2);
+  particles.burst(flakeBox.cx * dpr, flakeBox.cy * dpr, { n: 90, color: ['#ffffff', '#cfe6ff', '#9fd0ff'], speed: 420 * dpr, life: 1.2, size: 2.5 * dpr });
+  const entry = { sc: sched.slice(), k: 'pad' };
+  if (mode === 'copy') {
+    const r = scoreCopy(mask, target); lastScore = r;
+    SAVE.tried[target] = (SAVE.tried[target] || 0) + 1;
+    if (r.stars > (SAVE.copies[target] || 0)) SAVE.copies[target] = r.stars;
+    entry.name = `Copy of ${TARGETS[target].n}`; persist();
+    toast(r.stars ? '★'.repeat(r.stars) + '☆'.repeat(3 - r.stars) : 'Not quite', r.looks ? `That grew into a ${r.looks.n.toLowerCase()}. Shape match ${r.match}%.` : `Shape match ${r.match}% with “${TARGETS[target].n}”. ${r.stars === 3 ? 'A perfect twin.' : r.stars ? 'Close! The timing of each change shapes a different ring of the crystal.' : 'The centre grew first, the tips last.'}`);
+    if (r.stars >= 2) FX.sfx('win');
+  } else {
+    const f = classify(mask, switched), fresh = f && !SAVE.got[f.id];
+    if (fresh) SAVE.got[f.id] = { sc: entry.sc };
+    entry.name = f ? f.n : 'Irregular crystal';
+    toast(f ? f.n : 'An irregular crystal', fresh ? `New in your catalogue! (${Object.keys(SAVE.got).length}/${FORMS.length})` : f ? (f.combo ? 'A crystal with two personalities.' : 'Steer the pad while it falls to give it a second personality.') : 'Try steadier conditions, or change them in bigger steps.');
+    if (fresh) FX.sfx('win');
+  }
+  SAVE.gallery.unshift(entry); SAVE.gallery = SAVE.gallery.slice(0, 40); persist();
+  renderAll();
+}
+let lastScore = null;
+function toast(big, small, ms = 4200) { const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : ''); t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms); }
+
+// ================= UI =================
+let sideDirty = true;
+const unlocked = i => i === 0 || SAVE.tried[i - 1] || SAVE.copies[i - 1] || SAVE.tried[i] || SAVE.copies[i];
+function renderSide() {
+  const el = $('side'), close = '<button id="sheetX">Close</button>';
+  if (mode === 'free') el.innerHTML = `<h4>Catalogue · ${Object.keys(SAVE.got).length}/${FORMS.length} ${close}</h4>` + FORMS.map((f, i) => { const got = SAVE.got[f.id]; if (!got) return `<div class="cat"><div class="sil">?</div><div style="color:#6f83a8">Undiscovered<small>${f.d}</small></div></div>`; const p = PROTOS.find(p => p[0] === f.id); return `<div class="cat got">${got.sc ? thumbImg(got.sc, 'pad') : thumbImg(p[1], 'frac')}<div>${f.n}<small>${f.d}</small></div></div>`; }).join('');
+  else if (mode === 'copy') el.innerHTML = `<h4>Copy these flakes ${close}</h4>` + TARGETS.map((t, i) => { const st = SAVE.copies[i] || 0, ch = t.sc.length - 1; return `<div class="tg ${i === target ? 'cur' : ''} ${unlocked(i) ? '' : 'lock'}" data-i="${i}">${thumbImg(t.sc, 'frac')}<div>${i + 1}. ${t.n}<br><span class="stars">${'★'.repeat(st)}${'☆'.repeat(3 - st)}</span> <small>${ch ? ch + (ch > 1 ? ' changes' : ' change') + ' of weather' : 'steady weather'}</small></div></div>`; }).join('');
+  else el.innerHTML = `<h4>Your snowflakes ${close}</h4>` + (SAVE.gallery.length ? `<div class="gal">${SAVE.gallery.map(f => { const u = want(f.sc, f.k); return u ? `<img title="${f.name}" src="${u}" alt="${f.name}">` : `<div class="sil" title="${f.name}"></div>`; }).join('')}</div>` : '<div class="cat">No snowflakes yet.</div>');
+  el.querySelectorAll('.tg').forEach(t => t.onclick = () => { if (growing) return; target = +t.dataset.i; lastScore = null; FX.sfx('click'); loadTarget(); renderAll(); });
+  const x = $('sheetX'); if (x) x.onclick = () => document.body.classList.remove('sheet');
+  sideDirty = false;
+}
+function loadTarget() {
+  targetMask = null; flakeDirty = true; const ti = target;
+  jobs.unshift({ key: 'mask' + ti, sc: TARGETS[ti].sc, kind: 'frac', mask: 1, done: o => { if (ti === target && mode === 'copy') { targetMask = o.fr.slice(); flakeDirty = true; } } });
+}
+let statusHTML = '';
+function renderStatus() {
+  let h;
+  if (growing) h = `Falling… <b>${Math.round(Math.min(1, live.R / RMAX) * 100)}%</b> grown${mode === 'copy' ? ` · copying <b>${TARGETS[target].n}</b>` : ''}`;
+  else if (mode === 'copy') { const tr = SAVE.tried[target] || 0, st = SAVE.copies[target] || 0; h = `Target: <b>${TARGETS[target].n}</b>. The orange ghost is the flake to copy.` + (tr >= 2 && st < 2 ? `<br><span style="color:#ffd27a">Hint: ${TARGETS[target].hint}</span>` : ''); }
+  else h = 'Set the cloud conditions, then release a crystal. Drag the pad while it falls.';
+  if (h !== statusHTML) { $('status').innerHTML = statusHTML = h; }
+  $('bar').firstChild.style.width = (growing ? Math.min(100, live.R / RMAX * 100) : 0) + '%';
+}
+function renderAll() {
+  $('story').innerHTML = mode === 'copy' ? 'Each flake records the weather it fell through: the centre grew first and the tips grew last. Match the ghost by changing the conditions at the right moments. A fall takes about 8 seconds.' :
+    'Every snowflake is a record of its fall. Drag the <b>cloud conditions</b> pad before and <i>during</i> the fall (about 8 seconds). Each region of the cloud grows a different kind of ice; change conditions mid-fall to grow crystals with two personalities.';
+  $('rel').textContent = growing ? 'Falling…' : '❄ Release a crystal'; $('rel').disabled = growing;
+  $('slow').classList.toggle('on', !!SAVE.slow);
+  $('sideT').textContent = mode === 'free' ? 'Catalogue' : mode === 'copy' ? 'Targets' : 'Gallery';
+  document.querySelectorAll('#mode button').forEach(x => x.classList.toggle('on', x.dataset.m === mode));
+  sideDirty = true; renderStatus();
+}
+$('rel').onclick = () => release();
+$('slow').onclick = () => { SAVE.slow = SAVE.slow ? 0 : 1; persist(); FX.sfx('click'); renderAll(); };
+$('sideT').onclick = () => { document.body.classList.toggle('sheet'); FX.sfx('click'); };
+$('storyT').onclick = () => document.body.classList.toggle('story');
+function setMode(m) {
+  if (growing || m === mode) return;
+  mode = m; SAVE.mode = mode; persist(); FX.sfx('click');
+  if (mode === 'copy') loadTarget(); else targetMask = null;
+  flakeDirty = true; renderAll();
+}
+document.querySelectorAll('#mode button').forEach(b => b.onclick = () => setMode(b.dataset.m));
+
+// ================= loop =================
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(.1, (now - (lastNow || now)) / 1000); lastNow = now;
+  if (document.hidden) return;
+  if (growing) { grow(dt); renderStatus(); }
+  runJobs(growing ? 2 : 6);
+  if (flakeDirty) renderFlake();
+  draw(now, dt);
+  if (padDirty || padDrag) drawPad();
+  if (sideDirty && (!growing || jobs.length === 0)) renderSide();
+}
+addEventListener('resize', () => { clearTimeout(layout.h); layout.h = setTimeout(layout, 60); });
+document.addEventListener('visibilitychange', () => { lastNow = 0; });
+seed(live, ...ptToParams(padPt));
+renderAll(); layout(); if (mode === 'copy') loadTarget();
+requestAnimationFrame(loop);
+
+// ================= debug handle =================
+// selfCheck() replays everything the precomputed tables were built from and reports any mismatch (slow: ~30 s).
+function selfCheck() {
+  const o = Sim(), run = (sc, kind) => { const r = Runner(o, sc, kind); while (!r.run(1e4)); return o.fr; };
+  let worst = 0; PROTOS.forEach((p, i) => worst = Math.max(worst, ddist(desc(run(p[1], 'frac')), TABLES.protos[i])));
+  TARGETS.forEach((t, i) => worst = Math.max(worst, ddist(desc(run(t.sc, 'frac')), TABLES.targets[i])));
+  let padMismatch = 0; const n = TABLES.padN;
+  for (let yi = 0; yi < n; yi++) for (let xi = 0; xi < n; xi++) { const f = classify(run([[0, xi / (n - 1), yi / (n - 1)]], 'frac'), false); if (!f || f.id !== TABLES.pad[yi * n + xi]) padMismatch++; }
+  return { worst, padMismatch };
+}
+window.__snow = {
+  FORMS, TARGETS, PROTOS, TABLES, ptToParams, release, setPad: (x, y) => setPad(x, y), selfCheck, classify, scoreCopy, desc,
+  replay(sc, kind = 'frac') { const o = Sim(), r = Runner(o, sc, kind); while (!r.run(1e4)); return o.fr.slice(); },
+  setMode, setTarget(i) { if (growing) return false; target = i; loadTarget(); renderAll(); return true; },
+  get R() { return live.R; }, get frac() { return live.R / RMAX; }, get growing() { return growing; }, get mode() { return mode; }, get target() { return target; },
+  get lastScore() { return lastScore; }, get sched() { return sched; }, get fallSeconds() { return fallDur(); }, SAVE,
+};
+</script>
+</body>
+</html>

@@ -111,7 +111,12 @@ function bodyVel(t1, t2, d1, d2, out = BV) {
   const c11 = m00 * m22 - m02 * m02, c12 = m01 * m02 - m00 * m12, c22 = m00 * m11 - m01 * m01;
   const x0 = (c00 * b0 + c01 * b1 + c02 * b2) / D, x1 = (c01 * b0 + c11 * b1 + c12 * b2) / D, x2 = (c02 * b0 + c12 * b1 + c22 * b2) / D;
   out[0] = x0; out[1] = x1; out[2] = x2;
-  let w = 0;
+  MI[0] = c00 / D; MI[1] = c01 / D; MI[2] = c02 / D; MI[3] = c11 / D; MI[4] = c12 / D; MI[5] = c22 / D; // symmetric inverse of the drag matrix
+  return powerOf(x0, x1, x2, d1, d2);
+}
+const MI = new Float64Array(6);
+function powerOf(x0, x1, x2, d1, d2) { // drag power for body motion (x0, x1, x2) plus shape motion (d1, d2), current shape
+  let w = 0; const dk = XP - XN;
   for (let i = 0; i < NP; i++) {
     const vx = x0 - x2 * PRY[i] + PJ1X[i] * d1 + PJ2X[i] * d2, vy = x1 + x2 * PRX[i] + PJ1Y[i] * d1 + PJ2Y[i] * d2, vt = vx * PTX[i] + vy * PTY[i];
     w += (XN * (vx * vx + vy * vy) + dk * vt * vt) * PDS[i];
@@ -184,7 +189,7 @@ function setLoop(nl, snap = false) {
   loop = nl.map(p => [p[0], p[1]]); const n = loop.length; perim = 0;
   for (let i = 0; i < n; i++) { const A = loop[i], B = loop[(i + 1) % n]; perim += Math.hypot(B[0] - A[0], B[1] - A[1]); }
   perim = Math.max(perim, .05);
-  if (snap) { sw.t1 = loop[0][0]; sw.t2 = loop[0][1]; seg = 0; trans = null; hLen = 0; return; }
+  if (snap) { sw.t1 = loop[0][0]; sw.t2 = loop[0][1]; seg = 0; trans = null; return; }
   let best = Infinity, bi = 0, bx = 0, by = 0;
   for (let i = 0; i < n; i++) {
     const A = loop[i], B = loop[(i + 1) % n], ex = B[0] - A[0], ey = B[1] - A[1], l2 = ex * ex + ey * ey;
@@ -200,39 +205,45 @@ const DS = .004, ESCALE = 2;
 let DSX = DS; // exposed for the step-size convergence test
 function stepShape(dt1, dt2, rate) {
   const d = Math.hypot(dt1, dt2); if (d < 1e-12) return true;
-  const P = bodyVel(sw.t1 + dt1 / 2, sw.t2 + dt2 / 2, dt1, dt2);
-  const vx = BV[0], vy = BV[1], w = BV[2], ph = sw.phi + w / 2, c = Math.cos(ph), s = Math.sin(ph);
-  const nx = sw.x + c * vx - s * vy, ny = sw.y + s * vx + c * vy, nphi = sw.phi + w, nt1 = sw.t1 + dt1, nt2 = sw.t2 + dt2;
-  // A grain blocks the whole step, shape change included: the arm can never end up inside a rock, so you can always back out.
-  if (hits(nx, ny, nphi, nt1, nt2)) return false;
-  sw.x = nx; sw.y = ny; sw.phi = nphi; sw.t1 = nt1; sw.t2 = nt2; St.phi += w;
+  const m1 = sw.t1 + dt1 / 2, m2 = sw.t2 + dt2 / 2, nt1 = sw.t1 + dt1, nt2 = sw.t2 + dt2;
+  let P = bodyVel(m1, m2, dt1, dt2), vx = BV[0], vy = BV[1], w = BV[2];
+  let ph = sw.phi + w / 2, c = Math.cos(ph), s = Math.sin(ph);
+  let nx = sw.x + c * vx - s * vy, ny = sw.y + s * vx + c * vy;
+  if (hits(nx, ny, sw.phi + w, nt1, nt2)) {
+    // Contact. The grain pushes on the touching point with whatever force stops it going in (and no more).
+    // Solve the Stokes balance again with that extra force: drag + contact = 0, and the point slides along the grain.
+    const px = HB[2 * hitI], py = HB[2 * hitI + 1], [ox, oy] = L.obstacles[hitO]; let wx = px - ox, wy = py - oy; const wl = Math.hypot(wx, wy) || 1; wx /= wl; wy /= wl;
+    bodyVel(m1, m2, dt1, dt2); // restore shape arrays and the drag matrix at the midpoint
+    const nbx = c * wx + s * wy, nby = -s * wx + c * wy;
+    let rx, ry; // body-frame position of the touching point (an arm tip has its own index)
+    if (hitI < NP) { rx = PRX[hitI]; ry = PRY[hitI]; }
+    else if (hitI === NP) { const a = Math.PI + m1; rx = -Lm / 2 + Math.cos(a) * Ls; ry = Math.sin(a) * Ls; }
+    else { const a = -m2; rx = Lm / 2 + Math.cos(a) * Ls; ry = Math.sin(a) * Ls; }
+    const g0 = nbx, g1 = nby, g2 = -ry * nbx + rx * nby;
+    const q0 = MI[0] * g0 + MI[1] * g1 + MI[2] * g2, q1 = MI[1] * g0 + MI[3] * g1 + MI[4] * g2, q2 = MI[2] * g0 + MI[4] * g1 + MI[5] * g2;
+    // just enough push to bring the touching point back to the grain's surface
+    const lam = (hitPen + 2e-4) / (g0 * q0 + g1 * q1 + g2 * q2);
+    if (!(lam > 0)) return false;
+    vx += lam * q0; vy += lam * q1; w += lam * q2; P = powerOf(vx, vy, w, dt1, dt2);
+    ph = sw.phi + w / 2; c = Math.cos(ph); s = Math.sin(ph); nx = sw.x + c * vx - s * vy; ny = sw.y + s * vx + c * vy;
+    if (hits(nx, ny, sw.phi + w, nt1, nt2)) return false;
+    St.contact = 1;
+  }
+  sw.x = nx; sw.y = ny; sw.phi += w; sw.t1 = nt1; sw.t2 = nt2; St.phi += w;
   // P is the drag power for this displacement; P/d is the dissipation per unit of shape path at unit shape speed.
   St.energy += P / d * rate * ESCALE;
   return true;
 }
-// recent shapes, so a swimmer pressed against a grain can always retrace the way it came (and back off)
-const HN = 4000, HIST = new Float64Array(HN * 2); let hLen = 0, hHead = 0;
-function histPush(t1, t2) { HIST[hHead * 2] = t1; HIST[hHead * 2 + 1] = t2; hHead = (hHead + 1) % HN; hLen = Math.min(HN, hLen + 1); }
 function advance(budget) { // budget: shape-space path length to travel (at the normal stroke rate)
   if (loop.length < 2) return;
-  let guard = 0, blocked = false;
+  let guard = 0, blocked = false; St.contact = 0;
   while (budget > 1e-12 && guard++ < 100000) {
     const T = trans || loop[(seg + 1) % loop.length], ex = T[0] - sw.t1, ey = T[1] - sw.t2, rem = Math.hypot(ex, ey);
     if (rem < 1e-10) { if (trans) trans = null; else seg = (seg + 1) % loop.length; continue; }
     const rate = asym && L.hinges === 1 ? (ex > 0 ? 2.5 : .4) : 1; // "open fast, close slow"
-    let d = Math.min(DSX, rem, budget * rate);
-    const p1 = sw.t1, p2 = sw.t2;
-    if (stepShape(ex / rem * d, ey / rem * d, rate)) {
-      histPush(p1, p2);
-      if (d >= rem - 1e-12) { sw.t1 = T[0]; sw.t2 = T[1]; if (trans) trans = null; else seg = (seg + 1) % loop.length; }
-    } else {
-      // The grain pushes back. The swimmer gives way by retracing its last shape change, which is always possible.
-      blocked = true;
-      if (!hLen) break;
-      hHead = (hHead + HN - 1) % HN; hLen--;
-      const q1 = HIST[hHead * 2], q2 = HIST[hHead * 2 + 1]; d = Math.hypot(q1 - sw.t1, q2 - sw.t2);
-      if (!stepShape(q1 - sw.t1, q2 - sw.t2, 1)) break;
-    }
+    const d = Math.min(DSX, rem, budget * rate);
+    if (!stepShape(ex / rem * d, ey / rem * d, rate)) { blocked = true; break; }
+    if (d >= rem - 1e-12) { sw.t1 = T[0]; sw.t2 = T[1]; if (trans) trans = null; else seg = (seg + 1) % loop.length; }
     budget -= d / rate;
     // one stroke = travelling one loop's length in shape space, however you got there
     const before = St.cycles; St.strokes += d / perim; St.cycles = Math.floor(St.strokes + 1e-9);
@@ -250,9 +261,11 @@ function hits(x, y, phi, t1, t2) {
   // arm tips
   const e1x = -Lm / 2 + Math.cos(Math.PI + t1) * Ls, e1y = Math.sin(Math.PI + t1) * Ls, e2x = Lm / 2 + Math.cos(-t2) * Ls, e2y = Math.sin(-t2) * Ls;
   HB[2 * NP] = x + c * e1x - s * e1y; HB[2 * NP + 1] = y + s * e1x + c * e1y; HB[2 * NP + 2] = x + c * e2x - s * e2y; HB[2 * NP + 3] = y + s * e2x + c * e2y;
-  for (const [ox, oy, r] of L.obstacles) for (let i = 0; i < NP + 2; i++) if (Math.hypot(HB[2 * i] - ox, HB[2 * i + 1] - oy) < r + .06) return true;
-  return false;
+  let worst = 0; hitI = -1;
+  L.obstacles.forEach(([ox, oy, r], k) => { for (let i = 0; i < NP + 2; i++) { const pen = r + .06 - Math.hypot(HB[2 * i] - ox, HB[2 * i + 1] - oy); if (pen > worst) { worst = pen; hitI = i; hitO = k; hitPen = pen; } } });
+  return hitI >= 0;
 }
+let hitI = -1, hitO = 0, hitPen = 0;
 
 // ================= shape-space field (where loops push you) =================
 let heat = null;

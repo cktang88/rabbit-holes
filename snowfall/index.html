@@ -20,7 +20,8 @@
   .btn:active{transform:scale(.95)} .btn.ghost{background:rgba(255,255,255,.08);color:#e8f1ff;font-weight:500}
   .btn.ghost.on{background:rgba(207,230,255,.22);color:#fff}
   .btn:disabled{opacity:.45;cursor:default}
-  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+  .row{display:flex;gap:8px;margin-top:10px;align-items:center}
+  #rel{flex:1;white-space:nowrap}
   #padBox{right:16px;bottom:16px;padding:12px;width:284px;box-sizing:border-box}
   #pad{width:100%;height:200px;border-radius:12px;display:block;cursor:crosshair;touch-action:none}
   .padLbl{display:flex;justify-content:space-between;font-size:11px;color:#8ea3c4;margin-top:6px}
@@ -77,7 +78,7 @@
 <div id="hud" class="chip"><a class="home" href="../index.html">← Rabbit Holes</a><h1>❄️ Snowfall <button id="storyT" aria-label="How it works">?</button></h1><div id="story"></div></div>
 <div id="mode" class="chip"><button data-m="free" class="on">Collect</button><button data-m="copy">Copy a flake</button><button data-m="gallery">Gallery</button></div>
 <div id="side" class="chip"></div>
-<div id="padBox" class="chip"><div id="status"></div><div id="bar"><i></i></div><canvas id="pad"></canvas><div class="padLbl"><span>denser vapour →</span><span>faster freezing ↑</span></div><div class="row"><button class="btn" id="rel">❄ Release a crystal</button><button class="btn ghost" id="slow" title="Slow motion">🐢 Slow</button><button class="btn ghost" id="sideT">Catalogue</button></div></div>
+<div id="padBox" class="chip"><div id="status"></div><div id="bar"><i></i></div><canvas id="pad"></canvas><div class="padLbl"><span>denser vapour →</span><span>faster freezing ↑</span></div><div class="row"><button class="btn" id="rel">❄ Release</button><button class="btn ghost" id="slow" title="Slow motion">🐢 Slow</button><button class="btn ghost" id="sideT">Catalogue</button></div></div>
 <div id="toast"></div>
 <script src="../shared/common.js"></script>
 <script src="../shared/fx.js"></script>
@@ -262,13 +263,14 @@ const thumbImg = (sc, kind, cls = '') => { const u = want(sc, kind); return u ? 
 // bokeh snow in the background
 const flakes = Array.from({ length: 120 }, () => { const r = Math.random(); return { x: Math.random(), y: Math.random(), r, v: .02 + Math.random() * .05, ph: Math.random() * 6, col: `rgba(200,220,255,${(.08 + r * .18).toFixed(3)})` }; });
 function layout() {
-  dpr = FX.fit(sky, 1.5); W = sky.width; H = sky.height;
+  dpr = FX.fit(sky, 1); W = sky.width; // the flake is a 360px image scaled up, so extra device pixels would add cost but no detail H = sky.height;
   skyGrad = g.createLinearGradient(0, 0, 0, H); skyGrad.addColorStop(0, '#081129'); skyGrad.addColorStop(.6, '#0c1838'); skyGrad.addColorStop(1, '#16244a');
   // the flake sits in the free space between the panels
   const wide = innerWidth > 860, hud = $('hud').getBoundingClientRect(), pb = $('padBox').getBoundingClientRect(), md = $('mode').getBoundingClientRect();
   let l, r, t, b;
   if (wide) { l = hud.right + 8; r = pb.left - 8; t = 16; b = innerHeight - 16; } else { l = 0; r = innerWidth; t = md.bottom + 4; b = pb.top - 4; }
   flakeBox = { cx: (l + r) / 2, cy: (t + b) / 2, size: Math.max(120, Math.min(r - l, (b - t) * 1.02)) };
+  if (wide) { const sd = $('side'); sd.style.maxHeight = Math.max(120, pb.top - 10 - sd.getBoundingClientRect().top) + 'px'; } else $('side').style.maxHeight = '';
   const ts = $('toast').style; ts.left = flakeBox.cx + 'px'; ts.top = flakeBox.cy + 'px';
   padDirty = true;
 }
@@ -290,7 +292,7 @@ const particles = FX.particles(400);
 // ================= conditions pad =================
 const pad = $('pad'), pg = pad.getContext('2d'); let padD = 1, padDirty = true, padBg = null;
 let padPt = { x: .3, y: .5 };
-const FCOL = { plate: [178, 216, 255], broad: [104, 156, 222], stellar: [58, 102, 176], fern: [30, 54, 110] }, FLBL = { plate: 'plates', broad: 'broad arms', stellar: 'stars', fern: 'ferns' };
+const FCOL = { plate: [150, 200, 250], broad: [86, 140, 214], stellar: [62, 84, 170], fern: [40, 44, 104] }, FLBL = { plate: 'plates', broad: 'broad arms', stellar: 'stars', fern: 'ferns' };
 function buildPadBg(w, h) {
   // coloured by what each point actually grows (a replayed 11x11 grid), so the labels tell the truth
   const n = TABLES.padN, m = TABLES.pad, tiny = document.createElement('canvas'); tiny.width = tiny.height = n; const tc = tiny.getContext('2d'), id = tc.createImageData(n, n);
@@ -298,10 +300,10 @@ function buildPadBg(w, h) {
   for (let yi = 0; yi < n; yi++) for (let xi = 0; xi < n; xi++) { const f = m[yi * n + xi], c = FCOL[f], q = ((n - 1 - yi) * n + xi) * 4; id.data[q] = c[0]; id.data[q + 1] = c[1]; id.data[q + 2] = c[2]; id.data[q + 3] = 255; (cent[f] = cent[f] || [0, 0, 0]); cent[f][0] += xi / (n - 1); cent[f][1] += yi / (n - 1); cent[f][2]++; }
   tc.putImageData(id, 0, 0);
   padBg = document.createElement('canvas'); padBg.width = w; padBg.height = h; const c = padBg.getContext('2d');
-  c.imageSmoothingEnabled = true; c.drawImage(tiny, 0, 0, n, n, -w / (n - 1) / 2, -h / (n - 1) / 2, w + w / (n - 1), h + h / (n - 1));
-  c.fillStyle = 'rgba(6,12,30,.35)'; c.fillRect(0, 0, w, h);
+  c.imageSmoothingEnabled = true; c.filter = `blur(${Math.round(w / n / 2)}px)`; c.drawImage(tiny, 0, 0, n, n, -w / (n - 1) / 2 - w * .1, -h / (n - 1) / 2 - h * .1, w * 1.2 + w / (n - 1), h * 1.2 + h / (n - 1)); c.filter = 'none';
+  c.fillStyle = 'rgba(6,12,30,.18)'; c.fillRect(0, 0, w, h);
   c.font = `600 ${11 * padD}px Space Grotesk, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
-  for (const f in cent) { const [x, y, k] = cent[f]; c.fillStyle = 'rgba(0,0,0,.45)'; c.fillText(FLBL[f], x / k * w + padD, (1 - y / k) * h + padD); c.fillStyle = 'rgba(255,255,255,.88)'; c.fillText(FLBL[f], x / k * w, (1 - y / k) * h); }
+  for (const f in cent) { const [x, y0, k] = cent[f], y = 1 - FX.clamp(1 - y0 / k, .09, .91); c.fillStyle = 'rgba(0,0,0,.45)'; c.fillText(FLBL[f], x / k * w + padD, (1 - y) * h + padD); c.fillStyle = 'rgba(255,255,255,.88)'; c.fillText(FLBL[f], x / k * w, (1 - y) * h); }
 }
 function drawPad() {
   padD = FX.fit(pad, 2); const w = pad.width, h = pad.height;
@@ -400,7 +402,7 @@ function renderStatus() {
 function renderAll() {
   $('story').innerHTML = mode === 'copy' ? 'Each flake records the weather it fell through: the centre grew first and the tips grew last. Match the ghost by changing the conditions at the right moments. A fall takes about 8 seconds.' :
     'Every snowflake is a record of its fall. Drag the <b>cloud conditions</b> pad before and <i>during</i> the fall (about 8 seconds). Each region of the cloud grows a different kind of ice; change conditions mid-fall to grow crystals with two personalities.';
-  $('rel').textContent = growing ? 'Falling…' : '❄ Release a crystal'; $('rel').disabled = growing;
+  $('rel').textContent = growing ? 'Falling…' : '❄ Release'; $('rel').disabled = growing;
   $('slow').classList.toggle('on', !!SAVE.slow);
   $('sideT').textContent = mode === 'free' ? 'Catalogue' : mode === 'copy' ? 'Targets' : 'Gallery';
   document.querySelectorAll('#mode button').forEach(x => x.classList.toggle('on', x.dataset.m === mode));
@@ -451,7 +453,7 @@ window.__snow = {
   replay(sc, kind = 'frac') { const o = Sim(), r = Runner(o, sc, kind); while (!r.run(1e4)); return o.fr.slice(); },
   setMode, setTarget(i) { if (growing) return false; target = i; loadTarget(); renderAll(); return true; },
   get R() { return live.R; }, get frac() { return live.R / RMAX; }, get growing() { return growing; }, get mode() { return mode; }, get target() { return target; },
-  get lastScore() { return lastScore; }, get sched() { return sched; }, get fallSeconds() { return fallDur(); }, SAVE,
+  get lastScore() { return lastScore; }, get mask() { return live.fr; }, get jobs() { return jobs.length; }, get sched() { return sched; }, get fallSeconds() { return fallDur(); }, SAVE,
 };
 </script>
 </body>

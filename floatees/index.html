@@ -33,12 +33,26 @@
   #toast.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
   #toast small{display:block;font-family:"Space Grotesk",sans-serif;font-size:16px;font-weight:400;color:#c3d3ec;margin-top:8px;line-height:1.5}
   #tip{position:fixed;pointer-events:none;font-size:12px;color:#c3d3ec;background:rgba(8,16,34,.75);padding:3px 8px;border-radius:8px;display:none}
-  @media (max-width:860px){#levels{display:none}#hud{width:calc(100vw - 32px);max-height:40vh;overflow:auto}#tally{bottom:84px;right:8px;width:180px;font-size:12px}}
+  #nav{display:flex;gap:6px;align-items:center;margin-top:8px}
+  #lvsel{display:none;flex:1;min-width:0;background:rgba(255,255,255,.08);color:#eef4ff;border:0;border-radius:9px;font:inherit;font-size:13px;padding:6px 8px}
+  #lvsel option{background:#0b1630;color:#eef4ff}
+  #next{display:none}
+  #ctrl .hint{font-size:12px;color:#8fa6c8;padding:0 4px}
+  #toast .b{pointer-events:auto;font-family:"Space Grotesk",sans-serif;font-size:15px;font-weight:700;padding:8px 16px;margin-top:12px;text-shadow:none}
+  #toast:not(.on) .b{pointer-events:none}
+  @media (max-width:860px){
+    #levels{display:none} #lvsel{display:block}
+    #hud{left:8px;right:8px;top:8px;width:auto;padding:10px 12px;max-height:38vh;overflow:auto}
+    #hud h1{font-size:21px;margin:2px 0} #story{font-size:13px;line-height:1.4} #goal{margin-top:6px;padding:6px 10px;font-size:12px}
+    #ctrl{bottom:8px;padding:6px;gap:4px;max-width:calc(100vw - 16px)} #ctrl .sep{display:none} #ctrl .b{padding:6px 8px}
+    #tally{right:8px;width:170px;padding:8px 10px;font-size:11.5px;line-height:1.45}
+    #toast{font-size:30px;max-width:92vw} #toast small{font-size:13px}
+  }
 </style>
 </head>
 <body>
 <canvas id="gl"></canvas>
-<div id="hud" class="chip"><a class="home" href="../index.html">← Rabbit Holes</a><h1>🦆 Floatees</h1><div id="story"></div><div id="bets"></div><div id="goal"></div></div>
+<div id="hud" class="chip"><a class="home" href="../index.html">← Rabbit Holes</a><h1>🦆 Floatees</h1><div id="story"></div><div id="bets"></div><div id="goal"></div><div id="nav"><select id="lvsel" aria-label="Level"></select><button class="b on" id="next">Next ▸</button></div></div>
 <div id="levels" class="chip"></div>
 <div id="ctrl" class="chip"></div>
 <div id="tally" class="chip"></div>
@@ -62,37 +76,62 @@ const isLand = (lat, lon) => { const j = Math.max(0, Math.min(179, Math.floor(90
 // Steady wind-driven circulation:  r·∇²ψ + β·∂ψ/∂x = curl τ  on the real ocean basins.
 // The β term (Earth's rotation varying with latitude) is what squeezes the return flow into fast
 // western boundary currents: the Gulf Stream, the Kuroshio, the Agulhas.
-const GW = 180, GH = 90, LANDG = new Uint8Array(GW * GH);
+const MOBILE = matchMedia('(max-width: 860px), (pointer: coarse)').matches;
+const GW = 180, GH = 90, NG = GW * GH, LANDG = new Uint8Array(NG);
 for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) { let c = 0; for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) c += land1(i * 2 + a, j * 2 + b); LANDG[j * GW + i] = c >= 2 || j < 3 || j >= GH - 2 ? 1 : 0; }
 const glat = j => (90 - (j + .5) * 2) * Math.PI / 180;
-let PSI = new Float64Array(GW * GH), U = new Float32Array(GW * GH), V = new Float32Array(GW * GH), SPEED = new Float32Array(GW * GH), vmax = 1;
-function solveOcean(rot = 1, wind = 1) {
-  const psi = new Float64Array(GW * GH), F = new Float64Array(GW * GH), r = 2;
-  for (let j = 0; j < GH; j++) { const p = glat(j), f = -WK * Math.sin(WK * p) * (Math.abs(p) < Math.PI / 2 / WK * 3 ? 1 : 0) * wind; /* curl of τx = -cos 4φ: trades, westerlies peaking at 45° */ for (let i = 0; i < GW; i++) F[j * GW + i] = f; }
-  for (let k = 0; k < GW * GH; k++) if (LANDG[k] && (k / GW | 0) > GH * .75) psi[k] = 6 * wind; // Antarctica: sets the Circumpolar Current
-  for (let it = 0; it < 1400; it++) for (let j = 1; j < GH - 1; j++) {
-    const p = glat(j), dx = Math.cos(p), beta = rot * Math.cos(p), A = r / (dx * dx), Bc = r, Cb = Math.abs(beta) / dx;
-    for (let i = 0; i < GW; i++) { const k = j * GW + i; if (LANDG[k]) continue; const e = j * GW + (i + 1) % GW, w = j * GW + (i + GW - 1) % GW;
-      const up = beta >= 0 ? psi[e] : psi[w]; // upwind in the direction Rossby waves travel
-      psi[k] = (A * (psi[e] + psi[w]) + Bc * (psi[k - GW] + psi[k + GW]) + Cb * up - F[k]) / (2 * A + 2 * Bc + Cb) * (beta >= 0 ? 1 : 1); }
-  }
-  PSI = psi; vmax = 0;
-  for (let j = 1; j < GH - 1; j++) { const dx = Math.cos(glat(j)); for (let i = 0; i < GW; i++) { const k = j * GW + i; if (LANDG[k]) { U[k] = V[k] = 0; continue; }
-    const e = j * GW + (i + 1) % GW, w = j * GW + (i + GW - 1) % GW;
-    U[k] = -(psi[k - GW] - psi[k + GW]) / 2; V[k] = (psi[e] - psi[w]) / (2 * dx); SPEED[k] = Math.hypot(U[k], V[k]); if (SPEED[k] > vmax) vmax = SPEED[k]; } }
-}
-// velocity in degrees per year at (lat, lon), bilinear on the 2° grid
-const VSCALE = () => 260 / vmax, EKMAN = 1.0;
 // zonal wind stress τx = -cos(WK·φ): trade winds at the equator, westerlies peaking at 42°, polar easterlies beyond 63°
-const WK = 4 * 45 / 42;
-function vel(lat, lon) {
+const WK = 4 * 45 / 42, BELT = Math.PI / 2 / WK * 3;
+const taux = p => Math.abs(p) < BELT ? -Math.cos(WK * p) : 0;
+// Successive over-relaxation (ω = 1.7) of the upwind finite-difference scheme. A generator, so the work
+// can be sliced up between frames instead of freezing the page.
+function* solveGen(rot) {
+  const psi = new Float64Array(NG), r = 2, TOL = 1e-5; let omega = 1.7;
+  for (let k = 0; k < NG; k++) if (LANDG[k] && (k / GW | 0) > GH * .75) psi[k] = 6; // Antarctica: sets the Circumpolar Current
+  const RA = new Float64Array(GH), RC = new Float64Array(GH), RD = new Float64Array(GH), RF = new Float64Array(GH);
+  for (let j = 1; j < GH - 1; j++) { const p = glat(j), dx = Math.cos(p); RA[j] = r / (dx * dx); RC[j] = Math.abs(rot * Math.cos(p)) / dx; RD[j] = 1 / (2 * RA[j] + 2 * r + RC[j]); RF[j] = -WK * Math.sin(WK * p) * (Math.abs(p) < BELT ? 1 : 0); /* curl τ */ }
+  const east = rot >= 0; let it = 0;
+  for (; it < 4000; it++) {
+    let md = 0, mx = 0;
+    for (let j = 1; j < GH - 1; j++) {
+      const A = RA[j], C = RC[j], D = RD[j], f = RF[j], row = j * GW;
+      for (let i = 0; i < GW; i++) {
+        const k = row + i; if (LANDG[k]) continue;
+        const pe = psi[i === GW - 1 ? row : k + 1], pw = psi[i === 0 ? row + GW - 1 : k - 1];
+        const d = (A * (pe + pw) + r * (psi[k - GW] + psi[k + GW]) + C * (east ? pe : pw) - f) * D - psi[k]; // upwind in the direction Rossby waves travel
+        psi[k] += omega * d; const ad = d < 0 ? -d : d, ap = psi[k] < 0 ? -psi[k] : psi[k]; if (ad > md) md = ad; if (ap > mx) mx = ap;
+      }
+    }
+    if (!(mx < 1e6)) { omega = 1; psi.fill(0); for (let k = 0; k < NG; k++) if (LANDG[k] && (k / GW | 0) > GH * .75) psi[k] = 6; continue; } // safety: fall back to Gauss-Seidel
+    if (md < TOL * mx) break;
+    if ((it & 7) === 7) yield;
+  }
+  const U = new Float32Array(NG), V = new Float32Array(NG), SP = new Float32Array(NG); let vmax = 0;
+  for (let j = 1; j < GH - 1; j++) { const dx = Math.cos(glat(j)); for (let i = 0; i < GW; i++) { const k = j * GW + i; if (LANDG[k]) continue;
+    const e = j * GW + (i + 1) % GW, w = j * GW + (i + GW - 1) % GW;
+    U[k] = -(psi[k - GW] - psi[k + GW]) / 2; V[k] = (psi[e] - psi[w]) / (2 * dx); SP[k] = Math.hypot(U[k], V[k]); if (SP[k] > vmax) vmax = SP[k]; } }
+  return { U, V, SP, vmax, it };
+}
+// One solution, texture and canvas per rotation state, computed once and kept.
+const OCEAN = {};
+let CU = null, CV = null, CSP = null, VS = 0; // current field; VS: degrees per year per model unit, fixed by the real Earth's solution
+const EKMAN = 1.0, DIFF = 9, WINDAGE = 22, SWW = 12; // Ekman strength, eddy diffusion (° per √year), windage (° per year per unit wind), south-westerly drift
+const sm = (x, a, b) => x <= a ? 0 : x >= b ? 1 : (x - a) / (b - a);
+// The North Atlantic's prevailing south-westerlies (degrees north per year): they carry the Gulf Stream's floaters towards Europe.
+const swWind = (lat, lon) => lat < 30 || lat > 64 || lon < -82 || lon > 15 ? 0 : SWW * sm(lat, 30, 38) * (1 - sm(lat, 58, 64)) * sm(lon, -82, -72) * (1 - sm(lon, 0, 15));
+// velocity in degrees per year at (lat, lon), bilinear on the 2° grid. Writes into `out`: no allocation.
+const VO = [0, 0];
+function vel(lat, lon, out = VO) {
+  if (!CU) { out[0] = out[1] = 0; return out; }
   const gx = (lon + 180) / 2 - .5, gy = (90 - lat) / 2 - .5, i0 = Math.floor(gx), j0 = Math.max(0, Math.min(GH - 2, Math.floor(gy))), fx = gx - i0, fy = gy - j0;
-  const I = i => ((i % GW) + GW) % GW, k00 = j0 * GW + I(i0), k10 = j0 * GW + I(i0 + 1), k01 = (j0 + 1) * GW + I(i0), k11 = (j0 + 1) * GW + I(i0 + 1);
-  const s = VSCALE(), bl = (A) => ((A[k00] * (1 - fx) + A[k10] * fx) * (1 - fy) + (A[k01] * (1 - fx) + A[k11] * fx) * fy) * s;
+  const ia = ((i0 % GW) + GW) % GW, ib = ia === GW - 1 ? 0 : ia + 1, k00 = j0 * GW + ia, k10 = j0 * GW + ib, k01 = k00 + GW, k11 = k10 + GW;
+  const w00 = (1 - fx) * (1 - fy) * VS, w10 = fx * (1 - fy) * VS, w01 = (1 - fx) * fy * VS, w11 = fx * fy * VS;
   // Ekman drift: the wind pushes surface water to the right of the wind in the north (left in the south),
   // which herds floating things into the middle of each gyre. This is where garbage patches come from.
-  const p = lat * Math.PI / 180, taux = Math.abs(p) < Math.PI / 2 / WK * 3 ? -Math.cos(WK * p) : 0, sp = Math.sin(p), ek = rot === 0 || Math.abs(sp) < .12 ? 0 : -EKMAN * rot * taux / sp;
-  return [bl(U), bl(V) + ek];
+  const p = lat * Math.PI / 180, sp = Math.sin(p), ek = rot === 0 || Math.abs(sp) < .12 ? 0 : -EKMAN * rot * taux(p) / sp;
+  out[0] = CU[k00] * w00 + CU[k10] * w10 + CU[k01] * w01 + CU[k11] * w11;
+  out[1] = CV[k00] * w00 + CV[k10] * w10 + CV[k01] * w01 + CV[k11] * w11 + ek;
+  return out;
 }
 
 // ================= levels =================
@@ -101,68 +140,85 @@ const REG = {
   europe: { n: 'Europe & Norway', box: [36, 72, -10, 32] }, africa: { n: 'Africa', box: [-36, 36, -20, 52] }, australia: { n: 'Australia & NZ', box: [-48, -10, 112, 180] },
   arctic: { n: 'Arctic', box: [66, 90, -180, 180] }, caribbean: { n: 'Caribbean & Gulf', box: [8, 31, -98, -59] }, useast: { n: 'US East Coast', box: [25, 46, -82, -64] },
 };
-const regionOf = (lat, lon) => Object.keys(REG).find(k => { const [a, b, c, d] = REG[k].box; return lat >= a && lat <= b && lon >= c && lon <= d; }) || 'other';
+const regionOf = (lat, lon) => { for (const k in REG) { const [a, b, c, d] = REG[k].box; if (lat >= a && lat <= b && lon >= c && lon <= d) return k; } return 'other'; };
+const GSBOX = [25, 45, -82, -62]; // western North Atlantic, where the Gulf Stream runs
+const kmday = degYr => degYr * 111 / 365;
 const LV = [
   { n: 'The 1992 Spill', drop: [44.7, 178.1], years: 2, bet: ['nawest', 'japan', 'hawaii', 'australia'],
     story: 'On 10 January 1992 a container ship lost <b>28,800 plastic bath toys</b> in a Pacific storm. Ducks, beavers, turtles and frogs. Oceanographers used them to map the currents for decades. <b>Where do you think they washed up first?</b>',
-    goal: 'Place your bet, then release the ducks. Two years of drift.', test: S => S.t >= 2 && S.bet, win: S => S.betRight },
-  { n: 'Message in a Bottle', years: 3, focus: [40, -40], target: 'uk',
-    story: 'A sailor in Florida wants to send a bottle to <b>Britain</b>. The Atlantic is wide, but a river runs through it.',
-    goal: 'Drop ducks anywhere so that <b>at least 15</b> of 100 reach Britain & Ireland within 3 years.', test: S => S.t >= .05, win: S => S.regions.uk >= 15 },
-  { n: 'Garbage Patch', years: 6, focus: [25, -175], patch: 1,
+    goal: 'Place your bet, then release the ducks. The first duck ashore settles the bet.' },
+  { n: 'Message in a Bottle', years: 3, focus: [40, -50], target: 'uk', westOf: -60,
+    story: 'A sailor on the coast of <b>Florida or the Carolinas</b> wants to send a bottle to <b>Britain</b>. The Atlantic is wide, but a river runs through it, and the wind is on your side.',
+    goal: 'Drop ducks off the American coast (west of 60°W) so that <b>at least 15</b> of 100 reach Britain & Ireland within 3 years.', win: S => S.regions.uk >= 15 },
+  { n: 'Garbage Patch', years: 6, focus: [25, -175], patch: 1, need: 30,
     story: 'Some ducks never reach shore. The currents circle round each ocean basin and collect drifting things in the middle. That\'s why there\'s a <b>Great Pacific Garbage Patch</b>.',
-    goal: 'Get <b>40 ducks</b> trapped, still floating, in the gyre\'s garbage patch (the dashed ring) after 6 years.', test: S => S.t >= 6, win: S => S.t >= 6 && S.patch >= 40 },
-  { n: 'Why the West?', years: 2, focus: [35, -50], physics: 1, target: 'useast',
-    story: 'Look closely: every ocean\'s fastest current hugs its <b>western</b> side (the Gulf Stream, the Kuroshio, the Brazil Current). Earth\'s spin causes this. <b>Stop the Earth spinning</b> and see what the ocean does.',
-    goal: 'Set rotation to <b>off</b>, drop ducks in the North Atlantic, and watch them for a year. Notice the fast current along the American coast has gone.', test: S => S.rot === 0 && S.t >= 1, win: S => S.rot === 0 && S.t >= 1 },
+    goal: 'Get <b>30 ducks</b> trapped, still floating, in the gyre\'s garbage patch (the dashed ring) after 6 years.', win: S => S.t >= 6 && S.patch >= 30 },
+  { n: 'Why the West?', years: 1, focus: [35, -60], physics: 1, measure: 1,
+    story: 'Every ocean\'s fastest current hugs its <b>western</b> side (the Gulf Stream, the Kuroshio, the Brazil Current). Is that Earth\'s spin? Do the experiment: measure the current with the spin on, then <b>stop the Earth</b> and measure again.',
+    goal: 'Drop ducks just off the US East Coast with Earth\'s spin <b>normal</b>, then again with it <b>off</b>. The tally records the fastest current your ducks ride in the western Atlantic.', win: S => S.meas[1] > 0 && S.meas[0] > 0 && S.meas[1] >= 1.25 * S.meas[0] },
   { n: 'Backwards Planet', years: 3, focus: [35, -35], physics: 1,
     story: 'What if Earth spun the other way? The sun would rise in the west, and the western boundary currents would move to the <b>eastern</b> sides of the oceans.',
-    goal: 'Reverse the rotation. Land <b>10 ducks in Europe</b> from a drop in the western Atlantic.', test: S => S.rot === -1 && S.t >= .05, win: S => S.rot === -1 && S.regions.europe >= 10 },
+    goal: 'Reverse the rotation. Land <b>10 ducks in Europe</b> from a drop in the western Atlantic.', win: S => S.rot === -1 && S.regions.europe >= 10 },
   { n: 'Round the World', years: 8, focus: [-45, -70], physics: 0,
     story: 'Around Antarctica nothing blocks the water, so the <b>Antarctic Circumpolar Current</b>, the largest current on Earth, circles the planet forever.',
-    goal: 'Get a duck to travel <b>all the way around</b> the world (360° of longitude) within 8 years.', test: S => S.t >= .05, win: S => S.maxLap >= 360 },
-  { n: 'Open Ocean', years: 20, free: 1, physics: 1,
-    story: 'A sandbox. Drop ducks anywhere, change the planet, and watch for decades.', goal: 'No goal. Have fun.', test: () => false, win: () => false },
+    goal: 'Get a duck to travel <b>all the way around</b> the world (360° of longitude) within 8 years.', win: S => S.maxLap >= 360 },
+  { n: 'Open Ocean', years: Infinity, free: 1, physics: 1,
+    story: 'A sandbox. Drop ducks anywhere, change the planet, and watch for decades.', goal: 'No goal. Have fun.', win: () => false },
 ];
 
 // ================= state =================
 const SAVE = RH.load('floatees', { done: {}, cur: 0 });
 const persist = () => { RH.save('floatees', SAVE); RH.progress('floatees', Object.keys(SAVE.done).length / (LV.length - 1)); };
-let L, ducks = [], simT = 0, running = false, speed = 1, rot = 1, bet = null, won = false, resolved = false;
+let L, ducks = [], simT = 0, running = false, speed = 1, rot = 1, bet = null, won = false, resolved = false, follow = false, meas = {}, pending = null;
 
 // ================= three.js scene =================
 const $ = id => document.getElementById(id);
 const canvas = $('gl');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.25;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !MOBILE });
+renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 2)); renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.25;
 const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(32, 1, .1, 100);
 camera.position.set(0, 1.2, 5.6);
 const controls = new OrbitControls(camera, canvas); controls.enableDamping = true; controls.minDistance = 2.4; controls.maxDistance = 9; controls.enablePan = false; controls.rotateSpeed = .5;
 scene.add(new THREE.AmbientLight('#8aa0c8', .9));
 const sun = new THREE.DirectionalLight('#fff3dc', 2.4); sun.position.set(-2.5, 2, 4); camera.add(sun); scene.add(camera); // the light rides with the camera, so the side you look at is lit
 // stars
-{ const n = 2500, p = new Float32Array(n * 3); for (let i = 0; i < n; i++) { const v = new THREE.Vector3().randomDirection().multiplyScalar(40 + Math.random() * 20); p.set([v.x, v.y, v.z], i * 3); } const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3)); scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: '#cfe0ff', size: .08, sizeAttenuation: true, transparent: true, opacity: .8 }))); }
-// globe texture painted from the land mask and the current speed
-const tex = document.createElement('canvas'); tex.width = 1440; tex.height = 720; const tg = tex.getContext('2d');
-const globeTex = new THREE.CanvasTexture(tex); globeTex.colorSpace = THREE.SRGBColorSpace; globeTex.anisotropy = 8;
-function landFrac(lat, lon) { const y = 90 - lat - .5, x = lon + 180 - .5, j0 = Math.max(0, Math.min(178, Math.floor(y))), i0 = Math.floor(x), fx = x - i0, fy = Math.max(0, Math.min(1, y - j0)), I = i => ((i % 360) + 360) % 360; return (land1(I(i0), j0) * (1 - fx) + land1(I(i0 + 1), j0) * fx) * (1 - fy) + (land1(I(i0), j0 + 1) * (1 - fx) + land1(I(i0 + 1), j0 + 1) * fx) * fy; }
-function paintGlobe() {
-  const im = tg.createImageData(1440, 720), d = im.data;
-  for (let y = 0; y < 720; y++) for (let x = 0; x < 1440; x++) {
-    const lat = 90 - (y + .5) / 4, lon = -180 + (x + .5) / 4, o = (y * 1440 + x) * 4;
-    const lf = landFrac(lat, lon);
-    if (lf > .5) {
-      const n = (Math.sin(lon * .37) * Math.cos(lat * .41) + Math.sin(lon * .11 + lat * .23)) * .25 + .5, dry = Math.min(1, Math.exp(-Math.pow((Math.abs(lat) - 24) / 10, 2)) * (.3 + n)), ice = Math.max(0, Math.min(1, (Math.abs(lat) - 62) / 8));
-      const c = [92 + (196 - 92) * dry, 132 + (170 - 132) * dry, 74 + (112 - 74) * dry].map((v, q) => v + ([236, 240, 246][q] - v) * ice); d[o] = c[0] - n * 12; d[o + 1] = c[1] - n * 12; d[o + 2] = c[2] - n * 8; d[o + 3] = 255;
-    } else {
-      const coast = Math.max(0, 1 - Math.abs(lf - .5) * 6) * .9; // pale shallows along the shore
-      const gi = Math.min(GW - 1, (x / 8) | 0), gj = Math.min(GH - 1, (y / 8) | 0), sp = Math.min(1, SPEED[gj * GW + gi] / vmax * 2.2), polar = Math.abs(lat) / 90;
-      d[o] = 18 + sp * 40 + polar * 14 + coast * 60; d[o + 1] = 58 + sp * 85 + polar * 24 + coast * 110; d[o + 2] = 118 + sp * 80 + polar * 22 + coast * 80; d[o + 3] = 255;
+{ const n = MOBILE ? 1200 : 2500, p = new Float32Array(n * 3), v = new THREE.Vector3(); for (let i = 0; i < n; i++) { v.randomDirection().multiplyScalar(40 + Math.random() * 20); p[i * 3] = v.x; p[i * 3 + 1] = v.y; p[i * 3 + 2] = v.z; } const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3)); scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: '#cfe0ff', size: .08, sizeAttenuation: true, transparent: true, opacity: .8 }))); }
+// globe texture painted from the land mask and the current speed.
+// A 1-pixel-per-degree map goes up at once; the full-resolution one is built in slices.
+const TW = MOBILE ? 1024 : 1440, TH = TW / 2, TS = TW / 360;
+const quick = document.createElement('canvas'); quick.width = 360; quick.height = 180;
+{ const g = quick.getContext('2d'), im = g.createImageData(360, 180); for (let j = 0; j < 180; j++) for (let i = 0; i < 360; i++) { const o = (j * 360 + i) * 4, l = land1(i, j), lat = 90 - j - .5, ice = Math.abs(lat) > 64; im.data[o] = l ? (ice ? 230 : 110) : 20; im.data[o + 1] = l ? (ice ? 236 : 145) : 62; im.data[o + 2] = l ? (ice ? 244 : 85) : 122; im.data[o + 3] = 255; } g.putImageData(im, 0, 0); }
+const quickTex = new THREE.CanvasTexture(quick); quickTex.colorSpace = THREE.SRGBColorSpace;
+function landFrac(lat, lon) { const y = 90 - lat - .5, x = lon + 180 - .5, j0 = Math.max(0, Math.min(178, Math.floor(y))), i0 = Math.floor(x), fx = x - i0, fy = Math.max(0, Math.min(1, y - j0)), ia = ((i0 % 360) + 360) % 360, ib = (ia + 1) % 360; return (land1(ia, j0) * (1 - fx) + land1(ib, j0) * fx) * (1 - fy) + (land1(ia, j0 + 1) * (1 - fx) + land1(ib, j0 + 1) * fx) * fy; }
+// base layer: land colours, plus each ocean pixel's own base colour and grid cell (filled once)
+const BASE = new Uint8ClampedArray(TW * TH * 4); let OPIX = null, OGRID = null, baseReady = false;
+function* paintBaseGen() {
+  const opix = new Int32Array(TW * TH), ogrid = new Uint16Array(TW * TH); let no = 0;
+  for (let y = 0; y < TH; y++) {
+    for (let x = 0; x < TW; x++) {
+      const lat = 90 - (y + .5) / TS, lon = -180 + (x + .5) / TS, o = (y * TW + x) * 4, lf = landFrac(lat, lon);
+      if (lf > .5) {
+        const n = (Math.sin(lon * .37) * Math.cos(lat * .41) + Math.sin(lon * .11 + lat * .23)) * .25 + .5, dry = Math.min(1, Math.exp(-Math.pow((Math.abs(lat) - 24) / 10, 2)) * (.3 + n)), ice = Math.max(0, Math.min(1, (Math.abs(lat) - 62) / 8));
+        const r = 92 + 104 * dry, g = 132 + 38 * dry, b = 74 + 38 * dry;
+        BASE[o] = r + (236 - r) * ice - n * 12; BASE[o + 1] = g + (240 - g) * ice - n * 12; BASE[o + 2] = b + (246 - b) * ice - n * 8; BASE[o + 3] = 255;
+      } else {
+        const coast = Math.max(0, 1 - Math.abs(lf - .5) * 6) * .9, polar = Math.abs(lat) / 90; // pale shallows along the shore
+        BASE[o] = 18 + polar * 14 + coast * 60; BASE[o + 1] = 58 + polar * 24 + coast * 110; BASE[o + 2] = 118 + polar * 22 + coast * 80; BASE[o + 3] = 255;
+        opix[no] = o; ogrid[no] = Math.min(GH - 1, (y / TH * GH) | 0) * GW + Math.min(GW - 1, (x / TW * GW) | 0); no++;
+      }
     }
+    if ((y & 31) === 31) yield;
   }
-  tg.putImageData(im, 0, 0); globeTex.needsUpdate = true;
+  OPIX = opix.slice(0, no); OGRID = ogrid.slice(0, no); baseReady = true;
 }
-const globe = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 96), new THREE.MeshStandardMaterial({ map: globeTex, roughness: .75, metalness: 0 }));
+function* paintState(st) { // brighten the ocean where the current runs fast; ~10× cheaper than repainting from scratch
+  const c = document.createElement('canvas'); c.width = TW; c.height = TH; const g = c.getContext('2d'), im = g.createImageData(TW, TH), d = im.data;
+  d.set(BASE); const k = 2.2 * VS / 260; yield;
+  for (let n = 0; n < OPIX.length; n++) { const o = OPIX[n], s = Math.min(1, st.SP[OGRID[n]] * k); d[o] += s * 40; d[o + 1] += s * 85; d[o + 2] += s * 80; if ((n & 262143) === 262143) yield; }
+  g.putImageData(im, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MOBILE ? 2 : 8; st.tex = t;
+}
+const globe = new THREE.Mesh(new THREE.SphereGeometry(1, MOBILE ? 64 : 128, MOBILE ? 48 : 96), new THREE.MeshStandardMaterial({ map: quickTex, roughness: .75, metalness: 0 }));
 scene.add(globe);
 // atmosphere: a back-facing fresnel shell
 const atmo = new THREE.Mesh(new THREE.SphereGeometry(1.06, 64, 48), new THREE.ShaderMaterial({
@@ -170,59 +226,109 @@ const atmo = new THREE.Mesh(new THREE.SphereGeometry(1.06, 64, 48), new THREE.Sh
   vertexShader: 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }',
   fragmentShader: 'varying vec3 vN; void main(){ float i = pow(.72 - dot(vN, vec3(0,0,1.)), 3.); gl_FragColor = vec4(.35,.6,1.,1.) * i * .9; }' }));
 scene.add(atmo);
+
+// ================= background work: sliced so the page never freezes =================
+const jobs = []; const perf = { solve: {}, paint: {}, slices: [] };
+function pump() {
+  const t0 = performance.now();
+  while (jobs.length && performance.now() - t0 < 8) { const j = jobs[0], r = j.it.next(); if (r.done) { jobs.shift(); j.done && j.done(r.value); } }
+  perf.slices.push(performance.now() - t0); if (perf.slices.length > 200) perf.slices.shift();
+  if (jobs.length) setTimeout(pump, 0);
+}
+function enqueue(job, front) { front ? jobs.unshift(job) : jobs.push(job); if (jobs.length === 1) setTimeout(pump, 0); }
+function* oceanJob(r) {
+  while (!baseReady) yield;
+  const t0 = performance.now(); const st = yield* solveGen(r); perf.solve[r] = performance.now() - t0;
+  if (r === 1) VS = 260 / st.vmax; // one fixed scale: every planet feels the same wind, so speeds compare honestly
+  else while (!OCEAN[1]) yield;
+  const t1 = performance.now(); yield* paintState(st); perf.paint[r] = performance.now() - t1;
+  return st;
+}
+function ensureOcean(r, cb) {
+  if (OCEAN[r]) { cb && cb(OCEAN[r]); return; }
+  let job = jobs.find(j => j.rot === r);
+  if (!job) { job = { rot: r, cbs: [], it: oceanJob(r) }; job.done = st => { OCEAN[r] = st; job.cbs.forEach(f => f(st)); }; enqueue(job); }
+  if (cb) job.cbs.push(cb);
+  // the one asked for goes first, after the land layer and the real Earth (it sets the speed scale)
+  const pri = j => j.rot === 'base' ? 0 : j.rot === 1 ? 1 : j.rot === r ? 2 : 3;
+  jobs.sort((a, b) => pri(a) - pri(b));
+}
+function applyOcean(r) { const st = OCEAN[r]; CU = st.U; CV = st.V; CSP = st.SP; globe.material.map = st.tex; globe.material.needsUpdate = true; }
+const ready = new Promise(res => {
+  enqueue({ it: paintBaseGen(), rot: 'base' });
+  ensureOcean(1, () => { if (rot === 1) applyOcean(1); res(); setTimeout(() => { ensureOcean(0); ensureOcean(-1); }, 600); });
+});
+
 // matches three.js SphereGeometry's texture wrap: u = (lon + 180) / 360 runs round from the -x axis
-const toXYZ = (lat, lon, r = 1.004) => { const a = lat * Math.PI / 180, u = (lon + 180) / 360 * Math.PI * 2; return [-r * Math.cos(a) * Math.cos(u), r * Math.sin(a), r * Math.cos(a) * Math.sin(u)]; };
+const toXYZ = (lat, lon, r = 1.004, out = []) => { const a = lat * Math.PI / 180, u = (lon + 180) / 360 * Math.PI * 2, ca = Math.cos(a); out[0] = -r * ca * Math.cos(u); out[1] = r * Math.sin(a); out[2] = r * ca * Math.sin(u); return out; };
 // current tracers: glowing streaks that flow with the computed currents
-const NT = 5000, tr = { lat: new Float32Array(NT), lon: new Float32Array(NT), age: new Float32Array(NT) };
+const NT = MOBILE ? 2500 : 5000, tr = { lat: new Float32Array(NT), lon: new Float32Array(NT), age: new Float32Array(NT) };
 const trGeo = new THREE.BufferGeometry(), trPos = new Float32Array(NT * 3), trCol = new Float32Array(NT * 3);
 trGeo.setAttribute('position', new THREE.BufferAttribute(trPos, 3)); trGeo.setAttribute('color', new THREE.BufferAttribute(trCol, 3));
-const tracers = new THREE.Points(trGeo, new THREE.PointsMaterial({ size: .016, vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false }));
+const trMat = new THREE.PointsMaterial({ size: .016, vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
+const tracers = new THREE.Points(trGeo, trMat);
 globe.add(tracers);
 function respawnTracer(i) { let lat, lon; do { lat = Math.asin(Math.random() * 2 - 1) * 180 / Math.PI; lon = Math.random() * 360 - 180; } while (isLand(lat, lon) || Math.abs(lat) > 78); tr.lat[i] = lat; tr.lon[i] = lon; tr.age[i] = Math.random() * 3; }
 for (let i = 0; i < NT; i++) respawnTracer(i);
+const camL = new THREE.Vector3(), XYZ = [0, 0, 0];
 function moveTracers(dt) {
+  if (!CU) return;
+  camL.copy(camera.position); globe.worldToLocal(camL); camL.normalize();
   for (let i = 0; i < NT; i++) {
-    const [u, v] = vel(tr.lat[i], tr.lon[i]), c = Math.max(.15, Math.cos(tr.lat[i] * Math.PI / 180));
-    tr.lat[i] += v * dt * .06; tr.lon[i] += u * dt * .06 / c; tr.age[i] -= dt;
+    // the far side of the globe can't be seen: just let those streaks age
+    if (trPos[i * 3] * camL.x + trPos[i * 3 + 1] * camL.y + trPos[i * 3 + 2] * camL.z < -.3) { tr.age[i] -= dt; if (tr.age[i] < 0) respawnTracer(i); else continue; }
+    const v = vel(tr.lat[i], tr.lon[i]), u = v[0], w = v[1], c = Math.max(.15, Math.cos(tr.lat[i] * Math.PI / 180));
+    tr.lat[i] += w * dt * .06; tr.lon[i] += u * dt * .06 / c; tr.age[i] -= dt;
     if (tr.lon[i] > 180) tr.lon[i] -= 360; if (tr.lon[i] < -180) tr.lon[i] += 360;
     if (tr.age[i] < 0 || isLand(tr.lat[i], tr.lon[i]) || Math.abs(tr.lat[i]) > 80) respawnTracer(i);
-    const [x, y, z] = toXYZ(tr.lat[i], tr.lon[i], 1.003); trPos[i * 3] = x; trPos[i * 3 + 1] = y; trPos[i * 3 + 2] = z;
-    const s = Math.min(1, Math.hypot(u, v) / 90), fade = Math.min(1, tr.age[i]) * (.25 + s * .9);
-    trCol[i * 3] = (.4 + s * .6) * fade; trCol[i * 3 + 1] = (.75 + s * .25) * fade; trCol[i * 3 + 2] = 1 * fade;
+    toXYZ(tr.lat[i], tr.lon[i], 1.003, XYZ); trPos[i * 3] = XYZ[0]; trPos[i * 3 + 1] = XYZ[1]; trPos[i * 3 + 2] = XYZ[2];
+    const s = Math.min(1, Math.hypot(u, w) / 90), fade = Math.min(1, tr.age[i]) * (.25 + s * .9);
+    trCol[i * 3] = (.4 + s * .6) * fade; trCol[i * 3 + 1] = (.75 + s * .25) * fade; trCol[i * 3 + 2] = fade;
   }
   trGeo.attributes.position.needsUpdate = trGeo.attributes.color.needsUpdate = true;
 }
 // the garbage-patch ring (shown on that level)
-const patchRing = (() => { const pts = []; for (let a = 0; a <= 64; a++) { const t = a / 64 * Math.PI * 2, la = 21 + 12 * Math.sin(t), lo = 165 + 12 * Math.cos(t) / Math.cos(21 * Math.PI / 180); pts.push(new THREE.Vector3(...toXYZ(la, lo, 1.006))); } const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: '#ffe27a', dashSize: .02, gapSize: .015, transparent: true, opacity: .8 })); l.computeLineDistances(); return l; })();
+const PATCH = [21, 165]; // where this model's North Pacific gyre gathers floating debris
+const patchRing = (() => { const pts = []; for (let a = 0; a <= 64; a++) { const t = a / 64 * Math.PI * 2, la = PATCH[0] + 12 * Math.sin(t), lo = PATCH[1] + 12 * Math.cos(t) / Math.cos(PATCH[0] * Math.PI / 180); pts.push(new THREE.Vector3(...toXYZ(la, lo, 1.006))); } const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: '#ffe27a', dashSize: .02, gapSize: .015, transparent: true, opacity: .8 })); l.computeLineDistances(); return l; })();
 globe.add(patchRing); patchRing.visible = false;
-// ducks
+// ducks: a bright core and a soft halo, so they stand out from the current tracers
 const MAXD = 600, dGeo = new THREE.BufferGeometry(), dPos = new Float32Array(MAXD * 3), dCol = new Float32Array(MAXD * 3);
 dGeo.setAttribute('position', new THREE.BufferAttribute(dPos, 3)); dGeo.setAttribute('color', new THREE.BufferAttribute(dCol, 3));
-const duckTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, '#fff'); gr.addColorStop(.35, 'rgba(255,255,255,.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
-const duckPts = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .035, map: duckTex, vertexColors: true, transparent: true, depthWrite: false }));
-globe.add(duckPts); dGeo.setDrawRange(0, 0);
+const dot = (inner, outer) => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, '#fff'); gr.addColorStop(inner, 'rgba(255,255,255,.95)'); gr.addColorStop(outer, 'rgba(255,255,255,.25)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); };
+const duckPts = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .05, map: dot(.45, .7), vertexColors: true, transparent: true, depthWrite: false }));
+const duckHalo = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .12, map: dot(.05, .3), color: '#ffd23a', transparent: true, opacity: .35, blending: THREE.AdditiveBlending, depthWrite: false }));
+globe.add(duckHalo); globe.add(duckPts); dGeo.setDrawRange(0, 0);
 function drop(lat, lon, n = 100) {
-  for (let i = 0; i < n && ducks.length < MAXD; i++) ducks.push({ lat: lat + (Math.random() - .5) * 1.5, lon: lon + (Math.random() - .5) * 1.5, beached: null, lap: 0, lon0: lon });
+  if (L.free && ducks.length + n > MAXD) { // recycle: beached ducks first, then the oldest still afloat
+    const need = ducks.length + n - MAXD; let removed = 0;
+    ducks = ducks.filter(d => !(d.beached && removed < need && ++removed));
+    if (ducks.length + n > MAXD) ducks.splice(0, ducks.length + n - MAXD);
+    toast('Duck limit', `${MAXD} ducks at most: the oldest ones were fished out.`, 2200);
+  }
+  for (let i = 0; i < n && ducks.length < MAXD; i++) ducks.push({ lat: lat + (Math.random() - .5) * 1.5, lon: lon + (Math.random() - .5) * 1.5, beached: null, lap: 0, bt: 0 });
+  won = false; resolved = false; // every drop is a fresh attempt
   running = true; FX.sfx('pop'); FX.sfx('whoosh'); renderCtrl();
 }
-const DIFF = 9, WINDAGE = 22; // eddy diffusion (degrees per √year) and windage (degrees per year per unit wind)
 function moveDucks(dtYears) {
+  if (!CU) return;
+  const box = L.measure ? GSBOX : null; let mx = 0;
   for (const d of ducks) {
     if (d.beached) continue;
-    const sub = 4;
+    const sub = 4, h = dtYears / sub, sq = DIFF * Math.sqrt(h);
     for (let s = 0; s < sub; s++) {
-      const [u, v] = vel(d.lat, d.lon), c = Math.max(.15, Math.cos(d.lat * Math.PI / 180)), h = dtYears / sub;
-      // eddies scatter the flock: a random walk on top of the mean current
-      const p = d.lat * Math.PI / 180, wnd = Math.abs(p) < Math.PI / 2 / WK * 3 ? -Math.cos(WK * p) : 0; // toys ride high: the wind pushes them downwind
-      const dl = v * h + (Math.random() - .5) * DIFF * Math.sqrt(h), dn = ((u + WINDAGE * wnd) * h + (Math.random() - .5) * DIFF * Math.sqrt(h)) / c;
+      const v = vel(d.lat, d.lon), u = v[0], w = v[1], c = Math.max(.15, Math.cos(d.lat * Math.PI / 180));
+      if (box && d.lat > box[0] && d.lat < box[1] && d.lon > box[2] && d.lon < box[3]) { const sp = Math.hypot(u, w); if (sp > mx) mx = sp; }
+      // eddies scatter the flock: a random walk on top of the mean current. Toys ride high, so the wind pushes them downwind too.
+      const dl = (w + swWind(d.lat, d.lon)) * h + (Math.random() - .5) * sq, dn = ((u + WINDAGE * taux(d.lat * Math.PI / 180)) * h + (Math.random() - .5) * sq) / c;
       d.lat += dl; d.lon += dn; d.lap += dn;
       if (d.lon > 180) d.lon -= 360; if (d.lon < -180) d.lon += 360;
       if (isLand(d.lat, d.lon) || Math.abs(d.lat) > 84) { d.beached = regionOf(d.lat, d.lon); d.bt = simT; break; }
     }
   }
+  if (box && mx > (meas[rot] || 0)) meas[rot] = mx;
 }
 function updateDuckGeo() {
-  ducks.forEach((d, i) => { const [x, y, z] = toXYZ(d.lat, d.lon, 1.008); dPos[i * 3] = x; dPos[i * 3 + 1] = y; dPos[i * 3 + 2] = z; const c = d.beached ? [1, .45, .2] : [1, .85, .15]; dCol.set(c, i * 3); });
+  for (let i = 0; i < ducks.length; i++) { const d = ducks[i]; toXYZ(d.lat, d.lon, 1.008, XYZ); dPos[i * 3] = XYZ[0]; dPos[i * 3 + 1] = XYZ[1]; dPos[i * 3 + 2] = XYZ[2]; dCol[i * 3] = 1; dCol[i * 3 + 1] = d.beached ? .45 : .9; dCol[i * 3 + 2] = d.beached ? .2 : .1; }
   dGeo.setDrawRange(0, ducks.length); dGeo.attributes.position.needsUpdate = dGeo.attributes.color.needsUpdate = true;
 }
 
@@ -238,102 +344,145 @@ canvas.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; }
 canvas.addEventListener('pointerup', e => {
   if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) return; // that was a drag, not a click
   const ll = latLonAt(e); if (!ll) return;
-  if (L.drop) { toast('This one is history', 'The 1992 spill happened where it happened. Use the button.', 2000); return; }
-  if (isLand(...ll)) { FX.sfx('fail'); toast('That\'s land', 'Ducks need water.', 1500); return; }
-  if (!L.free && ducks.length) { ducks = []; simT = 0; }
-  drop(...ll, 100); simT = 0;
+  dropAt(ll[0], ll[1]);
 });
+function dropAt(lat, lon) {
+  if (L.drop) { toast('This one is history', 'The 1992 spill happened where it happened. Use the button.', 2000); return false; }
+  if (isLand(lat, lon)) { FX.sfx('fail'); toast('That\'s land', 'Ducks need water.', 1500); return false; }
+  if (L.westOf != null && (lon > L.westOf || lon < -100)) { FX.sfx('fail'); toast('Too far out', 'The sailor is on the American coast: drop west of 60°W.', 2200); return false; }
+  if (!CU) { toast('Still charting the oceans…', '', 1200); return false; }
+  if (!L.free && ducks.length) { ducks = []; simT = 0; }
+  drop(lat, lon, 100); if (!L.free) simT = 0;
+  return true;
+}
 canvas.addEventListener('pointermove', e => { const ll = latLonAt(e), tip = $('tip'); if (!ll) { tip.style.display = 'none'; return; } tip.style.display = 'block'; tip.style.left = e.clientX + 14 + 'px'; tip.style.top = e.clientY + 10 + 'px'; tip.textContent = `${Math.abs(ll[0]).toFixed(1)}°${ll[0] >= 0 ? 'N' : 'S'} ${Math.abs(ll[1]).toFixed(1)}°${ll[1] >= 0 ? 'E' : 'W'}${isLand(...ll) ? ' · land' : ''}`; });
 
 // ================= UI =================
+const maxOpen = () => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; };
 function load(i) {
-  SAVE.cur = i; persist(); L = LV[i]; ducks = []; simT = 0; running = false; won = false; resolved = false; bet = null;
-  if (!L.physics && rot !== 1) { rot = 1; solveOcean(rot); paintGlobe(); }
+  SAVE.cur = i; persist(); L = LV[i]; ducks = []; simT = 0; running = false; won = false; resolved = false; bet = null; meas = {};
+  if (!L.physics && rot !== 1) setSpin(1, true);
   patchRing.visible = !!L.patch; $('story').innerHTML = L.story; renderBets(); renderGoal(); renderLevels(); renderCtrl();
-  const fc = L.drop || L.focus; if (fc) { globe.rotation.y = 0; const v = new THREE.Vector3(...toXYZ(fc[0] - 12, fc[1])).normalize().multiplyScalar(5.4); camera.position.copy(v); controls.update(); }
+  const fc = L.drop || L.focus; if (fc) { globe.rotation.y = 0; const v = new THREE.Vector3(...toXYZ(fc[0] - 12, fc[1])).normalize().multiplyScalar(MOBILE ? 6.6 : 5.4); camera.position.copy(v); controls.update(); }
+  $('toast').classList.remove('on'); layout();
+}
+function setSpin(r, quiet) {
+  rot = r; ducks = []; simT = 0; running = false;
+  const go = () => { if (rot !== r) return; applyOcean(r); renderCtrl(); };
+  if (OCEAN[r]) go(); else { CU = null; ensureOcean(r, go); if (!quiet) toast(r === 1 ? 'Normal spin' : r === 0 ? 'Earth stops spinning' : 'Earth spins backwards', 'Re-solving every ocean…', 1500); }
+  if (!quiet && OCEAN[r]) toast(r === 1 ? 'Normal spin' : r === 0 ? 'Earth stops spinning' : 'Earth spins backwards', r === 1 ? 'Back to the real Earth.' : 'Every ocean re-solved. Look at the currents now.', 1500);
+  renderCtrl();
 }
 function renderBets() {
   $('bets').innerHTML = L.bet ? L.bet.map(k => `<button class="b ${bet === k ? 'on' : ''}" data-k="${k}">${REG[k].n}</button>`).join('') : '';
   $('bets').querySelectorAll('[data-k]').forEach(b => b.onclick = () => { bet = b.dataset.k; FX.sfx('click'); renderBets(); renderCtrl(); });
 }
-function renderGoal() { const ok = SAVE.done[SAVE.cur]; $('goal').className = ok ? 'ok' : ''; $('goal').innerHTML = (ok ? '✓ ' : '🎯 ') + L.goal; }
+function renderGoal() { const ok = SAVE.done[SAVE.cur]; $('goal').className = ok ? 'ok' : ''; $('goal').innerHTML = (ok ? '✓ ' : '🎯 ') + L.goal; $('next').style.display = ok && SAVE.cur < LV.length - 1 ? 'inline-block' : 'none'; }
 function renderLevels() {
-  const maxOpen = (() => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; })();
-  $('levels').innerHTML = '<h4>Voyages</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${i > maxOpen && !SAVE.done[i] && !l.free ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><span>${SAVE.done[i] ? '✓' : ''}</span></div>`).join('');
+  const mo = maxOpen(), locked = (l, i) => i > mo && !SAVE.done[i] && !l.free;
+  $('levels').innerHTML = '<h4>Voyages</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${locked(l, i) ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><span>${SAVE.done[i] ? '✓' : ''}</span></div>`).join('');
   $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { FX.sfx('click'); load(+el.dataset.i); });
+  $('lvsel').innerHTML = LV.map((l, i) => `<option value="${i}" ${i === SAVE.cur ? 'selected' : ''} ${locked(l, i) ? 'disabled' : ''}>${i + 1}. ${l.n}${SAVE.done[i] ? ' ✓' : ''}</option>`).join('');
 }
+$('lvsel').onchange = e => { FX.sfx('click'); load(+e.target.value); };
+const goNext = () => { if (SAVE.cur < LV.length - 1) { FX.sfx('click'); load(SAVE.cur + 1); } };
+$('next').onclick = goNext;
 function renderCtrl() {
   let h = '';
   if (L.drop) h += `<button class="b on" id="rel" ${L.bet && !bet ? 'disabled style="opacity:.4"' : ''}>📦 Release the ducks</button><span class="sep"></span>`;
-  else h += `<span style="font-size:13px;color:#c3d3ec;padding:0 6px">Click the ocean to drop 100 ducks</span><span class="sep"></span>`;
-  h += `<button class="b" id="pp">${running ? '⏸' : '▶'}</button>` + [1, 4, 12].map(s => `<button class="b ${speed === s ? 'on' : ''}" data-s="${s}">${s}×</button>`).join('') + `<span id="clock"></span>`;
-  if (L.physics) h += '<span class="sep"></span><span style="font-size:12px;color:#8fa6c8">Earth\'s spin</span>' + [[1, 'normal'], [0, 'off'], [-1, 'reversed']].map(([v, n]) => `<button class="b ${rot === v ? 'on' : ''}" data-r="${v}">${n}</button>`).join('');
+  else h += `<span class="hint">${MOBILE ? 'Tap' : 'Click'} the ocean to drop 100 ducks</span><span class="sep"></span>`;
+  h += `<button class="b" id="pp">${running ? '⏸' : '▶'}</button>` + [1, 4, 12].map(s => `<button class="b ${speed === s ? 'on' : ''}" data-s="${s}">${s}×</button>`).join('') + `<button class="b ${follow ? 'on' : ''}" id="fol" title="Keep the camera on the flock">🎯 follow</button><span id="clock"></span>`;
+  if (L.physics) h += '<span class="sep"></span><span class="hint">Earth\'s spin</span>' + [[1, 'normal'], [0, 'off'], [-1, 'reversed']].map(([v, n]) => `<button class="b ${rot === v ? 'on' : ''}" data-r="${v}">${n}${rot === v && !CU ? '…' : ''}</button>`).join('');
   $('ctrl').innerHTML = h;
-  if ($('rel')) $('rel').onclick = () => { if (L.bet && !bet) return; ducks = []; simT = 0; drop(...L.drop, 120); };
+  if ($('rel')) $('rel').onclick = () => { if (L.bet && !bet) return; if (!CU) { toast('Still charting the oceans…', '', 1200); return; } ducks = []; simT = 0; drop(...L.drop, 120); };
   $('pp').onclick = () => { running = !running; FX.sfx('click'); renderCtrl(); };
+  $('fol').onclick = () => { follow = !follow; FX.sfx('click'); renderCtrl(); };
   $('ctrl').querySelectorAll('[data-s]').forEach(b => b.onclick = () => { speed = +b.dataset.s; FX.sfx('click'); renderCtrl(); });
-  $('ctrl').querySelectorAll('[data-r]').forEach(b => b.onclick = () => { rot = +b.dataset.r; FX.sfx('boom'); FX.shake(.4); toast(rot === 1 ? 'Normal spin' : rot === 0 ? 'Earth stops spinning' : 'Earth spins backwards', 'Re-solving every ocean…', 1500); setTimeout(() => { solveOcean(rot); paintGlobe(); ducks = []; simT = 0; renderCtrl(); }, 60); });
+  $('ctrl').querySelectorAll('[data-r]').forEach(b => b.onclick = () => { const r = +b.dataset.r; if (r === rot) return; FX.sfx('boom'); FX.shake(.4); setSpin(r); });
+  layout();
 }
-const PATCH = [21, 165]; // where this model's North Pacific gyre gathers floating debris
+function layout() { // keep the tally clear of the control bar on narrow screens
+  if (innerWidth <= 860) { const c = $('ctrl').getBoundingClientRect(); $('tally').style.bottom = (innerHeight - c.top + 8) + 'px'; } else $('tally').style.bottom = '';
+}
 function stats() {
-  const regions = {}; Object.keys(REG).forEach(k => regions[k] = 0); regions.other = 0;
-  let patch = 0, maxLap = 0, firstRegion = null, firstT = 1e9;
+  const regions = {}; for (const k in REG) regions[k] = 0; regions.other = 0;
+  let patch = 0, maxLap = 0, first = null, firstT = 1e9, afloat = 0;
   for (const d of ducks) {
-    if (d.beached) { regions[d.beached]++; if (d.bt < firstT && d.beached !== 'other') { firstT = d.bt; firstRegion = d.beached; } }
-    else { const dLat = d.lat - PATCH[0], dLon = ((d.lon - PATCH[1] + 540) % 360) - 180; if (Math.hypot(dLat, dLon * Math.cos(PATCH[0] * Math.PI / 180)) < 12) patch++; }
+    if (d.beached) { regions[d.beached]++; if (d.bt < firstT && d.beached !== 'other') { firstT = d.bt; first = d.beached; } }
+    else { afloat++; const dLat = d.lat - PATCH[0], dLon = ((d.lon - PATCH[1] + 540) % 360) - 180; if (Math.hypot(dLat, dLon * Math.cos(PATCH[0] * Math.PI / 180)) < 12) patch++; }
     maxLap = Math.max(maxLap, Math.abs(d.lap));
   }
-  // the bet is judged on where the most ducks beached
-  const top = Object.entries(regions).filter(([k]) => k !== 'other').sort((a, b) => b[1] - a[1])[0];
-  return { t: simT, regions, patch, maxLap, rot, bet, betRight: bet && top && top[1] > 0 && top[0] === bet, top: top && top[1] > 0 ? top[0] : null };
+  let top = null; for (const k in REG) if (regions[k] > 0 && (!top || regions[k] > regions[top])) top = k;
+  return { t: simT, regions, patch, maxLap, rot, bet, first, firstT, top, afloat, meas };
 }
 function renderTally(S) {
-  const rows = Object.entries(S.regions).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  const afloat = ducks.filter(d => !d.beached).length;
-  $('tally').innerHTML = `<div class="r"><span>afloat</span><b>${afloat}</b></div>` + rows.map(([k, v]) => `<div class="r"><span>${k === 'other' ? 'elsewhere' : REG[k].n}</span><b>${v}</b></div>`).join('') + (L.patch ? `<div class="r"><span>in the garbage patch</span><b>${S.patch}</b></div>` : '') + (L.n === 'Round the World' ? `<div class="r"><span>furthest east/west</span><b>${S.maxLap.toFixed(0)}°</b></div>` : '');
-  $('clock').textContent = `year ${simT.toFixed(2)} / ${L.years}`;
+  const rows = Object.entries(S.regions).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, MOBILE ? 4 : 6);
+  const ms = r => S.meas[r] ? `<b>${kmday(S.meas[r]).toFixed(0)} km/day</b>` : '<span style="opacity:.5">not yet</span>';
+  $('tally').innerHTML = `<div class="r"><span>afloat</span><b>${S.afloat}</b></div>` + rows.map(([k, v]) => `<div class="r"><span>${k === 'other' ? 'elsewhere' : REG[k].n}</span><b>${v}</b></div>`).join('')
+    + (L.bet && S.first ? `<div class="r"><span>first ashore</span><b>${REG[S.first].n}</b></div>` : '')
+    + (L.patch ? `<div class="r"><span>in the garbage patch</span><b>${S.patch}</b></div>` : '') + (L.n === 'Round the World' ? `<div class="r"><span>furthest east/west</span><b>${S.maxLap.toFixed(0)}°</b></div>` : '')
+    + (L.measure ? `<div class="r" style="margin-top:4px;color:#8fa6c8"><span>fastest current, W Atlantic</span></div><div class="r"><span>spin normal</span>${ms(1)}</div><div class="r"><span>spin off</span>${ms(0)}</div>` : '');
+  $('clock').textContent = L.free ? `year ${simT.toFixed(2)}` : `year ${simT.toFixed(2)} / ${L.years}`;
 }
-function toast(big, small, ms = 6000) { const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : ''); t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms); }
+function toast(big, small, ms = 6000, next = false) {
+  const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : '') + (next && SAVE.cur < LV.length - 1 ? '<button class="b on" id="tnext">Next voyage ▸</button>' : '');
+  if ($('tnext')) $('tnext').onclick = () => { t.classList.remove('on'); goNext(); };
+  t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms);
+}
 
 // ================= loop =================
-function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); layout(); }
 addEventListener('resize', resize); resize();
-let last = performance.now(), tallyT = 0;
+let last = performance.now(), tallyT = 0, duckDirty = true;
+const cen = new THREE.Vector3(), tmpV = new THREE.Vector3();
+document.addEventListener('visibilitychange', () => { last = performance.now(); });
 function frame(now) {
   requestAnimationFrame(frame);
+  if (document.hidden) return;
   const dt = Math.min(.05, (now - last) / 1000); last = now;
+  trMat.opacity = FX.damp(trMat.opacity, ducks.length ? .45 : 1, 3, dt);
   moveTracers(dt);
-  if (running && ducks.length && simT < L.years) {
-    const dy = dt * .08 * speed; simT = Math.min(L.years, simT + dy); moveDucks(dy);
+  if (running && ducks.length && simT < L.years && CU) {
+    const dy = dt * .08 * speed; simT = Math.min(L.years, simT + dy); moveDucks(dy); duckDirty = true;
     if (simT >= L.years) { running = false; renderCtrl(); }
   }
-  updateDuckGeo();
+  if (duckDirty) { updateDuckGeo(); duckDirty = false; }
   if (!running && ducks.length === 0) globe.rotation.y += dt * .03;
+  if (follow && ducks.length) { // ease the camera towards the flock
+    cen.set(0, 0, 0); let n = 0; for (let i = 0; i < ducks.length; i++) if (!ducks[i].beached) { cen.x += dPos[i * 3]; cen.y += dPos[i * 3 + 1]; cen.z += dPos[i * 3 + 2]; n++; }
+    if (n && cen.lengthSq() > 1e-6) { globe.localToWorld(cen); const dist = camera.position.length(); tmpV.copy(cen).normalize().multiplyScalar(dist); camera.position.lerp(tmpV, 1 - Math.exp(-dt * 1.5)).setLength(dist); }
+  }
   tallyT += dt; if (tallyT > .2) { tallyT = 0; const S = stats(); renderTally(S); check(S); }
   controls.update(); renderer.render(scene, camera);
 }
+function win() { won = true; SAVE.done[SAVE.cur] = 1; persist(); FX.sfx('win'); FX.shake(.3); renderGoal(); renderLevels(); toast('✓ ' + L.n, LESSON[SAVE.cur] || '', 9000, true); }
 function check(S) {
-  if (won || L.free || !ducks.length) return;
-  if (L.win(S)) {
-    won = true; SAVE.done[SAVE.cur] = 1; persist(); FX.sfx('win'); FX.shake(.3); renderGoal(); renderLevels();
-    toast('✓ ' + L.n, LESSON[SAVE.cur] || '');
-  } else if (simT >= L.years && !resolved && L.test(S)) {
+  if (won || resolved || L.free || !ducks.length) return;
+  if (L.bet) { // judged by the first duck ashore, as the question asks
+    if (S.first) { if (S.first === bet) win(); else { resolved = true; FX.sfx('fail'); toast('Not this time', `The first duck came ashore in <b>${REG[S.first].n}</b> after ${(S.firstT * 12).toFixed(0)} months. Try again.`, 5000); } }
+    else if (simT >= L.years) { resolved = true; toast('No landfall yet', 'Two years and every duck is still at sea. Try again.', 4000); }
+    return;
+  }
+  if (L.win(S)) return win();
+  if (simT >= L.years) {
     resolved = true; FX.sfx('fail');
-    toast('Not this time', L.bet ? `Most ducks landed in <b>${S.top ? REG[S.top].n : 'nowhere yet'}</b>. Try again.` : 'Try a different drop point.', 4000);
+    if (L.measure) toast(S.meas[1] && S.meas[0] ? 'Measure again' : 'One more run', S.meas[1] && S.meas[0] ? 'Those two are close. Drop right against the US coast, between 30° and 40°N, for both runs.' : `Now switch Earth's spin to <b>${S.meas[1] ? 'off' : 'normal'}</b> and drop ducks in the same place.`, 5000);
+    else toast('Not this time', 'Try a different drop point.', 4000);
   }
 }
 const LESSON = [
-  'In November 1992, ten months after the spill, the first toys reached Sitka, Alaska. Some later froze into Arctic ice and drifted into the Atlantic. One turned up in Scotland 15 years later.',
-  'The Gulf Stream and the North Atlantic Drift are why Britain is green while Labrador, at the same latitude, is frozen.',
+  'In November 1992, ten months after the spill, the first toys reached Sitka, Alaska. In 30 runs of this model, North America came first every time. Some real toys later froze into Arctic ice and drifted into the Atlantic. One turned up in Scotland 15 years later.',
+  'The Gulf Stream and the North Atlantic Drift, helped along by the south-westerly winds, are why Britain is green while Labrador, at the same latitude, is frozen.',
   'Floating plastic collects in the slow centres of the five subtropical gyres. The Pacific patch is about three times the size of France.',
   'With no spin, the gyres go sluggish and symmetric: no fast western boundary current. Henry Stommel showed in 1948 that the variation of Earth\'s spin with latitude (the β effect) causes the Gulf Stream.',
   'On a backwards Earth the Gulf Stream would run up the coast of Africa and Europe. Western intensification follows the direction of the spin.',
   'The Antarctic Circumpolar Current carries about 100 times the flow of all the world\'s rivers combined.',
 ];
-solveOcean(1); paintGlobe();
 load(Math.min(SAVE.cur || 0, LV.length - 1));
 requestAnimationFrame(frame);
-window.__fl = { LV, load, drop, stats, vel, solveOcean, setRot: r => { rot = r; solveOcean(r); }, step: y => { moveDucks(y); simT += y; }, get ducks() { return ducks; }, set bet(v) { bet = v; } };
+const proj = new THREE.Vector3();
+window.__fl = { LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, get ready2() { return !!CU; },
+  screenOf: (lat, lon) => { proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>
 </html>
