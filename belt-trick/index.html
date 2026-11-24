@@ -293,7 +293,7 @@ class Ribbon {
 // World: objects (cubes / tray / rotor) + ribbons
 // ======================================================================
 let OBJ = [], RIB = [], EXTRA = [], MECH = null, ghost = null;
-function disposeTree(o) { o.traverse(c => { if (c.geometry) c.geometry.dispose(); const m = c.material; if (m) (Array.isArray(m) ? m : [m]).forEach(mm => { if (!mm.userData.shared) { if (mm.map) mm.map.dispose(); mm.dispose(); } }); }); }
+function disposeTree(o) { o.traverse(c => { if (c.geometry && !c.geometry.userData.shared) c.geometry.dispose(); const m = c.material; if (m) (Array.isArray(m) ? m : [m]).forEach(mm => { if (!mm.userData.shared) { if (mm.map) mm.map.dispose(); mm.dispose(); } }); }); }
 function clearWorld() {
   RIB.forEach(r => r.dispose()); OBJ.forEach(o => { scene.remove(o.mesh); disposeTree(o.mesh); }); EXTRA.forEach(e => { scene.remove(e); disposeTree(e); });
   if (MECH) { MECH.cable.dispose(); } RIB = []; OBJ = []; EXTRA = []; MECH = null; ghost = null;
@@ -312,9 +312,15 @@ function anchorPlate(p, t, s = .42) { // a little mount on a wall at p facing al
   m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...t)); return addExtra(m);
 }
 function backWall(z, w = 4.4, h = 3.2) { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), MAT.wall); m.position.set(0, 0, z); return addExtra(m); }
-function homeGhost(o, q = [1, 0, 0, 0], col = '#ffffff', op = .22) {
-  const e = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(o.size * 1.04, o.size * 1.04, o.size * 1.04)), new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: op }));
-  e.position.set(...o.pos); e.quaternion.set(q[1], q[2], q[3], q[0]); return addExtra(e);
+// Golf target: a wireframe cube looks the same in all 24 orientations, so the ghost is a small solid copy of the cube
+// (same face colours) floating beside it, ringed green for sign + and red for sign −.
+const ghostMats = FACE.map(c => { const m = new THREE.MeshStandardMaterial({ color: c, roughness: .5, transparent: true, opacity: .8 }); m.userData.shared = true; return m; });
+const ghostGeo = roundedBox(1, .13, 4); ghostGeo.userData.shared = true;
+function homeGhost(o, q, col) {
+  const g = new THREE.Group(), s = o.size * .62; g.position.set(o.pos[0] + .9, o.pos[1] - 1.35, o.pos[2] - 1.3);
+  const m = new THREE.Mesh(ghostGeo, ghostMats); m.scale.setScalar(s); m.quaternion.set(q[1], q[2], q[3], q[0]); g.add(m);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(s * .95, .025, 8, 48), new THREE.MeshBasicMaterial({ color: col, toneMapped: false })); ring.lookAt(camera.position.x - g.position.x, camera.position.y - g.position.y, camera.position.z - g.position.z); g.add(ring);
+  return addExtra(g);
 }
 // wall ribbon from anchor point a (on wall) to body-frame attach point b on object o; tangent t (unit) from wall toward object
 function wallRibbon(o, a, b, t, opt) { const F = qFromTo(t); return RIB.push(new Ribbon({ p: a, F }, { obj: o, p: b, F }, opt)), RIB[RIB.length - 1]; }
@@ -405,7 +411,7 @@ function buildMech(sat) {
   if (sat) {
     const body = new THREE.Mesh(new THREE.BoxGeometry(.55, .5, .55), new THREE.MeshPhysicalMaterial({ color: '#e8c070', metalness: .9, roughness: .3 })); rotor.add(body);
     const pc = document.createElement('canvas'); pc.width = 64; pc.height = 32; const pg = pc.getContext('2d'); pg.fillStyle = '#16306a'; pg.fillRect(0, 0, 64, 32); pg.strokeStyle = '#5a8fe0'; for (let x = 0; x <= 64; x += 8) { pg.beginPath(); pg.moveTo(x, 0); pg.lineTo(x, 32); pg.stroke(); } pg.beginPath(); pg.moveTo(0, 16); pg.lineTo(64, 16); pg.stroke();
-    const pm = new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(pc), emissive: '#1b3a90', emissiveIntensity: .5, side: THREE.DoubleSide, metalness: .4, roughness: .4 });
+    const pm = new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(pc), emissive: '#1b3a90', emissiveIntensity: .2, side: THREE.DoubleSide, metalness: .4, roughness: .4 });
     for (const sx of [-1, 1]) { const p = new THREE.Mesh(new THREE.PlaneGeometry(1.1, .4), pm); p.position.x = sx * .9; p.rotation.x = -Math.PI / 2; rotor.add(p); }
     const dish = new THREE.Mesh(new THREE.SphereGeometry(.18, 16, 8, 0, TAU, 0, Math.PI / 2), MAT.metal); dish.position.set(0, -.25, .25); dish.rotation.x = Math.PI * .7; rotor.add(dish);
   } else {
@@ -547,9 +553,9 @@ const LV = [
     story: 'This satellite spins steadily. <b>Hold</b> (button, space or the screen) to drive the cable boom at the satellite\'s speed. Average half speed and the cable never twists.', goal: 'Keep the twist within ±200° for 15 s.',
     win: ['Power without a slip ring', 'Same theorem, run by hand: carrier at half speed means no net twist.'] },
   { n: 'Golf: Front', setup: 'single', kind: 'golf', moves: { ax: 'XYZ', ang: PM90 }, holes: [['X+90', 'Y+90'], ['Y+90', 'Z+90', 'Y+90'], ['X+90', 'X+90', 'Z+90']],
-    story: 'Match the <b>ghost</b>, including the hidden sign. Quarter-turns only. Fewest strokes wins.', goal: '' },
+    story: 'Turn the cube to match the small <b>target cube</b>, including the hidden sign (its ring: green +, red −). Quarter-turns only. Fewest strokes wins.', goal: '' },
   { n: 'Golf: Back', setup: 'single', kind: 'golf', moves: { ax: 'XYZ', ang: PM90 }, holes: [['X+360'], ['Z+90', 'X+360'], ['X+90', 'Y+90', 'Z+90', 'X+90', 'Y+360']],
-    story: 'The back nine: holes where the sign is <b>−</b>. The ghost looks right long before it is right.', goal: '' },
+    story: 'The back nine: holes where the sign is <b>−</b>. The target looks matched long before it is: watch its ring and the lamp.', goal: '' },
   { n: 'Sandbox', setup: 'bundle', kind: 'sandbox', moves: { ax: 'XYZ', ang: [-90, 90, 180, 360] }, free: 1,
     story: 'Do anything. Drag the cube, record a routine, share it as a code.', goal: 'No goal. Try to find the shortest sequence that tangles the ribbons for good. (You can\'t.)' },
 ];
@@ -592,7 +598,7 @@ function placeCamera(c) {
 function setupHole() {
   const h = L.holes[golf.hole]; golf.target = qnorm(seqQ(h)); golf.par = bfsPar([1, 0, 0, 0], gensOf(L), golf.target); golf.strokes = 0; golf.matched = false;
   if (ghost) { scene.remove(ghost); disposeTree(ghost); EXTRA.splice(EXTRA.indexOf(ghost), 1); }
-  ghost = homeGhost(OBJ[0], golf.target, signOf(golf.target) === '−' ? '#ff7a7a' : '#7fe8b0', .8);
+  ghost = homeGhost(OBJ[0], golf.target, signOf(golf.target) === '−' ? '#ff5a6a' : '#5fe8a0');
 }
 function signOf(q) { const v = q.find(x => Math.abs(x) > 1e-6); return v < 0 ? '−' : '+'; }
 
@@ -917,9 +923,11 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) wake
 function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); if (composer) { composer.setSize(w, h); bloom.resolution.set(w * .6, h * .6); } camera.aspect = w / h; camera.updateProjectionMatrix(); if (L) placeCamera(SETUPS_CAM()); wake(300); }
 const SETUPS_CAM = () => CAMS[L.setup];
 addEventListener('resize', resize);
-const render = () => composer ? composer.render() : renderer.render(scene, camera);
+let nFrames = 0, nRenders = 0;
+const render = () => { nRenders++; composer ? composer.render() : renderer.render(scene, camera); };
 function frame(now) {
   if (document.hidden) { rafOn = false; return; }
+  nFrames++;
   const dt = Math.min(.05, (now - last) / 1000); last = now;
   if (FX.frozen()) { requestAnimationFrame(frame); return; }
   stepQueue(dt); stepSnaps(dt); stepPlayback();
@@ -963,6 +971,7 @@ window.__belt = {
   setRatio: r => setGearB(r), run: () => { MECH.running = true; }, hold: v => { if (v && !MECH.running) MECH.running = true; MECH.hold = v; },
   startWaiter: () => { waiter.started = true; }, calm: false, sel: i => { sel = i; },
   three: { key: () => key, hemi, rim, camera, controls, get bloom() { return bloom; }, render: () => render(), placeCamera: c => placeCamera(c), FACEmats: () => OBJ[0].mats },
+  get frames() { return [nFrames, nRenders]; },
   screen: (i = 0) => screenOf(OBJ[i].pos), mem: () => ({ ...renderer.info.memory, programs: renderer.info.programs.length }),
 };
 
