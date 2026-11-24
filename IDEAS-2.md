@@ -65,8 +65,8 @@ Boids toy. Shallow. Cut.
 ---
 
 ## Build order
-1. **The Vault**: lowest risk, already designed, clearest 3-hour arc.
-2. **Hypothesis**: the most novel; needs careful law generation.
-3. **Escapement**: if time allows.
+1. **The Vault**: built (`vault/`). 36 vaults in 6 eras, verified solvable by an automated inverse-key test.
+2. **Hypothesis**: built (`hypothesis/`). 60 laws in 8 tiers, plus a free lab.
+3. **Escapement**: built (`escapement/`). 28 commissions in 4 acts, all verified to reach 3 stars.
 
 New experiments go in their own folders and appear in a second hub section ("Round 2"), so they don't collide with ongoing finalist work.
