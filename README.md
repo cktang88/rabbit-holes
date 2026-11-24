@@ -19,6 +19,17 @@ Every experiment is a single static page with no build step, no backend and no a
 | 🐫 | [Caravan](caravan/) | Silk Road trading where information is the real cost. | Every price you know is stale. Pigeons, paid agents and tavern rumours buy fresher information. Plagues, wars and famines, three-year careers, and legacy perks for the next one. |
 | 🧬 | [Fold](fold/) | Protein folding by hand, against benchmarks and a computer. | 2D HP-lattice folding: 10 warm-ups with exact optima, 10 classic benchmark chains, and 12 chains where a simulated-annealing opponent folds against you. Moves unlock as you go. |
 
+## Round 2
+
+Four more, dug after the first ten. They fill genres the first set didn't have: cryptanalysis, inductive science, mechanical design and deduction under uncertainty (see [IDEAS-2.md](IDEAS-2.md)).
+
+| | Experiment | The premise | What keeps it going |
+|---|---|---|---|
+| 🔐 | [The Vault](vault/index.html) | Thirty-six vaults locked by real historical ciphers. | Caesar → al-Kindi's frequency analysis → transpositions → Vigenère and Kasiski → layered Black Chamber ciphers → reused Soviet one-time pads. A stackable decryption workbench, analysis tools that unlock as history invents them, and messages generated per save. |
+| ⚗️ | [Hypothesis](hypothesis/index.html) | A machine accepts some rows of shapes and rejects others. Find the law. | 60 laws from a procedural grammar across 8 tiers (presence → counting → ends → neighbours → logic → relations → implication → hidden arithmetic). You publish by predicting 8 unseen verdicts. Fewer probes earn more stars. Endless free lab. |
+| ⚙️ | [Escapement](escapement/index.html) | Cut gears for clocks, calendars and orreries. | 28 commissions: exact trains with awkward parts, then irrational astronomical ratios measured in ppm with Brocot's table, then multi-hand trains ending in the Antikythera mechanism. Each one was checked by a solver to make sure 3 stars is reachable. |
+| ⛪ | [Parish](parish/index.html) | Trace emigrants' ancestors through a village register, 1700–1799. | A simulated village of about 2,000 people becomes about 3,000 baptism, marriage and burial records, with misspelt surnames, abbreviated names, reused names of dead infants and lost years. 24 letters per parish, each checked to have exactly one deducible answer. New parish whenever you like. |
+
 ## How this was made
 
 Twenty ideas were drafted (see [IDEAS.md](IDEAS.md)). An independent judge scored them on hook, depth, feasibility and variety, then picked the ten (see [JUDGING.md](JUDGING.md)).
