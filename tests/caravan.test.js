@@ -131,8 +131,8 @@ module.exports = {
       const price = await page.evaluate(() => window.__caravan.cities[0].price[8]);
       await reload(page);
       eq(await page.evaluate(() => window.__caravan.cities[0].price[8]), price, 'prices rolled back');
-      const far = await page.evaluate(() => { const K = window.__caravan; K.encountersOn = false; K.planTo(3); K.travel(); return 3; });
-      await page.waitForTimeout(700);
+      const far = await page.evaluate(() => { const K = window.__caravan; K.encountersOn = false; K.planTo(6); K.travel(); return 6; });
+      await page.waitForTimeout(400);
       await page.evaluate(() => window.__caravan.persist());
       const before = await page.evaluate(() => ({ day: window.__caravan.C.day, leg: window.__caravan.traveling.leg }));
       await reload(page);

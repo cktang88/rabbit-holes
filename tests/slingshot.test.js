@@ -124,6 +124,7 @@ module.exports = {
       const p = await page.evaluate(() => { const s = window.__sling, r = document.getElementById('cv').getBoundingClientRect(), q = s.toS(s.probe.x, s.probe.y); return [r.left + q[0], r.top + q[1]]; });
       await drag([[p[0], p[1]], [p[0] - 20, p[1] + 20], [p[0] - 45, p[1] + 55]]);
       eq(await page.evaluate(() => [window.__sling.mode, !!window.__sling.aim]), ['aim', true]);
+      await page.waitForFunction(() => !document.getElementById('computeBtn').disabled);
       const c = await page.evaluate(() => { const r = document.getElementById('computeBtn').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }); await tap(c[0], c[1]);
       eq(await page.evaluate(() => window.__sling.runsLeft), 2, 'tapping Compute computes');
       const l = await page.evaluate(() => { const r = document.getElementById('launchBtn').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }); await tap(l[0], l[1]);
