@@ -22,7 +22,7 @@ module.exports = {
               else s.basins.forEach(b => { if (b.kind === 'pound') L.floodWeir(b.i, s.T > 110 && s.T < 290); });
               if (s.state !== 'play') break; }
             res = { state: s.state, dev };
-          } else res = run(i, pol[i] || 'ALT', L2 => { if (i === 12) L2.set({ plane: 1 }); if (i === 16 || i === 17) L2.state().basins.forEach(b => b.kind === 'ch' && L2.ponds(b.i, 1)); if (i === 7) L2.policy(2, 'BATCH'); if (i === 8) L2.ponds(1, true); if (i === 10) L2.set({ pump: 1 }); if (i === 11) L2.set({ res: 1 }); });
+          } else res = run(i, pol[i] || 'ALT', L2 => { if (i === 12) L2.set({ plane: 1 }); if (i === 16 || i === 17) L2.state().basins.forEach(b => b.kind === 'ch' && L2.ponds(b.i, 1)); if (i === 7) L2.policy(2, 'BATCH'); if (i === 8) L2.ponds(1, true); if (i === 10) L2.set({ pump: 1 }); if (i === 11) L2.set({ res: 1 }); }, i === 18 ? { build: 'flight4' } : undefined);
           L.load(i); const idle = L.tick(L.LV[i].time ? L.LV[i].time + 5 : 1500);
           out.push({ i, ...res, idle: idle.state, idleWon: idle.state === 'won' || idle.state === 'endless' });
         } return out; })()`);
@@ -79,6 +79,17 @@ module.exports = {
       await page.evaluate(() => { __lock.load(9); __lock.keeper(true); }); const p = await page.evaluate(() => __lock.unitPos(3));
       await page.mouse.click(p[0], p[1]); eq(await page.evaluate(() => [...new Set(__lock.state().units.map(u => u.policy))]), ['FIFO']);
     },
+    'hold and send: a held boat is left alone by the keeper until you send it; the queue shows the boats coming': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const L = __lock; L.load(4); L.keeper(true, 'FIFO'); L.schedule([{ t: 1, d: 1 }, { t: 90, d: -1 }]);
+        L.tick(3); const held = L.hold(1); let s = L.tick(40); const stillWaiting = s.boats.find(b => b.id === 1).b === 0 && s.delivered === 0;
+        const forecast = document.getElementById('queue').textContent; L.hold(1); s = L.tick(60);
+        return { held, stillWaiting, sent: s.delivered === 1, forecast }; });
+      ok(r.held, 'hold toggled'); ok(r.stillWaiting, 'held boat went through anyway'); ok(r.sent, 'sent boat never arrived'); ok(/coming/.test(r.forecast) && /←/.test(r.forecast), 'forecast missing: ' + r.forecast);
+    },
+    'build your own canal: the cheap staircase runs dry, the side-pond flight wins but over budget, the plain flight earns 3 stars': async ({ page, eq }) => {
+      const r = await page.evaluate(`(() => { const run = ${RUN}; const o = {}; for (const b of ['stair4', 'flight4', 'ponds4']) { const x = run(18, 'ALT', L2 => { if (b === 'ponds4') L2.state().basins.forEach(c => c.kind === 'ch' && L2.ponds(c.i, 1)); }, { build: b }); o[b] = x.state === 'won' ? x.stars : 0; } return o; })()`);
+      eq(r, { stair4: 0, flight4: 3, ponds4: 2 });
+    },
     'side ponds catch water: a pond is filled on draining and empties on refilling': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const L = __lock; L.load(8); L.ponds(1, true); L.tick(1);
         L.fill(1); L.tick(40); const full = L.state(); L.drain(1); L.tick(40); const drained = L.state(); L.fill(1); L.tick(40); const refill = L.state();
@@ -122,7 +133,7 @@ module.exports = {
         await page.evaluate(v => { localStorage.clear(); localStorage.setItem('rh:lock-flight', v); }, v);
         const p = await reopen(page); await p.waitForTimeout(200);
         const r = await p.evaluate(() => ({ s: __lock.state().state, hub: JSON.parse(localStorage.getItem('rh:hub') || '{}')['lock-flight'], n: document.querySelectorAll('#levels .lv').length }));
-        ok(!p.errs.length, `save ${v}: ${p.errs[0]}`); ok(r.s === 'play', 'state'); ok(r.n === 18, 'level list'); ok(r.hub == null || (r.hub >= 0 && r.hub <= 1), 'progress ' + r.hub);
+        ok(!p.errs.length, `save ${v}: ${p.errs[0]}`); ok(r.s === 'play', 'state'); ok(r.n === 19, 'level list'); ok(r.hub == null || (r.hub >= 0 && r.hub <= 1), 'progress ' + r.hub);
         await p.close();
       }
     },
