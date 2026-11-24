@@ -377,6 +377,25 @@ function makeCube(pos, size, label) {
   const o = { kind: 'cube', pos: [...pos], q: [1, 0, 0, 0], size, mesh, mats, glitch: 0, label };
   OBJ.push(o); return o;
 }
+function addLamp(o) { // brass stem, pleated shade and a bulb on the box's top face; it turns with the box
+  const g = new THREE.Group(), s = o.size, brass = new THREE.MeshStandardMaterial({ color: '#c79a3d', metalness: .85, roughness: .3 });
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(.04 * s, .06 * s, .32 * s, 12), brass); stem.position.y = .66 * s; g.add(stem);
+  const shadeM = new THREE.MeshStandardMaterial({ color: '#f3dfb0', roughness: .8, side: THREE.DoubleSide, emissive: '#ffb347', emissiveIntensity: 0 });
+  const shade = new THREE.Mesh(new THREE.CylinderGeometry(.26 * s, .5 * s, .42 * s, 16, 1, true), shadeM); shade.position.y = .98 * s; g.add(shade);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(.5 * s, .018 * s, 6, 24), brass); rim.rotation.x = Math.PI / 2; rim.position.y = .77 * s; g.add(rim);
+  const bulbM = new THREE.MeshStandardMaterial({ color: '#fff4d6', emissive: '#ffcc66', emissiveIntensity: 0, roughness: .2 });
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(.13 * s, 16, 12), bulbM); bulb.position.y = .9 * s; g.add(bulb);
+  const light = new THREE.PointLight('#ffc879', 0, 9, 1.6); light.position.y = .95 * s; g.add(light);
+  o.mesh.add(g); o.lamp = { shadeM, bulbM, light, level: 0 };
+}
+// lamp state: steady light when every cable lies flat with the box home; flickers while twisted; dies after a failed swing
+function lampLevel(now) {
+  if (!RIB.length) return 1;
+  const flat = allHome() && RIB.every(r => r.flat());
+  if (flat && !relax.on) return 1;
+  if (attempted && !relax.on) return .04 + (Math.random() < .06 ? .35 : 0); // stuck: a dead bulb that sparks now and then
+  return .05 + .22 * Math.random() * (Math.sin(now * .02) > .3 ? 1 : .2); // twisted: a weak, stuttering glow
+}
 function anchorPlate(p, t, s = .42) { // a little mount on a wall at p facing along tangent t
   const m = new THREE.Mesh(new THREE.CylinderGeometry(s / 2, s / 2 * 1.15, .08, 28), MAT.anchor); m.position.set(...p);
   m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...t)); return addExtra(m);
@@ -408,8 +427,8 @@ const CAMS = {
   mech: { cam: [4.4, 2.2, 6.4], tgt: [0, -.2, 0] },
 };
 const SETUPS = {
-  single() { const o = makeCube([0, 0, 0], 1); backWall(-3.3); anchorPlate([0, 0, -3.26], [0, 0, 1]); wallRibbon(o, [0, 0, -3.25], [0, 0, -.5], [0, 0, 1]); return CAMS.single; },
-  bundle() { const o = makeCube([0, 0, 0], 1.1); backWall(-3.3);
+  single() { const o = makeCube([0, 0, 0], 1); addLamp(o); backWall(-3.3); anchorPlate([0, 0, -3.26], [0, 0, 1]); wallRibbon(o, [0, 0, -3.25], [0, 0, -.5], [0, 0, 1]); return CAMS.single; },
+  bundle() { const o = makeCube([0, 0, 0], 1.1); addLamp(o); backWall(-3.3);
     for (const [x, y] of [[-.28, -.28], [.28, -.28], [-.28, .28], [.28, .28]]) { anchorPlate([x * 1.6, y * 1.6, -3.26], [0, 0, 1], .26); wallRibbon(o, [x * 1.6, y * 1.6, -3.25], [x, y, -.55], [0, 0, 1], { width: .15 }); }
     return CAMS.bundle; },
   six() { const o = makeCube([0, 0, 0], 1);
@@ -554,8 +573,15 @@ const busy = () => !!cur || queue.length > 0 || relax.on || intro || snaps.lengt
 
 // ---------- RELAX: curve shortening on S³ ----------
 const relax = { on: false, frames: 0, L0: [], fb: null, zipT: 0 };
+let swings = 0; // loop swings made on this level (each is a move)
+const TWO_TURNS = 2 * Math.PI; // a swing of the loop round the box changes the cable's twist by two full turns (2π of path on S³)
+function swingLoop(only) { // one swing: the loop passes round the box once
+  if (!RIB.length || busy()) return false;
+  if (L.swings != null && swings >= L.swings) { FX.sfx('fail'); msg(`Only ${L.swings} swing${L.swings > 1 ? 's' : ''} on this rig. Press ↺ to start again.`); return false; }
+  swings++; startRelax(); relax.cap = TWO_TURNS; relax.only = only ?? null; renderCtrl(); renderGoal(); return true;
+}
 function startRelax(silent) {
-  if (!RIB.length) return; relax.on = true; relax.manual = false; relax.frames = 0; relax.iters = 0; relax.t = 0; relax.fb = null; relax.L0 = RIB.map(r => r.length()); relax.done = RIB.map(() => false); relax.silent = silent;
+  if (!RIB.length) return; relax.on = true; relax.manual = false; relax.cap = 0; relax.only = null; relax.frames = 0; relax.iters = 0; relax.t = 0; relax.fb = null; relax.L0 = RIB.map(r => r.length()); relax.done = RIB.map(() => false); relax.silent = silent;
   if (!silent) { FX.sfx('whoosh'); RIB.forEach(r => r.jiggle(.5)); } wake(500);
 }
 function relaxDone(r) { const L = r.length(), dm = r.dmin(); return L < dm + .02 || (dm > Math.PI - .02 && L < Math.PI + .03); }
@@ -563,7 +589,8 @@ function stepRelax(dt, iters) {
   relax.frames++; relax.t = (relax.t || 0) + dt; let n = iters ?? Math.min(26, 1 + relax.frames * relax.frames / 60 | 0); relax.iters += n; // slow start so the ribbon is seen to try
   if (relax.fb) return stepFallback(dt);
   let all = true;
-  RIB.forEach((r, k) => { if (relax.done[k]) return; const before = r.length(), dm = r.dmin(); r.relaxIter(n, before - dm > .4 ? 1e-3 : 0); const L = r.length();
+  RIB.forEach((r, k) => { if (relax.done[k]) return; if (relax.only != null && relax.only !== k) { relax.done[k] = true; return; } const before = r.length(), dm = r.dmin(); r.relaxIter(n, before - dm > .4 ? 1e-3 : 0); const L = r.length();
+    if (relax.cap && L > r.dmin() + .3 && relax.L0[k] - L >= relax.cap) { relax.done[k] = true; return; } // a swing only moves two full turns of twist
     if (relaxDone(r)) { relax.done[k] = true; if (r.flat()) { r.flash = .9; burstRibbon(r, 26, '#ffe3a0'); } } else all = false;
     // zip particles where the ribbon is losing twist
     if (!relax.silent && before - L > .01 && Math.random() < .7) { const i = 1 + (Math.random() * (r.N - 1) | 0), p = r.samplePos(i, [0, 0, 0]); burst(p[0], p[1], p[2], 2, '#ffb070', 1.2, .5); } });
@@ -590,7 +617,7 @@ function stepFallback(dt, instant) {
     r.dirty = true; if (f.t >= 1) { r.flash = .9; burstRibbon(r, 20, '#ffe3a0'); } }
   if (f.t >= 1) finishRelax();
 }
-function relaxNow() { if (!relax.on) startRelax(true); let guard = 0; while (relax.on && guard++ < 4000) { if (relax.fb) stepFallback(0, true); else stepRelax(0, 40); } }
+function relaxNow() { if (!relax.on) startRelax(true); relax.silent = true; let guard = 0; while (relax.on && guard++ < 4000) { if (relax.fb) stepFallback(0, true); else stepRelax(0, 40); } }
 function burstRibbon(r, n, col) { r.update(); const p = [0, 0, 0]; for (let k = 0; k < n; k++) { r.samplePos(Math.random() * (r.N + 1) | 0, p); burst(p[0], p[1], p[2], 1, col, 1.4, .7); } }
 
 // ======================================================================
@@ -616,10 +643,10 @@ const LV = [
     story: 'Someone left the cube like this (watch). You get <b>exactly one move</b>. Pick an axis and an angle.', goal: 'One move: home, with a cable you can tug flat.',
     win: ['The long way round', 'The short way home leaves a full twist. 270° the other way picks up the missing sign.'] },
   { n: 'Plate Trick', setup: 'bundle', start: ['Y+360'], moves: { ax: 'XZ', ang: PM90 }, par: 4,
-    story: 'Four cables now, all to one box, and it has already been turned once round about Y. The Y motor is broken.', goal: 'Home, all four cables tug flat. No Y turns.',
+    story: 'Four cables now, all to one box, and it has already been turned once round about Y. The Y motor is broken.', goal: 'Light the lamp without any Y turns.',
     win: ['All ribbons share one sign', 'However many ribbons, they all see the same hidden ±1. That\'s why the plate trick works with your whole arm.'] },
   { n: 'Six Walls', setup: 'six', drag: 1, start: ['X+90', 'Y+90', 'X+90', 'Z+90', 'Y+90'], moves: { ax: 'XYZ', ang: PM90 },
-    story: 'Ribbons to every wall. Someone scrambled it (watch). Undo it.', goal: 'Home with all six ribbons flat.',
+    story: 'Ribbons to every wall. Someone scrambled it (watch). Undo it.', goal: 'Bring the box home with all six cables flat.',
     win: ['Untangled', 'Six ribbons, and still only one bit to track: the sign.'] },
   { n: 'Two Cubes', setup: 'pair', start: ['B:Y+360'], moves: { ax: 'X', ang: PM90 }, objs: [0], par: 4,
     story: 'Two cubes joined by a ribbon. <b>B</b> got a full turn. You may only turn <b>A</b>, and only about X.', goal: 'Both cubes home, joining ribbon flat.',
@@ -628,7 +655,7 @@ const LV = [
     story: 'Three cubes in a chain. The middle one got a full turn and is now <b>locked</b>.', goal: 'Every cube home, both ribbons flat. B is locked.',
     win: ['Signs travel down the chain', 'Each link sees only its neighbours\' relative sign.'] },
   { n: 'Someone Else\'s Mess', setup: 'single', drag: 1, start: ['X+90', 'Y+90', 'Y+90', 'Z-90', 'X+90', 'Y-90', 'X+90'], moves: { ax: 'XYZ', ang: PM90 },
-    story: 'Watch what happened. Then undo it, ideally in fewer moves than it took.', goal: 'Home and flat.',
+    story: 'Watch what happened. Then undo it, ideally in fewer moves than it took.', goal: 'Light the lamp in as few moves as you can.',
     win: ['Undone', 'Turning back the exact way is never the only way.'] },
   { n: 'The Waiter', setup: 'waiter', kind: 'waiter', time: 0,
     story: 'A waiter can turn a tray round and round <b>without letting go</b>. Drag sideways to turn the tray, up and down to tilt it. Customers bump you. <b>Keep it level.</b>', goal: 'Turn the tray 720° and stop at the start, arm relaxed. Don\'t spill.',
@@ -650,6 +677,9 @@ const LV = [
     story: 'Turn the cube to match the small <b>target cube</b>, including the hidden sign (its ring: green +, red −). Quarter-turns only. Fewest strokes wins.', goal: '' },
   { n: 'Golf: Back', setup: 'single', kind: 'golf', moves: { ax: 'XYZ', ang: PM90 }, holes: [['X+360'], ['Z+90', 'X+360'], ['X+90', 'Y+90', 'Z+90', 'X+90', 'Y+360']],
     story: 'The back nine: holes where the sign is <b>−</b>. The target looks matched long before it is: watch its ring and the lamp.', goal: '' },
+  { n: 'One Swing', setup: 'single', start: ['X+360', 'X+360', 'X+360'], moves: { ax: 'X', ang: PM90 }, swings: 1, par: 4,
+    story: 'Three full turns of twist, and the stand only lets the loop past <b>once</b>. A swing moves two full turns. Which way should the lamp turn first?', goal: 'One swing only: light the lamp.',
+    win: ['Untwist, then swing', 'Turning back one full turn leaves two; one swing clears two. Turning forward leaves four, and one swing is not enough.'] },
   { n: 'Sandbox', setup: 'bundle', kind: 'sandbox', moves: { ax: 'XYZ', ang: [-90, 90, 180, 360] }, free: 1,
     story: 'Do anything. Drag the cube, record a routine, share it as a code.', goal: 'No goal. Try to find the shortest sequence that tangles the ribbons for good. (You can\'t.)' },
 ];
@@ -665,7 +695,7 @@ const persist = () => { RH.save('belt-trick', SAVE); RH.progress('belt-trick', O
 let L, LI = 0, sel = 0, won = false, intro = false, S = {}, bet = null, golf = null, waiter = null, glitchT = 0, lastMsg = '';
 
 function loadLevel(i, opt = {}) {
-  LI = i; L = LV[i]; SAVE.cur = i; persist(); loadSeq++; drawBoard(Object.keys(SAVE.done).length); attempted = false; clearTimeout(toast.h); $('toast').classList.remove('on');
+  LI = i; L = LV[i]; SAVE.cur = i; persist(); loadSeq++; swings = 0; drawBoard(Object.keys(SAVE.done).length); attempted = false; clearTimeout(toast.h); $('toast').classList.remove('on');
   queue = []; cur = null; relax.on = false; userMoves = []; axesUsed = new Set(); yawAcc = 0; won = false; sel = L.objs ? L.objs[0] : 0; recording = null;
   clearWorld(); const cam = (L.setup === 'mech' ? SETUPS.mech(L.kind === 'sat') : SETUPS[L.setup]());
   gj = L.kind === 'gear' ? { k: 0, idler: false, cables: 3, snaps: 0 } : null; if (gj) applyGears();
@@ -718,7 +748,7 @@ function placeBet(relaxes) { if (!bet || bet.phase !== 'bet') return; bet.guess 
 
 // ---------- level flow ----------
 function resetState() { // put the level back to its start (no intro animation)
-  attempted = false;
+  attempted = false; swings = 0;
   queue = []; cur = null; relax.on = false; intro = false; userMoves = []; axesUsed = new Set(); yawAcc = 0;
   OBJ.forEach(o => setExact(o, [1, 0, 0, 0])); RIB.forEach(r => { const f = r.endFrame(r.e0); for (let i = 0; i <= r.N; i++) r.g.set(f, i * 4); r.fixEnds(); });
   if (L.start && !bet) { L.start.forEach(t => enqueue(t, false)); flushQueue(); }
@@ -782,7 +812,7 @@ function check(ev) {
   if (!userMoves.length) return;
   if (allHome() && RIB.every(r => r.flat())) {
     if (L.need && !L.need({ n: userMoves.length, axes: axesUsed })) { msg(L.kind === undefined && LI === 3 ? 'Flat! But use every axis.' : 'Flat, but not by the rules.'); return; }
-    winLevel(L.win, L.par ? userMoves.length - L.par : 0);
+    winLevel(L.win, L.par ? userMoves.length + Math.max(0, swings - 1) - L.par : 0); // turns plus any swings beyond the one the trick needs
   } else if (ev === 'relax' && allHome() && stuck) msg('The box is home, but the cable won\'t lie flat: it is carrying one hidden full twist.');
   else if (ev === 'relax' && !allHome()) msg('Pulled as straight as it goes. Get the box home first.');
 }
@@ -844,13 +874,13 @@ function renderCtrl() {
   if (L.kind === 'gear') h += `<button class="b relax" id="run">${MECH && MECH.running ? '■ Stop' : '▶ Run motor'}</button>`;
   if (L.kind === 'sat') h += `<button class="b relax" id="hold" style="touch-action:none">● HOLD to drive boom</button>`;
   if (L.kind !== 'bet') h += '<button class="b" id="rst" title="Reset (Backspace)">↺</button>';
-  if (L.moves && !golf && L.kind !== 'sandbox') h += `<span class="info">${userMoves.length}${L.maxMoves ? '/' + L.maxMoves : ''} moves</span>`;
+  if (L.moves && !golf && L.kind !== 'sandbox') h += `<span class="info">${userMoves.length}${L.maxMoves ? '/' + L.maxMoves : ''} turns · ${swings}${L.swings != null ? '/' + L.swings : ''} swing${swings === 1 ? '' : 's'}</span>`;
   if (L.kind === 'sandbox') h += `<span class="sep"></span><button class="b ${recording ? 'on' : ''}" id="rec">${recording ? '■ stop' : '● rec'}</button><button class="b" id="play" ${SAVE.rec ? '' : 'disabled'}>▶ play</button><button class="b" id="share">share</button>`;
   if (won && LI < LV.length - 1) h += `<button class="b on big" id="next">Next →</button>`;
   c.innerHTML = h;
   c.querySelectorAll('[data-m]').forEach(b => b.onpointerdown = e => { e.preventDefault(); FX.sfx('click'); userMove(b.dataset.m); });
   c.querySelectorAll('[data-sel]').forEach(b => b.onclick = () => { sel = +b.dataset.sel; FX.sfx('tick'); renderCtrl(); });
-  if ($('rx')) $('rx').onclick = () => { if (busy()) return; startRelax(); };
+  if ($('rx')) $('rx').onclick = () => swingLoop();
   if ($('rst')) $('rst').onclick = () => { FX.sfx('pop'); if (golf && golf.matched) return; if (golf && golf.strokes) msg('Ball back on the tee. Strokes still count.'); resetState(); won = won && !L.free ? won : false; };
   if ($('next')) $('next').onclick = () => { FX.sfx('pop'); loadLevel(LI + 1); };
   if ($('run')) $('run').onclick = () => { if (gj && gearRatio() == null && !MECH.running) { msg('Fit every wheel first'); FX.sfx('fail'); return; } if (MECH.broken || MECH.theta > 0 && !MECH.running) { MECH.phi = MECH.theta = 0; MECH.broken = false; MECH.maxTw = 0; } MECH.running = !MECH.running; FX.sfx(MECH.running ? 'whoosh' : 'click'); renderCtrl(); wake(300); };
@@ -888,6 +918,10 @@ function pickObj(e) {
 function projRadius(o) { const [x0, y0] = screenOf(o.pos); V3.set(1, 0, 0).applyQuaternion(camera.quaternion).multiplyScalar(o.size * .75); const [x1, y1] = screenOf([o.pos[0] + V3.x, o.pos[1] + V3.y, o.pos[2] + V3.z]); return Math.hypot(x1 - x0, y1 - y0); }
 function arcVec(x, y, o) { const dx = (x - drag.cx) / drag.R, dy = -(y - drag.cy) / drag.R, d2 = dx * dx + dy * dy, z = d2 < .5 ? Math.sqrt(1 - d2) : .5 / Math.sqrt(d2), n = Math.hypot(dx, dy, z); o[0] = dx / n; o[1] = dy / n; o[2] = z / n; return o; }
 const tug = { on: false };
+function pickRibbonIndex(e) { // which cable was grabbed (multi-cable rigs swing one cable's loop at a time)
+  const r = canvas.getBoundingClientRect(); m2.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1); ray.setFromCamera(m2, camera);
+  const h = ray.intersectObjects(RIB.flatMap(x => [x.mf, x.mb]), false)[0]; if (!h || RIB.length < 2 || L.setup === 'bundle') return null; return RIB.findIndex(x => x.mf === h.object || x.mb === h.object);
+}
 function pickRibbon(e) { // is the pointer on a cable?
   if (!RIB.length) return false; const r = canvas.getBoundingClientRect(); m2.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1); ray.setFromCamera(m2, camera);
   return ray.intersectObjects(RIB.flatMap(x => [x.mf, x.mb]), false).length > 0;
@@ -898,7 +932,7 @@ function onDown(e) {
   const i = pickObj(e);
   if (i < 0 && $('rx') && !$('rx').disabled && !busy() && pickRibbon(e)) { // grab the cable: pulling it straightens it, as far as it will go
     const c = screenOf((OBJ[sel] || OBJ[0]).pos); Object.assign(tug, { on: true, x: e.clientX, y: e.clientY, id: e.pointerId, pulled: 0, cx: c[0], cy: c[1], a: Math.atan2(e.clientY - c[1], e.clientX - c[0]) }); showSwing(true); controls.enabled = false; canvas.setPointerCapture(e.pointerId);
-    startRelax(); relax.manual = true; e.stopImmediatePropagation(); wake(300); return; }
+    tug.k = pickRibbonIndex(e); tug.fired = false; e.stopImmediatePropagation(); wake(300); return; }
   if (i < 0) return;
   if (L.objs && !L.objs.includes(i)) { msg('That cube is locked'); return; }
   if (L.moves && L.kind !== 'sandbox' && !L.drag) { // puzzle levels: discrete moves are the puzzle; dragging is free play only in sandbox
@@ -912,7 +946,8 @@ canvas.addEventListener('pointermove', e => {
   if (tug.on && e.pointerId === tug.id) { // swinging the loop round the box: each radian swept works the cable along
     const a = Math.atan2(e.clientY - tug.cy, e.clientX - tug.cx); let da = a - tug.a; if (da > Math.PI) da -= TAU; if (da < -Math.PI) da += TAU; tug.a = a; tug.pulled += Math.abs(da);
     tug.x = e.clientX; tug.y = e.clientY; $('swing').style.setProperty('--a', (tug.pulled / TAU * 360) + 'deg');
-    if (relax.on && Math.abs(da) > 1e-3) { stepRelax(1 / 60, Math.max(1, Math.round(Math.abs(da) * 70))); if (Math.random() < .3) FX.sfx('click'); } wake(200); return; }
+    if (tug.pulled >= 2 * Math.PI && !tug.fired) { tug.fired = true; endTug(); swingLoop(tug.k); return; } // the loop has gone right round: that is one swing
+    if (Math.random() < .25) FX.sfx('click'); wake(200); return; }
   if (!drag.on || e.pointerId !== drag.id) return; const o = drag.o;
   if (o.kind === 'tray') { // sideways = turn about the vertical, up/down = tilt
     const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly; drag.lx = e.clientX; drag.ly = e.clientY;
@@ -920,7 +955,7 @@ canvas.addEventListener('pointermove', e => {
   const p = arcVec(e.clientX, e.clientY, [0, 0, 0]), a = drag.last, ax = [a[1] * p[2] - a[2] * p[1], a[2] * p[0] - a[0] * p[2], a[0] * p[1] - a[1] * p[0]], s = Math.hypot(...ax), ang = Math.atan2(s, a[0] * p[0] + a[1] * p[1] + a[2] * p[2]) * 1.7;
   drag.last = p; if (s < 1e-9) return; V3.set(ax[0] / s, ax[1] / s, ax[2] / s).applyQuaternion(camera.quaternion); rotateBy(o, [V3.x, V3.y, V3.z], ang);
 });
-const endTug = () => { if (!tug.on) return; tug.on = false; controls.enabled = true; relax.manual = false; showSwing(false); };
+const endTug = () => { if (!tug.on) return; tug.on = false; controls.enabled = true; showSwing(false); if (!tug.fired && tug.pulled > .6) msg('Take the loop all the way round the box.'); };
 function showSwing(on) { const el = $('swing'); if (!on) { el.classList.remove('on'); return; } const o = OBJ[sel] || OBJ[0], r = projRadius(o) * 2.1; el.style.left = tug.cx - r + 'px'; el.style.top = tug.cy - r + 'px'; el.style.width = el.style.height = r * 2 + 'px'; el.style.setProperty('--a', '0deg'); el.classList.add('on'); } // let go: the cable settles the rest of the way
 canvas.addEventListener('pointerup', endTug); canvas.addEventListener('pointercancel', endTug);
 const endDrag = e => { if (drag.hold) { drag.hold = false; setHold(false); } if (!drag.on) return; drag.on = false; controls.enabled = true; if (drag.o.kind !== 'tray') { snapObj(drag.o, L.kind === 'sandbox' ? undefined : 7); if (L.moves && L.kind !== 'sandbox') { const c = dragCost(drag.q0, drag.o.q); for (let k = 0; k < c; k++) userMoves.push('drag'); if (c) { renderCtrl(); if (L.par) msg(`That drag = ${c} quarter-turn${c > 1 ? 's' : ''}`); } } } };
@@ -994,7 +1029,12 @@ function stepMech(dt) {
 const jitQ = new THREE.Quaternion(), tq = new THREE.Quaternion(), jitE = new THREE.Euler(), invQ = new THREE.Quaternion();
 let attempted = false; // the twist gauge only reads out after the player has tried the loop at this position
 const hideSign = () => !!(bet && (bet.phase === 'watch' || bet.phase === 'bet')) || (!attempted && L && !L.free && L.kind !== 'golf' && L.setup !== 'mech' && L.kind !== 'waiter');
+let roomLight = 1;
 function syncMeshes(now) {
+  // the lamp lights the lecture room: success is visible without reading anything
+  for (const o of OBJ) if (o.lamp) { const lv = lampLevel(now), k = o.lamp; k.level += (lv - k.level) * (lv > k.level ? .35 : .5);
+    k.light.intensity = 6 * k.level; k.bulbM.emissiveIntensity = 3 * k.level; k.shadeM.emissiveIntensity = .55 * k.level; }
+  { const lit = OBJ.some(o => o.lamp) ? Math.max(...OBJ.map(o => o.lamp ? o.lamp.level : 0)) : 1; roomLight += (lit - roomLight) * .2; hemi.intensity = .22 + .8 * roomLight; key.intensity = .35 + 1.2 * roomLight; }
   const glitchy = !relax.on && !hideSign() && RIB.length && allHome() && RIB.some(r => r.endDot() < -.97) && L.kind !== 'golf' && L.kind !== 'waiter';
   for (const o of OBJ) {
     tq.set(o.q[1], o.q[2], o.q[3], o.q[0]);
@@ -1030,7 +1070,7 @@ function drawLens(now) {
   const gr = lx.createRadialGradient(cx - 40, cy - 40, 10, cx, cy, R); gr.addColorStop(0, 'rgba(240,215,160,.22)'); gr.addColorStop(1, 'rgba(120,80,30,.12)'); lx.fillStyle = gr; lx.beginPath(); lx.arc(cx, cy, R, 0, TAU); lx.fill();
   lx.strokeStyle = 'rgba(255,220,180,.3)'; lx.lineWidth = 2; lx.stroke();
   const P = (v) => { const x = v[0] * ct + v[2] * st, z = -v[0] * st + v[2] * ct, y = v[1] * Math.cos(tilt) - z * Math.sin(tilt), zz = v[1] * Math.sin(tilt) + z * Math.cos(tilt); return [cx + x * R, cy - y * R, zz]; };
-  if (hideSign()) { lx.fillStyle = '#c9bcd6'; lx.font = '64px "IM Fell English", Georgia, serif'; lx.fillText('?', cx, cy + 22); lx.font = '24px "IM Fell English", Georgia, serif'; lx.fillText('hidden while you bet', cx, H - 14); return; }
+  if (hideSign()) { lx.fillStyle = '#c9bcd6'; lx.font = '64px "IM Fell English", Georgia, serif'; lx.fillText('?', cx, cy + 22); lx.font = '24px "IM Fell English", Georgia, serif'; lx.fillText(bet ? 'hidden while you bet' : 'hidden until you swing', cx, H - 14); return; }
   const r = RIB[0], g = r.g, N = r.N; let prev = null, prevSign = 0;
   const toBall = (o, sgn) => { const w = g[o] * sgn, vx = g[o + 1] * sgn, vy = g[o + 2] * sgn, vz = g[o + 3] * sgn, vn = Math.hypot(vx, vy, vz); if (vn < 1e-9) return [0, 0, 0]; const th = 2 * Math.atan2(vn, w) / TAU * 2; return [vx / vn * th, vy / vn * th, vz / vn * th]; };
   lx.lineWidth = 5; lx.lineCap = 'round';
@@ -1077,7 +1117,8 @@ function frame(now) {
   for (const r of RIB) { if (r.flash > 0) { r.flash = Math.max(0, r.flash - dt * 1.5); r.dirty = flashing = true; } r.update(); }
   stepParticles(dt);
   const glitchy = syncMeshes(now), so = FX.shakeOffset(10), shaking = so[0] !== 0 || so[1] !== 0;
-  const busyNow = relax.on || cur || queue.length || snaps.length || drag.on || pAlive || (waiter && waiter.started && !won) || (MECH && (MECH.running || MECH.hold)) || glitchT > 0 || playback || flashing || shaking;
+  const lampsFlicker = OBJ.some(o => o.lamp && Math.abs(o.lamp.level - 1) > .02);
+  const busyNow = lampsFlicker || relax.on || cur || queue.length || snaps.length || drag.on || pAlive || (waiter && waiter.started && !won) || (MECH && (MECH.running || MECH.hold)) || glitchT > 0 || playback || flashing || shaking;
   drawLamp(); if ((now / 50 | 0) !== frame.lt) { frame.lt = now / 50 | 0; drawLens(now); }
   controls.update();
   const live = busyNow || now < activeUntil;
@@ -1103,6 +1144,7 @@ window.__belt = {
   snap: () => { OBJ.forEach(o => snapObj(o)); for (let i = 0; i < 20; i++) stepSnaps(.05); },
   q: (i = 0) => [...OBJ[i].q], sign: (i = 0) => Math.sign(OBJ[i].q[0]) || 0,
   ribbons: () => RIB.map(r => ({ len: r.length(), dmin: r.dmin(), endDot: r.endDot(), flat: r.flat() })),
+  swing: k => { const ok = swingLoop(k); relaxNow(); return ok; }, get swings() { return swings; }, lampLevel: () => OBJ[0] && OBJ[0].lamp ? OBJ[0].lamp.level : null,
   get busy() { return busy() || snaps.length > 0 || !!(bet && bet.phase === "watch"); }, get won() { return won; }, get level_() { return LI; }, get par() { return L.par; }, get golf() { return golf; }, get bet() { return bet; }, get mech() { return MECH; }, get waiter() { return waiter; }, get yaw() { return yawAcc / D2R; },
   placeBet, flush: flushQueue, check, enc, decode, get queueN() { return queue.length + (cur ? 1 : 0); }, SAVE, nextBet,
   sim(sec, fn) { const dt = 1 / 60; for (let t = 0; t < sec; t += dt) { fn && fn(t); if (relax.on) stepRelax(dt, 30); if (waiter) stepWaiter(dt); if (MECH) stepMech(dt); stepSnaps(dt); stepQueue(dt); } },

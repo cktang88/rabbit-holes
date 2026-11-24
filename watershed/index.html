@@ -107,14 +107,14 @@
   @media (max-width:760px){
     #board{top:6px;left:6px;right:6px;width:auto;padding:18px 6px 6px}#board::before{top:-6px;width:80px;margin-left:-40px;height:20px}
     #sheet{padding:6px 9px;max-height:40vh}#lvName{font-size:21px}#goal{font-size:12.5px;line-height:1.3}.place{margin-top:2px;font-size:11px}
-    #briefBtn{display:inline-block}body.playing:not(.brief) #goal,body.playing:not(.brief) #first{display:none}
+    #briefBtn{display:inline-block}body.playing:not(.brief) #goal{display:none}#first,.wl,#works,.key{display:none}body.brief #first,body.brief .wl,body.brief #works,body.brief .key{display:block}body.brief #works{display:flex}#hint{display:none}
     #score{font-size:13.5px;margin-top:4px}#years{height:18px;margin-top:4px}#years i.s3{height:18px}#years i.s2{height:13px}
     #tools{bottom:6px;left:6px;transform:none;padding:4px;gap:3px;max-width:calc(100vw - 12px)}.tool{width:46px;height:50px;font-size:16px}.tool span{font-size:10.5px}
     #speed{bottom:66px;right:6px;padding:4px}#speed button{min-width:40px;height:40px}#speed #go{min-width:70px}
     #hint{bottom:118px;font-size:13px}.bsz{width:36px}.bsz button{width:32px}}
   @media (max-height:520px) and (min-width:600px){
     #board{width:300px;top:6px;left:6px;padding:16px 6px 6px}#board::before{display:none}#sheet{max-height:calc(100vh - 30px);padding:6px 9px}#lvName{font-size:20px}#goal{font-size:12.5px}
-    #briefBtn{display:inline-block}#goal,#first{display:none}body.brief #goal,body.brief #first{display:block}
+    #briefBtn{display:inline-block}#goal,#first,.wl,#works,.key{display:none}body.brief #goal,body.brief #first,body.brief .wl,body.brief .key{display:block}body.brief #works{display:flex}
     #tools{left:auto;right:6px;transform:none;bottom:54px;padding:4px;gap:3px}.tool{width:46px;height:46px;font-size:15px}
     #speed{bottom:4px;right:6px;padding:3px}#speed button{height:40px}#hint{display:none}#levels{max-height:calc(100vh - 20px)}}
   @media (pointer:coarse){#lvBtn,#briefBtn,#sheet button.mini{min-height:36px;min-width:40px}}
@@ -824,6 +824,14 @@ function frameCam() {
 }
 // keep the model centred in the space the clipboard and the trays leave free
 function resize() {
+  const W0 = innerWidth, H0 = innerHeight, phone = W0 <= 760 || (W0 > H0 && H0 <= 520);
+  if (phone) { // the model's own rectangle: right of the clipboard in landscape, between clipboard and trays in portrait
+    const bd = $('board').getBoundingClientRect(), land = W0 > H0, top = land ? 0 : Math.round(bd.bottom + 2), left = land ? Math.round(bd.right + 4) : 0;
+    const bottom = land ? H0 : Math.round(Math.min($('speed').getBoundingClientRect().top, $('tools').getBoundingClientRect().top) - 2);
+    Object.assign(canvas.style, { top: top + 'px', left: left + 'px', width: (W0 - left) + 'px', height: Math.max(120, bottom - top) + 'px' });
+    renderer.setSize(W0 - left, Math.max(120, bottom - top), false); camera.aspect = (W0 - left) / Math.max(120, bottom - top); camera.clearViewOffset(); camera.updateProjectionMatrix(); if (L) frameCam(); return;
+  }
+  Object.assign(canvas.style, { top: '', left: '', width: '', height: '' });
   const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h;
   const hud = $('board').getBoundingClientRect(), lv = $('levels').getBoundingClientRect(), side = w > 900 || (w > h && h <= 520);
   const shiftX = side ? Math.round((hud.right - (lv.width && w > 900 ? w - lv.left : 0)) / 2) : 0;
@@ -881,7 +889,7 @@ window.__ws = { SC, LV: SC, buildLevel: i => buildLevel(i), stat: () => stat, me
   setSpeed: s => setSpeed(s), get speed() { return speed; }, cleanSave, K, get SED() { return SED; }, brush, get simT() { return simT; }, get year() { return year; }, get over() { return over; },
   parts: { flux: () => flux(DT, G * DT, N - 1), waterStep: () => waterStep(DT, N - 1), thermal: () => { thermalTick = 2; thermal(); }, advect: () => advect(DT) },
   setTool, doUndo, get works() { return works; }, placeWork, removeWork, kitLeft, reservoirVolume, deltaLand, capacity, siltIn, get towns() { return towns; }, get inquest() { return inquest; }, WORKS,
-  toScreen: (gx, gy) => { const k = Math.round(gy) * N + Math.round(gx); tv.set(gx - N / 2, B[k] * VS, gy - N / 2).project(camera); return [(tv.x + 1) / 2 * innerWidth, (1 - tv.y) / 2 * innerHeight]; },
+  toScreen: (gx, gy) => { const k = Math.round(gy) * N + Math.round(gx), cr = canvas.getBoundingClientRect(); tv.set(gx - N / 2, B[k] * VS, gy - N / 2).project(camera); return [cr.left + (tv.x + 1) / 2 * cr.width, cr.top + (1 - tv.y) / 2 * cr.height]; },
   // place a whole plan at once: [[tool, [x, y], [x2, y2]?], ...]; returns the reasons for anything refused
   plan: P => { const out = P.map(([t, a, b]) => { const r = placeWork(t, a, b || a); return typeof r === 'string' ? r : null; }).filter(Boolean); renderWorks(); renderUI(); return out; },
   // run whole years headless (what the game loop does, without drawing)

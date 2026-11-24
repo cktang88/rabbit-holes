@@ -142,7 +142,7 @@ module.exports = {
     },
     'real clicks: closing the connector wins only after drivers settle, and saves': async ({ page, ok, eq, near }) => {
       await page.evaluate(() => __gl.load(2)); await page.waitForTimeout(300);
-      const [x, y] = await toScreen(page, 500, 260); await page.mouse.click(x, y);
+      const [x, y] = await page.evaluate(() => { const r = __gl.roads().find(r => r.a + r.b === 'CD'), v = __gl.view(); return [(r.lx * v.s + v.ox) / v.dpr, (r.ly * v.s + v.oy) / v.dpr]; }); await page.mouse.click(x, y);
       ok(await page.evaluate(() => __gl.roads().find(r => r.a + r.b === 'CD').closed), 'click did not close CD');
       await page.waitForTimeout(250); ok(!(await page.evaluate(() => __gl.won)), 'won before the traffic settled');
       ok(await waitFor(page, () => __gl.won), 'never won');

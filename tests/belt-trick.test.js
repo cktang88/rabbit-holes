@@ -105,7 +105,7 @@ module.exports = {
       const p = await reopen(page, page.url().split('#')[0] + '#seq=' + code); await p.waitForTimeout(1200);
       await p.evaluate(() => __belt.flush());
       const r = await p.evaluate(s => ({ q: __belt.q(), want: __belt.seqQ(s), lv: __belt.level_ }), seq);
-      eq(r.lv, 17); ok(Math.abs(r.q.reduce((a, v, i) => a + v * r.want[i], 0)) > .999, 'shared sequence was truncated'); ok(!p.errs.length, p.errs[0]); await p.close();
+      eq(r.lv, 18); ok(Math.abs(r.q.reduce((a, v, i) => a + v * r.want[i], 0)) > .999, 'shared sequence was truncated'); ok(!p.errs.length, p.errs[0]); await p.close();
     },
     'level 1 by hand: four taps on +90°, then swinging the cable loop round the box shows it stuck (and that wins the lesson)': async ({ page, eq, ok }) => {
       await page.evaluate(() => __belt.level(0)); await page.waitForTimeout(200);
@@ -115,7 +115,7 @@ module.exports = {
       eq(await page.$eval('#lampt', e => e.textContent), '?', 'the gauge stays covered until the loop has been tried');
       const p = await page.evaluate(() => __belt.ribbonScreen(0, .35)), c = await page.evaluate(() => __belt.screen(0)), rad = Math.hypot(p[0] - c[0], p[1] - c[1]), a0 = Math.atan2(p[1] - c[1], p[0] - c[0]);
       await page.mouse.move(p[0], p[1]); await page.mouse.down();
-      for (let k = 1; k <= 48; k++) { const a = a0 + k / 48 * 2 * Math.PI; await page.mouse.move(c[0] + rad * Math.cos(a), c[1] + rad * Math.sin(a)); }
+      for (let k = 1; k <= 54; k++) { const a = a0 + k / 48 * 2 * Math.PI; await page.mouse.move(c[0] + rad * Math.cos(a), c[1] + rad * Math.sin(a)); }
       await page.mouse.up(); await page.waitForFunction(() => !__belt.relaxing, null, { timeout: 8000 });
       eq(await page.evaluate(() => __belt.won), true, 'stuck cable after one full turn should complete level 1');
       eq(await page.$eval('#lampt', e => e.textContent), 'stuck −1');
@@ -148,6 +148,23 @@ module.exports = {
       ok(r.naive / r.runs >= .8, `naive bots got 2★+ in ${r.runs - r.naive}/${r.runs} late runs`);
       ok(r.comp.every(s => s === 3), 'competent: ' + r.comp); ok(r.simple.some(s => s < 3), 'greedy golf (blind to the hidden sign) still gets 3★: ' + r.simple);
     },
+    'the lamp: lit while the cable is flat, dark when twisted or stuck — success is visible without reading': async ({ page, ok }) => {
+      const lv = async () => { await page.waitForTimeout(700); return page.evaluate(() => __belt.lampLevel()); };
+      await page.evaluate(() => __belt.level(0)); const start = await lv();
+      await page.evaluate(() => { ['X+90', 'X+90'].forEach(t => __belt.move(t)); }); const twisted = await lv();
+      await page.evaluate(() => { ['X+90', 'X+90'].forEach(t => __belt.move(t)); __belt.swing(); }); const stuck = await lv();
+      await page.evaluate(() => { __belt.level(1); ['X+90', 'X+90', 'X+90', 'X+90'].forEach(t => __belt.move(t)); __belt.swing(); }); const lit = await lv();
+      ok(start > .9, 'lamp on at the start ' + start); ok(twisted < .5, 'twisted lamp should be dim ' + twisted); ok(stuck < .5, 'stuck lamp should be dark ' + stuck); ok(lit > .9, 'freed lamp should light ' + lit);
+    },
+    'two hands: a swing is one counted move that clears at most two full turns; One Swing needs the right direction': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const B = __belt, q = t => [0, 1, 2, 3].forEach(() => B.move(t));
+        B.level(17); q('X+90'); B.swing(); B.check('relax'); const fwd = { won: B.won, flat: B.ribbons()[0].flat, swings: B.swings }; const second = B.swing();
+        B.level(17); q('X-90'); B.swing(); B.check('relax'); const back = { won: B.won, stars: B.SAVE.done[17] };
+        B.level(2); B.move('X+360'); B.swing(); B.move('Y+360'); B.swing(); B.check('relax'); const extra = B.SAVE.done[2];
+        return { fwd, second, back, extra }; });
+      eq(r.fwd, { won: false, flat: false, swings: 1 }, 'four turns forward: one swing is not enough'); eq(r.second, false, 'no second swing on this rig');
+      eq(r.back, { won: true, stars: 3 }); ok(r.extra < 3, 'a wasted extra swing costs a star: ' + r.extra);
+    },
     'keyboard: X turns the cube, Shift+X turns it back; RELAX is disabled while betting': async ({ page, near, ok }) => {
       await page.evaluate(() => __belt.level(10)); await page.waitForTimeout(100);
       const q0 = await page.evaluate(() => { __belt.flush(); return __belt.q(); });
@@ -160,7 +177,7 @@ module.exports = {
       for (const v of ['null', '[]', '{"done":null,"best":3,"cur":"x"}', '{"done":{"0":3,"77":3},"cur":9}', '{"rec":{"moves":7},"recSteps":"zz","cur":17}']) {
         await page.evaluate(v => { localStorage.clear(); localStorage.setItem('rh:belt-trick', v); }, v);
         const p = await reopen(page); const lv = await p.evaluate(() => __belt.level_);
-        ok(!p.errs.length, `save ${v}: ${p.errs[0]}`); ok(lv <= 1 || lv === 17, `resumed into locked level ${lv} from ${v}`); await p.close();
+        ok(!p.errs.length, `save ${v}: ${p.errs[0]}`); ok(lv <= 1 || lv === 18, `resumed into locked level ${lv} from ${v}`); await p.close();
       }
       const hub = await page.evaluate(() => { const B = __belt; for (let i = 0; i < B.LV.length - 1; i++) B.SAVE.done[i] = 3; B.level(0); return JSON.parse(localStorage.getItem('rh:hub'))['belt-trick']; });
       eq(hub, 1);

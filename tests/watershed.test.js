@@ -51,7 +51,8 @@ module.exports = {
     },
     'works: kits are limited, fields refuse the river and towns, removing a piece restores the ground exactly': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const W = __ws; W.buildLevel(0); const B0 = W.B.slice();
-        const river = W.placeWork('farm', [72, 60]), town = W.placeWork('levee', [90, 100], [100, 115]);
+        let rk = -1; for (let k = 60 * W.N; k < 70 * W.N; k++) if (W.D[k] > W.D[rk] || rk < 0) rk = k; // the deepest water in rows 60-69 is the river
+        const river = W.placeWork('farm', [rk % W.N, (rk / W.N) | 0]), town = W.placeWork('levee', [90, 100], [100, 115]);
         const okField = W.placeWork('farm', [62, 75]), lev = W.placeWork('levee', [84, 94], [110, 95]);
         const left = W.kitLeft('levee'); W.placeWork('levee', [40, 40], [40, 60]); W.placeWork('levee', [45, 40], [45, 60]); const full = W.placeWork('levee', [50, 40], [50, 60]);
         while (W.works.length) W.removeWork(W.works.length - 1); let diff = 0; for (let k = 0; k < B0.length; k++) diff = Math.max(diff, Math.abs(W.B[k] - B0[k]));

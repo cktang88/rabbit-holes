@@ -12,7 +12,7 @@ module.exports = {
     'every task has exactly one fitting record, and it is the true one': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => {
         const P = window.__parish, W = P.W(), C = P.COMS(), bad = []; let n = 0;
-        C.forEach((c, ci) => c.tasks.forEach((k, ti) => { n++; const f = P.solveTask(W.R, k); if (f.length !== 1 || f[0].id !== k.truth) bad.push(ci + ':' + ti); if (!(k.dep < ti)) bad.push('dep ' + ci + ':' + ti); }));
+        C.forEach((c, ci) => c.tasks.forEach((k, ti) => { n++; const f = P.solveTask(W.R, k); if (k.absent ? f.length !== 0 : (f.length !== 1 || f[0].id !== k.truth)) bad.push(ci + ':' + ti); if (!(k.dep < ti)) bad.push('dep ' + ci + ':' + ti); }));
         return { bad, n, letters: C.length };
       });
       eq(r.bad, []); ok(r.n > 20, 'too few tasks'); ok(r.letters >= 12 && r.letters <= 24, 'letters ' + r.letters);
@@ -21,7 +21,7 @@ module.exports = {
       const bad = await page.evaluate(() => {
         const P = window.__parish, W = P.W(), out = [];
         for (const c of P.COMS()) for (const k of c.tasks) {
-          const a = W.R[k.a], t = W.R[k.truth];
+          if (k.absent) continue; const a = W.R[k.a], t = W.R[k.truth];
           if (k.kind === 'A' && !(t.t === 'M' && t.groom === a.f && t.bride === a.m)) out.push('A');
           if (k.kind === 'B' && !(t.t === 'B' && t.pid === a.groom)) out.push('B');
           if (k.kind === 'C' && !(t.t === 'B' && t.pid === a.bride)) out.push('C');
@@ -33,7 +33,7 @@ module.exports = {
       eq(bad, []);
     },
     'letters never share a record; registers are deterministic per seed': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(() => { const P = window.__parish, ks = P.COMS().flatMap(c => c.tasks.map(t => t.truth)); return { dup: ks.length - new Set(ks).size, seed: P.S.seed, sig: P.W().R.slice(0, 300).map(P.recText).join('|') }; });
+      const r = await page.evaluate(() => { const P = window.__parish, ks = P.COMS().flatMap(c => c.tasks.map(t => t.truth)).filter(x => x != null); return { dup: ks.length - new Set(ks).size, seed: P.S.seed, sig: P.W().R.slice(0, 300).map(P.recText).join('|') }; });
       eq(r.dup, 0);
       await withSave(page, { seed: r.seed, intro: 1 });
       const sig2 = await page.evaluate(() => window.__parish.W().R.slice(0, 300).map(window.__parish.recText).join('|'));
@@ -44,7 +44,7 @@ module.exports = {
         const P = window.__parish, W = P.W(), out = [];
         P.COMS().forEach((c, ci) => c.tasks.forEach((k, ti) => {
           const K = P.KIND[k.kind], cands = P.candidates(W.R, k);
-          if (!cands.some(x => x.id === k.truth)) out.push('truth missing ' + ci + ':' + ti);
+          if (!k.absent && !cands.some(x => x.id === k.truth)) out.push('truth missing ' + ci + ':' + ti);
           for (const x of cands) { const why = K.why(W.R, x, k).filter(code => K.strikes.includes(code)); if (x.id === k.truth ? why.length : !why.length) out.push(ci + ':' + ti + ':' + x.id); }
         }));
         return out;
@@ -65,6 +65,7 @@ module.exports = {
         out.wrong = P.S.wrong[ci] || 0; out.truthStrike = P.strike(0, k.truth, K.strikes[0]);
         out.good = P.strike(0, d0.id, good.code, good.cite); out.left = P.remaining(0).length;
         for (const d of decoys.slice(1)) { const pf = P.proofFor(0, d.id); P.strike(0, d.id, pf.code, pf.cite); }
+        P.confirmTask(0);
         out.prog = P.S.prog[ci][0]; out.badC = !!badC; out.wrongEnd = P.S.wrong[ci] || 0;
         return out;
       });
@@ -97,7 +98,7 @@ module.exports = {
       await closeModals(page);
       await page.evaluate(() => {
         const P = window.__parish, W = P.W(), c = P.COMS()[0]; P.openLetter(0); P.S.wrong[0] = 1;
-        c.tasks.forEach((k, i) => { for (const d of P.candidates(W.R, k)) if (d.id !== k.truth) { const pf = P.proofFor(i, d.id); P.strike(i, d.id, pf.code, pf.cite); } P.confirmTask(i); });
+        c.tasks.forEach((k, i) => { for (const d of P.candidates(W.R, k)) if (d.id !== k.truth) { const pf = P.proofFor(i, d.id); P.strike(i, d.id, pf.code, pf.cite); } if (k.absent) P.declareAbsent(i); else P.confirmTask(i); });
       });
       eq(await page.locator('#right .letter .seal').count(), 1, 'seal');
       await page.waitForTimeout(1500);
@@ -150,6 +151,40 @@ module.exports = {
       eq(r.pinMode, true); eq(r.beforePin, null, 'struck an unpinned entry'); ok(r.listed, 'pinned entry not listed');
       eq(r.noCite, null, 'struck without citing'); eq(r.badCite, false); eq(r.blots, 1); eq(r.good, true);
     },
+    'not in this register: some letters ask after someone baptised elsewhere; certain, probable and wrong answers': async ({ page, ok, eq }) => {
+      let found = null;
+      for (const seed of [11, 22, 33, 44, 55, 66]) {
+        await withSave(page, { seed, intro: 1 }); await closeModals(page);
+        found = await page.evaluate(() => { const C = window.__parish.COMS(); for (let i = 0; i < C.length; i++) { const t = C[i].tasks.findIndex(k => k.absent); if (t >= 0) return { i, t }; } return null; });
+        if (found) break;
+      }
+      ok(found, 'no letter asks after an absent baptism in six registers');
+      const r = await page.evaluate(({ i, t }) => {
+        const P = window.__parish, W = P.W(), c = P.COMS()[i], out = {}; P.openLetter(i);
+        // solve the tasks before it so it is open
+        for (let j = 0; j < t; j++) { const k = c.tasks[j]; if (P.S.prog[i][j]) continue; for (const x of P.candidates(W.R, k)) { if (!P.S.pins.includes(x.id)) P.togglePin(x.id); if (x.id !== k.truth) { const pf = P.proofFor(j, x.id); P.strike(j, x.id, pf.code, pf.cite); } } P.confirmTask(j); if (k.absent) P.declareAbsent(j); }
+        const k = c.tasks[t]; for (const x of P.candidates(W.R, k)) if (!P.S.pins.includes(x.id)) P.togglePin(x.id);
+        const w0 = P.S.wrong[i] || 0; out.prob = P.answerProbably(t, P.candidates(W.R, k)[0].id); out.blots = (P.S.wrong[i] || 0) - w0; out.open = !P.S.prog[i][t];
+        for (const x of P.candidates(W.R, k)) { const pf = P.proofFor(t, x.id); P.strike(t, x.id, pf.code, pf.cite); }
+        out.left = P.remaining(t).length; out.btn = document.querySelector(`[data-absent="${t}"]`)?.textContent;
+        out.done = P.declareAbsent(t) !== false && !!P.S.prog[i][t]; out.marked = !!(P.S.prob[i] || {})[t];
+        // a task whose entry IS in the register: "not in this register" costs two blots
+        const pi = c.tasks.findIndex((q, j) => !q.absent && (q.kind === 'B' || q.kind === 'C') && !P.S.prog[i][j] && (q.dep < 0 || P.S.prog[i][q.dep]));
+        if (pi >= 0) { const w1 = P.S.wrong[i] || 0; P.declareAbsent(pi); out.wrongAbs = (P.S.wrong[i] || 0) - w1; }
+        return out;
+      }, found);
+      eq(r.prob, false); eq(r.blots, 2, 'a wrong "probably" costs two blots'); ok(r.open);
+      eq(r.left, 0); ok(/Certain/.test(r.btn), r.btn); ok(r.done, 'certain absent answer'); eq(r.marked, false);
+      if (r.wrongAbs !== undefined) eq(r.wrongAbs, 2);
+    },
+    'answering "probably" early: right marks the reply and costs a star of confidence': async ({ page, eq, ok }) => {
+      await closeModals(page);
+      const r = await page.evaluate(() => { const P = window.__parish, W = P.W(), C = P.COMS();
+        const i = C.findIndex((c, ci) => ci < 12 && c.tasks.every(k => !k.absent)); P.openLetter(i); const c = C[i];
+        let early = 1; c.tasks.forEach((k, j) => { if (!P.S.prog[i][j]) { if (early) { early = 0; P.answerProbably(j, k.truth); } else { for (const x of P.candidates(W.R, k)) if (x.id !== k.truth) { const pf = P.proofFor(j, x.id); P.strike(j, x.id, pf.code, pf.cite); } P.confirmTask(j); } } });
+        return { done: P.S.done[i], p: Object.keys(P.S.prob[i] || {}).length, s: [P.starsFor(0, 0), P.starsFor(0, 1), P.starsFor(1, 1)] }; });
+      eq(r.p, 1); eq(r.done, { stars: 2 }); eq(r.s, [3, 2, 1]);
+    },
     'clicking a pinned record updates the selected-record box (answers go to what you see)': async ({ page, ok }) => {
       await closeModals(page);
       const ids = await page.evaluate(() => { const P = window.__parish; P.S.pins.push(5, 40); P.setSel(5); P.renderAll(); return [5, 40]; });
@@ -176,7 +211,7 @@ module.exports = {
       await closeModals(page);
       const miss = await page.evaluate(() => {
         const P = window.__parish, out = [];
-        P.COMS().forEach((c, ci) => { P.S.prog[ci] = c.tasks.map(() => 1); c.tasks.forEach((k, ti) => {
+        P.COMS().forEach((c, ci) => { P.S.prog[ci] = c.tasks.map(() => 1); c.tasks.forEach((k, ti) => { if (k.absent) return;
           P.openLetter(ci); P.lookUp(ti);
           if (!document.querySelector(`#book .rec[data-id="${k.truth}"]`)) out.push(ci + ':' + ti);
         }); });

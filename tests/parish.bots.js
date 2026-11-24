@@ -13,7 +13,7 @@ function parishBot(i, policy) {
     if (ti < 0) break;
     const k = c.tasks[ti], K = P.KIND[k.kind];
     for (const x of P.candidates(R, k)) if (!P.S.pins.includes(x.id)) P.togglePin(x.id);
-    const left = P.remaining(ti); if (left.length === 1) { P.confirmTask(ti); continue; }
+    const left = P.remaining(ti); if (left.length === 0) { P.declareAbsent(ti); continue; } if (left.length === 1 && !k.absent) { P.confirmTask(ti); continue; }
     if (policy === 'random') { const x = left[rnd.int(left.length)], code = K.strikes[rnd.int(K.strikes.length)]; P.strike(ti, x.id, code, burials[rnd.int(burials.length)].id); continue; }
     const decoys = left.filter(x => x.id !== k.truth); // (bots other than random never touch the truth: a reader can see it fits)
     let progress = false;
