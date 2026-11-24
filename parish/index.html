@@ -68,6 +68,9 @@
   .pinB{flex:0 0 auto;align-self:center;min-width:30px;min-height:28px;padding:0 6px;font-size:13px;background:transparent;box-shadow:none;border:1px dotted #7d5a3688;color:var(--fade);opacity:.75}
   .pinB.on{opacity:1;border-style:solid;background:#f2c76a66}
   .rec:hover .pinB{opacity:1}
+  .absBtn{margin-top:8px;margin-left:6px;font-size:13px}
+  .probBtn{font-style:italic;border-style:dashed!important}
+  .ans .prob{color:var(--fade)}
   .ev{font-size:13px;color:var(--fade);margin:4px 0;font-style:italic}
   .ev i{color:var(--ink)}
   .lost{text-align:center;font-style:italic;color:#8a6a3a;padding:20px}
@@ -402,8 +405,15 @@ function buildCommissions(W) {
   for (const st of starts) {
     if (cands.length >= 90) break;
     const tasks = [], maxT = 3 + r.int(5);
+    let absentUsed = false;
     const tryTask = (kind, a, b, after, truth) => {
-      if (truth == null || tasks.length >= maxT) return null;
+      if (tasks.length >= maxT) return null;
+      if (truth == null) { // not in this register: only worth asking if namesakes are there to tempt you, and every one of them can be ruled out
+        if (!(kind === 'B' || kind === 'C') || absentUsed || r() > .6) return null;
+        const k = { kind, a, b, after, truth: null, absent: true };
+        if (candidates(R, k).length < 2 || solveTask(R, k).length) return null;
+        k.naive = naive(R, k); tasks.push(k); absentUsed = true; return k;
+      }
       const k = { kind, a, b, after, truth };
       const c = solveTask(R, k);
       if (c.length !== 1 || c[0].id !== truth) return null;
@@ -421,13 +431,13 @@ function buildCommissions(W) {
       for (const side of order) {
         if (side === 'G') {
           const gb = tryTask('B', mt.truth, null, 0, G.bap);
-          if (gb) {
+          if (gb && !gb.absent) {
             if (r() < .55) tryTask('D', mt.truth, gb.truth, lastKid, G.bur);
             const up = tryTask('A', gb.truth, null, 0, parentsOf(gb.truth)); if (up) queue.push(up);
           }
         } else if (M.bst === 'spinster' && !M.of) {
           const bb = tryTask('C', mt.truth, null, 0, B.bap);
-          if (bb) {
+          if (bb && !bb.absent) {
             if (r() < .45) tryTask('E', mt.truth, bb.truth, lastKid, B.bur);
             const up = tryTask('A', bb.truth, null, 0, parentsOf(bb.truth)); if (up && r() < .7) queue.push(up);
           }
@@ -443,7 +453,7 @@ function buildCommissions(W) {
   // prefer longer letters; keep a spread of difficulty
   // one letter per family (siblings share every ancestor), a few short ones to start, then the longest
   const seen = new Set(), uniq = [];
-  for (const c of cands) { const st = R[c.start], nm = st.g + canon(st.fs), ks = c.tasks.map(t => t.truth); if (!ks.some(k => seen.has(k)) && !seen.has(nm)) { ks.forEach(k => seen.add(k)); seen.add(nm); uniq.push(c); } } // letters never share a record
+  for (const c of cands) { const st = R[c.start], nm = st.g + canon(st.fs), ks = c.tasks.map(t => t.truth).filter(x => x != null); if (!ks.some(k => seen.has(k)) && !seen.has(nm)) { ks.forEach(k => seen.add(k)); seen.add(nm); uniq.push(c); } } // letters never share a record
   const short = uniq.filter(c => c.tasks.length <= 3).sort((a, b) => a.diff - b.diff).slice(0, 4);
   const long = uniq.filter(c => !short.includes(c)).sort((a, b) => b.tasks.length - a.tasks.length || b.diff - a.diff);
   const out = [...short, ...long].slice(0, 24);
@@ -462,11 +472,11 @@ function clientFor(r, child) {
 // Old or corrupted saves: fill in missing fields, drop anything that doesn't fit the current register.
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 function cleanSave(raw) {
-  const d = { seed: (Math.random() * 1e9) | 0, done: {}, prog: {}, wrong: {}, strikes: {}, cur: 0, pins: [], notes: '', intro: 0, parishes: 0, total: 0 };
+  const d = { seed: (Math.random() * 1e9) | 0, done: {}, prog: {}, wrong: {}, strikes: {}, prob: {}, cur: 0, pins: [], notes: '', intro: 0, parishes: 0, total: 0 };
   if (!isObj(raw)) return d;
   const S = { ...d };
   if (Number.isInteger(raw.seed)) S.seed = raw.seed;
-  for (const k of ['done', 'prog', 'wrong', 'strikes']) if (isObj(raw[k])) S[k] = raw[k];
+  for (const k of ['done', 'prog', 'wrong', 'strikes', 'prob']) if (isObj(raw[k])) S[k] = raw[k];
   if (Array.isArray(raw.pins)) S.pins = raw.pins.filter(Number.isInteger);
   if (typeof raw.notes === 'string') S.notes = raw.notes;
   for (const k of ['cur', 'parishes', 'total']) if (Number.isInteger(raw[k]) && raw[k] >= 0) S[k] = raw[k];
@@ -486,7 +496,8 @@ function fitSave() { // after the register is built: keep only state that refers
     for (const t of Object.keys(S.strikes[k])) { const task = COMS[k].tasks[t], st = S.strikes[k][t]; if (!task || !isObj(st)) continue;
       const ids = new Set(candidates(W.R, task).map(c => c.id));
       for (const id of Object.keys(st)) if (ids.has(+id) && KIND[task.kind].why(W.R, W.R[id], task).includes(st[id])) ((strikes[k] ||= {})[t] ||= {})[id] = st[id]; } }
-  S.done = done; S.prog = prog; S.wrong = wrong; S.strikes = strikes;
+  const prob = {}; for (const k of Object.keys(S.prob || {})) if (okI(k) && isObj(S.prob[k])) prob[k] = S.prob[k];
+  S.done = done; S.prog = prog; S.wrong = wrong; S.strikes = strikes; S.prob = prob;
   S.pins = [...new Set(S.pins.filter(id => id >= 0 && id < W.R.length))];
 }
 const S = cleanSave(RH.load('parish', null));
@@ -604,7 +615,8 @@ function strikeLabel(code, k) {
     D: { rel: 'Someone else’s kin', early: `Buried before ${yearOf(k.after)}`, age: 'Age at burial doesn’t fit' },
     E: { rel: 'Someone else’s kin', early: `Buried before ${yearOf(k.after)}`, age: 'Age at burial doesn’t fit' } })[k.kind][code];
 }
-const starsFor = w => w === 0 ? 3 : w === 1 ? 2 : 1;
+// a blot or a "probably" each cost a star's worth of confidence
+const starsFor = (w, p = 0) => w + p === 0 ? 3 : w + p === 1 ? 2 : 1;
 // in the later bundles the register isn't searched for you: only entries you have pinned appear as candidates
 const needPins = () => tierOf(cur) >= 2;
 const struckOf = i => ((S.strikes[cur] ||= {})[i] ||= {});
@@ -631,21 +643,47 @@ function strike(i, id, code, citeId) {
 // tasks where only one entry in the whole register bears the names need no deduction: they are entered for you
 function autoEnter() {
   const c = COMS[cur], prog = S.prog[cur] ||= c.tasks.map(() => 0); let more = true, n = 0;
-  while (more) { more = false; c.tasks.forEach((k, i) => { if (!prog[i] && depOk(k, prog) && candidates(W.R, k).length === 1) { prog[i] = 1; more = true; n++; } }); }
+  while (more) { more = false; c.tasks.forEach((k, i) => { if (!prog[i] && !k.absent && depOk(k, prog) && candidates(W.R, k).length === 1) { prog[i] = 1; more = true; n++; } }); }
   return n;
 }
 async function confirmTask(i) {
   const c = COMS[cur], k = c.tasks[i], prog = S.prog[cur];
   if (!k || prog[i] || S.done[cur] || !depOk(k, prog) || remaining(i).length !== 1) return false;
   if (needPins() && !S.pins.includes(remaining(i)[0].id)) return false; // the last one must be found and pinned too
-  prog[i] = 1; openCand = null; autoEnter(); persist(); sfx('quill');
+  if (k.absent) { blot(2, '✗ That entry cannot be the one either. Look at it again.'); renderAll(); return false; }
   RH.toast(`✓ Only one entry is left. ${fmtD(W.R[k.truth].d)}: that must be the one.`, 3200);
+  return finishTask(i);
+}
+const probOf = () => Object.keys(S.prob[cur] || {}).length;
+function blot(n, msg) { S.wrong[cur] = (S.wrong[cur] || 0) + n; persist(); sfx('blot'); RH.toast(msg, 3800); }
+// "Not in this register": certain once every namesake is struck out, otherwise a probable answer
+function declareAbsent(i) {
+  const c = COMS[cur], k = c.tasks[i], prog = S.prog[cur];
+  if (!k || prog[i] || S.done[cur] || !depOk(k, prog)) return null;
+  const certain = remaining(i).length === 0;
+  if (!k.absent) { blot(2, '✗ The entry is in the register. Two blots on the reply.'); renderAll(); return false; }
+  if (!certain) (S.prob[cur] ||= {})[i] = 1;
+  RH.toast(certain ? '✓ Every namesake ruled out: not in this register. Probably baptised elsewhere.' : '✓ Probably not in this register. The client will take your word for it.', 3600);
+  return finishTask(i);
+}
+// "Probably this one": answer before every namesake is struck out. Right: the reply is marked "probably". Wrong: two blots.
+function answerProbably(i, id) {
+  const c = COMS[cur], k = c.tasks[i], prog = S.prog[cur];
+  if (!k || prog[i] || S.done[cur] || !depOk(k, prog) || struckOf(i)[id] || !candidates(W.R, k).some(r => r.id === id)) return null;
+  if (needPins() && !S.pins.includes(id)) return null;
+  if (id !== k.truth) { blot(2, '✗ Not that one, and you sounded sure. Two blots on the reply.'); renderAll(); return false; }
+  (S.prob[cur] ||= {})[i] = 1; RH.toast(`✓ ${fmtD(W.R[id].d)}: probably the one.`, 3000);
+  return finishTask(i);
+}
+async function finishTask(i) {
+  const c = COMS[cur], prog = S.prog[cur];
+  prog[i] = 1; openCand = null; autoEnter(); persist(); sfx('quill');
   if (prog.every(Boolean)) {
-    const w = S.wrong[cur] || 0, stars = starsFor(w);
+    const w = S.wrong[cur] || 0, pr = probOf(), stars = starsFor(w, pr);
     S.done[cur] = { stars }; persist();
     const nxt = COMS.findIndex((cc, j) => j > cur && !S.done[j] && tierOpen(tierOf(j)));
     renderAll(); await sealLetter();
-    const go = await RH.modal(`<h2>Letter answered</h2><p>You trace ${W.R[c.start].g}'s family through ${c.tasks.length} entries in the register.</p><p class="stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</p><p class="small" style="text-align:center">${w ? w + ' blot' + (w > 1 ? 's' : '') + ' on the reply.' : 'Not a single blot. The client will recommend you to their friends.'}</p>`, nxt >= 0 ? [{ label: 'Stay', value: 0 }, { label: 'Next letter', value: 1 }] : [{ label: 'Close', value: 0 }]);
+    const go = await RH.modal(`<h2>Letter answered</h2><p>You trace ${W.R[c.start].g}'s family through ${c.tasks.length} entries in the register.</p><p class="stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</p><p class="small" style="text-align:center">${w ? w + ' blot' + (w > 1 ? 's' : '') + ' on the reply.' : pr ? '' : 'Not a single blot. The client will recommend you to their friends.'}${pr ? ` ${pr} answer${pr > 1 ? 's' : ''} marked "probably".` : ''}</p>`, nxt >= 0 ? [{ label: 'Stay', value: 0 }, { label: 'Next letter', value: 1 }] : [{ label: 'Close', value: 0 }]);
     if (go) openLetter(nxt);
     return true;
   }
@@ -671,7 +709,7 @@ function renderRight() {
     h += `<div class="task ${prog[i] ? 'done' : i === active ? 'active' : ''} ${!prog[i] && !ok ? 'locked' : ''}" data-task="${i}"><b>${i + 1}.</b> `;
     if (!prog[i] && !ok) { h += `<span class="dim">Unlocks when task ${(k.dep >= 0 && !prog[k.dep] ? k.dep : k.dep2) + 1} is answered.</span></div>`; return; }
     h += taskText(c, k, i);
-    if (prog[i]) { h += `<div class="ans">✓ ${fmtD(W.R[k.truth].d)}: ${recText(W.R[k.truth])}</div></div>`; return; }
+    if (prog[i]) { const pb = (S.prob[cur] || {})[i] ? ' <i class="prob">(probably)</i>' : ''; h += `<div class="ans">✓ ${k.absent ? 'Not in this register: baptised elsewhere, or before 1700.' : `${fmtD(W.R[k.truth].d)}: ${recText(W.R[k.truth])}`}${pb}</div></div>`; return; }
     const pinMode = needPins();
     if (!pinMode) h += ` <button class="small" data-look="${i}" title="Search the index for these names">Look up</button>`;
     const all = candidates(W.R, k).sort((a, b) => a.d - b.d), sk = struckOf(i), left = all.filter(x => !sk[x.id]).length;
@@ -682,11 +720,12 @@ function renderRight() {
       h += `<div class="cand ${why ? 'struck' : ''} ${open ? 'open' : ''} ${x.id === sel ? 'sel' : ''}" data-cand="${x.id}" data-t="${i}" ${why ? '' : 'tabindex="0" role="button"'}><span class="cd">${fmtD(x.d)}</span> <span class="ct">${recText(x)}</span>${why ? `<span class="why">${strikeLabel(why, k)}</span>` : ''}`;
       if (open && !why) { const bad = tried[cur + ':' + i + ':' + x.id] || [], ev = sel != null && sel !== x.id ? W.R[sel] : null, needs = KIND[k.kind].strikes.some(c => CITE[c]);
         if (needs) h += `<div class="ev">${ev ? `Evidence to cite: <i>${fmtD(ev.d)}, ${recText(ev)}</i>` : 'To strike with a cited record, select it in the register first.'}</div>`;
-        h += `<div class="chips">${KIND[k.kind].strikes.map(code => `<button data-strike="${code}" ${bad.includes(code) && !CITE[code] ? 'disabled class="blotted"' : ''}>${strikeLabel(code, k)}${CITE[code] ? ' (cite)' : ''}</button>`).join('')}</div>`; }
+        h += `<div class="chips">${KIND[k.kind].strikes.map(code => `<button data-strike="${code}" ${bad.includes(code) && !CITE[code] ? 'disabled class="blotted"' : ''}>${strikeLabel(code, k)}${CITE[code] ? ' (cite)' : ''}</button>`).join('')}${left > 1 ? `<button class="probBtn" data-prob="${x.id}" title="Answer now, before ruling the others out. Right: marked probably. Wrong: two blots.">Probably this one</button>` : ''}</div>`; }
       h += `</div>`;
     }
     if (left === 1 && (!pinMode || S.pins.includes(all.find(x => !sk[x.id]).id))) h += `<button class="primary enter" data-confirm="${i}">Enter the last one in the reply</button>`;
     else if (left === 1) h += `<div class="ev">One entry is still unaccounted for. Find it in the register and pin it.</div>`;
+    if (k.kind === 'B' || k.kind === 'C') h += `<button class="${left === 0 ? 'primary ' : ''}absBtn" data-absent="${i}">${left === 0 ? 'Certain: not in this register' : 'Probably not in this register'}</button>`;
     h += `</div></div>`;
   });
   if (sel != null) {
@@ -702,10 +741,12 @@ function renderRight() {
   $('right').querySelectorAll('.pins .p').forEach(el => el.onclick = () => { sel = +el.dataset.id; year = yearOf(W.R[sel].d); setMode('book'); renderRight(); setTab('reg'); });
   $('right').querySelectorAll('[data-look]').forEach(bn => bn.onclick = () => lookUp(+bn.dataset.look));
   $('right').querySelectorAll('[data-confirm]').forEach(bn => bn.onclick = () => confirmTask(+bn.dataset.confirm));
+  $('right').querySelectorAll('[data-absent]').forEach(bn => bn.onclick = () => declareAbsent(+bn.dataset.absent));
   $('right').querySelectorAll('.cand:not(.struck)').forEach(el => {
     const i = +el.dataset.t, id = +el.dataset.cand;
     el.onclick = e => { if (e.target.closest('[data-strike]')) return; const key = i + ':' + id; const opening = openCand !== key; openCand = opening ? key : null; if (!opening || sel == null) { sel = id; year = yearOf(W.R[id].d); } sfx('page'); renderBook(); renderRight(); };
     el.onkeydown = e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === el) { e.preventDefault(); el.onclick(e); } };
+    el.querySelectorAll('[data-prob]').forEach(bn => bn.onclick = () => answerProbably(i, +bn.dataset.prob));
     el.querySelectorAll('[data-strike]').forEach(bn => bn.onclick = () => { const code = bn.dataset.strike; strike(i, id, code, CITE[code] && sel != null && sel !== id ? sel : undefined); });
   });
 }
@@ -737,13 +778,14 @@ function lookUp(i) {
 
 $('newParish').onclick = async () => {
   if (!(await RH.modal('<h2>Move to a new parish?</h2><p>A different village with a different register and new letters. Your answered letters here count towards your lifetime total.</p>', [{ label: 'Stay', value: 0 }, { label: 'Move', value: 1 }]))) return;
-  S.total += Object.keys(S.done).length; S.parishes++; S.seed = (Math.random() * 1e9) | 0; S.done = {}; S.prog = {}; S.wrong = {}; S.strikes = {}; S.pins = []; S.cur = 0; cur = 0; sel = null; year = 1700; persist(); boot(); renderAll();
+  S.total += Object.keys(S.done).length; S.parishes++; S.seed = (Math.random() * 1e9) | 0; S.done = {}; S.prog = {}; S.wrong = {}; S.strikes = {}; S.prob = {}; S.pins = []; S.cur = 0; cur = 0; sel = null; year = 1700; persist(); boot(); renderAll();
 };
 const help = () => RH.modal(`<h2>The Parish Register</h2>
   <p>You keep the old register of <b>${W.village}</b>: every baptism, marriage and burial from 1700 to 1799, in the clerk's own hand. Letters arrive from descendants who emigrated. Trace their families.</p>
   <p>Each letter is a chain of tasks. For each one, several entries bear the right names, but only one can be the right person. <b>Strike out the others</b> and say why: too young to marry, buried as a child, another man's widow. The register (by year in the <b>Book</b>, by name in the <b>Index</b>) holds the evidence. When one entry is left, it goes in your reply.</p>
   <p>Watch out for the clerk's habits. The same names come back in every generation. Surnames are spelt several ways (Cooper, Couper). Ages at burial are approximate. When a baby died, the next child was often given the same name.</p>
-  <p class="dim">A reason the register doesn't support leaves a blot, and every blot costs a star. "Buried as a child" must cite the burial itself. In the later bundles nobody hands you the list: search the register and pin the candidates yourself.</p>`, [{ label: 'Open the register' }]);
+  <p class="dim">A reason the register doesn't support leaves a blot, and every blot costs a star. "Buried as a child" must cite the burial itself. In the later bundles nobody hands you the list: search the register and pin the candidates yourself.</p>
+  <p class="dim">Not everyone was baptised here. If every namesake can be ruled out, answer <i>not in this register</i>. You may also answer early with <i>probably</i>: right costs a star's worth of confidence, wrong costs two blots.</p>`, [{ label: 'Open the register' }]);
 $('helpBtn').onclick = help;
 if (!S.done[cur]) autoEnter();
 renderAll();
@@ -752,7 +794,7 @@ year = yearOf(W.R[COMS[cur].start].d); renderBook();
 // solver used by tests: a true reason for striking decoy `id` from task i of the open letter, with the cited record if one is needed
 function proofFor(i, id) { const k = COMS[cur].tasks[i], K = KIND[k.kind], d = W.R[id], why = K.why(W.R, d, k).filter(x => K.strikes.includes(x)), vis = why.find(x => !CITE[x]);
   if (vis) return { code: vis }; if (!why.length) return null; return { code: why[0], cite: W.R.find(b => CITE[why[0]](W.R, d, k, b)).id }; }
-window.__parish = { proofFor, starsFor, hardDecoys, isChildBurial, CITE, needPins, togglePin, deadBefore, W: () => W, COMS: () => COMS, S, KIND, solveTask, naive, candidates, soundex, cleanSave, recText, strike, confirmTask, remaining, strikeLabel, STARS_TO_OPEN, tierStars, lookUp, openLetter, tierOpen, tierOf, setSel: v => { sel = v; }, get sel() { return sel; }, get cur() { return cur; }, get year() { return year; }, renderAll };
+window.__parish = { declareAbsent, answerProbably, proofFor, starsFor, hardDecoys, isChildBurial, CITE, needPins, togglePin, deadBefore, W: () => W, COMS: () => COMS, S, KIND, solveTask, naive, candidates, soundex, cleanSave, recText, strike, confirmTask, remaining, strikeLabel, STARS_TO_OPEN, tierStars, lookUp, openLetter, tierOpen, tierOf, setSel: v => { sel = v; }, get sel() { return sel; }, get cur() { return cur; }, get year() { return year; }, renderAll };
 </script>
 </body>
 </html>
