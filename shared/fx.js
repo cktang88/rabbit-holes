@@ -55,11 +55,12 @@ const FX = (() => {
     outElastic: t => t === 0 || t === 1 ? t : Math.pow(2, -10 * t) * Math.sin((t * 10 - .75) * (2 * Math.PI) / 3) + 1,
   };
   const tweens = new Set();
+  let running = false;
   // tween(obj, {x: 10}, 300, 'outBack') -> Promise
   function tween(obj, to, ms = 300, e = 'outCubic') {
     return new Promise(res => {
       const from = {}; for (const k in to) from[k] = obj[k];
-      tweens.add({ obj, from, to, ms, e: typeof e === 'function' ? e : ease[e], t0: performance.now(), res });
+      tweens.add({ obj, from, to, ms, e: typeof e === 'function' ? e : ease[e], t0: performance.now(), res }); wake();
     });
   }
   // damp: frame-rate independent smoothing toward a target (lambda ~ 8-20)
@@ -68,7 +69,7 @@ const FX = (() => {
   // ---------- shake & hit-stop ----------
   const trauma = { v: 0 }; // 0..1, decays; shake offset = maxPx * trauma^2
   const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const shake = (amount = .4) => { if (reduceMotion) return; trauma.v = Math.min(1, trauma.v + amount); };
+  const shake = (amount = .4) => { if (reduceMotion) return; trauma.v = Math.min(1, trauma.v + amount); wake(); };
   function shakeOffset(maxPx = 12, t = performance.now() / 1000) {
     const k = trauma.v * trauma.v;
     return [maxPx * k * (Math.sin(t * 61.3) * .6 + Math.sin(t * 97.1) * .4), maxPx * k * (Math.sin(t * 53.7 + 1) * .6 + Math.sin(t * 89.3) * .4), k * .03 * Math.sin(t * 43.1)];
@@ -112,9 +113,10 @@ const FX = (() => {
       if (k >= 1) { tweens.delete(tw); tw.res(); }
     }
     trauma.v = Math.max(0, trauma.v - .016 * 1.6);
-    requestAnimationFrame(step);
+    // idle when nothing is animating: the loop sleeps until a tween or shake wakes it
+    if (tweens.size || trauma.v > 0) requestAnimationFrame(step); else running = false;
   }
-  requestAnimationFrame(step);
+  function wake() { if (!running) { running = true; requestAnimationFrame(step); } }
 
   // ---------- canvas helpers ----------
   // Size a canvas to its CSS box with a capped devicePixelRatio. Returns dpr.
