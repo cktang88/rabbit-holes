@@ -61,6 +61,13 @@
   #toast:not(.on) .b{pointer-events:none}
   #toast .stamp{position:absolute;right:16px;top:12px;font:600 15px "IBM Plex Mono";letter-spacing:.15em;color:#b3261e;border:2px solid #b3261e;padding:2px 8px;transform:rotate(8deg);opacity:.8;border-radius:2px}
   #padMin{display:none} #storyT{display:none}
+  #padBox.body #pad,#padBox.body #padT,#padBox.body .ctl .row:not(:last-child),#padBox.body #padMin,#padBox.body #mapT{display:none}
+  #padBox.body .pw{display:block}
+  #bodyPanel{width:256px;font-size:12px;color:var(--dim)} #bodyPanel b{color:var(--engr);font-weight:600}
+  #bodyPanel canvas{display:block;width:256px;height:76px;background:#0d0e0d;border:1px solid #000;box-shadow:inset 0 0 0 1px #2d2e2f;margin:4px 0 8px}
+  #bodyPanel .big{font-size:15px;padding:10px 0;width:100%;margin-top:6px;min-height:44px}
+  #bodyPanel label{display:flex;justify-content:space-between;align-items:center;margin:6px 0 2px;letter-spacing:.03em} #bodyPanel input[type=range]{width:100%;accent-color:#e3a43a;min-height:30px;touch-action:none}
+  .gauge{height:9px;background:#0d0e0d;border:1px solid #000;margin:3px 0 6px;position:relative} .gauge i{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,#c58a2a,#e3a43a)} .gauge i.over{background:#b3261e}
   /* phones: notes fold away, the stage and its keys tuck into a corner, keys get finger-sized */
   @media (max-width:860px),(max-height:500px){
     #storyT{display:inline-block}
@@ -119,7 +126,7 @@
 <div id="hud" class="chip"><div class="lab"><a class="home" href="../index.html">← Rabbit Holes</a><h1 id="title">Low Reynolds</h1><div id="story"></div><div id="goal"></div></div>
   <div id="nav"><select id="lvsel" aria-label="Level"></select><button class="b" id="storyT" aria-expanded="false">Notes</button><button class="b on" id="next">Next ▸</button></div></div>
 <div id="levels" class="chip"></div>
-<div id="padBox" class="chip"><div class="t" id="padT"></div>
+<div id="padBox" class="chip"><div id="bodyPanel" hidden></div><div class="t" id="padT"></div>
   <div class="pw"><canvas id="pad"></canvas><div class="ctl">
   <div class="row"><button class="b" data-p="circle" aria-label="circle">○<span class="lbl"> circle</span></button><button class="b" data-p="square" aria-label="square">□<span class="lbl"> square</span></button><button class="b" data-p="line" aria-label="back and forth">↔<span class="lbl"> back &amp; forth</span></button><button class="b" id="rev" aria-label="reverse">↺<span class="lbl"> reverse</span></button><button class="b" id="asym" hidden title="Open the hinge fast and close it slowly">fast open<span class="lbl">, slow close</span></button></div>
   <div class="row" id="slots"><button class="b" id="slotSave" title="Save the current loop into a slot (or Shift+1/2/3)">save<span class="lbl"> →</span></button><button class="b" data-slot="0" title="Key 1">1</button><button class="b" data-slot="1" title="Key 2">2</button><button class="b" data-slot="2" title="Key 3">3</button></div>
@@ -134,7 +141,7 @@
 // ================= physics: Purcell's three-link swimmer in resistive-force theory =================
 // No inertia: at every instant drag forces and torques on the body sum to exactly zero.
 // Drag on a slender segment is twice as strong sideways as lengthways (ξ⊥ = 2ξ∥), and that asymmetry is what lets it swim at all.
-const XP = 1, XN = 2, SEG = 8, Lm = 1, Ls = 1, NP = SEG * 3;
+const XP = 1, XN0 = 2, SEG = 8, Lm = 1, Ls = 1, NP = SEG * 3; let XN = XN0; // XN changes only in shear-thinning goo
 // body-frame geometry of the current shape, in flat typed arrays (no per-step allocation)
 const PRX = new Float64Array(NP), PRY = new Float64Array(NP), PTX = new Float64Array(NP), PTY = new Float64Array(NP),
   PJ1X = new Float64Array(NP), PJ1Y = new Float64Array(NP), PJ2X = new Float64Array(NP), PJ2Y = new Float64Array(NP), PDS = new Float64Array(NP);
@@ -180,41 +187,39 @@ function powerOf(x0, x1, x2, d1, d2) { // drag power for body motion (x0, x1, x2
 
 // ================= levels =================
 const LV = [
-  { n: 'The Scallop', hinges: 1, start: [0, 0, 0], line: 2.5, obstacles: [],
+  { n: 'The Scallop', chapter: 'I · Purcell\'s swimmer', hinges: 1, mirror: 1, start: [0, 0, Math.PI / 2], line: 2.5, obstacles: [],
     story: 'You are a bacterium. At your size water is like <b>honey</b>: stop moving and you stop dead, with no gliding. You have <b>one hinge</b>, like a scallop. Open and close it any way you like, even <b>fast one way and slow the other</b> (the <i>fast open, slow close</i> key), and try to swim across the line.',
     goal: 'Try to cross the line. Do 8 strokes with any stroke you like.', test: S => S.cycles >= 8, lesson: '<b>The scallop theorem.</b> With one hinge, every stroke runs backwards over exactly the path it came. In honey, undoing a stroke undoes the motion. Speed doesn\'t matter, fast or slow: you can\'t swim. (E. M. Purcell, 1976)' },
-  { n: 'Two Hinges', hinges: 2, start: [0, 0, 0], line: 2.5, dir: 1, obstacles: [],
+  { n: 'Two Hinges', chapter: 'I · Purcell\'s swimmer', hinges: 2, start: [0, 0, 0], line: 2.5, dir: 1, obstacles: [],
     story: 'Purcell\'s fix: <b>two hinges</b>. Now a stroke can trace a <b>loop</b> in shape space, going out one way and coming back another. That is a stroke time can\'t simply rewind.',
     goal: 'Draw your <b>own</b> loop on the pad (the presets don\'t count here) and cross the line 2.5 body lengths ahead.', test: S => S.reached && S.drawn, lesson: 'Net motion comes from the <b>area</b> your loop encloses. A back-and-forth line has no area and goes nowhere.' },
-  { n: 'Reverse Gear', hinges: 2, start: [0, 0, 0], line: -2.5, dir: -1, obstacles: [],
-    story: 'The line is <b>behind</b> you. Swimmers can\'t turn their heads round, but they can run the stroke the other way.',
-    goal: 'Cross the line behind you.', test: S => S.reached, lesson: 'Running the loop the other way round reverses the motion. The direction is in the stroke itself.' },
-  { n: 'Nine Strokes', hinges: 2, start: [0, 0, 0], line: 2, maxCycles: 9, obstacles: [],
-    story: 'The colours under shape space are a map. For a loop run the way the <b>default circle</b> goes (clockwise on the pad), <b>bright amber</b> regions push you forward and <b>dark blue</b> regions push you back, for every bit of area the loop encloses there. Reverse the loop and they swap. <b>Big loops over the bright patches go furthest.</b>',
-    goal: 'Cross a line in <b>9 strokes or fewer</b>, in either direction. Reset to try again.', test: S => S.reached && S.strokes <= 9.001, fail: S => S.strokes > 9.001 && !S.reached, lesson: 'Displacement ≈ area × field strength. Mathematicians call this the <b>geometric phase</b>: the same maths as Foucault\'s pendulum and a falling cat righting itself.' },
-  { n: 'About Turn', hinges: 2, start: [0, 0, 0], target: null, turn: Math.PI / 2, obstacles: [],
-    story: 'A loop centred on the middle of shape space swims straight. Push the loop off into a <b>corner</b> and the swimmer starts to <b>turn</b>.',
-    goal: 'Turn the swimmer at least 90°.', test: S => Math.abs(S.phi) >= Math.PI / 2, lesson: 'Off-centre loops rotate the body. Swimmers steer by choosing where in shape space they stroke.' },
-  { n: 'Around the Rock', hinges: 2, start: [0, 0, 0], target: [5.4, -2.6], tr: .75, obstacles: [[3.4, -.2, .85]],
+  { n: 'Around the Rock', chapter: 'I · Purcell\'s swimmer', hinges: 2, start: [0, 0, 0], target: [5.4, -2.6], tr: .75, obstacles: [[3.4, -.2, .85]],
     story: 'Steer to the ring. A sand grain sits in the way, and you can\'t push through it. Tip: save a turning loop and a straight loop in slots <b>1</b>, <b>2</b>, <b>3</b> and switch with the keys.',
     goal: 'Reach the ring. Change your loop as often as you like.', test: S => S.reached, par: 110, par2: 180, lesson: 'Steering is just switching between a turning loop and a swimming loop.' },
-  { n: 'Slalom', hinges: 2, start: [0, 0, 0], target: [8, 0], tr: .75, obstacles: [[3.2, 1.35, .7], [5.8, -1.35, .7]],
-    story: 'Weave between the grains. Every stroke costs energy, so the stars go to the swimmer who wastes fewest.', goal: 'Reach the far ring.', test: S => S.reached, par: 150, par2: 240, lesson: 'You\'re navigating with nothing but geometry.' },
-  { n: 'Lazy Swimmer', hinges: 2, start: [0, 0, 0], line: 1.5, obstacles: [], budget: 28, init: 'square',
-    story: 'Bacteria run on a tiny energy budget. Every stroke burns energy fighting the honey. Small loops are cheap but slow, and big loops travel further but cost more. Corners are expensive too: sharp turns in a stroke waste effort. You start with a square.',
-    goal: 'Cross a line, in either direction, using no more than <b>28 units of energy</b>.', test: S => S.reached && S.energy <= L.budget, fail: S => S.energy > L.budget && !S.reached, lesson: 'The best stroke balances enclosed area against path length, like a cyclist choosing the right gear.' },
-  { n: 'The Pore', hinges: 2, start: [0, 0, 0], target: [6.5, 0], tr: .6, obstacles: [[3.2, 1.22, .9], [3.2, -1.22, .9]], par: 190, par2: 300,
-    story: 'Two grains with a gap barely wider than your body. A big stroke swings your arms wide and they <b>jam</b> on the grains. Watch your shape, not just your heading.',
-    goal: 'Slip through the pore to the ring.', test: S => S.reached, lesson: 'A swimmer\'s shape is part of its path: in tight places, a small loop (small arm swings) gets through where a big one jams.' },
-  { n: 'Shear Current', hinges: 2, start: [0, 0, 0], target: [8, 2], tr: .6, obstacles: [], shear: .015, par: 160, par2: 250,
-    story: 'The water itself is sliding: faster above you, slower below. A shear flow carries you along <b>and turns you</b>, constantly, whatever you do.',
-    goal: 'Reach the ring despite the current.', test: S => S.reached, lesson: 'Shear both drags and rotates a microbe. Bacteria near surfaces and in flowing blood fight exactly this.' },
-  { n: 'Food Chase', hinges: 2, start: [0, 0, 0], target: [6, 0], tr: .6, obstacles: [], food: { c: [5, 4], r: 1.8, w: .3 }, par: 105, par2: 170,
-    story: 'A drifting speck of food circles slowly. It moves while you stroke, so aim where it <b>will</b> be.',
-    goal: 'Catch the food.', test: S => S.reached, lesson: 'Steering by geometry still works against a moving target: you plan in strokes, not seconds.' },
-  { n: 'Grain Maze', hinges: 2, start: [0, 0, 0], target: [10, 0], tr: .6, obstacles: [[2.6, 1.3, .6], [2.6, -1.6, .6], [5.2, -.3, .75], [5.4, 2.7, .6], [7.8, 1.2, .6], [7.8, -1.9, .6]], par: 350, par2: 600, master: 1,
-    story: '<b>Master sample.</b> A thicket of sand. Any route will do; a cheap one is the challenge.',
-    goal: 'Reach the far ring. ★★★ needs a near-perfect route.', test: S => S.reached, lesson: 'You have navigated a maze with nothing but the shape of a stroke. Purcell would approve.' },
+  { n: 'Shear-Thinning Goo', chapter: 'II · Thick goo', hinges: 1, mirror: 1, goo: 1, start: [0, 0, Math.PI / 2], line: 1.5, obstacles: [], par: 120, par2: 170,
+    story: 'Mucus, saliva and the slime round a snail are not like water: they <b>thin</b> when you shear them fast. In goo like this the scallop theorem has a loophole. Remember the one-hinge scallop that went nowhere?',
+    goal: 'With one hinge (both shells open and close together), cross the line 1.5 body lengths away. Energy decides the stars.', test: S => S.reached,
+    lesson: 'Purcell\'s theorem needs a Newtonian fluid, where the drag doesn\'t care how fast you move. A shear-thinning fluid does care, so a fast-open, slow-close stroke stops being its own reverse. Micro-scallops really swim in mucus (Qiu et al., 2014).' },
+  { n: 'Run and Tumble', chapter: 'III · E. coli', body: 'coli', start: [0, 0, 1.2], food: [38, 14], foodR: 7, sigma: 40, time: 110, par: 28, par2: 50, seed: 3,
+    story: 'Swap bodies. <b>E. coli</b> drives a corkscrew bundle of flagella with a rotary motor. Run the motor one way and the bundle pushes you straight; reverse it and the bundle flies apart and you <b>tumble</b> to a random new heading. Neither of you can see the food: the cell can only taste it, and the taste is noisy.',
+    goal: 'Find the food within 110 s. Watch your taste readout: tumble when things get worse, keep running while they improve. ★★★ under 28 s.', test: S => S.reached,
+    lesson: 'Run-and-tumble chemotaxis: a cell too small to sense a gradient across its body compares now with a second ago, and simply runs longer when things improve. That biased random walk is how bacteria find food (Berg & Brown, 1972).' },
+  { n: 'Against the Glass', chapter: 'III · E. coli', body: 'coli', wall: .35, start: [0, 0, 0], food: [-22, 36], foodR: 7, sigma: 40, time: 120, par: 30, par2: 55, seed: 5,
+    story: 'Now you are swimming just above the microscope slide. The bundle spins one way and your body the other, and the glass turns that into a steady <b>clockwise circle</b>. Long runs just go round and round.',
+    goal: 'Reach the food within 120 s. ★★★ under 30 s.', test: S => S.reached,
+    lesson: 'Near a surface, counter-rotating head and tail feel different drag on the wall side and the cell circles clockwise (Lauga et al., 2006). It\'s why bacteria pile up on surfaces, and why tumbling at the right moment matters there.' },
+  { n: 'Feeding Current', chapter: 'III · E. coli', body: 'coli', start: [6, 6, 2], food: [38, -22], foodR: 7, sigma: 40, time: 120, predator: [-10, -4], pull: 45, catchR: 4, par: 20, par2: 55, seed: 9,
+    story: 'A <b>ciliate</b> is feeding: its cilia drive a current that sweeps small things into its mouth. You swim at 8 body lengths a second; near the mouth, the water moves faster than that.',
+    goal: 'Don\'t get eaten, and reach the food within 120 s. ★★★ under 20 s.', test: S => S.reached, fail: S => S.eaten,
+    lesson: 'A feeding current is a sink flow: it falls off with distance, so the danger is all close in. Bacteria escape by running directly away, and tumbling at the wrong moment near a predator is fatal.' },
+  { n: 'Wave Your Tail', chapter: 'IV · The sperm tail', body: 'tail', start: [0, 0, 0], dist: 40, time: 12, ebudget: 140, par: 104, par2: 118, cargo: .3,
+    story: 'A sperm cell beats a wave down its tail. Two settings: how many <b>waves</b> fit on the tail, and how <b>big</b> they are. Bigger, longer waves push harder but burn far more energy fighting the honey-thick water.',
+    goal: 'Swim 40 body lengths in 12 s without spending more than 140 units of energy. ★★ under 118, ★★★ under 104.', test: S => S.reached && S.energy <= L.ebudget && S.t <= L.time, fail: S => !S.reached && (S.energy > L.ebudget || S.t > L.time),
+    lesson: 'Resistive force theory: a waving filament swims because sideways drag is about twice lengthways drag. Speed grows with (amplitude × wavenumber)², but so does the cost, and the best stroke balances the two.' },
+  { n: 'Towing Cargo', chapter: 'IV · The sperm tail', body: 'tail', start: [0, 0, 0], dist: 30, time: 10, ebudget: 260, par: 205, par2: 228, cargo: 2, master: 1,
+    story: '<b>Master sample.</b> Engineers are building sperm-powered micro-robots that tow a drug-carrying bead. The bead adds a lot of drag, so the stroke that was best before is not best now.',
+    goal: 'Tow the bead 30 body lengths in 10 s within 260 units of energy. ★★ under 228, ★★★ under 205.', test: S => S.reached && S.energy <= L.ebudget && S.t <= L.time, fail: S => !S.reached && (S.energy > L.ebudget || S.t > L.time),
+    lesson: 'With a heavy load, a bigger, slower wave is worth its cost: the tail has to make thrust, not just speed. Sperm-hybrid micro-robots really do this (Medina-Sánchez et al., 2016).' },
 ];
 for (const l of LV) l.goalBase = l.goal;
 
@@ -250,17 +255,18 @@ function load(i, retry = false) {
   $('toast').classList.remove('on'); // a previous level's lesson (and its Next button) must not linger
   const fresh = !retry || LV[i] !== L;
   SAVE.cur = i; persist(); L = LV[i]; won = false; failed = false;
+  L.obstacles ||= [];
   sw = { x: L.start[0], y: L.start[1], phi: L.start[2], t1: 0, t2: 0 };
   trail = []; St = { cycles: 0, strokes: 0, reached: false, energy: 0, phi: 0, dist: 0, blocked: false, drawn: false };
-  if (L.food) L.target = foodAt(0);
   if (L.init && fresh) loop = presetLoop(L.init); // Reset keeps the loop you drew
-  else if (!loop.length || (L.hinges === 1 && loop.some(p => p[1] !== 0)) || (L.hinges === 2 && loop.every(p => p[1] === 0))) loop = presetLoop(L.hinges === 1 ? 'line' : 'circle');
+  else if (!loop.length || (L.hinges === 1 && loop.some(p => p[1] !== 0)) || (L.hinges === 2 && (loop.every(p => p[1] === 0) || loop.every(p => p[1] === p[0])))) loop = presetLoop(L.hinges === 1 ? 'line' : 'circle');
   if (L.hinges === 1) asym = false;
   setLoop(loop, true); // a fresh start: nothing measured yet, so the pose may start on the loop
   $('title').textContent = L.n; $('story').innerHTML = L.story; renderGoal(); renderLevels();
   $('padT').innerHTML = L.hinges === 1 ? '<b>One hinge.</b> A scallop can only open and close. Drag left and right to set the stroke.' : '<b>Shape space.</b> Each point is a pose (two hinge angles; hover to see it). <b>Draw a loop</b>: the swimmer repeats it. Amber pushes forward, blue back; switch the map to see turning.';
   $('asym').hidden = L.hinges !== 1; $('asym').classList.toggle('on', asym); $('slots').hidden = L.hinges === 1; $('slots').style.display = L.hinges === 1 ? 'none' : '';
   renderSlots();
+  $('padBox').classList.toggle('body', !!L.body); $('bodyPanel').hidden = !L.body; bd = null; if (L.body) bodyInit();
   cam.x = sw.x + 1.2; cam.y = sw.y; camSnap = true; layout();
 }
 const LIM = 1.45;
@@ -278,7 +284,7 @@ function preset(p) { setLoop(presetLoop(p)); }
 // Change the stroke. The pose never jumps: it travels in a straight line through shape space to the
 // nearest point of the new loop, and that journey moves the body and costs energy like any other.
 function setLoop(nl, snap = false) {
-  loop = nl.map(p => [p[0], p[1]]); const n = loop.length; perim = 0;
+  loop = nl.map(p => [p[0], L && L.mirror ? p[0] : p[1]]); const n = loop.length; perim = 0; // a mirror scallop: both shells open and close together
   for (let i = 0; i < n; i++) { const A = loop[i], B = loop[(i + 1) % n]; perim += Math.hypot(B[0] - A[0], B[1] - A[1]); }
   perim = Math.max(perim, .05);
   if (snap) { sw.t1 = loop[0][0]; sw.t2 = loop[0][1]; seg = 0; trans = null; pred = predictLoop(loop); return; }
@@ -292,11 +298,67 @@ function setLoop(nl, snap = false) {
   pred = predictLoop(loop);
 }
 
+// ================= other bodies =================
+// E. coli (run and tumble): a rotary motor turns a helical bundle. CCW = run (8 BL/s, with rotational diffusion);
+// CW = the bundle flies apart and the cell tumbles for 0.2 s to a new heading (mean 68°, as Berg measured).
+// Near glass, runs curve clockwise. A ciliate's feeding current is a 2-D sink flow u = Q (P − r)/|P − r|².
+const COLI = { V: 8, DR: .1, TUMBLE: .2 };
+let bd = null, bodyRng = null, bodySeed = null;
+const gauss = r => Math.sqrt(-2 * Math.log(1 - r())) * Math.cos(2 * Math.PI * r());
+const taste = (x, y) => Math.exp(-Math.hypot(x - L.food[0], y - L.food[1]) / L.sigma);
+function bodyInit() {
+  bodyRng = RH.rng(bodySeed != null ? bodySeed : (Math.random() * 1e9) | 0);
+  if (L.body === 'coli') { bd = { t: 0, mode: 'run', tt: 0, taste: [], sense: 0, spin: 0 }; L.target = L.food; L.tr = L.foodR; }
+  else { bd = { t: 0, x: 0, E: 0, n: 1.5, A: .2, running: false, ph: 0 }; L.line = L.dist; }
+  St.t = 0; St.eaten = false; renderBody();
+}
+function tumble() { if (!bd || L.body !== 'coli' || bd.mode === 'tumble' || won || failed) return; bd.mode = 'tumble'; bd.tt = COLI.TUMBLE; const r = bodyRng; sw.phi += (r() < .5 ? -1 : 1) * Math.max(.2, (68 + 30 * gauss(r)) * Math.PI / 180); FX.sfx('whoosh'); }
+function coliStep(dt) {
+  const r = bodyRng; bd.t += dt; bd.spin += dt * (bd.mode === 'run' ? 40 : 8);
+  if (bd.mode === 'tumble') { bd.tt -= dt; sw.phi += gauss(r) * .4 * Math.sqrt(dt); if (bd.tt <= 0) bd.mode = 'run'; }
+  else { sw.phi += Math.sqrt(2 * COLI.DR * dt) * gauss(r) - (L.wall || 0) * dt; sw.x += COLI.V * Math.cos(sw.phi) * dt; sw.y += COLI.V * Math.sin(sw.phi) * dt; }
+  if (L.predator) { const dx = L.predator[0] - sw.x, dy = L.predator[1] - sw.y, r2 = dx * dx + dy * dy, d = Math.sqrt(r2); sw.x += L.pull * dx / r2 * dt; sw.y += L.pull * dy / r2 * dt; if (d < L.catchR) St.eaten = true; }
+  // taste: what the receptors report, four times a second, with noise
+  bd.sense += dt; if (bd.sense >= .25) { bd.sense = 0; bd.taste.push(taste(sw.x, sw.y) * (1 + .025 * gauss(r))); bd.reads = (bd.reads || 0) + 1; if (bd.taste.length > 24) bd.taste.shift(); }
+  St.t = bd.t; St.energy = bd.t;
+}
+// sperm tail (resistive force theory, Gray & Hancock): n waves on the tail, amplitude A (tail lengths), beating at 30 Hz.
+// Wave speed c = fλ; small-to-large amplitude thrust U₀ = c(γ−1)ε/(2+(γ+1)ε), ε=(kb)², γ = ξ⊥/ξ∥ = 2;
+// a towed load R slows it: U = U₀·ξ/(ξ+R); power = viscous work of the waving tail (with a bending term) plus towing the load.
+function tailUP(n, A, R) { const k = 2 * Math.PI * n, b = A, e = (k * b) ** 2, c = 30 / n, U0 = c * e / (2 + 3 * e), xi = 1 + e / 2, U = U0 * xi / (xi + R);
+  return [U, ((2 * Math.PI * 30 * b) ** 2 / 2 * 2 * (1 + .02 * k * k) + R * U * U) / 100]; }
+function tailStep(dt) { if (!bd.running) return; const [U, P] = tailUP(bd.n, bd.A, L.cargo); bd.t += dt; bd.x += U * dt; bd.E += P * dt; bd.U = U; sw.x = bd.x; St.t = bd.t; St.energy = bd.E; }
+function renderBody() {
+  const p = $('bodyPanel');
+  if (L.body === 'coli') p.innerHTML = `<div><b>Taste</b> (the last 6 seconds)</div><canvas id="tasteC" width="512" height="152"></canvas>
+    <div>time <b id="bt">0.0</b> / ${L.time} s · <span id="bm">running</span></div><button class="b big on" id="tumbleB">Tumble (space)</button>`;
+  else p.innerHTML = `<label>Waves on the tail <b id="nV">${bd.n.toFixed(2)}</b></label><input type="range" id="nR" min="0.5" max="3" step="0.25" value="${bd.n}" aria-label="Waves on the tail">
+    <label>Wave size <b id="aV">${Math.round(bd.A * 100)}%</b></label><input type="range" id="aR" min="0.05" max="0.35" step="0.05" value="${bd.A}" aria-label="Wave amplitude">
+    <div>speed <b id="bU">–</b> BL/s · distance <b id="bX">0</b> / ${L.dist}</div><div>energy <b id="bE">0</b> / ${L.ebudget}</div><div class="gauge"><i id="gE"></i></div><div>time <b id="bt">0.0</b> / ${L.time} s</div><div class="gauge"><i id="gT"></i></div>
+    <button class="b big on" id="swimB">Swim</button>`;
+  if ($('tumbleB')) $('tumbleB').onclick = tumble;
+  if ($('nR')) { $('nR').oninput = e => { bd.n = +e.target.value; $('nV').textContent = bd.n.toFixed(2); }; $('aR').oninput = e => { bd.A = +e.target.value; $('aV').textContent = Math.round(bd.A * 100) + '%'; };
+    $('swimB').onclick = () => { if (won || failed) return; bd.running = !bd.running; $('swimB').textContent = bd.running ? 'Pause' : 'Swim'; FX.sfx('click'); }; }
+}
+function bodyHUD() {
+  if (L.body === 'coli') { $('bt').textContent = bd.t.toFixed(1); $('bm').textContent = bd.mode === 'run' ? 'running' : 'tumbling';
+    const c = $('tasteC'), x = c.getContext('2d'), w = c.width, h = c.height, T = bd.taste; x.fillStyle = '#0d0e0d'; x.fillRect(0, 0, w, h);
+    x.strokeStyle = 'rgba(227,164,58,.18)'; for (let k = 1; k < 4; k++) { x.beginPath(); x.moveTo(0, k * h / 4); x.lineTo(w, k * h / 4); x.stroke(); }
+    if (T.length > 1) { const lo = Math.min(...T), hi = Math.max(...T), sp = Math.max(hi - lo, T[T.length - 1] * .08); x.strokeStyle = '#e3a43a'; x.lineWidth = 3; x.beginPath(); T.forEach((v, i) => { const px = w - (T.length - 1 - i) * w / 23, py = h - 8 - (v - (lo + hi) / 2 + sp / 2) / sp * (h - 16); i ? x.lineTo(px, py) : x.moveTo(px, py); }); x.stroke(); } }
+  else { $('bt').textContent = bd.t.toFixed(1); $('bU').textContent = bd.running ? bd.U.toFixed(1) : '–'; $('bX').textContent = bd.x.toFixed(1); $('bE').textContent = bd.E.toFixed(0);
+    $('gE').style.width = Math.min(100, bd.E / L.ebudget * 100) + '%'; $('gE').classList.toggle('over', bd.E > L.ebudget); $('gT').style.width = Math.min(100, bd.t / L.time * 100) + '%'; }
+}
+
 // ================= simulation step =================
 // Fixed small steps along the shape path (independent of frame rate), midpoint rule for the body's rotation.
 const DS = .004, ESCALE = 2;
 let DSX = DS; // exposed for the step-size convergence test
 function stepShape(dt1, dt2, rate) {
+  if (!L.goo) return stepShape0(dt1, dt2, rate);
+  XN = rate > 1.2 ? 1.15 : XN0; // shear-thinning: fast strokes thin the goo and the sideways/lengthways drag contrast collapses
+  try { return stepShape0(dt1, dt2, rate); } finally { XN = XN0; }
+}
+function stepShape0(dt1, dt2, rate) {
   const d = Math.hypot(dt1, dt2); if (d < 1e-12) return true;
   const m1 = sw.t1 + dt1 / 2, m2 = sw.t2 + dt2 / 2, nt1 = sw.t1 + dt1, nt2 = sw.t2 + dt2;
   let P = bodyVel(m1, m2, dt1, dt2), vx = BV[0], vy = BV[1], w = BV[2];
@@ -354,7 +416,6 @@ function advance(budget) { // budget: shape-space path length to travel (at the 
     if (St.cycles > before && navigator.userActivation?.hasBeenActive !== false) FX.sfx('chime', St.cycles); // no audio before the first gesture (browsers refuse it and warn every stroke)
   }
   St.blocked = blocked;
-  if (L.food) L.target = foodAt(St.strokes);
 }
 const HB = new Float64Array(2 * (NP + 2));
 function hits(x, y, phi, t1, t2) {
@@ -435,7 +496,7 @@ addEventListener('keydown', e => {
   if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
   const k = { Digit1: 0, Digit2: 1, Digit3: 2 }[e.code]; if (k != null) { useSlot(k, e.shiftKey); e.preventDefault(); }
   if (e.key === 'r' || e.key === 'R') reverseLoop();
-  if (e.key === ' ') { $('play').click(); e.preventDefault(); }
+  if (e.key === ' ') { if (L.body === 'coli') tumble(); else $('play').click(); e.preventDefault(); }
 });
 
 // ================= rendering =================
@@ -486,6 +547,30 @@ function edgeArrow(wx, wy, label) { // points at a goal that is off screen
   g.fillStyle = '#f0e6cf'; g.font = `${12 * dpr}px "IBM Plex Mono", monospace`; g.textAlign = 'center'; g.fillText(label, ax - Math.cos(a) * 30 * dpr, ay - Math.sin(a) * 30 * dpr + 4 * dpr); g.textAlign = 'start';
 }
 // marker pen on the coverslip: wobbly hand-drawn rings and lines (fixed wobble, so they don't crawl)
+function drawBody(now, z) {
+  const k = cam.z / 110;
+  if (L.body === 'coli') {
+    // the nutrient: a faint refractile cloud; the ciliate predator with its beating cilia and the current it draws
+    const near = Math.max(0, 1 - Math.hypot(sw.x - L.food[0], sw.y - L.food[1]) / (L.foodR * 3)); g.globalAlpha = St.reached ? 1 : near; const [fx, fy] = toS(...L.food), fr = L.foodR * z * 1.6; const fg = g.createRadialGradient(fx, fy, 0, fx, fy, fr); fg.addColorStop(0, 'rgba(250,240,200,.35)'); fg.addColorStop(1, 'rgba(250,240,200,0)'); g.fillStyle = fg; g.beginPath(); g.arc(fx, fy, fr, 0, 7); g.fill();
+    for (let q = 0; q < 14; q++) { const a = q * 2.4, rr = (.2 + (q % 5) * .12) * L.foodR * z; g.fillStyle = 'rgba(40,44,38,.5)'; g.beginPath(); g.arc(fx + Math.cos(a) * rr, fy + Math.sin(a) * rr, 2.2 * dpr, 0, 7); g.fill(); } g.globalAlpha = 1;
+    if (L.predator) { const [px, py] = toS(...L.predator), R = L.catchR * z * 1.1;
+      g.strokeStyle = 'rgba(30,34,30,.16)'; g.lineWidth = dpr; for (let q = 0; q < 24; q++) { const a = q / 24 * Math.PI * 2, ph = ((now / 1600 + q * .37) % 1); g.beginPath(); for (let t = 0; t <= 1; t += .1) { const d = R * (1.2 + (1 - ((ph + t) % 1)) * 5); g.lineTo(px + Math.cos(a + t * .3) * d, py + Math.sin(a + t * .3) * d); } g.stroke(); }
+      const pg = g.createRadialGradient(px, py, R * .2, px, py, R * 1.3); pg.addColorStop(0, '#3b4038'); pg.addColorStop(.8, '#5a5f55'); pg.addColorStop(1, 'rgba(250,252,240,.6)'); g.fillStyle = pg; g.beginPath(); g.arc(px, py, R, 0, 7); g.fill();
+      g.strokeStyle = 'rgba(30,34,30,.7)'; g.lineWidth = 1.5 * dpr; for (let q = 0; q < 40; q++) { const a = q / 40 * Math.PI * 2, w = Math.sin(now / 90 + q * .6) * .25; g.beginPath(); g.moveTo(px + Math.cos(a) * R, py + Math.sin(a) * R); g.lineTo(px + Math.cos(a + w) * R * 1.25, py + Math.sin(a + w) * R * 1.25); g.stroke(); } }
+    if (L.wall) { g.fillStyle = 'rgba(240,244,236,.08)'; g.fillRect(0, 0, W, H); }
+  }
+  const c = Math.cos(sw.phi), s = Math.sin(sw.phi), S = L.body === 'coli' ? Math.max(1, 22 / z) : 1, T = (lx, ly) => toS(sw.x + (c * lx - s * ly) * S, sw.y + (s * lx + c * ly) * S);
+  if (L.body === 'coli') { // a rod with a helical bundle behind it; splayed during a tumble
+    const tum = bd && bd.mode === 'tumble', sp = bd ? bd.spin : 0;
+    for (let f = 0; f < (tum ? 4 : 1); f++) { const off = tum ? (f - 1.5) * .5 : 0; g.strokeStyle = 'rgba(30,34,30,.65)'; g.lineWidth = 1.6 * dpr; g.beginPath(); for (let t = 0; t <= 1; t += .04) { const lx = -.5 - t * 2.4 + (tum ? -Math.abs(off) * t : 0), ly = Math.sin(t * 14 - sp) * .14 + off * t * 1.6; const [x, y] = T(lx, ly); t ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); }
+    const [a0, a1] = [T(-.45, 0), T(.45, 0)]; for (const [w, col] of [[30, 'rgba(250,252,240,.3)'], [20, 'rgba(250,252,240,.5)'], [13, '#2c302a'], [6, '#4a5046']]) { g.strokeStyle = col; g.lineWidth = w * dpr * Math.max(k * 1.6, .45); g.lineCap = 'round'; g.beginPath(); g.moveTo(...a0); g.lineTo(...a1); g.stroke(); }
+  } else { // sperm: head, midpiece and a beating tail; the cargo bead in front
+    const n = bd ? bd.n : 1.5, A = bd ? bd.A : .2, ph = now / 1000 * 6 * (bd && bd.running ? 1 : .2), Lt = 3;
+    g.strokeStyle = '#2c302a'; g.lineWidth = 2.5 * dpr * k * 1.6; g.beginPath(); for (let t = 0; t <= 1.001; t += .02) { const [x, y] = T(-.4 - t * Lt, Math.sin(2 * Math.PI * n * t - ph) * A * Lt * Math.min(1, t * 3)); t ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke();
+    const [hx, hy] = T(0, 0); g.save(); g.translate(hx, hy); g.rotate(sw.phi); g.fillStyle = 'rgba(250,252,240,.45)'; g.beginPath(); g.ellipse(0, 0, .62 * z, .42 * z, 0, 0, 7); g.fill(); g.fillStyle = '#30342e'; g.beginPath(); g.ellipse(0, 0, .5 * z, .3 * z, 0, 0, 7); g.fill(); g.restore();
+    if (L.cargo > 1) { const [bx, by] = T(1.6, 0), R = 1 * z; const bg2 = g.createRadialGradient(bx - R * .3, by - R * .3, 0, bx, by, R); bg2.addColorStop(0, '#e6e8dc'); bg2.addColorStop(.8, '#9ea192'); bg2.addColorStop(1, '#2a2c27'); g.fillStyle = bg2; g.beginPath(); g.arc(bx, by, R, 0, 7); g.fill(); }
+  }
+}
 function markerPath(pts) { g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); }
 let shutter = 0; // the signature moment: the camera on the trinocular head takes a photomicrograph
 function render(now) {
@@ -494,7 +579,8 @@ function render(now) {
   g.drawImage(bgC || background(), 0, 0); bgC.cy = viewCY;
   const z = cam.z * dpr;
   // Brownian motes: phase-dark specks with bright rims, jiggling as every microbe's world does
-  for (const m of motes) { m.vx = m.vx * .9 + (Math.random() - .5) * .004; m.vy = m.vy * .9 + (Math.random() - .5) * .004; m.x += m.vx; m.y += m.vy; if (Math.abs(m.x - cam.x) > 15) m.x = cam.x + (Math.random() - .5) * 28; if (Math.abs(m.y - cam.y) > 10) m.y = cam.y + (Math.random() - .5) * 18; const [x, y] = toS(m.x, m.y), r = (1 + m.r * 2.2) * dpr;
+  const spX = Math.max(15, W / (cam.z * dpr) * .55), spY = Math.max(10, H / (cam.z * dpr) * .55);
+  for (const m of motes) { m.vx = m.vx * .9 + (Math.random() - .5) * .004; m.vy = m.vy * .9 + (Math.random() - .5) * .004; m.x += m.vx; m.y += m.vy; if (Math.abs(m.x - cam.x) > spX) m.x = cam.x + (Math.random() - .5) * 2 * spX; if (Math.abs(m.y - cam.y) > spY) m.y = cam.y + (Math.random() - .5) * 2 * spY; const [x, y] = toS(m.x, m.y), r = (1 + m.r * 2.2) * dpr;
     g.fillStyle = 'rgba(240,244,232,.35)'; g.beginPath(); g.arc(x, y, r * 2, 0, 7); g.fill(); g.fillStyle = `rgba(30,34,30,${.35 + m.r * .4})`; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); }
   // obstacles: sand grains, refractile: bright body, dark rim, bright outer halo
   for (const [ox, oy, r] of L.obstacles) { const [x, y] = toS(ox, oy), R = r * z;
@@ -503,12 +589,14 @@ function render(now) {
   // targets and lines: drawn on the coverslip in blue marker
   g.lineCap = 'round'; g.lineJoin = 'round';
   const ink = St.reached ? 'rgba(30,120,50,.85)' : 'rgba(40,58,170,.8)';
-  if (L.target) { const [x, y] = toS(...L.target), R = .45 * z * (L.tr || .45) / .45, pts = []; for (let k = 0; k <= 40; k++) { const a = k / 40 * 6.5, w = 1 + .05 * Math.sin(a * 3 + 1) + .03 * Math.sin(a * 7); pts.push([x + Math.cos(a) * R * w, y + Math.sin(a) * R * w]); } g.strokeStyle = ink; g.lineWidth = 4 * dpr; markerPath(pts); g.stroke(); }
+  const hideFood = L.body === 'coli' && !St.reached && Math.hypot(sw.x - L.food[0], sw.y - L.food[1]) > L.foodR * 2.2; // the cell can't see its food: neither can you, until it's close
+  if (L.target && !hideFood) { const [x, y] = toS(...L.target), R = .45 * z * (L.tr || .45) / .45, pts = []; for (let k = 0; k <= 40; k++) { const a = k / 40 * 6.5, w = 1 + .05 * Math.sin(a * 3 + 1) + .03 * Math.sin(a * 7); pts.push([x + Math.cos(a) * R * w, y + Math.sin(a) * R * w]); } g.strokeStyle = ink; g.lineWidth = 4 * dpr; markerPath(pts); g.stroke(); }
   const lines = L.line == null ? [] : (L.maxCycles || L.budget) ? [L.start[0] + L.line, L.start[0] - L.line] : [L.line];
   for (const lx of lines) { const [x] = toS(lx, 0); g.strokeStyle = ink; g.lineWidth = 4 * dpr; const pts = []; for (let y = -20; y <= H + 20; y += 40 * dpr) pts.push([x + Math.sin(y * .013 + lx) * 3 * dpr, y]); markerPath(pts); g.stroke(); }
   if (L.turn) { const [x, y] = toS(sw.x, sw.y); g.strokeStyle = 'rgba(40,58,170,.55)'; g.lineWidth = 3 * dpr; g.setLineDash([6 * dpr, 6 * dpr]); g.beginPath(); g.arc(x, y, 1.9 * z, -Math.PI / 2 - .3, -Math.PI / 2 + .3); g.stroke(); g.setLineDash([]); g.beginPath(); g.arc(x, y, 1.9 * z, 0, St.phi, St.phi < 0); g.strokeStyle = '#1e7a32'; g.stroke(); }
   // trail: a faint wake in the field
   g.strokeStyle = 'rgba(30,34,30,.28)'; g.lineWidth = 2 * dpr; g.beginPath(); for (let i = 0; i < trail.length; i += 2) { const [x, y] = toS(trail[i], trail[i + 1]); i ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke();
+  if (L.body) { drawBody(now, z); g.drawImage(vigC || vignette(), 0, 0); vigC.cy = viewCY + viewCX; particles.update(1 / 60); particles.draw(g); drawShutter(now); return; }
   // the swimmer in phase contrast: bright halo, dark body, darker joints
   const c = Math.cos(sw.phi), s = Math.sin(sw.phi), T = (lx, ly) => toS(sw.x + c * lx - s * ly, sw.y + s * lx + c * ly);
   const a1 = Math.PI + sw.t1, a2 = -sw.t2, J1 = [-Lm / 2, 0], J2 = [Lm / 2, 0], E1 = [J1[0] + Math.cos(a1) * Ls, Math.sin(a1) * Ls], E2 = [J2[0] + Math.cos(a2) * Ls, Math.sin(a2) * Ls];
@@ -525,6 +613,9 @@ function render(now) {
   if (L.target && !St.reached) edgeArrow(L.target[0], L.target[1], `${Math.hypot(L.target[0] - sw.x, L.target[1] - sw.y).toFixed(1)} BL`);
   if (!St.reached) for (const lx of lines) edgeArrow(lx, sw.y, `line ${Math.abs(lx - sw.x).toFixed(1)} BL`);
   particles.update(1 / 60); particles.draw(g);
+  drawShutter(now);
+}
+function drawShutter(now) {
   if (shutter) { // iris closes, flash, iris opens
     const u = (now - shutter) / 900, cx = W * viewCX, cy = H * viewCY, R = Math.hypot(W, H) * .45, open = u < .4 ? 1 - u / .4 : u < .55 ? 0 : (u - .55) / .45;
     if (u < 1) { g.fillStyle = '#050505'; g.beginPath(); g.rect(0, 0, W, H); g.arc(cx, cy, Math.max(1, R * open), 0, Math.PI * 2, true); g.fill(); if (u > .4 && u < .62) { g.fillStyle = `rgba(255,255,250,${1 - (u - .4) / .22})`; g.fillRect(0, 0, W, H); } }
@@ -533,7 +624,7 @@ function render(now) {
 }
 const particles = FX.particles();
 function renderPad() {
-  if ($('padBox').classList.contains('min')) return;
+  if ($('padBox').classList.contains('min') || L.body) return;
   const w = pad.width, h = pad.height;
   const hm = heat[mapKind] ||= buildHeat(mapKind);
   pg.imageSmoothingEnabled = true; pg.drawImage(hm, 0, 0, w, h);
@@ -560,7 +651,7 @@ function renderPad() {
 
 // ================= UI & loop =================
 function renderGoal() {
-  const ok = SAVE.done[SAVE.cur]; $('goal').className = ok ? 'ok' : ''; $('goal').innerHTML = (ok ? '✓ ' : '→ ') + L.goal + (L.par ? ` <span style="color:#9a3a10">${SAVE.stars[SAVE.cur] ? starStr(SAVE.stars[SAVE.cur]) : ''} ★★★ ≤ ${L.par} energy</span>` : '');
+  const ok = SAVE.done[SAVE.cur]; $('goal').className = ok ? 'ok' : ''; $('goal').innerHTML = (ok ? '✓ ' : '→ ') + L.goal + (L.par && !L.body ? ` <span style="color:#9a3a10">${SAVE.stars[SAVE.cur] ? starStr(SAVE.stars[SAVE.cur]) : ''} ★★★ ≤ ${L.par} energy</span>` : SAVE.stars[SAVE.cur] ? ` <span style="color:#9a3a10">${starStr(SAVE.stars[SAVE.cur])}</span>` : '');
   $('next').style.display = ok && SAVE.cur < LV.length - 1 ? 'inline-block' : 'none';
 }
 function renderLevels() {
@@ -596,7 +687,8 @@ function frame(now) {
   requestAnimationFrame(frame);
   if (document.hidden) { last = now; return; }
   const dt = Math.min(.05, (now - last) / 1000); last = now;
-  if (playing && !won && !failed) {
+  if (L.body && playing && !won && !failed) { const k = speed / 3; for (let q = 0; q < 4; q++) (L.body === 'coli' ? coliStep : tailStep)(dt * k / 4); const n = trail.length; if (!n || Math.hypot(trail[n - 2] - sw.x, trail[n - 1] - sw.y) > .05) { trail.push(sw.x, sw.y); if (trail.length > 4000) trail.splice(0, 2); } }
+  if (!L.body && playing && !won && !failed) {
     advance(dt * 2.2 * speed);
     const n = trail.length; if (!n || Math.hypot(trail[n - 2] - sw.x, trail[n - 1] - sw.y) > .02) { trail.push(sw.x, sw.y); if (trail.length > 3000) trail.splice(0, 2); }
   }
@@ -604,15 +696,19 @@ function frame(now) {
   if (L.line != null) St.reached = L.maxCycles || L.budget ? Math.abs(sw.x - L.start[0]) >= Math.abs(L.line) : (L.line > 0 ? sw.x >= L.line : sw.x <= L.line);
   St.dist = sw.x - L.start[0];
   { // keep the swimmer and its goal (and nearby grains) in view: centre on them and zoom out if needed
-    let x0 = sw.x - 1.6, x1 = sw.x + 1.6, y0 = sw.y - 1.6, y1 = sw.y + 1.6;
-    if (L.target) { x0 = Math.min(x0, L.target[0] - 1); x1 = Math.max(x1, L.target[0] + 1); y0 = Math.min(y0, L.target[1] - 1); y1 = Math.max(y1, L.target[1] + 1); }
+    const vr = L.body === 'coli' ? 14 : L.body === 'tail' ? 5 : 1.6; let x0 = sw.x - vr, x1 = sw.x + vr, y0 = sw.y - vr, y1 = sw.y + vr;
+    if (L.target && L.body !== 'coli') { const m = L.body ? L.tr + 2 : 1; x0 = Math.min(x0, L.target[0] - m); x1 = Math.max(x1, L.target[0] + m); y0 = Math.min(y0, L.target[1] - m); y1 = Math.max(y1, L.target[1] + m); }
+    if (L.predator && Math.hypot(sw.x - L.predator[0], sw.y - L.predator[1]) < 40) { x0 = Math.min(x0, L.predator[0] - 6); x1 = Math.max(x1, L.predator[0] + 6); y0 = Math.min(y0, L.predator[1] - 6); y1 = Math.max(y1, L.predator[1] + 6); }
     else if (L.line != null && !L.maxCycles && !L.budget) { x0 = Math.min(x0, L.line - .8); x1 = Math.max(x1, L.line + .8); }
-    const zt = FX.clamp(Math.min(freeW / (x1 - x0 + 1), freeH / (y1 - y0 + 1)), 34, Math.min(110, W / dpr / 5.2));
+    const zt = FX.clamp(Math.min(freeW / (x1 - x0 + 1), freeH / (y1 - y0 + 1)), L.body === 'coli' ? 4 : 34, Math.min(110, W / dpr / 5.2));
     if (camSnap) { cam.z = zt; cam.x = (x0 + x1) / 2; cam.y = (y0 + y1) / 2; camSnap = false; }
     else { cam.z = FX.damp(cam.z, zt, 2, dt); cam.x = FX.damp(cam.x, (x0 + x1) / 2, 2, dt); cam.y = FX.damp(cam.y, (y0 + y1) / 2, 2, dt); }
   }
-  if (!won && L.test(St)) { won = true; SAVE.done[SAVE.cur] = 1; if (L.par) SAVE.stars[SAVE.cur] = Math.max(SAVE.stars[SAVE.cur] || 0, gradeE(St.energy)); persist(); FX.sfx('win'); shutter = now; toast(L.n + (L.par ? ' ' + starStr(gradeE(St.energy)) : ''), (L.par ? `Energy used: <b>${St.energy.toFixed(1)}</b> (★★★ ≤ ${L.par}, ★★ ≤ ${L.par2}). ` : '') + L.lesson, 9000, true, false, true); renderGoal(); renderLevels(); }
-  if (!won && !failed && L.fail && L.fail(St)) { failed = true; FX.sfx('fail'); toast('Out of ' + (L.budget ? 'energy' : 'strokes'), failHint(), 9000, false, true); }
+  if (!won && !failed && L.test(St)) { won = true; SAVE.done[SAVE.cur] = 1; if (L.par) SAVE.stars[SAVE.cur] = Math.max(SAVE.stars[SAVE.cur] || 0, gradeE(St.energy)); persist(); FX.sfx('win'); shutter = now; toast(L.n + (L.par ? ' ' + starStr(gradeE(St.energy)) : ''), (L.par ? (L.body === 'coli' ? `Found it in <b>${St.t.toFixed(1)} s</b> (★★★ ≤ ${L.par}, ★★ ≤ ${L.par2}). ` : `Energy used: <b>${St.energy.toFixed(1)}</b> (★★★ ≤ ${L.par}, ★★ ≤ ${L.par2}). `) : '') + L.lesson, 9000, true, false, true); renderGoal(); renderLevels(); }
+  if (L.body === 'coli' && !won && !failed && St.t > L.time) { failed = true; FX.sfx('fail'); toast('Starved', 'Time ran out before you found the food. Runs that make the taste rise should last longer.', 9000, false, true); }
+  if (!won && !failed && L.fail && L.fail(St)) { failed = true; FX.sfx('fail'); toast(St.eaten ? 'Eaten' : L.body === 'tail' ? (St.t > L.time ? 'Too slow' : 'Out of energy') : 'Out of ' + (L.budget ? 'energy' : 'strokes'), St.eaten ? 'The current swept you into the ciliate\'s mouth. Run straight away from it, and don\'t tumble close in.' : L.body === 'tail' ? 'Every stroke is a trade: bigger and longer waves are faster but cost far more. Find the cheapest stroke that is still fast enough.' : failHint(), 9000, false, true); }
+  if (L.body && bd) bodyHUD();
+  if (L.body && bd) { const sh = L.body === 'coli' ? `time <b>${bd.t.toFixed(1)}</b> / ${L.time} s · ${bd.mode === 'run' ? 'running' : '<b>tumbling</b>'}${L.wall ? '<br><span class="hint">Pressed against the glass: runs curve clockwise.</span>' : ''}` : `swum <b>${bd.x.toFixed(1)}</b> / ${L.dist} body lengths · energy <b>${bd.E.toFixed(0)}</b> / ${L.ebudget} · ${bd.t.toFixed(1)} / ${L.time} s`; if (sh !== lastStat) { $('stat').innerHTML = sh; lastStat = sh; } if (++frameN % 60 === 0) layout(); render(now); return; }
   const hint = hintText();
   const sh = `strokes <b>${St.strokes.toFixed(1)}</b>${L.maxCycles ? ` / ${L.maxCycles}` : ''} · moved <b>${St.dist.toFixed(2)}</b> body lengths<br>turned <b>${(St.phi * 180 / Math.PI).toFixed(0)}°</b>${L.budget ? ` · energy <b style="color:${St.energy > L.budget ? '#b3261e' : '#000'}">${St.energy.toFixed(1)}</b> / ${L.budget}` : L.par ? ` · energy <b>${St.energy.toFixed(1)}</b> (★★★ ≤ ${L.par})` : ''}${pred ? `<br>this loop: ${pred.dx >= 0 ? '+' : ''}${pred.dx.toFixed(2)} BL, turn ${pred.turn >= 0 ? '+' : ''}${pred.turn.toFixed(0)}°, energy ${pred.e.toFixed(1)} per stroke` : ''}${hint ? `<br><span class="hint">${hint}</span>` : ''}`;
   if (sh !== lastStat) { $('stat').innerHTML = sh; lastStat = sh; }
@@ -622,7 +718,7 @@ function frame(now) {
 load(+SAVE.cur || 0);
 requestAnimationFrame(frame);
 window.__lr = { LV, load, preset, advance, setLoop, reverse: reverseLoop, bodyVel, useSlot, St: () => St, sw: () => sw, get loop() { return loop; }, get trans() { return trans; },
-  SAVE, get shutter() { return shutter; }, get won() { return won; }, get failed() { return failed; }, get level() { return L; }, get pred() { return pred; }, predictLoop, drawLoop: pts => { setLoop(pts); St.drawn = true; }, get cam() { return cam; }, toS, set ds(v) { DSX = v; }, get ds() { return DSX; }, set asym(v) { asym = v; }, set playing(v) { playing = v; } };
+  SAVE, get shutter() { return shutter; }, get won() { return won; }, get failed() { return failed; }, get level() { return L; }, get pred() { return pred; }, predictLoop, drawLoop: pts => { setLoop(pts); St.drawn = true; }, get cam() { return cam; }, toS, get bd() { return bd; }, tumble, coliStep, tailStep, tailUP, bodySeed: v => { bodySeed = v; }, set ds(v) { DSX = v; }, get ds() { return DSX; }, set asym(v) { asym = v; }, set playing(v) { playing = v; } };
 </script>
 </body>
 </html>

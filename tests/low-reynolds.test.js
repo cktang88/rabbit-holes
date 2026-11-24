@@ -11,6 +11,16 @@ const setup = page => page.evaluate(() => {
       if (m !== mode) { mode = m; X.setLoop(m === 'L' ? circ(.65, -.7, -.7) : m === 'R' ? circ(.65, .7, .7) : circ(1.15, 0, 0)); }
       X.advance(.2); used += .2; if (X.St().blocked) { X.reverse(); X.advance(3); mode = ''; }
     } return used; };
+  // E. coli policies, run headless: returns the time the food was reached, -1 if eaten, -2 if time ran out
+  window.coli = (lv, pol, seed) => { const X = __lr; X.bodySeed(seed); X.load(lv); const L = X.level, sw = X.sw(); let last = -1, rs = seed * 13 + 7; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647;
+    for (let t = 0; t < L.time; t += .05) { X.coliStep(.05); if (Math.hypot(sw.x - L.food[0], sw.y - L.food[1]) < L.foodR) return t; if (X.St().eaten) return -1; const T = X.bd.taste;
+      if (X.bd.reads !== last) { last = X.bd.reads;
+        if (pol === 'random') { if (rnd() < .25) X.tumble(); } else if (pol === 'always') X.tumble();
+        else if (pol === 'compare') { if (L.predator) { const dx = L.predator[0] - sw.x, dy = L.predator[1] - sw.y, d = Math.hypot(dx, dy); if (d < 18 && (Math.cos(sw.phi) * dx + Math.sin(sw.phi) * dy) / d > -.3 && X.bd.mode === 'run') { X.tumble(); T.length = 0; continue; } }
+          if (T.length >= 6) { const a = (T[T.length - 1] + T[T.length - 2] + T[T.length - 3]) / 3, b = (T[T.length - 4] + T[T.length - 5] + T[T.length - 6]) / 3; if (a < b) { X.tumble(); T.length = 0; } } } } }
+    return -2; };
+  // sperm tail: fixed stroke, run to the line; returns the energy used if it made it inside time and budget, else 0
+  window.tail = (lv, n, A) => { const X = __lr; X.load(lv); const L = X.level, b = X.bd; b.n = n; b.A = A; b.running = true; for (let t = 0; t < L.time + .01 && b.x < L.dist; t += .02) X.tailStep(.02); return b.x >= L.dist && b.E <= L.ebudget && b.t <= L.time + .02 ? b.E : 0; };
   __lr.playing = false;
 });
 const openWith = async (page, save) => {
@@ -33,9 +43,9 @@ module.exports = {
       const r = await page.evaluate(() => { const X = __lr, out = [];
         for (const asym of [false, true]) { X.load(0); X.asym = asym; const sw = X.sw(), x0 = sw.x; while (X.St().cycles < 8) X.advance(.05);
           // finish exactly on a whole stroke: travel back to the loop start
-          out.push([sw.x - x0, sw.y, sw.phi, X.St().strokes]); }
+          out.push([sw.x - x0, sw.y, sw.phi - Math.PI / 2, X.St().strokes]); }
         // a two-hinge back-and-forth line is reciprocal too
-        unlock(); X.load(1); X.preset('line'); X.load(1); const sw = X.sw(), x0 = sw.x, s0 = X.St().strokes; while (X.St().strokes - s0 < 6) X.advance(.05);
+        unlock(); X.load(1); X.setLoop(Array.from({ length: 64 }, (_, i) => { const t = Math.sin(i / 64 * Math.PI * 2) * 1.2; return [t, t]; }), true); const sw = X.sw(), x0 = sw.x, s0 = X.St().strokes; while (X.St().strokes - s0 < 6) X.advance(.05);
         out.push([sw.x - x0, sw.y, sw.phi]); X.asym = false; return out; });
       for (const [dx, dy, phi] of r) { ok(Math.abs(dx) < .02, 'net drift ' + dx); near(dy, 0, .02); near(phi, 0, .02); }
       // over a whole number of strokes it is essentially exact
@@ -57,95 +67,88 @@ module.exports = {
     'frame-rate and step-size independence': async ({ page, near }) => {
       await setup(page);
       const r = await page.evaluate(() => { unlock(); const X = __lr, o = {};
-        const run = (chunk, total, ds = .004, pre) => { X.ds = ds; X.load(4); X.setLoop(circ(.65, .7, .7)); X.load(4); let t = 0; while (t < total - 1e-9) { const c = Math.min(chunk, total - t); X.advance(c * 2.2 * 3); t += c; } const sw = X.sw(); X.ds = .004; return [sw.x, sw.y, sw.phi, X.St().energy, X.St().strokes]; };
+        const run = (chunk, total, ds = .004, pre) => { X.ds = ds; X.load(1); X.setLoop(circ(.65, .7, .7)); X.load(1); let t = 0; while (t < total - 1e-9) { const c = Math.min(chunk, total - t); X.advance(c * 2.2 * 3); t += c; } const sw = X.sw(); X.ds = .004; return [sw.x, sw.y, sw.phi, X.St().energy, X.St().strokes]; };
         o.f30 = run(1 / 30, 6); o.f144 = run(1 / 144, 6); o.f20 = run(1 / 20, 6); o.fine = run(1 / 60, 6, .001); return o; });
       for (const k of ['f144', 'f20', 'fine']) for (let i = 0; i < 5; i++) near(r[k][i], r.f30[i], 3e-3 * Math.max(1, Math.abs(r.f30[i])), `${k}[${i}]`);
     },
     'off-centre loops turn the swimmer; mirrored loops turn the other way': async ({ page, ok, near }) => {
       await setup(page);
       const r = await page.evaluate(() => { unlock(); const X = __lr, o = [];
-        for (const c of [[.7, .7], [-.7, -.7]]) { X.load(4); X.setLoop(circ(.65, ...c)); X.load(4); while (X.St().strokes < 5) X.advance(.05); o.push(X.St().phi); } return o; });
+        for (const c of [[.7, .7], [-.7, -.7]]) { X.load(1); X.setLoop(circ(.65, ...c)); X.load(1); while (X.St().strokes < 5) X.advance(.05); o.push(X.St().phi); } return o; });
       ok(Math.abs(r[0]) > .1, 'turns ' + r[0]); near(r[0], -r[1], .02);
     },
     'every level: not solved at start, solvable, wrong strategy fails': async ({ page, ok }) => {
       await setup(page);
-      const R = await page.evaluate(() => { unlock(); const X = __lr, o = {}, W = () => X.level.test(X.St()) || X.won;
-        const tick = () => { // the frame loop's bookkeeping, without waiting for frames
-          const L = X.level, sw = X.sw(), St = X.St();
+      const R = await page.evaluate(() => { FX.setMuted(true); unlock(); const X = __lr, o = {}, W = () => X.level.test(X.St()) || X.won;
+        const tick = () => { const L = X.level, sw = X.sw(), St = X.St();
           if (L.target) St.reached = Math.hypot(sw.x - L.target[0], sw.y - L.target[1]) < (L.tr || .45);
-          if (L.line != null) St.reached = L.maxCycles || L.budget ? Math.abs(sw.x - L.start[0]) >= Math.abs(L.line) : (L.line > 0 ? sw.x >= L.line : sw.x <= L.line);
-          St.dist = sw.x - L.start[0]; };
+          if (L.line != null) St.reached = L.maxCycles || L.budget ? Math.abs(sw.x - L.start[0]) >= Math.abs(L.line) : (L.line > 0 ? sw.x >= L.line : sw.x <= L.line); };
         const until = (cond, step = .05, max = 40000) => { let k = 0; while (!cond() && k++ < max) { X.advance(step); tick(); } tick(); };
         X.LV.forEach((l, i) => { X.load(i); tick(); o['start' + i] = l.test(X.St()); });
         X.load(0); until(() => X.St().cycles >= 8); o.s0 = W();
         X.load(1); until(() => X.sw().x >= 2.6, .1, 4000); o.p1 = W(); X.load(1); X.drawLoop(circ(1.1, 0, 0)); until(() => X.sw().x >= 2.6, .1, 4000); o.s1 = W();
-        X.load(2); X.preset('circle'); until(() => false, .1, 400); o.w2 = W();
-        X.load(2); X.reverse(); until(() => X.sw().x <= -2.6, .1, 4000); o.s2 = W();
-        X.load(3); X.preset('circle'); until(() => X.St().strokes > 9.2, .1); o.w3 = W(); o.f3 = !!X.level.fail(X.St());
-        X.load(3); X.setLoop(circ(1.45, 0, 0)); X.load(3, true); until(() => X.St().reached || X.St().strokes > 9.2, .05); o.s3 = W();
-        X.load(4); X.preset('circle'); until(() => false, .1, 600); o.w4 = W();
-        X.load(4); X.setLoop(circ(.65, .7, .7)); until(() => Math.abs(X.St().phi) >= 1.6, .1); o.s4 = W();
-        X.load(5); pilot([[1.8, -2.6], [5.4, -2.6, .6]]); tick(); o.s5 = W();
-        X.load(6); pilot([[2.0, -.8], [3.9, -.8], [4.8, .8], [6.6, .8], [8, 0, .6]]); tick(); o.s6 = W();
-        X.load(7); until(() => X.St().reached || X.St().energy > 30, .05); o.w7 = W(); o.f7 = !!X.level.fail(X.St());
-        X.load(7); X.setLoop(circ(1.3, 0, 0)); X.load(7, true); until(() => X.St().reached || X.St().energy > 30, .05); o.s7 = W(); o.e7 = X.St().energy;
+        X.load(2); pilot([[1.8, -2.6], [5.4, -2.6, .6]]); tick(); o.s2 = W();
+        X.load(3); X.asym = false; until(() => X.St().cycles >= 40, .1); o.w3 = W(); X.load(3); X.asym = true; until(() => X.St().reached || X.St().cycles >= 80, .1); o.s3 = W(); X.asym = false;
+        // E. coli: the textbook strategy (tumble when the taste has dropped over the last second), on a fixed seed
+        for (const lv of [4, 5, 6]) { let won = 0; for (const seed of [1, 2, 3, 4, 5]) { if (coli(lv, 'compare', seed) >= 0) won++; } o['s' + lv] = won >= 3; o['w' + lv] = [1, 2, 3, 4, 5].filter(s2 => coli(lv, 'never', s2) >= 0).length <= 1; }
+        for (const lv of [7, 8]) { o['s' + lv] = tail(lv, ...(lv === 7 ? [.5, .15] : [.75, .2])) > 0; o['w' + lv] = tail(lv, 1.5, .2) === 0; }
         return o; });
-      for (let i = 0; i < 8; i++) ok(!R['start' + i], `level ${i} solved at start`);
-      for (const k of ['s0', 's1', 's2', 's3', 's4', 's5', 's6', 's7']) ok(R[k], `${k} not solved: ` + JSON.stringify(R));
-      for (const k of ['w2', 'w3', 'w4', 'w7', 'p1']) ok(!R[k], `${k}: wrong strategy won (p1: a preset where a drawn loop is required)`);
-      ok(R.f3 && R.f7, 'default loops run out of strokes / energy');
+      for (let i = 0; i < 9; i++) ok(!R['start' + i], `level ${i} solved at start`);
+      for (const k of ['s0', 's1', 's2', 's3', 's4', 's5', 's6', 's7', 's8']) ok(R[k], `${k} not solved: ` + JSON.stringify(R));
+      for (const k of ['w3', 'p1']) ok(!R[k], `${k}: wrong strategy won`);
+      for (const k of ['w4', 'w5', 'w6', 'w7', 'w8']) ok(R[k], `${k}: the naive strategy should fail`);
+    },
+    'goo: a reciprocal stroke swims only when it is fast one way and slow the other': async ({ page, ok, near }) => {
+      await setup(page);
+      const r = await page.evaluate(() => { unlock(); const X = __lr, o = {};
+        for (const [lv, as] of [[0, false], [0, true], [3, false], [3, true]]) { X.load(lv); X.asym = as; const sw = X.sw(), x0 = sw.x; while (X.St().cycles < 10) X.advance(.05); o[lv + (as ? 'a' : '')] = sw.x - x0; }
+        X.asym = false; return o; });
+      near(r[0], 0, .03, 'water'); near(r['0a'], 0, .03, 'water, fast/slow'); near(r[3], 0, .03, 'goo, same speed both ways'); ok(r['3a'] > .2, 'goo, fast open slow close swims: ' + r['3a']);
+    },
+    'E. coli: runs, tumbles (~68°), circles near glass, gets pulled by a feeding current': async ({ page, ok, near }) => {
+      await setup(page);
+      const r = await page.evaluate(() => { unlock(); const X = __lr, o = {};
+        X.bodySeed(1); X.load(4); const sw = X.sw(), x0 = sw.x, y0 = sw.y; for (let k = 0; k < 20; k++) X.coliStep(.05); o.speed = Math.hypot(sw.x - x0, sw.y - y0);
+        const turns = []; for (let k = 0; k < 300; k++) { const p0 = sw.phi; X.tumble(); for (let q = 0; q < 6; q++) X.coliStep(.05); turns.push(Math.abs(sw.phi - p0)); } o.turn = turns.reduce((a, v) => a + v, 0) / turns.length * 180 / Math.PI;
+        X.bodySeed(2); X.load(5); const s5 = X.sw(), pts = []; for (let k = 0; k < 400; k++) { X.coliStep(.05); pts.push([s5.x, s5.y]); } const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length, cy = pts.reduce((a, p) => a + p[1], 0) / pts.length; o.R = pts.reduce((a, p) => a + Math.hypot(p[0] - cx, p[1] - cy), 0) / pts.length;
+        X.bodySeed(3); X.load(6); const s6 = X.sw(); s6.x = X.level.predator[0] + 3.2; s6.y = X.level.predator[1]; s6.phi = 0; for (let k = 0; k < 10; k++) X.coliStep(.05); o.eaten = X.St().eaten;
+        return o; });
+      near(r.speed, 8, .5, 'run speed (BL/s over 1 s)'); near(r.turn, 70, 15, 'mean tumble angle'); ok(r.R > 15 && r.R < 40, 'circling radius near glass ≈ v/ω (blurred by rotational diffusion): ' + r.R); ok(r.eaten, 'too close to the ciliate: swept in');
+    },
+    'sperm tail: bigger waves are faster but cost more; a towed bead slows it': async ({ page, ok }) => {
+      await setup(page);
+      const r = await page.evaluate(() => { const X = __lr; return [X.tailUP(1, .1, .3), X.tailUP(1, .3, .3), X.tailUP(1, .3, 2)]; });
+      ok(r[1][0] > r[0][0] && r[1][1] / r[1][0] > r[0][1] / r[0][0], 'bigger wave: faster, dearer per body length');
+      ok(r[2][0] < r[1][0], 'cargo slows the swimmer');
     },
     'difficulty: naive play fails': async ({ page, ok }) => {
       await setup(page);
-      const R = await page.evaluate(() => { const X = __lr, out = { naive: 0, naiveN: 0, comp: {} }; unlock();
-        const tick = () => { const L = X.level, sw = X.sw(), St = X.St(); if (L.target) St.reached = Math.hypot(sw.x - L.target[0], sw.y - L.target[1]) < (L.tr || .45); };
-        const grade = () => X.St().reached ? (X.St().energy <= X.level.par ? 3 : X.St().energy <= X.level.par2 ? 2 : 1) : 0;
-        const pilot = (wps, R = .65, S = 1.15) => { const sw = X.sw(); let mode = '', used = 0;
-          for (const w of wps) { while (used < 3000) { tick(); if (X.St().reached) return; const tgt = w === 'T' ? X.level.target : w; if (w !== 'T' && Math.hypot(sw.x - tgt[0], sw.y - tgt[1]) < .5) break;
-            const e = Math.atan2(Math.sin(Math.atan2(tgt[1] - sw.y, tgt[0] - sw.x) - sw.phi), Math.cos(Math.atan2(tgt[1] - sw.y, tgt[0] - sw.x) - sw.phi)), m = e > .15 ? 'L' : e < -.15 ? 'R' : 'S';
-            if (m !== mode) { mode = m; X.setLoop(m === 'L' ? circ(R, -.7, -.7) : m === 'R' ? circ(R, .7, .7) : circ(S, 0, 0)); }
-            X.advance(.2); used += .2; if (X.St().blocked) { X.reverse(); X.advance(3); mode = ''; } } } tick(); };
-        const late = { 8: [[[1.5, 0], 'T'], .5, .4], 9: [['T']], 10: [['T']], 11: [[[1.5, -.15], [3.6, -.15], [4.3, 1.3], [6.2, 1.3], [7, -.35], [8.6, -.35], 'T']] };
-        for (const lv of [8, 9, 10, 11]) {
-          X.load(lv); X.preset('circle'); X.load(lv); pilot(...late[lv]); out.comp[lv] = grade();
-          X.load(lv); out.naiveN++; for (let k = 0; k < 300; k++) { X.advance(.2); tick(); } if (grade() > 1) out.naive++; // idle-ish: keep the starting stroke
-          X.load(lv); X.preset('circle'); out.naiveN++; for (let k = 0; k < 400 && !X.St().reached; k++) { X.advance(.2); tick(); } if (grade() > 1) out.naive++; // the obvious stroke, straight at it
-          for (let t = 0; t < 3; t++) { X.load(lv); out.naiveN++; let rs = 5 + t + lv; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647;
-            for (let k = 0; k < 400 && !X.St().reached; k++) { if (k % 30 === 0) X.setLoop(circ(.3 + rnd() * .9, (rnd() - .5) * 1.4, (rnd() - .5) * 1.4)); X.advance(.2); tick(); if (X.St().blocked) X.reverse(); } if (grade() > 1) out.naive++; }
-        }
+      const R = await page.evaluate(() => { FX.setMuted(true); unlock(); const X = __lr, out = { naive: 0, naiveN: 0, comp: [] };
+        const grade = (lv, t, e) => { const L = X.LV[lv]; return L.body === 'coli' ? (t <= L.par ? 3 : t <= L.par2 ? 2 : 1) : (e <= L.par ? 3 : e <= L.par2 ? 2 : 1); };
+        for (const pol of ['never', 'random', 'always']) for (const seed of [1, 2, 3, 4, 5, 6]) { out.naiveN++; const t = coli(6, pol, seed); if (t >= 0 && grade(6, t) > 1) out.naive++; }
+        for (const [n, A] of [[1.5, .2], [3, .35], [.5, .05], [2, .3], [1, .35], [2.5, .1]]) for (const lv of [7, 8]) { out.naiveN++; const e = tail(lv, n, A); if (e > 0 && grade(lv, 0, e) > 1) out.naive++; }
+        // competent: E. coli tumbles on a falling taste and away from the predator; the tail picks the cheapest fast-enough stroke on a coarse grid
+        const cs = []; for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) { const t = coli(6, 'compare', seed); cs.push(t >= 0 ? grade(6, t) : 0); } out.coli = cs;
+        for (const lv of [7, 8]) { let best = 0; for (const n of [.5, 1.5, 2.5]) for (const A of [.1, .2, .3]) { const e = tail(lv, n, A); if (e > 0 && (!best || e < best)) best = e; } out.comp.push(best ? grade(lv, 0, best) : 0); }
         return out; });
-      ok(R.naive / R.naiveN <= .2, `naive bots got 2★+ on ${R.naive}/${R.naiveN} late runs`);
-      ok(Object.values(R.comp).every(g => g >= 1), 'the competent steering pilot reaches every late target: ' + JSON.stringify(R.comp));
-      ok(Object.values(R.comp).every(g => g < 3), '3★ needs better than the simple pilot: ' + JSON.stringify(R.comp));
+      ok(R.naive / R.naiveN <= .2, `naive play got 2★+ on ${R.naive}/${R.naiveN} late runs`);
+      ok(R.coli.filter(g => g >= 1).length >= 7 && R.comp.every(g => g >= 1), 'competent play wins: ' + JSON.stringify(R));
+      ok(R.coli.filter(g => g === 3).length <= 3 && R.comp.every(g => g < 3), '3★ needs better than competent: ' + JSON.stringify(R));
     },
-    'stroke prediction matches a real stroke; maps and hover': async ({ page, ok, near }) => {
+    'Reset keeps the drawn loop and restarts the swimmer': async ({ page, eq }) => {
       await setup(page);
-      const r = await page.evaluate(() => { unlock(); const X = __lr; X.load(4); X.setLoop(circ(.6, .5, .4)); X.load(4); const p = X.pred, sw = X.sw(), s0 = X.St().strokes, e0 = X.St().energy;
-        while (X.St().strokes - s0 < 1) X.advance(.01); return [p.dx, p.turn, p.e, sw.x * Math.cos(0) , sw.phi * 180 / Math.PI, X.St().energy - e0]; });
-      near(r[0], r[3], .03, 'forward per stroke'); near(r[1], r[4], 1.5, 'turn per stroke'); near(r[2], r[5], .25, 'energy per stroke');
-      await page.click('#mapT'); ok(await page.$eval('#mapT', b => /turning/.test(b.textContent + b.title)));
+      const r = await page.evaluate(() => { unlock(); const X = __lr; X.load(1); X.setLoop(circ(1.3, .1, 0)); const mine = JSON.stringify(X.loop); X.advance(5);
+        document.getElementById('reset').click(); return [JSON.stringify(X.loop) === mine, X.sw().x, X.St().strokes, X.St().energy]; });
+      eq(r, [true, 0, 0, 0]);
     },
-    'Reset keeps the drawn loop (Lazy Swimmer used to snap back to the square)': async ({ page, eq, ok }) => {
+    'running out of energy offers a retry': async ({ page, ok, eq }) => {
       await setup(page);
-      const r = await page.evaluate(() => { unlock(); const X = __lr; X.load(7); const sq = JSON.stringify(X.loop); X.setLoop(circ(1.3, 0, 0)); const mine = JSON.stringify(X.loop);
-        document.getElementById('reset').click(); const after = JSON.stringify(X.loop); X.load(0); X.load(7); return [sq !== mine, after === mine, JSON.stringify(X.loop) === sq]; });
-      eq(r, [true, true, true]);
-      // and Reset puts the swimmer back at the start with fresh counters
-      const st = await page.evaluate(() => { const X = __lr; X.advance(5); document.getElementById('reset').click(); return [X.sw().x, X.St().strokes, X.St().energy]; });
-      eq(st, [0, 0, 0]);
-      ok(true);
-    },
-    'running out of strokes offers a retry with a hint about how close it was': async ({ page, ok, eq }) => {
-      await setup(page);
-      await page.evaluate(() => { unlock(); __lr.load(3); __lr.preset('circle'); __lr.playing = true; });
-      await page.click('[data-s="8"]');
+      await page.evaluate(() => { unlock(); __lr.load(7); __lr.playing = true; });
+      await page.click('[data-s="8"]'); await page.evaluate(() => document.getElementById('swimB').click());
       await page.waitForFunction(() => __lr.failed, null, { timeout: 30000 });
-      const t = await page.textContent('#toast'); ok(/body lengths/.test(t) && /%/.test(t), 'hint: ' + t);
-      ok(await page.isVisible('#tretry'));
-      const custom = await page.evaluate(() => { __lr.setLoop(circ(1.45, 0, 0)); return JSON.stringify(__lr.loop); });
-      await page.click('#tretry');
-      const st = await page.evaluate(() => [__lr.failed, __lr.St().strokes]); eq(st[0], false); ok(st[1] < .5, 'fresh stroke count ' + st[1]); // still playing: a frame may already have run
-      eq(await page.evaluate(() => JSON.stringify(__lr.loop)), custom);
+      ok(/energy|slow/i.test(await page.textContent('#toast')), 'fail message');
+      ok(await page.evaluate(() => !!document.getElementById('tretry'))); await page.evaluate(() => document.getElementById('tretry').click());
+      eq(await page.evaluate(() => [__lr.failed, __lr.bd.x, __lr.bd.E]), [false, 0, 0]);
     },
     'level change hides the previous lesson toast; locked levels are refused': async ({ page, eq, ok }) => {
       await setup(page);
@@ -156,8 +159,8 @@ module.exports = {
       await page.click('#levels .lv[data-i="0"]');
       eq(await page.$eval('#toast', t => t.classList.contains('on')), false);
       await page.evaluate(() => __lr.load(5)); eq(await page.evaluate(() => __lr.SAVE.cur), 1, 'locked level opened');
-      const locked = await page.$$eval('#levels .lv.lock', e => e.map(x => +x.dataset.i)); eq(locked, [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-      const hub = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub'))['low-reynolds']); ok(Math.abs(hub - 1 / 12) < 1e-9, 'progress ' + hub);
+      const locked = await page.$$eval('#levels .lv.lock', e => e.map(x => +x.dataset.i)); eq(locked, [2, 3, 4, 5, 6, 7, 8]);
+      const hub = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub'))['low-reynolds']); ok(Math.abs(hub - 1 / 9) < 1e-9, 'progress ' + hub);
     },
     'saved loop slots: save, load, persist, and garbage slots are dropped': async ({ page, eq, ok }) => {
       await setup(page);
@@ -194,7 +197,7 @@ module.exports = {
       await setup(page);
       for (const [w, h] of [[390, 844], [1280, 800]]) {
         await page.setViewportSize({ width: w, height: h });
-        for (let i = 0; i < 8; i++) { await page.evaluate(i => { unlock(); __lr.load(i); }, i); await page.waitForTimeout(80); }
+        for (let i = 0; i < 9; i++) { await page.evaluate(i => { unlock(); __lr.load(i); }, i); await page.waitForTimeout(80); }
         ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'horizontal overflow at ' + w);
       }
     },
