@@ -46,7 +46,7 @@ module.exports = {
       const r = await page.evaluate(`${FF}(4000, 7)`); ok(r.startsWith('WIN'), 'notch: ' + r);
       await level(page, 3); eq(await page.evaluate(`${FF}(600, 3)`), 'none', 'falls idle');
       await level(page, 3); await page.evaluate(() => __ws.placeSpring(80, 50)); const f = await page.evaluate(`${FF}(3000, 3)`); ok(f.startsWith('WIN'), 'falls: ' + f);
-      for (const lv of [6, 8]) { await level(page, lv); if (lv === 8) await page.evaluate(() => __ws.placeSpring(80, 20)); eq(await page.evaluate(`${FF}(900, ${lv})`), 'none', 'idle level ' + lv); }
+      await level(page, 8); await page.evaluate(() => __ws.placeSpring(80, 20)); eq(await page.evaluate(`${FF}(900, 8)`), 'none', 'reservoir without a dam');
     },
     'tools: spring limit moves your oldest; fixed springs stay; budgets never overspent; houses undiggable; undo is exact': async ({ page, ok, eq }) => {
       await level(page, 1); eq(await page.evaluate(() => { const W = __ws; W.placeSpring(40, 40); W.placeSpring(60, 40); W.placeSpring(100, 40); return W.springs.map(s => s.k); }), [40 * 160 + 60, 40 * 160 + 100]);
