@@ -9,6 +9,8 @@ const paintTrail = `(mi) => { const A = window.__ant; const cv = document.getEle
   path.reverse(); A.painting = 1; A.brush = 'forage'; for (let i = 0; i < path.length; i += 2) A.paint(ev(path[i][0] + 0.5, path[i][1] + 0.5)); A.painting = 0; }`;
 // The harness clears localStorage on every navigation; this injects a save that survives the reload (init scripts run in order)
 const reloadWith = async (page, key, v) => { await page.addInitScript(([k, val]) => { try { localStorage.setItem(k, val); } catch (e) {} }, [key, v]); await page.reload(); };
+// Colony bots for the difficulty test: idle (the map's starting chemistry), greedy (max trail, no evaporation, no wandering), and a tuned chemistry a thoughtful player finds
+const BOT = "window.__antbot=(mi,policy,seedShift=0)=>{ const A=window.__ant; RH.modal=()=>Promise.resolve(); RH.toast=()=>{};\n  for (let i=0;i<20;i++) A.SAVE.stars[i]=A.SAVE.stars[i]||1; A.openMap(mi); A.paused=true; const M=A.MAPS[mi];\n  const rc=document.getElementById('cv').getBoundingClientRect(); const ev=(x,y)=>A.rotated? null : ({clientX:rc.left+x*A.cell, clientY:rc.top+y*A.cell});\n  const stroke=(pts,brush)=>{ A.brush=brush; A.painting=1; for (const [x,y] of pts) A.paint(ev(x+0.5,y+0.5)); A.painting=0; };\n  const pathTo=(k)=>{ const path=[]; let x=k%A.W,y=(k/A.W)|0; for(let s=0;s<400;s++){ path.push([x,y]); let bx=x,by=y,bv=A.home[A.idx(x,y)]; for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]){ const X=x+dx,Y=y+dy; if(X<0||Y<0||X>=A.W||Y>=A.H) continue; if(A.home[A.idx(X,Y)]<bv){bv=A.home[A.idx(X,Y)];bx=X;by=Y;} } if(bx===x&&by===y) break; x=bx;y=by; } return path.reverse(); };\n  const rng=RH.rng(77+seedShift);\n  if (policy==='random') A.setChem({dep:20+rng()*180, evap:rng()*100, noise:rng()*100});\n  if (policy==='greedy') A.setChem({dep:200, evap:0, noise:0});\n  const chemFor=(M)=> M.moving? {dep:110,evap:85,noise:50} : M.rain? {dep:200,evap:30,noise:25} : M.cold? {dep:150,evap:35,noise:25} : M.layout? {dep:100,evap:85,noise:40} : {dep:130,evap:45,noise:30};\n  if (policy==='competent') A.setChem(chemFor(M));\n  if (policy.startsWith('chem:')){ const [d,e,n]=policy.slice(5).split('/').map(Number); A.setChem({dep:d,evap:e,noise:n}); document.getElementById('ratio').value=(M.rival||M.spider)?35:0; }\n  if (policy==='competent') document.getElementById('ratio').value = (M.rival||M.spider)? 35 : 0;\n  let t=0;\n  for (; t<M.t*20 && !A.gameOver; t++){\n    if ((policy==='competent'||policy.startsWith('chem:')) && t%300===0){\n      let k=-1,bd=1e9; for(let i=0;i<A.W*A.H;i++) if(A.food[i]>0&&A.home[i]<bd){bd=A.home[i];k=i;} if (k>=0 && !(M.layout)) stroke(pathTo(k).filter((_,i)=>i%2===0).slice(0,60),'forage');\n      const foes=[...A.spiders.filter(s=>s.hp>0)]; if (A.nests[1]&&A.nests[1].hp>0) foes.push(A.nests[1]);\n      if (foes.length && A.unlockedScent(A.SCENTS[1])){ const f=foes[0]; stroke(pathTo(A.idx(f.x|0,f.y|0)).filter((_,i)=>i%2===0),'alarm'); }\n    }\n\n    A.stepWorld(0.05);\n  }\n  const [v,n]=A.goalProgress(); return {mi, policy, won: v>=n, stars: v>=n? A.SAVE.stars[mi] : 0, t:Math.round(t/20), v:Math.round(v), n:Math.round(n)};\n};\n";
 module.exports = {
   page: 'ant-mind/index.html',
   ready: async (page) => { await page.waitForFunction(() => window.__ant && window.__ant.G); await page.evaluate(() => { document.querySelectorAll('.modal-bg').forEach(m => m.remove()); window.__ant.paused = true; RH.modal = (h) => { window.__lastModal = h; return Promise.resolve(); }; }); },
@@ -41,15 +43,15 @@ module.exports = {
       });
       eq(r.a.slice(0, 2), [0, 3]); near(r.a[2], 3 * 1.41, 1e-4); eq(r.a[3], 3); eq(r.wall, 1e9);
     },
-    'a scent trail from nest to food wins First Light quickly; doing nothing does not': async ({ page, ok }) => {
-      const r = await page.evaluate(`(() => { const A = window.__ant; const trail = ${paintTrail};
-        A.openMap(0); A.paused = true; let t = 0; for (; t < 150 * 20 && !A.gameOver; t++) { if (t % 300 === 0) trail(0); A.stepWorld(0.05); }
-        const won = [A.gameOver, A.delivered, t / 20, A.SAVE.stars[0]];
-        A.openMap(0); A.paused = true; for (let k = 0; k < 150 * 20 && !A.gameOver; k++) A.stepWorld(0.05);
-        return { won, idle: A.delivered }; })()`);
-      ok(r.won[0] && r.won[1] >= 50 && r.won[2] < 90, 'trail run ' + JSON.stringify(r.won));
-      ok(r.won[3] >= 2, 'a fast clear earns at least two stars: ' + r.won[3]);
-      ok(r.idle < 50, 'idle colony delivered ' + r.idle);
+    'ants lay their own trails: with no input the colony finds food slowly; a scout trail and stronger chemistry make it faster; no trail at all is slowest': async ({ page, ok }) => {
+      const r = await page.evaluate(`(() => { const A = window.__ant; const trail = ${paintTrail}; const run = (chem, scout) => { A.openMap(0); A.paused = true; if (chem) A.setChem(chem); let t = 0; for (; t < 150 * 20 && !A.gameOver; t++) { if (scout && t % 300 === 0) trail(0); A.stepWorld(0.05); } return [Math.round(t / 20), Math.round(A.delivered)]; };
+        return { idle: run(null, false), scout: run(null, true), strong: run({ dep: 150, evap: 35, noise: 25 }, false), none: run({ dep: 20, evap: 100, noise: 35 }, false) }; })()`);
+      ok(r.scout[0] < r.idle[0], 'scout trail speeds it up: ' + JSON.stringify(r)); ok(r.strong[0] < r.idle[0], 'stronger trail chemistry speeds it up: ' + JSON.stringify(r)); ok(r.none[0] > r.idle[0], 'without trails the colony is slowest: ' + JSON.stringify(r));
+    },
+    'double bridge: on yesterday\'s long trail with slow evaporation the colony stays stuck; fast evaporation lets the short way win': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const A = window.__ant; for (let i = 0; i < 20; i++) A.SAVE.stars[i] = 1; const run = (chem) => { A.openMap(1); A.paused = true; if (chem) A.setChem(chem); let t = 0; for (; t < 200 * 20 && !A.gameOver; t++) A.stepWorld(0.05); const [v, n] = A.goalProgress(); return { won: v >= n, share: Math.round(A.bridgeShare() * 100), t: Math.round(t / 20) }; };
+        return { stuck: run(null), fast: run({ dep: 100, evap: 80, noise: 35 }) }; });
+      ok(!r.stuck.won && r.stuck.share < 50, 'stuck: ' + JSON.stringify(r.stuck)); ok(r.fast.won && r.fast.share >= 70, 'fast evaporation: ' + JSON.stringify(r.fast));
     },
     'gland reserve never goes negative and an empty gland paints nothing; right-drag erases every scent': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => {
@@ -92,7 +94,7 @@ module.exports = {
     'locked maps cannot be opened; corrupted saves load safely': async ({ page, eq }) => {
       const r = await page.evaluate(() => { const A = window.__ant; document.querySelector('[data-m="6"]').click(); A.openMap(9);
         return [A.mapI, A.cleanSave(null), A.cleanSave({ stars: { 0: 3, 1: 7, 50: 2 }, ups: ['legs', 'bogus', 3], cur: 99 })]; });
-      eq(r[0], 0); eq(r[1], { stars: {}, ups: [], cur: 0 }); eq(r[2], { stars: { 0: 3 }, ups: ['legs'], cur: 0 });
+      eq(r[0], 0); eq(r[1], { stars: {}, ups: [], chem: { dep: 100, evap: 50, noise: 35 }, chemSet: {}, cur: 0 }); eq(r[2], { stars: { 0: 3 }, ups: ['legs'], chem: { dep: 100, evap: 50, noise: 35 }, chemSet: {}, cur: 0 });
       for (const bad of ['{bad', 'null', '"str"', '{"stars":[],"ups":"x","cur":15}']) {
         await reloadWith(page, 'rh:ant', bad); await page.waitForFunction(() => window.__ant && window.__ant.G);
         eq(await page.evaluate(() => window.__ant.mapI), 0, bad);
@@ -110,8 +112,8 @@ module.exports = {
       ok(t[0] > 1 && t[1] === 0, 'touch painted ' + JSON.stringify(t));
     },
     'newcomers who have not painted get a hint banner': async ({ page, ok }) => {
-      const b = await page.evaluate(() => { const A = window.__ant; A.openMap(0); A.paused = true; for (let k = 0; k < 7 * 20; k++) A.stepWorld(0.05); return document.getElementById('banner').textContent; });
-      ok(/drag from your nest/i.test(b), b);
+      const b = await page.evaluate(() => { const A = window.__ant; A.openMap(0); A.paused = true; for (let k = 0; k < 9 * 20; k++) A.stepWorld(0.05); return document.getElementById('banner').textContent; });
+      ok(/find food on their own/i.test(b), b);
     },
     'windfalls: none on the first map; later maps drop food somewhere reachable, 28-95 steps from the nest': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => {
@@ -144,6 +146,13 @@ module.exports = {
       eq([r.sideHidden, r.sideOpen], ['hidden', 'visible']);
       await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(300);
       eq(await page.evaluate(() => window.__ant.rotated), false, 'landscape phones keep the map upright');
+    },
+    'difficulty: on late maps idle and greedy chemistry fail; a chemistry tuned to the season wins, but not with three stars': async ({ page, ok }) => {
+      await page.addScriptTag({ content: BOT });
+      const r = await page.evaluate(() => { const out = []; for (const [mi, tuned] of [[16, 'chem:200/60/30'], [18, 'chem:150/35/25']]) for (const pol of ['idle', 'greedy', tuned]) { const A = window.__ant; A.SAVE.stars = {}; const x = window.__antbot(mi, pol); out.push([mi, pol, x.won, x.stars]); } return out; });
+      const naive = r.filter(x => x[1] === 'idle' || x[1] === 'greedy'), tuned = r.filter(x => x[1].startsWith('chem:'));
+      ok(naive.filter(x => x[2] && x[3] > 1).length === 0 && naive.filter(x => x[2]).length <= naive.length * 0.2, 'naive: ' + JSON.stringify(naive));
+      ok(tuned.every(x => x[2]), 'tuned should win: ' + JSON.stringify(tuned)); ok(tuned.every(x => x[3] < 3), 'three stars need better than a simple tuning: ' + JSON.stringify(tuned));
     },
     'mobile layout: no horizontal scroll and the map is fully visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);

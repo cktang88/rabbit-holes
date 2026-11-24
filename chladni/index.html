@@ -11,7 +11,7 @@
   :root{--ink:#2b1d10;--ink2:#5b4630;--paper:#efe3c6;--brass:#c9a25a;--brass2:#7b5a24;--rosin:#a8541e;
     --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .25 0 0 0 0 .12 0 0 0 .22 0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E")}
   html,body{height:100%;overflow:hidden;background:#1a110a;font-family:"Cormorant Garamond",Georgia,serif;color:var(--ink)}
-  #cv{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #cv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
   /* sheets of laid paper, chain lines and foxing, pinned to the bench */
   .chip{position:fixed;border-radius:1px;color:var(--ink);
     background:var(--grain),repeating-linear-gradient(90deg,transparent 0 31px,rgba(110,80,40,.07) 31px 32px),repeating-linear-gradient(0deg,transparent 0 2px,rgba(110,80,40,.035) 2px 3px),
@@ -51,6 +51,7 @@
   /* Chladni's book: a bound page of numbered engravings */
   #book{top:16px;right:16px;padding:14px 16px;width:300px;max-height:calc(100vh - 220px);overflow:auto;transform:rotate(.5deg)}
   #book h4{margin:0 0 10px;font:400 17px "IM Fell English SC",serif;color:var(--ink);text-align:center;border-bottom:1px solid rgba(43,29,16,.35);padding-bottom:6px}
+  .tt{border-collapse:collapse;margin:6px 0;font-size:15px} .tt td{padding:0 8px 0 0}
   .pg{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;counter-reset:fig}
   .pg div{aspect-ratio:1;background:rgba(120,90,50,.08);display:flex;align-items:center;justify-content:center;color:rgba(43,29,16,.35);font:italic 16px "Cormorant Garamond",serif;overflow:hidden;border:1px solid rgba(43,29,16,.25);position:relative;counter-increment:fig}
   .pg div::after{content:counter(fig);position:absolute;right:2px;bottom:0;font-size:10px;color:rgba(43,29,16,.55)}
@@ -151,7 +152,7 @@ const plural = (k, w) => `${k} ${w}${k === 1 ? '' : 's'}`;
 // square: symmetric and antisymmetric combinations of cos·cos, the classic Chladni families
 for (let n = 0; n <= 6; n++) for (let m = n + 1; m <= 7; m++) for (const sgn of [1, -1]) {
   if (n === 0 && sgn === 1 && m < 2) continue;
-  PLATES.square.modes.push({ id: `s${n}${m}${sgn > 0 ? 'p' : 'm'}`, name: `(${n},${m})${sgn > 0 ? '+' : '−'}`, f: 46 * (n * n + m * m) * (sgn > 0 ? 1.06 : 1) * (1 + .021 * n + .004 * m), /* real plates are never perfectly uniform: tiny detuning splits look-alike modes */ z: (x, y) => Math.cos(n * Math.PI * x) * Math.cos(m * Math.PI * y) + sgn * Math.cos(m * Math.PI * x) * Math.cos(n * Math.PI * y) });
+  PLATES.square.modes.push({ id: `s${n}${m}${sgn > 0 ? 'p' : 'm'}`, name: `(${n},${m})${sgn > 0 ? '+' : '−'}`, n, m, sgn, pair: `s${n}${m}`, f: 46 * (n * n + m * m) * (sgn > 0 ? 1.012 : 1) * (1 + .021 * n + .004 * m), /* real plates are never perfectly uniform: the (n,m) twins are split by about 1%, closer than the ear can sort them */ z: (x, y) => Math.cos(n * Math.PI * x) * Math.cos(m * Math.PI * y) + sgn * Math.cos(m * Math.PI * x) * Math.cos(n * Math.PI * y) });
 }
 // circle: J_n(k r) cos(nθ), k = m-th zero of J_n' (free edge). n nodal diameters; J_n has (m−1) zeros inside for n ≥ 1, m for n = 0
 for (let n = 0; n <= 5; n++) for (let m = 1; m <= 3; m++) { const k = besselZeroDeriv(n, m), rings = n === 0 ? m : m - 1; PLATES.circle.modes.push({ id: `c${n}${m}`, name: `${plural(n, 'line')}, ${plural(rings, 'ring')}`, f: 20 * k * k, z: (x, y) => { const X = x * 2 - 1, Y = y * 2 - 1, r = Math.hypot(X, Y); return r > 1 ? 0 : besselJ(n, k * r) * Math.cos(n * Math.atan2(Y, X)); } }); }
@@ -159,7 +160,7 @@ for (let n = 0; n <= 5; n++) for (let m = 1; m <= 3; m++) { const k = besselZero
 // wavenumbers nπ/L and mπ/(L/2), so f ∝ n² + 4m²
 for (let n = 0; n <= 9; n++) for (let m = 0; m <= 4; m++) { if (n + m < 2) continue; PLATES.rect.modes.push({ id: `r${n}${m}`, name: `(${n},${m})`, f: 32 * (n * n + 4 * m * m) * (1 + .023 * n + .009 * m), z: (x, y) => Math.cos(n * Math.PI * x) * Math.cos(m * Math.PI * y) }); }
 // keep only modes a listener can tell apart (each ≥2.2% from the previous one) and comfortably inside the dial range
-Object.values(PLATES).forEach(p => { p.modes.sort((a, b) => a.f - b.f); const keep = []; for (const md of p.modes) if (md.f > FMIN * 1.1 && md.f < FMAX * .92 && (!keep.length || md.f / keep[keep.length - 1].f > 1.022)) keep.push(md); p.modes = keep; p.fields = new Array(keep.length).fill(null); });
+Object.values(PLATES).forEach(p => { p.modes.sort((a, b) => a.f - b.f); const keep = []; for (const md of p.modes) if (md.f > FMIN * 1.1 && md.f < FMAX * .92 && (!keep.length || md.f / keep[keep.length - 1].f > 1.022 || (md.pair && md.pair === keep[keep.length - 1].pair))) keep.push(md); p.modes = keep; p.fields = new Array(keep.length).fill(null); });
 const sliderToF = v => FMIN * Math.pow(FMAX / FMIN, v / 1000), fToSlider = f => Math.log(f / FMIN) / Math.log(FMAX / FMIN) * 1000;
 const insideP = (pl, x, y) => pl !== 'circle' || (x * 2 - 1) ** 2 + (y * 2 - 1) ** 2 < .97;
 
@@ -168,7 +169,7 @@ const obj = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 const SAVE = obj(RH.load('chladni', {})); // tolerate corrupted / hand-edited saves
 // migrate: figures used to be stored as PNG data URLs (~1 MB); now just ids. Target index is per plate.
 SAVE.got = obj(SAVE.got); for (const k in SAVE.got) SAVE.got[k] = 1;
-SAVE.solved = obj(SAVE.solved); SAVE.mode = SAVE.mode === 'match' ? 'match' : 'explore';
+SAVE.solved = obj(SAVE.solved); SAVE.mode = ['match', 'tune'].includes(SAVE.mode) ? SAVE.mode : 'explore'; SAVE.tune = obj(SAVE.tune);
 if (typeof SAVE.tgt !== 'object' || !SAVE.tgt || Array.isArray(SAVE.tgt)) SAVE.tgt = { [PLATES[SAVE.plate] ? SAVE.plate : 'square']: +SAVE.tgt || 0 };
 if (!PLATES[SAVE.plate]) delete SAVE.plate;
 const TOTAL = Object.values(PLATES).reduce((a, p) => a + p.modes.length, 0);
@@ -190,10 +191,66 @@ function field(k) {
   const sc = 1 / (mx || 1); for (let i = 0; i < f.length; i++) f[i] *= sc;
   return P.fields[k] = f;
 }
+// ================= the luthier's bench: tuning a free plate by scraping it thinner =================
+// Thickness h on a 6×6 grid. Stiffness goes as h³ and mass as h, so by Rayleigh's quotient a mode's pitch moves as
+//   f = f₀ · √(Σ h³·C / ΣC) / √(Σ h·K / ΣK)
+// where C is where the mode BENDS (curvature²) and K where it MOVES (amplitude²). Thin a bending region and the note drops;
+// thin a region that only moves (a free edge, an antinode) and it rises. Every scrape is permanent.
+const TG = 6, TUNE = [
+  { n: 'A lower twin', story: 'A customer wants the two look-alike figures pulled apart: lower the <b>(0,2)+</b> figure by 4% but keep its twin <b>(0,2)−</b> where it is.', track: ['s02p', 's02m'], mult: [.96, 1], tol: .008, budget: 14 },
+  { n: 'Split the pair', story: 'Lower the <b>(1,2)+</b> figure by 3%, but the <b>(0,2)−</b> figure must not move. Where does one bend while the other only moves?', track: ['s02m', 's12p'], mult: [1, .97], tol: .006, budget: 14 },
+  { n: 'Master plate', story: '<b>Master commission.</b> Three notes at once: <b>(0,2)+</b> down 3%, <b>(1,2)−</b> down 2%, <b>(0,3)+</b> unchanged. Scraping helps one and spoils another.', track: ['s02p', 's12m', 's03p'], mult: [.97, .98, 1], tol: .005, budget: 16, master: 1 },
+];
+let tune = null; // { c: commission index, h: Float64Array, used, light, done }
+const tuneOn = () => SAVE.mode === 'tune' && plate === 'square' && tune;
+function tuneMaps() { // per-mode curvature and motion maps on the thickness grid (computed once)
+  const P = PLATES.square; if (P.tmaps) return P.tmaps;
+  const S = 48, d = 1 / S; P.tmaps = P.modes.map(md => { const C = new Float64Array(TG * TG), K = new Float64Array(TG * TG);
+    for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const x = (i + .5) / S, y = (j + .5) / S, z = md.z(x, y), lap = (md.z(x + d, y) + md.z(x - d, y) + md.z(x, y + d) + md.z(x, y - d) - 4 * z) / (d * d), c = ((j * TG / S) | 0) * TG + ((i * TG / S) | 0); C[c] += lap * lap; K[c] += z * z; }
+    const sc = C.reduce((a, v) => a + v, 0), sk = K.reduce((a, v) => a + v, 0); return { C: C.map(v => v / sc), K: K.map(v => v / sk) }; });
+  return P.tmaps;
+}
+function tunedF(k, h = tune.h) { const M = tuneMaps()[k]; let a = 0, b = 0; for (let c = 0; c < TG * TG; c++) { a += h[c] ** 3 * M.C[c]; b += h[c] * M.K[c]; } return PLATES.square.modes[k].f * Math.sqrt(a / b); }
+const kOf = id => PLATES.square.modes.findIndex(m => m.id === id);
+function tuneTargets(T) { const f0 = T.track.map(id => PLATES.square.modes[kOf(id)].f); return T.mult.map((m, i) => m === 'oct' ? 2 * f0[0] * T.mult[0] : f0[i] * m); }
+function tuneSq(T, h = tune.h) { const tg = tuneTargets(T); return T.track.reduce((a, id, i) => a + (tunedF(kOf(id), h) / tg[i] - 1) ** 2, 0); }
+function tuneErr(T, h = tune.h) { const tg = tuneTargets(T); return Math.max(...T.track.map((id, i) => Math.abs(tunedF(kOf(id), h) / tg[i] - 1))); }
+function startTune(c) { tune = { c, h: new Float64Array(TG * TG).fill(1), used: 0, light: true, done: false }; dirty = true; }
+function scrapeAt(px, py) {
+  if (!tune || tune.done) return; if (px < 0 || px > 1 || py < 0 || py > 1) return;
+  const T = TUNE[tune.c]; if (tune.used >= T.budget) { toast('Plate ruined', 'You have used all your scrapes. Start a new plate.', 2600); return; }
+  const c = Math.min(TG - 1, (py * TG) | 0) * TG + Math.min(TG - 1, (px * TG) | 0);
+  if (tune.h[c] < .35) { FX.sfx('fail'); toast('Too thin', 'Scrape any more here and the plate cracks.', 1600); return; }
+  tune.h[c] *= tune.light ? .96 : .86; tune.used++; FX.sfx('scrape', tune.light ? 0 : 1); dirty = true; tuneCheck(); renderUI();
+}
+function tuneGrade(T, e) { return e <= T.tol / 4 ? 3 : e <= T.tol / 2 ? 2 : 1; }
+function tuneCheck() {
+  const T = TUNE[tune.c], e = tuneErr(T);
+  if (e <= T.tol) { tune.done = true; const st = tuneGrade(T, e); SAVE.tune[tune.c] = Math.max(SAVE.tune[tune.c] || 0, st); persist(); FX.sfx('win'); FX.shake(.2);
+    toast('Commission delivered ' + '★'.repeat(st) + '☆'.repeat(3 - st), `Worst note off by ${(e * 100).toFixed(2)}%, after ${tune.used} scrapes.`, 4200); }
+  else if (tune.used >= T.budget) { FX.sfx('fail'); toast('Out of scrapes', `Worst note still ${(e * 100).toFixed(1)}% off. Every scrape is permanent: plan before you cut.`, 4200); }
+}
+function tuneUI() {
+  const T = TUNE[tune.c], tg = tuneTargets(T);
+  const rows = T.track.map((id, i) => { const k = kOf(id), f = tunedF(k), d = f / tg[i] - 1; return `<tr><td>${PLATES.square.modes[k].name}</td><td>${f.toFixed(1)} Hz</td><td>→ ${tg[i].toFixed(1)}</td><td style="color:${Math.abs(d) <= T.tol ? '#2d6a2a' : '#a8541e'}">${d >= 0 ? '+' : ''}${(d * 100).toFixed(2)}%</td></tr>`; }).join('');
+  return `<div class="tabs">${TUNE.map((c, i) => `<button class="b ${i === tune.c ? 'on' : ''}" data-tc="${i}">${i + 1}. ${c.n} ${SAVE.tune[i] ? '★'.repeat(SAVE.tune[i]) : ''}</button>`).join('')}</div>`
+    + `<div style="margin-top:6px">${T.story}</div><table class="tt">${rows}</table>`
+    + `Scrapes <b>${tune.used}</b> / ${T.budget} · tolerance ±${(T.tol * 100).toFixed(1)}%<br><button class="b ${tune.light ? 'on' : ''}" id="lightT">light scrape</button> <button class="b ${tune.light ? '' : 'on'}" id="heavyT">heavy scrape</button> <button class="b" id="newPlate">New plate</button>`;
+}
+// Chladni's own controls: where you BOW (an antinode: the bowed point must move) and where you hold a FINGER (a node: that point
+// must stay still). Together they pick one figure out of look-alikes that sing at almost the same pitch.
+let bow = { x: 1, y: .37 }, finger = null;
+const defaultBow = pl => pl === 'circle' ? { x: .5 + .49 * Math.cos(-.35), y: .5 + .49 * Math.sin(-.35) } : { x: 1, y: .37 };
+function couple(md) {
+  const zm = md.zmax ||= zmax(md), b = Math.abs(md.z(bow.x, bow.y)) / zm;
+  let c = .03 + .97 * b; if (finger) { const q = md.z(finger.x, finger.y) / zm; c *= Math.exp(-q * q / .03); }
+  return c;
+}
+const modeF = k => tuneOn() ? tunedF(k) : PLATES[plate].modes[k].f;
 function computeResponse() {
   dirty = false;
   const P = PLATES[plate], M = P.modes.length; let top = 0, tw = 0;
-  for (let k = 0; k < M; k++) { const r = freq / P.modes[k].f, w = 1 / Math.hypot(1 - r * r, r / Q); WT[k] = w; if (w > tw) { tw = w; top = k; } }
+  for (let k = 0; k < M; k++) { const r = freq / modeF(k), w = couple(P.modes[k]) / Math.hypot(1 - r * r, r / Q); WT[k] = w; if (w > tw) { tw = w; top = k; } }
   if (top !== focus.k) holdT = 0;
   focus.k = top; focus.strength = Math.min(1, Math.max(0, (tw - 1) / 25));
   // the vibration field is dominated by the nearest resonance; blend its neighbours for smooth morphing
@@ -272,9 +329,10 @@ function drawBow(x, yy, s, h, now) {
   g.fillStyle = '#1b130b'; g.beginPath(); g.arc(cx, cy, 9 * dpr, 0, 7); g.fill();
   const ng = g.createRadialGradient(cx - 3 * dpr, cy - 3 * dpr, 0, cx, cy, 7 * dpr); ng.addColorStop(0, '#9a9da0'); ng.addColorStop(1, '#2d2f31'); g.fillStyle = ng; g.beginPath(); g.ellipse(cx, cy, 13 * dpr, 4.5 * dpr, -.5, 0, 7); g.fill(); g.beginPath(); g.arc(cx, cy, 5 * dpr, 0, 7); g.fill();
   // the bow: hair against the right-hand edge, stick behind it, travelling along its own length
-  const ex = plate === 'circle' ? cx + s / 2 * Math.cos(-.35) : x + s, ey = plate === 'circle' ? cy + s / 2 * Math.sin(-.35) : cy - h * .1;
-  const ang = -.95, ux = Math.cos(ang), uy = Math.sin(ang), L2 = s * .5, travel = Math.sin(now / (260 - 160 * st)) * L2 * (.05 + .25 * st);
-  const ox = ex + 4 * dpr + ux * travel, oy = ey + uy * travel;
+  const ex = x + bow.x * s, ey = yy + bow.y * h;
+  const nrm = plate === 'circle' ? Math.atan2(bow.y - .5, bow.x - .5) : Math.abs(bow.x - .5) > Math.abs(bow.y - .5) ? (bow.x > .5 ? 0 : Math.PI) : (bow.y > .5 ? Math.PI / 2 : -Math.PI / 2);
+  const ang = nrm - .95, ux = Math.cos(ang), uy = Math.sin(ang), L2 = s * .5, travel = Math.sin(now / (260 - 160 * st)) * L2 * (.05 + .25 * st);
+  const ox = ex + Math.cos(nrm) * 4 * dpr + ux * travel, oy = ey + Math.sin(nrm) * 4 * dpr + uy * travel;
   const ax = ox - ux * L2 * .45, ay = oy - uy * L2 * .45, bx = ox + ux * L2 * .55, by = oy + uy * L2 * .55, nx = -uy * 9 * dpr, ny = ux * 9 * dpr;
   g.save(); g.lineCap = 'round';
   g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = 12 * dpr; g.shadowOffsetX = 6 * dpr; g.shadowOffsetY = 10 * dpr;
@@ -322,7 +380,14 @@ function draw(now) {
   rasterSand();
   g.imageSmoothingEnabled = true; g.drawImage(sandC, 0, 0, SZ, ph, x + wob, yy, s, h);
   g.globalCompositeOperation = 'lighter'; g.globalAlpha = .35; g.drawImage(glowC, 0, 0, SZ / 4, ph / 4, x + wob, yy, s, h); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+  if (tuneOn()) { for (let c = 0; c < TG * TG; c++) { const t = 1 - tune.h[c]; if (t <= 0) continue; const cx0 = x + wob + (c % TG) / TG * s, cy0 = yy + ((c / TG) | 0) / TG * h; g.fillStyle = `rgba(30,18,6,${Math.min(.6, t * 1.4)})`; g.fillRect(cx0, cy0, s / TG, h / TG); }
+    g.strokeStyle = 'rgba(40,25,8,.35)'; g.lineWidth = dpr; g.beginPath(); for (let k = 1; k < TG; k++) { g.moveTo(x + wob + k / TG * s, yy); g.lineTo(x + wob + k / TG * s, yy + h); g.moveTo(x + wob, yy + k / TG * h); g.lineTo(x + wob + s, yy + k / TG * h); } g.stroke(); }
   drawBow(x + wob, yy, s, h, now);
+  if (finger) { // a fingertip pressing the plate
+    const fx = x + wob + finger.x * s, fy = yy + finger.y * h, r = 11 * dpr;
+    g.save(); g.shadowColor = 'rgba(0,0,0,.55)'; g.shadowBlur = 10 * dpr; g.shadowOffsetY = 5 * dpr; const fg = g.createRadialGradient(fx - r * .3, fy - r * .4, 0, fx, fy, r * 1.3); fg.addColorStop(0, '#f3c9a8'); fg.addColorStop(1, '#b97d5c');
+    g.fillStyle = fg; g.beginPath(); g.ellipse(fx, fy, r, r * 1.25, -.4, 0, 7); g.fill(); g.shadowColor = 'transparent'; g.fillStyle = 'rgba(255,240,230,.55)'; g.beginPath(); g.ellipse(fx - r * .15, fy - r * .45, r * .45, r * .55, -.4, 0, 7); g.fill(); g.restore();
+  }
   particles.update(1 / 60); particles.draw(g);
 }
 const particles = FX.particles();
@@ -356,6 +421,9 @@ function hum(f, dur = 1.6) {
 }
 // workshop sounds: a quill on paper, sand hissing from a shaker, glass-harmonica bells
 const SND = {
+  press: () => FX.tone({ f: 180, f2: 120, type: 'sine', dur: .08, vol: .15 }),
+  lift: () => FX.tone({ f: 240, f2: 300, type: 'sine', dur: .06, vol: .08 }),
+  scrape: (k = 1) => { FX.tone({ noise: 1, f: 3800, q: .9, dur: .12 + .1 * k, vol: .12 + .06 * k, attack: .01 }); FX.tone({ noise: 1, f: 1600, q: 2, dur: .05, vol: .06, delay: .05 }); },
   click: () => FX.tone({ noise: 1, f: 2600, q: 1.2, dur: .035, vol: .09 }),
   whoosh: () => { FX.tone({ noise: 1, f: 6500, q: .5, dur: .55, vol: .08, attack: .06 }); FX.tone({ noise: 1, f: 3500, q: .6, dur: .4, vol: .05, attack: .1, delay: .08 }); },
   chime: (k = 0) => { const f = 392 * Math.pow(2, [0, 2, 4, 7, 9, 12][((k % 6) + 6) % 6] / 12); for (const [m, v] of [[1, .1], [2.76, .03], [5.4, .015]]) FX.tone({ f: f * m, type: 'sine', dur: 1.6 / m + .4, vol: v, attack: .02 }); },
@@ -382,6 +450,8 @@ function updateSound() { if (!osc) return; const v = document.hidden ? 0 : .012 
 // ================= modes: explore / match =================
 const targetsOf = pl => PLATES[pl].modes.filter((_, i) => i % 2 === 0).slice(0, 10);
 const EAR_FROM = 6;
+// how many separate still lines a figure has (what you'd count by eye)
+const lines = md => md.n != null ? md.n + md.m : /c(\d)(\d)/.test(md.id) ? (+md.id[1]) + (+md.id[1] === 0 ? +md.id[2] : +md.id[2] - 1) : /r(\d)(\d)/.test(md.id) ? +md.id[1] + +md.id[2] : 0;
 function sealed(c) { // a folded note with a wax seal instead of a figure
   const x = c.getContext('2d'), n = c.width; x.fillStyle = '#e9dcb8'; x.fillRect(0, 0, n, n); x.strokeStyle = 'rgba(80,55,25,.4)'; x.lineWidth = 2; x.beginPath(); x.moveTo(0, 0); x.lineTo(n / 2, n * .55); x.lineTo(n, 0); x.stroke();
   const g2 = x.createRadialGradient(n * .45, n * .5, 2, n / 2, n * .55, n * .17); g2.addColorStop(0, '#d0452c'); g2.addColorStop(1, '#6e130a'); x.fillStyle = g2; x.beginPath(); x.arc(n / 2, n * .55, n * .16, 0, 7); x.fill();
@@ -391,17 +461,25 @@ const tgtIdx = () => { const n = targetsOf(plate).length, v = Math.floor(+SAVE.t
 // the current target is the first unsolved one at or after the stored index (null when all are matched)
 function curTarget() { const T = targetsOf(plate); for (let d = 0; d < T.length; d++) { const t = T[(tgtIdx() + d) % T.length]; if (!SAVE.solved[t.id]) return t; } return null; }
 function advanceTarget() { const T = targetsOf(plate), t = curTarget(); if (t) SAVE.tgt[plate] = (T.indexOf(t) + 1) % T.length; }
+function bookOrder(P) { return P.order ||= (() => { const a = P.modes.slice(); let r = 99; for (let i = a.length - 1; i > 0; i--) { r = (r * 16807) % 2147483647; const j = r % (i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; })(); }
 function renderUI() {
   const P = PLATES[plate];
   $('story').innerHTML = SAVE.mode === 'explore'
     ? 'In 1787 Ernst Chladni bowed sand-covered metal plates and drew these figures, and Napoleon paid him to explain them. <b>Sweep the frequency.</b> At each <b>resonance</b> the plate sings and the sand runs to the lines that stay still.'
     : 'Find the frequency that draws the <b>target figure</b>. Patterns get more intricate as the pitch rises.';
   $('plates').innerHTML = Object.entries(PLATES).map(([k, p]) => `<button class="b ${k === plate ? 'on' : ''}" data-p="${k}">${p.n}</button>`).join('');
-  $('modes').innerHTML = `<button class="b ${SAVE.mode === 'explore' ? 'on' : ''}" data-m="explore">Collect figures</button><button class="b ${SAVE.mode === 'match' ? 'on' : ''}" data-m="match">Match the figure</button>`;
+  $('modes').innerHTML = `<button class="b ${SAVE.mode === 'explore' ? 'on' : ''}" data-m="explore">Collect figures</button><button class="b ${SAVE.mode === 'match' ? 'on' : ''}" data-m="match">Match the figure</button><button class="b ${SAVE.mode === 'tune' ? 'on' : ''}" data-m="tune">Tune a plate</button>`;
   $('plates').querySelectorAll('[data-p]').forEach(b => b.onclick = () => setPlate(b.dataset.p));
   $('modes').querySelectorAll('[data-m]').forEach(b => b.onclick = () => { SAVE.mode = b.dataset.m; holdT = 0; persist(); FX.sfx('click'); renderUI(); });
   const got = P.modes.filter(md => SAVE.got[md.id]).length, t = SAVE.mode === 'match' ? curTarget() : null;
-  if (SAVE.mode === 'explore') { $('goal').innerHTML = `<b>${got}</b> of ${P.modes.length} figures on this plate collected. Hold a resonance until the sand settles to record it.`; $('target').style.display = 'none'; }
+  if (SAVE.mode === 'tune') {
+    if (plate !== 'square') { setPlate('square'); return; }
+    if (!tune) startTune(0); $('target').style.display = 'none';
+    $('goal').innerHTML = '<b>The luthier\'s bench.</b> Tap the plate to scrape it thinner there (the darker, the thinner). Thinning where a figure bends lowers its note; thinning where it only moves raises it. Bow it to hear and see.' + tuneUI();
+    $('goal').querySelectorAll('[data-tc]').forEach(b => b.onclick = () => { startTune(+b.dataset.tc); FX.sfx('click'); renderUI(); });
+    $('lightT').onclick = () => { tune.light = true; renderUI(); }; $('heavyT').onclick = () => { tune.light = false; renderUI(); }; $('newPlate').onclick = () => { startTune(tune.c); FX.sfx('whoosh'); renderUI(); };
+  }
+  else if (SAVE.mode === 'explore') { $('goal').innerHTML = `<b>${got}</b> of ${P.modes.length} figures on this plate collected. Hold a resonance until the sand settles to record it.`; $('target').style.display = 'none'; }
   else {
     const T = targetsOf(plate), solved = T.filter(x => SAVE.solved[x.id]).length;
     if (!t) { $('target').style.display = 'none'; $('goal').innerHTML = `<b>All matched!</b> You found all ${T.length} target figures on the ${P.n.toLowerCase()}. Try another plate.`; }
@@ -414,10 +492,24 @@ function renderUI() {
       $('skip').onclick = () => { advanceTarget(); holdT = 0; persist(); FX.sfx('click'); renderUI(); };
     }
   }
-  $('book').innerHTML = `<h4>Chladni's book · ${P.n} · ${got}/${P.modes.length}<span class="mob" style="float:right">✕</span></h4><div class="pg">${P.modes.map(md => `<div class="${SAVE.got[md.id] ? 'got' : ''} ${md === t ? 'tg' : ''}" title="${SAVE.got[md.id] ? md.name + ' · ' + Math.round(md.f) + ' Hz' : md === t ? 'target' : 'undiscovered'}">${SAVE.got[md.id] ? `<img alt="" src="${thumb(plate, md)}">` : '?'}</div>`).join('')}</div>`;
+  $('book').innerHTML = `<h4>Chladni's book · ${P.n} · ${got}/${P.modes.length}<span class="mob" style="float:right">✕</span></h4><div class="pg">${bookOrder(P).map(md => `<div class="${SAVE.got[md.id] ? 'got' : ''} ${md === t ? 'tg' : ''}" title="${SAVE.got[md.id] ? md.name + ' · ' + Math.round(md.f) + ' Hz' : md === t ? 'target' : 'undiscovered'}">${SAVE.got[md.id] ? `<img alt="" src="${thumb(plate, md)}">` : '?'}</div>`).join('')}</div>`;
   layout();
 }
-function setPlate(p) { if (!PLATES[p]) return; plate = p; SAVE.plate = p; holdT = 0; persist(); sprinkle(); FX.sfx('click'); renderUI(); computeResponse(); }
+function setPlate(p) { if (!PLATES[p]) return; plate = p; bow = defaultBow(p); finger = null; SAVE.plate = p; holdT = 0; persist(); sprinkle(); FX.sfx('click'); renderUI(); computeResponse(); }
+const plateXY = e => { const { x, y, s } = plateBox, h = plate === 'rect' ? s / 2 : s, yy = plate === 'rect' ? y + s / 4 : y; return [((e.clientX * dpr) - x) / s, ((e.clientY * dpr) - yy) / h]; };
+function edgeDist(px, py) { if (plate === 'circle') return Math.abs(Math.hypot(px - .5, py - .5) - .5); return Math.min(Math.abs(px), Math.abs(1 - px), Math.abs(py), Math.abs(1 - py)) * (px < -.2 || px > 1.2 || py < -.2 || py > 1.2 ? 99 : 1); }
+function toEdge(px, py) { if (plate === 'circle') { const a = Math.atan2(py - .5, px - .5); return { x: .5 + .49 * Math.cos(a), y: .5 + .49 * Math.sin(a) }; }
+  px = Math.max(0, Math.min(1, px)); py = Math.max(0, Math.min(1, py)); const d = [px, 1 - px, py, 1 - py], k = d.indexOf(Math.min(...d)); return k === 0 ? { x: 0, y: py } : k === 1 ? { x: 1, y: py } : k === 2 ? { x: px, y: 0 } : { x: px, y: 1 }; }
+let bowDrag = false;
+function setBow(b) { bow = b; dirty = true; holdT = 0; }
+function setFinger(f) { finger = f; dirty = true; holdT = 0; FX.sfx(f ? 'press' : 'lift'); }
+cv.addEventListener('pointerdown', e => {
+  const [px, py] = plateXY(e); if (tuneOn()) return scrapeAt(px, py, e);
+  if (edgeDist(px, py) < .08) { bowDrag = true; cv.setPointerCapture(e.pointerId); setBow(toEdge(px, py)); return; }
+  if (px > 0 && px < 1 && py > 0 && py < 1 && insideP(plate, px, py)) { if (finger && Math.hypot(finger.x - px, finger.y - py) < .07) setFinger(null); else setFinger({ x: px, y: py }); }
+});
+cv.addEventListener('pointermove', e => { if (bowDrag) { const [px, py] = plateXY(e); setBow(toEdge(px, py)); } });
+addEventListener('pointerup', () => { bowDrag = false; });
 // slider input only marks the response dirty: it is recomputed at most once per animation frame
 $('slider').oninput = () => { freq = sliderToF(+$('slider').value); dirty = true; };
 addEventListener('keydown', e => { if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && e.target.tagName !== 'INPUT') { const v = +$('slider').value + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 10 : 1); $('slider').value = v; $('slider').oninput(); e.preventDefault(); } });
@@ -432,6 +524,7 @@ function toast(big, small, ms = 3000) { const t = $('toast'); t.innerHTML = big 
 let last = performance.now(), shownF = -1, shownS = -1, raf = 0;
 const HOLD_TOL = .015; let shownL = '';
 function record(md) {
+  if (SAVE.mode === 'tune') return;
   const cx = plateBox.x + plateBox.s / 2, cy = plateBox.y + plateBox.s / 2;
   if (SAVE.mode === 'explore') {
     if (SAVE.got[md.id]) return;
@@ -444,7 +537,8 @@ function record(md) {
       advanceTarget(); SAVE.solved[t.id] = 1; SAVE.got[md.id] = 1; persist(); FX.sfx('win'); FX.shake(.25); flyToBook(md); // advance first: once t is solved, curTarget() already points past it (that skipped every other target)
       particles.burst(cx, cy, { n: 90, color: ['#fff6dc', '#f0dca6', '#e9c27a'], speed: 300 * dpr, life: 1.1 }); // a puff of sand
       const done = !curTarget(); toast(done ? 'All matched!' : 'Matched', done ? `Every target on the ${PLATES[plate].n.toLowerCase()}.` : `${Math.round(md.f)} Hz. Next figure…`, done ? 4000 : 3000); renderUI();
-    } else if (!SAVE.solved[md.id]) { FX.sfx('fail'); toast('Not that one', `That's ${md.name}. The target sings <b>${t.f > md.f ? 'higher' : 'lower'}</b>: sweep ${t.f > md.f ? 'right →' : '← left'}.`, 2600); }
+    } else if (!SAVE.solved[md.id]) { FX.sfx('fail'); const a = lines(md), b = lines(t);
+      toast('Not that one', md.pair && md.pair === t.pair ? 'Same pitch, wrong twin. Keep the note: move the bow, or press a finger where the target stays still.' : `Yours has ${a} nodal line${a === 1 ? '' : 's'}; count the target's.`, 3200); }
   }
 }
 function frame(now) {
@@ -469,9 +563,9 @@ function frame(now) {
 // no work at all while the tab is hidden
 document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; updateSound(); } else if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); } });
 $('slider').value = fToSlider(freq);
-sprinkle(true); renderUI(); computeResponse();
+bow = defaultBow(plate); sprinkle(true); renderUI(); computeResponse();
 raf = requestAnimationFrame(frame);
-window.__ch = { PLATES, setFreq: f => { freq = f; $('slider').value = fToSlider(f); computeResponse(); }, setPlate, focus: () => focus, SAVE, get plate() { return plate; }, curTarget, targetsOf, EAR_FROM, get flights() { return flights; }, get holdT() { return holdT; }, record, HOLD_TOL };
+window.__ch = { PLATES, setFreq: f => { freq = f; $('slider').value = fToSlider(f); computeResponse(); }, setPlate, focus: () => focus, SAVE, get plate() { return plate; }, curTarget, targetsOf, EAR_FROM, couple, setBow, setFinger, get bow() { return bow; }, TUNE, startTune, tunedF, tuneErr, kOf, scrapeCell: (c, light) => { tune.light = light; scrapeAt(((c % TG) + .5) / TG, (((c / TG) | 0) + .5) / TG); }, get tune() { return tune; }, tuneGrade, TG, tuneSq, get flights() { return flights; }, get holdT() { return holdT; }, record, HOLD_TOL };
 </script>
 </body>
 </html>

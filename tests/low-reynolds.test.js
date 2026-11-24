@@ -105,7 +105,7 @@ module.exports = {
             const e = Math.atan2(Math.sin(Math.atan2(tgt[1] - sw.y, tgt[0] - sw.x) - sw.phi), Math.cos(Math.atan2(tgt[1] - sw.y, tgt[0] - sw.x) - sw.phi)), m = e > .15 ? 'L' : e < -.15 ? 'R' : 'S';
             if (m !== mode) { mode = m; X.setLoop(m === 'L' ? circ(R, -.7, -.7) : m === 'R' ? circ(R, .7, .7) : circ(S, 0, 0)); }
             X.advance(.2); used += .2; if (X.St().blocked) { X.reverse(); X.advance(3); mode = ''; } } } tick(); };
-        const late = { 8: [[[1.5, 0], 'T'], .65, .5], 9: [['T']], 10: [['T']], 11: [[[1.5, -.15], [3.6, -.15], [4.3, 1.3], [6.2, 1.3], [7, -.35], [8.6, -.35], 'T']] };
+        const late = { 8: [[[1.5, 0], 'T'], .5, .4], 9: [['T']], 10: [['T']], 11: [[[1.5, -.15], [3.6, -.15], [4.3, 1.3], [6.2, 1.3], [7, -.35], [8.6, -.35], 'T']] };
         for (const lv of [8, 9, 10, 11]) {
           X.load(lv); X.preset('circle'); X.load(lv); pilot(...late[lv]); out.comp[lv] = grade();
           X.load(lv); out.naiveN++; for (let k = 0; k < 300; k++) { X.advance(.2); tick(); } if (grade() > 1) out.naive++; // idle-ish: keep the starting stroke

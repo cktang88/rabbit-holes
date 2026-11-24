@@ -64,9 +64,9 @@ module.exports = {
       eq(r, { same0: true, same2: true, best: 1, bestAfter: 1 });
     },
     'stars thresholds and progress fraction (never above 1)': async ({ page, eq }) => {
-      const r = await page.evaluate(() => { const F = __fold; const t = F.LV[13].best; const s = (b) => { F.SAVE.best[13] = b; return F.stars(13); };
-        const out = [s(0), s(Math.ceil(t * 0.7) - 1), s(Math.ceil(t * 0.7)), s(Math.ceil(t * 0.9)), s(t), s(t + 3)];
-        F.LV.forEach((_, i) => { F.SAVE.best[i] = 999; F.SAVE.machine[i] = F.SAVE.machine[i] ?? 5; }); F.commit(F.pos); return { out, prog: JSON.parse(localStorage.getItem('rh:hub')).fold }; });
+      const r = await page.evaluate(() => { const F = __fold; const t = F.LV[16].best; const s = (b) => { F.SAVE.best[16] = b; return F.stars(16); };
+        const out = [s(0), s(Math.ceil(t * 0.8) - 1), s(Math.ceil(t * 0.8)), s(Math.ceil(t * 0.95)), s(t), s(t + 3)];
+        F.LV.forEach((L, i) => { F.SAVE.best[i] = 999; F.SAVE.machine[i] = F.SAVE.machine[i] ?? 5; if (L.design) F.SAVE.dstar[i] = 3; }); F.commit(F.pos); return { out, prog: JSON.parse(localStorage.getItem('rh:hub')).fold }; });
       eq(r.out, [0, 0, 1, 2, 3, 3]); eq(r.prog, 1);
     },
     'level unlocking: next level after a star; next group opens after 3 folded levels': async ({ page, eq }) => {
@@ -137,6 +137,45 @@ module.exports = {
       await page.evaluate(() => { __fold.SAVE.best[0] = 1; __fold.open(0); }); eq(await vis(), true);
       await page.click('#levels .lv[data-i="1"]'); await page.waitForTimeout(350); eq(await vis(), false); eq(await page.evaluate(() => __fold.li), 1);
       const st = await page.locator('#cv').boundingBox(); ok(st.width * st.height > 0.45 * 844 * 390, 'stage ' + st.width + 'x' + st.height);
+    },
+    'parity ceiling is a true upper bound on every warm-up and benchmark': async ({ page, ok }) => {
+      const bad = await page.evaluate(() => { const F = __fold; return F.LV.map((L, i) => [L, i]).filter(([L]) => !L.design).filter(([L, i]) => { const t = L.exact ? F.optimum(i) : L.best ?? 0; return t > F.parityBound(L.seq); }).map(([L]) => L.name); });
+      ok(!bad.length, bad.join(','));
+    },
+    'design: click balls to set H/P, ask the machine to check; stars for best, unique, unique with 2+ contacts': async ({ page, eq, ok }) => {
+      await dismiss(page);
+      const di = await page.evaluate(() => { const F = __fold; for (let k = 0; k < 3; k++) F.SAVE.best[k] = F.optimum(k); const di = F.LV.findIndex(l => l.design); F.open(di); return di; });
+      ok(await page.evaluate((di) => __fold.unlocked(di), di), 'design opens after three warm-ups');
+      for (const i of [1, 2, 5, 6]) { const [x, y] = await page.evaluate((i) => __fold.screen(i), i); await page.mouse.click(x, y); }
+      eq(await page.evaluate(() => document.getElementById('seq').textContent), 'PHHPPHHP');
+      await page.click('#verifyBtn'); ok(/Unique/.test(await page.textContent('#designRes')));
+      eq(await page.evaluate((di) => __fold.stars(di), di), 3);
+      const r = await page.evaluate((di) => { const F = __fold, sh = F.LV[di].shape; return [F.verifyDesign(sh, 'HHHHHHHH').stars, F.verifyDesign(sh, 'PPPPPPPP').stars, F.verifyDesign(sh, 'HPPPPPPH').stars]; }, di);
+      ok(r[0] <= 1 && r[1] === 0, JSON.stringify(r));
+      const p2 = await reopen(page); eq(await p2.evaluate((di) => [__fold.SAVE.dseq[di], __fold.SAVE.dstar[di]], di), ['PHHPPHHP', 3]); await p2.close();
+    },
+    'machine search replay: frames play its chain, temperature falls, and the board returns to your fold': async ({ page, eq, ok }) => {
+      await dismiss(page);
+      const i = await page.evaluate(() => { const F = __fold; const i = F.LV.findIndex(l => l.machine); F.SAVE.best[i] = 1; F.open(i); return i; });
+      await page.waitForFunction((i) => __fold.SAVE.machine[i] != null, i, { timeout: 10000 });
+      const before = await page.evaluate(() => JSON.stringify(__fold.pos));
+      ok(await page.isVisible('#watchBtn')); await page.click('#watchBtn');
+      const tr = await page.evaluate((i) => { const t = __fold.machineTraces[i]; return { n: t.length, T0: t[0].T, T1: t.at(-1).T, valid: t.every(f => __fold.valid(f.P)) }; }, i);
+      ok(tr.n > 10 && tr.T1 < tr.T0 && tr.valid, JSON.stringify(tr)); ok(await page.evaluate(() => !!__fold.replay));
+      eq(await page.evaluate(() => JSON.stringify(__fold.pos)), before, 'replay never touches your fold');
+    },
+    'difficulty: naive play fails': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const F = __fold; const lateIdx = F.LV.map((L, i) => i).filter(i => !F.LV[i].design && F.LV[i].grp !== 'Warm-up').slice(-12);
+        let seed = 4; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) % n; };
+        const res = { random: 0, greedy: 0, competent: 0, greedy3: 0, n: 0 };
+        for (const i of lateIdx) { const L = F.LV[i]; F.open(i); const n = L.seq.length; const t = L.best ?? (() => { const M = F.makeMachine(L.seq); for (let k = 0; k < 600; k++) M.step(); return M.best; })(); F.SAVE.machine[i] = t;
+          const walk = (moves, greedy) => { let P = L.seq.split('').map((_, k) => [k, 0]), cur = 0, best = 0; for (let m = 0; m < moves; m++) { const b = rnd(n); F.pos = P; const Q = F.tryMove(b, [P[b][0] + rnd(3) - 1, P[b][1] + rnd(3) - 1]); if (!Q) continue; const c = F.contacts(Q, L.seq).c; if (!greedy || c >= cur) { P = Q; cur = c; best = Math.max(best, c); } } return best; };
+          const st = (c) => { F.SAVE.best[i] = c; return F.stars(i); };
+          res.n++; if (st(walk(3000, false)) >= 2) res.random++; const g = walk(6000, true); if (st(g) >= 2) res.greedy++; if (st(g) === 3) res.greedy3++;
+          const M = F.makeMachine(L.seq); for (let k = 0; k < 200; k++) M.step(); if (st(M.best) >= 1) res.competent++; }
+        return res; });
+      ok(r.random / r.n <= .2, 'random ≥2★ ' + r.random + '/' + r.n); ok(r.greedy / r.n <= .2, 'greedy ≥2★ ' + r.greedy + '/' + r.n);
+      ok(r.competent / r.n >= .8, 'annealing earns a star on ' + r.competent + '/' + r.n); ok(r.greedy3 <= 1, 'greedy 3★ on ' + r.greedy3 + '/' + r.n + ' ' + JSON.stringify(r));
     },
     'phone layout: no horizontal scroll, canvas is large enough': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
