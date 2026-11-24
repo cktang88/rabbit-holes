@@ -72,6 +72,17 @@
     #side h4 button{display:inline-block}
     #toast{font-size:28px}
   }
+  /* landscape phones: panels in two side columns, the sky between them */
+  @media (max-height:520px) and (min-aspect-ratio:4/3){
+    #hud{right:auto;width:236px;top:6px;left:6px}
+    #mode{left:6px;right:auto;width:236px;top:auto;bottom:6px;box-sizing:border-box}
+    #mode button{padding:6px 4px;font-size:12px}
+    #padBox{left:auto;right:6px;top:6px;bottom:6px;width:300px;display:flex;flex-direction:column}
+    #pad{height:auto;flex:1;min-height:80px}
+    #status{font-size:12px}
+    #side{left:auto;right:6px;width:300px;bottom:6px;max-height:calc(100vh - 12px)}
+  }
+  @media (pointer:coarse){#storyT{width:36px;height:36px}#mode button{min-height:40px}.btn{min-height:40px}}
 </style>
 </head>
 <body>
@@ -278,18 +289,22 @@ const thumbImg = (sc, kind, cls = '') => { const u = want(sc, kind); return u ? 
 // bokeh snow in the background
 const flakes = Array.from({ length: 120 }, () => { const r = Math.random(); return { x: Math.random(), y: Math.random(), r, v: .02 + Math.random() * .05, ph: Math.random() * 6, col: `rgba(200,220,255,${(.08 + r * .18).toFixed(3)})` }; });
 function layout() {
+  // the flake sits in the free space between the panels; on phones the sky canvas itself is that space, so no panel covers it
+  const wide = innerWidth > 860, side = !wide && innerWidth > innerHeight && innerHeight <= 520, hud = $('hud').getBoundingClientRect(), pb = $('padBox').getBoundingClientRect();
+  if (!wide && !side && !document.body.classList.contains('story')) $('mode').style.top = Math.round(hud.bottom + 6) + 'px'; else if (wide || side) $('mode').style.top = '';
+  const md = $('mode').getBoundingClientRect();
+  let l, r, t, b;
+  if (wide) { l = hud.right + 8; r = pb.left - 8; t = 16; b = innerHeight - 16; }
+  else if (side) { l = Math.max(hud.right, md.right) + 4; r = pb.left - 4; t = 0; b = innerHeight; }
+  else { l = 0; r = innerWidth; t = md.bottom + 4; b = pb.top - 4; }
+  const ss = sky.style, off = wide ? [0, 0] : [l, t];
+  if (wide) ss.left = ss.top = ss.width = ss.height = ''; else { ss.left = l + 'px'; ss.top = t + 'px'; ss.width = (r - l) + 'px'; ss.height = (b - t) + 'px'; }
   // the flake is a 360px image scaled up, so extra device pixels would add cost but no detail
   dpr = FX.fit(sky, 1); W = sky.width; H = sky.height;
   skyGrad = g.createLinearGradient(0, 0, 0, H); skyGrad.addColorStop(0, '#081129'); skyGrad.addColorStop(.6, '#0c1838'); skyGrad.addColorStop(1, '#16244a');
-  // the flake sits in the free space between the panels
-  const wide = innerWidth > 860, hud = $('hud').getBoundingClientRect(), pb = $('padBox').getBoundingClientRect();
-  if (!wide && !document.body.classList.contains('story')) $('mode').style.top = Math.round(hud.bottom + 6) + 'px'; else if (wide) $('mode').style.top = '';
-  const md = $('mode').getBoundingClientRect();
-  let l, r, t, b;
-  if (wide) { l = hud.right + 8; r = pb.left - 8; t = 16; b = innerHeight - 16; } else { l = 0; r = innerWidth; t = md.bottom + 4; b = pb.top - 4; }
-  flakeBox = { cx: (l + r) / 2, cy: (t + b) / 2, size: Math.max(120, Math.min(r - l, (b - t) * 1.02)) };
+  flakeBox = { cx: (l + r) / 2 - off[0], cy: (t + b) / 2 - off[1], size: Math.max(120, Math.min(r - l, (b - t) * 1.02)) };
   if (wide) { const sd = $('side'); sd.style.maxHeight = Math.max(120, pb.top - 10 - sd.getBoundingClientRect().top) + 'px'; } else $('side').style.maxHeight = '';
-  const ts = $('toast').style; ts.left = flakeBox.cx + 'px'; ts.top = flakeBox.cy + 'px';
+  const ts = $('toast').style; ts.left = flakeBox.cx + off[0] + 'px'; ts.top = flakeBox.cy + off[1] + 'px';
   padDirty = true;
 }
 let lastNow = 0;
