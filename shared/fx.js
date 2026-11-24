@@ -5,7 +5,7 @@ const FX = (() => {
   let ac = null, master = null, muted = false;
   try { muted = localStorage.getItem('rh:muted') === '1'; } catch (e) {}
   const ctx = () => {
-    if (!ac) { ac = new (window.AudioContext || window.webkitAudioContext)(); master = ac.createGain(); master.gain.value = .5; master.connect(ac.destination); }
+    if (!ac) { ac = new (window.AudioContext || window.webkitAudioContext)(); master = ac.createGain(); master.gain.value = .5; const comp = ac.createDynamicsCompressor(); master.connect(comp); comp.connect(ac.destination); }
     if (ac.state === 'suspended') ac.resume();
     return ac;
   };
@@ -67,7 +67,8 @@ const FX = (() => {
 
   // ---------- shake & hit-stop ----------
   const trauma = { v: 0 }; // 0..1, decays; shake offset = maxPx * trauma^2
-  const shake = (amount = .4) => { trauma.v = Math.min(1, trauma.v + amount); };
+  const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const shake = (amount = .4) => { if (reduceMotion) return; trauma.v = Math.min(1, trauma.v + amount); };
   function shakeOffset(maxPx = 12, t = performance.now() / 1000) {
     const k = trauma.v * trauma.v;
     return [maxPx * k * (Math.sin(t * 61.3) * .6 + Math.sin(t * 97.1) * .4), maxPx * k * (Math.sin(t * 53.7 + 1) * .6 + Math.sin(t * 89.3) * .4), k * .03 * Math.sin(t * 43.1)];
