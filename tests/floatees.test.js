@@ -89,10 +89,29 @@ module.exports = {
       const r = await voyage(page, 0, null); // the spill with no bet placed: release is a no-op in the UI, but the debug drop runs
       const p = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).floatees); ok(p >= 0 && p <= 1);
     },
+    'stars reward a better drop; postcards arrive for new coasts; the success is a stamped beachcomber report': async ({ page, ok, eq }) => {
+      await unlock(page);
+      const r = await page.evaluate(async seed => { eval(seed); const X = __fl; X.load(1); X.dropAt(30, -78); let wonAt = -1;
+        for (let t = 0; t < 3 && !X.resolved; t += .02) { X.step(.02); X.simT = Math.min(3, X.simT); X.check(); if (X.won && wonAt < 0) wonAt = X.simT; }
+        return { wonAt, resolved: X.resolved, stars: X.SAVE.stars[1], cards: Object.keys(X.SAVE.cards), att: X.attempts, report: X.reportOn, uk: X.stats().regions.uk }; }, SEED);
+      ok(r.wonAt > 0 && r.wonAt < 3, 'goal reached mid-voyage at ' + r.wonAt);
+      ok(r.resolved, 'voyage ran to the end and was graded');
+      eq(r.stars, r.uk >= 45 ? 3 : r.uk >= 30 ? 2 : 1, 'stars match the final count ' + r.uk);
+      ok(r.cards.includes('uk'), 'a postcard from Britain: ' + r.cards);
+      ok(r.report, 'beachcomber report shown');
+      ok(/CONFIRMED/.test(await page.textContent('#report')));
+      eq(r.att.length, 1); ok(/30°N 78°W/.test(await page.textContent('#tally')), 'logbook shows the drop');
+      // stars never go down on a worse replay
+      const r2 = await page.evaluate(async seed => { eval(seed); const X = __fl; document.getElementById('rclose').click(); X.load(1); X.dropAt(25, -95);
+        for (let t = 0; t < 3 && !X.resolved; t += .02) { X.step(.02); X.simT = Math.min(3, X.simT); X.check(); } return X.SAVE.stars[1]; }, SEED);
+      eq(r2, r.stars);
+      eq(await page.evaluate(() => __fl.grade({ t: 3, regions: { uk: 50 }, maxLap: 0 })), 3);
+    },
     'corrupted / odd saves load without errors': async ({ page, eq }) => {
+      const u = page.url(); await page.goto('about:blank'); // stop the first globe rendering while the others load
       for (const [save, cur] of [['null', 0], ['{"done":"x","cur":5}', 0], ['{"done":{"0":1,"9":1,"x":1},"cur":3}', 1]]) {
         const p2 = await page.context().newPage(), errs = []; p2.on('pageerror', e => errs.push(e.message));
-        await p2.goto(page.url()); await p2.evaluate(s => localStorage.setItem('rh:floatees', s), save); await p2.reload(); await p2.waitForFunction(() => window.__fl, null, { timeout: 30000 });
+        await p2.goto(u); await p2.evaluate(s => localStorage.setItem('rh:floatees', s), save); await p2.reload(); await p2.waitForFunction(() => window.__fl, null, { timeout: 30000 });
         eq(errs, [], 'errors for ' + save); eq(await p2.evaluate(() => __fl.SAVE.cur), cur, 'voyage for ' + save);
         await p2.close();
       }
