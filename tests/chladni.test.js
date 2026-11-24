@@ -21,7 +21,7 @@ module.exports = {
       ok(n >= 8, 'checked ' + n);
       // mode shapes: n nodal diameters → z(θ) changes sign 2n times round a circle
       const signs = await page.evaluate(() => __ch.PLATES.circle.modes.map(m => { let c = 0, p = 0; for (let i = 0; i < 720; i++) { const a = i / 720 * 2 * Math.PI, z = m.z(.5 + .3 * Math.cos(a + .01), .5 + .3 * Math.sin(a + .01)); const s = Math.sign(z); if (p && s && s !== p) c++; if (s) p = s; } return [m.id, c]; }));
-      for (const [id, c] of signs) ok(c === 2 * +id[1] || Math.abs(c - 2 * +id[1]) <= 1 && false || c === 2 * +id[1], `${id}: ${c} sign changes`);
+      for (const [id, c] of signs) ok(c === 2 * +id[1], `${id}: ${c} sign changes`);
     },
     'square & 2:1 plates: f ∝ n²+m² / n²+4m² (with small detuning); shapes are symmetric and vanish on nodal lines': async ({ page, ok, near }) => {
       const r = await page.evaluate(() => {
