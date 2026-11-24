@@ -408,7 +408,7 @@ function buildCommissions(W) {
         }
       }
     }
-    if (tasks.length < 2) continue;
+    if (tasks.filter(t => t.naive > 1).length < 2) continue; // at least two real deductions; single-name tasks are filled in for you
     tasks.forEach(t => { t.dep = tasks.findIndex(u => u.truth === t.a); if (t.b != null) t.dep2 = tasks.findIndex(u => u.truth === t.b); });
     const diff = tasks.length * 2 + tasks.reduce((a, t) => a + Math.min(6, t.naive - 1), 0);
     cands.push({ start: st.id, tasks, diff, client: clientFor(r, R[st.id]) });
@@ -592,10 +592,16 @@ function strike(i, id, code) {
   RH.toast('✗ The register does not bear that out. A blot on your reply.', 3600);
   renderAll(); return false;
 }
+// tasks where only one entry in the whole register bears the names need no deduction: they are entered for you
+function autoEnter() {
+  const c = COMS[cur], prog = S.prog[cur] ||= c.tasks.map(() => 0); let more = true, n = 0;
+  while (more) { more = false; c.tasks.forEach((k, i) => { if (!prog[i] && depOk(k, prog) && candidates(W.R, k).length === 1) { prog[i] = 1; more = true; n++; } }); }
+  return n;
+}
 async function confirmTask(i) {
   const c = COMS[cur], k = c.tasks[i], prog = S.prog[cur];
   if (!k || prog[i] || S.done[cur] || !depOk(k, prog) || remaining(i).length !== 1) return false;
-  prog[i] = 1; openCand = null; persist(); sfx('quill');
+  prog[i] = 1; openCand = null; autoEnter(); persist(); sfx('quill');
   RH.toast(`✓ Only one entry is left. ${fmtD(W.R[k.truth].d)}: that must be the one.`, 3200);
   if (prog.every(Boolean)) {
     const w = S.wrong[cur] || 0, stars = w === 0 ? 3 : w <= 2 ? 2 : 1;
@@ -611,7 +617,8 @@ async function confirmTask(i) {
 // signature moment: a wax seal is pressed onto the finished reply
 function sealLetter() {
   const L = document.querySelector('#right .letter'); if (!L) return Promise.resolve();
-  const seal = document.createElement('div'); seal.className = 'seal'; seal.innerHTML = `<span>${W.village[0]}</span>`; L.appendChild(seal);
+  let seal = L.querySelector('.seal'); if (!seal) { seal = document.createElement('div'); seal.innerHTML = `<span>${W.village[0]}</span>`; L.appendChild(seal); }
+  seal.className = 'seal'; // drop "pressed" so the pressing animation plays
   setTimeout(() => sfx('seal'), 380);
   return new Promise(r => setTimeout(r, 1300));
 }
@@ -667,7 +674,7 @@ $('mIdx').onclick = () => setMode('idx');
 ['qG', 'qS', 'qY0', 'qY1'].forEach(id => $(id).oninput = () => setMode('idx'));
 ['qSx', 'qB', 'qM', 'qD'].forEach(id => $(id).onchange = () => setMode('idx'));
 function renderAll() { renderSide(); renderBook(); renderRight(); }
-function openLetter(i) { cur = i; S.cur = i; sel = null; year = yearOf(W.R[COMS[i].start].d); persist(); renderAll(); }
+function openLetter(i) { cur = i; S.cur = i; sel = null; year = yearOf(W.R[COMS[i].start].d); if (!S.done[i]) autoEnter(); persist(); renderAll(); }
 // "Look up" fills the index with the names a task gives you; telling the right record from the decoys is still up to you
 function lookUp(i) {
   const k = COMS[cur].tasks[i], a = W.R[k.a];
@@ -687,6 +694,7 @@ const help = () => RH.modal(`<h2>The Parish Register</h2>
   <p>Watch out for the clerk's habits. The same names come back in every generation. Surnames are spelt several ways (Cooper, Couper). Ages at burial are approximate. When a baby died, the next child was often given the same name.</p>
   <p class="dim">A reason the register doesn't support leaves a blot, and blots cost stars. You need stars to untie the next bundle of letters.</p>`, [{ label: 'Open the register' }]);
 $('helpBtn').onclick = help;
+if (!S.done[cur]) autoEnter();
 renderAll();
 if (!S.intro) { S.intro = 1; persist(); help(); }
 year = yearOf(W.R[COMS[cur].start].d); renderBook();

@@ -92,7 +92,7 @@ async function solveAll(page, upTo) {
       if (N.SAVE.best[l.id] == null) break;
     }
     return out;
-  }, { SOL, BUILD_SRC, upTo });
+  }, { SOL, BUILD_SRC, upTo }).then(async (out) => { if (out.some(r => r.id === 'PC' && r.solved)) await page.waitForTimeout(800); return out; }); // let the CPU cutscene appear
 }
 // The harness clears localStorage on every navigation of the test page, so "reload" opens a second page in the same context.
 async function reopen(page) { const p2 = await page.context().newPage(); const errs = []; p2.on('pageerror', e => errs.push(e.message)); await p2.goto(page.url()); await p2.waitForTimeout(200); p2.errs = errs; return p2; }

@@ -100,7 +100,7 @@
   .law:before,.law:after{content:'';position:absolute;top:50%;width:4px;height:4px;border-radius:50%;background:#5a3e12;transform:translateY(-50%);box-shadow:inset 0 1px 0 #0006}
   .law:before{left:3px}.law:after{right:3px}
   .law:hover{background:linear-gradient(#ddb965,#ad8636)}
-  .law.cur{outline:0;box-shadow:0 0 0 2px #f6dd8f,0 0 14px #f6dd8f88}
+  .law.cur{background:linear-gradient(#fbe7a4,#d1a447);outline:0;box-shadow:0 0 0 2px #f6dd8f,0 0 14px #f6dd8f88}
   .law.locked{opacity:.4;filter:grayscale(.7)}
   .law .st{color:#5a2a08}
   #side .note{color:#a88c64}
@@ -115,7 +115,7 @@
   .jcol .klist{background:radial-gradient(#2e5a37 0 60%,#21452a);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='1.4' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 .1 0 0 0 0 0 0 0 0 .35 0'/%3E%3C/filter%3E%3Crect width='80' height='80' filter='url(%23n)'/%3E%3C/svg%3E"),radial-gradient(#2e5a37 0 60%,#21452a);
     border-radius:3px 3px 14px 14px;box-shadow:inset 0 3px 8px #000c;padding:12px 8px;min-height:96px;gap:8px}
   .jcol.no .klist{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='1.4' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 .1 0 0 0 0 0 0 0 0 0 0 0 0 0 .35 0'/%3E%3C/filter%3E%3Crect width='80' height='80' filter='url(%23n)'/%3E%3C/svg%3E"),radial-gradient(#6a2620 0 60%,#4a1813)}
-  .jcol.yes,.jcol.no{border:0}
+  .jcol.yes,.jcol.no{border:0;background:var(--brass)}
   .jcol h3{font-family:"Playfair Display SC",serif;font-size:15px;letter-spacing:.14em;text-align:center;color:#3a2808!important;text-shadow:0 1px 0 #fff7;margin:0 0 8px}
   .koan{background:linear-gradient(#3b3d40,#26282b);border:1px solid #111;border-radius:3px;box-shadow:inset 0 1px 0 #ffffff22,0 3px 4px #000b}
   .koan:hover{border-color:#f6dd8f}
@@ -154,7 +154,9 @@
   .modal h2{font-family:"Playfair Display SC",serif;color:#f6dd8f;letter-spacing:.06em}
   .toast{background:var(--brass);color:#2b1d08;border:0;border-radius:2px;font-family:Rokkitt,serif;font-weight:600;box-shadow:0 4px 12px #000a}
   kbd{background:#f3e6c4;color:#2b1d08;border:0}
-  @media (max-width:760px){#center{padding:16px 14px 40px}.journal{grid-template-columns:1fr 1fr;gap:10px}}
+  .journal{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .koan{max-width:100%;flex-wrap:wrap}
+  @media (max-width:760px){#center{padding:16px 14px 40px}.journal{grid-template-columns:minmax(0,1fr);gap:12px}}
   @media (prefers-reduced-motion:reduce){.koan.new,.verdict.yes,.verdict.no,.lawtext .ch{animation:none;opacity:1}}
 </style>
 </head>
@@ -310,13 +312,25 @@ const LAWS = (() => { const r = RH.rng('hyp:' + S.seed), avoid = [], out = []; T
   for (let j = 0; j < TSIZE[t]; j++) out.push(makeLaw(r, t, avoid, order[j % order.length]));
 }); return out; })();
 const par = t => 6 + 2 * t;
-const tierOpen = t => t === 0 || LAWS.filter((l, i) => l.tier === t - 1 && S.laws[i]?.solved).length >= 5;
+const TIER_NEED = 3; // laws to solve in a tier before the next opens
+const tierOpen = t => t === 0 || LAWS.filter((l, i) => l.tier === t - 1 && S.laws[i]?.solved).length >= TIER_NEED;
+// Each tier is a different judging engine, so the nameplate changes as you climb.
+const MODELS = ['The Sieve', 'The Tally Engine', 'The Bookends', 'The Neighbour Loom', 'The Logic Organ', 'The Comparator', 'The Consequence Mill', 'The Arithmometer'];
+// Sealed cases: in tiers 2+, two laws per tier come as a dossier of ten verdicts and a locked test lever.
+// No experiments: you reason from the evidence, and stars depend on how many prediction rounds you fail.
+const isSealed = i => i !== 'free' && LAWS[i].tier >= 1 && [2, 5].includes(i - LAWS.findIndex(l => l.tier === LAWS[i].tier));
 
 let cur = S.cur, law, builder = [], sel = -1, mode = 'probe', preds = null, lastVerdict = null, freeLaw = null;
 function lawState(i) {
   if (i === 'free') return S.free.st;
   if (!S.laws[i]) {
     const r = RH.rng('hyp:' + S.seed + ':start' + i), L = LAWS[i], j = [];
+    if (isSealed(i)) { // a dossier: five accepted, five rejected, all different
+      const seen = new Set(); let ny = 0, nn = 0;
+      for (let t = 0; t < 40000 && (ny < 5 || nn < 5); t++) { const k = t < 20000 ? randKoan(r, 2, 6) : randKoan(r, 1, 8), key = kkey(k), ok = L.f(k); if (seen.has(key) || (ok ? ny >= 5 : nn >= 5)) continue; seen.add(key); j.push({ k, ok, given: 1 }); ok ? ny++ : nn++; }
+      S.laws[i] = { journal: j, probes: 0, fails: 0, notes: '', sealed: 1 };
+      return S.laws[i];
+    }
     let y = null, n = null; for (let t = 0; t < 20000 && (!y || !n); t++) { const k = t < 5000 ? randKoan(r, 2, 5) : randKoan(r, 1, 8); /* some laws only reject 1-token or long koans */ if (L.f(k)) y ||= k; else n ||= k; }
     if (y) j.push({ k: y, ok: true, given: 1 }); if (n) j.push({ k: n, ok: false, given: 1 });
     S.laws[i] = { journal: j, probes: 0, fails: 0, notes: '' };
@@ -335,7 +349,7 @@ function renderSide() {
     h += `<div class="law ${i === cur ? 'cur' : ''} ${op ? '' : 'locked'}" data-i="${i}"><span>${st?.solved ? '✓' : '·'} Law ${i + 1}</span><span class="st">${st?.solved ? (st.solved.revealed ? 'revealed' : '★'.repeat(st.solved.stars) + '☆'.repeat(3 - st.solved.stars)) : st?.probes ? st.probes + ' probes' : ''}</span></div>`;
   });
   h += `<div class="tier"><span>∞. Free lab</span><span>${S.free.solved}</span></div><div class="law ${cur === 'free' ? 'cur' : ''} ${tierOpen(3) ? '' : 'locked'}" data-i="free"><span>🎲 Random law</span><span class="st">${tierOpen(3) ? '' : 'tier 4+'}</span></div>`;
-  h += `<div class="note" style="margin:14px 6px">Solve 5 laws in a tier to open the next one.</div>`;
+  h += `<div class="note" style="margin:14px 6px">Solve ${TIER_NEED} laws in a tier to open the next one.</div>`;
   $('side').innerHTML = h;
   $('side').querySelectorAll('.law').forEach(el => el.onclick = () => {
     const i = el.dataset.i === 'free' ? 'free' : +el.dataset.i;
@@ -367,8 +381,8 @@ function render() {
   const nNew = st.journal.length - 1;
   $('center').innerHTML = `
     <div class="head">
-      <div><div class="dim small">Tier ${tier + 1} · ${TIERS[tier]}</div><h2>${solved ? '✓ ' : ''}${title}</h2></div>
-      <div class="row"><span class="pill">Probes <b>${st.probes}</b> / par ${par(tier)}</span>${st.fails ? `<span class="pill">Failed predictions <b>${st.fails}</b></span>` : ''}${cur === 'free' ? '<button id="rerollBtn">🎲 New random law</button>' : ''}</div>
+      <div><span class="plate">Model ${['I','II','III','IV','V','VI','VII','VIII'][tier]} · ${MODELS[tier]}</span><div class="dim small" style="margin-top:4px">Tier ${tier + 1} · ${TIERS[tier]}</div><h2>${solved ? '✓ ' : ''}${title}</h2></div>
+      <div class="row">${st.sealed && !solved ? '<span class="sealed" title="No experiments on this one: judge from the evidence">🔒 Sealed case · no probes</span>' : `<span class="pill">Probes <b>${st.probes}</b> / par ${par(tier)}</span>`}${st.fails ? `<span class="pill">Failed predictions <b>${st.fails}</b></span>` : ''}${cur === 'free' ? '<button id="rerollBtn">🎲 New random law</button>' : ''}</div>
     </div>
     ${solved ? `<div class="lawtext">“${L.d}”</div>` : ''}
     <div class="journal">
@@ -389,9 +403,12 @@ function render() {
 }
 // A journal entry sits in the box of the machine's real verdict. Entries that came from a failed prediction are
 // marked with what YOU said, so a counterexample in the accept box reads "you said ✗", never like a rejection.
-const jTag = e => e.given ? 'given' : e.pred ? (e.ok ? 'you said ✗' : 'you said ✓') : '';
+const jTag = e => e.given ? (lawState(cur).sealed ? '' : 'given') : e.pred ? (e.ok ? 'you said ✗' : 'you said ✓') : '';
 const jKoan = (e, st, nNew) => koanHTML(e.k, [e === st.journal[nNew] && (lastVerdict === true || lastVerdict === false) ? 'new' : '', e.pred ? 'mispred' : ''].join(' '),
   jTag(e)).replace('<span class="koan', `<span title="${e.pred ? `Machine ${e.ok ? 'accepts' : 'rejects'} this; you predicted it would ${e.ok ? 'reject' : 'accept'}` : ''}" class="koan`);
+// Signature moment: the law is engraved on the brass plate one letter at a time, to the ticking of the engraver.
+const engraved = d => { let i = 0; return `<div class="lawtext">${('“' + d + '”').split(' ').map(w => `<span style="white-space:nowrap">${[...w].map(c => `<span class="ch" style="animation-delay:${(i++ * .035).toFixed(3)}s">${esc(c)}</span>`).join('')}</span>`).join(' ')}</div>`; };
+function engraveSound(n) { for (let i = 0; i < n; i += 2) FX.tone({ noise: 1, f: 5000 + Math.random() * 2000, q: 3, dur: .015, vol: .05, delay: i * .035 }); [523, 784, 1047].forEach((f, k) => FX.tone({ f, type: 'sine', dur: 1.4, vol: .08, delay: n * .035 + k * .08 })); }
 const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
 function builderHTML(solved) {
@@ -413,7 +430,9 @@ function renderBuilder() {
   const b = $('brow'); if (!b) return;
   b.innerHTML = builder.length ? builder.map((t, i) => `<span class="tk ${i === sel ? 'sel' : ''}" data-i="${i}">${tokSVG(t)}</span>`).join('') : '<span class="ph">Empty: pick tokens from the palette below (up to 8).</span>';
   b.querySelectorAll('.tk').forEach(el => el.onclick = () => { const i = +el.dataset.i; sel = sel === i ? -1 : i; renderBuilder(); });
-  $('testBtn').disabled = !builder.length;
+  const st = lawState(cur), locked = st.sealed && !st.solved;
+  $('testBtn').disabled = !builder.length || locked;
+  if (locked) $('testBtn').textContent = '🔒 Test lever sealed';
 }
 function wireBuilder() {
   renderBuilder();
@@ -438,9 +457,15 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowRight' && $('mvR')) $('mvR').click();
 });
 
-function beep(ok) { try { const ac = beep.ac ||= new AudioContext(), o = ac.createOscillator(), g = ac.createGain(); o.type = 'triangle'; o.frequency.value = ok ? 660 : 180; g.gain.setValueAtTime(.08, ac.currentTime); g.gain.exponentialRampToValueAtTime(.001, ac.currentTime + .25); o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + .26); } catch (e) {} }
+// Brass voices: a bell for ACCEPT, a wooden thunk for REJECT, the chute rattle for both.
+function beep(ok) {
+  FX.tone({ noise: 1, f: 1800, q: 1.2, dur: .22, vol: .05, delay: 0 });
+  if (ok) { FX.tone({ f: 1318, type: 'sine', dur: 1.1, vol: .12, delay: .32 }); FX.tone({ f: 2637, type: 'sine', dur: .5, vol: .04, delay: .32 }); FX.tone({ f: 3950, type: 'sine', dur: .25, vol: .02, delay: .32 }); }
+  else { FX.tone({ f: 110, f2: 70, type: 'sine', dur: .25, vol: .35, delay: .32 }); FX.tone({ noise: 1, f: 300, q: .7, dur: .12, vol: .12, delay: .32 }); }
+}
 function test() {
   if (!builder.length) return;
+  if (lawState(cur).sealed && !lawState(cur).solved) return;
   const st = lawState(cur), k = builder.map(t => t.slice());
   if (st.journal.some(e => kkey(e.k) === kkey(k))) { lastVerdict = 'dup'; render(); return; }
   const ok = curLaw().f(k); st.journal.push({ k, ok }); if (!st.solved) st.probes++;
@@ -494,16 +519,16 @@ async function submitPred() {
     if (v === 'reveal') reveal();
     return;
   }
-  const stars = st.probes <= par(L.tier) ? 3 : st.probes <= 2 * par(L.tier) ? 2 : 1;
+  const stars = st.sealed ? (st.fails === 0 ? 3 : st.fails === 1 ? 2 : 1) : st.probes <= par(L.tier) ? 3 : st.probes <= 2 * par(L.tier) ? 2 : 1;
   st.solved = { stars, probes: st.probes }; mode = 'probe';
   if (cur === 'free') { S.free.solved++; }
   persist();
-  try { const ac = new AudioContext(); [523, 659, 784, 1046].forEach((f, k) => { const o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = f; g.gain.setValueAtTime(.07, ac.currentTime + k * .1); g.gain.exponentialRampToValueAtTime(.001, ac.currentTime + k * .1 + .4); o.connect(g).connect(ac.destination); o.start(ac.currentTime + k * .1); o.stop(ac.currentTime + k * .1 + .45); }); } catch (e) {}
+  engraveSound(L.d.length);
   const nxt = cur === 'free' ? -1 : LAWS.findIndex((l, j) => j > cur && !S.laws[j]?.solved && tierOpen(l.tier));
-  const go = await RH.modal(`<h2>📜 Published.</h2><p>All eight predictions were correct. The law was:</p><div class="lawtext">“${L.d}”</div>
+  const go = await RH.modal(`<h2>Published.</h2><p>All eight predictions were correct. The machine engraves its law:</p>${engraved(L.d)}
     ${st.notes ? `<p class="dim small">Your notes said: <i>${esc(st.notes)}</i></p>` : ''}
     <p style="text-align:center;color:var(--accent);font-size:22px">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</p>
-    <p class="dim small" style="text-align:center">${st.probes} probes (par ${par(L.tier)}). Fewer probes means better science.</p>`,
+    <p class="dim small" style="text-align:center">${st.sealed ? `Sealed case: ${st.fails ? st.fails + ' failed round' + (st.fails > 1 ? 's' : '') : 'right first time'}.` : `${st.probes} probes (par ${par(L.tier)}). Fewer probes means better science.`}</p>`,
     cur === 'free' ? [{ label: 'Stay', value: 0 }, { label: '🎲 Another random law', value: 'free' }] : nxt >= 0 ? [{ label: 'Stay', value: 0 }, { label: `Next: Law ${nxt + 1}`, value: 1 }] : [{ label: 'Close', value: 0 }]);
   if (go === 'free') openFree(true); else if (go === 1) openLaw(nxt); else render();
 }
@@ -527,7 +552,7 @@ const help = () => RH.modal(`<h2>⚗️ Hypothesis</h2>
 $('helpBtn').onclick = help;
 if (!S.intro) { S.intro = 1; persist(); help(); }
 if (cur === 'free' && tierOpen(3)) openFree(false); else openLaw(typeof cur === 'number' && LAWS[cur] && tierOpen(LAWS[cur].tier) ? cur : 0);
-window.__hyp = { GEN, makeLaw, randKoan, kkey, mutate, lawState, loadState, tierOpen, openFree, par, get cur() { return cur; }, get mode() { return mode; }, LAWS, S, openLaw, test, get builder() { return builder; }, set builder(b) { builder = b; }, startPredict, get preds() { return preds; }, submitPred, render, fp };
+window.__hyp = { isSealed, TIER_NEED, GEN, makeLaw, randKoan, kkey, mutate, lawState, loadState, tierOpen, openFree, par, get cur() { return cur; }, get mode() { return mode; }, LAWS, S, openLaw, test, get builder() { return builder; }, set builder(b) { builder = b; }, startPredict, get preds() { return preds; }, submitPred, render, fp };
 </script>
 </body>
 </html>

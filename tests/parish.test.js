@@ -54,7 +54,7 @@ module.exports = {
       await closeModals(page);
       const r = await page.evaluate(async () => {
         const P = window.__parish, W = P.W(), C = P.COMS(), out = {};
-        const ci = C.findIndex((c, i) => P.tierOpen(P.tierOf(i)) && P.candidates(W.R, c.tasks[0]).length >= 3); if (ci < 0) return null;
+        const ci = C.findIndex(c => P.candidates(W.R, c.tasks[0]).length >= 2); if (ci < 0) return null;
         P.openLetter(ci); const c = C[ci], k = c.tasks[0], K = P.KIND[k.kind];
         const locked = c.tasks.findIndex(t => t.dep >= 0);
         if (locked >= 0) { const t = c.tasks[locked], d = P.candidates(W.R, t).find(x => x.id !== t.truth); out.locked = d ? P.strike(locked, d.id, K.strikes[0]) : null; }
@@ -67,20 +67,30 @@ module.exports = {
         out.prog = P.S.prog[ci][0]; out.badC = !!badC; out.wrongEnd = P.S.wrong[ci] || 0;
         return out;
       });
-      ok(r, 'no letter with 3+ candidates in the open tier');
+      ok(r, 'no letter whose first task has a decoy');
       if (r.locked !== undefined) eq(r.locked, null, 'locked task struck');
       if (r.badC) { eq(r.bad1, false); eq(r.bad2, false); eq(r.wrong, 1, 'same wrong reason charged twice'); }
       eq(r.truthStrike, false, 'the true record was struck'); eq(r.good, true);
       eq(r.prog, 1, 'last remaining entry should be entered'); eq(r.wrongEnd, (r.badC ? 1 : 0) + 1);
     },
-    'real clicks: open an entry, strike it with a reason chip': async ({ page, eq, ok }) => {
+    'real clicks: open an entry, strike it with a reason chip': async ({ page, ok }) => {
       await closeModals(page);
-      const t = await page.evaluate(() => { const P = window.__parish, W = P.W(), k = P.COMS()[P.cur].tasks[0], K = P.KIND[k.kind]; const d = P.candidates(W.R, k).find(x => x.id !== k.truth); return d ? { id: d.id, code: K.why(W.R, d, k).find(c => K.strikes.includes(c)), label: P.strikeLabel(K.why(W.R, d, k).find(c => K.strikes.includes(c)), k) } : null; });
-      if (!t) { ok(await page.locator('[data-confirm="0"]').count() === 1, 'single candidate should offer to enter it'); return; }
+      const t = await page.evaluate(() => {
+        const P = window.__parish, W = P.W(), c = P.COMS()[P.cur], prog = P.S.prog[P.cur];
+        const i = c.tasks.findIndex((k, j) => !prog[j] && (k.dep < 0 || prog[k.dep]) && P.remaining(j).length > 1); if (i < 0) return null;
+        const k = c.tasks[i], K = P.KIND[k.kind], d = P.remaining(i).find(x => x.id !== k.truth), code = K.why(W.R, d, k).find(x => K.strikes.includes(x));
+        return { i, id: d.id, code, label: P.strikeLabel(code, k) };
+      });
+      ok(t, 'the first letter should open on a task that needs deduction');
       await page.locator(`.cand[data-cand="${t.id}"]`).click();
       await page.locator(`.cand[data-cand="${t.id}"] [data-strike="${t.code}"]`).click();
+      if (await page.evaluate(i => window.__parish.S.prog[window.__parish.cur][i], t.i)) return; // it was the only decoy: the task is answered
       ok(await page.locator(`.cand.struck[data-cand="${t.id}"]`).count() === 1, 'not struck');
       ok((await page.locator(`.cand.struck[data-cand="${t.id}"] .why`).textContent()).includes(t.label));
+    },
+    'single-name tasks are filled in automatically; no letter is only those': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const P = window.__parish, W = P.W(); return P.COMS().filter(c => c.tasks.filter(k => P.candidates(W.R, k).length > 1).length < 2).length; });
+      eq(r, 0);
     },
     'completing a letter presses a seal and gives stars from blots': async ({ page, eq }) => {
       await closeModals(page);

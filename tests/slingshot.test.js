@@ -51,14 +51,15 @@ module.exports = {
         const s = window.__sling; s.hold(true); const sol = s.solvable(s.L)[0];
         const pred = s.simulate(s.L, sol.ang, sol.pow);
         s.launch({ ang: sol.ang, pow: sol.pow }); let guard = 0; while (s.mode === 'fly' && guard++ < 10000) s.tick(1 / 60);
-        return { pred: pred.res, predSteps: pred.s, live: s.mode, steps: s.stepN, stars: s.S.best['0'] && s.S.best['0'].stars, hub: JSON.parse(localStorage.getItem('rh:hub')).slingshot };
+        return { pred: pred.res, predSteps: pred.s, predPhoto: pred.photo, livePhoto: s.photoTaken, live: s.mode, steps: s.stepN, stars: s.S.best['0'] && s.S.best['0'].stars, want: s.starsFor(0, pred.photo), hub: JSON.parse(localStorage.getItem('rh:hub')).slingshot, anim: !!s.winAnim };
       });
       eq(r.pred, 'win'); eq(r.live, 'done'); eq(r.steps, r.predSteps + 1, 'same step on which the win fires');
-      eq(r.stars, 3); ok(r.hub > 0 && r.hub <= 1, 'hub progress ' + r.hub);
+      eq(r.livePhoto, r.predPhoto, 'survey detection agrees'); eq(r.stars, r.want); ok(r.anim, 'win animation starts'); ok(r.hub > 0 && r.hub <= 1, 'hub progress ' + r.hub);
     },
     'frame-rate independent: 3 s of flight is the same at 30, 60 and 144 Hz (and a hidden tab cannot fast-forward)': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => {
         const s = window.__sling; s.hold(true); const out = [];
+        s.L = { ...s.L, bodies: [{ x: 800, y: 900, m: 2e6, rad: 30 }], target: [-1e5, -1e5], rings: null, start: [200, 500], t0: 0, photo: -1 };
         for (const hz of [30, 60, 144]) { s.reset(); s.launch({ ang: -0.4, pow: 200 }); let n = 0; for (let f = 0; f < 3 * hz; f++) { s.tick(1 / hz); n++; } out.push([s.stepN, +s.probe.x.toFixed(6), +s.probe.y.toFixed(6), s.mode]); }
         s.reset(); s.launch({ ang: -0.4, pow: 200 }); s.tick(30); const hidden = s.stepN; // 30 s gap (tab was hidden)
         return { out, hidden };
@@ -83,9 +84,11 @@ module.exports = {
     'every campaign level is solvable, not trivially straight, and gauntlet rings lie on a real solution': async ({ page, ok }) => {
       const bad = await page.evaluate(() => {
         const s = window.__sling; const bad = [];
-        for (let n = 0; n < 40; n++) { const sys = Math.floor(n / 8), idx = n % 8; const L = s.buildLevel(sys, idx, 1);
+        for (let n = 0; n < s.NLEV; n++) { const sys = Math.floor(n / s.PER), idx = n % s.PER; const L = s.buildLevel(sys, idx, 1);
           if (!s.solvable(L).length) bad.push(n + ' unsolvable');
-          if (!(sys === 0 && idx < 3) && !L.rings && s.tooEasy(L)) bad.push(n + ' straight shot');
+          if (!(sys === 0 && idx < 2) && !L.rings && s.tooEasy(L)) bad.push(n + ' straight shot');
+          if (!(L.photo >= 0)) bad.push(n + ' no survey target');
+          else if (!s.solvable(L, false, { all: true }).some(w => w.md[L.photo] < s.photoR(L.bodies[L.photo]))) bad.push(n + ' survey star impossible');
           if (sys === 3 && !(L.rings && L.rings.length >= 2)) bad.push(n + ' rings');
           if (Math.hypot(L.start[0] - L.target[0], L.start[1] - L.target[1]) < L.tr + 200) bad.push(n + ' starts at target');
           if (s.simulate(L, 0, 0).res === 'win') bad.push(n + ' wins with no launch'); }
@@ -107,6 +110,9 @@ module.exports = {
       });
       eq(r[0].best, {}); eq(r[1].cur, 0); eq(r[2].deep, {});
       eq(r[3].best, { 0: { stars: 3, fuel: 0 } }); eq(r[3].cur, 0); eq(Object.keys(r[3].deep), ['deep:a']);
+      // old 8-per-system saves keep the first four missions of each system
+      const m = await page.evaluate(() => window.__sling.cleanSave({ best: { 9: { stars: 2, fuel: 0.1 }, 12: { stars: 3, fuel: 0 }, 33: { stars: 1, fuel: 1 } }, cur: 9 }));
+      eq(m.best, { 5: { stars: 2, fuel: 0.1 }, 17: { stars: 1, fuel: 1 } }); eq(m.v, 2); eq(m.cur, 0);
       for (const bad of ['{not json', 'null', '{"best":5,"cur":"7"}', '{"cur":30,"best":{}}']) {
         await page.evaluate((v) => localStorage.setItem('rh:sling', v), bad);
         await page.reload(); await page.waitForFunction(() => window.__sling && window.__sling.L);
@@ -116,15 +122,15 @@ module.exports = {
     },
     'locked levels cannot be reached by buttons, Next, or a stale save': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => {
-        const s = window.__sling; for (let i = 0; i < 8; i++) delete s.S.best[i];
-        s.S.best['7'] = { stars: 1, fuel: 1 }; // a lucky clear of 1-8 must not open system 2
-        return { open8: s.levelOpen(8), next7: s.nextOpen(7), next2: s.nextOpen(2), open3: s.levelOpen(3), disabled: document.querySelector('[data-k="8"]').disabled };
+        const s = window.__sling; for (let i = 0; i < 4; i++) delete s.S.best[i];
+        s.S.best['3'] = { stars: 1, fuel: 1 }; // a lucky clear of 1-4 must not open program 2
+        return { open4: s.levelOpen(4), next3: s.nextOpen(3), next1: s.nextOpen(1), open2: s.levelOpen(2), disabled: document.querySelector('[data-k="4"]').disabled };
       });
-      eq(r.open8, false); eq(r.next7, -1); eq(r.next2, 7, 'only the already-cleared level after 3'); eq(r.open3, false); eq(r.disabled, true);
-      // win level 7 directly: the result box must not offer Next into a locked system
-      const nextShown = await page.evaluate(() => { const s = window.__sling; s.hold(true); s.openLevel('7'); s.end('win'); return !!document.getElementById('nextL'); });
+      eq(r.open4, false); eq(r.next3, -1); eq(r.next1, 3, 'only the already-cleared mission after 2'); eq(r.open2, false); eq(r.disabled, true);
+      // win mission 4 directly: the result box must not offer Next into a locked program
+      const nextShown = await page.evaluate(() => { const s = window.__sling; s.hold(true); s.openLevel('3'); s.end('win'); return !!document.getElementById('nextL'); });
       eq(nextShown, false);
-      await page.evaluate(() => { localStorage.setItem('rh:sling', JSON.stringify({ best: {}, cur: 20, intro: 1 })); });
+      await page.evaluate(() => { localStorage.setItem('rh:sling', JSON.stringify({ v: 2, best: {}, cur: 9, intro: 1 })); });
       await page.reload(); await page.waitForFunction(() => window.__sling && window.__sling.L);
       eq(await page.evaluate(() => window.__sling.levelKey), '0');
     },
@@ -156,6 +162,29 @@ module.exports = {
         return s.mode;
       });
       eq(r, 'fly');
+    },
+    'launch window: moving systems can be launched later; the dial only works while aiming and the flight uses it': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => {
+        const s = window.__sling; s.hold(true); s.S.best['0'] = s.S.best['1'] = s.S.best['2'] = { stars: 1, fuel: 1 }; s.openLevel('4');
+        const L = s.L; const shown = document.getElementById('window').classList.contains('on');
+        const a = s.simulate(L, 0.3, 250, null, null, 0), b = s.simulate(L, 0.3, 250, null, null, 7.5);
+        const p0 = s.bodyPos(L.bodies[1], 0), p1 = s.bodyPos(L.bodies[1], 7.5);
+        s.setWindow(7.5); const t0 = L.t0, simT = s.simT; const pred = s.simulate(L, 0.3, 250);
+        s.launch({ ang: 0.3, pow: 250 }); s.setWindow(20); const during = L.t0; let g = 0; while (s.mode === 'fly' && g++ < 10000) s.tick(1 / 60);
+        s.openLevel('0'); const fixedShown = document.getElementById('window').classList.contains('on');
+        return { shown, fixedShown, differ: a.t !== b.t || a.res !== b.res, moved: Math.hypot(p0[0] - p1[0], p0[1] - p1[1]), t0, simT, during, predSteps: pred.s ?? Math.round(45 * 120), steps: s.stepN, predRes: pred.res };
+      });
+      eq(r.shown, true); eq(r.fixedShown, false); ok(r.moved > 5, 'the moon moves between windows'); ok(r.differ, 'a later window changes the flight');
+      eq([r.t0, r.simT, r.during], [7.5, 7.5, 7.5]);
+    },
+    'survey star: passing close to the marked body is detected; stars = arrive + no burn + survey': async ({ page, eq }) => {
+      const r = await page.evaluate(() => {
+        const s = window.__sling; const body = { x: 800, y: 300, m: 1, rad: 20 };
+        const L = { bodies: [body], start: [200, 500], target: [1400, 500], tr: 40, photo: 0 };
+        const far = s.simulate(L, 0, 400), near = s.simulate({ ...L, bodies: [{ ...body, y: 440 }] }, 0, 400);
+        return [far.res, far.photo, near.res, near.photo, s.starsFor(0, true), s.starsFor(0.2, true), s.starsFor(0, false), s.starsFor(0.5, false)];
+      });
+      eq(r, ['win', false, 'win', true, 3, 2, 2, 1]);
     },
     'mobile layout: no horizontal scroll and the play area is visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);

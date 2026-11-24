@@ -114,7 +114,7 @@ module.exports = {
       ok(await page.isVisible('#tretry'));
       const custom = await page.evaluate(() => { __lr.setLoop(circ(1.45, 0, 0)); return JSON.stringify(__lr.loop); });
       await page.click('#tretry');
-      eq(await page.evaluate(() => [__lr.failed, __lr.St().strokes]), [false, 0]);
+      const st = await page.evaluate(() => [__lr.failed, __lr.St().strokes]); eq(st[0], false); ok(st[1] < .5, 'fresh stroke count ' + st[1]); // still playing: a frame may already have run
       eq(await page.evaluate(() => JSON.stringify(__lr.loop)), custom);
     },
     'level change hides the previous lesson toast; locked levels are refused': async ({ page, eq, ok }) => {

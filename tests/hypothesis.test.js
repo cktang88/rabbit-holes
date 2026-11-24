@@ -30,11 +30,12 @@ module.exports = {
       });
       eq(r, ['An odd number of tokens', true, false, false, true, false, true, false, true, false, 'Contains a blue token', false, true]);
     },
-    'every law starts with one accepted and one rejected koan, correctly filed': async ({ page, ok }) => {
+    'every law starts correctly filed: 1+1 given koans, or a 5+5 dossier for sealed cases': async ({ page, ok }) => {
       const bad = await page.evaluate(() => {
         const H = window.__hyp, out = [];
-        H.LAWS.forEach((L, i) => { const st = H.lawState(i), y = st.journal.filter(e => e.ok), n = st.journal.filter(e => !e.ok);
-          if (y.length !== 1 || n.length !== 1 || !L.f(y[0].k) || L.f(n[0].k)) out.push(i); });
+        H.LAWS.forEach((L, i) => { const st = H.lawState(i), y = st.journal.filter(e => e.ok), n = st.journal.filter(e => !e.ok), want = H.isSealed(i) ? 5 : 1;
+          if (y.length !== want || n.length !== want || !y.every(e => L.f(e.k)) || n.some(e => L.f(e.k)) || new Set(st.journal.map(e => H.kkey(e.k))).size !== st.journal.length || !!st.sealed !== H.isSealed(i)) out.push(i); });
+        if (H.LAWS.filter((L, i) => H.isSealed(i)).length !== 14) out.push('sealed count');
         return out;
       });
       ok(!bad.length, 'laws ' + bad.join(','));
@@ -103,13 +104,33 @@ module.exports = {
       });
       eq(r.map(x => x.probes), [2, 4, 6]); eq(r.map(x => x.fails), [1, 2, 3]); eq(r.map(x => x.reveal), [false, false, true]);
     },
-    'tiers stay locked until 5 laws are solved; progress fraction is bounded': async ({ page, eq, ok }) => {
+    'tiers stay locked until 3 laws are solved; progress fraction is bounded': async ({ page, eq, ok }) => {
       ok(!(await page.evaluate(() => window.__hyp.tierOpen(1))));
       await page.click('.law[data-i="9"]'); eq(await page.evaluate(() => window.__hyp.cur), 0, 'locked law opened');
       await page.click('.law[data-i="free"]'); eq(await page.evaluate(() => window.__hyp.cur), 0, 'locked free lab opened');
-      const r = await page.evaluate(() => { const H = window.__hyp; for (let i = 0; i < 5; i++) { H.lawState(i).solved = { stars: 3, probes: 1 }; } const a = H.tierOpen(1);
+      const r = await page.evaluate(() => { const H = window.__hyp; for (let i = 0; i < 2; i++) { H.lawState(i).solved = { stars: 3, probes: 1 }; } if (H.tierOpen(1)) return { a: false };
+        H.lawState(2).solved = { stars: 3, probes: 1 }; const a = H.tierOpen(1);
         for (let i = 0; i < 60; i++) H.lawState(i).solved = { stars: 3, probes: 1 }; H.openLaw(0); return { a, hub: JSON.parse(localStorage.getItem('rh:hub')).hypothesis }; });
       ok(r.a); eq(r.hub, 1);
+    },
+    'sealed case: the test lever is locked, stars come from failed rounds, publish engraves the law': async ({ page, eq, ok }) => {
+      await page.evaluate(() => { const H = window.__hyp; for (let i = 0; i < 3; i++) H.lawState(i).solved = { stars: 3, probes: 1 }; H.openLaw(10); });
+      await page.click('#pal button[data-t="000"]');
+      ok(await page.isDisabled('#testBtn'), 'test lever not sealed');
+      await page.keyboard.press('Enter');
+      eq(await page.evaluate(() => window.__hyp.lawState(10).journal.length), 10, 'Enter probed a sealed case');
+      ok((await page.textContent('#center')).includes('Sealed case'));
+      // one failed round, then a perfect one: 2 stars
+      await page.evaluate(() => { const H = window.__hyp, L = H.LAWS[10]; H.startPredict(); H.preds.forEach((p, i) => p.ans = i ? L.f(p.k) : !L.f(p.k)); H.submitPred(); });
+      await page.waitForTimeout(80); await closeModals(page);
+      await page.evaluate(() => { const H = window.__hyp, L = H.LAWS[10]; H.startPredict(); H.preds.forEach(p => p.ans = L.f(p.k)); H.submitPred(); });
+      await page.waitForTimeout(80);
+      eq(await page.evaluate(() => window.__hyp.S.laws[10].solved.stars), 2);
+      const plate = await page.evaluate(() => [...document.querySelectorAll('.modal .lawtext .ch')].map(c => c.textContent).join(''));
+      const d = await page.evaluate(() => window.__hyp.LAWS[10].d);
+      eq(plate, ('“' + d + '”').replace(/ /g, ''), 'engraved plate text');
+      await closeModals(page); await page.evaluate(() => window.__hyp.render());
+      ok(!(await page.isDisabled('#testBtn')), 'solved sealed case should allow free experiments');
     },
     'free lab: opens, rerolls, gives a valid start journal': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const H = window.__hyp; for (let i = 0; i < 32; i++) H.lawState(i).solved = { stars: 3, probes: 1 }; H.openFree(true); const a = H.lawState('free'); H.openFree(true); const b = H.lawState('free');
