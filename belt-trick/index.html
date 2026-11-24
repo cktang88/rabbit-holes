@@ -39,7 +39,7 @@
   .lv:hover{background:rgba(255,255,255,.06)} .lv.cur{background:rgba(255,181,71,.18)} .lv.lock{opacity:.3;pointer-events:none}
   .lv em{font-style:normal;color:#ffb547;font-size:11px;white-space:nowrap}
   #lvbtn{display:none;top:12px;right:12px;padding:8px 12px;font:inherit;color:#f1ebe0;font-size:13px;cursor:pointer}
-  #ctrl{bottom:16px;left:50%;transform:translateX(-50%);padding:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 32px);width:max-content}
+  #ctrl{bottom:16px;left:50%;transform:translateX(-50%);padding:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 420px);width:max-content}
   #ctrl .sep{width:1px;height:24px;background:rgba(255,255,255,.14)}
   #ctrl .info{font-size:12px;color:#c9bcd6;padding:0 6px;font-variant-numeric:tabular-nums}
   #lamp{bottom:16px;left:16px;padding:8px 12px 8px 8px;display:flex;align-items:center;gap:8px;font-size:12px;color:#c9bcd6}
@@ -411,7 +411,7 @@ function buildMech(sat) {
   if (sat) {
     const body = new THREE.Mesh(new THREE.BoxGeometry(.55, .5, .55), new THREE.MeshPhysicalMaterial({ color: '#e8c070', metalness: .9, roughness: .3 })); rotor.add(body);
     const pc = document.createElement('canvas'); pc.width = 64; pc.height = 32; const pg = pc.getContext('2d'); pg.fillStyle = '#16306a'; pg.fillRect(0, 0, 64, 32); pg.strokeStyle = '#5a8fe0'; for (let x = 0; x <= 64; x += 8) { pg.beginPath(); pg.moveTo(x, 0); pg.lineTo(x, 32); pg.stroke(); } pg.beginPath(); pg.moveTo(0, 16); pg.lineTo(64, 16); pg.stroke();
-    const pm = new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(pc), emissive: '#1b3a90', emissiveIntensity: .2, side: THREE.DoubleSide, metalness: .4, roughness: .4 });
+    const pm = new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(pc), emissive: '#1b3a90', emissiveIntensity: .2, side: THREE.DoubleSide, metalness: .1, roughness: .75 });
     for (const sx of [-1, 1]) { const p = new THREE.Mesh(new THREE.PlaneGeometry(1.1, .4), pm); p.position.x = sx * .9; p.rotation.x = -Math.PI / 2; rotor.add(p); }
     const dish = new THREE.Mesh(new THREE.SphereGeometry(.18, 16, 8, 0, TAU, 0, Math.PI / 2), MAT.metal); dish.position.set(0, -.25, .25); dish.rotation.x = Math.PI * .7; rotor.add(dish);
   } else {
@@ -439,7 +439,8 @@ function applyRot(o, d) { // d: small rotation, d.w > 0
   if (recording) recording.push([OBJ.indexOf(o), d[0], d[1], d[2], d[3]]);
   wake(300);
 }
-function rotateBy(o, ax, ang) { const n = Math.max(1, Math.ceil(Math.abs(ang) / (12 * D2R))), d = qaa(ax, ang / n); for (let i = 0; i < n; i++) applyRot(o, d); }
+const rbQ = [0, 0, 0, 0], sqQ = [0, 0, 0, 0], snQ = [0, 0, 0, 0], snA = [0, 0, 0]; // scratch quaternions: no per-frame allocation
+function rotateBy(o, ax, ang) { const n = Math.max(1, Math.ceil(Math.abs(ang) / (12 * D2R))), d = qaa(ax, ang / n, rbQ); for (let i = 0; i < n; i++) applyRot(o, d); }
 function setExact(o, q) { o.q = qnorm([...q]); RIB.forEach(r => { if (r.e0.obj === o || r.e1.obj === o) r.fixEnds(); }); }
 
 // ---------- move queue (animated quarter turns etc.) ----------
@@ -450,7 +451,7 @@ function stepQueue(dt) {
   if (!cur && queue.length) { cur = queue.shift(); cur.t = 0; cur.e = 0; cur.q0 = [...cur.o.q]; if (cur.user) FX.sfx('whoosh'); }
   if (!cur) return;
   cur.t += dt; const k = Math.min(1, cur.t / cur.dur), e = FX.ease.inOutCubic(k), da = cur.ang * (e - cur.e); cur.e = e;
-  if (Math.abs(da) > 1e-9) { const n = Math.ceil(Math.abs(da) / (15 * D2R)), d = qaa(cur.ax, da / n); for (let i = 0; i < n; i++) applyRot(cur.o, d); }
+  if (Math.abs(da) > 1e-9) { const n = Math.ceil(Math.abs(da) / (15 * D2R)), d = qaa(cur.ax, da / n, sqQ); for (let i = 0; i < n; i++) applyRot(cur.o, d); }
   if (k >= 1) { const c = cur; cur = null; setExact(c.o, qmul(qaa(c.ax, c.ang), c.q0)); FX.sfx('place'); FX.shake(.08);
     const p = c.o.pos; burst(p[0], p[1], p[2], 8, '#ffd08a', 1.6, .4); if (!queue.length) onMovesSettled(); }
 }
@@ -465,12 +466,12 @@ const busy = () => !!cur || queue.length > 0 || relax.on || intro || snaps.lengt
 // ---------- RELAX: curve shortening on S³ ----------
 const relax = { on: false, frames: 0, L0: [], fb: null, zipT: 0 };
 function startRelax(silent) {
-  if (!RIB.length) return; relax.on = true; relax.frames = 0; relax.iters = 0; relax.fb = null; relax.L0 = RIB.map(r => r.length()); relax.done = RIB.map(() => false); relax.silent = silent;
+  if (!RIB.length) return; relax.on = true; relax.frames = 0; relax.iters = 0; relax.t = 0; relax.fb = null; relax.L0 = RIB.map(r => r.length()); relax.done = RIB.map(() => false); relax.silent = silent;
   if (!silent) { FX.sfx('whoosh'); RIB.forEach(r => r.jiggle(.5)); } wake(500);
 }
 function relaxDone(r) { const L = r.length(), dm = r.dmin(); return L < dm + .02 || (dm > Math.PI - .02 && L < Math.PI + .03); }
 function stepRelax(dt, iters) {
-  relax.frames++; let n = iters ?? Math.min(26, 3 + relax.frames * .8 | 0); relax.iters += n;
+  relax.frames++; relax.t = (relax.t || 0) + dt; let n = iters ?? Math.min(26, 1 + relax.frames * relax.frames / 60 | 0); relax.iters += n; // slow start so the ribbon is seen to try
   if (relax.fb) return stepFallback(dt);
   let all = true;
   RIB.forEach((r, k) => { if (relax.done[k]) return; const before = r.length(), dm = r.dmin(); r.relaxIter(n, before - dm > .4 ? 1e-3 : 0); const L = r.length();
@@ -478,7 +479,7 @@ function stepRelax(dt, iters) {
     // zip particles where the ribbon is losing twist
     if (!relax.silent && before - L > .01 && Math.random() < .7) { const i = 1 + (Math.random() * (r.N - 1) | 0), p = r.samplePos(i, [0, 0, 0]); burst(p[0], p[1], p[2], 2, '#ffb070', 1.2, .5); } });
   if (!relax.silent) { relax.zipT -= dt; if (relax.zipT <= 0) { relax.zipT = .035; const fr = RIB.reduce((a, r, k) => a + (relax.L0[k] > .01 ? 1 - r.length() / relax.L0[k] : 1), 0) / RIB.length; FX.tone({ f: 260 + 1500 * fr, type: 'square', dur: .025, vol: .025 }); } }
-  if (all) return finishRelax();
+  if (all && (iters != null || relax.t > .6)) return finishRelax();
   if (relax.iters > 2600) { // fallback: guaranteed homotopy for whatever didn't settle (never needed for 360°/720°, but cheap insurance)
     relax.fb = { t: 0, list: RIB.map((r, k) => relax.done[k] ? null : makeFallback(r)) }; }
 }
@@ -786,7 +787,7 @@ canvas.addEventListener('pointermove', e => {
   const p = arcVec(e.clientX, e.clientY, [0, 0, 0]), a = drag.last, ax = [a[1] * p[2] - a[2] * p[1], a[2] * p[0] - a[0] * p[2], a[0] * p[1] - a[1] * p[0]], s = Math.hypot(...ax), ang = Math.atan2(s, a[0] * p[0] + a[1] * p[1] + a[2] * p[2]) * 1.7;
   drag.last = p; if (s < 1e-9) return; V3.set(ax[0] / s, ax[1] / s, ax[2] / s).applyQuaternion(camera.quaternion); rotateBy(o, [V3.x, V3.y, V3.z], ang);
 });
-const endDrag = e => { if (drag.hold) { drag.hold = false; setHold(false); } if (!drag.on) return; drag.on = false; controls.enabled = true; if (drag.o.kind !== 'tray') { snapObj(drag.o); if (L.moves && L.kind !== 'sandbox') { const c = dragCost(drag.q0, drag.o.q); for (let k = 0; k < c; k++) userMoves.push('drag'); if (c) { renderCtrl(); if (L.par) msg(`That drag = ${c} quarter-turn${c > 1 ? 's' : ''}`); } } } };
+const endDrag = e => { if (drag.hold) { drag.hold = false; setHold(false); } if (!drag.on) return; drag.on = false; controls.enabled = true; if (drag.o.kind !== 'tray') { snapObj(drag.o, L.kind === 'sandbox' ? undefined : 7); if (L.moves && L.kind !== 'sandbox') { const c = dragCost(drag.q0, drag.o.q); for (let k = 0; k < c; k++) userMoves.push('drag'); if (c) { renderCtrl(); if (L.par) msg(`That drag = ${c} quarter-turn${c > 1 ? 's' : ''}`); } } } };
 // a drag costs as many moves as the fewest quarter-turns that do the same thing (sign included), so dragging can't beat par
 const QT = ['X+90', 'X-90', 'Y+90', 'Y-90', 'Z+90', 'Z-90'];
 function nearestG(q) { let best = null, bd = -2; for (const g of G48) { const d = qdot(g, q); if (d > bd) { bd = d; best = g; } } return best; }
@@ -796,9 +797,9 @@ canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointerc
 const snaps = [];
 function snapObj(o, eps = 9 * D2R) {
   const best = nearestG(o.q), bd = qdot(best, o.q);
-  if (2 * Math.acos(Math.min(1, bd)) > eps) return; const d = qmul(best, qinv(o.q)); snaps.push({ o, d: qnorm(d), t: 0, e: 0, target: best });
+  if (2 * Math.acos(Math.min(1, bd)) > eps) return; const d = qmul(best, qinv(o.q)); snaps.push({ o, d: qnorm(d), t: 0, e: 0, target: best, dur: .12 + rotAngle(d) * .25 });
 }
-function stepSnaps(dt) { for (let k = snaps.length - 1; k >= 0; k--) { const s = snaps[k]; s.t = Math.min(1, s.t + dt / .14); const e = FX.ease.outCubic(s.t), vn = Math.hypot(s.d[1], s.d[2], s.d[3]); if (vn > 1e-12) { const th = 2 * Math.atan2(vn, s.d[0]) * (e - s.e); applyRot(s.o, qaa([s.d[1], s.d[2], s.d[3]], th)); } s.e = e;
+function stepSnaps(dt) { for (let k = snaps.length - 1; k >= 0; k--) { const s = snaps[k]; s.t = Math.min(1, s.t + dt / s.dur); const e = FX.ease.outCubic(s.t), vn = Math.hypot(s.d[1], s.d[2], s.d[3]); if (vn > 1e-12) { const th = 2 * Math.atan2(vn, s.d[0]) * (e - s.e); snA[0] = s.d[1]; snA[1] = s.d[2]; snA[2] = s.d[3]; applyRot(s.o, qaa(snA, th, snQ)); } s.e = e;
   if (s.t >= 1) { setExact(s.o, s.target); snaps.splice(k, 1); FX.sfx('tick'); check('move'); } } }
 function snapAll() { OBJ.forEach(o => snapObj(o)); }
 addEventListener('keydown', e => {
@@ -971,6 +972,8 @@ window.__belt = {
   setRatio: r => setGearB(r), run: () => { MECH.running = true; }, hold: v => { if (v && !MECH.running) MECH.running = true; MECH.hold = v; },
   startWaiter: () => { waiter.started = true; }, calm: false, sel: i => { sel = i; },
   three: { key: () => key, hemi, rim, camera, controls, get bloom() { return bloom; }, render: () => render(), placeCamera: c => placeCamera(c), FACEmats: () => OBJ[0].mats },
+  benchUpdate(n = 200) { const t0 = performance.now(); for (let k = 0; k < n; k++) for (const r of RIB) { r.dirty = true; r.update(); } return (performance.now() - t0) / n; },
+  relaxFrames() { startRelax(); let f = 0; while (relax.on && f < 2000) { stepRelax(1 / 60); f++; } return [f, relax.iters]; },
   get frames() { return [nFrames, nRenders]; },
   screen: (i = 0) => screenOf(OBJ[i].pos), mem: () => ({ ...renderer.info.memory, programs: renderer.info.programs.length }),
 };

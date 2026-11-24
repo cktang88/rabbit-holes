@@ -399,9 +399,10 @@ function renderPrint() {
   printCtx.putImageData(printImg, 0, 0); kick();
 }
 const WOOD = lin('#c9a170'), CUT = lin('#eed6ab'), PENCIL = lin('#4a4540');
-function renderBlock() {
+let sLo = R, sHi = -1, partDirty = false; // rows touched by gouge stamps since the last block render
+function renderBlock(yA = 0, yB = R - 1) {
   const d = blockImg.data, a = anim && anim.phase === 'roll' ? anim.k : -1, rollRow = a >= 0 ? a * R : -1, ic = [0, 0, 0], ic2 = [0, 0, 0];
-  for (let y = 0; y < R; y++) for (let x = 0; x < R; x++) {
+  for (let y = yA; y <= yB; y++) for (let x = 0; x < R; x++) {
     const i = y * R + x, g = grain[i]; let r, gg, b;
     if (uncut[i]) {
       const f = .78 + .3 * g; r = WOOD[0] * f; gg = WOOD[1] * f; b = WOOD[2] * f;
@@ -415,7 +416,7 @@ function renderBlock() {
     }
     d[i * 4] = to8(r); d[i * 4 + 1] = to8(gg); d[i * 4 + 2] = to8(b); d[i * 4 + 3] = 255;
   }
-  blockCtx.putImageData(blockImg, 0, 0); blockDirty = false; kick();
+  blockCtx.putImageData(blockImg, 0, 0, 0, yA, R, yB - yA + 1); if (yA === 0 && yB === R - 1) blockDirty = false; sLo = R; sHi = -1; partDirty = false; kick();
 }
 const PVO = [0, 0, 0], pvImg = new ImageData(R, R), hlImg = new ImageData(R, R);
 function renderPreview() {
@@ -430,6 +431,7 @@ function doUndo() { if (!undo.length || anim || finished) return; const u = undo
 function stamp(cx, cy, rad) {
   let n = 0; const r2 = rad * rad, x0 = Math.max(0, Math.floor(cx - rad)), x1 = Math.min(R - 1, Math.ceil(cx + rad)), y0 = Math.max(0, Math.floor(cy - rad)), y1 = Math.min(R - 1, Math.ceil(cy + rad));
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const dx = x - cx, dy = y - cy; if (dx * dx + dy * dy <= r2) { const i = y * R + x; if (uncut[i]) { uncut[i] = 0; n++; } } }
+  if (n) { if (y0 < sLo) sLo = y0; if (y1 > sHi) sHi = y1; }
   return n;
 }
 function line(a, b, rad) { const d = Math.hypot(b[0] - a[0], b[1] - a[1]), st = Math.max(1, Math.ceil(d / .8)); let n = 0; for (let k = 1; k <= st; k++) n += stamp(a[0] + (b[0] - a[0]) * k / st, a[1] + (b[1] - a[1]) * k / st, rad); return n; }
@@ -537,8 +539,8 @@ function finish() {
 }
 function saveGallery() {
   try {
-    const c = mk(128, 128), x = c.getContext('2d'); x.drawImage(printCv, 0, 0, 128, 128);
-    GAL.unshift({ t: L.n, d: c.toDataURL('image/jpeg', .72), lk: T ? Math.round(result.lk * 100) : null, n: result.ed });
+    const c = mk(112, 112), x = c.getContext('2d'); x.drawImage(printCv, 0, 0, 112, 112);
+    GAL.unshift({ t: L.n, d: c.toDataURL('image/jpeg', .68), lk: T ? Math.round(result.lk * 100) : null, n: result.ed });
     GAL = GAL.slice(0, 24); RH.save('woodcut-gal', GAL);
   } catch (e) {}
 }
@@ -676,7 +678,7 @@ let lastT = performance.now();
 function draw(now) {
   const dt = lastT ? Math.min(.05, (now - lastT) / 1000) : 1 / 60; lastT = now;
   if (anim && !FX.frozen()) stepAnim(now);
-  if (blockDirty) renderBlock();
+  if (blockDirty) renderBlock(); else if (partDirty && sHi >= 0) renderBlock(sLo, Math.min(R - 1, sHi + 3)); else partDirty = false;
   const [sx, sy] = FX.shakeOffset(10 * dpr);
   g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(bgCv, 0, 0); g.translate(sx, sy);
   drawTarget(); drawBoard(now); drawAnim(now); drawPrint(now);
@@ -703,21 +705,22 @@ cv.addEventListener('pointerdown', e => {
   if (tool === 'region') { pendingUndo = uncut.slice(); regionAt(q[0] | 0, q[1] | 0); pendingUndo = null; setHover(p); return; }
   cv.setPointerCapture(e.pointerId); touched = true;
   drag = { tool, start: snap(q), last: q, sm: q, pts: [snap(q)], base: uncut.slice(), n: 0 };
-  if (tool !== 'lasso') { drag.n += stamp(q[0], q[1], RAD[tool]); scratch(); blockDirty = pvDirty = true; }
+  if (tool !== 'lasso') { drag.n += stamp(q[0], q[1], RAD[tool]); scratch(); partDirty = pvDirty = true; }
   else FX.sfx('tick');
 });
 cv.addEventListener('pointermove', e => {
   const p = toBlock(e); if (!drag) { setHover(p); return; }
   const q = [clamp(p[0], 0, R - 1), clamp(p[1], 0, R - 1)];
   if (drag.tool === 'lasso') { const s = snap(q), l = drag.pts[drag.pts.length - 1]; if (Math.hypot(s[0] - l[0], s[1] - l[1]) >= 3) drag.pts.push(s); kick(); return; }
-  if (e.shiftKey) { uncut.set(drag.base); drag.n = line(drag.start, snap(q), RAD[drag.tool]) + stamp(drag.start[0], drag.start[1], RAD[drag.tool]); drag.straight = true; }
-  else { drag.sm = [drag.sm[0] + (q[0] - drag.sm[0]) * .55, drag.sm[1] + (q[1] - drag.sm[1]) * .55]; const n = line(drag.last, drag.sm, RAD[drag.tool]); drag.n += n; if (n) { const [x, y] = b2s(drag.sm[0], drag.sm[1]); if (Math.random() < .6) spawnChip(x, y); scratch(); } drag.last = drag.sm; }
-  blockDirty = pvDirty = true; setHover(p);
+  if (e.shiftKey) { uncut.set(drag.base); drag.n = line(drag.start, snap(q), RAD[drag.tool]) + stamp(drag.start[0], drag.start[1], RAD[drag.tool]); drag.straight = true; blockDirty = true; }
+  else { drag.q = q; drag.sm = [drag.sm[0] + (q[0] - drag.sm[0]) * .55, drag.sm[1] + (q[1] - drag.sm[1]) * .55]; const n = line(drag.last, drag.sm, RAD[drag.tool]); drag.n += n; if (n) { const [x, y] = b2s(drag.sm[0], drag.sm[1]); if (Math.random() < .6) spawnChip(x, y); scratch(); } drag.last = drag.sm; }
+  partDirty = pvDirty = true; setHover(p);
 });
 const endDrag = () => {
   if (!drag) return; const d = drag; drag = null;
   if (d.tool === 'lasso') { const before = uncut.slice(); if (lassoFill(d.pts)) { undo.push(before); strokes++; FX.sfx('pop'); scratch(1); flash = { t: performance.now() }; } else FX.sfx('tick'); }
-  else if (d.n > 0) { undo.push(d.base); if (undo.length > 40) undo.shift(); strokes++; }
+  else { if (d.q && !d.straight) { d.n += line(d.last, d.q, RAD[d.tool]); blockDirty = true; } } // smoothing lags the pointer: finish the cut where the finger lifted
+  if (d.tool !== 'lasso' && d.n > 0) { undo.push(d.base); if (undo.length > 40) undo.shift(); strokes++; }
   blockDirty = pvDirty = true; hlComp = -2; updateHUD(); renderTray();
 };
 cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
@@ -838,8 +841,8 @@ function restoreWip() {
 function frame(now) {
   raf = 0;
   const live = anim || chips.length || particles.list.length || flash || (hanko && now - hanko.t0 < 500) || (!touched && Li === 0 && !anim) || FX.shakeOffset()[0] !== 0 || FX.frozen();
-  if (need || blockDirty || live) { need = false; draws++; draw(now); }
-  if (live) raf = requestAnimationFrame(frame); else lastT = 0;
+  if (need || blockDirty || partDirty || live) { need = false; draws++; draw(now); }
+  if (live) { if (!raf) raf = requestAnimationFrame(frame); } else if (!raf) lastT = 0;
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; } else kick(); });
 addEventListener('resize', () => L && layout());
