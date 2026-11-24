@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hypothesis</title>
+<link rel="stylesheet" href="../shared/common.css">
+<style>
+  body{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  main{flex:1;display:flex;min-height:0}
+  #side{width:240px;border-right:1px solid var(--line);background:var(--panel);overflow:auto;padding:10px}
+  .tier{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);margin:12px 4px 4px;display:flex;justify-content:space-between}
+  .tier.locked{color:var(--dim)}
+  .law{display:flex;justify-content:space-between;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:13px}
+  .law:hover{background:var(--panel2)}
+  .law.cur{background:var(--panel2);outline:1px solid var(--accent)}
+  .law.locked{opacity:.35;cursor:default}
+  .law .st{color:var(--accent);font-size:11px}
+  #center{flex:1;overflow:auto;padding:14px 20px 40px;min-width:0}
+  .head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+  .head h2{margin:0;font-size:22px}
+  .pill{display:inline-block;border:1px solid var(--line);border-radius:20px;padding:3px 11px;font-size:13px;color:var(--dim)}
+  .pill b{color:var(--ink)}
+  .journal{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+  .jcol{border-radius:12px;padding:10px;min-height:140px}
+  .jcol.yes{background:#18241c;border:1px solid #2c5a3b}
+  .jcol.no{background:#1d1517;border:1px solid #4f2b30}
+  .jcol h3{margin:0 0 8px;font-size:13px;letter-spacing:.08em;text-transform:uppercase}
+  .jcol.yes h3{color:var(--good)} .jcol.no h3{color:var(--bad)}
+  .klist{display:flex;flex-wrap:wrap;gap:6px}
+  .koan{display:inline-flex;align-items:flex-end;gap:3px;padding:5px 7px;border-radius:8px;background:#0c0e13;border:1px solid var(--line);cursor:pointer;min-height:44px;position:relative}
+  .koan:hover{border-color:var(--accent)}
+  .koan.new{animation:pop .5s}
+  .koan .tag{position:absolute;top:-7px;right:-6px;font-size:10px;background:var(--panel2);border-radius:8px;padding:0 4px;color:var(--dim)}
+  @keyframes pop{0%{transform:scale(.6);opacity:0}70%{transform:scale(1.08)}}
+  .builder{margin-top:16px;border:1px dashed var(--line);border-radius:12px;padding:12px}
+  .brow{display:flex;align-items:flex-end;gap:6px;min-height:64px;padding:8px;background:#0a0c10;border-radius:10px}
+  .brow .tk{padding:4px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+  .brow .tk.sel{border-color:var(--accent);background:#3a2f17}
+  .brow .ph{color:var(--dim);font-size:13px;align-self:center}
+  .pal{display:grid;grid-template-columns:repeat(9,auto);gap:4px;justify-content:start;margin-top:10px}
+  .pal button{padding:4px;display:flex;align-items:flex-end;justify-content:center;width:44px;height:44px}
+  .ctl{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+  .verdict{font-size:18px;font-weight:700;min-height:26px;margin-top:6px}
+  .verdict.yes{color:var(--good)} .verdict.no{color:var(--bad)}
+  .pred{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px;margin-top:10px}
+  .pcard{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px}
+  .pcard .yn{white-space:nowrap;flex:0 0 auto}
+  .pcard .yn button{padding:4px 10px}
+  .pcard .yn button.y.on{background:var(--good);color:#06210f;border-color:var(--good)}
+  .pcard .yn button.n.on{background:var(--bad);color:#2a0707;border-color:var(--bad)}
+  .pcard.wrong{border-color:var(--bad);box-shadow:0 0 0 1px var(--bad)}
+  .pcard.right{border-color:var(--good)}
+  textarea{width:100%;height:70px;resize:vertical;margin-top:6px}
+  .lawtext{font-size:20px;font-weight:700;color:var(--accent);text-align:center;margin:10px 0}
+  .note{font-size:12px;color:var(--dim);line-height:1.45}
+  @media (max-width:800px){#side{display:none}.journal{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="topbar"><a class="home" href="../">← Rabbit Holes</a><h1>⚗️ Hypothesis</h1><span class="spacer"></span><span class="dim small" id="totals"></span><button id="helpBtn">?</button></div>
+<main>
+  <div id="side"></div>
+  <div id="center"></div>
+</main>
+<script src="../shared/common.js"></script>
+<script>
+'use strict';
+// ---------- tokens ----------
+// A token is [colour, shape, size], each 0..2. A koan is an array of 1..8 tokens.
+const CN = ['red', 'blue', 'yellow'], SN = ['circle', 'square', 'triangle'], ZN = ['small', 'medium', 'large'];
+const ATN = ['colour', 'shape', 'size'];
+const COL = ['#ff6b6b', '#6aa8ff', '#ffd34d'], PX = [14, 22, 32];
+function tokSVG(t) {
+  const [c, s, z] = t, d = PX[z], f = COL[c];
+  const shape = s === 0 ? `<circle cx="${d / 2}" cy="${d / 2}" r="${d / 2 - 1}" fill="${f}"/>`
+    : s === 1 ? `<rect x="1" y="1" width="${d - 2}" height="${d - 2}" rx="2" fill="${f}"/>`
+    : `<polygon points="${d / 2},1 ${d - 1},${d - 1} 1,${d - 1}" fill="${f}"/>`;
+  return `<svg width="${d}" height="${d}" viewBox="0 0 ${d} ${d}" style="display:block">${shape}</svg>`;
+}
+const koanHTML = (k, cls = '', tag = '') => `<span class="koan ${cls}">${k.map(tokSVG).join('')}${tag ? `<span class="tag">${tag}</span>` : ''}</span>`;
+const kkey = k => k.map(t => t.join('')).join('.');
+
+// ---------- predicates on a single token ----------
+// P = list of [attr, value] that must all hold.
+const holds = (P, t) => P.every(([a, v]) => t[a] === v);
+function np(P, pl) { // noun phrase: "large red triangle", "blue token"
+  const z = P.find(p => p[0] === 2), c = P.find(p => p[0] === 0), s = P.find(p => p[0] === 1);
+  const w = []; if (z) w.push(ZN[z[1]]); if (c) w.push(CN[c[1]]); w.push(s ? SN[s[1]] : 'token');
+  return w.join(' ') + (pl ? 's' : '');
+}
+const isP = P => P.length === 1 && P[0][0] !== 1 ? (P[0][0] === 0 ? CN : ZN)[P[0][1]] : 'a ' + np(P); // "red" / "a circle"
+const an = s => (/^[aeiou]/.test(s) ? 'an ' : 'a ') + s;
+const cnt = (k, P) => k.reduce((a, t) => a + holds(P, t), 0);
+const distinct = (k, a) => new Set(k.map(t => t[a])).size;
+
+// ---------- law grammar ----------
+const TIERS = ['Presence', 'Counting', 'Ends', 'Neighbours', 'Combinations', 'Relations', 'Implication', 'Hidden arithmetic'];
+const TSIZE = [8, 8, 8, 8, 7, 7, 7, 7];
+function rP(r, two) { const a = r.int(3), P = [[a, r.int(3)]]; if (two) { let b; do b = r.int(3); while (b === a); P.push([b, r.int(3)]); } return P; }
+function rP2diff(r) { const a = r.int(3); let b; do b = r.int(3); while (b === a); return [[[a, r.int(3)]], [[b, r.int(3)]]]; }
+function rPsame(r) { const a = r.int(3), v = r.int(3); let w; do w = r.int(3); while (w === v); return [[[a, v]], [[a, w]]]; }
+const SIMPLE = [ // building blocks reused by Combinations
+  r => { const P = rP(r); return { d: `it contains ${an(np(P))}`, f: k => cnt(k, P) > 0 }; },
+  r => { const P = rP(r); return { d: `every token is ${isP(P)}`, f: k => cnt(k, P) === k.length }; },
+  r => { const P = rP(r); return { d: `the first token is ${isP(P)}`, f: k => holds(P, k[0]) }; },
+  r => { const P = rP(r); return { d: `the last token is ${isP(P)}`, f: k => holds(P, k[k.length - 1]) }; },
+  r => { const n = 2 + r.int(3); return { d: `there are at least ${n} tokens`, f: k => k.length >= n }; },
+];
+const GEN = [
+  [ // 0 Presence
+    r => { const P = rP(r); return { d: `Contains ${an(np(P))}`, f: k => cnt(k, P) > 0 }; },
+    r => { const P = rP(r); return { d: `Every token is ${isP(P)}`, f: k => cnt(k, P) === k.length }; },
+    r => { const P = rP(r); return { d: `Contains no ${np(P, 1)}`, f: k => cnt(k, P) === 0 }; },
+    r => { const P = rP(r, 1); return { d: `Contains ${an(np(P))}`, f: k => cnt(k, P) > 0 }; },
+    r => { const P = rP(r, 1); return { d: `Contains no ${np(P, 1)}`, f: k => cnt(k, P) === 0 }; },
+  ],
+  [ // 1 Counting
+    r => { const P = rP(r), n = 1 + r.int(2); return { d: `Exactly ${n} ${np(P, n > 1)}`, f: k => cnt(k, P) === n }; },
+    r => { const P = rP(r), n = 2 + r.int(2); return { d: `At least ${n} ${np(P, 1)}`, f: k => cnt(k, P) >= n }; },
+    r => { const n = 2 + r.int(4); return { d: `Exactly ${n} tokens`, f: k => k.length === n }; },
+    r => { const n = 2 + r.int(3); return { d: `At most ${n} tokens`, f: k => k.length <= n }; },
+    r => { const P = rP(r); return { d: `An even number of ${np(P, 1)} (zero counts as even)`, f: k => cnt(k, P) % 2 === 0 }; },
+    r => { const [P, Q] = rPsame(r); return { d: `More ${np(P, 1)} than ${np(Q, 1)}`, f: k => cnt(k, P) > cnt(k, Q) }; },
+    r => ({ d: 'An odd number of tokens', f: k => k.length % 2 === 1 }),
+  ],
+  [ // 2 Ends
+    r => { const P = rP(r); return { d: `The first token is ${isP(P)}`, f: k => holds(P, k[0]) }; },
+    r => { const P = rP(r); return { d: `The last token is ${isP(P)}`, f: k => holds(P, k[k.length - 1]) }; },
+    r => { const a = r.int(3); return { d: `The first and last tokens have the same ${ATN[a]}`, f: k => k[0][a] === k[k.length - 1][a] }; },
+    r => { const a = r.int(3); return { d: `The first and last tokens have different ${ATN[a]}s`, f: k => k[0][a] !== k[k.length - 1][a] }; },
+    r => ({ d: 'The first token is larger than the last', f: k => k[0][2] > k[k.length - 1][2] }),
+    r => { const P = rP(r); return { d: `${an(np(P))[0].toUpperCase() + an(np(P)).slice(1)} sits at one end or the other`, f: k => holds(P, k[0]) || holds(P, k[k.length - 1]) }; },
+  ],
+  [ // 3 Neighbours
+    r => { const a = r.int(3); return { d: `Two neighbouring tokens share a ${ATN[a]}`, f: k => k.some((t, i) => i && k[i - 1][a] === t[a]) }; },
+    r => { const a = r.int(3); return { d: `No two neighbours share a ${ATN[a]}`, f: k => !k.some((t, i) => i && k[i - 1][a] === t[a]) }; },
+    r => ({ d: 'Sizes never decrease from left to right', f: k => k.every((t, i) => !i || k[i - 1][2] <= t[2]) }),
+    r => ({ d: 'Sizes never increase from left to right', f: k => k.every((t, i) => !i || k[i - 1][2] >= t[2]) }),
+    r => { const [P, Q] = rP2diff(r); return { d: `Somewhere ${an(np(P))} is directly left of ${an(np(Q))}`, f: k => k.some((t, i) => i && holds(P, k[i - 1]) && holds(Q, t)) }; },
+    r => { const [P, Q] = rP2diff(r); return { d: `Every ${np(P)} has ${an(np(Q))} next to it`, f: k => k.every((t, i) => !holds(P, t) || (i && holds(Q, k[i - 1])) || (i < k.length - 1 && holds(Q, k[i + 1]))) }; },
+  ],
+  [ // 4 Combinations
+    r => { const a = r.pick(SIMPLE)(r), b = r.pick(SIMPLE)(r); return { d: cap(a.d) + ', and ' + b.d, f: k => a.f(k) && b.f(k) }; },
+    r => { const a = r.pick(SIMPLE)(r), b = r.pick(SIMPLE)(r); return { d: cap(a.d) + ', or ' + b.d + ' (or both)', f: k => a.f(k) || b.f(k) }; },
+    r => { const a = r.pick(SIMPLE)(r), b = r.pick(SIMPLE)(r); return { d: cap(a.d) + ', but it is not true that ' + b.d, f: k => a.f(k) && !b.f(k) }; },
+  ],
+  [ // 5 Relations
+    r => { const a = r.int(3); return { d: `No two tokens share a ${ATN[a]}`, f: k => distinct(k, a) === k.length }; },
+    r => { const a = r.int(3), n = 1 + r.int(3); return { d: `Exactly ${n} different ${ATN[a]}${n > 1 ? 's' : ''} appear`, f: k => distinct(k, a) === n }; },
+    r => { const [P, Q] = rP2diff(r); return { d: `As many ${np(P, 1)} as ${np(Q, 1)}`, f: k => cnt(k, P) === cnt(k, Q) }; },
+    r => { const a = r.int(3); let b; do b = r.int(3); while (b === a); return { d: `As many different ${ATN[a]}s as different ${ATN[b]}s`, f: k => distinct(k, a) === distinct(k, b) }; },
+    r => { const a = r.int(3); let b; do b = r.int(3); while (b === a); return { d: `All tokens share a ${ATN[a]}, or all share a ${ATN[b]}`, f: k => distinct(k, a) === 1 || distinct(k, b) === 1 }; },
+  ],
+  [ // 6 Implication
+    r => { const [P, Q] = rP2diff(r); return { d: `Every ${np(P)} is ${isP(Q)}`, f: k => k.every(t => !holds(P, t) || holds(Q, t)) }; },
+    r => { const [P, Q] = rP2diff(r); return { d: `No ${np(P)} is ${isP(Q)}`, f: k => k.every(t => !holds(P, t) || !holds(Q, t)) }; },
+    r => { const [P, Q] = rP2diff(r); return { d: `If there's ${an(np(P))}, there's also ${an(np(Q))}`, f: k => !cnt(k, P) || cnt(k, Q) > 0 }; },
+    r => { const [P, Q] = rP2diff(r); return { d: `Contains ${an(np(P))} or ${an(np(Q))}, but not both`, f: k => (cnt(k, P) > 0) !== (cnt(k, Q) > 0) }; },
+    r => { const P = rP(r); return { d: `If the first token is ${isP(P)}, so is the last`, f: k => !holds(P, k[0]) || holds(P, k[k.length - 1]) }; },
+  ],
+  [ // 7 Hidden arithmetic
+    r => ({ d: 'The sizes add up to an even number (small 1, medium 2, large 3)', f: k => k.reduce((a, t) => a + t[2] + 1, 0) % 2 === 0 }),
+    r => ({ d: 'The sizes add up to a multiple of 3 (small 1, medium 2, large 3)', f: k => k.reduce((a, t) => a + t[2] + 1, 0) % 3 === 0 }),
+    r => { const a = r.int(3); return { d: `The ${ATN[a]}s read the same backwards as forwards`, f: k => k.every((t, i) => t[a] === k[k.length - 1 - i][a]) }; },
+    r => { const P = rP(r); return { d: `Exactly half the tokens are ${isP(P).replace(/^a /, '')}${P[0][0] === 1 ? 's' : ''}`, f: k => cnt(k, P) * 2 === k.length }; },
+    r => { const P = rP(r); return { d: `The biggest tokens are all ${isP(P).replace(/^a /, '')}${P[0][0] === 1 ? 's' : ''}`, f: k => { const m = Math.max(...k.map(t => t[2])); return k.every(t => t[2] !== m || holds(P, t)); } }; },
+    r => ({ d: 'The number of tokens is prime', f: k => [2, 3, 5, 7].includes(k.length) }),
+    r => { const P = rP(r); return { d: `The number of ${np(P, 1)} equals the number of different colours`, f: k => cnt(k, P) === distinct(k, 0) }; },
+  ],
+];
+const cap = s => s[0].toUpperCase() + s.slice(1);
+
+function randKoan(r, lo = 1, hi = 6) { const n = lo + r.int(hi - lo + 1); return Array.from({ length: n }, () => [r.int(3), r.int(3), r.int(3)]); }
+const SAMPLE = (() => { const r = RH.rng('hyp-sample'); return Array.from({ length: 400 }, () => randKoan(r)); })();
+const fp = law => SAMPLE.map(law.f);
+
+function makeLaw(r, tier, avoid, tpl) {
+  for (let tries = 0; tries < 400; tries++) {
+    const g = tpl != null && tries < 150 ? GEN[tier][tpl] : r.pick(GEN[tier]);
+    const law = g(r), p = fp(law), rate = p.filter(Boolean).length / p.length;
+    if (rate < .1 || rate > .9) continue;
+    if (avoid.some(q => q.filter((x, i) => x !== p[i]).length < 25)) continue;
+    avoid.push(p); law.tier = tier; return law;
+  }
+  return { d: 'Contains a red token', f: k => k.some(t => t[0] === 0), tier };
+}
+
+// ---------- state ----------
+const S = RH.load('hyp', { seed: (Math.random() * 1e9) | 0, laws: {}, cur: 0, intro: 0, free: { solved: 0, i: 0 } });
+const persist = () => { RH.save('hyp', S); RH.progress('hypothesis', Object.values(S.laws).filter(l => l.solved).length / LAWS.length); };
+const LAWS = (() => { const r = RH.rng('hyp:' + S.seed), avoid = [], out = []; TIERS.forEach((_, t) => {
+  const order = r.shuffle([...GEN[t].keys()]); if (t === 0) order.splice(order.indexOf(0), 1), order.unshift(0);
+  for (let j = 0; j < TSIZE[t]; j++) out.push(makeLaw(r, t, avoid, order[j % order.length]));
+}); return out; })();
+const par = t => 6 + 2 * t;
+const tierOpen = t => t === 0 || LAWS.filter((l, i) => l.tier === t - 1 && S.laws[i]?.solved).length >= 5;
+
+let cur = S.cur, law, builder = [], sel = -1, mode = 'probe', preds = null, lastVerdict = null, freeLaw = null;
+function lawState(i) {
+  if (i === 'free') return S.free.st;
+  if (!S.laws[i]) {
+    const r = RH.rng('hyp:' + S.seed + ':start' + i), L = LAWS[i], j = [];
+    let y = null, n = null; for (let t = 0; t < 20000 && (!y || !n); t++) { const k = randKoan(r, 2, 5); if (L.f(k)) y ||= k; else n ||= k; }
+    if (y) j.push({ k: y, ok: true, given: 1 }); if (n) j.push({ k: n, ok: false, given: 1 });
+    S.laws[i] = { journal: j, probes: 0, fails: 0, notes: '' };
+  }
+  return S.laws[i];
+}
+const curLaw = () => cur === 'free' ? freeLaw : LAWS[cur];
+
+// ---------- UI ----------
+const $ = id => document.getElementById(id);
+function renderSide() {
+  let h = '', last = -1;
+  LAWS.forEach((L, i) => {
+    if (L.tier !== last) { last = L.tier; const done = LAWS.filter((l, j) => l.tier === L.tier && S.laws[j]?.solved).length; h += `<div class="tier ${tierOpen(L.tier) ? '' : 'locked'}"><span>${L.tier + 1}. ${TIERS[L.tier]}</span><span>${tierOpen(L.tier) ? done + '/' + TSIZE[L.tier] : '🔒'}</span></div>`; }
+    const st = S.laws[i], op = tierOpen(L.tier);
+    h += `<div class="law ${i === cur ? 'cur' : ''} ${op ? '' : 'locked'}" data-i="${i}"><span>${st?.solved ? '✓' : '·'} Law ${i + 1}</span><span class="st">${st?.solved ? (st.solved.revealed ? 'revealed' : '★'.repeat(st.solved.stars) + '☆'.repeat(3 - st.solved.stars)) : st?.probes ? st.probes + ' probes' : ''}</span></div>`;
+  });
+  h += `<div class="tier"><span>∞. Free lab</span><span>${S.free.solved}</span></div><div class="law ${cur === 'free' ? 'cur' : ''} ${tierOpen(3) ? '' : 'locked'}" data-i="free"><span>🎲 Random law</span><span class="st">${tierOpen(3) ? '' : 'tier 4+'}</span></div>`;
+  h += `<div class="note" style="margin:14px 6px">Solve 5 laws in a tier to open the next one.</div>`;
+  $('side').innerHTML = h;
+  $('side').querySelectorAll('.law').forEach(el => el.onclick = () => {
+    const i = el.dataset.i === 'free' ? 'free' : +el.dataset.i;
+    if (i === 'free') { if (tierOpen(3)) openFree(false); } else if (tierOpen(LAWS[i].tier)) openLaw(i);
+  });
+  const sv = Object.values(S.laws).filter(l => l.solved), stars = sv.reduce((a, l) => a + (l.solved.stars || 0), 0);
+  $('totals').textContent = `${sv.length}/${LAWS.length} laws · ${stars}★`;
+}
+
+function openLaw(i) { cur = i; S.cur = i; builder = []; sel = -1; mode = 'probe'; preds = null; lastVerdict = null; lawState(i); persist(); render(); }
+function openFree(fresh) {
+  if (fresh || !S.free.st) {
+    S.free.i++; const r = RH.rng('hyp:free:' + S.seed + ':' + S.free.i), t = 3 + r.int(5);
+    S.free.tier = t; S.free.st = null;
+  }
+  const r = RH.rng('hyp:free:' + S.seed + ':' + S.free.i); r.int(5);
+  freeLaw = makeLaw(r, S.free.tier, []);
+  if (!S.free.st) {
+    const j = []; let y = null, n = null; for (let t = 0; t < 20000 && (!y || !n); t++) { const k = randKoan(r, 2, 5); if (freeLaw.f(k)) y ||= k; else n ||= k; }
+    j.push({ k: y, ok: true, given: 1 }, { k: n, ok: false, given: 1 }); S.free.st = { journal: j, probes: 0, fails: 0, notes: '' };
+  }
+  cur = 'free'; builder = []; sel = -1; mode = 'probe'; preds = null; lastVerdict = null; persist(); render();
+}
+
+function render() {
+  const L = curLaw(), st = lawState(cur), tier = L.tier, solved = st.solved;
+  const title = cur === 'free' ? `Random law · ${TIERS[tier]}` : `Law ${cur + 1}`;
+  const yes = st.journal.filter(e => e.ok), no = st.journal.filter(e => !e.ok);
+  const nNew = st.journal.length - 1;
+  $('center').innerHTML = `
+    <div class="head">
+      <div><div class="dim small">Tier ${tier + 1} · ${TIERS[tier]}</div><h2>${solved ? '✓ ' : ''}${title}</h2></div>
+      <div class="row"><span class="pill">Probes <b>${st.probes}</b> / par ${par(tier)}</span>${st.fails ? `<span class="pill">Failed predictions <b>${st.fails}</b></span>` : ''}${cur === 'free' ? '<button id="rerollBtn">🎲 New random law</button>' : ''}</div>
+    </div>
+    ${solved ? `<div class="lawtext">“${L.d}”</div>` : ''}
+    <div class="journal">
+      <div class="jcol yes"><h3>✓ The machine accepts (${yes.length})</h3><div class="klist">${yes.map(e => koanHTML(e.k, e === st.journal[nNew] && lastVerdict ? 'new' : '', e.given ? 'given' : e.pred ? 'prediction' : '')).join('')}</div></div>
+      <div class="jcol no"><h3>✗ The machine rejects (${no.length})</h3><div class="klist">${no.map(e => koanHTML(e.k, e === st.journal[nNew] && lastVerdict ? 'new' : '', e.given ? 'given' : e.pred ? 'prediction' : '')).join('')}</div></div>
+    </div>
+    <div class="note" style="margin-top:6px">Click any koan above to copy it into the builder, then change one thing. Minimal changes make the sharpest experiments.</div>
+    ${mode === 'predict' ? predHTML() : builderHTML(solved)}
+    <div style="margin-top:16px"><div class="dim small">Your hypothesis (notes, saved; shown next to the real law once you publish)</div><textarea id="notes" placeholder="e.g. needs a blue token somewhere left of a square?">${esc(st.notes || '')}</textarea></div>
+  `;
+  $('center').querySelectorAll('.journal .koan').forEach((el, idx) => el.onclick = () => {
+    const all = [...yes, ...no]; builder = all[idx].k.map(t => t.slice()); sel = -1; if (mode !== 'probe') return; renderBuilder();
+  });
+  $('notes').oninput = () => { st.notes = $('notes').value; persist(); };
+  if ($('rerollBtn')) $('rerollBtn').onclick = () => openFree(true);
+  if (mode === 'predict') wirePred(); else wireBuilder();
+  renderSide();
+}
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+function builderHTML(solved) {
+  return `<div class="builder">
+    <div class="row" style="justify-content:space-between"><b>Build a koan</b><span class="note">Click palette to add · click a token to select it, then ◀ ▶ ✕ or click the palette to replace it · <kbd>Enter</kbd> tests</span></div>
+    <div class="brow" id="brow" style="margin-top:8px"></div>
+    <div class="pal" id="pal">${[0, 1, 2].map(c => [0, 1, 2].map(s => [0, 1, 2].map(z => `<button data-t="${c}${s}${z}" title="${ZN[z]} ${CN[c]} ${SN[s]}">${tokSVG([c, s, z])}</button>`).join('')).join('')).join('')}</div>
+    <div class="ctl">
+      <button class="primary" id="testBtn">⚗️ Test it (1 probe)</button>
+      <button id="mvL">◀</button><button id="mvR">▶</button><button id="delBtn">✕</button>
+      <button id="clrBtn">Clear</button><button id="rndBtn">🎲 Random</button>
+      <span class="spacer" style="flex:1"></span>
+      ${solved ? '' : '<button id="pubBtn">📜 I know the law: publish</button>'}
+    </div>
+    <div class="verdict ${lastVerdict === true ? 'yes' : lastVerdict === false ? 'no' : ''}" id="verdict">${lastVerdict === true ? '✓ Accepted' : lastVerdict === false ? '✗ Rejected' : lastVerdict === 'dup' ? '<span class="dim" style="font-size:14px;font-weight:400">Already in your journal. No probe spent.</span>' : ''}</div>
+  </div>`;
+}
+function renderBuilder() {
+  const b = $('brow'); if (!b) return;
+  b.innerHTML = builder.length ? builder.map((t, i) => `<span class="tk ${i === sel ? 'sel' : ''}" data-i="${i}">${tokSVG(t)}</span>`).join('') : '<span class="ph">Empty: pick tokens from the palette below (up to 8).</span>';
+  b.querySelectorAll('.tk').forEach(el => el.onclick = () => { const i = +el.dataset.i; sel = sel === i ? -1 : i; renderBuilder(); });
+  $('testBtn').disabled = !builder.length;
+}
+function wireBuilder() {
+  renderBuilder();
+  $('pal').querySelectorAll('button').forEach(bn => bn.onclick = () => {
+    const t = bn.dataset.t.split('').map(Number);
+    if (sel >= 0) builder[sel] = t; else if (builder.length < 8) builder.push(t); else RH.toast('Eight tokens is the limit.');
+    renderBuilder();
+  });
+  $('mvL').onclick = () => { if (sel > 0) { [builder[sel - 1], builder[sel]] = [builder[sel], builder[sel - 1]]; sel--; renderBuilder(); } };
+  $('mvR').onclick = () => { if (sel >= 0 && sel < builder.length - 1) { [builder[sel + 1], builder[sel]] = [builder[sel], builder[sel + 1]]; sel++; renderBuilder(); } };
+  $('delBtn').onclick = () => { if (sel >= 0) { builder.splice(sel, 1); sel = Math.min(sel, builder.length - 1); } else builder.pop(); renderBuilder(); };
+  $('clrBtn').onclick = () => { builder = []; sel = -1; renderBuilder(); };
+  $('rndBtn').onclick = () => { builder = randKoan(RH.rng(Math.random() * 1e9 | 0), 1, 6); sel = -1; renderBuilder(); };
+  $('testBtn').onclick = test;
+  if ($('pubBtn')) $('pubBtn').onclick = startPredict;
+}
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' || mode !== 'probe') return;
+  if (e.key === 'Enter' && builder.length) { e.preventDefault(); test(); }
+  else if (e.key === 'Backspace' && $('delBtn')) { e.preventDefault(); $('delBtn').click(); }
+  else if (e.key === 'ArrowLeft' && $('mvL')) $('mvL').click();
+  else if (e.key === 'ArrowRight' && $('mvR')) $('mvR').click();
+});
+
+function beep(ok) { try { const ac = beep.ac ||= new AudioContext(), o = ac.createOscillator(), g = ac.createGain(); o.type = 'triangle'; o.frequency.value = ok ? 660 : 180; g.gain.setValueAtTime(.08, ac.currentTime); g.gain.exponentialRampToValueAtTime(.001, ac.currentTime + .25); o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + .26); } catch (e) {} }
+function test() {
+  if (!builder.length) return;
+  const st = lawState(cur), k = builder.map(t => t.slice());
+  if (st.journal.some(e => kkey(e.k) === kkey(k))) { lastVerdict = 'dup'; render(); return; }
+  const ok = curLaw().f(k); st.journal.push({ k, ok }); if (!st.solved) st.probes++;
+  lastVerdict = ok; beep(ok); persist(); render();
+}
+
+// ---------- prediction / publishing ----------
+function mutate(r, k) {
+  const c = k.map(t => t.slice()), op = r.int(4);
+  if (op === 0 && c.length < 7) c.splice(r.int(c.length + 1), 0, [r.int(3), r.int(3), r.int(3)]);
+  else if (op === 1 && c.length > 1) c.splice(r.int(c.length), 1);
+  else if (op === 2 && c.length > 1) { const i = r.int(c.length - 1);[c[i], c[i + 1]] = [c[i + 1], c[i]]; }
+  else { const i = r.int(c.length); c[i][r.int(3)] = r.int(3); }
+  return c;
+}
+function startPredict() {
+  const st = lawState(cur), L = curLaw(), r = RH.rng(Math.random() * 1e9 | 0), seen = new Set(st.journal.map(e => kkey(e.k)));
+  const pos = [], neg = [];
+  const add = k => { const key = kkey(k); if (seen.has(key)) return; seen.add(key); (L.f(k) ? pos : neg).push(k); };
+  for (let t = 0; t < 600 && (pos.length < 8 || neg.length < 8); t++) {
+    if (t % 2) add(mutate(r, r.pick(st.journal).k)); else add(randKoan(r));
+  }
+  let set = [...r.shuffle(pos).slice(0, 4), ...r.shuffle(neg).slice(0, 4)];
+  while (set.length < 8) { const k = randKoan(r); if (!seen.has(kkey(k))) { seen.add(kkey(k)); set.push(k); } }
+  preds = r.shuffle(set).map(k => ({ k, ans: null }));
+  mode = 'predict'; render();
+}
+function predHTML() {
+  return `<div class="builder"><b>Prediction round</b><div class="note">The machine shows eight koans it hasn't shown you. Mark each one. Get all eight right and your law is published. Every wrong call goes into your journal as a counterexample, and costs 2 probes.</div>
+    <div class="pred">${preds.map((p, i) => `<div class="pcard ${p.res === true ? 'right' : p.res === false ? 'wrong' : ''}" data-i="${i}">${koanHTML(p.k)}<span class="yn"><button class="y ${p.ans === true ? 'on' : ''}">✓</button> <button class="n ${p.ans === false ? 'on' : ''}">✗</button></span></div>`).join('')}</div>
+    <div class="ctl"><button class="primary" id="subBtn" ${preds.every(p => p.ans !== null) ? '' : 'disabled'}>Submit predictions</button><button id="backBtn">Back to experimenting</button><span class="note">Keys: 1–8 select · Y / N</span></div></div>`;
+}
+function wirePred() {
+  document.querySelectorAll('.pcard').forEach(el => {
+    const i = +el.dataset.i;
+    el.querySelector('.y').onclick = () => { preds[i].ans = true; render(); };
+    el.querySelector('.n').onclick = () => { preds[i].ans = false; render(); };
+  });
+  $('backBtn').onclick = () => { mode = 'probe'; render(); };
+  $('subBtn').onclick = submitPred;
+}
+async function submitPred() {
+  const st = lawState(cur), L = curLaw();
+  let wrong = 0;
+  preds.forEach(p => { p.res = L.f(p.k) === p.ans; if (!p.res) { wrong++; st.journal.push({ k: p.k, ok: L.f(p.k), pred: 1 }); } });
+  if (wrong) {
+    st.fails++; st.probes += 2; persist(); mode = 'probe'; lastVerdict = null;
+    beep(false); render();
+    const giveUp = st.fails >= 3 ? [{ label: 'Reveal the law', value: 'reveal' }] : [];
+    const v = await RH.modal(`<h2>Not yet.</h2><p>${wrong} of 8 predictions were wrong. Those koans are now in your journal with their true verdicts. Look at them closely: each one is a counterexample to the law you had in mind.</p>`, [...giveUp, { label: 'Back to the lab', value: 0 }]);
+    if (v === 'reveal') reveal();
+    return;
+  }
+  const stars = st.probes <= par(L.tier) ? 3 : st.probes <= 2 * par(L.tier) ? 2 : 1;
+  st.solved = { stars, probes: st.probes }; mode = 'probe';
+  if (cur === 'free') { S.free.solved++; }
+  persist();
+  try { const ac = new AudioContext(); [523, 659, 784, 1046].forEach((f, k) => { const o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = f; g.gain.setValueAtTime(.07, ac.currentTime + k * .1); g.gain.exponentialRampToValueAtTime(.001, ac.currentTime + k * .1 + .4); o.connect(g).connect(ac.destination); o.start(ac.currentTime + k * .1); o.stop(ac.currentTime + k * .1 + .45); }); } catch (e) {}
+  const nxt = cur === 'free' ? -1 : LAWS.findIndex((l, j) => j > cur && !S.laws[j]?.solved && tierOpen(l.tier));
+  const go = await RH.modal(`<h2>📜 Published.</h2><p>All eight predictions were correct. The law was:</p><div class="lawtext">“${L.d}”</div>
+    ${st.notes ? `<p class="dim small">Your notes said: <i>${esc(st.notes)}</i></p>` : ''}
+    <p style="text-align:center;color:var(--accent);font-size:22px">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</p>
+    <p class="dim small" style="text-align:center">${st.probes} probes (par ${par(L.tier)}). Fewer probes means better science.</p>`,
+    cur === 'free' ? [{ label: 'Stay', value: 0 }, { label: '🎲 Another random law', value: 'free' }] : nxt >= 0 ? [{ label: 'Stay', value: 0 }, { label: `Next: Law ${nxt + 1}`, value: 1 }] : [{ label: 'Close', value: 0 }]);
+  if (go === 'free') openFree(true); else if (go === 1) openLaw(nxt); else render();
+}
+async function reveal() {
+  const st = lawState(cur), L = curLaw();
+  st.solved = { stars: 0, probes: st.probes, revealed: 1 }; persist(); render();
+  await RH.modal(`<h2>The law was…</h2><div class="lawtext">“${L.d}”</div><p class="dim">This counts as solved so the next tiers can open, but earns no stars. Laws you reveal can be replayed from the free lab later.</p>`);
+}
+document.addEventListener('keydown', e => {
+  if (mode !== 'predict' || e.target.tagName === 'TEXTAREA') return;
+  if (/^[1-8]$/.test(e.key)) { predFocus = +e.key - 1; document.querySelectorAll('.pcard').forEach((c, i) => c.style.outline = i === predFocus ? '2px solid var(--accent)' : ''); }
+  else if ((e.key === 'y' || e.key === 'n') && predFocus >= 0) { preds[predFocus].ans = e.key === 'y'; predFocus = Math.min(7, predFocus + 1); render(); document.querySelectorAll('.pcard').forEach((c, i) => c.style.outline = i === predFocus ? '2px solid var(--accent)' : ''); }
+});
+let predFocus = -1;
+
+const help = () => RH.modal(`<h2>⚗️ Hypothesis</h2>
+  <p>Somewhere inside this machine is a <b>law</b>. It accepts some rows of tokens (<i>koans</i>) and rejects others. You can't read the law. You can only experiment.</p>
+  <p>Build a koan and <b>test</b> it. Each test costs a probe. When you think you know the law, <b>publish</b>: the machine shows you eight new koans, and you have to predict every verdict.</p>
+  <p>Tokens have a <b>colour</b> (red, blue, yellow), a <b>shape</b> (circle, square, triangle) and a <b>size</b> (small, medium, large). Laws can depend on any of these, on counts, on order, on neighbours… and later on stranger things.</p>
+  <p class="dim">Sixty laws in eight tiers, generated for your save, plus an endless free lab. Good scientists change one thing at a time.</p>`, [{ label: 'Enter the lab' }]);
+$('helpBtn').onclick = help;
+if (!S.intro) { S.intro = 1; persist(); help(); }
+if (cur === 'free') openFree(false); else openLaw(typeof cur === 'number' && LAWS[cur] && tierOpen(LAWS[cur].tier) ? cur : 0);
+window.__hyp = { LAWS, S, openLaw, test, get builder() { return builder; }, set builder(b) { builder = b; }, startPredict, get preds() { return preds; }, submitPred, render, fp };
+</script>
+</body>
+</html>
