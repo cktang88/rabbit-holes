@@ -2,7 +2,7 @@
 const ready = async page => { await page.waitForFunction(() => window.__bee && __bee.world()); };
 async function reopen(page) { const p = await page.context().newPage(), errs = []; p.on('pageerror', e => errs.push(e.message)); await p.goto(page.url()); await ready(p); p.errs = errs; return p; }
 
-// A plain-rules beekeeper that wins every short scenario (the two-year apiary is exercised for sanity only).
+// A plain-rules beekeeper that wins every scenario, including the two-year apiary.
 const PLAY = `function play(id) {
   const B = __bee; B.load(id);
   if (id === 'first') { for (const t of TUT_TARGETS) B.identify(t); B.step(1); return B.result(); }
@@ -27,16 +27,45 @@ const PLAY = `function play(id) {
   return B.result();
 }`;
 
+// Two seasons, three hives: brood break + oxalic every late summer (honey off first), winter oxalic, feed back up,
+// Demaree against swarming, and splits only in the second spring.
+const APIARY = `function playApiary() {
+  const B = __bee; B.load('apiary');
+  for (let wk = 0; wk < 110 && !B.result(); wk++) {
+    const w = B.world();
+    for (const pass of [0, 1]) for (let i = 0; i < w.hives.length; i++) {
+      const h = w.hives[i]; if (!h.alive) continue; const mo = monthOf(w.day), act = a => w.actsLeft > 0 && !String(B.act(a, i)).startsWith('ERR');
+      const yr = Math.floor((w.day - w.sc.start) / 365);
+      if (pass === 0) {
+        if (h.q.st === 'lw' || (h.q.st === 'none' && !h.qc.length)) act('requeen');
+        if (h.cagedAt && w.day - h.cagedAt >= 22 && h.oaYr !== yr) { if (h.sH > 1500) act('harvest'); if (act('oa')) h.oaYr = yr; }
+        if (mo === 6 && h.wOA !== yr && loadOf(h) > .5) { if (act('oa')) h.wOA = yr; }
+        if (mo === 1 && h.cageYr !== yr && h.q.st === 'laying') { if (act('cage')) { h.cageYr = yr; h.cagedAt = w.day; } }
+        if (h.qc.some(q => q.type === 'swarm') && h.q.st === 'laying') act('destroy');
+        if (h.q.st === 'laying' && h.boxes === 1 && (h.imp > .3 || h.cups) && h.demYr !== yr) { if (act('demaree')) h.demYr = yr; }
+      } else {
+        if (congestion(h).cong > .62 && h.supers < 5) act('super');
+        if ((mo === 11 || mo === 0) && h.sH > 12000) act('harvest');
+        if (mo >= 1 && mo <= 3 && storesKg(h) < 16) act('feed');
+        if (yr === 1 && mo >= 9 && mo <= 10 && alive(w).length < 6 && adultsOf(h) > 18000) { if (act('split')) w.hives[w.hives.length - 1].fresh = 1; }
+        if (h.fresh && mo >= 8 && storesKg(h) < 8) act('feed');
+      }
+    }
+    B.step(1);
+  }
+  return B.result();
+}`;
+
 module.exports = {
   page: 'swarm/index.html',
   ready,
   tests: {
-    'every short scenario has a winning line, and doing nothing never wins': async ({ page, ok }) => {
-      const r = await page.evaluate(`(() => { ${PLAY}; const out = [];
+    'every scenario (two-year apiary included) has a winning line, and doing nothing never wins': async ({ page, ok }) => {
+      const r = await page.evaluate(`(() => { ${PLAY}; ${APIARY}; const out = [];
         for (const id of __bee.scenarios) { if (id === 'free' || id === 'apiary') continue;
           __bee.load(id); __bee.step(200); const idle = __bee.result(); const res = play(id);
           out.push({ id, idle: idle && idle.won, won: res && res.won, msg: res && res.msg }); }
-        __bee.load('apiary'); __bee.step(200); out.push({ id: 'apiary', idle: __bee.result().won, won: true });
+        __bee.load('apiary'); __bee.step(200); const apIdle = __bee.result().won; const ap = playApiary(); out.push({ id: 'apiary', idle: apIdle, won: ap && ap.won, msg: ap && ap.msg });
         return out; })()`);
       ok(r.length === 12, 'scenario count');
       for (const x of r) { ok(!x.idle, `${x.id} wins with no action`); ok(x.won, `${x.id} reference line lost: ${x.msg}`); }
