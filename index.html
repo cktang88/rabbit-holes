@@ -80,6 +80,20 @@
   .empty{color:#9a92aa;font-size:16px;padding:30px 0}
   section h2 .new{font:700 11px "Space Grotesk",sans-serif;letter-spacing:.12em;text-transform:uppercase;vertical-align:middle;margin-left:10px;padding:4px 10px;border-radius:20px;color:#14111c;background:linear-gradient(90deg,#ffd27a,#ff6b9a)}
   section{scroll-margin-top:150px}
+  .railsec{max-width:none;padding:26px 0 4px}
+  .railhead{max-width:1120px;margin:0 auto;padding:0 24px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  .railhead h2{font-size:26px}
+  .railhead .rem{display:inline-block;transform:translateY(1px)}
+  .railhead .sub{margin:0;flex:1;min-width:180px}
+  .seeall{font:600 13px "Space Grotesk",sans-serif;color:hsl(var(--h),90%,76%);background:none;border:0;cursor:pointer;padding:4px 0}
+  .railwrap{position:relative}
+  .rail{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(280px,320px);gap:18px;overflow-x:auto;scroll-snap-type:x proximity;padding:14px max(24px,calc((100vw - 1072px)/2)) 22px;scrollbar-width:none;scroll-padding:0 max(24px,calc((100vw - 1072px)/2))}
+  .rail::-webkit-scrollbar{display:none}
+  .rail .card{scroll-snap-align:start}
+  .arrow{position:absolute;top:40%;z-index:3;width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.18);background:rgba(12,10,20,.85);color:#f4efe6;font-size:26px;line-height:1;cursor:pointer;backdrop-filter:blur(8px);transition:opacity .2s}
+  .arrow.l{left:12px}.arrow.r{right:12px}
+  .atstart .arrow.l,.atend .arrow.r{opacity:0;pointer-events:none}
+  @media (hover:none){.arrow{display:none}}
   .jump{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
   .jump a{color:#d8d1e4;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:30px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);transition:background .2s,border-color .2s}
   .jump a:hover{background:rgba(255,255,255,.1);border-color:rgba(255,210,122,.5)}
@@ -104,8 +118,7 @@
   <div class="bar" id="bar">
     <div class="barin">
       <div class="row1"><label class="search"><span>⌕</span><input id="q" type="search" placeholder="Search: ciphers, bees, gravity…" autocomplete="off" aria-label="Search experiments"></label><button class="chip surprise" id="surprise" type="button">🎲 Surprise me</button></div>
-      <div class="chips" id="cats" role="toolbar" aria-label="Categories"></div>
-      <div class="chips small" id="tags" role="toolbar" aria-label="Play style and length"></div>
+      <div class="chips" id="tags" role="toolbar" aria-label="Tags"></div>
     </div>
   </div>
   <div id="view"></div>
@@ -115,42 +128,40 @@
 <script src="shared/catalog.js"></script>
 <script>
 const prog = RH.load('hub', {});
-const CAT = Object.fromEntries(RH_CATS.map(c => [c.id, c]));
+const TAG = Object.fromEntries(RH_TAGLIST.map(t => [t.id, t]));
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const TIME = { '5-min': '⏱ 5 min', '20-min': '⏱ 20 min', 'rabbit-hole': '🕳 an hour+' };
 const DIFF = ['', 'gentle', 'tricky', 'fiendish'];
-const STYLE_CHIPS = [...RH_TAGS.style, ...RH_TAGS.time].filter(t => RH_CATALOG.some(x => x.tags.includes(t) || x.time === t));
+const count = t => RH_CATALOG.filter(x => x.tags.includes(t)).length;
 
-// ---- state lives in the URL hash so filtered views can be shared: #cat=logic&tags=sandbox,20-min&q=bee&like=ruin
-const st = { cat: '', tags: [], q: '', like: '' };
-function readHash() { const h = new URLSearchParams(location.hash.slice(1)); st.cat = h.get('cat') || ''; st.tags = (h.get('tags') || '').split(',').filter(Boolean); st.q = h.get('q') || ''; st.like = h.get('like') || ''; }
-function writeHash() { const h = new URLSearchParams(); if (st.cat) h.set('cat', st.cat); if (st.tags.length) h.set('tags', st.tags.join(',')); if (st.q) h.set('q', st.q); if (st.like) h.set('like', st.like); const s = h.toString(); history.replaceState(null, '', s ? '#' + s : location.pathname + location.search); }
+// ---- state lives in the URL hash so filtered views can be shared: #tags=water,pretty&q=bee&like=ruin
+const st = { tags: [], q: '', like: '' };
+function readHash() { const h = new URLSearchParams(location.hash.slice(1)); st.tags = (h.get('tags') || h.get('tag') || '').split(',').filter(t => TAG[t]); st.q = h.get('q') || ''; st.like = h.get('like') || ''; }
+function writeHash() { const h = new URLSearchParams(); if (st.tags.length) h.set('tags', st.tags.join(',')); if (st.q) h.set('q', st.q); if (st.like) h.set('like', st.like); const s = h.toString(); history.replaceState(null, '', s ? '#' + s : location.pathname + location.search); }
 
 function card(x, o = {}) {
-  const p = prog[x.id] || 0, c = CAT[x.cat], h = c.hue, C = 2 * Math.PI * 18;
-  const badge = p ? `<svg class="ring" viewBox="0 0 44 44" aria-label="${Math.round(p * 100)}% explored"><circle cx="22" cy="22" r="18" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="4"/><circle cx="22" cy="22" r="18" fill="none" stroke="hsl(${h},90%,70%)" stroke-width="4" stroke-linecap="round" stroke-dasharray="${C * Math.min(1, p)} ${C}" transform="rotate(-90 22 22)"/><text x="22" y="26" text-anchor="middle">${Math.round(Math.min(1, p) * 100)}</text></svg>` : x.round === 4 ? '<span class="tag">new</span>' : '';
-  const tags = x.tags.slice(0, 3).map(t => `<button type="button" class="t" data-tag="${esc(t)}">${esc(t)}</button>`).join('');
+  const p = Math.min(1, prog[x.id] || 0), lead = TAG[(o.ctx && x.tags.includes(o.ctx) ? x.tags.find(t => t !== o.ctx) : x.tags[0]) || x.tags[0]], h = lead.hue, C = 2 * Math.PI * 18;
+  const badge = p ? `<svg class="ring" viewBox="0 0 44 44" aria-label="${Math.round(p * 100)}% explored"><circle cx="22" cy="22" r="18" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="4"/><circle cx="22" cy="22" r="18" fill="none" stroke="hsl(${h},90%,70%)" stroke-width="4" stroke-linecap="round" stroke-dasharray="${C * p} ${C}" transform="rotate(-90 22 22)"/><text x="22" y="26" text-anchor="middle">${Math.round(p * 100)}</text></svg>` : x.round === 4 ? '<span class="tag">new</span>' : '';
+  const tags = x.tags.filter(t => t !== o.ctx).slice(0, 3).map(t => `<button type="button" class="t" data-tag="${t}">${TAG[t].em} ${esc(TAG[t].name)}</button>`).join('');
   return `<article class="card" style="--h:${h}" data-id="${x.id}">
     <div class="thumb"><img src="shared/thumbs/${x.id}.webp" alt="" loading="lazy" decoding="async" width="800" height="500"></div>${badge}
-    <div class="body"><span class="em">${x.em}</span><div class="kicker">${c.em} ${esc(c.name)}</div><h3><a class="cover" href="${x.id}/index.html">${esc(x.t)}</a></h3>${o.why ? `<div class="why">${esc(o.why)}</div>` : ''}<p>${esc(x.d)}</p>
-      <div class="foot"><span class="time">${TIME[x.time]}</span><span class="dots" title="${DIFF[x.diff]}">${'●'.repeat(x.diff)}${'○'.repeat(3 - x.diff)}</span><span class="tg">${tags}</span><button type="button" class="like" data-like="${x.id}" title="More like this">≈ similar</button></div></div>
+    <div class="body"><span class="em">${x.em}</span><h3><a class="cover" href="${x.id}/index.html">${esc(x.t)}</a></h3>${o.why ? `<div class="why">${esc(o.why)}</div>` : ''}<p>${esc(x.d)}</p>
+      <div class="foot"><span class="time">${TIME[x.time]}</span><span class="dots" title="${DIFF[x.diff]}">${'●'.repeat(x.diff)}${'○'.repeat(3 - x.diff)}</span><button type="button" class="like" data-like="${x.id}" title="More like this">≈ similar</button><span class="tg">${tags}</span></div></div>
   </article>`;
 }
-const grid = (xs, big, o) => `<div class="grid${big ? ' big' : ''}">${xs.map(x => card(x, o && o(x))).join('')}</div>`;
+const grid = (xs, o) => `<div class="grid">${xs.map(x => card(x, o ? o(x) : {})).join('')}</div>`;
+const rail = (t, xs) => `<section class="railsec" id="tag-${t.id}" style="--h:${t.hue}"><div class="railhead"><h2><span class="rem">${t.em}</span> ${esc(t.name)}</h2><span class="sub">${esc(t.blurb)}</span><button type="button" class="seeall" data-only="${t.id}">See all ${xs.length} →</button></div>
+  <div class="railwrap"><button type="button" class="arrow l" data-scroll="-1" aria-label="Scroll left">‹</button><div class="rail">${xs.map(x => card(x, { ctx: t.id })).join('')}</div><button type="button" class="arrow r" data-scroll="1" aria-label="Scroll right">›</button></div></section>`;
 
 function matches(x) {
-  if (st.cat && x.cat !== st.cat) return false;
-  for (const t of st.tags) if (!(x.tags.includes(t) || x.time === t)) return false;
-  if (st.q) { const hay = (x.t + ' ' + x.d + ' ' + x.tags.join(' ') + ' ' + CAT[x.cat].name).toLowerCase(); if (!st.q.toLowerCase().split(/\s+/).filter(Boolean).every(w => hay.includes(w))) return false; }
+  for (const t of st.tags) if (!x.tags.includes(t)) return false;
+  if (st.q) { const hay = (x.t + ' ' + x.d + ' ' + (x.k || '') + ' ' + x.tags.map(t => TAG[t].name).join(' ')).toLowerCase(); if (!st.q.toLowerCase().split(/\s+/).filter(Boolean).every(w => hay.includes(w))) return false; }
   return true;
 }
 
 function renderBar() {
-  const n = id => RH_CATALOG.filter(x => x.cat === id).length;
-  document.getElementById('cats').innerHTML = `<button type="button" class="chip${st.cat ? '' : ' on'}" data-cat="">All <i>${RH_CATALOG.length}</i></button>` +
-    RH_CATS.map(c => `<button type="button" class="chip${st.cat === c.id ? ' on' : ''}" style="--h:${c.hue}" data-cat="${c.id}">${c.em} ${esc(c.name)} <i>${n(c.id)}</i></button>`).join('');
-  document.getElementById('tags').innerHTML = STYLE_CHIPS.map(t => `<button type="button" class="chip${st.tags.includes(t) ? ' on' : ''}" data-tag="${esc(t)}" aria-pressed="${st.tags.includes(t)}">${t in TIME ? TIME[t] : esc(t)}</button>`).join('') +
-    st.tags.filter(t => !STYLE_CHIPS.includes(t)).map(t => `<button type="button" class="chip on" data-tag="${esc(t)}" aria-pressed="true">${esc(t)} ✕</button>`).join('');
+  document.getElementById('tags').innerHTML = `<button type="button" class="chip${st.tags.length ? '' : ' on'}" data-clear>All <i>${RH_CATALOG.length}</i></button>` +
+    RH_TAGLIST.map(t => `<button type="button" class="chip${st.tags.includes(t.id) ? ' on' : ''}" style="--h:${t.hue}" data-tag="${t.id}" aria-pressed="${st.tags.includes(t.id)}">${t.em} ${esc(t.name)} <i>${count(t.id)}</i></button>`).join('');
   const q = document.getElementById('q'); if (q.value !== st.q) q.value = st.q;
   document.querySelectorAll('.chips .chip.on').forEach(c => { const r = c.parentElement; if (r.scrollWidth > r.clientWidth) r.scrollLeft = c.offsetLeft - r.clientWidth / 2 + c.offsetWidth / 2; });
 }
@@ -159,34 +170,38 @@ function render() {
   renderBar(); const v = document.getElementById('view');
   if (st.like && RH_CATALOG.some(x => x.id === st.like)) {
     const a = RH_CATALOG.find(x => x.id === st.like), sim = RH_similar(a.id, 6);
-    v.innerHTML = `<section><h2>More like ${esc(a.t)}</h2><div class="sub"><button type="button" class="clear" data-clear>← All experiments</button></div>${grid([a])}<h3 class="minor">You might also like</h3>${grid(sim, false, x => ({ why: x.why }))}</section>`;
-  } else if (st.cat || st.tags.length || st.q) {
-    const xs = RH_CATALOG.filter(matches), c = CAT[st.cat];
-    v.innerHTML = `<section><h2>${c ? c.em + ' ' + esc(c.name) : 'Results'}</h2><div class="sub">${c ? esc(c.blurb) + ' · ' : ''}${xs.length} experiment${xs.length === 1 ? '' : 's'} <button type="button" class="clear" data-clear>Clear filters ✕</button></div>${xs.length ? grid(xs) : '<p class="empty">Nothing matches. Try fewer filters, or press 🎲.</p>'}</section>`;
+    v.innerHTML = `<section><h2>More like ${esc(a.t)}</h2><div class="sub"><button type="button" class="clear" data-clear>← All experiments</button></div>${grid([a])}<h3 class="minor">You might also like</h3>${grid(sim, x => ({ why: x.why }))}</section>`;
+  } else if (st.tags.length || st.q) {
+    const xs = RH_CATALOG.filter(matches), one = st.tags.length === 1 && !st.q ? TAG[st.tags[0]] : null;
+    v.innerHTML = `<section style="${one ? '--h:' + one.hue : ''}"><h2>${one ? one.em + ' ' + esc(one.name) : st.tags.map(t => TAG[t].em + ' ' + esc(TAG[t].name)).join(' + ') || 'Search'}</h2><div class="sub">${one ? esc(one.blurb) + ' · ' : ''}${xs.length} experiment${xs.length === 1 ? '' : 's'} <button type="button" class="clear" data-clear>Clear ✕</button></div>${xs.length ? grid(xs, x => ({ ctx: one && one.id })) : '<p class="empty">Nothing has all of those. Try fewer tags, or press 🎲.</p>'}</section>`;
   } else {
-    v.innerHTML = `<section id="new"><h2>Newest <span class="new">round four</span></h2><div class="sub">Seeded by random Wikipedia walks and random museum, archive and patent finds.</div>${grid(RH_CATALOG.filter(x => x.round === 4), true)}</section>` +
-      RH_CATS.map(c => `<section id="${c.id}"><h2>${c.em} ${esc(c.name)}</h2><div class="sub">${esc(c.blurb)}</div>${grid(RH_CATALOG.filter(x => x.cat === c.id && x.round !== 4).concat(RH_CATALOG.filter(x => x.cat === c.id && x.round === 4)))}</section>`).join('');
+    v.innerHTML = RH_TAGLIST.map(t => rail(t, RH_CATALOG.filter(x => x.tags.includes(t.id)))).join('');
+    updateArrows();
   }
   wireTilt();
 }
+function updateArrows() { document.querySelectorAll('.railwrap').forEach(w => { const r = w.querySelector('.rail'); w.classList.toggle('atstart', r.scrollLeft < 8); w.classList.toggle('atend', r.scrollLeft + r.clientWidth > r.scrollWidth - 8); }); }
+document.addEventListener('scroll', e => { if (e.target.classList && e.target.classList.contains('rail')) updateArrows(); }, true);
+addEventListener('resize', updateArrows);
 
 document.addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) { const c = e.target.closest('article.card'); if (c && !e.target.closest('a') && !getSelection().toString()) { const a = c.querySelector('a.cover'); if (e.metaKey || e.ctrlKey) open(a.href); else location.href = a.href; } return; }
-  if (b.dataset.cat !== undefined) { st.cat = st.cat === b.dataset.cat ? '' : b.dataset.cat; st.like = ''; }
-  else if (b.dataset.tag !== undefined) { const t = b.dataset.tag; st.tags = st.tags.includes(t) ? st.tags.filter(x => x !== t) : [...st.tags, t]; st.like = ''; }
+  if (b.dataset.scroll) { const r = b.parentElement.querySelector('.rail'); r.scrollBy({ left: +b.dataset.scroll * r.clientWidth * .85, behavior: 'smooth' }); return; }
+  if (b.dataset.only) { st.tags = [b.dataset.only]; st.q = ''; st.like = ''; }
+  else if (b.dataset.tag !== undefined) { const t = b.dataset.tag; st.tags = b.closest('.card') ? [t] : st.tags.includes(t) ? st.tags.filter(x => x !== t) : [...st.tags, t]; st.like = ''; }
   else if (b.dataset.like) { st.like = b.dataset.like; }
-  else if (b.hasAttribute('data-clear')) { st.cat = ''; st.tags = []; st.q = ''; st.like = ''; }
+  else if (b.hasAttribute('data-clear')) { st.tags = []; st.q = ''; st.like = ''; }
   else return;
   e.preventDefault(); writeHash(); render();
-  if (b.closest('.card') || b.hasAttribute('data-clear') || b.dataset.like) document.getElementById('bar').scrollIntoView({ behavior: 'smooth' });
+  if (b.closest('.card') || b.closest('.railhead') || b.closest('#view')) document.getElementById('bar').scrollIntoView({ behavior: 'smooth' });
 });
 let qT; document.getElementById('q').addEventListener('input', e => { clearTimeout(qT); qT = setTimeout(() => { st.q = e.target.value.trim(); st.like = ''; writeHash(); render(); }, 120); });
 addEventListener('hashchange', () => { readHash(); render(); });
-document.getElementById('surprise').addEventListener('click', () => { const pool = RH_CATALOG.filter(x => !(prog[x.id] >= 1)); const pick = (pool.length ? pool : RH_CATALOG)[Math.random() * (pool.length || RH_CATALOG.length) | 0]; location.href = pick.id + '/index.html'; });
+document.getElementById('surprise').addEventListener('click', () => { const pool = RH_CATALOG.filter(x => !(prog[x.id] >= 1)), from = pool.length ? pool : RH_CATALOG; location.href = from[Math.random() * from.length | 0].id + '/index.html'; });
 
 const started = RH_CATALOG.filter(x => prog[x.id] > 0).length, avg = RH_CATALOG.reduce((a, x) => a + Math.min(1, prog[x.id] || 0), 0) / RH_CATALOG.length;
-document.getElementById('meta').innerHTML = `<span class="pill"><b>${RH_CATALOG.length}</b> experiments</span><span class="pill"><b>${RH_CATS.length}</b> categories</span><span class="pill"><b>${started}</b> started</span><span class="pill"><b>${Math.round(avg * 100)}%</b> of everything explored</span>`;
+document.getElementById('meta').innerHTML = `<span class="pill"><b>${RH_CATALOG.length}</b> experiments</span><span class="pill"><b>${RH_TAGLIST.length}</b> tags</span><span class="pill"><b>${started}</b> started</span><span class="pill"><b>${Math.round(avg * 100)}%</b> of everything explored</span>`;
 
 // cards tilt toward the cursor
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
