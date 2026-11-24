@@ -141,6 +141,17 @@ module.exports = {
         return { out, rt: d.every((v, i) => v === a[i]) }; });
       for (const s of r.out) ok(s > .99, 'prompt solution ' + s); eq(r.rt, true);
     },
+    'touch straight cuts: tap where the cut starts, tap where it ends': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { __wc.load(0); document.querySelector('#tools [data-t="v"]').click(); });
+      const b = await page.evaluate(() => { const x = __wc.boxes; return { x: x.B.x / x.dpr, y: x.B.y / x.dpr, s: x.B.s / x.dpr }; });
+      const p = f => [b.x + b.s * f[0], b.y + b.s * f[1]];
+      const s0 = await page.evaluate(() => __wc.strokes);
+      await page.mouse.click(...p([.1, .1])); ok(await page.evaluate(() => !!__wc.anchor), 'first tap sets the start');
+      eq(await page.evaluate(() => __wc.strokes), s0, 'first tap must not cut');
+      await page.mouse.click(...p([.9, .1])); await page.waitForTimeout(100);
+      const r = await page.evaluate(() => ({ s: __wc.strokes, a: __wc.anchor }));
+      eq(r.s, s0 + 1, 'second tap cuts one straight stroke'); eq(r.a, null);
+    },
     'phone layout: block, print and target on screen, tray clear of the HUD': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(400);
       const r = await page.evaluate(() => { const b = __wc.boxes, hud = document.getElementById('hud').getBoundingClientRect(), tray = document.getElementById('tray').getBoundingClientRect(); const d = b.dpr;

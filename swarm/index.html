@@ -908,7 +908,17 @@ function frameGeom() {
   const fw = CW + 150, fh = CH + 80;
   const x0 = PAD.left, aw = VW - x0 - (mob ? 12 : 30), ah = VH - PAD.top - PAD.bot;
   const s = portrait ? Math.min(ah / fw, aw / fh) : Math.min(aw / fw, ah / fh, 2.2);
-  return { cx: x0 + (VW - x0) / 2, cy: PAD.top + ah / 2 + (portrait ? 0 : 10), s, rot: portrait ? -Math.PI / 2 : 0, portrait };
+  const z = insp && insp.zoom || 1, ox = insp && insp.zx || 0, oy = insp && insp.zy || 0; // a magnifier: pinch, wheel or double-tap on the comb
+  return { cx: x0 + (VW - x0) / 2 + ox, cy: PAD.top + ah / 2 + (portrait ? 0 : 10) + oy, s: s * z, rot: portrait ? -Math.PI / 2 : 0, portrait, z };
+}
+// zoom the comb to z, keeping the screen point (px, py) over the same cell
+function zoomComb(z, px, py) {
+  if (!insp) return; const z1 = insp.zoom || 1; z = clamp(z, 1, 4); const zx0 = insp.zx || 0, zy0 = insp.zy || 0;
+  insp.zoom = 1; insp.zx = 0; insp.zy = 0; const b = frameGeom(); insp.zoom = z1; insp.zx = zx0; insp.zy = zy0;
+  const c1x = b.cx + zx0, c1y = b.cy + zy0, k = z / z1;
+  insp.zoom = z; insp.zx = z === 1 ? 0 : px - (px - c1x) * k - b.cx; insp.zy = z === 1 ? 0 : py - (py - c1y) * k - b.cy;
+  if (z > 1) { const lim = (a, m) => clamp(a, -m, m); insp.zx = lim(insp.zx, VW * .5 * z); insp.zy = lim(insp.zy, VH * .5 * z); }
+  drawInspect.layerKey = '';
 }
 function toLocal(px, py, fg) { const dx = px - fg.cx, dy = py - fg.cy, c = Math.cos(-fg.rot), s = Math.sin(-fg.rot); return { x: (dx * c - dy * s) / fg.s + CW / 2, y: (dx * s + dy * c) / fg.s + CH / 2 }; }
 function toScreen(x, y, fg) { const lx = (x - CW / 2) * fg.s, ly = (y - CH / 2) * fg.s, c = Math.cos(fg.rot), s = Math.sin(fg.rot); return { x: fg.cx + lx * c - ly * s, y: fg.cy + lx * s + ly * c }; }
@@ -990,7 +1000,7 @@ function openHive(i) {
   view = 'inspect'; document.body.classList.add('insp'); $('notes').classList.remove('open');
   const flow = seasonal(FLOW_T, W.day);
   for (const s of SMOKE) s.age = s.life = 0; for (const f of FLY) f.t = f.life = 0;
-  insp = { box: 0, frame: 4, side: 0, pull: 0, agit: .32 + (flow < .03 ? .2 : 0) + (h.q.st === 'none' || h.q.st === 'lw' ? .15 : 0), smoked: 0, t: 0, label: null, bees: [], flyers: [], smoke: [], brush: null, queen: null, ver: 0, angryT: 0, hint: 1 };
+  insp = { zoom: 1, zx: 0, zy: 0, box: 0, frame: 4, side: 0, pull: 0, agit: .32 + (flow < .03 ? .2 : 0) + (h.q.st === 'none' || h.q.st === 'lw' ? .15 : 0), smoked: 0, t: 0, label: null, bees: [], flyers: [], smoke: [], brush: null, queen: null, ver: 0, angryT: 0, hint: 1 };
   rebuildComb(); spawnBees(); FX.sfx('whoosh'); FX.tween(insp, { pull: 1 }, 520, 'outBack');
   renderUI();
 }
@@ -1075,13 +1085,19 @@ function tutHit(id) {
 
 // ---------- input ----------
 let ptr = { down: 0, x: 0, y: 0, sx: 0, sy: 0, moved: 0, id: null };
+const touches = new Map(); let pinch = null, lastTap = null;
 cv.addEventListener('pointerdown', e => {
   $('notes').classList.remove('open');
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.size === 2 && insp) { const [a, b] = [...touches.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, z: insp.zoom || 1, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }; ptr.moved = 1; return; }
   ptr = { down: 1, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: 0, id: e.pointerId };
   try { cv.setPointerCapture(e.pointerId); } catch (_) {}
   FX.sfx('tick');
 });
 cv.addEventListener('pointermove', e => {
+  if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && touches.size >= 2 && insp) { const [a, b] = [...touches.values()], d = Math.hypot(a.x - b.x, a.y - b.y), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+    zoomComb(pinch.z * d / pinch.d, pinch.cx, pinch.cy); insp.zx += cx - pinch.cx; insp.zy += cy - pinch.cy; pinch.cx = cx; pinch.cy = cy; pinch.z = insp.zoom; pinch.d = d; drawInspect.layerKey = ''; return; }
   const dx = e.clientX - ptr.x, dy = e.clientY - ptr.y; ptr.mx = e.clientX; ptr.my = e.clientY;
   if (ptr.down) {
     if (Math.hypot(e.clientX - ptr.sx, e.clientY - ptr.sy) > 7) ptr.moved = 1;
@@ -1090,9 +1106,16 @@ cv.addEventListener('pointermove', e => {
   ptr.x = e.clientX; ptr.y = e.clientY;
   if (view === 'apiary') cv.style.cursor = hiveAt(e.clientX, e.clientY) >= 0 ? 'pointer' : 'default';
 });
+const dropTouch = e => { touches.delete(e.pointerId); if (touches.size < 2) pinch = null; };
+cv.addEventListener('pointercancel', e => { dropTouch(e); ptr.down = 0; });
+cv.addEventListener('wheel', e => { if (view !== 'inspect' || !insp) return; e.preventDefault(); zoomComb((insp.zoom || 1) * Math.exp(-e.deltaY * .002), e.clientX, e.clientY); }, { passive: false });
 cv.addEventListener('pointerup', e => {
+  dropTouch(e);
   if (!ptr.down) return; ptr.down = 0;
   if (ptr.moved) return;
+  if (view === 'inspect' && insp) { // double-tap toggles the magnifier
+    const now = performance.now(); if (lastTap && now - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) { lastTap = null; zoomComb((insp.zoom || 1) > 1.2 ? 1 : 2.6, e.clientX, e.clientY); return; }
+    lastTap = { t: now, x: e.clientX, y: e.clientY }; }
   if (view === 'apiary' && !ff) { const i = hiveAt(e.clientX, e.clientY); if (i >= 0) openHive(i); return; }
   if (view === 'inspect' && insp && !insp.anim) {
     const fg = insp.fg || frameGeom(), l = toLocal(e.clientX, e.clientY, fg);
@@ -1267,7 +1290,7 @@ function drawInspect(dt) {
   insp.fg = fgo;
   const sp = Math.max(.2, fg.s * dpr);
   // static layer: only repainted when the frame, side, comb contents, position or shake change
-  const lk = [VW, VH, dpr, si, insp.box, insp.frame, b.ver, h.supers, fgo.cx, fgo.cy, SHK[0].toFixed(1), SHK[1].toFixed(1), PAD.bot, PAD.top].join('|');
+  const lk = [VW, VH, dpr, si, insp.box, insp.frame, b.ver, h.supers, fgo.cx, fgo.cy, fg.s.toFixed(4), SHK[0].toFixed(1), SHK[1].toFixed(1), PAD.bot, PAD.top].join('|');
   if (drawInspect.layerKey !== lk) {
     drawInspect.layerKey = lk; drawInspect.layerDraws = (drawInspect.layerDraws || 0) + 1;
     ctx = bctx; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.translate(SHK[0], SHK[1]);
@@ -1681,6 +1704,7 @@ window.__bee = {
   queenScreen() { if (!insp || !insp.queen) return null; const fg = insp.fg || frameGeom(); return toScreen(insp.queen.x, insp.queen.y, fg); },
   findCell(t) { if (!insp) return null; const b = curB(), si = sideIdx(); for (let j = 0; j < PER; j++) if (b.type[si * PER + j] === t) return { r: j / COLS | 0, c: j % COLS }; return null; },
   insp: () => insp && { frame: insp.frame, side: insp.side, box: insp.box, agit: insp.agit, queenHere: !!insp.queen, bees: insp.bees.length },
+  zoom(z, x, y) { if (z != null) zoomComb(z, x ?? VW / 2, y ?? VH / 2); return insp && insp.zoom; },
   counts(box = 0) { if (!insp) return null; const b = insp.boxes[box], n = {}; for (const t of b.type) n[t] = (n[t] || 0) + 1; return n; },
 };
 

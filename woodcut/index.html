@@ -441,7 +441,7 @@ const lightness = ink => { const o = []; lab(...inkAt(ink, R / 2, [0, 0, 0]), o,
 function load(i, opts = {}) {
   { const se = document.getElementById('seal'); if (se) se.classList.remove('on'); }
   if (wipT) { clearTimeout(wipT); wipT = 0; if (L) wipSave(); } // the last stroke on the old block must not be lost
-  hideToast(); Li = i; L = LV[i]; SAVE.cur = i; persist();
+  hideToast(); anchor = null; Li = i; L = LV[i]; SAVE.cur = i; persist();
   PAPER = lin(L.paper); ORDER = L.studio ? (opts.prompt ? opts.prompt.order : RACK.map((_, k) => k)) : L.inks.slice(0, L.need).map((_, k) => k);
   if (L.studio) { L.inks = RACK; T = opts.prompt ? buildTarget(opts.prompt.layers) : null; L.prompt = opts.prompt || null; }
   else T = buildTarget(L.layers);
@@ -775,6 +775,7 @@ function draw(now) {
   g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(bgCv, 0, 0); g.translate(sx, sy);
   drawTarget(); drawBoard(now); drawAnim(now); drawPrint(now);
   if (drag && drag.tool === 'lasso' && drag.pts.length > 1) { g.strokeStyle = '#ffd08a'; g.setLineDash([5 * dpr, 4 * dpr]); g.lineWidth = 2 * dpr; g.beginPath(); drag.pts.forEach((p, k) => { const [x, y] = b2s(p[0], p[1]); k ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); g.stroke(); g.setLineDash([]); }
+  if (anchor && !finished) { const [x, y] = b2s(anchor.p[0], anchor.p[1]), k = .5 + .5 * Math.sin(now / 160); g.strokeStyle = `rgba(179,38,30,${.6 + .4 * k})`; g.lineWidth = 2.5 * dpr; g.beginPath(); g.arc(x, y, (6 + 4 * k) * dpr, 0, 7); g.stroke(); g.fillStyle = '#b3261e'; g.beginPath(); g.arc(x, y, 2.5 * dpr, 0, 7); g.fill(); }
   drawChips(dt); particles.update(dt); particles.draw(g); drawAffordance(now); drawTooltip();
 }
 
@@ -796,20 +797,28 @@ cv.addEventListener('pointerdown', e => {
   const q = [clamp(p[0], 0, R - 1), clamp(p[1], 0, R - 1)];
   if (tool === 'region') { pendingUndo = uncut.slice(); regionAt(q[0] | 0, q[1] | 0); pendingUndo = null; setHover(p); return; }
   cv.setPointerCapture(e.pointerId); touched = true;
-  drag = { tool, start: snap(q), last: q, sm: q, pts: [snap(q)], base: uncut.slice(), n: 0 };
+  drag = { tool, start: snap(q), last: q, sm: q, pts: [snap(q)], base: uncut.slice(), n: 0, t0: performance.now(), q0: q, far: 0 };
   if (tool !== 'lasso') { drag.n += stamp(q[0], q[1], RAD[tool]); scratch(); partDirty = pvDirty = true; }
   else FX.sfx('tick');
 });
 cv.addEventListener('pointermove', e => {
   const p = toBlock(e); if (!drag) { setHover(p); return; }
   const q = [clamp(p[0], 0, R - 1), clamp(p[1], 0, R - 1)];
+  drag.far = Math.max(drag.far, Math.hypot(q[0] - drag.q0[0], q[1] - drag.q0[1]));
   if (drag.tool === 'lasso') { const s = snap(q), l = drag.pts[drag.pts.length - 1]; if (Math.hypot(s[0] - l[0], s[1] - l[1]) >= 3) drag.pts.push(s); kick(); return; }
   if (e.shiftKey) { uncut.set(drag.base); drag.n = line(drag.start, snap(q), RAD[drag.tool]) + stamp(drag.start[0], drag.start[1], RAD[drag.tool]); drag.straight = true; blockDirty = true; }
   else { drag.q = q; drag.sm = [drag.sm[0] + (q[0] - drag.sm[0]) * .55, drag.sm[1] + (q[1] - drag.sm[1]) * .55]; const n = line(drag.last, drag.sm, RAD[drag.tool]); drag.n += n; if (n) { const [x, y] = b2s(drag.sm[0], drag.sm[1]); if (Math.random() < .6) spawnChip(x, y); scratch(); } drag.last = drag.sm; }
   partDirty = pvDirty = true; setHover(p);
 });
+// straight cuts without a keyboard: tap where the cut starts, then tap where it ends (tap the same spot again for a single nick)
+let anchor = null;
 const endDrag = () => {
   if (!drag) return; const d = drag; drag = null;
+  if (d.tool !== 'lasso' && d.far < 4 && performance.now() - d.t0 < 400) {
+    uncut.set(d.base); d.n = 0;
+    if (!anchor) { anchor = { p: d.q0, tool: d.tool }; FX.sfx('tick'); toast('Straight cut', 'Tap where the cut should end. Tap the same spot again for a single nick.', 2600); }
+    else { const a = anchor.p; anchor = null; d.n = line(a, d.q0, RAD[d.tool]) + stamp(a[0], a[1], RAD[d.tool]); if (d.n) { scratch(1); const [x, y] = b2s(d.q0[0], d.q0[1]); spawnChip(x, y, 1.4); } }
+  }
   if (d.tool === 'lasso') { const before = uncut.slice(); if (lassoFill(d.pts)) { undo.push(before); if (undo.length > 40) undo.shift(); strokes++; FX.sfx('pop'); scratch(1); flash = { t: performance.now() }; } else FX.sfx('tick'); }
   else { if (d.q && !d.straight) { d.n += line(d.last, d.q, RAD[d.tool]); blockDirty = true; } } // smoothing lags the pointer: finish the cut where the finger lifted
   if (d.tool !== 'lasso' && d.n > 0) { undo.push(d.base); if (undo.length > 40) undo.shift(); strokes++; }
@@ -827,7 +836,7 @@ addEventListener('keydown', e => {
 
 // ---------------- UI ----------------
 const TOOLS = [['v', 'V-gouge', '╱', 'thin line'], ['u', 'U-gouge', '∪', 'broad'], ['region', 'Region', '◉', 'clear a whole region'], ['lasso', 'Lasso', '◌', 'clear inside a loop']];
-function setTool(t) { tool = t; hlComp = -2; FX.sfx('click'); renderTray(); updateHUD(); kick(); }
+function setTool(t) { tool = t; anchor = null; hlComp = -2; FX.sfx('click'); renderTray(); updateHUD(); kick(); }
 function surfaceColor() { if (!passes.length) return PAPER; for (let i = 0; i < N; i++) if (uncut[i]) return [pcol[i * 3], pcol[i * 3 + 1], pcol[i * 3 + 2]]; return PAPER; }
 function renderTray() {
   const rl = rLeft();
@@ -962,6 +971,7 @@ window.__wc = {
   greedyCarve() { let n = 0; T.regions.forEach(r => { let un = 0, e = 0; for (const i of r.px) { if (uncut[i]) un++; const j = i * 3; e += Math.hypot(plab[j] - T.tlab[j], plab[j + 1] - T.tlab[j + 1], plab[j + 2] - T.tlab[j + 2]); }
     if (un && e / r.px.length < 6) { carveComp(r.comp); n++; } }); if (n) { strokes += n; blockDirty = pvDirty = true; } return n; },
   lightOrder: () => L.inks.map((_, k) => k).sort((a, b) => lightness(L.inks[b]) - lightness(L.inks[a])),
+  get anchor() { return anchor; },
   over, cover, lin, I, ftT, rleEnc, rleDec, wipSave, rLeft, PASS, NLV, SAVE, get GAL() { return GAL; }, get undoN() { return undo.length; }, pullBtn, applyPull,
   get anim() { return anim; }, get draws() { return draws; }, _tgt: () => targetCv.toDataURL(), layout, get boxes() { return { B, PR, TC, dpr }; },
 };

@@ -142,6 +142,19 @@ module.exports = {
       ok(t.found.egg, 'egg not found by tapping'); ok(t.found.larva, 'larva not found by tapping');
       if (pts.empty) { await page.mouse.click(pts.empty.x, pts.empty.y); eq(await page.evaluate(() => __bee.world().tut.wrong), t.wrong + 1); }
     },
+    'the comb magnifier: wheel or double-tap zooms around the finger, and taps still find the right cell': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { __bee.load('first'); __bee.open(0); __bee.frame(4, 0); }); await page.waitForTimeout(900);
+      const c = await page.evaluate(() => { const k = __bee.findCell(1); return __bee.cellScreen(k.r, k.c); });
+      await page.mouse.dblclick(c.x, c.y); await page.waitForTimeout(300);
+      ok(await page.evaluate(() => __bee.insp() && __bee.zoom(undefined) >= 1), 'zoom api');
+      const z = await page.evaluate(() => __bee.world() && document && window.__bee.zoom(2.6, innerWidth / 2, innerHeight / 2)); eq(z, 2.6);
+      await page.waitForTimeout(300);
+      const c2 = await page.evaluate(() => { const k = __bee.findCell(1); return __bee.cellScreen(k.r, k.c); });
+      await page.mouse.click(c2.x, c2.y); await page.waitForTimeout(400);
+      ok(await page.evaluate(() => !!__bee.world().tut.found.egg), 'egg tap at 2.6x zoom');
+      await page.mouse.move(c2.x, c2.y); await page.mouse.wheel(0, 400); await page.waitForTimeout(200);
+      ok(await page.evaluate(() => __bee.zoom(undefined) < 2.6), 'wheel zooms out');
+    },
     'autosave: worst-case two-year apiary stays small and round-trips': async ({ page, ok, near, eq }) => {
       const a = await page.evaluate(() => { for (const s of SCEN) SAVE.done[s.id] = 1; persist(); __bee.load('apiary'); const w = __bee.world(); w.sc = { ...w.sc, fail: () => null };
         for (let wk = 0; wk < 103; wk++) { for (let i = 0; i < w.hives.length; i++) { if (w.hives.length < 8 && w.hives[i].alive) __bee.act('split', i); if (w.hives[i].alive) __bee.act('wash', i); } stepWeek(w); weeklyNote(); }
