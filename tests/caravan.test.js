@@ -35,6 +35,24 @@ module.exports = {
       ok(await p.evaluate(() => getComputedStyle(document.querySelector('#mapWrap .pz-in')).width) === '40px', 'zoom buttons');
       await ctx.close();
     },
+    'pan and zoom: dragging bare map pans without planning; a pinch that starts on a city plans nothing; Fit restores the whole map': async ({ page, ok, near }) => {
+      await closeModals(page); await page.waitForTimeout(200);
+      const r = await page.evaluate(() => { const K = window.__caravan, cv = document.getElementById('map'), c = cv.getBoundingClientRect();
+        K.cam.zoomAt(c.left + c.width / 2, c.top + c.height / 2, 2);
+        let ex = c.left + c.width / 2, ey = c.top + c.height / 2; for (let k = 0; k < 60 && K.cities.some(ci => { const [x, y] = K.P(ci); return Math.hypot(x - (ex - c.left), y - (ey - c.top)) < 30; }); k++) { ex += 7; ey += 3; }
+        const x0 = K.cam.x, ev = (t, id, x, y, type = 'mouse') => cv.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: type, button: 0 }));
+        ev('pointerdown', 1, ex, ey); ev('pointermove', 1, ex - 30, ey); ev('pointerup', 1, ex - 30, ey); cv.dispatchEvent(new MouseEvent('click', { clientX: ex - 30, clientY: ey, bubbles: true }));
+        const panned = K.cam.x - x0, planned1 = document.getElementById('travelBox').style.display;
+        const city = K.cities.find(ci => ci.id !== K.C.at && (([x, y]) => x > 40 && y > 40 && x < c.width - 40 && y < c.height - 40)(K.P(ci))); const [cx, cy] = K.P(city), k0 = K.cam.k;
+        ev('pointerdown', 2, c.left + cx, c.top + cy, 'touch'); ev('pointerdown', 3, c.left + cx + 40, c.top + cy, 'touch');
+        for (let k = 1; k <= 5; k++) { ev('pointermove', 2, c.left + cx - k * 6, c.top + cy, 'touch'); ev('pointermove', 3, c.left + cx + 40 + k * 6, c.top + cy, 'touch'); }
+        ev('pointerup', 2, c.left + cx - 30, c.top + cy, 'touch'); ev('pointerup', 3, c.left + cx + 70, c.top + cy, 'touch'); cv.dispatchEvent(new MouseEvent('click', { clientX: c.left + cx - 30, clientY: c.top + cy, bubbles: true }));
+        return { panned, planned1, planned2: document.getElementById('travelBox').style.display, zoomedMore: K.cam.k > k0 }; });
+      near(r.panned, -30, 1.5); ok(r.planned1 !== 'block' && r.planned2 !== 'block', 'a pan or pinch planned a journey ' + JSON.stringify(r)); ok(r.zoomedMore, 'pinch did not zoom');
+      await page.click('#mapWrap .pz-fit'); await page.waitForTimeout(450);
+      const c = await page.evaluate(() => window.__caravan.cam.state); near(c.k, 1, 1e-6); near(c.x, 0, 1e-6); near(c.y, 0, 1e-6);
+      ok(await page.evaluate(() => getComputedStyle(document.querySelector('#mapWrap .pz-bar button')).borderRadius === '50%'), 'zoom bar not styled');
+    },
     'touch: the intro dialog button is on screen without scrolling, portrait and landscape': async ({ page, ok }) => {
       for (const vp of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
         const ctx = await page.context().browser().newContext({ viewport: vp, hasTouch: true, isMobile: true }); const p = await ctx.newPage();

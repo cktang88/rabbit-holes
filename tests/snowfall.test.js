@@ -84,7 +84,7 @@ module.exports = {
           while (used < S.BALLOONS) { used++; const res = S.scoreSounding(c, snd); sc = res.score; if (sc >= S.MATCH) break;
             const ext = cr => order(cr).map(g => (g.r1 ?? g.c1) - (g.r0 ?? g.c0)), m = ext(res.mine[0]), t = ext(T); let j = -1, w = 0;
             t.forEach((e, q) => { const lr = Math.log((m[q] || 1e-3) / e); if (Math.abs(lr) > Math.abs(w)) { w = lr; j = q; } }); if (j < 0) break;
-            const l = snd[j]; if (Math.abs(w) > .3 && w > 0 && l.d > 1) l.d--; else if (Math.abs(w) > .3 && w < 0 && l.d < 3) l.d++; else l.s = Math.round(Math.max(.01, Math.min(.21, l.s * (w > 0 ? .8 : 1.25))) * 100) / 100; }
+            const l = snd[j], stuck = w < 0 ? l.s >= .21 : l.s <= .01; if ((Math.abs(w) > .3 || stuck) && w > 0 && l.d > 1) l.d--; else if ((Math.abs(w) > .3 || stuck) && w < 0 && l.d < 3) l.d++; else l.s = Math.round(Math.max(.01, Math.min(.21, l.s + (w > 0 ? -1 : 1) * Math.max(.01, l.s * .2))) * 100) / 100; }
           comp.push(sc >= S.MATCH ? S.starsFor(used) : 0);
         }
         return { naive: naive.filter(Boolean).length / naive.length, comp, solver: late.map(i => S.scoreSounding(S.CASES[i], S.CASES[i].target[0]).score >= S.MATCH ? S.starsFor(1) : 0) };
@@ -161,7 +161,7 @@ module.exports = {
     },
     'riming: above water saturation droplets freeze on; a long spell there makes graupel': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const S = __snow; return [S.classify([S.P2(-15, .17), S.P2(-15.5, .19), S.P2(-16, .25)]).key, S.classify([S.P2(-12, .3), S.P2(-14, .29)]).key, S.classify([S.P2(-15, .19)]).key]; });
-      ok(r[0].endsWith('+rime'), 'a brief dip above the water line should rime: ' + r[0]); ok(r[1] === 'graupel', 'a long fall through droplets should be graupel: ' + r[1]); ok(!r[2].includes('rime'), 'below the line no rime: ' + r[2]);
+      ok(r[0].startsWith('rimed:'), 'a brief dip above the water line should rime: ' + r[0]); ok(r[1] === 'graupel', 'a long fall through droplets should be graupel: ' + r[1]); ok(!r[2].includes('rime'), 'below the line no rime: ' + r[2]);
     },
     'legendary forms: every documented recipe works; capped columns need column then plate; random lines and scribbles are almost never legendary': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const S = __snow; let sd = 9; const R = () => (sd = (sd * 1103515245 + 12345) % 2147483648) / 2147483648;
@@ -212,7 +212,7 @@ module.exports = {
       const r = await page.locator('#pad').boundingBox(), pt = (T, s) => padPt(r, T, s);
       let [x, y] = pt(-14, .02); await page.mouse.move(x, y); await page.mouse.down(); [x, y] = pt(-14, .2); await page.mouse.move(x, y, { steps: 15 }); await page.mouse.up();
       await page.waitForTimeout(300);
-      eq(await page.evaluate(() => Object.keys(__snow.SAVE.codex)), ['plate,sector,stellar,dendrite']);
+      eq(await page.evaluate(() => Object.keys(__snow.SAVE.codex)), ['plate,dendrite']);
       ok(await page.evaluate(() => location.hash.startsWith('#fall=')), 'no share link');
       const cdp = await page.context().newCDPSession(page); [x, y] = pt(-5, .13);
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + 2, y }] }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });

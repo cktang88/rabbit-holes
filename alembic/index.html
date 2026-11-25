@@ -437,9 +437,10 @@ function dailyFor(key){
 // ===================== Modes =====================
 let mode='work', com=null, daily=null, sel=SAND, paused=false, dailyMade=new Set();
 function setKnown(k){ KNOWN=k; renderVials(); }
-function startCommission(id){
+function startCommission(id, keepTray){
   com=comById[id]||COMMS[0]; mode='work'; daily=null; SAVE.cur=com.id; persist();
-  clearTray(); seed=RH.hashStr('com:'+com.id)|1; setKnown(knownGlobal()); if (!KNOWN[sel]) sel=com.needs.find(t=>KNOWN[t])||SAND; renderVials(); updGoal(true);
+  if (keepTray){ made.fill(0); poured.fill(0); Object.assign(st,{chain:0,chainT:-999,chainN:0,blasts:0,gunBlasts:0,firePeak:0,flameRun:0,forest:0}); }
+  else { clearTray(); seed=RH.hashStr('com:'+com.id)|1; } setKnown(knownGlobal()); if (!KNOWN[sel]) sel=com.needs.find(t=>KNOWN[t])||SAND; renderVials(); updGoal(true);
 }
 function startDaily(key){
   mode='daily'; com=null; daily=dailyFor(key); clearTray(); seed=daily.seed; dailyMade=new Set();
@@ -451,7 +452,7 @@ function startSandbox(cells){
 function dailyScore(){ return dailyMade.size; }
 const dropsUsed=()=>{ let n=0; for (let t=1;t<NT;t++) n+=poured[t]; return n; };
 // a better daily: more substances, or as many with fewer drops poured
-const better=(a,b)=> !b || a[0]>b[0] || (a[0]===b[0] && a[0]>0 && a[1]<b[1]);
+const better=(a,b)=> a[0]>0 && (!b || a[0]>b[0] || (a[0]===b[0] && a[1]<b[1]));
 const fmtBest=(b)=> b? `${b[0]} substances${b[0]?` in ${b[1].toLocaleString()} drops`:''}` : 'none yet';
 
 // discovery: a new substance appears in the tray
@@ -459,9 +460,9 @@ onFound=(t,a,b)=>{
   const key=ELS[t][0]; const firstEver=!SAVE.codex[key] && !START.includes(t);
   if (mode==='daily' && !daily.pal.includes(t)) dailyMade.add(t);
   if (firstEver){ SAVE.codex[key]=[today(), ELS[a]?ELS[a][0]:'', ELS[b]&&b?ELS[b][0]:'']; persist(); }
-  fresh.add(t); foundQ.push([t,a,b,firstEver]);
+  fresh.add(t); foundQ.push([t,a,b,firstEver]); needVials=true;
 };
-const fresh=new Set(), foundQ=[];
+const fresh=new Set(), foundQ=[]; let needVials=false;
 function recipeText(t,a,b){ const A=ELS[a]&&a?ELS[a][1].toLowerCase():'', B=ELS[b]&&b?ELS[b][1].toLowerCase():''; return A&&B? `${A} + ${B}` : A? `from ${A}` : 'by itself'; }
 
 // ===================== Drawing: typed array into ImageData, one putImageData per frame =====================
@@ -521,7 +522,8 @@ function checkWin(){
   const [v,need]=progressOf(com); if (v<need) return;
   SAVE.done[com.id]=today(); persist(); FX.sfx('win'); const s=$('seal'); s.classList.remove('on'); void s.offsetWidth; s.classList.add('on');
   RH.progress('alembic', Object.keys(SAVE.done).length/COMMS.length);
-  setTimeout(()=>{ const nx=nextCommission(); RH.toast(nx? `Sealed: <b>${com.n}</b>. Next in the Book: ${nx.n}.` : `Sealed: <b>${com.n}</b>.`, 4200); }, 1200);
+  const done=com; setTimeout(()=>{ const nx=nextCommission(); RH.toast(nx? `Sealed: <b>${done.n}</b>. Next: ${nx.n}.` : `Sealed: <b>${done.n}</b>. Every open commission is done: find new substances to open more.`, 4200);
+    if (nx && mode==='work' && com===done) startCommission(nx.id, true); }, 2600);
 }
 function available(c){ const k=knownGlobal(); return c.needs.every(t=>k[t]); }
 function nextCommission(){ return COMMS.find(c=>!SAVE.done[c.id] && available(c)); }
@@ -614,12 +616,17 @@ function decodeTray(str){
 }
 
 // ===================== Main loop =====================
-let lastFrame=performance.now(), slow=0;
+let lastFrame=performance.now(), slow=0, frameN=0, lastToast=0;
 function frame(now){
   requestAnimationFrame(frame);
-  if (!$('book').classList.contains('on') && !paused){ pourFrame(); step(); }
+  // on a slow device the tray runs at half rate rather than ever stalling the page
+  if (!$('book').classList.contains('on') && !paused && !(slow>14 && (tick&1) && (frameN++&1))){ pourFrame(); const t0=performance.now(); step(); slow=slow*.95+(performance.now()-t0)*.05; }
   render(); lastFrame=now;
-  while (foundQ.length){ const [t,a,b,first]=foundQ.shift(); RH.toast(`${first?'First made by you':'New here'}: <b>${ELS[t][1]}</b> <i>(${recipeText(t,a,b)})</i>`, 3200); FX.sfx('chime', t); renderVials(); }
+  if (needVials){ needVials=false; renderVials(); }
+  if (foundQ.length && now-lastToast>900){ lastToast=now;
+    if (foundQ.length===1){ const [t,a,b,first]=foundQ.shift(); RH.toast(`${first?'First made by you':'New here'}: <b>${ELS[t][1]}</b> <i>(${recipeText(t,a,b)})</i>`, 3200); FX.sfx('chime', t); }
+    else { const n=foundQ.splice(0); RH.toast(`New substances: <b>${n.map(q=>ELS[q[0]][1]).join(', ')}</b>`, 3600); FX.sfx('chime', n.length); }
+    renderVials(); }
   while (blastQ.length){ blastQ.shift(); FX.sfx('boom'); FX.shake(.25); }
   if ((tick%15)===0){ updGoal(); checkWin(); }
 }

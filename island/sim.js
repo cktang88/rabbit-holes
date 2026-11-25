@@ -20,16 +20,17 @@
     { id: 'shrub', name: 'Bramble & hazel', kind: 'plant', group: 6, note: 'Slow, thorny cover. Rabbits hide in it from foxes; deer and goats browse it.' },
     { id: 'tree', name: 'Oak & willow', kind: 'plant', group: 6, note: 'Very slow. Young trees are browsed by deer and goats; owls nest only near trees; trees hold the riverbanks together.' },
     { id: 'fungi', name: 'Fungi', kind: 'fungus', group: 6, note: 'Rot dead leaves and carcasses back into soil. Without them, the soil slowly starves.' },
-    { id: 'bee', name: 'Bumblebees', kind: 'animal', group: 5, diet: [['flower', 1]], bite: .5, cost: .35, wcost: .12, Emax: 10, E0: 7, breedE: 7, bcost: 3, litter: [1, 2], season: [5, 12], every: 4, mature: 6, life: 72, speed: 2, crowd: 7, note: 'Pollinators only. Live on nectar, sleep through winter in a cluster.' },
-    { id: 'vole', name: 'Field voles', kind: 'animal', group: 10, diet: [['litter', 1], ['flower', .3], ['grass', .1]], bite: .45, cost: .3, wcost: .25, Emax: 5, E0: 3.5, breedE: 3, bcost: 1.5, litter: [2, 4], season: [2, 18], every: 3, mature: 4, life: 36, speed: 1, crowd: 6, note: 'Tiny seed-eaters that live in the thatch of dead grass. Booming and crashing; food for owls and foxes.' },
+    { id: 'bee', name: 'Bumblebees', kind: 'animal', group: 5, diet: [['flower', 1]], bite: .8, cost: .35, wcost: .12, Emax: 10, E0: 7, breedE: 6, bcost: 2.5, litter: [1, 2], season: [5, 12], every: 4, mature: 6, life: 72, speed: 2, crowd: 10, note: 'Pollinators only. Live on nectar, sleep through winter in a cluster.' },
+    { id: 'vole', name: 'Field voles', kind: 'animal', group: 10, diet: [['litter', 1], ['grass', .1]], bite: .45, cost: .3, wcost: .25, Emax: 5, E0: 3.5, breedE: 3, bcost: 1.5, litter: [2, 4], season: [2, 18], every: 3, mature: 4, life: 36, speed: 1, crowd: 6, note: 'Tiny seed-eaters that live in the thatch of dead grass. Booming and crashing; food for owls and foxes.' },
     { id: 'rabbit', name: 'Rabbits', kind: 'animal', group: 8, diet: [['grass', 1], ['flower', .25], ['shrub', .1]], bite: 1.3, cost: .7, wcost: .95, Emax: 12, E0: 8, breedE: 7, bcost: 3.5, litter: [2, 4], season: [2, 15], every: 5, mature: 10, life: 96, speed: 1, crowd: 7, shelter: true, note: 'Graze hard and breed harder. Hide under bramble when foxes are near.' },
-    { id: 'deer', name: 'Red deer', kind: 'animal', group: 6, diet: [['grass', 1], ['shrub', .8], ['tree', .7]], bite: 3, cost: 1.5, wcost: 1.9, Emax: 60, E0: 45, breedE: 34, bcost: 12, litter: [1, 1], season: [5, 7], every: 24, mature: 24, life: 300, speed: 2, crowd: 6, fear: 'wolf', note: 'Graze, and browse young trees and shrubs. They linger by the river unless something frightens them.' },
-    { id: 'goat', name: 'Feral goats', kind: 'animal', group: 6, invasive: true, diet: [['grass', 1], ['shrub', 1], ['tree', .9], ['flower', .8]], bite: 3, cost: 1.5, wcost: 1.7, Emax: 40, E0: 30, breedE: 22, bcost: 8, litter: [1, 2], season: [2, 14], every: 10, mature: 20, life: 260, speed: 2, crowd: 12, fear: 'wolf', note: 'Hardy, hungry and fond of anything green. With nothing to eat them, they strip an island to the rock.' },
-    { id: 'fox', name: 'Red foxes', kind: 'animal', group: 4, prey: [['rabbit', .22], ['vole', .3]], cost: .8, wcost: .95, Emax: 18, E0: 14, breedE: 12, bcost: 6, litter: [1, 3], season: [3, 5], every: 24, mature: 24, life: 168, speed: 3, radius: 3, value: { rabbit: 9, vole: 4 }, crowd: 4, note: 'Hunt rabbits and voles. Their numbers rise and fall a year or two behind the rabbits.' },
-    { id: 'owl', name: 'Tawny owls', kind: 'animal', group: 2, prey: [['vole', .45], ['rabbit', .06]], cost: .4, wcost: .5, Emax: 18, E0: 12, breedE: 10, bcost: 5, litter: [1, 3], season: [2, 4], every: 24, mature: 24, life: 220, speed: 3, radius: 4, value: { vole: 3, rabbit: 8 }, crowd: 3, needTrees: true, note: 'Hunt voles at night from a tree. They can only nest where there are trees.' },
-    { id: 'wolf', name: 'Grey wolves', kind: 'animal', group: 5, prey: [['deer', .14], ['goat', .2], ['rabbit', .05]], cost: 1.1, wcost: 1.3, Emax: 70, E0: 50, breedE: 40, bcost: 18, litter: [2, 4], season: [3, 5], every: 24, mature: 36, life: 220, speed: 4, radius: 5, value: { deer: 45, goat: 30, rabbit: 8 }, crowd: 7, pack: true, scare: true, note: 'Hunt deer and goats in packs. Deer learn to avoid places wolves pass through.' },
+    { id: 'deer', name: 'Red deer', kind: 'animal', group: 6, diet: [['shrub', 1], ['grass', .9], ['tree', .8]], bite: 4, cost: 1.7, wcost: 2.1, Emax: 60, E0: 45, breedE: 34, bcost: 12, litter: [1, 2], season: [5, 7], every: 24, mature: 24, life: 300, speed: 2, crowd: 6, fear: 'wolf', note: 'Graze, and browse young trees and shrubs. They linger by the river unless something frightens them.' },
+    { id: 'goat', name: 'Feral goats', kind: 'animal', group: 6, invasive: true, diet: [['grass', 1], ['shrub', 1], ['tree', .9], ['flower', .8]], bite: 3, cost: 1.5, wcost: 1.7, Emax: 40, E0: 30, breedE: 22, bcost: 8, litter: [1, 2], season: [2, 8], every: 24, mature: 20, life: 260, speed: 2, crowd: 14, fear: 'wolf', herd: true, note: 'Hardy, hungry and fond of anything green; they roam in herds. With nothing to eat them, they strip an island to the rock.' },
+    { id: 'fox', name: 'Red foxes', kind: 'animal', group: 4, prey: [['rabbit', .3], ['vole', .2]], cost: .7, wcost: .9, Emax: 22, E0: 16, breedE: 13, bcost: 6, litter: [1, 3], season: [2, 6], every: 24, mature: 24, life: 168, speed: 3, radius: 3, value: { rabbit: 9, vole: 4 }, crowd: 4, fallback: ['shrub', .45], note: 'Hunt rabbits and voles. Their numbers rise and fall a year or two behind the rabbits.' },
+    { id: 'owl', name: 'Tawny owls', kind: 'animal', group: 2, prey: [['vole', .3], ['rabbit', .06]], cost: .4, wcost: .5, Emax: 18, E0: 12, breedE: 10, bcost: 5, litter: [1, 3], season: [2, 4], every: 24, mature: 24, life: 220, speed: 3, radius: 4, value: { vole: 3, rabbit: 8 }, crowd: 3, fallback: ['grass', .2], needTrees: true, note: 'Hunt voles at night from a tree. They can only nest where there are trees.' },
+    { id: 'wolf', name: 'Grey wolves', kind: 'animal', group: 5, prey: [['deer', .12], ['goat', .14], ['rabbit', .05]], cost: 1.3, wcost: 1.5, Emax: 70, E0: 55, breedE: 46, bcost: 16, litter: [1, 3], season: [3, 5], every: 24, mature: 36, life: 220, speed: 4, radius: 5, value: { deer: 45, goat: 30, rabbit: 8 }, crowd: 5, fallback: ['litter', .6], pack: true, scare: true, note: 'Hunt deer and goats in packs. Deer learn to avoid places wolves pass through.' },
   ];
   const IDX = {}; SP.forEach((s, i) => { s.i = i; IDX[s.id] = i; });
+  SP.forEach(s => { if (s.prey) { s.preyOf = {}; for (const [id, p] of s.prey) s.preyOf[IDX[id]] = p; s.refuge = s.id === 'wolf' ? 1 : s.id === 'fox' ? 2 : 3; } });
   const ANIMALS = SP.filter(s => s.kind === 'animal').map(s => s.i);
   const PLANTS = ['grass', 'flower', 'shrub', 'tree', 'fungi'];
   const MAXA = 4000;
@@ -72,7 +73,7 @@
   // ----- a world: an island plus everything living on it -----
   function create(seed, opt = {}) {
     const isl = makeIsland(seed);
-    const w = { isl, seed: String(seed), t: 0, r: rng('life:' + seed), drought: [], actions: [], log: [],
+    const w = { isl, seed: String(seed), t: 0, r: rng('life:' + seed + (opt.run ? ':' + opt.run : '')), drought: [], actions: [], log: [],
       f: {}, fert: new Float32Array(N), litter: new Float32Array(N), poll: new Float32Array(N), fear: new Float32Array(N),
       sp: new Int8Array(MAXA).fill(-1), x: new Int16Array(MAXA), y: new Int16Array(MAXA), px: new Int16Array(MAXA), py: new Int16Array(MAXA), E: new Float32Array(MAXA), age: new Int16Array(MAXA), fem: new Uint8Array(MAXA), last: new Int16Array(MAXA), n: 0,
       census: SP.map(() => []), riverHist: [], coverHist: [] };
@@ -106,11 +107,16 @@
     return placed;
   }
 
+  // Trap a species around (tx, ty): up to 20 animals within 5 tiles are caught and shipped off the island.
+  function trap(w, id, tx, ty, rec = true) { const s = IDX[id]; let n = 0;
+    for (let k = 0; k < w.n && n < 20; k++) if (w.sp[k] === s && Math.abs(w.x[k] - tx) <= 5 && Math.abs(w.y[k] - ty) <= 5) { w.sp[k] = -1; n++; }
+    if (rec) w.actions.push([w.t, '-' + id, tx, ty]); return n; }
+  function act(w, a) { const [, id, x, y] = a; return id[0] === '-' ? trap(w, id.slice(1), x, y) : release(w, id, x, y); }
   // ----- one tick (half a month) -----
   const head = new Int32Array(N), nxt = new Int32Array(MAXA);
   function step(w) {
     const isl = w.isl, f = w.f, G = f.grass, F = f.flower, B = f.shrub, T = f.tree, U = f.fungi, t = w.t, ph = season(t), win = isWinter(t), dr = inDrought(w);
-    let g = ph < .7 ? Math.sin(Math.PI * ph / .7) : 0; if (dr) g *= .3;
+    let g = ph < .7 ? Math.sin(Math.PI * ph / .7) : 0; if (dr) g *= .45;
     const autumnStart = (t % TPY) === Math.floor(TPY * .7);
     // plants, litter and fungi
     for (let i = 0; i < N; i++) { if (!isl.land[i]) continue;
@@ -119,9 +125,9 @@
       const nb = nbr4(i); let nG = 0, nF = 0, nB = 0, nT = 0, nU = 0; for (const j of nb) { nG += G[j]; nF += F[j]; nB += B[j]; nT += T[j]; nU += U[j]; } const q = 1 / nb.length; nG *= q; nF *= q; nB *= q; nT *= q; nU *= q;
       const pol = Math.min(1, w.poll[i]);
       const dG = k * (.2 * G[i] * (1 - (G[i] + .5 * F[i]) / capG) + .012 * nG + (G[i] > 0 || nG > 0 ? .018 * Math.max(0, 1 - (G[i] + .5 * F[i]) / capG) : 0));   // + regrowth from roots and the seed bank
-      const dF = (.08 + .2 * pol) * k * F[i] * (1 - (F[i] + .12 * G[i]) / capF) + (.002 + .02 * pol) * k * nF;
+      const dF = (.08 + .2 * pol) * k * F[i] * (1 - (F[i] + .12 * G[i]) / capF) + (.006 + .2 * pol) * k * nF;
       const dB = .035 * k * B[i] * (1 - B[i] / capB) + .0015 * k * nB;
-      const dT = .012 * k * T[i] * (1 - T[i] / capT) + .0012 * k * nT;
+      const dT = .02 * k * T[i] * (1 - T[i] / capT) + .002 * k * nT + (T[i] < .35 && (nT > .05 || isl.bank[i]) ? .006 * k * m : 0);   // + seedlings (willows sprout along the water)
       G[i] = Math.max(0, G[i] + dG); F[i] = Math.max(0, F[i] + dF); B[i] = Math.max(0, B[i] + dB); T[i] = Math.max(0, T[i] + dT);
       w.fert[i] = Math.max(.15, w.fert[i] - .05 * Math.max(0, dG + dF + dB + dT));   // growth draws on the soil
       if (autumnStart) { const dl = .35 * G[i] + .5 * F[i] + .05 * B[i] + .02 * T[i]; G[i] *= .65; F[i] *= .72; B[i] *= .98; T[i] *= .98; w.litter[i] = Math.min(2, w.litter[i] + dl * .6); }
@@ -152,7 +158,7 @@
         const MR = S.speed >= 2 ? 5 : 2;   // wide-ranging animals find mates further off
         for (let dy = -MR; dy <= MR; dy++) for (let dx = -MR; dx <= MR; dx++) { const x = x0 + dx, y = y0 + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const near = S.prey ? true : Math.abs(dx) <= 2 && Math.abs(dy) <= 2; /* hunters hold wide territories */ for (let j = head[y * GW + x]; j >= 0; j = nxt[j]) if (w.sp[j] === s && j !== k) { if (near) crowd++; if (w.age[j] >= S.mature && !w.fem[j]) mates++; } }
         let ok = mates > 0 && crowd < S.crowd;
-        if (ok && S.needTrees) { let tc = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const x = x0 + dx, y = y0 + dy; if (x >= 0 && y >= 0 && x < GW && y < GH) tc += T[y * GW + x]; } ok = tc >= 1.5; }
+        if (ok && S.needTrees) { let tc = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const x = x0 + dx, y = y0 + dy; if (x >= 0 && y >= 0 && x < GW && y < GH) tc += T[y * GW + x]; } ok = tc >= .8; }
         if (ok && w.fem[k]) { // females give birth, if a grown male is about
           const nb = S.litter[0] + r.int(S.litter[1] - S.litter[0] + 1); w.last[k] = t; w.E[k] -= S.bcost;
           for (let c = 0; c < nb; c++) spawn(w, s, i, S.bcost * .8); }
@@ -163,7 +169,9 @@
     census(w);
   }
   const FLOOR = { grass: .03, flower: .04, shrub: .05, tree: .04, litter: .04 };   // roots and woody stems the grazers cannot finish
-  function foodAt(w, S, i) { let v = 0; for (const [d, p] of S.diet) { const fv = w.f[d][i]; v += p * (d === 'tree' ? Math.min(fv, .35) : fv); } return v; }
+  // trees: saplings (low cover) can be browsed right down; grown trees only lose their low branches
+  const browse = (d, v) => d === 'tree' ? (v < .35 ? v - FLOOR.tree : .03) : v - FLOOR[d];
+  function foodAt(w, S, i) { let v = 0; for (const [d, p] of S.diet) v += p * Math.max(0, browse(d, w.f[d][i])); return v; }
   function moveTo(w, k, i) { w.x[k] = i % GW; w.y[k] = (i / GW) | 0; return i; }
   function graze(w, k, S, i) {
     const r = w.r, isl = w.isl; const fearful = S.fear === 'wolf';
@@ -171,36 +179,49 @@
     let best = i, bv = -1e9;
     for (let c = 0; c < 5; c++) { let j = i; if (c) { const dx = r.int(2 * S.speed + 1) - S.speed, dy = r.int(2 * S.speed + 1) - S.speed, x = w.x[k] + dx, y = w.y[k] + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; j = y * GW + x; if (!isl.land[j]) continue; }
       let v = foodAt(w, S, j) + r() * .05; if (fearful) v -= 1.6 * w.fear[j]; if (S.shelter) v += .3 * Math.min(.4, w.f.shrub[j]);
+      if (S.herd && c) { let h = 0; for (let q = head[j]; q >= 0 && h < 6; q = nxt[q]) if (w.sp[q] === S.i) h++; v += .06 * h; }   /* goats keep together in herds */
       if (S === P[IDX.deer] && isl.bank[j] && w.fear[j] < .2) v += .15;   // deer love the lush riverbanks, if it is safe
       if (v > bv) { bv = v; best = j; } }
     i = moveTo(w, k, best);
     let want = Math.min(S.bite, S.Emax - w.E[k] + S.cost);
-    for (const [d, p] of S.diet) { if (want <= 0) break; const fl = w.f[d]; const avail = Math.max(0, (d === 'tree' ? Math.min(fl[i], .35) : fl[i]) - FLOOR[d]) * FOOD * .5 * p; const take = Math.min(want, avail); fl[i] -= take / FOOD; want -= take; w.E[k] += take; }
+    for (const [d, p] of S.diet) { if (want <= 0) break; const fl = w.f[d]; const avail = Math.max(0, browse(d, fl[i])) * FOOD * .5 * p; const take = Math.min(want, avail); fl[i] -= (d === 'tree' && fl[i] >= .35 ? .3 : 1) * take / FOOD;   /* a grown tree only loses bark and low leaves */ want -= take; w.E[k] += take; }
     return i;
   }
   function bee(w, k, S, i, win) {
     if (win) return i;                                   // asleep in the nest
     const r = w.r; let best = i, bv = -1;
-    for (let c = 0; c < 6; c++) { const x = w.x[k] + r.int(5) - 2, y = w.y[k] + r.int(5) - 2; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const j = y * GW + x; if (!w.isl.land[j]) continue; const v = w.f.flower[j] + r() * .02; if (v > bv) { bv = v; best = j; } }
+    for (let c = 0; c < 6; c++) { const x = w.x[k] + r.int(7) - 3, y = w.y[k] + r.int(7) - 3; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const j = y * GW + x; if (!w.isl.land[j]) continue; const v = w.f.flower[j] + r() * .02; if (v > bv) { bv = v; best = j; } }
     i = moveTo(w, k, best); const fl = w.f.flower[i]; w.E[k] += Math.min(S.bite, fl * 2.2);
-    w.poll[i] += 1; for (const j of nbr8(i)) w.poll[j] += .4;
+    w.poll[i] += 1; for (const j of nbr8(i)) w.poll[j] += .5;
     return i;
   }
   function hunt(w, k, S, i) {
-    const r = w.r, isl = w.isl, R = S.radius, x0 = w.x[k], y0 = w.y[k];
+    const r = w.r, isl = w.isl, R = S.radius;
+    if (S.needTrees && w.f.tree[i] < .25) i = wander(w, k, S, i);   // an owl without a perch flies off to find one
+    const x0 = w.x[k], y0 = w.y[k];
     if (S.scare) { for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = x0 + dx, y = y0 + dy; if (x >= 0 && y >= 0 && x < GW && y < GH) w.fear[y * GW + x] += 1 / (1 + Math.abs(dx) + Math.abs(dy)); } }
     if (w.E[k] < S.Emax * .85) {
-      // search the hunting range from a random corner; one attempt per tick
-      const ox = r.int(2 * R + 1), oy = r.int(2 * R + 1);
-      for (let a = 0; a < (2 * R + 1) * (2 * R + 1); a++) { const dx = (a % (2 * R + 1) + ox) % (2 * R + 1) - R, dy = (((a / (2 * R + 1)) | 0) + oy) % (2 * R + 1) - R; const x = x0 + dx, y = y0 + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const j = y * GW + x;
-        for (let q = head[j]; q >= 0; q = nxt[q]) { const ps = w.sp[q]; if (ps < 0) continue; const pr = S.prey.find(p => IDX[p[0]] === ps); if (!pr) continue;
-          let p = pr[1]; if (P[ps].shelter) p *= 1 - .92 * Math.min(1, w.f.shrub[j] * 2.5); if (P[ps].id === 'rabbit' && S.id === 'owl' && w.age[q] > 12) p = 0;
-          moveTo(w, k, j); if (r() < p) { w.E[k] += S.value[P[ps].id]; kill(w, q); } return j; } }
+      // look over the hunting range, then try for one of the animals seen. Scarce prey are wary and hard to find,
+      // so success falls off when few are about: the first few in any patch are safe (this is what lets prey hang on).
+      const D = 2 * R + 1; let seen = 0, pick = -1, pj = -1;
+      for (let a = 0; a < D * D; a++) { const x = x0 + a % D - R, y = y0 + ((a / D) | 0) - R; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const j = y * GW + x;
+        for (let q = head[j]; q >= 0; q = nxt[q]) { const ps = w.sp[q]; if (ps < 0 || !S.preyOf[ps]) continue; seen++; if (r() * seen < 1) { pick = q; pj = j; } } }
+      if (pick >= 0) { const q = pick, j = pj, ps = w.sp[q];
+        let p = S.preyOf[ps] * Math.max(0, (seen - S.refuge) / seen);   /* the first few in any patch are safe in burrows, dens and long grass */ if (P[ps].shelter) p *= 1 - .92 * Math.min(1, w.f.shrub[j] * 2.5); if (P[ps].id === 'rabbit' && S.id === 'owl' && w.age[q] > 12) p = 0;
+        if (P[ps].Emax >= 40) p *= w.age[q] < P[ps].mature ? 1.3 : Math.max(.35, Math.min(1, 1.5 - 1.4 * w.E[q] / P[ps].Emax));   // big prey: the young, the old and the starving are caught
+        if (!S.needTrees) moveTo(w, k, j);   /* owls swoop from a perch and fly back to it */
+        if (r() < p) { w.E[k] += S.value[P[ps].id]; kill(w, q); } return S.needTrees ? i : j; }
     }
-    // nothing found: wander (wolves keep with the pack, owls keep to the trees)
+    // nothing caught: the lean-season standbys (berries and beetles for foxes, carrion for wolves, moths for owls)
+    if (S.fallback && w.E[k] < S.Emax * .85) { const [d, bite] = S.fallback, fl = w.f[d]; const take = Math.min(bite, Math.max(0, fl[i] - FLOOR[d]) * FOOD * .3); fl[i] -= take / FOOD; w.E[k] += take; }
+    return wander(w, k, S, i);
+  }
+  // wander (wolves keep with the pack, owls keep to the trees and to each other)
+  function wander(w, k, S, i) {
+    const r = w.r, isl = w.isl, x0 = w.x[k], y0 = w.y[k];
     let best = i, bv = -1e9;
     for (let c = 0; c < 4; c++) { const x = x0 + r.int(2 * S.speed + 1) - S.speed, y = y0 + r.int(2 * S.speed + 1) - S.speed; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const j = y * GW + x; if (!isl.land[j]) continue;
-      let v = r(); if (S.needTrees) v += w.f.tree[j] * 1.5; for (let q = head[j]; q >= 0; q = nxt[q]) if (w.sp[q] === S.i) v += S.pack ? .4 : .15; if (v > bv) { bv = v; best = j; } }
+      let v = r(); if (S.needTrees) v += w.f.tree[j] * 1.5; if (S.scare && isl.bank[j]) v += .5; /* wolves travel the river corridors */ for (let q = head[j]; q >= 0; q = nxt[q]) if (w.sp[q] === S.i && q !== k) v += S.pack || S.needTrees ? .4 : .15; if (v > bv) { bv = v; best = j; } }
     return moveTo(w, k, best);
   }
   // ----- census -----
@@ -216,7 +237,51 @@
   function speciesCount(w, t = w.census[0].length - 1) { let n = 0; for (let s = 0; s < SP.length; s++) if (SP[s].id !== 'goat' && presentAt(w, s, t)) n++; return n; }
   // replay: rebuild a world from a seed, options and the list of releases, up to tick t
   function replay(seed, actions, t, opt) { const w = create(seed, opt); const acts = [...actions].sort((a, b) => a[0] - b[0]); let ai = 0;
-    while (w.t < t) { while (ai < acts.length && acts[ai][0] <= w.t) { const [, id, x, y] = acts[ai++]; release(w, id, x, y); } step(w); } return w; }
-  const api = { GW, GH, N, TPY, SP, IDX, ANIMALS, PLANTS, MAXA, rng, hashStr, makeIsland, create, step, release, counts, present, presentAt, speciesCount, season, seasonName, isWinter, inDrought, replay };
+    while (w.t < t) { while (ai < acts.length && acts[ai][0] <= w.t) act(w, acts[ai++]); step(w); } return w; }
+  // ----- commissions -----
+  // Each: an island seed, what you may introduce, how many releases (permits), how long, the starting state and the goal.
+  // goal(w) is checked at every year's end: 'won', 'lost' or a progress line.
+  const yr = (w) => Math.floor(w.t / TPY);
+  const cnt = (w, id) => (w.last_counts || counts(w))[IDX[id]];
+  function scatter(w, id, n, tag) { const r = rng('scatter:' + w.seed + tag); const L = []; for (let i = 0; i < N; i++) if (w.isl.land[i]) L.push(i);
+    for (let k = 0; k < n; k++) { const j = spawn(w, IDX[id], L[r.int(L.length)], P[IDX[id]].E0, k & 1); if (j >= 0) w.age[j] = P[IDX[id]].mature + r.int(60); } }
+  const ALL = SP.map(s => s.id).filter(x => x !== 'goat');
+  const SCEN = [
+    { id: 'meadow', title: 'A meadow for rabbits', seed: 'meadow', years: 6, permits: 3, species: ['rabbit', 'shrub'],
+      brief: 'This island has grass and nothing that eats it. Release rabbits on the meadow and keep them going for five years.',
+      goal: (w) => { const y = yr(w), r = cnt(w, 'rabbit'); if (y >= 5 && r >= 20) return 'won'; if (y >= 6) return 'lost'; return `Rabbits: ${r}. Year ${y} of 5.`; } },
+    { id: 'cycle', title: 'Boom and bust', seed: 'cycle', years: 30, permits: 6, species: ['rabbit', 'vole', 'shrub', 'fox', 'owl'],
+      brief: 'Establish foxes and rabbits together, and keep both for twenty years running while their numbers rise and fall.',
+      goal: (w) => { const y = yr(w); const ra = w.census[IDX.rabbit], fo = w.census[IDX.fox]; let run = 0, lo = 1e9, hi = 0;
+        for (let k = TPY - 1; k < ra.length; k += TPY) { if (ra[k] >= 2 && fo[k] >= 2) { run++; lo = Math.min(lo, fo[k]); hi = Math.max(hi, fo[k]); } else { run = 0; lo = 1e9; hi = 0; } }
+        if (run >= 20 && hi >= 2 * lo) return 'won'; if (y >= 30) return 'lost'; return `Foxes and rabbits together for ${run} year${run === 1 ? '' : 's'} of 20.`; } },
+    { id: 'bees', title: 'The bee meadow', seed: 'bees', years: 15, permits: 5, species: ['flower', 'bee', 'shrub', 'rabbit', 'fox'],
+      brief: 'The botanical society wants a wildflower meadow: flowers over 3% of the island, with bees working them, within fifteen years.',
+      goal: (w) => { const y = yr(w), f = cnt(w, 'flower'); if (f >= .03 && cnt(w, 'bee') >= 2) return 'won'; if (y >= 15) return 'lost'; return `Wildflowers cover ${(f * 100).toFixed(1)}% of 3%.`; } },
+    { id: 'river', title: 'Wolves change the rivers', seed: 'river', years: 20, permits: 5, species: ['wolf', 'tree', 'shrub', 'rabbit', 'fox', 'deer'],
+      setup: (w) => { for (let i = 0; i < N; i++) if (w.isl.bank[i]) { w.f.tree[i] = .04; w.f.shrub[i] = Math.min(w.f.shrub[i], .05); } scatter(w, 'deer', 70, 'river'); },
+      brief: 'Seventy deer, no predators, and the riverbanks browsed bare. Bring the riverside woods back to 25% within twenty years, while deer still live here.',
+      goal: (w) => { const y = yr(w), rv = w.riverHist.length ? w.riverHist[w.riverHist.length - 1] : 0; if (rv >= .25 && cnt(w, 'deer') >= 5) return 'won'; if (y >= 20) return 'lost'; return `Riverside woods ${(rv * 100).toFixed(0)}% of 25%; deer ${cnt(w, 'deer')}.`; } },
+    { id: 'goats', title: 'Goat island', seed: 'goats', years: 25, permits: 10, species: ['grass', 'shrub', 'tree', 'flower', 'rabbit', 'deer', 'fox', 'wolf'], traps: ['goat'],
+      setup: (w) => { for (let i = 0; i < N; i++) if (w.isl.land[i]) { w.f.grass[i] *= .3; w.f.shrub[i] = 0; w.f.tree[i] *= .4; w.fert[i] *= .8; } scatter(w, 'goat', 60, 'goats'); },
+      brief: 'Sailors left goats here a century ago. Get green cover back over 45% of the island with no more than three goats left.',
+      goal: (w) => { const y = yr(w), c = w.coverHist.length ? w.coverHist[w.coverHist.length - 1] : 0, g = cnt(w, 'goat'); if (c >= .45 && g <= 3) return 'won'; if (y >= 25) return 'lost'; return `Green cover ${(c * 100).toFixed(0)}% of 45%; goats ${g}.`; } },
+    { id: 'drought', title: 'The drought decade', seed: 'drought', years: 22, permits: 10, species: ALL, drought: [[8, 18]],
+      brief: 'The almanac warns of ten dry years from year 8. Build a web of life that still has seven species in year 22.',
+      goal: (w) => { const y = yr(w), n = speciesCount(w); if (y >= 22) return n >= 7 ? 'won' : 'lost'; return `${n} species now.${y >= 8 && y < 18 ? ' Drought!' : y < 8 ? ' The drought comes in year 8.' : ''}`; } },
+    { id: 'ten', title: 'Ten species, fifty years', seed: 'ten', years: 50, permits: 16, species: ALL,
+      brief: 'The grand commission: an island where ten species live side by side in year fifty.',
+      goal: (w) => { const y = yr(w), n = speciesCount(w); if (y >= 50) return n >= 10 ? 'won' : 'lost'; return `${n} species now; ten wanted in year 50.`; } },
+  ];
+  const SCN = {}; SCEN.forEach(c => SCN[c.id] = c);
+  // the daily island: a fresh island each day, every species, 10 releases, scored on species alive after 30 years
+  function daily(day) { return { id: 'daily', title: 'Island of ' + day, seed: 'day:' + day, years: 30, permits: 10, species: ALL, daily: true,
+    brief: 'Everyone gets this island today. Ten releases; your score is the number of species alive in year 30.',
+    goal: (w) => { const y = yr(w), n = speciesCount(w); if (y >= 30) return 'done'; return `${n} species now. Score taken in year 30.`; } }; }
+  const sandbox = (seed) => ({ id: 'sandbox', title: 'Free island', seed: 'free:' + seed, years: 200, permits: Infinity, species: SP.map(s => s.id), traps: SP.filter(s => s.kind === 'animal').map(s => s.id), sandbox: true,
+    brief: 'No commission: any species, as many as you like. Watch what happens.', goal: (w) => `${speciesCount(w)} species. Year ${yr(w)}.` });
+  function start(c, run) { const w = create(c.seed, { setup: c.setup, run }); if (c.drought) w.drought = c.drought; census(w); return w; }
+
+  const api = { GW, GH, N, TPY, SP, IDX, ANIMALS, PLANTS, MAXA, rng, hashStr, makeIsland, create, step, release, trap, act, SCEN, SCN, daily, sandbox, start, census, counts, present, presentAt, speciesCount, season, seasonName, isWinter, inDrought, replay };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.IslandSim = api;
 })(typeof window !== 'undefined' ? window : this);

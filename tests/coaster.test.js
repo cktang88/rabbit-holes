@@ -120,7 +120,7 @@ module.exports = {
       await page.evaluate(() => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; });
       await page.click('#tRide'); await page.waitForTimeout(500);
       const b = await page.evaluate(() => __coaster.bench3d(90));
-      ok(b && b.ms < 16, `frame time ${b && b.ms.toFixed(2)} ms`); ok(b.tris < 60000, `${b.tris} triangles`); ok(b.pr <= 2, `pixel ratio ${b.pr}`); ok(b.calls < 40, `${b.calls} draw calls`);
+      ok(b && b.ms < 16, `frame time ${b && b.ms.toFixed(2)} ms`); ok(b.tris < 40000, `${b.tris} triangles`); ok(b.pr <= 2, `pixel ratio ${b.pr}`); ok(b.calls <= 20, `${b.calls} draw calls`);
     },
     'corrupted saves never crash the page': async ({ page, ok }) => {
       for (const v of ['null', '7', '[]', '{"done":null,"designs":{"first":"!!"},"cur":99}', '{bad']) {

@@ -28,7 +28,9 @@
   button:disabled{opacity:.45}
   main{flex:1;display:flex;min-height:0}
   #stage{flex:1;position:relative;min-width:0;display:flex;align-items:center;justify-content:center}
-  #cv{cursor:crosshair;touch-action:none;border-radius:18px 26px 20px 30px;box-shadow:0 0 0 3px #1d1209,0 0 0 7px #4a3020,0 14px 40px #000c}
+  #cv{cursor:crosshair;touch-action:none}
+  /* zoom buttons: pebbles pressed into the soil */
+  .pz-bar{right:8px;bottom:8px} .pz-bar button{min-width:40px;min-height:40px;font-family:"Patrick Hand",cursive;font-size:20px;color:var(--chalk);background:radial-gradient(circle at 30% 30%,#7a5a3a,#4a3020);border:2px solid #24170c;border-radius:46% 54% 50% 50% / 55% 45% 55% 45%;box-shadow:inset 0 -3px 0 #0005,0 2px 0 #0006;opacity:.9;padding:0}
   /* the side panel is the soil wall the colony scratches its records into */
   #side{width:300px;background:linear-gradient(90deg,#2a1a0e,#3a2616 30%,#3a2616);border-left:3px solid #1d1209;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:14px}
   .lbl{font-family:Caveat,cursive;font-size:20px;color:var(--ochre);line-height:1;margin-bottom:4px}
@@ -70,8 +72,7 @@
   .chem label{display:block;font-size:15px;margin-top:4px} .chem label b{float:right;font-family:Caveat,cursive;font-size:18px;color:var(--ochre)} .chem input{width:100%}
   .qchem{display:none}
   #cvWrap{flex:1;position:relative;align-self:stretch;overflow:hidden;min-width:0;min-height:0}
-  #cv{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
-  #cv.rot{transform:translate(-50%,-50%) rotate(90deg)}
+  #cv{position:absolute;inset:0;width:100%;height:100%;display:block}
   #quick,#drawerClose{display:none}
   /* phones: the soil fills the screen, a strip of vials and controls sits along one edge, the rest lives in a drawer */
   @media (max-width:760px), (max-height:500px){
@@ -130,6 +131,7 @@
 </main>
 <script src="../shared/common.js"></script>
 <script src="../shared/fx.js"></script>
+<script src="../shared/panzoom.js"></script>
 <script>
 const W=192, H=120;
 const SCENTS=[
@@ -411,23 +413,31 @@ function checkEnd(){
 
 // ===================== Painting =====================
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d'); let cell=5;
-// on a portrait phone the map is turned on its side so it fills the tall screen
+// on a portrait phone the map is turned on its side so it fills the tall screen. The camera works in "view" units:
+// cells, turned when rotated (view u = H - y, v = x). Pinch or wheel to zoom, two fingers or the middle button to pan
+// (one finger always paints scent), and the pebble buttons zoom and fit.
 let rotated=false;
-function fit(){ const r=document.getElementById('cvWrap').getBoundingClientRect(); rotated = compactMQ.matches && r.height>r.width*1.05; cv.classList.toggle('rot', rotated);
-  const aw=rotated? r.height : r.width, ah=rotated? r.width : r.height, pad=compactMQ.matches? 8 : 28;
-  cell=Math.max(1.2,Math.floor(Math.min((aw-pad)/W,(ah-pad)/H)*10)/10); const dp=Math.min(2,devicePixelRatio||1); cv.width=W*cell*dp; cv.height=H*cell*dp; cv.style.width=W*cell+'px'; cv.style.height=H*cell+'px'; }
+const cam=PanZoom(cv,{ world:()=> rotated? {x:-2,y:-2,w:H+4,h:W+4} : {x:-2,y:-2,w:W+4,h:H+4}, pad:6, min:.8, max:8 });
+function fit(){ const r=document.getElementById('cvWrap').getBoundingClientRect(); const was=rotated; rotated = compactMQ.matches && r.height>r.width*1.05;
+  const dp=Math.min(2,devicePixelRatio||1); cv.width=Math.max(1,Math.round(r.width*dp)); cv.height=Math.max(1,Math.round(r.height*dp));
+  if (was!==rotated || !cam.touched) cam.fit(false); }
+// a map cell to a point on the screen, and back
+const toScreen=(x,y)=> rotated? cam.toScreen(H-y, x) : cam.toScreen(x, y);
 let painting=0, lastP=null;
 cv.addEventListener('contextmenu',e=>e.preventDefault());
-cv.addEventListener('pointerdown',e=>{ if (document.body.classList.contains('drawer')) setDrawer(false); if (gameOver) return; painting=(e.button===2||wipeMode)? -1 : 1; lastP=null; strokeLen=0; try { cv.setPointerCapture(e.pointerId); } catch(_){} paint(e); });
+// a touch waits a moment before painting, so the first finger of a pinch leaves no scent
+let pendingE=null, pendT=0;
+cv.addEventListener('pointerdown',e=>{ if (document.body.classList.contains('drawer')) setDrawer(false); if (gameOver || cam.gesturing || e.button===1) { painting=0; pendingE=null; return; } painting=(e.button===2||wipeMode)? -1 : 1; lastP=null; strokeLen=0; try { cv.setPointerCapture(e.pointerId); } catch(_){}
+  if (e.pointerType==='touch'){ pendingE={clientX:e.clientX,clientY:e.clientY}; pendT=performance.now(); } else paint(e); });
 let strokeLen=0;
-const endPaint=()=>{ painting=0; lastP=null; };
+const endPaint=()=>{ if (pendingE && painting && !cam.gesturing) paint(pendingE); pendingE=null; painting=0; lastP=null; };
 window.addEventListener('pointerup',endPaint); window.addEventListener('pointercancel',endPaint); window.addEventListener('blur',endPaint);
-cv.addEventListener('pointermove',e=>{ mouseC=toCell(e); if (painting) paint(e); });
+cv.addEventListener('pointermove',e=>{ mouseC=toCell(e); if (cam.gesturing){ painting=0; pendingE=null; lastP=null; return; }
+  if (painting && pendingE){ if (performance.now()-pendT<70 && Math.hypot(e.clientX-pendingE.clientX,e.clientY-pendingE.clientY)<8) return; paint(pendingE); pendingE=null; }
+  if (painting) paint(e); });
 cv.addEventListener('pointerleave',e=>{ if (e.pointerType!=='mouse') mouseC=null; });
 let mouseC=null;
-const toCell=(e)=>{ const r=cv.getBoundingClientRect();
-  if (rotated){ const rx=e.clientX-(r.left+r.width/2), ry=e.clientY-(r.top+r.height/2); return [(W*cell/2+ry)/cell, (H*cell/2-rx)/cell]; }
-  return [(e.clientX-r.left)/cell, (e.clientY-r.top)/cell]; };
+const toCell=(e)=>{ const [u,v]=cam.toWorld(e.clientX,e.clientY); return rotated? [v, H-u] : [u, v]; };
 function paint(e){
   const [cx,cy]=toCell(e); const pts=[[cx,cy]];
   if (lastP){ const d=Math.hypot(cx-lastP[0],cy-lastP[1]); for (let t=1;t<d;t++) pts.push([lastP[0]+(cx-lastP[0])*t/d, lastP[1]+(cy-lastP[1])*t/d]); }
@@ -448,7 +458,7 @@ window.__ant={ MAPS, SCENTS, UPS, build, bfs, stepWorld, goalProgress, checkEnd,
   get G(){ return G; }, get food(){ return food; }, get scent(){ return scent; }, get home(){ return home; }, get nests(){ return nests; }, get ants(){ return ants; }, get spiders(){ return spiders; },
   get gland(){ return gland; }, set gland(v){ gland=v; }, get stored(){ return stored; }, get delivered(){ return delivered; }, set delivered(v){ delivered=v; }, get kills(){ return kills; }, set kills(v){ kills=v; }, get timeLeft(){ return timeLeft; }, set timeLeft(v){ timeLeft=v; },
   get gameOver(){ return gameOver; }, get mapI(){ return mapI; }, get SAVE(){ return SAVE; }, get paused(){ return paused; }, set paused(v){ paused=v; }, get cell(){ return cell; }, get painting(){ return painting; }, set painting(v){ painting=v; }, get brush(){ return brush; }, set brush(v){ brush=v; },
-  strokeStart(){ lastP=null; strokeLen=0; }, get digMixOn(){ return digMixOn; }, millShare, get mill(){ return mill; }, get trail(){ return trail; }, get bridgeLog(){ return bridgeLog; }, bridgeShare, setChem, chemNow, get chem(){ return chem; }, NOTES, steer, get rotated(){ return rotated; }, toCell, setDrawer, get windfalls(){ return windfalls; }, get winFx(){ return winFx; }, windfall, tally, get windT(){ return windT; }, set windT(v){ windT=v; }, get rainT(){ return rainT; }, set rainT(v){ rainT=v; }, get hatchT(){ return hatchT; }, get fx(){ return fx; }, idx, W, H, PASS, ROCK, DIRT };
+  strokeStart(){ lastP=null; strokeLen=0; }, get digMixOn(){ return digMixOn; }, millShare, get mill(){ return mill; }, get trail(){ return trail; }, get bridgeLog(){ return bridgeLog; }, bridgeShare, setChem, chemNow, get chem(){ return chem; }, NOTES, steer, get rotated(){ return rotated; }, toCell, toScreen, cam, fit, setDrawer, get windfalls(){ return windfalls; }, get winFx(){ return winFx; }, windfall, tally, get windT(){ return windT; }, set windT(v){ windT=v; }, get rainT(){ return rainT; }, set rainT(v){ rainT=v; }, get hatchT(){ return hatchT; }, get fx(){ return fx; }, idx, W, H, PASS, ROCK, DIRT };
 
 // ===================== Rendering =====================
 // ===================== Sound: soil =====================
@@ -498,7 +508,10 @@ function draw(){
     if (food[i]>0){ r=240; g=200; b=96; a=1; }
     d[k]=r/(a||1); d[k+1]=g/(a||1); d[k+2]=b/(a||1); d[k+3]=a*255; }
   octx.putImageData(img,0,0);
-  const dpr=Math.min(2,devicePixelRatio||1); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.imageSmoothingEnabled=true;
+  const dpr=Math.min(2,devicePixelRatio||1); cell=cam.k; ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle='#120b06'; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.setTransform(dpr,0,0,dpr,dpr*cam.x,dpr*cam.y); if (rotated) ctx.transform(0,1,-1,0,H*cell,0); ctx.imageSmoothingEnabled=true;
+  // the rim of the soil block
+  ctx.fillStyle='#4a3020'; ctx.fillRect(-cell*1.2,-cell*1.2,W*cell+cell*2.4,H*cell+cell*2.4); ctx.fillStyle='#1d1209'; ctx.fillRect(-cell*.5,-cell*.5,W*cell+cell,H*cell+cell);
   ctx.drawImage(terrain,0,0,W*cell,H*cell);
   ctx.save(); ctx.globalCompositeOperation='screen'; ctx.filter='blur(1px)'; ctx.drawImage(off,0,0,W*cell,H*cell); ctx.filter='none'; ctx.restore();
   // food crumbs get a little sparkle on top
@@ -530,7 +543,8 @@ function bloom(){ const r=RH.rng(77+mapI), segs=[], n=nests[0];
   return {t0:performance.now(), segs}; }
 function drawBloom(){ const t=(performance.now()-winFx.t0)/1000, cv=ctx.canvas;
   // Segments are painted once into a cached layer (glow faked with a wide faint pass), so each frame is one blit.
-  if (!winFx.layer || winFx.layer.width!==cv.width || winFx.layer.height!==cv.height){ winFx.layer=document.createElement('canvas'); winFx.layer.width=cv.width; winFx.layer.height=cv.height; winFx.done=0; }
+  const ck=cam.x+','+cam.y+','+cam.k+','+rotated;
+  if (!winFx.layer || winFx.layer.width!==cv.width || winFx.layer.height!==cv.height || winFx.ck!==ck){ winFx.layer=winFx.layer&&winFx.layer.width===cv.width&&winFx.layer.height===cv.height? winFx.layer : document.createElement('canvas'); winFx.layer.width=cv.width; winFx.layer.height=cv.height; winFx.done=0; winFx.ck=ck; }
   const L=winFx.layer.getContext('2d'); L.setTransform(ctx.getTransform()); L.lineCap='round';
   while (winFx.done<winFx.segs.length && winFx.segs[winFx.done][4]<=t){ const [x1,y1,x2,y2,,dp]=winFx.segs[winFx.done++]; const w=Math.max(1,(4-dp)*cell*0.35);
     L.beginPath(); L.moveTo(x1*cell,y1*cell); L.lineTo(x2*cell,y2*cell); L.strokeStyle='rgba(240,207,106,0.12)'; L.lineWidth=w*3.5; L.stroke(); L.strokeStyle=`rgba(240,207,106,${0.9-dp*0.15})`; L.lineWidth=w; L.stroke(); }

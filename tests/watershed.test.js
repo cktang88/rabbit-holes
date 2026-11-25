@@ -186,8 +186,9 @@ module.exports = {
       const st = await p.evaluate(() => __ws.SK.strokes.map(s => s.p[0]));
       ok(Math.hypot(hv[0] - cx - 40, hv[1] - cy - 24) < 14, 'ground under the finger: ' + hv + ' vs ' + [cx + 40, cy + 24]);
       ok(st.length === 1 && Math.abs(st[0][0] * 2.5 - g0[0]) <= 1.3 && Math.abs(st[0][1] * 2.5 - g0[1]) <= 1.3, 'stroke starts under the finger: ' + JSON.stringify([st, g0]));
-      await p.locator('#viewBtn').tap(); await p.waitForTimeout(300); const d2 = await p.evaluate(() => __ws.camDist());
-      ok(Math.abs(d2 - d0) < d0 * .05, 'reset view: ' + d2 + ' vs ' + d0); await ctx.close();
+      await p.locator('#viewBtn').tap(); await p.waitForTimeout(300);
+      const v = await p.evaluate(() => ({ d: __ws.camDist(), t: __ws.controls.target.toArray(), moved: document.getElementById('viewBtn').classList.contains('moved') }));
+      ok(v.d > a.d * 1.5 && Math.hypot(v.t[0], v.t[1] - 4, v.t[2] - 8) < .5 && !v.moved, 'reset view: ' + JSON.stringify(v)); await ctx.close();
       // desktop: the wheel zooms toward the cursor
       const w0 = await page.evaluate(() => __ws.camDist()); await page.mouse.move(450, 300); await page.mouse.wheel(0, -600); await page.waitForTimeout(500);
       ok(await page.evaluate(() => __ws.camDist()) < w0 * .9, 'wheel zoom');

@@ -110,11 +110,13 @@ module.exports = {
     'sweeping the mirror past the answer with the wheel does not win; holding it does': async ({ page, ok }) => {
       await closeModals(page);
       await page.evaluate(() => { const o = window.__opt; o.loadLevel(0); o.placed = [{ ...o.trayOf(o.L[0])[0], x: 16, y: 4, a: 30 }]; o.sel = 0; o.recompute(); });
-      const box = await page.locator('#cv').boundingBox();
-      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      // the wheel turns the selected piece when the pointer is over it (elsewhere it zooms the bench)
+      const at = await page.evaluate(() => { const o = window.__opt, dpr = devicePixelRatio || 1, c = document.getElementById('cv').getBoundingClientRect(), q = new DOMMatrix(o.VT()).transformPoint(new DOMPoint(16, 4)); return [c.left + q.x / dpr, c.top + q.y / dpr]; });
+      await page.mouse.move(at[0], at[1]);
       for (let k = 0; k < 15; k++) { await page.mouse.wheel(0, 100); await page.waitForTimeout(60); } // 30 -> 75 degrees, through 45
       await page.waitForTimeout(1200);
       ok(!(await page.evaluate(() => window.__opt.S.done[0])), 'won while sweeping');
+      ok(await page.evaluate(() => window.__opt.cam.k === 1), 'the wheel over a piece zoomed the bench as well as turning the piece');
       for (let k = 0; k < 10; k++) { await page.mouse.wheel(0, -100); await page.waitForTimeout(60); } // back to 45
       ok(await page.evaluate(() => window.__opt.placed[0].a === 45 && window.__opt.R.checks[0].ok), 'not aligned');
       ok(!(await page.evaluate(() => window.__opt.S.done[0])), 'won instantly, without settling');

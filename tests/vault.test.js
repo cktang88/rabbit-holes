@@ -297,10 +297,13 @@ module.exports = {
       ok(r.naiveFail >= .8, 'naive bots opened late vaults too often: ' + (1 - r.naiveFail));
       ok(r.competent.every(Boolean), 'hint-following policy failed');
     },
-    'every vault explains its lock, its key and a first step, and only names tools you have there': async ({ page, ok }) => {
+    'every vault names its lock and key; the walkthrough (first step) appears only where a vault teaches a new tool, or after a hint; only tools you have are named': async ({ page, ok }) => {
       const bad = await page.evaluate(() => { const X = window.__vault, out = [], names = Object.entries(X.TOOLS).map(([k, t]) => [k, t.name]);
         X.V.forEach((v, i) => { const av = X.toolsAt(i), text = X.caseCard(i).replace(/<[^>]+>/g, '') + ' ' + [0, 1, 2].map(k => X.hintText(i, k)).join(' ');
-          if (!v.pad && !/Lock:.*Key:.*First step:/.test(text)) out.push(i + ' missing lock/key/first step');
+          const card = X.caseCard(i).replace(/<[^>]+>/g, ''), teaches = i === 0 || (v.intro || []).some(t => X.TOOLS[t]);
+          if (!v.pad && i !== X.WIRE && !/Lock:.*Key:/.test(card)) out.push(i + ' missing lock/key');
+          if (!v.pad && i !== X.WIRE && teaches !== /First step:/.test(card)) out.push(i + (teaches ? ' teaches a tool without a first step' : ' gives the first step away'));
+          if (!v.pad && i !== X.WIRE && !teaches) { X.S.hints[i] = 1; if (!/First step:/.test(X.caseCard(i))) out.push(i + ' no walkthrough after a hint'); delete X.S.hints[i]; }
           if (!v.pad) for (const s of v.steps) { const need = { caesar: 'shift', atbash: 'atbash', affine: 'affine', subst: 'subst', rail: 'rail', col: 'col', rev: 'rev', vig: 'vig' }[s.t]; if (!av.has(need)) out.push(i + ' needs ' + need + ' before it is introduced'); }
           for (const [k, nm] of names) if (text.includes(nm) && !av.has(k)) out.push(i + ' mentions ' + nm);
           if (/Probable word slot under the substitution/.test(text) && !av.has('crib')) out.push(i + ' mentions the crib slot early'); });
@@ -345,6 +348,38 @@ module.exports = {
       eq([r.comp.score, r.comp.level, r.comp.agents, r.comp.tokens], [5, 6, 3, 4]);
       ok(r.ended && r.naiveWins <= 1, 'naive play should fail almost every intercept: ' + r.naiveWins);
       ok(r.best >= 5, 'best run not recorded');
+    },
+    'Wire Room (review fixes): the clock starts when the intercept arrives; from intercept 4 the system is unnamed and the clerk gives statistics; breaks and losses are stamped; HQ perks every third break': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const X = window.__vault; for (let i = 0; i < 4; i++) X.S.solved[i] = { stars: 3, time: 0 }; X.wireStart('review');
+        const armed = X.workOf(X.WIRE).armed === true, alarmLive = document.getElementById('alarm').classList.contains('live');
+        const names = /shift|affine|alphabet|rail|columns|Vigen|reversal/i, early = X.wireDef('review', 3), late = [4, 7, 12, 15].map(L => X.wireDef('review', L));
+        for (let n = 0; n < 3; n++) { X.workOf(X.WIRE).stages = window.__solution(X.WIRE).stages; X.wireAdvance(true); }
+        const stamp = document.querySelector('.wstamp')?.textContent || '', perk = X.S.wire.run.perk, a0 = X.V[X.WIRE].alarm;
+        document.querySelector('[data-perk="clock"]').click(); const a1 = X.V[X.WIRE].alarm, perkGone = !document.querySelector('[data-perk]');
+        const notes = X.clerkNotes(X.WIRE).replace(/<[^>]+>/g, ''), story = X.V[X.WIRE].story;
+        X.wireAdvance(false); const lost = document.querySelector('.wstamp')?.textContent || '';
+        return { armed, alarmLive, earlyNamed: names.test(early.story), lateNamed: late.some(d => names.test(d.story)), stamp, perk, a0, a1, perkGone, notes, storyNamed: names.test(story), lost }; });
+      ok(r.armed && r.alarmLive, 'the alarm should be running as soon as the intercept is shown');
+      ok(r.earlyNamed && !r.lateNamed && !r.storyNamed, 'systems should be named only on the first intercepts');
+      ok(/Index of coincidence/.test(r.notes) && /commonest letters/.test(r.notes), 'clerk statistics missing: ' + r.notes);
+      ok(r.stamp.includes('BROKEN') && r.lost.includes('AGENT LOST'), 'no stamp for a break or a loss: ' + r.stamp + ' / ' + r.lost);
+      ok(r.perk === 1 && r.a1 === r.a0 + 45 && r.perkGone, 'HQ perk after three breaks: ' + JSON.stringify([r.perk, r.a0, r.a1]));
+    },
+    'Wire Room difficulty climbs smoothly: one new idea per step, easy stacks before hard ones': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = window.__vault, hard = new Set(['subst', 'vig']); const lv = [];
+        for (let L = 1; L <= 15; L++) { const d = X.wireDef('curve', L), st = d.steps.map(s => s.t); lv.push({ L, n: st.length, hard: st.filter(t => hard.has(t)).length, len: d.len, alarm: d.alarm }); }
+        return lv; });
+      const firstDouble = r.find(x => x.n > 1), firstHard = r.find(x => x.n > 1 && x.hard >= 1);
+      ok(firstDouble.hard === 0, 'the first stacked intercept should be an easy stack');
+      const easyStacks = r.filter(x => x.n > 1 && x.hard === 0 && x.L < firstHard.L).length; ok(easyStacks >= 3, 'need at least three easy stacks before the hard ones: ' + easyStacks);
+      ok(r.every((x, k) => !k || x.n <= r[k - 1].n + 1), 'stack depth jumps');
+    },
+    'plaintexts vary: a run of intercepts rarely repeats a sentence': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = window.__vault; X.wireStart('variety'); const sents = [];
+        let first8 = 0; for (let L = 1; L <= 14; L++) { X.S.wire.run.level = L; X.applyWire(); sents.push(...X.build(X.WIRE).plain.split(/(?<=[.!?])\s+/).map(t => t.replace(/[^A-Z]/g, '')).filter(t => t.length > 10)); if (L === 8) first8 = sents.length; }
+        const c = {}; sents.forEach(t => c[t] = (c[t] || 0) + 1); return { n: sents.length, distinct: Object.keys(c).length, first8, distinct8: new Set(sents.slice(0, first8)).size }; });
+      ok(r.distinct8 === r.first8, `a sentence repeated within the first eight intercepts: ${JSON.stringify(r)}`);
+      ok(r.distinct / r.n >= .85, `sentences repeat too often over a long run: ${JSON.stringify(r)}`);
     },
     'Wire Room: hints spend run tokens, saves stay small, and the lobby offers a daily seed': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const X = window.__vault; X.S.solved = {}; for (let i = 0; i < 4; i++) X.S.solved[i] = { stars: 3, time: 0 }; X.S.wire.run = null; X.openVault(X.WIRE);

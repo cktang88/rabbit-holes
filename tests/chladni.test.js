@@ -185,7 +185,7 @@ module.exports = {
         const code = X.encodePlate(X.dz), D2 = X.decodePlate(code); D2.modes = X.solvePlate(D2);
         return { distinct: k0 !== k1, share: Math.abs(D2.modes[0].lam - X.dz.modes[0].lam) < 1e-9, n: P.modes.length }; });
       ok(r.distinct && r.share && r.n >= 8, JSON.stringify(r));
-      await page.evaluate(() => { const md = __ch.PLATES.custom.modes[1]; __ch.setFreq(md.f); });
+      await page.evaluate(() => { let best = null, bs = -1; for (const md of __ch.PLATES.custom.modes.slice(0, 8)) { __ch.setFreq(md.f); const st = __ch.focus().strength; if (st > bs) { bs = st; best = md; } } __ch.setFreq(best.f); }); // today's plate: bow its loudest mode (the daily shape changes which modes the default bow excites)
       await page.waitForFunction(() => Object.keys(__ch.SAVE.museum).length >= 1, null, { timeout: 9000 });
       // tools by touch/mouse: thin the plate where you click
       await page.click('[data-tool="thin"]'); const before = await page.evaluate(() => __ch.dz.edits);
@@ -193,6 +193,31 @@ module.exports = {
       const pb = await page.evaluate(() => { const { x, y, s } = __ch.plateBox; return [x, y, s]; });
       await page.mouse.click(b[0] + (pb[0] + pb[2] * .5) / 1, b[1] + (pb[1] + pb[2] * .5) / 1);
       ok(await page.evaluate(n => __ch.dz.edits > n, before), 'a click with the thinning tool edits the plate');
+    },
+    'pan and zoom: a tap lands under the finger when zoomed; a pinch presses nothing; the bench pans; Fit restores': async ({ page, ok, eq, near }) => {
+      await page.evaluate(() => { __ch.setPlate('square'); });
+      const scr = (px, py) => page.evaluate(([px, py]) => { const X = __ch, { x, y, s } = X.plateBox, d = devicePixelRatio > 1 ? Math.min(devicePixelRatio, 1.5) : 1; return X.cam.toScreen((x + px * s) / d, (y + py * s) / d); }, [px, py]);
+      const k0 = await page.evaluate(() => __ch.cam.k); await page.click('.pz-in'); await page.click('.pz-in');
+      ok(await page.evaluate(() => __ch.cam.k) > k0 * 1.8, 'zoomed in');
+      let [x, y] = await scr(.3, .6); await page.mouse.click(x, y);
+      const f = await page.evaluate(() => __ch.finger); ok(f && Math.abs(f.x - .3) < .01 && Math.abs(f.y - .6) < .01, 'finger pressed where clicked: ' + JSON.stringify(f));
+      await page.mouse.click(x, y); eq(await page.evaluate(() => __ch.finger), null, 'second tap lifts it');
+      // a two-finger pinch on the plate presses nothing, and zooms
+      const r = await page.evaluate(([a, b]) => { const el = document.getElementById('cv'), k = __ch.cam.k;
+        const ev = (t, id, x, y) => el.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch', isPrimary: id === 1 }));
+        ev('pointerdown', 1, a[0], a[1]); ev('pointerdown', 2, b[0], b[1]); ev('pointermove', 1, a[0] - 25, a[1]); ev('pointermove', 2, b[0] + 25, b[1]); ev('pointerup', 1, a[0] - 25, a[1]); ev('pointerup', 2, b[0] + 25, b[1]);
+        return { finger: __ch.finger, zoom: __ch.cam.k / k }; }, [await scr(.45, .5), await scr(.55, .5)]);
+      eq(r.finger, null, 'pinch pressed a finger'); ok(r.zoom > 1.1, 'pinch zoomed ' + r.zoom);
+      // dragging the bench (off the plate) pans
+      await page.click('.pz-fit'); await page.waitForTimeout(400); await page.click('.pz-out'); await page.click('.pz-out'); const cx0 = await page.evaluate(() => __ch.cam.x);
+      const [bx, by] = await scr(-.15, .5); await page.mouse.move(bx, by); await page.mouse.down(); await page.mouse.move(bx + 50, by, { steps: 5 }); await page.mouse.up();
+      near(await page.evaluate(() => __ch.cam.x) - cx0, 50, 2, 'bench drag pans'); eq(await page.evaluate(() => __ch.finger), null);
+      // design mode: a clamp lands on the zoomed cell
+      await page.click('[data-m="design"]'); await page.click('.pz-in'); await page.click('[data-tool="clamp"]');
+      const c = await page.evaluate(() => { const D = __ch.dz, G = __ch.DG; for (let j = 8; j < G - 8; j++) for (let i = 8; i < G - 8; i++) if (D.mask[j * G + i] && !D.clamp[j * G + i]) return [i, j]; });
+      [x, y] = await scr((c[0] + .5) / 32, (c[1] + .5) / 32); await page.mouse.click(x, y);
+      ok(await page.evaluate(c => !!__ch.dz.clamp[c[1] * __ch.DG + c[0]], c), 'clamp at the zoomed cell ' + c);
+      await page.click('.pz-fit'); await page.waitForTimeout(400); eq(await page.evaluate(() => [__ch.cam.k, __ch.cam.x, __ch.cam.y]), [1, 0, 0], 'Fit');
     },
     'corrupted / odd saves load without errors': async ({ page, eq, ok }) => {
       for (const save of ['null', '3', '[]', '"s"', '{"got":7,"solved":"x","mode":"match","tgt":{"square":999}}', '{"plate":"hexagon","tgt":[1]}', '{"tgt":-5,"mode":"match"}',

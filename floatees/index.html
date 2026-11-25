@@ -94,6 +94,9 @@
     #tally{right:8px;width:178px;padding:8px 10px;font-size:11px;line-height:1.45}
     #cards{left:8px;bottom:auto;top:40vh;transform:scale(.72);transform-origin:0 0}
     #toast{font-size:24px;max-width:92vw} #toast small{font-size:13px}
+    /* Case Files on a phone: the logbook table is the game, so it gets the room; verdicts sit low, postcards stay in the drawer */
+    body.casemode #hud{max-height:56vh} body.casemode .logb{font-size:11px;margin-top:4px} body.casemode .logb td{padding:1px 3px 1px 0}
+    body.casemode #cards{display:none} body.casemode #toast{top:72%}
   }
   #storyT{display:none;float:right;font-size:11px}
   /* phones: the drift card folds to its goal, keys get finger-sized, the report shrinks */
@@ -229,7 +232,7 @@ const kmday = degYr => degYr * 111 / 365;
 const LV = [
   { n: 'The 1992 Spill', drop: [44.7, 178.1], years: 2, bet: ['nawest', 'japan', 'hawaii', 'australia'],
     story: 'On 10 January 1992 a container ship lost <b>28,800 plastic bath toys</b> in a Pacific storm. Ducks, beavers, turtles and frogs. Oceanographers used them to map the currents for decades. <b>Where do you think they washed up first?</b>',
-    goal: 'Place your bet, then release the ducks. The first duck ashore settles the bet.' },
+    goal: 'Where did the first toy wash up? Place your bet, then release the ducks.' },
   { n: 'Message in a Bottle', years: 3, focus: [40, -50], target: 'uk', westOf: -60,
     story: 'A sailor on the coast of <b>Florida or the Carolinas</b> wants to send a bottle to <b>Britain</b>. The Atlantic is wide, but a river runs through it, and the wind is on your side.',
     goal: 'Drop ducks off the American coast (west of 60°W) so that <b>at least 15</b> of 100 reach Britain & Ireland within 3 years. ★★ 30, ★★★ 45.', win: S => S.regions.uk >= 15, score: S => [S.regions.uk, 15, 'reached Britain & Ireland'], stars: [15, 30, 45], card: 'uk' },
@@ -483,9 +486,12 @@ function detective(C, budget = C.budget) {
 }
 function startCaseFile(seed, rung, daily) {
   const h = /case=(\d+)-(\d)/.exec(location.hash);
-  if (seed == null && h) { seed = +h[1]; rung = +h[2]; daily = false; }
+  const cf = SAVE.cf && typeof SAVE.cf === 'object' && Number.isInteger(SAVE.cf.s) && SAVE.cf.r >= 1 && SAVE.cf.r <= 4 ? SAVE.cf : null; let res = null;
+  if (seed == null && h) { seed = +h[1]; rung = +h[2]; daily = false; if (cf && cf.s === seed && cf.r === rung) { res = cf; daily = !!cf.d; } } // a shared link to the case you're on resumes it
+  else if (seed == null && cf) { seed = cf.s; rung = cf.r; daily = !!cf.d; res = cf; }
   if (seed == null) { seed = (Math.random() * 1e6) | 0; rung = 1; }
-  run = run && run.seed !== undefined && !daily && seed === run.nextSeed ? { ...run, seed, rung } : { seed, rung, n: 0, score: 0, daily: !!daily };
+  run = res ? { seed, rung, n: Math.max(0, cf.n | 0), score: Math.max(0, cf.sc | 0), daily: !!daily } : run && run.seed !== undefined && !daily && seed === run.nextSeed ? { ...run, seed, rung } : { seed, rung, n: 0, score: 0, daily: !!daily };
+  resumeCF = res;
   L.case = genCase(seed, rung); L.years = 5; try { history.replaceState(null, '', '#case=' + seed + '-' + rung); } catch (e) {}
 }
 function caseLog(C) { return C.log ||= sightingsOf(hindcast(C.truth[0], C.truth[1], L.years, C.windage, 400, 7)).slice(0, 4).map(q => ({ ...q, t: q.t + (C.truthMonth || 0) / 12 })); }
@@ -494,15 +500,33 @@ const caseWnd = () => L.case.unknownWindage ? caseState.wnd : L.case.windage;
 function caseTry(lat, lon) {
   const C = L.case, sim = sightingsOf(hindcast(lat, lon, L.years, caseWnd(), 400, 7)) /* same weather as the real spill: a perfect guess reproduces the logbook exactly */.map(q => ({ ...q, t: q.t + caseMonth() }));
   const log = caseLog(C), m = {}; for (const q of sim) m[q.r] = q;
-  return { ll: [lat, lon], month: caseState.month, mis: misfit(log, sim), rows: log.map(q => { const h = m[q.r]; return { r: q.r, d: h ? [h.at[0] - q.at[0], ((h.at[1] - q.at[1] + 540) % 360) - 180] : null, dt: h ? Math.round((h.t - q.t) * 12) : null, km: h ? Math.round(Math.hypot(q.at[0] - h.at[0], ((q.at[1] - h.at[1] + 540) % 360 - 180) * Math.cos(q.at[0] * Math.PI / 180)) * 111) : null }; }) };
+  return { ll: [lat, lon], month: caseState.month, wnd: caseWnd(), mis: misfit(log, sim), rows: log.map(q => { const h = m[q.r]; return { r: q.r, d: h ? [h.at[0] - q.at[0], ((h.at[1] - q.at[1] + 540) % 360) - 180] : null, dt: h ? Math.round((h.t - q.t) * 12) : null, km: h ? Math.round(Math.hypot(q.at[0] - h.at[0], ((q.at[1] - h.at[1] + 540) % 360 - 180) * Math.cos(q.at[0] * Math.PI / 180)) * 111) : null }; }) };
 }
-function reloadCase() { ducks = []; simT = 0; running = false; won = false; resolved = false; attempts = []; pinGeo.setDrawRange(0, 0); truthPin.visible = false; caseState = { left: L.case.budget, month: 0, wnd: 22, results: [] }; hideReport(); renderGoal(); renderCtrl(); FX.sfx('whoosh'); }
+// the Case Files run lives in the save, not the URL: a reload resumes the same case with the same computer time
+let resumeCF = null;
+function saveCase() {
+  if (!L || !L.endless || !run || !caseState) return;
+  const tr = caseState.results.concat(caseState.pending ? [caseState.pending] : []).map(r => [+r.ll[0].toFixed(2), +r.ll[1].toFixed(2), r.month, r.wnd]);
+  SAVE.cf = { s: L.case.seed, r: L.case.rung, d: run.daily ? 1 : 0, n: run.n, sc: run.score, left: caseState.left, mo: caseState.month, w: caseState.wnd, tr, ok: won ? 1 : 0 }; persist();
+}
+function resumeCase() {
+  const cf = resumeCF; resumeCF = null; if (!cf) { saveCase(); return; }
+  if (Number.isInteger(cf.mo) && cf.mo >= 0 && cf.mo < 12) caseState.month = cf.mo; if (cf.w === 6 || cf.w === 22) caseState.wnd = cf.w;
+  const keep = [caseState.month, caseState.wnd];
+  for (const t of Array.isArray(cf.tr) ? cf.tr.slice(0, 20) : []) { if (!Array.isArray(t) || !isFinite(t[0]) || !isFinite(t[1])) continue; caseState.month = +t[2] || 0; caseState.wnd = t[3] === 6 ? 6 : 22; const r = caseTry(+t[0], +t[1]); caseState.results.push(r); attempts.push({ ll: r.ll, rot: 1, score: r.mis.toFixed(1) + ' mo', stars: 0 }); }
+  [caseState.month, caseState.wnd] = keep;
+  if (Number.isInteger(cf.left) && cf.left >= 0 && cf.left <= L.case.budget) caseState.left = cf.left;
+  if (cf.ok) { won = resolved = true; const C = L.case; toXYZ(C.truth[0], C.truth[1], 1.012, XYZ); truthGeo.attributes.position.array.set(XYZ); truthGeo.attributes.position.needsUpdate = true; truthPin.visible = true; }
+  else if (caseState.left <= 0) resolved = true;
+  saveCase();
+}
+function reloadCase() { ducks = []; simT = 0; running = false; won = false; resolved = false; attempts = []; pinGeo.setDrawRange(0, 0); truthPin.visible = false; caseState = { left: L.case.budget, month: 0, wnd: 22, results: [] }; saveCase(); hideReport(); renderGoal(); renderCtrl(); FX.sfx('whoosh'); }
 // endless: a solved case scores and the next one is harder; running out of hindcasts ends the run
 function caseFileSolved(res) {
   const pts = Math.round(100 * Math.max(0, 1 - res.mis / 3)) + 10 * caseState.left + 25 * (L.case.rung - 1);
   run.score += pts; run.n++; if (run.daily) SAVE.daily[L.case.seed] = Math.max(SAVE.daily[L.case.seed] || 0, run.score); SAVE.runBest = Math.max(SAVE.runBest, run.score);
   const ks = Object.keys(SAVE.daily).sort(); while (ks.length > 30) delete SAVE.daily[ks.shift()]; // keep saves small
-  SAVE.done[SAVE.cur] = 1; persist(); won = true; resolved = true; FX.sfx('win'); FX.shake(.2);
+  SAVE.done[SAVE.cur] = 1; won = true; resolved = true; saveCase(); if (!run.daily) SAVE.cf = { s: L.case.seed + 1, r: Math.min(4, run.n + 1), d: 0, n: run.n, sc: run.score, tr: [] }; persist(); FX.sfx('win'); FX.shake(.2); // a reload after a win opens the next file
   const C = L.case; toXYZ(C.truth[0], C.truth[1], 1.012, XYZ); truthGeo.attributes.position.array.set(XYZ); truthGeo.attributes.position.needsUpdate = true; truthPin.visible = true;
   $('report').innerHTML = `<div style="position:relative">${cardHTML('useast', `Case closed: ${C.unknownWindage ? (C.windage === 6 ? 'sneakers' : 'bath toys') + ', ' : ''}${fmtLL(C.truth)}${C.unknownDate ? ', ' + calOf(C, C.truthMonth) : ''}. +${pts} points.`, `Run score ${run.score}`, 0)}<span class="conf">CONFIRMED</span></div>`
     + `<div class="chip" style="position:relative;margin-top:10px;padding:10px 14px;font-size:13px">${run.daily ? 'That was today\'s case. Come back tomorrow, or start an endless run.' : 'The next file is waiting.'}<div style="margin-top:8px;display:flex;gap:8px">${run.daily ? '<button class="b on" id="rclose">Close</button>' : '<button class="b on" id="tnext">Next case ▸</button>'}</div></div>`;
@@ -519,8 +543,8 @@ function renderCase() {
     + (C.unknownWindage ? `<label class="dial">Spilled: <select id="cwnd"><option value="22" ${caseState.wnd === 22 ? 'selected' : ''}>bath toys (ride the wind)</option><option value="6" ${caseState.wnd === 6 ? 'selected' : ''}>sneakers (ride the current)</option></select></label>` : '')
     + `<div class="cleft">Hindcasts left: <b>${caseState.left}</b>${last ? ` · last misfit <b>${last.mis.toFixed(1)} mo</b>` : ''}</div>`
     + (L.endless && run ? `<div class="cleft">${run.daily ? `<b>Daily case</b> ${C.seed}` : `Case file <b>${run.n + 1}</b> · difficulty ${C.rung}/4`} · run score <b>${run.score}</b> · best run ${SAVE.runBest}${run.daily && SAVE.daily[C.seed] ? ` · today's best ${SAVE.daily[C.seed]}` : ''}</div><div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="b" id="cDaily">Daily case</button><button class="b" id="cNew">New run</button><button class="b" id="cShare">Share case</button></div>` : '');
-  if ($('cmonth')) $('cmonth').onchange = e => { caseState.month = +e.target.value; FX.sfx('click'); };
-  if ($('cwnd')) $('cwnd').onchange = e => { caseState.wnd = +e.target.value; FX.sfx('click'); };
+  if ($('cmonth')) $('cmonth').onchange = e => { caseState.month = +e.target.value; saveCase(); FX.sfx('click'); };
+  if ($('cwnd')) $('cwnd').onchange = e => { caseState.wnd = +e.target.value; saveCase(); FX.sfx('click'); };
   if ($('cDaily')) { $('cDaily').onclick = () => { run = null; startCaseFile(todaySeed(), 3, true); reloadCase(); }; $('cNew').onclick = () => { run = null; startCaseFile((Math.random() * 1e6) | 0, 1); reloadCase(); };
     $('cShare').onclick = () => { const u = location.href.split('#')[0] + '#case=' + C.seed + '-' + C.rung; try { navigator.clipboard.writeText(u); } catch (e) {} toast('Case link copied', u, 3000); }; }
   sightPins(log);
@@ -605,9 +629,9 @@ function dropAt(lat, lon) {
     const A = L.case.area, inA = lat >= A[0] && lat <= A[1] && (A[2] < A[3] ? lon >= A[2] && lon <= A[3] : lon >= A[2] || lon <= A[3]);
     if (!inA) { FX.sfx('fail'); toast('Wrong ocean', 'The sightings are all in this basin: the spill was too.', 2000); return false; }
     if (resolved && won) return false;
-    if (caseState.left <= 0) { toast('No computer time left', 'Reopen the case (pick it again) to start over.', 2500); return false; }
+    if (caseState.left <= 0) { toast('No computer time left', L.endless ? 'This run is over: start a new run or try the daily case.' : 'Reopen the case (pick it again) to start over.', 2500); return false; }
     if (ducks.length && !resolved && simT < L.years) { toast('Hindcast still running', 'Wait for it to finish.', 1500); return false; }
-    caseState.left--; caseState.pending = caseTry(lat, lon); renderCase();
+    caseState.left--; caseState.pending = caseTry(lat, lon); saveCase(); renderCase();
   }
   if (!L.free && ducks.length) { ducks = []; simT = 0; }
   drop(lat, lon, 100); if (!L.free) simT = 0;
@@ -627,7 +651,9 @@ function load(i) {
   if (!L.physics && rot !== 1) setSpin(1, true);
   pinGeo.setDrawRange(0, 0); truthPin.visible = false;
   if (L.endless) startCaseFile();
-  caseState = L.case ? { left: L.case.budget, month: 0, wnd: 22, results: [] } : null; 
+  caseState = L.case ? { left: L.case.budget, month: 0, wnd: 22, results: [] } : null;
+  if (L.endless) resumeCase();
+  document.body.classList.toggle('casemode', !!L.case);
   patchRing.visible = !!L.patch; $('story').innerHTML = L.story; renderBets(); renderGoal(); renderLevels(); renderCtrl();
   homeView(false);
   $('toast').classList.remove('on'); layout();
@@ -706,7 +732,7 @@ function renderTally(S) {
     + (L.measure ? `<div class="r" style="margin-top:4px;color:#8fa6c8"><span>fastest current, W Atlantic</span></div><div class="r"><span>spin normal</span>${ms(1)}</div><div class="r"><span>spin off</span>${ms(0)}</div>` : '');
   const nc = Object.keys(SAVE.cards).filter(k => REG[k]).length;
   $('tally').innerHTML += `<div class="hd">Postcards ${nc} / ${Object.keys(REG).length}</div>` + (attempts.length ? '<div class="hd">Logbook</div>' + attempts.slice(-3).map(a => `<div class="log">${fmtLL(a.ll)} ${a.rot === 1 ? '' : a.rot ? '(rev) ' : '(still) '}→ ${a.score}${a.stars ? ' ' + starStr(a.stars) : ''}</div>`).join('') : '');
-  { const st = L.case ? L.case.start : L.bet ? [1992, 0] : [1993, 0], m = st[1] + simT * 12, mo = Math.floor(m), day = Math.floor((m - mo) * 30) + 1; $('clock').textContent = `${day} ${MONTHS[((mo % 12) + 12) % 12]} ${st[0] + Math.floor(mo / 12)}` + (L.free ? '' : ` · ${simT.toFixed(2)} / ${L.years} yr`); }
+  { const st = calStart(), m = st[1] + simT * 12, mo = Math.floor(m), day = Math.floor((m - mo) * 30) + 1; $('clock').textContent = `${day} ${MONTHS[((mo % 12) + 12) % 12]} ${st[0] + Math.floor(mo / 12)}` + (L.free ? '' : ` · ${simT.toFixed(2)} / ${L.years} yr`); }
 }
 function toast(big, small, ms = 6000, next = false) {
   const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : '') + (next && SAVE.cur < LV.length - 1 ? '<button class="b on" id="tnext">Next voyage ▸</button>' : '');
@@ -785,7 +811,8 @@ const ART = { nawest: ['#9fb7c4', '#3d6170', '#8a7b5f', 'Sitka'], hawaii: ['#f6b
   arctic: ['#dfe9f0', '#5d7f95', '#f4f7f8', 'Nome'], caribbean: ['#7fd6f2', '#12a7b5', '#f6e3b0', 'Key West'], useast: ['#a9cbe3', '#2f6f8f', '#dcc89a', 'Cape Hatteras'],
   patch: ['#d6e6ee', '#4d8a96', '#4d8a96', 'the North Pacific Gyre'], round: ['#c2d4de', '#33566c', '#33566c', 'the Southern Ocean'] };
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-const dateOf = t => { const m = Math.floor(t * 12) + (L.bet ? 0 : 0), y = (L.bet ? 1992 : 1993) + Math.floor(m / 12); return `${MONTHS[m % 12]} ${y}`; };
+const calStart = () => L.case ? [L.case.start[0], L.case.start[1] + (L.case.unknownDate && caseState ? caseState.month : L.case.unknownDate ? 0 : L.case.truthMonth || 0)] : L.bet ? [1992, 0] : [1993, 0]; // the spill's own month: cards and clock never pre-date it
+const dateOf = t => { const st = calStart(), m = st[1] + Math.floor(t * 12), y = st[0] + Math.floor(m / 12); return `${MONTHS[((m % 12) + 12) % 12]} ${y}`; };
 function cardHTML(k, line1, line2, t) {
   const [sky, sea, sand, town] = ART[k] || ART.uk, name = REG[k] ? REG[k].n : town;
   const pic = `background:radial-gradient(circle at 72% 30%,rgba(255,250,220,.9) 0 9px,transparent 10px),linear-gradient(180deg,${sky} 0 52%,${sea} 52% 76%,${sand} 76%)`;
@@ -849,7 +876,7 @@ canvas.addEventListener('pointerdown', () => { viewTo = null; }); // grabbing th
 load(sharedCase ? LV.findIndex(l => l.endless) : +SAVE.cur || 0); // a shared case link opens that case
 requestAnimationFrame(frame);
 const proj = new THREE.Vector3();
-window.__fl = { get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
+window.__fl = { dateOf, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
   screenOf: (lat, lon) => { proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>

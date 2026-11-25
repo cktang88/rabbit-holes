@@ -198,5 +198,57 @@ module.exports = {
       await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(150);
       ok(!(await page.isVisible('#lvlBtn')), 'drawer button on desktop');
     },
+    'the Guild: commissions are deterministic per seed and every one has a healthy field of working designs': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const E = __esc, out = [];
+        const same = JSON.stringify(E.guildDef('s1', 5)) === JSON.stringify(E.guildDef('s1', 5)) && JSON.stringify(E.guildPop(E.guildDef('s1', 5))) === JSON.stringify(E.guildPop(E.guildDef('s1', 5)));
+        const differ = JSON.stringify(E.guildDef('s1', 5)) !== JSON.stringify(E.guildDef('s2', 5));
+        for (let lv = 1; lv <= 14; lv++) for (const sd of ['a', 'b', 'daily:2026-12-01']) { const d = E.guildDef(sd, lv), pop = E.guildPop(d);
+          if (pop.length < 30) out.push(`${sd}:${lv} only ${pop.length} designs`);
+          for (const m of pop.slice(0, 5)) { const R = E.analyse(d, E.gToAx(m.ax)); if (!R.ok) out.push(`${sd}:${lv} a member's design fails: ${R.problems}`); } }
+        return { same, differ, out }; });
+      ok(r.same && r.differ, 'not deterministic per seed'); ok(!r.out.length, r.out.slice(0, 6).join('; '));
+    },
+    'the Guild: naive trains rank low; a competent Brocot-style train beats 90% on error': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const E = __esc, res = [];
+        for (const sd of ['n1', 'n2', 'n3', 'n4', 'n5', 'n6']) { const d = E.guildDef(sd, 1 + (sd.charCodeAt(1) % 8)), pop = E.guildPop(d), es = pop.map(x => x.e), r = RH.rng('naive:' + sd);
+          // naive: random gears, nudged one tooth at a time until the train first passes, then stop
+          let naive = null; for (let t = 0; t < 400 && !naive; t++) { const g = E.gClimb(d, r, E.kMin(d), 0, 0, false); const m = E.gEval(d, g); if (m.ok && m.e <= E.G_TOL) naive = m; }
+          if (!naive) { const g = E.gClimb(d, r, E.kMin(d), 60, 0, false); naive = E.gEval(d, g); }
+          const M = E.guildMaster(d); res.push({ naive: naive.e <= E.G_TOL ? E.beats(naive.e, es) : 0, comp: E.beats(M.e, es) }); }
+        return res; });
+      const avg = k => r.reduce((a, x) => a + x[k], 0) / r.length;
+      ok(avg('naive') < .5, 'a first-passing train should rank in the bottom half on error: ' + avg('naive'));
+      ok(r.every(x => x.comp >= .9), 'the master should beat 90% on error: ' + r.map(x => x.comp.toFixed(2)));
+    },
+    'the Guild through the UI: deliver, see your rank, earn marks, next commission, today\'s commission, share link': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { const E = __esc; for (let i = 0; i < 4; i++) E.S.done[i] = { stars: 3, gears: 2 }; E.guildSet('ui', 2, false); E.open('guild'); });
+      ok(await page.evaluate(() => document.getElementById('gNext').disabled), 'next commission open before delivering');
+      await page.evaluate(() => { const E = __esc, M = E.guildMaster(E.GUILD); E.S.designs.guild = E.gToAx(M.ax); E.render(); });
+      await page.waitForTimeout(1300);
+      const r = await page.evaluate(() => { const E = __esc, b = E.S.guild.best['ui:2']; return { b, n: E.S.guild.n, next: document.getElementById('gNext').disabled, hist: document.querySelectorAll('#guildBox svg').length, txt: document.getElementById('hn-e').textContent }; });
+      ok(r.b && r.b.m >= 1 && r.n === 1 && !r.next && r.hist === 3 && /better than/.test(r.txt), 'delivery not ranked: ' + JSON.stringify(r));
+      await page.click('#gNext'); eq(await page.evaluate(() => [__esc.S.guild.level, __esc.S.guild.lv, __esc.S.designs.guild.ax.length]), [3, 3, 2]);
+      await page.click('#gDaily'); ok(await page.evaluate(() => __esc.S.guild.seed === 'daily:' + __esc.todayStr() && __esc.S.guild.daily === 1), 'daily commission');
+      await page.click('#gShare'); const h = await page.evaluate(() => location.hash); ok(h.startsWith('#guild='), 'no share link');
+      await page.goto('about:blank'); await page.goto('http://localhost:8765/escapement/index.html' + h); await page.waitForFunction(() => window.__esc); await closeModals(page);
+      ok(await page.evaluate(() => __esc.cur === 'guild' && __esc.S.guild.seed.startsWith('daily:')), 'link did not open the commission');
+      ok(await page.evaluate(() => localStorage.getItem('rh:esc').length) < 50000, 'save too large');
+    },
+    'pan and zoom: tapping a gear when zoomed selects the gear under the finger; a pinch never selects; the wheel zooms about the cursor': async ({ page, ok, near }) => {
+      await page.evaluate(() => { __esc.open(4); }); await page.waitForTimeout(400);
+      const b = await page.locator('#cv').boundingBox(), cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+      const w0 = await page.evaluate(([x, y]) => __esc.cam.toWorld(x, y), [cx, cy]); await page.mouse.move(cx, cy); await page.mouse.wheel(0, -500); await page.waitForTimeout(150);
+      const w1 = await page.evaluate(([x, y]) => [__esc.cam.k, ...__esc.cam.toWorld(x, y)], [cx, cy]); ok(w1[0] > 1.5, 'wheel did not zoom'); near(w1[1], w0[0], .5); near(w1[2], w0[1], .5);
+      // tap the gear of the last axle on screen, wherever zoom has put it
+      const tgt = await page.evaluate(() => { const h = __esc.gearHits.at(-1), [x, y] = __esc.cam.toScreen(h.x, h.y), r = document.getElementById('cv').getBoundingClientRect(); return { k: h.k, x, y, inside: x > r.left && x < r.right && y > r.top && y < r.bottom }; });
+      if (!tgt.inside) await page.evaluate(() => __esc.cam.fit());
+      const t2 = await page.evaluate(() => { const h = __esc.gearHits.at(-1), [x, y] = __esc.cam.toScreen(h.x, h.y); return { k: h.k, x, y }; });
+      await page.mouse.click(t2.x, t2.y); await page.waitForTimeout(100);
+      ok(await page.evaluate(k => __esc.selectedAxle === k && document.querySelector(`.ax[data-ax="${k}"]`).classList.contains('flash'), t2.k), 'tap did not select the gear under the finger');
+      const sel = await page.evaluate(([x, y]) => { const el = document.getElementById('cv'), ev = (t, id, px) => el.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: px, clientY: y, bubbles: true, pointerType: 'touch' }));
+        window.__esc_sel0 = __esc.selectedAxle; const k0 = __esc.cam.k; ev('pointerdown', 11, x - 15); ev('pointerdown', 12, x + 15); ev('pointermove', 11, x - 35); ev('pointermove', 12, x + 35); ev('pointerup', 11, x - 35); ev('pointerup', 12, x + 35);
+        el.dispatchEvent(new MouseEvent('click', { clientX: x, clientY: y, bubbles: true })); return { ratio: __esc.cam.k / k0, same: __esc.selectedAxle === window.__esc_sel0 }; }, [b.x + 30, b.y + 30]);
+      ok(sel.ratio > 1.3, 'pinch did not zoom: ' + sel.ratio); ok(sel.same, 'a pinch acted as a tap');
+    },
   },
 };

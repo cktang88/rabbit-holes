@@ -986,7 +986,7 @@ function skStart() {
   L.medals = [['The river runs the course', S => S.goalMet], [`At or under par: ${SK.par} m³`, S => S.goalMet && S.plaster <= SK.par], [`A master's line: ${gold} m³`, S => S.goalMet && S.plaster <= gold]];
   SK.strokes = SKPEND || []; SKPEND = null; skRebuild(); skHash();
 }
-function skHash() { if (!L || !L.sketch) return; try { history.replaceState(null, '', '#sketch=' + SKSEED + (SK.strokes.length ? '~' + skEncode() : '')); } catch (e) {} }
+function skHash() { if (!L || !L.sketch) return; try { window.history.replaceState(null, '', '#sketch=' + SKSEED + (SK.strokes.length ? '~' + skEncode() : '')); } catch (e) {} }
 function skChanged() { skRebuild(); renderWorks(); renderUI(); renderScore(); skHash(); skFlagCols(); }
 function skWorks() {
   $('budget').textContent = `${SK.strokes.length} stroke${SK.strokes.length === 1 ? '' : 's'} · ${Math.round(SK.cost)} m³ of plaster`;
@@ -1075,7 +1075,7 @@ function frameCam() {
   controls.target.set(...c.t);
   camera.position.set(c.t[0] + d * Math.cos(e) * Math.sin(z), c.t[1] + d * Math.sin(e), c.t[2] + d * Math.cos(e) * Math.cos(z));
   controls.maxDistance = Math.max(330, d * 1.4);
-  controls.update(); viewMoved = false; if ($('viewBtn')) $('viewBtn').classList.remove('moved');
+  controls.enableDamping = false; controls.update(); controls.enableDamping = true; // drop any glide left from a pinch or a pan viewMoved = false; if ($('viewBtn')) $('viewBtn').classList.remove('moved');
 }
 // keep the model centred in the space the clipboard and the trays leave free
 function resize() {
@@ -1106,7 +1106,7 @@ function celebrate(n) { glow = 1; spin = n >= 2 ? 1 : .5; FX.shake(.2); }
 // ================= main loop =================
 // Fixed timestep: 120 sim steps per second at 1×, independent of display refresh. Steps per frame are capped
 // adaptively by measured step cost, so a slow device runs the sim slower instead of dropping frames.
-const STEP_RATE = 120, FRAME_BUDGET_MS = MOBILE ? 7 : 9, FAST_BUDGET_MS = MOBILE ? 18 : 26; // the fastest speed trades smoothness for years
+const STEP_RATE = 120, FRAME_BUDGET_MS = MOBILE ? 7 : 9, FAST_BUDGET_MS = MOBILE ? 12 : 26; // the fastest speed trades smoothness for years
 const PERF = { sim: 0, steps: 0, geom: 0, render: 0 };
 let needDraw = true, hoverMoved = false, drawCount = 0; const redraw = () => { needDraw = true; };
 let last = performance.now(), acc = 0, stepCost = 1.5, frameN = 0, geomDirty = true, raf = 0;
@@ -1126,7 +1126,7 @@ function loop(now) {
   updateRain(dt, 0, -N / 2 + N * L.stormY / 2, Math.max(40, N * L.stormY * .6), storm);
   if (simSteps !== drawnSteps) geomDirty = true;
   let draw = needDraw || storm; needDraw = false;
-  if (geomDirty && (n <= 6 || frameN % 2 === 0)) { const t1 = performance.now(); updateGeometry(); PERF.geom += performance.now() - t1; geomDirty = false; drawnSteps = simSteps; draw = true; }
+  if (geomDirty && ((n <= 6 && !(MOBILE && speed)) || frameN % 2 === 0)) { /* phones re-mesh at most every other frame while the river runs */ const t1 = performance.now(); updateGeometry(); PERF.geom += performance.now() - t1; geomDirty = false; drawnSteps = simSteps; draw = true; }
   const rv = ring.visible; updateRing(); if (ring.visible || rv !== ring.visible) draw = draw || hoverMoved; hoverMoved = false;
   // the celebration: warm light that fades, and a slow turn of the model
   if (glow > 0) { glow = Math.max(0, glow - dt * .12); sun.color.copy(cool).lerp(warm, Math.min(1, glow * 1.5)); }

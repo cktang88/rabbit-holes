@@ -202,6 +202,22 @@ module.exports = {
       const back = await page.evaluate(() => __fl.camPos); for (let i = 0; i < 3; i++) near(back[i], home[i], .1, 'reset axis ' + i);
       ok((await page.evaluate(() => __fl.ducks.length)) === 0, 'view controls drop nothing');
     },
+    'case files run survives a reload: hindcasts spent stay spent, score and case kept; a fresh open resumes; dates follow the spill': async ({ page, eq, ok }) => {
+      await unlock(page);
+      const a = await page.evaluate(() => { const X = __fl; X.load(10); X.startCaseFile(612, 2); X.load(10); const C = X.level.case;
+        const A = C.area; let lat = (A[0] + A[1]) / 2, lon = -40; X.dropAt(lat, lon); for (let t = 0; t < 5; t += .05) X.step(.05); X.simT = 5; X.check();
+        X.caseState.month = 3; document.getElementById('cmonth') && document.getElementById('cmonth').onchange({ target: { value: 3 } });
+        return { seed: C.seed, rung: C.rung, left: X.caseState.left, budget: C.budget, n: X.caseState.results.length, start: C.start }; });
+      ok(a.left === a.budget - 1, 'one hindcast spent ' + JSON.stringify(a));
+      await page.evaluate(() => { history.replaceState(null, '', location.pathname); }); await page.reload(); await ready(page);
+      const b = await page.evaluate(() => { const X = __fl; return { lvl: !!X.level.endless, seed: X.level.case.seed, rung: X.level.case.rung, left: X.caseState.left, n: X.caseState.results.length, month: X.caseState.month, txt: document.getElementById('goal').textContent }; });
+      eq([b.lvl, b.seed, b.rung, b.left, b.n, b.month], [true, a.seed, a.rung, a.left, 1, 3], 'reload with no hash resumes the run');
+      ok(/Hindcasts left: \d+/.test(b.txt) && b.txt.includes('' + a.left), 'table shows the spent budget');
+      // postcards and the clock never pre-date the spill
+      const d = await page.evaluate(() => { const X = __fl, st = X.level.case.start; return [X.dateOf(0), X.dateOf(1.5), st[0]]; });
+      ok(+d[0].split(' ')[1] >= d[2] && +d[1].split(' ')[1] >= d[2], 'card dates ' + d);
+      ok(/APR/.test(d[0]), 'the chosen spill month dates the cards: ' + d[0]);
+    },
     'corrupted / odd saves load without errors': async ({ page, eq }) => {
       const u = page.url(); await page.goto('about:blank'); // stop the first globe rendering while the others load
       for (const [save, cur] of [['null', 0], ['{"done":{"0":1,"9":1,"x":1},"stars":"q","cards":7,"cur":3}', 1]]) {
