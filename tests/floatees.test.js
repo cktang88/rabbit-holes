@@ -78,10 +78,17 @@ module.exports = {
       await page.click('#bets [data-k="nawest"]'); eq(await page.evaluate(() => __fl.stats().bet), 'nawest');
       eq(await page.evaluate(() => __fl.won), false, 'changing the bet after the result must not win');
     },
-    'long voyages start fast-forwarded; levels, progress and locks': async ({ page, eq, ok }) => {
+    'playback: slow by default (½× 1× 4× 12×, remembered), eased after a drop, skip to result; levels and locks': async ({ page, eq, ok }) => {
       eq(await page.evaluate(() => __fl.speed), 1);
-      await unlock(page); await page.evaluate(() => __fl.load(2)); eq(await page.evaluate(() => __fl.speed), 4);
-      ok(await page.$eval('#ctrl [data-s="4"]', b => b.classList.contains('on')));
+      await unlock(page); await page.evaluate(() => __fl.load(2)); eq(await page.evaluate(() => __fl.speed), 1, 'no automatic fast-forward');
+      eq(await page.$$eval('#ctrl [data-s]', bs => bs.map(b => b.textContent)), ['½×', '1×', '4×', '12×']);
+      await page.click('#ctrl [data-s="4"]'); await page.evaluate(() => __fl.load(1)); eq(await page.evaluate(() => __fl.speed), 4, 'speed remembered');
+      await page.click('#ctrl [data-s="1"]');
+      // 1× is about two weeks of drift a second, and starts gently after a drop
+      const pb = await page.evaluate(async () => { __fl.dropAt(30, -78); const t0 = __fl.simT; await new Promise(res => setTimeout(res, 1000)); const a = __fl.simT - t0; await new Promise(res => setTimeout(res, 2500)); const t1 = __fl.simT; await new Promise(res => setTimeout(res, 1000)); return [a, __fl.simT - t1]; });
+      ok(pb[0] < pb[1], 'eased in after the drop: ' + pb); ok(pb[1] <= .045, 'about two weeks per second at 1×: ' + pb);
+      ok(await page.isVisible('#skipB')); await page.click('#skipB');
+      const end = await page.evaluate(() => [__fl.simT, __fl.won || __fl.resolved]); ok(end[1], 'skip runs the voyage to a verdict: ' + end);
       await page.evaluate(() => { __fl.SAVE.done = {}; });
       await page.evaluate(() => __fl.load(4)); eq(await page.evaluate(() => __fl.SAVE.cur), 0, 'locked voyage opened');
       await page.evaluate(() => __fl.load(9)); eq(await page.evaluate(() => __fl.SAVE.cur), 9, 'sandbox always open');

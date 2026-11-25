@@ -281,7 +281,7 @@ const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(32, 1, .1,
 camera.position.set(0, 1.2, 5.6);
 const controls = new OrbitControls(camera, canvas); controls.enableDamping = true; controls.minDistance = 2.4; controls.maxDistance = 9; controls.enablePan = false; controls.rotateSpeed = .5;
 scene.add(new THREE.AmbientLight('#d9c3a0', .85));
-const sun = new THREE.DirectionalLight('#ffe0b0', 2.6); sun.position.set(-2.5, 2, 4); camera.add(sun); scene.add(camera); // the light rides with the camera, so the side you look at is lit
+const sun = new THREE.DirectionalLight('#ffe0b0', 2.6); sun.position.set(-4, 3.5, 2.5); camera.add(sun); scene.add(camera); // the light rides with the camera, so the side you look at is lit
 // globe texture painted from the land mask and the current speed.
 // A 1-pixel-per-degree map goes up at once; the full-resolution one is built in slices.
 const TW = MOBILE ? 1024 : 1440, TH = TW / 2, TS = TW / 360;
@@ -331,7 +331,7 @@ function* paintState(st) { // brighten the ocean where the current runs fast; ~1
   g.putImageData(im, 0, 0);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MOBILE ? 2 : 8; st.tex = t;
 }
-const globe = new THREE.Mesh(new THREE.SphereGeometry(1, MOBILE ? 64 : 128, MOBILE ? 48 : 96), new THREE.MeshPhysicalMaterial({ map: quickTex, roughness: .6, metalness: 0, clearcoat: 1, clearcoatRoughness: .22 }));
+const globe = new THREE.Mesh(new THREE.SphereGeometry(1, MOBILE ? 64 : 128, MOBILE ? 48 : 96), new THREE.MeshPhysicalMaterial({ map: quickTex, roughness: .6, metalness: 0, clearcoat: .55, clearcoatRoughness: .4 }));
 scene.add(globe);
 // atmosphere: a back-facing fresnel shell
 const atmo = new THREE.Mesh(new THREE.SphereGeometry(1.06, 64, 48), new THREE.ShaderMaterial({
@@ -409,8 +409,8 @@ globe.add(patchRing); patchRing.visible = false;
 const MAXD = 600, dGeo = new THREE.BufferGeometry(), dPos = new Float32Array(MAXD * 3), dCol = new Float32Array(MAXD * 3);
 dGeo.setAttribute('position', new THREE.BufferAttribute(dPos, 3)); dGeo.setAttribute('color', new THREE.BufferAttribute(dCol, 3));
 const dot = (inner, outer) => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, '#fff'); gr.addColorStop(inner, 'rgba(255,255,255,.95)'); gr.addColorStop(outer, 'rgba(255,255,255,.25)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); };
-const duckPts = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .06, map: dot(.45, .7), vertexColors: true, transparent: true, depthWrite: false }));
-const duckHalo = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .15, map: dot(.05, .3), color: '#ffd23a', transparent: true, opacity: .45, blending: THREE.AdditiveBlending, depthWrite: false }));
+const duckPts = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .04, map: dot(.45, .7), vertexColors: true, transparent: true, depthWrite: false }));
+const duckHalo = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .08, map: dot(.05, .3), color: '#ffd23a', transparent: true, opacity: .22, blending: THREE.AdditiveBlending, depthWrite: false }));
 globe.add(duckHalo); globe.add(duckPts); dGeo.setDrawRange(0, 0);
 // red map pins: where the logbook's sightings were made (and, once solved, a black cross at the true spill)
 const pinGeo = new THREE.BufferGeometry(), pinPos = new Float32Array(6 * 3); pinGeo.setAttribute('position', new THREE.BufferAttribute(pinPos, 3));
@@ -419,6 +419,14 @@ const truthGeo = new THREE.BufferGeometry(); truthGeo.setAttribute('position', n
 const truthPin = new THREE.Points(truthGeo, new THREE.PointsMaterial({ size: .12, map: dot(.3, .5), color: '#111', transparent: true, depthWrite: false })); globe.add(truthPin); truthPin.visible = false;
 function sightPins(log) { log.forEach((q, i) => { toXYZ(q.at[0], q.at[1], 1.012, XYZ); pinPos.set(XYZ, i * 3); }); pinGeo.setDrawRange(0, log.length); pinGeo.attributes.position.needsUpdate = true; }
 let landed = {}, lastDrop = null, attempts = [];
+// playback: 1× = RATE years of drift per real second (about two weeks), so single ducks can be followed
+const RATE = .04; let dropT = 0;
+// run the rest of the voyage at once, judging it as it goes (bets resolve at the first landfall)
+function skipToEnd() {
+  if (!ducks.length || L.free) return; let k = 0;
+  while (simT < L.years && !resolved && !(won && (L.bet || L.instant)) && k++ < 2000) { const dy = Math.min(.02, L.years - simT); moveDucks(dy); simT = Math.min(L.years, simT + dy); if (k % 5 === 0) check(stats()); }
+  check(stats()); running = simT < L.years && !resolved; duckDirty = true; renderCtrl();
+}
 function drop(lat, lon, n = 100) {
   lastDrop = [lat, lon]; if (!L.free) landed = {};
   if (L.free && ducks.length + n > MAXD) { // recycle: beached ducks first, then the oldest still afloat
@@ -429,7 +437,7 @@ function drop(lat, lon, n = 100) {
   }
   for (let i = 0; i < n && ducks.length < MAXD; i++) ducks.push({ lat: lat + (Math.random() - .5) * 1.5, lon: lon + (Math.random() - .5) * 1.5, beached: null, lap: 0, bt: 0 });
   won = false; resolved = false; // every drop is a fresh attempt
-  running = true; duckDirty = true; FX.sfx('pop'); FX.sfx('whoosh'); renderCtrl(); if (L.bet) renderBets();
+  running = true; duckDirty = true; dropT = performance.now(); FX.sfx('pop'); FX.sfx('whoosh'); renderCtrl(); if (L.bet) renderBets();
 }
 // ---- forensic cases: the logbook is generated by the very model you test against, so a perfect answer exists ----
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -475,6 +483,7 @@ const sightingsOf = (arr, k = 4) => Object.entries(arr).filter(([, v]) => v.leng
 function misfit(log, sim) { const m = {}; for (const q of sim) m[q.r] = q; return log.reduce((a, q) => { const s2 = m[q.r]; if (!s2) return a + 24; const dl = q.at[0] - s2.at[0], dn = ((q.at[1] - s2.at[1] + 540) % 360 - 180) * Math.cos(q.at[0] * Math.PI / 180); return a + Math.abs(s2.t - q.t) * 12 + Math.hypot(dl, dn) / 3; }, 0) / log.length; }
 function moveDucks(dtYears) {
   if (!CU) return;
+  sampleTrails();
   const box = L.measure ? GSBOX : null; let mx = 0;
   for (const d of ducks) {
     if (d.beached) continue;
@@ -491,7 +500,17 @@ function moveDucks(dtYears) {
   }
   if (box && mx > (meas[rot] || 0)) meas[rot] = mx;
 }
+const TRN = 8, trlGeo = new THREE.BufferGeometry(), trlPos = new Float32Array(MAXD * (TRN - 1) * 6), trlCol = new Float32Array(MAXD * (TRN - 1) * 6);
+trlGeo.setAttribute('position', new THREE.BufferAttribute(trlPos, 3)); trlGeo.setAttribute('color', new THREE.BufferAttribute(trlCol, 3));
+const trails = new THREE.LineSegments(trlGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); globe.add(trails); trlGeo.setDrawRange(0, 0);
+function sampleTrails() { for (const d of ducks) { if (d.beached) continue; const t = d.tr ||= []; if (!t.length || simT - d.ts >= .006) { t.push(d.lat, d.lon); d.ts = simT; if (t.length > TRN * 2) t.splice(0, 2); } } }
 function updateDuckGeo() {
+  let v = 0; const A = [0, 0, 0], B = [0, 0, 0];
+  for (const d of ducks) { const t = d.tr; if (!t || d.beached) continue; const m = t.length / 2;
+    for (let k = 0; k < m; k++) { const la0 = t[k * 2], lo0 = t[k * 2 + 1], la1 = k + 1 < m ? t[k * 2 + 2] : d.lat, lo1 = k + 1 < m ? t[k * 2 + 3] : d.lon; if (Math.abs(lo1 - lo0) > 20) continue;
+      toXYZ(la0, lo0, 1.007, A); toXYZ(la1, lo1, 1.007, B); const f0 = (k / m) * .8, f1 = ((k + 1) / m) * .8; trlPos.set(A, v * 3); trlPos.set(B, v * 3 + 3);
+      trlCol[v * 3] = f0; trlCol[v * 3 + 1] = f0 * .82; trlCol[v * 3 + 2] = f0 * .25; trlCol[v * 3 + 3] = f1; trlCol[v * 3 + 4] = f1 * .82; trlCol[v * 3 + 5] = f1 * .25; v += 2; if (v >= trlPos.length / 3 - 2) break; } }
+  trlGeo.setDrawRange(0, v); trlGeo.attributes.position.needsUpdate = trlGeo.attributes.color.needsUpdate = true;
   for (let i = 0; i < ducks.length; i++) { const d = ducks[i]; toXYZ(d.lat, d.lon, 1.008, XYZ); dPos[i * 3] = XYZ[0]; dPos[i * 3 + 1] = XYZ[1]; dPos[i * 3 + 2] = XYZ[2]; dCol[i * 3] = 1; dCol[i * 3 + 1] = d.beached ? .45 : .9; dCol[i * 3 + 2] = d.beached ? .2 : .1; }
   dGeo.setDrawRange(0, ducks.length); dGeo.attributes.position.needsUpdate = dGeo.attributes.color.needsUpdate = true;
 }
@@ -537,12 +556,12 @@ canvas.addEventListener('pointermove', e => { if (e.pointerType !== 'mouse') ret
 function maxOpen() { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; }
 function load(i) {
   if (!(Number.isInteger(i) && i >= 0 && i < LV.length && (i <= maxOpen() || SAVE.done[i] || LV[i].free))) i = maxOpen(); // locked or nonsense: furthest open voyage
-  speed = LV[i].years > 2 ? 4 : 1; // long voyages start fast-forwarded: nobody wants to watch six years at 1×
+  speed = [.5, 1, 4, 12].includes(SAVE.speed) ? SAVE.speed : 1; // your chosen playback speed is remembered; 1× is slow enough to follow single ducks
   if (LV[i] !== L) attempts = []; hideReport(); $('cards').innerHTML = ''; landed = {};
   SAVE.cur = i; persist(); L = LV[i]; ducks = []; simT = 0; running = false; won = false; resolved = false; bet = null; meas = {};
   if (!L.physics && rot !== 1) setSpin(1, true);
   pinGeo.setDrawRange(0, 0); truthPin.visible = false;
-  caseState = L.case ? { left: L.case.budget, month: 0, results: [] } : null; if (L.case) speed = 12;
+  caseState = L.case ? { left: L.case.budget, month: 0, results: [] } : null; 
   patchRing.visible = !!L.patch; $('story').innerHTML = L.story; renderBets(); renderGoal(); renderLevels(); renderCtrl();
   const fc = L.drop || L.focus; if (fc) { globe.rotation.y = 0; const v = new THREE.Vector3(...toXYZ(fc[0] - 12, fc[1])).normalize().multiplyScalar(MOBILE ? (innerHeight <= 500 ? 5.4 : 6.6) : 5.4); camera.position.copy(v); controls.update(); }
   $('toast').classList.remove('on'); layout();
@@ -575,13 +594,14 @@ function renderCtrl() {
   let h = '';
   if (L.drop) h += `<button class="b on" id="rel" ${L.bet && !bet ? 'disabled' : ''}>Release the crate</button><span class="sep"></span>`;
   else h += `<span class="hint">${MOBILE ? 'Tap' : 'Click'} the ocean to ${L.case ? 'run a hindcast' : 'drop 100 ducks'}</span><span class="sep"></span>`;
-  h += `<button class="b" id="pp" aria-label="${running ? 'Pause' : 'Play'}">${running ? '❚❚' : '▶'}</button>` + [1, 4, 12].map(s => `<button class="b ${speed === s ? 'on' : ''}" data-s="${s}">${s}×</button>`).join('') + `<button class="b ${follow ? 'on' : ''}" id="fol" title="Keep the camera on the flock">follow</button><span id="clock"></span>`;
+  h += `<button class="b" id="pp" aria-label="${running ? 'Pause' : 'Play'}">${running ? '❚❚' : '▶'}</button>` + [.5, 1, 4, 12].map(s => `<button class="b ${speed === s ? 'on' : ''}" data-s="${s}">${s === .5 ? '½' : s}×</button>`).join('') + (ducks.length && !L.free && simT < L.years && !resolved ? '<button class="b" id="skipB" title="Run the rest of the voyage at once">skip to result</button>' : '') + `<button class="b ${follow ? 'on' : ''}" id="fol" title="Keep the camera on the flock">follow</button><span id="clock"></span>`;
   if (L.physics) h += '<span class="sep"></span><span class="hint">Earth\'s spin</span>' + [[1, 'normal'], [0, 'off'], [-1, 'reversed']].map(([v, n]) => `<button class="b ${rot === v ? 'on' : ''}" data-r="${v}">${n}${rot === v && !CU ? '…' : ''}</button>`).join('');
   $('ctrl').innerHTML = h;
   if ($('rel')) $('rel').onclick = () => { if (L.bet && !bet) return; if (!CU) { toast('Still charting the oceans…', '', 1200); return; } ducks = []; simT = 0; drop(...L.drop, 120); };
   $('pp').onclick = () => { running = !running; FX.sfx('click'); renderCtrl(); };
   $('fol').onclick = () => { follow = !follow; FX.sfx('click'); renderCtrl(); };
-  $('ctrl').querySelectorAll('[data-s]').forEach(b => b.onclick = () => { speed = +b.dataset.s; FX.sfx('click'); renderCtrl(); });
+  $('ctrl').querySelectorAll('[data-s]').forEach(b => b.onclick = () => { speed = +b.dataset.s; SAVE.speed = speed; persist(); FX.sfx('click'); renderCtrl(); });
+  if ($('skipB')) $('skipB').onclick = () => { FX.sfx('whoosh'); skipToEnd(); };
   $('ctrl').querySelectorAll('[data-r]').forEach(b => b.onclick = () => { const r = +b.dataset.r; if (r === rot) return; FX.sfx('boom'); FX.shake(.4); setSpin(r); });
   layout();
 }
@@ -609,7 +629,7 @@ function renderTally(S) {
     + (L.measure ? `<div class="r" style="margin-top:4px;color:#8fa6c8"><span>fastest current, W Atlantic</span></div><div class="r"><span>spin normal</span>${ms(1)}</div><div class="r"><span>spin off</span>${ms(0)}</div>` : '');
   const nc = Object.keys(SAVE.cards).filter(k => REG[k]).length;
   $('tally').innerHTML += `<div class="hd">Postcards ${nc} / ${Object.keys(REG).length}</div>` + (attempts.length ? '<div class="hd">Logbook</div>' + attempts.slice(-3).map(a => `<div class="log">${fmtLL(a.ll)} ${a.rot === 1 ? '' : a.rot ? '(rev) ' : '(still) '}→ ${a.score}${a.stars ? ' ' + starStr(a.stars) : ''}</div>`).join('') : '');
-  $('clock').textContent = L.free ? `year ${simT.toFixed(2)}` : `year ${simT.toFixed(2)} / ${L.years}`;
+  { const st = L.case ? L.case.start : L.bet ? [1992, 0] : [1993, 0], m = st[1] + simT * 12, mo = Math.floor(m), day = Math.floor((m - mo) * 30) + 1; $('clock').textContent = `${day} ${MONTHS[((mo % 12) + 12) % 12]} ${st[0] + Math.floor(mo / 12)}` + (L.free ? '' : ` · ${simT.toFixed(2)} / ${L.years} yr`); }
 }
 function toast(big, small, ms = 6000, next = false) {
   const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : '') + (next && SAVE.cur < LV.length - 1 ? '<button class="b on" id="tnext">Next voyage ▸</button>' : '');
@@ -630,7 +650,7 @@ function frame(now) {
   trMat.opacity = FX.damp(trMat.opacity, ducks.length ? .45 : 1, 3, dt);
   moveTracers(dt);
   if (running && ducks.length && simT < L.years && CU) {
-    const dy = dt * .08 * speed; simT = Math.min(L.years, simT + dy); moveDucks(dy); duckDirty = true;
+    const ease = Math.min(1, (now - dropT) / 2500), dy = dt * RATE * speed * (.15 + .85 * ease * ease); simT = Math.min(L.years, simT + dy); moveDucks(dy); duckDirty = true;
     if (simT >= L.years) { running = false; renderCtrl(); }
   }
   if (duckDirty || ducks.length !== drawnN) { updateDuckGeo(); duckDirty = false; drawnN = ducks.length; }
@@ -733,7 +753,7 @@ const LESSON = [
 load(+SAVE.cur || 0);
 requestAnimationFrame(frame);
 const proj = new THREE.Vector3();
-window.__fl = { LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
+window.__fl = { LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
   screenOf: (lat, lon) => { proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>

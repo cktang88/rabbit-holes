@@ -129,7 +129,7 @@
   <table id="score"></table>
   <div id="years"></div><div class="yrl"><span id="yr0"></span><span id="yrNow"></span><span id="yr1"></span></div>
   <div id="inq" role="status"></div>
-  <div class="wl">Your works</div><div id="works"></div>
+  <div class="wl">Your works · <span id="budget"></span></div><div id="works"></div>
   <div class="key"><span><i style="background:#3b8fc4"></i>water</span><span><i style="background:#8a6a3c"></i>fresh silt</span><span><i style="background:#d8c35a"></i>fields</span><span><i style="background:#3f6a35"></i>forest</span><span><i style="background:#c9b48a;border:1px solid #6b5a3a"></i>embankment</span></div>
 </div></div>
 <div id="levels"></div>
@@ -170,7 +170,8 @@ function noise2(seed) {
 }
 function fbm(n, x, y, oct = 5) { let s = 0, a = 1, f = 1, t = 0; for (let o = 0; o < oct; o++) { s += a * n(x * f, y * f); t += a; a *= .5; f *= 2; } return s / t; }
 const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-const EMUL = [1, 1.6, .15]; // erosion multiplier by land use: open ground, ploughed field, forest
+const EMUL = [.45, 1, .1]; // erosion multiplier by land use: open ground, ploughed field, forest
+const EMAX = .0004, INF = .006, CHAN = new Uint8Array(NN); // CHAN: the river channel, where water keeps running // most soil a cell can lose in one step; how fast still flood water soaks away
 
 // ================= the basin commission: scenarios =================
 // Each site is a real river problem. You get a fixed number of years, a budget of works, and stakeholders who want
@@ -179,9 +180,9 @@ const CAM0 = { el: 38, az: -14, d: 300, t: [0, 4, 8] };
 const valleyGen = (x, y, n) => { const ax = .45 + .05 * Math.sin(y * 4), v = Math.abs(x - ax); const h = 4 + 16 * Math.pow(1 - y, 1.2) * (.45 + v * 1.4) + 3 * v + 1.2 * fbm(n, x * 3, y * 3) - 2.2 * sm(.04, .01, v); return [h, h - 3]; };
 const SC = [
   { id: 'levee', n: 'The Levee', place: 'Mississippi · 1927', years: 20, sea: 3, erodeScale: .15, gen: valleyGen, springs: [[.45, .03, 1.2]], stormY: .45,
-    storm: y => y === 6 ? 3 : y === 14 ? 5 : y % 4 === 1 ? 1.5 : 0, rain: .03,
+    storm: y => y === 6 ? 4.5 : y === 14 ? 7.5 : y % 4 === 1 ? 1.5 : 0, rain: .02,
     towns: [{ n: 'Upper Town', at: [[.6, .64], [.63, .7], [.57, .76]] }, { n: 'Lower Town', at: [[.52, .87], [.56, .9], [.6, .86]] }],
-    kit: { farm: 6, levee: 3, cut: 1 },
+    kit: { farm: 10, levee: 6, cut: 3 }, budget: 18,
     goal: 'Grow <b>{harvest} bushels</b> in 20 years, and let neither town flood <b>more than twice</b>.',
     first: 'First: pick <b>Field</b> and tap flat ground. Fields near the river grow most, and floods leave rich silt, but a big flood drowns them. Then guard the towns.',
     want: { harvest: 4000, floods: 2 },
@@ -191,21 +192,21 @@ const SC = [
     storm: y => y === 4 ? 6 : y === 11 ? 8 : y % 3 === 1 ? 1.5 : 0, rain: .03, inherit: 0,
     defaultPlan: [['farm', [62, 75]], ['farm', [62, 88]], ['farm', [62, 101]], ['farm', [84, 75]], ['farm', [84, 86]], ['farm', [50, 80]], ['levee', [84, 94], [110, 95]]],
     towns: [{ n: 'Upper Town', at: [[.6, .64], [.63, .7], [.57, .76]] }, { n: 'Lower Town', at: [[.52, .87], [.56, .9], [.6, .86]] }],
-    kit: { farm: 8, levee: 4, cut: 2 },
+    kit: { farm: 14, levee: 8, cut: 4 }, budget: 14,
     goal: 'Your 1927 works still stand, but the floods are bigger now. Keep both towns to <b>2 floods or fewer</b> and still harvest <b>{harvest} bushels</b>.',
     first: 'One levee is not enough for a flood this size. Give the water somewhere else to go: a <b>Cut</b> can open a floodway onto land you can afford to lose.',
     want: { harvest: 2500, floods: 2 },
     medals: [['Goal met', S => S.goalMet], ['No town floods more than once', S => S.goalMet && S.maxFloods <= 1], ['And 3,500 bushels', S => S.goalMet && S.maxFloods <= 1 && S.harvest >= 3500]] },
   { id: 'nile', n: 'The High Dam', place: 'Nile · 1960s', years: 20, sea: 6, evap: .0002, springs: [[.5, .03, 2.5]], stormY: .5, storm: y => y % 5 === 3 ? 2.5 : y % 2 ? 1 : 0, rain: .006, cam: { el: 40, az: -12, d: 305, t: [0, 6, 8] },
     gen: (x, y, n) => { const v = Math.abs(x - .5), walls = 13 * sm(.03, .16, v) * sm(.22, .34, y) * sm(.6, .48, y); const h = 26 * Math.pow(1 - y, 1.2) + walls + 4 * fbm(n, x * 3, y * 3) + 1; return [h + 3.5, h - 2]; },
-    coastY: .78, waves: .2, kit: { dam: 1, cut: 1 },
+    coastY: .78, waves: .2, kit: { dam: 2, cut: 3 }, budget: 26,
     goal: 'Make <b>{power} GWh</b> of power in 20 years, and keep at least <b>{delta}%</b> of the delta.',
     first: 'A dam stores water for power and traps the sand that rebuilds the delta; the waves never stop. Where you put it matters, and so does how it spills.',
     want: { power: 800, delta: 78 },
     medals: [['Goal met', S => S.goalMet], ['1,000 GWh', S => S.goalMet && S.power >= 1000], ['And the delta keeps 81%', S => S.goalMet && S.power >= 1000 && S.deltaPct >= 81]] },
   { id: 'free', n: 'Open Basin', place: 'Sandbox', years: 0, sea: 5, springs: [[.42, .05, 1], [.62, .1, .8]], stormY: .5, storm: y => y % 3 === 0 ? 2 : 1, rain: .008, free: 1, coastY: .8, waves: .2,
     gen: (x, y, n) => { const h = 30 * fbm(n, x * 2, y * 2, 6) + 18 * Math.pow(1 - y, 1.5) + 8; return [h, h - 2.2]; },
-    kit: { farm: 40, forest: 40, levee: 40, dam: 6, cut: 40 },
+    kit: { farm: 40, forest: 40, levee: 40, dam: 6, cut: 40 }, budget: 400,
     goal: 'No goal and no budget. Farm it, forest it, dam it and watch a few centuries of consequences.', first: '' },
 ];
 // fill the numbers into each goal sentence
@@ -224,7 +225,7 @@ const SAVE = cleanSave(RH.load('watershed', null));
 const persist = () => { RH.save('watershed', SAVE); RH.progress('watershed', Object.values(SAVE.medals).reduce((a, m) => a + m, 0) / (3 * (SC.length - 1))); };
 let L = null, cur = 0, tool = 'view', springs = [], towns = [], stat = {}, over = false, works = [], inquest = null;
 // per-cell land use: 1 farm, 2 forest; erosion and rain multipliers follow from it
-const USE = new Uint8Array(NN), FH = new Float32Array(NN), FDEP = new Float32Array(NN), YMAX = new Float32Array(NN), INB = new Uint8Array(NN);
+const YDUR = new Uint8Array(NN), USE = new Uint8Array(NN), FH = new Float32Array(NN), FDEP = new Float32Array(NN), YMAX = new Float32Array(NN), INB = new Uint8Array(NN);
 let year = 0, yStep = 0, harvest = 0, power = 0, history = [], deltaLand0 = 1, cap0 = 1, lastYield = 0, farmCells = [];
 // a storm year is long enough to watch the flood rise and fall; calm years pass quickly
 const YEAR_STEPS = 480, CALM_STEPS = 160, STORM_FRAC = .5;
@@ -234,7 +235,7 @@ let farmDiag = {};
 function buildLevel(i) {
   cur = i; SAVE.cur = i; persist(); L = SC[i]; over = false; springs = []; simT = 0; thermalTick = 0; seaInWindow.length = 0; seaInflowStep = 0; stepped = false; works = []; inquest = null; farmCells = [];
   year = 0; yStep = 0; harvest = 0; power = 0; history = []; lastYield = 0;
-  NOERODE.fill(0); NOSCULPT.fill(0); RAISED.fill(0); USE.fill(0); WORKOF.fill(-1); FH.fill(0); FDEP.fill(0); YMAX.fill(0); INB.fill(0);
+  NOERODE.fill(0); NOSCULPT.fill(0); RAISED.fill(0); USE.fill(0); YDUR.fill(0); WORKOF.fill(-1); FH.fill(0); FDEP.fill(0); YMAX.fill(0); INB.fill(0);
   K.evap = L.evap ?? .0015; // drier sites lose shallow water faster
   const n = noise2('ws' + (L.seed || L.id));
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const k = y * N + x, [h, r] = L.gen(x / (N - 1), y / (N - 1), n); B[k] = h; ROCK[k] = Math.min(r, h); HARD[k] = L.soft || 1; }
@@ -247,7 +248,9 @@ function buildLevel(i) {
   seaLevel = L.sea; SEA.fill(0); floodSea();
   // let the rivers find their beds before planning starts, so you plan around a living river
   for (const [x, y, q] of L.springs) springs.push({ k: Math.round(y * (N - 1)) * N + Math.round(x * (N - 1)), q, fixed: 1 });
-  spinning = true; for (let i = 0; i < (L.spin ?? 900); i++) step(); spinning = false; simT = 0; DEP.fill(0);
+  CHAN.fill(0); spinning = true; for (let i = 0; i < (L.spin ?? 900); i++) step(); spinning = false; simT = 0; DEP.fill(0);
+  // the channel the rivers settled into (and one cell either side) keeps its water; everywhere else floods soak away
+  for (let k = N; k < NN - N; k++) if (D[k] > .05) CHAN[k] = CHAN[k - 1] = CHAN[k + 1] = CHAN[k - N] = CHAN[k + N] = 1;
   B0.set(B); SEA.fill(0); floodSea();
   towns = (L.towns || []).map(t => ({ n: t.n, cells: t.at.map(([x, y]) => Math.round(y * (N - 1)) * N + Math.round(x * (N - 1))), floods: 0, wet: false, flood: [], peak: 0 }));
   for (const t of towns) for (const k of t.cells) { const hx = k % N, hy = (k / N) | 0; for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) if (dx * dx + dy * dy <= 16) NOSCULPT[(hy + dy) * N + hx + dx] = 1; }
@@ -269,8 +272,10 @@ const WORKS = {
   dam: { n: 'Dam', icon: '▬', drag: 1, max: 44, tip: 'A wall across a valley, 9 m above the river. Drag across the valley. Stores water for power; it also traps the sand.' },
   cut: { n: 'Cut', icon: '▼', drag: 1, max: 30, tip: 'A channel 1.8 m deep. Drag to dig. A floodway, a canal to dry fields, or a sluice through a dam that lets sand pass.' },
 };
+const COST = { farm: 1, forest: 1, levee: 2, cut: 2, dam: 10 }; // $M per piece
 const WORKOF = new Int16Array(NN).fill(-1);
-const kitLeft = t => (L.kit[t] || 0) - works.filter(w => w.t === t).length;
+const spent = () => works.reduce((a, w) => a + (w.old ? 0 : COST[w.t]), 0), budgetLeft = () => (L.budget || 0) - spent();
+const kitLeft = t => Math.max(0, Math.min((L.kit[t] || 0) - works.filter(w => w.t === t && !w.old).length, Math.floor(budgetLeft() / COST[t])));
 // the cells a piece touches, with their weight (1 at its core, tapering at its edge)
 function workCells(t, a, b) {
   const out = [];
@@ -293,7 +298,7 @@ function workCells(t, a, b) {
 // place a piece; returns the piece or a reason it can't go there
 function placeWork(t, a, b, inherited) {
   if (over) return 'The survey is over.';
-  if (kitLeft(t) <= 0 && !inherited) return `No ${WORKS[t].n.toLowerCase()}s left in the kit. Remove one to move it.`;
+  if (kitLeft(t) <= 0 && !inherited) return budgetLeft() < COST[t] ? `A ${WORKS[t].n.toLowerCase()} costs $${COST[t]}M and you have $${budgetLeft()}M left. Remove something to free money.` : `No ${WORKS[t].n.toLowerCase()}s left in the kit. Remove one to move it.`;
   const cells = workCells(t, a, b || a), rec = [];
   if (WORKS[t].drag && Math.hypot(b[0] - a[0], b[1] - a[1]) < 4) return 'Drag to draw it: press, pull across the model, let go.';
   if (t === 'farm' || t === 'forest') {
@@ -365,7 +370,7 @@ function tick() {
   yStep++;
   if (yStep % 30 === 0) {
     for (const t of towns) for (const k of t.cells) { if (D[k] > t.peak) t.peak = D[k]; if (D[k] > .4) t.wet = true; }
-    for (const k of farmCells) if (D[k] > YMAX[k]) YMAX[k] = D[k];
+    for (const k of farmCells) { if (D[k] > YMAX[k]) YMAX[k] = D[k]; if (D[k] > .5) YDUR[k]++; }
   }
   if (yStep >= yearLen(year)) endYear();
 }
@@ -377,10 +382,11 @@ function endYear() {
   for (const w of works) if (w.t === 'farm') w.yr = { bu: 0, drowned: 0, silt: 0, dry: 0, lost: 0, n: 0 };
   for (const k of farmCells) {
     const w = WORKOF[k] >= 0 ? works[WORKOF[k]] : null, a = w ? w.yr : { n: 0 }; a.n++;
-    if (YMAX[k] > .7 || SEA[k]) { YMAX[k] = 0; farmDiag.drowned++; a.drowned++; continue; }
+    if (a.n === 1 || YMAX[k] > a.depth) a.depth = Math.max(a.depth || 0, YMAX[k]); if (YDUR[k] > (a.weeks || 0)) a.weeks = YDUR[k];
+    if (YDUR[k] >= 4 || SEA[k]) { YMAX[k] = 0; YDUR[k] = 0; farmDiag.drowned++; a.drowned++; continue; }
     const silt = Math.max(0, DEP[k] - FDEP[k]), lost = Math.max(0, FH[k] - B[k]), wet = L.rainfed || WD[k] <= 4 ? 1 : WD[k] <= 9 ? .55 : .2;
     farmDiag.wet += wet; farmDiag.lost += lost; farmDiag.silt += silt;
-    const v = wet * Math.max(0, Math.min(2, 1 + 1.5 * Math.min(1, silt * 2) - .5 * lost)); y += v; FDEP[k] = DEP[k]; YMAX[k] = 0;
+    const v = wet * Math.max(0, Math.min(2, 1 + 1.5 * Math.min(1, silt * 2) - .5 * lost)); y += v; FDEP[k] = DEP[k]; YMAX[k] = 0; YDUR[k] = 0;
     if (w) { a.bu += v; a.silt += silt > .05; a.dry += wet < 1; a.lost += lost; }
   }
   lastYield = Math.round(y); harvest += lastYield;
@@ -450,7 +456,7 @@ function waterStep(dt, n1) {
       if (cap > sk && !NE[k]) {
         let lowN = bl < br ? bl : br; if (bt < lowN) lowN = bt; if (bb < lowN) lowN = bb;
         let amt = ke * (cap - sk) * (RA[k] > .3 ? .08 : EMUL[US[k]]); const m1 = bk - lowN + .5, m2 = bk - base; // never drill a pit; nothing cuts below base level
-        if (amt > m1) amt = m1; if (amt > m2) amt = m2; if (amt < 0) amt = 0;
+        if (amt > m1) amt = m1; if (amt > m2) amt = m2; if (amt > EMAX) amt = EMAX; if (amt < 0) amt = 0; // land changes over decades, not in one storm
         const soil = bk - R_[k];
         if (amt <= soil) B_[k] = bk - amt;
         else { const fromRock = (amt - soil) * rh * H_[k]; B_[k] = R_[k] - fromRock; R_[k] = B_[k]; amt = soil + fromRock; }
@@ -470,7 +476,7 @@ function advect(dt) {
     const row = y * N_;
     for (let x = 0; x < N_; x++) {
       const k = row + x, u = U_[k], v = V_[k];
-      if (SEA_[k]) { const w = sl - B_[k]; D_[k] = w > 0 ? w : 0; U_[k] = u * .5; V_[k] = v * .5; } else { const d = D_[k] * ev; D_[k] = d < 1e-6 ? 0 : d; } // thin films dry out completely
+      if (SEA_[k]) { const w = sl - B_[k]; D_[k] = w > 0 ? w : 0; U_[k] = u * .5; V_[k] = v * .5; } else { let d = D_[k] * ev; if (d < 2.5 && !CHAN[k] && u * u + v * v < .02) d -= INF; D_[k] = d < 1e-6 ? 0 : d; } // still flood water soaks in and dries out over the following weeks; the running river does not
       if (u === 0 && v === 0) { S2[k] = S_[k]; continue; }
       let sx = x - u * dt, sy = y - v * dt;
       if (sx < 0) sx = 0; else if (sx > hi) sx = hi; if (sy < 0) sy = 0; else if (sy > hi) sy = hi;
@@ -509,8 +515,8 @@ function reservoirVolume() {
 function measure() {
   const W = L.want || {}, floods = towns.map(t => t.floods), maxFloods = floods.length ? Math.max(...floods) : 0;
   const deltaPct = L.coastY ? deltaLand() / deltaLand0 * 100 : 100, capPct = L.dam ? capacity() / cap0 * 100 : 100;
-  const spent = works.length;
-  stat = { year, years: L.years, harvest, power: Math.round(power), floods, maxFloods, deltaPct, capPct, spent, farms: farmCells.length, forest: countUse(2), over };
+  const spentM = spent();
+  stat = { year, years: L.years, harvest, power: Math.round(power), floods, maxFloods, deltaPct, capPct, spent: spentM, farms: farmCells.length, forest: countUse(2), over };
   const ok = {};
   if (W.harvest != null) ok.harvest = harvest >= W.harvest;
   if (W.floods != null) ok.floods = maxFloods <= W.floods;
@@ -757,11 +763,11 @@ function setTool(t) { tool = t; controls.mouseButtons.LEFT = t === 'view' ? THRE
 function renderUI() {
   const tl = ['view', ...Object.keys(L.kit)];
   $('tools').innerHTML = tl.map(k => { const [ic, n, tip] = TOOLS[k];
-    const badge = k !== 'view' ? `<i class="n">${kitLeft(k)}</i>` : '';
+    const badge = k !== 'view' ? `<i class="n">$${COST[k]}M</i>` : '';
     return `<button class="tool ${tool === k ? 'on' : ''}" data-t="${k}" title="${tip}" aria-pressed="${tool === k}" ${k !== 'view' && kitLeft(k) <= 0 ? 'data-empty="1"' : ''}>${badge}<b>${ic}</b><span>${n}</span></button>`; }).join('')
     + `<button class="tool" id="undo" title="Remove the last piece (Ctrl+Z)"><b>↶</b><span>Undo</span></button>`;
   $('tools').querySelectorAll('.tool[data-t]').forEach(b => b.onclick = () => { snd.key(); setTool(b.dataset.t); });
-  $('undo').onclick = doUndo; $('undo').disabled = !works.length || over;
+  $('undo').onclick = doUndo; $('undo').disabled = !works.length || over; if ($('budget')) $('budget').textContent = `$${budgetLeft()}M of $${L.budget}M left`;
   $('levels').innerHTML = '<h4>Survey sites</h4>' + SC.map((l, i) => { const m = SAVE.medals[i] || 0;
     return `<div class="lv ${i === cur ? 'cur' : ''} ${i > maxOpen() && i !== SC.length - 1 ? 'lock' : ''}" data-i="${i}" tabindex="0"><span>${l.n}<small>${l.place}</small></span><span class="medals">${l.free ? '' : '●'.repeat(m) + '○'.repeat(3 - m)}</span></div>`; }).join('');
   $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { if (el.classList.contains('lock')) return; snd.key(); buildLevel(+el.dataset.i); });
@@ -769,6 +775,7 @@ function renderUI() {
 }
 // the list of placed pieces on the clipboard, each removable
 function renderWorks() {
+  $('budget').textContent = `$${budgetLeft()}M of $${L.budget}M left`;
   $('works').innerHTML = works.length ? works.map((w, i) => `<button class="wk" data-i="${i}" title="Remove this ${WORKS[w.t].n.toLowerCase()}">${WORKS[w.t].icon} ${WORKS[w.t].n} ${i + 1}${w.old ? ' (old)' : ''}${w.yr ? ` · ${w.t === 'farm' ? Math.round(w.yr.bu) + ' bu' : ''}` : ''} ✕</button>`).join('') : '<span class="none">No works yet. Pick a piece below and place it on the model.</span>';
   $('works').querySelectorAll('.wk').forEach(b => b.onclick = () => { if (removeWork(+b.dataset.i)) { snd.plaster(); renderWorks(); renderUI(); } });
 }
@@ -801,7 +808,7 @@ function showInquest() {
   towns.forEach((t, j) => lines.push(q.fl.includes(t.n) ? `<span class="bad">${t.n} flooded, ${q.peaks[j].toFixed(1)} m deep.</span>` : `${t.n} stayed dry${q.peaks[j] > .1 ? ` (water reached ${q.peaks[j].toFixed(1)} m)` : ''}.`));
   const f = works.filter(w => w.t === 'farm' && w.yr);
   if (f.length) { const dr = f.filter(w => w.yr.drowned > w.yr.n * .3).length, si = f.filter(w => w.yr.silt > w.yr.n * .3).length, dry = f.filter(w => w.yr.dry > w.yr.n * .5).length;
-    lines.push(`Fields: ${lastYield} bu this year.${dr ? ` ${dr} drowned.` : ''}${si ? ` ${si} got fresh silt (richer next harvest).` : ''}${dry ? ` ${dry} too far from water to yield much.` : ''}`); }
+    lines.push(`Fields: ${lastYield} bu this year.${dr ? ` ${dr} drowned (under water for weeks); they will be sown again next year.` : ''}${si ? ` ${si} got fresh silt (richer next harvest).` : ''}${dry ? ` ${dry} too far from water to yield much.` : ''}`); }
   if (L.coastY) lines.push(`Delta: ${q.dl.toFixed(0)}% of its land (${q.ddl >= 0 ? '+' : ''}${q.ddl.toFixed(1)} since last year).`);
   if (L.dam) lines.push(`Reservoir capacity: ${stat.capPct.toFixed(0)}%.`);
   lines.push(`<i>Change your works if you like, then press ▶ for the next round.</i>`);
@@ -813,7 +820,7 @@ function showTags(on) {
   const q = inquest; if (!q) return;
   const mk = (gx, gy, html, cls) => { const e = document.createElement('div'); e.className = 'tag ' + cls; e.innerHTML = html; e.dataset.x = gx; e.dataset.y = gy; document.body.appendChild(e); tagEls.push(e); };
   towns.forEach((t, j) => { const k = t.cells[0]; mk(k % N, (k / N) | 0, q.fl.includes(t.n) ? `${t.n}: flooded ${q.peaks[j].toFixed(1)} m` : `${t.n}: dry`, q.fl.includes(t.n) ? 'bad' : 'good'); });
-  works.forEach((w, i) => { if (w.t !== 'farm' || !w.yr) return; const why = w.yr.drowned > w.yr.n * .3 ? 'drowned' : w.yr.dry > w.yr.n * .5 ? 'too dry' : w.yr.silt > w.yr.n * .3 ? '+ silt' : w.yr.lost / w.yr.n > .3 ? 'soil lost' : ''; mk(w.a[0], w.a[1], `${Math.round(w.yr.bu)} bu${why ? ' · ' + why : ''}`, why === 'drowned' || why === 'soil lost' || why === 'too dry' ? 'bad' : 'good'); });
+  works.forEach((w, i) => { if (w.t !== 'farm' || !w.yr) return; const wk = Math.round((w.yr.weeks || 0) * 30 * 365 / 480 / 7), why = w.yr.drowned > w.yr.n * .3 ? `drowned: ${(w.yr.depth || 0).toFixed(1)} m for ${wk} wk` : w.yr.dry > w.yr.n * .5 ? 'too dry' : w.yr.silt > w.yr.n * .3 ? `+ silt${(w.yr.depth || 0) > .3 ? ` (flooded ${(w.yr.depth).toFixed(1)} m, drained)` : ''}` : w.yr.lost / w.yr.n > .3 ? 'soil lost' : ''; mk(w.a[0], w.a[1], `${Math.round(w.yr.bu)} bu${why ? ' · ' + why : ''}`, /^drowned|soil lost|too dry/.test(why) ? 'bad' : 'good'); });
   placeTags();
 }
 function placeTags() { for (const e of tagEls) { const [x, y] = __ws.toScreen(+e.dataset.x, +e.dataset.y); e.style.left = x + 'px'; e.style.top = y + 'px'; } }

@@ -149,8 +149,9 @@
   </div>
   <div id="side">
     <div class="stats" id="stats"></div>
-    <div class="tabs"><button data-t="laws" class="on">Laws</button><button data-t="chal">Challenges</button><button data-t="atlas">Atlas</button></div>
+    <div class="tabs"><button data-t="laws" class="on">Laws</button><button data-t="hist">History</button><button data-t="chal">Challenges</button><button data-t="atlas">Atlas</button></div>
     <div class="pane on" id="p-laws"></div>
+    <div class="pane" id="p-hist"></div>
     <div class="pane" id="p-chal"></div>
     <div class="pane" id="p-atlas"></div>
   </div>
@@ -161,16 +162,29 @@
 // ===================== The laws =====================
 // Six constants, each with our value marked. Every option is available from the first universe.
 const LAWS = [
-  {k:'G', n:'Gravity', d:'Strength of gravity compared with ours.', opts:[['0.1×',0.1],['0.3×',0.3],['1×',1],['3×',3],['10×',10]], def:2},
-  {k:'L', n:'Dark energy Λ', d:'Pushes space apart. Negative values pull it back together.', opts:[['−1 (pulls)',-1],['0',0],['0.7 (ours)',0.7],['3',3],['10',10]], def:2},
-  {k:'a', n:'Fine-structure constant α', d:'How strongly light grips charge: atoms, chemistry, starlight.', opts:[['1/300',300],['1/137 (ours)',137],['1/80',80],['1/40',40]], def:1},
-  {k:'s', n:'Strong force', d:'The glue in atomic nuclei.', opts:[['0.9×',0.9],['1× (ours)',1],['1.05×',1.05],['1.2×',1.2]], def:1},
-  {k:'m', n:'Matter excess', d:'How much matter survived annihilation with antimatter.', opts:[['10⁻¹²',-12],['10⁻¹⁰ (ours)',-10],['10⁻⁸',-8]], def:1},
-  {k:'D', n:'Space dimensions', d:'How many directions there are to move in.', opts:[['2',2],['3 (ours)',3],['4',4]], def:1},
+  {k:'G', n:'Gravity', short:'Gravity', d:'How strongly everything pulls on everything else.', def:2,
+    up:'Stronger: gas clumps fast, stars burn hot and die young. Too strong and stars crush into black holes.', down:'Weaker: clumping is slow, stars are cool and long-lived. Too weak and gas never ignites.',
+    opts:[['0.1×',0.1,'Gas clouds never squeeze hard enough to light a star.'],['0.3×',0.3,'Stars are dim and patient: a sun lives about 100 billion years.'],['1×',1,'A sun lives about 10 billion years.'],['3×',3,'Stars are hot and short-lived: a sun lives about 1 billion years.'],['10×',10,'Every star collapses straight into a black hole.']]},
+  {k:'L', n:'Dark energy Λ', short:'Dark energy', d:'A push built into empty space that makes the universe expand faster and faster.', def:2,
+    up:'More: space flies apart before gas can gather into galaxies.', down:'Less: galaxies cluster freely. Negative: space eventually falls back in (a "big crunch").',
+    opts:[['−1 (pulls)',-1,'Space slows, stops and falls back in: the universe ends in a crunch.'],['0',0,'Nothing pushes galaxies apart; they cluster tightly.'],['0.7 (ours)',0.7,'A gentle push that only wins after galaxies have formed.'],['3',3,'Galaxies only form where matter is dense.'],['10',10,'Space flies apart too fast for any galaxy to form.']]},
+  {k:'a', n:'Fine-structure constant α', short:'α', d:'How strongly electric charges attract: the glue of atoms, chemistry and starlight.', def:1,
+    up:'Stronger (1/80): bonds are sticky and chemistry is quick. Much stronger (1/40): atoms hold electrons too tightly to share.', down:'Weaker (1/300): atoms are fragile and chemistry slow.',
+    opts:[['1/300',300,'Atoms are fragile; chemistry crawls, so life needs far longer.'],['1/137 (ours)',137,'Atoms bond and share electrons easily.'],['1/80',80,'Sticky bonds: chemistry runs fast, life starts sooner.'],['1/40',40,'Electrons are held too tightly to share: no complex molecules.']]},
+  {k:'s', n:'Strong force', short:'Strong force', d:'The glue that holds protons and neutrons together in the nucleus.', def:1,
+    up:'Stronger: protons stick to each other and hydrogen (the fuel of stars and water) burns away.', down:'Weaker: protons and neutrons cannot stick, so stars never fuse.',
+    opts:[['0.9×',0.9,'A proton and a neutron cannot stick: no fusion, ever.'],['1× (ours)',1,'75% of matter stays hydrogen; stars burn it slowly.'],['1.05×',1.05,'Two protons can stick: most hydrogen burns away in minutes.'],['1.2×',1.2,'Every proton pairs off: no hydrogen, no water.']]},
+  {k:'m', n:'Matter excess', short:'Matter', d:'How much matter was left over after matter and antimatter annihilated at the start.', def:1,
+    up:'More: a crowded universe; galaxies form easily, even against dark energy.', down:'Less: a thin universe; gas struggles to gather.',
+    opts:[['10⁻¹²',-12,'A hundred times less matter: thin gas that struggles to gather.'],['10⁻¹⁰ (ours)',-10,'One particle of matter survived per ten billion photons.'],['10⁻⁸',-8,'A hundred times more matter: a crowded universe.']]},
+  {k:'D', n:'Space dimensions', short:'Space', d:'How many directions there are to move in.', def:1,
+    up:'Four: gravity fades so fast with distance that no orbit is stable.', down:'Two: orbits work, but a creature with a gut would fall apart.',
+    opts:[['2',2,'Flatland: stars and planets, but no complex bodies.'],['3 (ours)',3,'Stable orbits and room for plumbing.'],['4',4,'No stable orbits: planets spiral in or fly off.']]},
 ];
 const OURS = Object.fromEntries(LAWS.map(l=>[l.k,l.def]));
 const val = (c,k)=> LAWS.find(l=>l.k===k).opts[c[k]][1];
 const changed = (c)=> LAWS.filter(l=>c[l.k]!==l.def).length;
+const lawTag = (c,k)=>{ const l=LAWS.find(x=>x.k===k); return `${l.short} ${l.opts[c[k]][0].replace(/ \(.*\)/,'')}`; };
 const lawStr = (c)=> LAWS.filter(l=>c[l.k]!==l.def).map(l=>`${l.n.split(' ')[0]} ${l.opts[c[l.k]][0]}`).join(' · ') || 'our laws';
 
 // ===================== The history a set of laws allows =====================
@@ -182,55 +196,67 @@ function simulate(c){
   const G=val(c,'G'), L=val(c,'L'), ainv=val(c,'a'), s=val(c,'s'), m=val(c,'m'), D=val(c,'D');
   const r = 137/ainv;                       // α relative to ours
   const rho = Math.pow(10, m+10);           // baryon density relative to ours
-  const out = {stages:[], v:{}}; const st=(status, why, extra)=>{ out.stages.push({name:STAGES[out.stages.length], status, why, ...(extra||{})}); return status!=='broken'; };
-  const v=out.v;
+  const out = {stages:[], v:{}};
+  // each link: status, the physics (why), a plain cause → effect line (plain), and the law that decided it (law)
+  const st=(status, why, plain, law)=>{ out.stages.push({name:STAGES[out.stages.length], status, why, plain, law: law||null}); return status!=='broken'; };
+  const v=out.v; const tag=(k)=> lawTag(c,k);
   // 1. Baryogenesis
-  st(m===-12?'weak':'ok', m===-12? 'Only one baryon per 10¹² photons survived annihilation: a thin, dilute universe.' : m===-8? 'A hundred times more matter than ours survived: a crowded universe.' : 'One baryon per 10¹⁰ photons survived, as in ours.');
+  st(m===-12?'weak':'ok', m===-12? 'Only one baryon per 10¹² photons survived annihilation: a thin, dilute universe.' : m===-8? 'A hundred times more matter than ours survived: a crowded universe.' : 'One baryon per 10¹⁰ photons survived, as in ours.',
+    m===-12? `${tag('m')} → almost all matter annihilates → a thin universe` : m===-8? `${tag('m')} → much more matter is left over → a crowded universe` : 'Matter and antimatter annihilate → a little matter is left over, as in ours', m!==-10? 'm':null);
   // 2. Big Bang nucleosynthesis: the deuterium bottleneck
   v.fusion = s!==0.9; v.X = s===0.9? 1 : s===1? .75 : s===1.05? .25 : 0; // hydrogen fraction left after the first minutes
-  if (s===0.9) st('weak','Deuterium is unbound, so the first step of fusion never happens. The universe stays pure hydrogen, and no star will ever fuse it.');
-  else if (s===1.05) st('weak','Two protons can stick (the diproton), so hydrogen burns straight to helium in the first minutes. Only a quarter of it is left.');
-  else if (s===1.2) st('weak','Every proton paired off in the first minutes. There is no hydrogen left: no water, no slow-burning stars.');
-  else st('ok','Three minutes in, the deuterium bottleneck breaks: 75% hydrogen, 25% helium.');
+  if (s===0.9) st('weak','Deuterium is unbound, so the first step of fusion never happens. The universe stays pure hydrogen, and no star will ever fuse it.', `${tag('s')} → a proton and neutron can't stick → no fusion, ever`, 's');
+  else if (s===1.05) st('weak','Two protons can stick (the diproton), so hydrogen burns straight to helium in the first minutes. Only a quarter of it is left.', `${tag('s')} → two protons stick → most hydrogen burns away in minutes`, 's');
+  else if (s===1.2) st('weak','Every proton paired off in the first minutes. There is no hydrogen left: no water, no slow-burning stars.', `${tag('s')} → every proton pairs off → no hydrogen left`, 's');
+  else st('ok','Three minutes in, the deuterium bottleneck breaks: 75% hydrogen, 25% helium.', 'Protons and neutrons fuse in the first minutes → 75% hydrogen, 25% helium');
   // 3. Recombination: binding energy ∝ α², so the temperature (and time) at which light decouples moves
-  v.tRec = 380e3 * Math.pow(r,-3) / 1e9; // Gyr, since t ∝ T^-1.5 in a matter era and T_rec ∝ α²
-  st('ok', `Electrons settle onto nuclei after ${fmtT(v.tRec)}, and light travels freely for the first time.`+(ainv===40? ' Atoms are bound twelve times tighter than ours.' : ainv===300? ' Atoms are loosely bound and easily broken.' : ''));
+  v.tRec = 380e3 * Math.pow(r,-3) / 1e9;
+  st('ok', `Electrons settle onto nuclei after ${fmtT(v.tRec)}, and light travels freely for the first time.`+(ainv===40? ' Atoms are bound twelve times tighter than ours.' : ainv===300? ' Atoms are loosely bound and easily broken.' : ''),
+    ainv!==137? `${tag('a')} → electrons grab nuclei ${ainv<137?'earlier':'later'}, at ${fmtT(v.tRec)} → atoms form, light flies free` : `Electrons grab nuclei at ${fmtT(v.tRec)} → atoms form, light flies free`, ainv!==137?'a':null);
   // 4. Structure: gravity and matter must win before dark energy takes over (Weinberg's bound)
   v.S = Math.log10(G) + 0.5*(m+10);
   const need = L<=0? -1.6 : L===0.7? -0.6 : L===3? 0.3 : 0.9;
-  v.crunch = L===-1? 14/Math.sqrt(G)/Math.pow(rho,.25) : Infinity;   // Gyr until the recollapse
+  v.crunch = L===-1? 14/Math.sqrt(G)/Math.pow(rho,.25) : Infinity;
   v.galaxies = v.S>=need? Math.max(1,Math.round(100*Math.pow(10, v.S-need-0.6) * (L===0? 2 : 1))) : 0;  // ours = 100
-  if (!v.galaxies) return st('broken', L>=3? 'Dark energy pushes space apart before gravity can gather anything as big as a galaxy.' : 'Gravity is too weak, and matter too thin, for clouds to fall together before space spreads them out.'), finish(out,c);
-  st(v.S-need<0.3? 'weak':'ok', `${v.galaxies>=1000? Math.round(v.galaxies/100)/10+' thousand' : v.galaxies} galaxies where ours has a hundred`+(L===-1? `, but space will fall back in after ${fmtT(v.crunch)}.` : L===0? ', clustered tightly with no dark energy to pull them apart.' : '.'));
-  // 5. Stars: the gas must heat enough to ignite; lifetime ∝ G^-2 (L ∝ G⁴M³), longer when light is trapped more (α)
-  if (G<=0.1) return st('broken','Gravity is too weak to squeeze gas hot enough to ignite. No star ever shines.'), finish(out,c);
-  if (G>=10) { v.stars=1; v.life_t=0; return st('broken','Every star collapses straight into a black hole before it can fuse anything heavy.'), finish(out,c); }
-  v.tau = 10 * Math.pow(G,-2) * r * (s===1.05? .3 : 1) * (s===1.2? .1 : 1);   // Gyr, a sun-like star's lifetime
-  v.stars = 1;
-  if (!v.fusion){ v.tau = 0.05; st('weak','Stars form but cannot fuse hydrogen. They glow dimly from contraction for a few tens of millions of years.'); }
-  else st(v.tau<2? 'weak':'ok', `Stars ignite. A sun-like star burns for ${fmtT(v.tau)}`+(G>1? ': gravity makes them hot and short-lived.' : G<1? ': weak gravity makes them cool and patient.' : '.'));
-  // 6. Carbon: needs fusion, and the triple-alpha (Hoyle) resonance sits where α and the strong force put it
+  const galLaw = L>=3? 'L' : G<1? 'G' : m===-12? 'm' : L!==0.7? 'L' : null;
+  if (!v.galaxies) return st('broken', L>=3? 'Dark energy pushes space apart before gravity can gather anything as big as a galaxy.' : 'Gravity is too weak, and matter too thin, for clouds to fall together before space spreads them out.',
+    L>=3? `${tag('L')} → space flies apart faster than gas can gather → no galaxies` : `${tag(galLaw||'G')} → gas is too thin and weakly pulled to gather → no galaxies`, galLaw||'G'), finish(out,c);
+  st(v.S-need<0.3? 'weak':'ok', `${v.galaxies>=1000? Math.round(v.galaxies/100)/10+' thousand' : v.galaxies} galaxies where ours has a hundred`+(L===-1? `, but space will fall back in after ${fmtT(v.crunch)}.` : L===0? ', clustered tightly with no dark energy to pull them apart.' : '.'),
+    (galLaw? tag(galLaw)+' → ' : 'Gravity gathers the gas → ')+`${v.galaxies>=1000? Math.round(v.galaxies/100)/10+' thousand' : v.galaxies} galaxies for every 100 in ours`+(L===-1? `; space will collapse at ${fmtT(v.crunch)}` : ''), galLaw);
+  // 5. Stars
+  if (G<=0.1) return st('broken','Gravity is too weak to squeeze gas hot enough to ignite. No star ever shines.', `${tag('G')} → gas clouds never get hot enough → no stars`, 'G'), finish(out,c);
+  if (G>=10) { v.stars=1; return st('broken','Every star collapses straight into a black hole before it can fuse anything heavy.', `${tag('G')} → every star crushes itself → only black holes`, 'G'), finish(out,c); }
+  v.tau = 10 * Math.pow(G,-2) * r * (s===1.05? .3 : 1) * (s===1.2? .1 : 1);
+  v.stars = 1; const starLaw = G!==1? 'G' : s!==1? 's' : ainv!==137? 'a' : null;
+  if (!v.fusion){ v.tau = 0.05; st('weak','Stars form but cannot fuse hydrogen. They glow dimly from contraction for a few tens of millions of years.', `${tag('s')} → stars can't fuse → they glow dimly and fade`, 's'); }
+  else st(v.tau<2? 'weak':'ok', `Stars ignite. A sun-like star burns for ${fmtT(v.tau)}`+(G>1? ': gravity makes them hot and short-lived.' : G<1? ': weak gravity makes them cool and patient.' : '.'),
+    (starLaw? tag(starLaw)+' → ' : 'Gas clouds collapse and ignite → ')+`a sun-like star lives ${fmtT(v.tau)}`+(starLaw? ` (ours: 10 billion years)` : ''), starLaw);
+  // 6. Carbon (Hoyle resonance)
   const reson = (s===1? 1 : s===1.05? .3 : 0) * (ainv===137? 1 : ainv===80? .4 : ainv===300? .5 : 0);
-  v.carbon = v.fusion? reson : 0;
-  if (!v.carbon) return st('broken', !v.fusion? 'No fusion, so no helium burning and no carbon. The universe stays hydrogen gas and dim stars.' : s===1.2? 'With no hydrogen to burn first, stars race through helium and the Hoyle resonance is missed: almost no carbon.' : 'The Hoyle resonance in carbon-12 misses its mark: helium never fuses to carbon.'), finish(out,c);
-  st(v.carbon<1? 'weak':'ok', v.carbon<1? `The Hoyle resonance is slightly off. Stars make only ${Math.round(v.carbon*100)}% of our carbon.` : 'Three helium nuclei meet at the Hoyle resonance and make carbon. Supernovae scatter it.');
-  // 7. Planets: need metals and stable orbits
-  if (D===4) return st('broken','In four dimensions gravity falls off as 1/r³, and no orbit is stable. Every planet spirals in or drifts away.'), finish(out,c);
-  if (v.crunch < 1) return st('broken',`Space falls back in after ${fmtT(v.crunch)}, before rocky worlds can cool.`), finish(out,c);
+  v.carbon = v.fusion? reson : 0; const cLaw = s!==1? 's' : ainv!==137? 'a' : null;
+  if (!v.carbon) return st('broken', !v.fusion? 'No fusion, so no helium burning and no carbon. The universe stays hydrogen gas and dim stars.' : s===1.2? 'With no hydrogen to burn first, stars race through helium and the Hoyle resonance is missed: almost no carbon.' : 'The Hoyle resonance in carbon-12 misses its mark: helium never fuses to carbon.',
+    `${tag(cLaw||'s')} → helium can't fuse into carbon → no carbon, so no planets or life to come`, cLaw||'s'), finish(out,c);
+  st(v.carbon<1? 'weak':'ok', v.carbon<1? `The Hoyle resonance is slightly off. Stars make only ${Math.round(v.carbon*100)}% of our carbon.` : 'Three helium nuclei meet at the Hoyle resonance and make carbon. Supernovae scatter it.',
+    v.carbon<1? `${tag(cLaw)} → the carbon-making resonance is off → ${Math.round(v.carbon*100)}% of our carbon` : 'Old stars fuse helium into carbon and explode → carbon spreads through space', v.carbon<1? cLaw : null);
+  // 7. Planets
+  if (D===4) return st('broken','In four dimensions gravity falls off as 1/r³, and no orbit is stable. Every planet spirals in or drifts away.', `${tag('D')} → gravity fades as 1/r³ → no stable orbits, no planets`, 'D'), finish(out,c);
+  if (v.crunch < 1) return st('broken',`Space falls back in after ${fmtT(v.crunch)}, before rocky worlds can cool.`, `${tag('L')} → space collapses at ${fmtT(v.crunch)} → no time to build planets`, 'L'), finish(out,c);
   v.planets = Math.round(v.galaxies * v.carbon * (m===-12? .3 : m===-8? 2 : 1));
-  st(v.planets<60? 'weak':'ok', D===2? 'Planets circle their stars in a flat plane.' : `Dust and metal clump into worlds around young stars.`);
-  // 8. Life: needs water (hydrogen), carbon chemistry that works, time, and room for plumbing
-  v.tLife = 4 * Math.pow(r,-1.5);          // Gyr of chemistry before a cell; stronger bonds hurry it
-  if (ainv===40) return st('broken','Electrons are held so tightly that atoms barely bond. No complex molecules can form.'), finish(out,c);
-  if (v.X < .1) return st('broken','There is no hydrogen, so there is no water. Chemistry has nothing to dissolve in.'), finish(out,c);
-  if (D===2) return st('broken','In two dimensions a gut would cut a creature in half. Nothing complex can hold together.'), finish(out,c);
+  st(v.planets<60? 'weak':'ok', D===2? 'Planets circle their stars in a flat plane.' : `Dust and metal clump into worlds around young stars.`, D===2? `${tag('D')} → planets circle in a flat plane` : 'Leftover dust and metal clump → rocky planets orbit the stars', D===2?'D':null);
+  // 8. Life
+  v.tLife = 4 * Math.pow(r,-1.5);
+  if (ainv===40) return st('broken','Electrons are held so tightly that atoms barely bond. No complex molecules can form.', `${tag('a')} → atoms hold their electrons too tightly to share → no complex molecules → no life`, 'a'), finish(out,c);
+  if (v.X < .1) return st('broken','There is no hydrogen, so there is no water. Chemistry has nothing to dissolve in.', `${tag('s')} → no hydrogen → no water → no life`, 's'), finish(out,c);
+  if (D===2) return st('broken','In two dimensions a gut would cut a creature in half. Nothing complex can hold together.', `${tag('D')} → a gut would cut a creature in two → no complex life`, 'D'), finish(out,c);
   const avail = Math.min(v.tau, v.crunch-1);
-  if (avail < v.tLife) return st('broken', v.crunch-1 < v.tau? `Life needs about ${fmtT(v.tLife)} of quiet chemistry, but space recollapses after ${fmtT(v.crunch)}.` : `Life needs about ${fmtT(v.tLife)} of quiet chemistry, but stars burn out after ${fmtT(v.tau)}.`), finish(out,c);
-  st(avail < v.tLife*1.3? 'weak':'ok', `A molecule copies itself after ${fmtT(v.tLife)}`+(ainv===80? ', helped by sticky chemistry.' : ainv===300? ', slowly, with feeble bonds.' : '.'));
-  // 9. Minds: evolution needs a long, stable run after life starts
+  if (avail < v.tLife) { const lw = v.crunch-1 < v.tau? 'L' : (starLaw||'G'); return st('broken', v.crunch-1 < v.tau? `Life needs about ${fmtT(v.tLife)} of quiet chemistry, but space recollapses after ${fmtT(v.crunch)}.` : `Life needs about ${fmtT(v.tLife)} of quiet chemistry, but stars burn out after ${fmtT(v.tau)}.`,
+    v.crunch-1 < v.tau? `${tag('L')} → space collapses at ${fmtT(v.crunch)} → life (needs ${fmtT(v.tLife)}) never starts` : `${tag(lw)} → stars burn out in ${fmtT(v.tau)} → life (needs ${fmtT(v.tLife)}) never gets going`, lw), finish(out,c); }
+  st(avail < v.tLife*1.3? 'weak':'ok', `A molecule copies itself after ${fmtT(v.tLife)}`+(ainv===80? ', helped by sticky chemistry.' : ainv===300? ', slowly, with feeble bonds.' : '.'),
+    (ainv!==137? tag('a')+' → chemistry runs '+(ainv<137?'faster':'slower')+' → ' : 'Water, carbon and time → ')+`the first cells after ${fmtT(v.tLife)}`, ainv!==137?'a':null);
+  // 9. Minds
   v.tMind = v.tLife * 0.9;
-  if (avail < v.tLife + v.tMind) return st('broken', `Evolution needs another ${fmtT(v.tMind)}, and there isn't that long.`), finish(out,c);
-  st('ok', `After ${fmtT(v.tLife+v.tMind)}, something looks up and asks where all this came from.`);
+  if (avail < v.tLife + v.tMind) return st('broken', `Evolution needs another ${fmtT(v.tMind)}, and there isn't that long.`, `Stars or space run out after ${fmtT(avail)} → evolution needs ${fmtT(v.tLife+v.tMind)} → no minds`, starLaw||'G'), finish(out,c);
+  st('ok', `After ${fmtT(v.tLife+v.tMind)}, something looks up and asks where all this came from.`, `Billions of quiet years → minds, after ${fmtT(v.tLife+v.tMind)}`);
   return finish(out,c);
 }
 function finish(out,c){
@@ -243,6 +269,7 @@ function finish(out,c){
 // Each asks for a kind of universe. Most need two or more laws turned together, with trade-offs.
 const ok = (o,name)=>{ const s=o.stages[STAGES.indexOf(name)]; return s.status==='ok'||s.status==='weak'; };
 const CHAL = [
+  {id:'first', n:'First experiment', d:'Change one law, gravity to 0.3×, and read what happens to the history.', t:(o,c)=>changed(c)===1 && val(c,'G')===0.3},
   {id:'ours', n:'Our kind of universe', d:'Leave the laws alone and let it run to minds.', t:(o,c)=>!changed(c) && ok(o,'Minds')},
   {id:'nocarbon', n:'Stars without carbon', d:'Stars that shine, but never make carbon.', t:o=>ok(o,'First stars') && !ok(o,'Carbon')},
   {id:'noplanets', n:'Galaxies but no planets', d:'Carbon and galaxies, and yet not one world.', t:o=>ok(o,'Carbon') && !ok(o,'Planets')},
@@ -369,14 +396,54 @@ function renderStats(){
   document.getElementById('stats').innerHTML = rows.map(([k,x])=>`<span class="k">${k}</span><span class="v">${x}</span>`).join('');
   document.getElementById('meta').textContent=`${Object.keys(M.chal).length}/${CHAL.length} challenges · ${M.bangs} universes`;
 }
+// Each law is a card: what it is in everyday words, what turning it up or down does, a tiny live picture,
+// and for the setting you point at: "in our universe … / at this setting …".
+const TUT_STEPS=['Tap <b>0.3×</b> on Gravity (weaker gravity).','Press <b>Bang</b>, then <b>Skip to the end</b> if you like.','Read the <b>History</b> tab: which links changed, and why?'];
 function renderLaws(){
-  const act=M.active? CHAL.find(c=>c.id===M.active) : null;
-  let h=(act? `<div class="chal act"><b>Challenge: ${act.n}</b><span>${act.d}</span><div class="best">Attempt ${(M.att[act.id]||0)+1}</div></div>` : '')+`<div class="bangRow"><button class="primary" id="bangBtn">Bang</button><button id="oursBtn">Our laws</button></div><div class="dist">${changed(M.consts)? `${changed(M.consts)} law${changed(M.consts)>1?'s':''} changed from ours` : 'These are the laws of our universe.'}</div>`;
-  for (const l of LAWS) h+=`<div class="law"><div class="nm">${l.n}</div><div class="d">${l.d}</div><div class="opts">${l.opts.map((o,j)=>`<button data-k="${l.k}" data-j="${j}" class="${M.consts[l.k]===j?'on':''} ${j===l.def?'ours':''}">${o[0]}</button>`).join('')}</div></div>`;
+  const act=M.active? CHAL.find(c=>c.id===M.active) : null; const tut=!M.chal.first;
+  let h=(tut? `<div class="tut"><b>Your first experiment</b><ol>${TUT_STEPS.map((t,i)=>`<li class="${(i===0&&M.consts.G===1)||(i===1&&M.consts.G===1&&M.consts.G!==OURS.G)?'now':''}">${t}</li>`).join('')}</ol><span class="dim">Change just one law and see what it does to the whole history.</span></div>` : '')+
+    (act? `<div class="chal act"><b>Challenge: ${act.n}</b><span>${act.d}</span><div class="best">Attempt ${(M.att[act.id]||0)+1}</div></div>` : '')+
+    `<div class="bangRow"><button class="primary" id="bangBtn">Bang</button><button id="oursBtn">Our laws</button></div><div class="dist">${changed(M.consts)? `${changed(M.consts)} law${changed(M.consts)>1?'s':''} changed from ours` : 'These are the laws of our universe.'}</div>`;
+  for (const l of LAWS){ const cur=l.opts[M.consts[l.k]];
+    h+=`<div class="law" data-law="${l.k}"><div class="lhead"><canvas class="prev" width="96" height="60" data-prev="${l.k}"></canvas><div><div class="nm">${l.n}</div><div class="d">${l.d}</div></div></div>
+      <div class="ud"><span>▲ ${l.up}</span><span>▼ ${l.down}</span></div>
+      <div class="opts">${l.opts.map((o,j)=>`<button data-k="${l.k}" data-j="${j}" class="${M.consts[l.k]===j?'on':''} ${j===l.def?'ours':''} ${tut&&l.k==='G'&&j===1&&M.consts.G!==1?'pulse':''}">${o[0]}</button>`).join('')}</div>
+      <div class="cmp" data-cmp="${l.k}">${cmpText(l, M.consts[l.k])}</div></div>`; }
   const el=document.getElementById('p-laws'); el.innerHTML=h;
-  el.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{ M.consts[b.dataset.k]=+b.dataset.j; SND.tick(); persist(); renderLaws(); renderStats(); });
+  el.querySelectorAll('[data-k]').forEach(b=>{ const l=LAWS.find(x=>x.k===b.dataset.k), j=+b.dataset.j; const show=()=>{ el.querySelector(`[data-cmp="${l.k}"]`).innerHTML=cmpText(l,j); }; const back=()=>{ el.querySelector(`[data-cmp="${l.k}"]`).innerHTML=cmpText(l,M.consts[l.k]); };
+    b.onmouseenter=show; b.onfocus=show; b.onmouseleave=back; b.onblur=back;
+    b.onclick=()=>{ M.consts[l.k]=j; SND.tick(); persist(); renderLaws(); renderStats(); }; });
   document.getElementById('bangBtn').onclick=bang;
   document.getElementById('oursBtn').onclick=()=>{ M.consts={...OURS}; persist(); renderLaws(); renderStats(); };
+}
+function cmpText(l,j){ const ours=l.opts[l.def], o=l.opts[j]; return j===l.def? `<b>In our universe (${ours[0].replace(/ \(.*\)/,'')}):</b> ${ours[2]}` : `<b>In our universe (${ours[0].replace(/ \(.*\)/,'')}):</b> ${ours[2]}<br><b>At ${o[0]}:</b> ${o[2]}`; }
+// Tiny live previews: what each law does, drawn for the setting currently chosen.
+function drawPreviews(now){
+  for (const c of document.querySelectorAll('canvas.prev')){ const k=c.dataset.prev, g=c.getContext('2d'), w=96, h=60, l=LAWS.find(x=>x.k===k), v=l.opts[M.consts[k]][1], t=now/1000;
+    g.fillStyle='#070a24'; g.fillRect(0,0,w,h); g.fillStyle=GOLD; g.strokeStyle=GOLD;
+    if (k==='G'){ // two clumps fall together; stronger gravity, faster
+      const per=Math.max(.6, 4/Math.sqrt(v)), ph=(t%per)/per; const sep=v<=0.1? 34 : 34*(1-ph*ph); for (const sx of [-1,1]){ for (let i=0;i<7;i++){ g.beginPath(); g.arc(w/2+sx*sep+Math.cos(i*2.4+sx)*5, h/2+Math.sin(i*2.4)*5, 1.6,0,7); g.fill(); } }
+      if (v>=10 && ph>.8){ g.fillStyle='#000'; g.beginPath(); g.arc(w/2,h/2,6,0,7); g.fill(); g.strokeStyle='#e6c36a'; g.beginPath(); g.arc(w/2,h/2,8,0,7); g.stroke(); } }
+    else if (k==='L'){ // dots drift apart (push) or fall together (pull)
+      const sp = v===-1? -1 : v*0.6; const ph=(t%4)/4; for (let i=0;i<12;i++){ const a=i*0.52, r0=10+(i%3)*5; const r = Math.max(2, r0*(1+sp*ph*1.8)); g.beginPath(); g.arc(w/2+Math.cos(a)*r, h/2+Math.sin(a)*r*.6, 1.6,0,7); g.fill(); } }
+    else if (k==='a'){ // electron orbit: tighter when α is stronger
+      const R=Math.max(5, 22*Math.pow(v/137,.5)); g.fillStyle='#ff8a6a'; g.beginPath(); g.arc(w/2,h/2,3,0,7); g.fill(); g.strokeStyle='rgba(230,195,106,.4)'; g.beginPath(); g.ellipse(w/2,h/2,R,R*.6,0,0,7); g.stroke(); g.fillStyle='#9fd0ff'; g.beginPath(); g.arc(w/2+Math.cos(t*3)*R, h/2+Math.sin(t*3)*R*.6, 2.2,0,7); g.fill(); }
+    else if (k==='s'){ // proton + neutron: fly apart (weak), stick (ours), two protons stick (strong)
+      const ph=(t%2.5)/2.5; const bound=v>=1; const pp=v>=1.05; const d = bound? 4.5 : 4.5+ph*24; g.fillStyle='#ff8a6a'; g.beginPath(); g.arc(w/2-d,h/2,4,0,7); g.fill(); g.fillStyle= pp? '#ff8a6a' : '#cfc7b0'; g.beginPath(); g.arc(w/2+d,h/2,4,0,7); g.fill();
+      g.fillStyle='#c8bd9c'; g.font='9px serif'; g.textAlign='center'; g.fillText(pp? 'p + p stick' : bound? 'p + n stick' : 'p, n fly apart', w/2, h-4); }
+    else if (k==='m'){ const n= v===-12? 4 : v===-10? 18 : 60; for (let i=0;i<n;i++){ const x=(i*37+t*6*(i%3+1))%w, y=(i*23)%h; g.fillRect(x,y,1.6,1.6); } }
+    else if (k==='D'){ g.fillStyle='#ffd27a'; g.beginPath(); g.arc(w/2,h/2,4,0,7); g.fill();
+      if (v===3){ g.strokeStyle='rgba(230,195,106,.35)'; g.beginPath(); g.ellipse(w/2,h/2,26,14,0,0,7); g.stroke(); g.fillStyle='#9fd0ff'; g.beginPath(); g.arc(w/2+Math.cos(t*1.5)*26, h/2+Math.sin(t*1.5)*14, 2.5,0,7); g.fill(); }
+      else if (v===4){ const ph=(t%3)/3, R=28*(1-ph); g.fillStyle='#9fd0ff'; g.beginPath(); g.arc(w/2+Math.cos(t*4)*R, h/2+Math.sin(t*4)*R*.55, 2.5,0,7); g.fill(); }
+      else { g.strokeStyle='rgba(230,195,106,.35)'; g.beginPath(); g.moveTo(8,h/2); g.lineTo(w-8,h/2); g.stroke(); g.fillStyle='#9fd0ff'; g.beginPath(); g.arc(w/2+Math.cos(t*1.5)*30, h/2, 2.5,0,7); g.fill(); } }
+  }
+}
+// The History tab: the whole causal chain in plain words, the broken link and its culprit law highlighted.
+function renderHistory(){
+  const el=document.getElementById('p-hist'); if (!run){ el.innerHTML='<p class="dim">Bang a universe and its history appears here, link by link.</p>'; return; }
+  const o=run.o, c=run.c; const k=run.done? STAGES.length : run.idx+1;
+  el.innerHTML=`<p class="small dim">Universe ${M.bangs}: ${lawStr(c)}.</p>`+o.stages.slice(0,k).map((st,i)=> st.status==='none'? `<div class="hl none"><b>${i+1}. ${st.name}</b><span>Never happens.</span></div>` :
+    `<div class="hl ${st.status}"><b>${i+1}. ${st.name}${st.law? ` <em>${LAWS.find(l=>l.k===st.law).short}</em>`:''}</b><span>${st.plain}</span>${st.status==='broken'? `<div class="culprit">The history breaks here. Culprit: <b>${lawTag(c,st.law)}</b>.</div>`:''}</div>`).join('');
 }
 function renderChal(){
   const el=document.getElementById('p-chal');
@@ -387,7 +454,8 @@ function renderChal(){
 function renderAtlas(){
   document.getElementById('p-atlas').innerHTML = M.atlas.length? `<p class="small dim">The last universes you made, and where each one broke.</p>`+M.atlas.map(a=>`<div class="atlas"><b>Universe ${a.n}</b> <span class="laws">${lawStr(a.c)}</span><div class="mini">${a.s.map(s=>`<i class="${s}"></i>`).join('')}</div>${a.broke? `<span class="dim">Broke at ${a.broke}</span>` : '<span>Reached minds.</span>'}</div>`).join('') : '<p class="dim">No universes yet. Set the laws and press Bang.</p>';
 }
-function renderAll(){ renderLaws(); renderStats(); renderChal(); renderAtlas(); renderEra(); }
+function renderAll(){ renderLaws(); renderStats(); renderChal(); renderAtlas(); renderHistory(); renderEra(); }
+function showTab(t){ document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x.dataset.t===t)); document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+t)); }
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+b.dataset.t)); });
 document.getElementById('skipBtn').onclick=(e)=>{ e.stopPropagation(); finishRun(); };
 
