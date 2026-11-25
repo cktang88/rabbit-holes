@@ -194,7 +194,7 @@ const SC = [
     medals: [['Goal met', S => S.goalMet], ['6,500 bushels', S => S.goalMet && S.harvest >= 6500], ['And no town ever floods', S => S.goalMet && S.harvest >= 6500 && S.maxFloods === 0]] },
   // the campaign continues: the same valley ten years on, your 1927 works still standing, and bigger floods coming
   { id: 'floodway', seed: 'levee', n: 'The Floodway', place: 'Mississippi · 1937', years: 20, sea: 3, erodeScale: .15, gen: (x, y, n) => swampGen(x, y, n), springs: [[.45, .03, 1.2]], stormY: .45,
-    storm: y => y === 4 ? 3 : y === 11 ? 5 : y % 3 === 1 ? .5 : 0, rain: .003, riverFlood: 60, inherit: 0,
+    storm: y => y === 4 ? 3 : y === 11 ? 5 : y % 3 === 1 ? .5 : 0, rain: .003, riverFlood: 40, inherit: 0,
     defaultPlan: [['farm', [62, 75]], ['farm', [62, 88]], ['farm', [62, 101]], ['farm', [84, 75]], ['farm', [84, 86]], ['farm', [50, 80]], ['levee', [84, 94], [110, 95]]],
     towns: [{ n: 'Upper Town', at: [[.6, .64], [.63, .7], [.57, .76]] }, { n: 'Lower Town', at: [[.52, .87], [.56, .9], [.6, .86]] }],
     kit: { farm: 14, levee: 8, cut: 4 }, budget: 14,
@@ -362,8 +362,10 @@ function stormNow() { return yStep < YEAR_STEPS * STORM_FRAC ? L.storm(year) : 0
 function step() {
   const dt = DT, gdt = G * dt, n1 = N - 1;
   simT += dt; stepped = true; simSteps++;
-  const st = spinning ? 0 : stormNow(), surge = 1 + (L.riverFlood || 0) * st; // some sites flood from upstream: the river itself swells
-  for (let i = 0; i < springs.length; i++) { const s = springs[i], a = 5 / 9 * dt * (s.q || 1) * surge; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) D[s.k + dy * N + dx] += a; }
+  const st = spinning ? 0 : stormNow();
+  for (let i = 0; i < springs.length; i++) { const s = springs[i], a = 5 / 9 * dt * (s.q || 1); for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) D[s.k + dy * N + dx] += a;
+    // some sites flood from upstream: a flood wave enters across the whole head of the valley, not out of one spring
+    if (st && L.riverFlood) { const w = 12, b = a * 9 * L.riverFlood * st / (2 * w + 1), row = ((s.k / N) | 0) + 6, x0 = s.k % N; for (let dx = -w; dx <= w; dx++) D[row * N + x0 + dx] += b; } }
   if (st) { const ymax = (N * L.stormY) | 0, a = L.rain * st * dt, gr = L.grass ? a * .75 : a; for (let k = 0; k < ymax * N; k++) D[k] += USE[k] === 2 ? a * .35 : USE[k] === 1 ? a : gr; } // ground cover sets the runoff: fields shed all of it, grass keeps some, forest most
   flux(dt, gdt, n1);
   seaInflowStep = waterStep(dt, n1);
@@ -396,7 +398,7 @@ function endYear() {
     if (w) { a.bu += v; a.silt += silt > .05; a.dry += wet < 1; a.lost += lost; }
   }
   lastYield = Math.round(y); harvest += lastYield;
-  let fl = []; const peaks = towns.map(t => t.peak); for (const t of towns) { if (t.wet && L.storm(year)) { t.floods++; fl.push(t.n); } /* standing water from an earlier flood isn't a new one */ t.flood.push(t.wet); t.wet = false; t.peak = 0; }
+  let fl = []; const peaks = towns.map(t => t.peak); for (const t of towns) { if (t.wet && !t.wasWet) { t.floods++; fl.push(t.n); } /* one flood is counted once, however many seasons the water stays */ t.wasWet = t.wet; t.flood.push(t.wet); t.wet = false; t.peak = 0; }
   // waves eat the coast; sand dropped by the river builds it back
   if (L.coastY) {
     const y0 = Math.round(L.coastY * (N - 1));

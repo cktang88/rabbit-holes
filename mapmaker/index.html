@@ -171,7 +171,7 @@ function buildWorld(seed){
   hashCoast();
 }
 const isLand=(x,y)=>{ const X=Math.floor(x/CELL), Y=Math.floor(y/CELL); if(X<0||Y<0||X>=GW||Y>=GH) return true; return land[Y*GW+X]===1; };
-const currentAt=(x,y)=> currents[Math.min(3,Math.floor(x/WX*4))+4*Math.min(2,Math.floor(y/WY*3))];
+const currentAt=(x,y)=> currents[Math.max(0,Math.min(3,Math.floor(x/WX*4)))+4*Math.max(0,Math.min(2,Math.floor(y/WY*3)))];
 
 // ===================== Instruments =====================
 const INST=[
@@ -326,9 +326,16 @@ function step(dt){
   nav.dist+=v*dt; nav.t+=dt; { const ce=cellOf(ship.bx,ship.by); nav.cells[ce]=(nav.cells[ce]||0)+dt; }
   if (!doubtWarned && estErr()>TOL*1.5){ doubtWarned=true; logE(`We are not sure where we are (±${Math.round(estErr())} miles). Take bearings, or lift the quill.`); }
   // land is always in sight close to: the lookout calls it and we heave to before we touch
-  let landAhead=false; for (let r=2;r<=14;r+=3) if (isLand(ship.x+Math.cos(trueH)*r, ship.y+Math.sin(trueH)*r)){ landAhead=true; break; }
-  if (landAhead || isLand(nx,ny)){ ship.sail=0; target=null; if (performance.now()-(step.landT||-1e9)>3000){ step.landT=performance.now(); RH.toast('Land ahead! We hove to.'); VOICE.call(); } }
-  else { ship.x=nx; ship.y=ny; }
+  // the helmsman bears away from land he can see: follow the shore at a safe distance and come back to the course once clear
+  const clearAt=(h)=>{ for (let r=2;r<=14;r+=3) if (isLand(ship.x+Math.cos(h)*r, ship.y+Math.sin(h)*r)) return false; return true; };
+  let mvx=nx, mvy=ny;
+  if (!clearAt(trueH) || isLand(nx,ny)){
+    let turn=null; for (let k=1;k<=10 && turn===null;k++) for (const sgn of (step.side||1)>0? [1,-1]:[-1,1]){ const dh=sgn*k*0.26; if (clearAt(trueH+dh)){ turn=dh; step.side=sgn; break; } }
+    if (turn===null){ ship.sail=0; target=null; if (performance.now()-(step.landT||-1e9)>3000){ step.landT=performance.now(); RH.toast('Land all round! We hove to.'); VOICE.call(); } mvx=ship.x; mvy=ship.y; }
+    else { ship.h+=turn; const h2=trueH+turn; mvx=ship.x+(Math.cos(h2)*v+c.x)*dt; mvy=ship.y+(Math.sin(h2)*v+c.y)*dt; if (isLand(mvx,mvy)){ mvx=ship.x; mvy=ship.y; }
+      if (performance.now()-(step.landT||-1e9)>6000){ step.landT=performance.now(); RH.toast('Bearing away to clear the land.'); } }
+  } else step.side=0;
+  ship.x=mvx; ship.y=mvy;
   // hidden dangers: breakers show over a reef in clear weather; in fog only the lead finds it
   reefs.forEach((r,k)=>{ const d=Math.hypot(r.x-ship.x,r.y-ship.y); if (d>32) return; const now=performance.now(); if (now-(r.warnT||-1e9)<10000) return; r.warnT=now;
     if (fogT<=0){ let a=Math.atan2(r.y-ship.y,r.x-ship.x)-trueH; a=Math.atan2(Math.sin(a),Math.cos(a)); const side= Math.abs(a)<0.5? 'ahead' : a>0? 'to starboard' : 'to port'; RH.toast(`Breakers ${side}!`); logE(`Breakers ${side}: a reef just under the water.`); VOICE.call(); }

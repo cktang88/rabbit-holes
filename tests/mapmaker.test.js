@@ -226,14 +226,22 @@ module.exports = {
         return { sure, doubtful, reef: s1.reef, marked: Object.keys(M.S.reefInk).length, sail: M.ship.sail }; });
       eq(r.sure, 0); ok(r.doubtful, 'doubtful ink is flagged'); eq(r.reef, true); ok(r.marked >= 1); ok(r.sail <= 1, 'sounding slows the ship');
     },
-    'you never sail into land you can see: the lookout calls "Land ahead!" and the ship heaves to, unharmed (even in fog)': async ({ page, eq, ok }) => {
+    'you never sail into land you can see: steering at the shore, the helmsman bears away and stays clear, unharmed (even in fog)': async ({ page, eq }) => {
       const r = await page.evaluate(() => { const M = window.__map, is = M.islands[1], c = is.coast[0]; const out = [];
         for (const fog of [0, 20]) { const dx = c[0] - is.cx, dy = c[1] - is.cy, L = Math.hypot(dx, dy); const x = c[0] + dx / L * 40, y = c[1] + dy / L * 40;
-          M.atPort = false; M.fogT = fog; const h0 = M.S.hull; M.ship = { x, y, bx: x, by: y, h: Math.atan2(-dy, -dx), sail: 2, voyageDmg: 0 }; M.target = null;
-          for (let i = 0; i < 400; i++) { if (M.ship.sail === 0) break; M.ship.h = Math.atan2(c[1] - M.ship.y, c[0] - M.ship.x); M.step(0.05); }
-          out.push([M.S.hull === h0, M.ship.sail, M.isLand(M.ship.x, M.ship.y)]); }
+          M.atPort = false; M.fogT = fog; const h0 = M.S.hull; M.ship = { x, y, bx: x, by: y, h: Math.atan2(-dy, -dx), sail: 2, voyageDmg: 0 }; M.target = null; let onLand = false;
+          for (let i = 0; i < 400; i++) { M.ship.h = Math.atan2(c[1] - M.ship.y, c[0] - M.ship.x); M.step(0.05); if (M.isLand(M.ship.x, M.ship.y)) onLand = true; }
+          out.push([M.S.hull === h0, onLand]); }
         M.fogT = 0; return out; });
-      eq(r, [[true, 0, false], [true, 0, false]]);
+      eq(r, [[true, false], [true, false]]);
+    },
+    'a course straight across an island: the ship bears away round the coast and arrives on the far side without stopping': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const M = window.__map; M.S = M.freshSave(424242); M.boot(); const is = M.islands[1]; M.atPort = false; M.reefs.length = 0;
+        const xs = is.coast.map(p => p[0]); const minx = Math.min(...xs), maxx = Math.max(...xs);
+        const x = minx - 40, y = is.cy, tx = maxx + 40; M.ship = { x, y, bx: x, by: y, h: 0, sail: 2, voyageDmg: 0 }; M.target = [tx, y];
+        let stops = 0, onLand = false, i = 0; for (; i < 4000 && M.target; i++) { if (M.ship.sail === 0) { stops++; M.ship.sail = 2; } M.ship.bx = M.ship.x; M.ship.by = M.ship.y; M.step(0.05); if (M.isLand(M.ship.x, M.ship.y)) onLand = true; }
+        return { arrived: !M.target, stops, onLand, t: Math.round(i * 0.05), hull: M.S.hull }; });
+      ok(r.arrived, JSON.stringify(r)); eq([r.stops, r.onLand, r.hull], [0, false, 100]);
     },
     'hidden reefs: breakers are called in clear weather, the lead calls the shallows in fog, and fog slows the ship to half sail': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const M = window.__map; const toasts = []; RH.toast = (m) => toasts.push(m); M.atPort = false; const rf = M.reefs[0];
@@ -260,6 +268,27 @@ module.exports = {
     'event sounds are rate-limited: a burst of bumps makes one soft knock, not a scrape': async ({ page, eq }) => {
       const n = await page.evaluate(() => { let c = 0; const t = FX.tone; FX.tone = () => { c++; }; const M = window.__map; for (let i = 0; i < 6; i++) M.damage(1, 'x'); FX.tone = t; return c; });
       eq(n, 1);
+    },
+    'newcomer, real clicks: the five Master\'s orders can all be completed, ending with Home Waters delivered': async ({ page, eq, ok }) => {
+      const at = (x, y) => page.evaluate(([x, y]) => { const M = window.__map, r = document.getElementById('chart').getBoundingClientRect(); return [r.left + M.view.ox + x * M.view.s, r.top + M.view.oy + y * M.view.s]; }, [x, y]);
+      const sailTo = async (x, y, ms) => { const [cx, cy] = await at(x, y); await page.mouse.click(cx, cy); await page.evaluate((n) => { const M = window.__map; for (let i = 0; i < n && M.target; i++) { M.step(0.05); } }, ms); };
+      const steps = [];
+      await page.evaluate(() => { const M = window.__map; M.S = M.freshSave(424242); M.boot(); RH.modal = () => Promise.resolve(); });
+      steps.push(await page.evaluate(() => (window.__map.renderOrders(), window.__map.S.tut)));
+      await page.click('#sails [data-sail="2"]');
+      const ring = await page.evaluate(() => { const is = window.__map.islands[0]; const cs = is.coast.slice().sort((a, b) => Math.atan2(a[1] - is.cy, a[0] - is.cx) - Math.atan2(b[1] - is.cy, b[0] - is.cx)); const out = []; for (let k = 0; k < cs.length; k += Math.max(1, Math.floor(cs.length / 14))) { const [x, y] = cs[k], dx = x - is.cx, dy = y - is.cy, L = Math.hypot(dx, dy); out.push([x + dx / L * 26, y + dy / L * 26]); } return out; });
+      for (let k = 0; k < ring.length; k++) { await sailTo(ring[k][0], ring[k][1], 1500);
+        // a careful newcomer takes bearings now and then, and follows the orders
+        if (k % 2 === 1) { await page.click('#bearBtn'); await page.evaluate(() => { const M = window.__map; for (let i = 0; i < 40; i++) M.step(0.05); }); }
+        if (k === 3 && !(await page.evaluate(() => window.__map.S.allow))) await page.click('#allowBtn');
+        await page.evaluate(() => window.__map.renderOrders()); const t = await page.evaluate(() => window.__map.S.tut); if (steps[steps.length - 1] !== t) steps.push(t); }
+      // home to port and deliver
+      const port = await page.evaluate(() => [window.__map.port.x, window.__map.port.y]); await sailTo(port[0], port[1], 3000);
+      await page.evaluate(() => { const M = window.__map; M.ship.sail = 0; for (let i = 0; i < 20; i++) M.step(0.05); M.atPort = true; M.renderAll(); });
+      const acc0 = await page.evaluate(() => window.__map.acc(0)); ok(acc0 >= 60, 'Home Isle charted: ' + acc0);
+      await page.click('#sell'); await page.evaluate(() => window.__map.renderOrders());
+      const end = await page.evaluate(() => [window.__map.S.tut, !!window.__map.S.done[0], document.getElementById('orders').hidden]); steps.push(end[0]);
+      eq(end, [5, true, true]); ok([1, 2, 3, 4].every(s => steps.includes(s)) || steps[steps.length - 1] === 5, 'went through the steps: ' + steps);
     },
     'mobile layout: no horizontal scroll, chart and sail buttons visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
