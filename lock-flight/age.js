@@ -11,7 +11,7 @@ const { W, H, N, C, idx, xy, inb, eucl, cheb, rng, isStream, ekey } = K;
 const E = {
   START: 1790, YEARS: 70, CAPITAL: 140,          // £k subscribed by the proprietors
   TOLLS: [.5, .75, 1, 1.5, 2], EPS: .65,         // toll levels; how much traffic a dearer toll drives off (before railways)
-  BUY: 8,                                        // years' purchase: value = cash + BUY × annual net income
+  BUY: 8, REV: .5,                      // tolls per boat-furlong, relative to the commissions                                        // years' purchase: value = cash + BUY × annual net income
   LOCAL: 1.2,                                    // share of every output that never travels far (by road, whatever you build)
   GROW: .2, DECAY: .04, OUT: 1.8, TGROW: .006, TSERVE: .035,
   RIVAL_LEAD: 36, WIND: 36,                      // months' warning of a rival canal; months in debt before the company is wound up
@@ -39,7 +39,7 @@ function newGame(seed, opt = {}) {
   let pc = -1, pa = -1; for (let c = 0; c < N; c++) { const [x, y] = xy(c); if ((x === 0 || y === 0 || x === W - 1 || y === H - 1) && M.acc[c] > pa && !places.some(p => cheb(p.c, c) < 4)) { pa = M.acc[c]; pc = c; } }
   const [px, py] = xy(pc), inset = idx(Math.min(W - 2, Math.max(1, px)), Math.min(H - 2, Math.max(1, py)));
   places.push({ type: 'port', c: inset, p: 5, p0: 5, name: (places.length ? places.reduce((a, b) => eucl(a.c, inset) < eucl(b.c, inset) ? a : b).name : 'Old') + ' Haven', born: 0 });
-  const G = { seed, M, places, D: K.newDesign(), cash: opt.capital ?? E.CAPITAL, m: 0, tolls: {}, closed: new Set(), rivals: [], rails: [], news: [], years: [], spent: 0, rev: 0, run: 0,
+  const G = { seed, M, places, D: K.newDesign(), cash: opt.capital ?? E.CAPITAL, m: 0, tolls: {}, mode: {}, fly: {}, unlocked: new Set(), log: [], opened: false, rivals: [], rails: [], news: [], years: [], spent: 0, rev: 0, run: 0,
     debt: 0, over: false, wound: -1, rngEv: rng(seed * 131 + 7), dirty: true, flowsY: null, yr: newYear(), valueHist: [], events: [] };
   M.towns = places; // the canal model routes between every place on the network
   spawn(G, 'coal', true); spawn(G, G.rngEv() < .5 ? 'pottery' : 'mill', true);
@@ -63,12 +63,12 @@ function spawn(G, type, initial) {
   for (let c = 0; c < N; c++) {
     const [x, y] = xy(c); if (x < 1 || y < 1 || x > W - 2 || y > H - 2 || taken(c)) continue;
     let w = 0;
-    if (type === 'coal') w = M.h[c] > 3.5 && !isStream(M, c) ? 1 + (M.h[c] - 3.5) * .3 : 0;
+    if (type === 'coal') w = M.h[c] > 2.4 && M.h[c] < 6.5 && !isStream(M, c) ? 1 : 0; // pits in the foothills
     else if (type === 'mill') w = isStream(M, c) && M.acc[c] < 40 ? 1 : 0;
     else if (type === 'pottery') { const t = nearestTown(G, c); w = t && eucl(t.c, c) < 6 ? 1 : 0; }
     else if (type === 'iron') w = G.places.some(p => p.type === 'coal' && eucl(p.c, c) < 7) ? 1 : 0;
     if (!w) continue;
-    if (!initial && cells.size) { let d = 99; for (const q of cells) { d = Math.min(d, cheb(q, c)); if (d <= 1) break; } w *= d <= 2 ? 7 : d <= 4 ? 2.5 : 1; } // industry follows the canal
+    if (!initial && cells.size) { let d = 99; for (const q of cells) { d = Math.min(d, cheb(q, c)); if (d <= 1) break; } w *= d <= 2 ? 1.5 : d <= 5 ? 5 : 1; } // industry settles near the canal, but a branch is still yours to dig
     cand.push([c, w]);
   }
   if (!cand.length) return null;
@@ -101,21 +101,26 @@ function routeFactors(G) {
   const an = G.an; G.cellPath = new Map(); G.D.paths.forEach((p, pi) => p.forEach(c => { if (!G.cellPath.has(c)) G.cellPath.set(c, pi); }));
   G.rf = an.routes.map(r => {
     const toll = routeToll(G, r), P = G.places, i = r.i, j = r.j, pot = G.pot[i][j] + G.pot[j][i];
-    let share = r.A * Math.pow(toll, -E.EPS);
+    // paired locks make boats wait for a partner; fly-boats (express, day and night) make them quicker
+    let t = r.t; for (const si of r.sites) if (G.mode[an.sites[si].key] === 'pair') t += 1.5 + an.sites[si].time;
+    const fly = r.cells.some(c => G.fly[G.cellPath.get(c)]); if (fly) t *= .7;
+    const A = Math.min(1, (1.3 * r.e / Math.max(t, .1)) ** 2);
+    let share = A * Math.pow(toll, -E.EPS);
     const rival = G.rivals.find(v => v.open && ((v.i === i && v.j === j) || (v.i === j && v.j === i)));
     if (rival) share *= .45;
     let rail = 1;
     if (railLinked(G, i, j)) { // the railway: fast, but dearer for heavy goods; a straight, cheap canal keeps much of its trade
-      const cc = Math.max(1, r.t / Math.max(1, r.e)) * Math.sqrt(toll) * (1 + .06 * r.sites.length), rc = (TYPES[P[i].type].rail + TYPES[P[j].type].rail) / 2;
+      const cc = Math.max(1, t / Math.max(1, r.e)) * Math.sqrt(toll) * (1 + .06 * r.sites.length), rc = (TYPES[P[i].type].rail + TYPES[P[j].type].rail) / 2;
       rail = 1 / (1 + Math.pow(cc / rc, E.RAILK)) * 1.6; rail = Math.min(1, rail);
     }
-    return { toll, pot, share: share * rail, rail, rival: !!rival, d: pot * share * rail };
+    return { toll, pot, A, t, fly, share: share * rail, rail, rival: !!rival, d: pot * share * rail };
   });
 }
 // a place is on the canal if the canal reaches its cell or passes beside it (a wharf and a short tramroad)
 function wharves(G) {
   const lv = G.D.lv; G.M.towns = G.places.map(p => { if (p.c in lv) return { c: p.c, p: p.p, name: p.name }; let w = -1, bh = 1e9; const [x, y] = xy(p.c);
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const q = idx(x + dx, y + dy); if (inb(x + dx, y + dy) && q in lv && lv[q] < bh) { bh = lv[q]; w = q; } }
+    const R = p.type === 'town' || p.type === 'port' ? 1 : 2; // industries can run a short tramroad down to the canal
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const q = idx(x + dx, y + dy); if (inb(x + dx, y + dy) && q in lv && lv[q] + Math.abs(dx) + Math.abs(dy) < bh) { bh = lv[q] + Math.abs(dx) + Math.abs(dy); w = q; } }
     return { c: w >= 0 ? w : p.c, p: p.p, name: p.name, wharf: w >= 0 }; });
 }
 function reanalyse(G) {
@@ -137,7 +142,7 @@ function build(G, D2) {
   G.cash -= price; G.spent += price; G.yr.built += price; G.D = D2; reanalyse(G); return price;
 }
 function setToll(G, pi, lv) { G.tolls[pi] = lv; routeFactors(G); }
-function setClosed(G, key, on) { if (on) G.closed.add(key); else G.closed.delete(key); }
+
 // ================= a month =================
 function step(G) {
   if (G.over) return null;
@@ -145,7 +150,12 @@ function step(G) {
   while (G.plan.length && G.plan[0].m <= G.m) event(G, G.plan.shift());
   for (const v of G.rivals) if (!v.open && !v.gone && G.m >= v.at) rivalDecides(G, v);
   if (G.dirty) { potentials(G); reanalyse(G); }
-  const rf = G.rf, rec = K.stepMonth(G.an, G.st, { demand: (r, ri) => rf[ri].d, revK: ri => rf[ri].toll, closed: G.closed });
+  const rf = G.rf, an = G.an, md = si => G.mode[an.sites[si].key];
+  const shut = new Set(Object.keys(G.mode).filter(k => G.mode[k] === 'shut'));
+  const coal = G.places.some((p, i) => p.type === 'coal' && an.cells.has(G.M.towns[i].c)); // coal at the wharf makes pumping cheap
+  const rec = K.stepMonth(an, G.st, { demand: (r, ri) => rf[ri].d, revK: ri => rf[ri].toll * E.REV, closed: shut, wK: si => md(si) === 'pair' ? .5 : 1, capK: si => md(si) === 'pair' ? .6 : 1, pumpK: coal ? .35 : 1.6 });
+  const flyRun = Object.keys(G.fly).filter(k => G.fly[k] && G.D.paths[k]).reduce((a, k) => a + .12 + .015 * G.D.paths[k].length, 0); rec.run += flyRun;
+  unlocks(G, rec, coal);
   G.cash += rec.rev - rec.run; G.rev += rec.rev; G.run += rec.run;
   const y = G.yr; y.rev += rec.rev; y.run += rec.run; y.boats += rec.boats; y.lostW += rec.lostW; y.lostC += rec.lostC; if (rec.dry.length) y.dry++;
   // who got served: each route's boats split between its two ends by what each was sending
@@ -195,11 +205,49 @@ function rivalDecides(G, v) {
   if (G.an.routes.some(q => (q.i === v.i && q.j === v.j) || (q.i === v.j && q.j === v.i))) { v.gone = true; news(G, 'Petition thrown out', `Your canal already joins ${G.places[v.i].name} and ${G.places[v.j].name}: the ${v.name} is refused its Act.`, 'good'); }
   else { v.open = true; G.dirty = true; news(G, `The ${v.name} opens`, `A rival carries ${G.places[v.i].name}–${G.places[v.j].name} trade. Join them yourself and you still win part of it back.`, 'rival'); }
 }
+// tools arrive as answers to the problems the player's own canal runs into
+const UNLOCK = {
+  res: ['A dry summit', 'Your summit pound has run dry. Dam a stream above it: the ⛲ Reservoir tool.'],
+  pair: ['Drought on the cut', 'Tap a flight: Paired working halves the water per boat (but boats wait), or Shut it to save the summit.'],
+  pump: ['Coal at the wharf', 'Coal is cheap now your canal reaches a pit: a steam back-pump can lift water up a flight.'],
+  double: ['Queues at the locks', 'A flight passes only so many boats. Tap it to double it (two chambers side by side).'],
+  plane: ['Steam on the hill', 'Inclined planes: a steam engine hauls boats up a slope, using no water at all.'],
+  fly: ['The railway comes', 'Fly-boats: tap a canal to run express boats day and night. Dear, but quick enough to keep trade from the trains.'],
+};
+function unlock(G, k) { if (G.unlocked.has(k)) return; G.unlocked.add(k); news(G, UNLOCK[k][0], UNLOCK[k][1], 'unlock').unlock = k; }
+function unlocks(G, rec, coal) {
+  if (!G.unlocked.has('res') && G.an.routes.some(r => r.pounds.some(pi => rec.fill[pi] < .2))) unlock(G, 'res');
+  if (!G.unlocked.has('pair') && (K.inDrought(G.M, G.m) && G.an.sites.length || rec.dry.length)) unlock(G, 'pair');
+  if (!G.unlocked.has('pump') && coal && G.an.sites.length) unlock(G, 'pump');
+  if (!G.unlocked.has('double') && rec.lostC > 1) unlock(G, 'double');
+  if (!G.unlocked.has('plane') && year(G) >= 1812 && coal) unlock(G, 'plane');
+  if (!G.unlocked.has('fly') && G.rails.length) unlock(G, 'fly');
+}
+// every player decision goes through act(), so a game is its seed plus a short log, and replays exactly
+function act(G, a) {
+  let ok = true;
+  if (a.k === 'build') { const D2 = K.dec(a.d); ok = !!D2 && build(G, D2) != null; }
+  else if (a.k === 'mode') { if (a.v === 'open') delete G.mode[a.key]; else G.mode[a.key] = a.v; routeFactors(G); }
+  else if (a.k === 'fly') { if (a.v) G.fly[a.pi] = 1; else delete G.fly[a.pi]; routeFactors(G); }
+  else if (a.k === 'toll') setToll(G, a.pi, a.v);
+  if (ok) G.log.push({ ...a, m: G.m });
+  return ok;
+}
+function replay(seed, log, until = Infinity, opt = {}) {
+  const G = newGame(seed, opt); let i = 0;
+  while (!G.over && G.m < until) { while (i < log.length && log[i].m <= G.m) act(G, log[i++]); if (G.m >= until) break; step(G); }
+  while (i < log.length && log[i].m <= G.m && G.m < until) act(G, log[i++]);
+  return G;
+}
+const encLog = log => log.map(a => [a.m.toString(36), a.k[0], a.k === 'build' ? a.d : a.k === 'mode' ? a.key + ':' + a.v[0] : a.pi + ':' + (a.v === true ? 1 : a.v === false ? 0 : a.v)].join('|')).join(' ');
+const decLog = s => { if (typeof s !== 'string' || !s) return []; const out = []; for (const t of s.split(' ')) { const [m, k, v] = t.split('|'); if (v == null) continue; const mm = parseInt(m, 36); if (!(mm >= 0)) continue;
+  if (k === 'b') out.push({ m: mm, k: 'build', d: v }); else if (k === 'm') { const [key, x] = v.split(':'); out.push({ m: mm, k: 'mode', key, v: { o: 'open', p: 'pair', s: 'shut' }[x] || 'open' }); } else if (k === 'f') { const [pi, x] = v.split(':'); out.push({ m: mm, k: 'fly', pi: +pi, v: x === '1' }); } else if (k === 't') { const [pi, x] = v.split(':'); out.push({ m: mm, k: 'toll', pi: +pi, v: +x || 1 }); } }
+  return out; };
 function score(G) { if (G.wound >= 0) return 0; return Math.round(value(G)); }
 // ================= the prospectus: what a design would earn over the next years, if nothing else changed =================
 function forecast(G, D2, months = 120) {
   const F = { ...G, M: { ...G.M }, places: G.places.map(p => ({ ...p })), D: K.clone(D2 || G.D), st: null, an: null, plan: [], rivals: G.rivals.map(v => ({ ...v })), rails: G.rails.map(r => r.slice()),
-    years: G.years.slice(-3), yr: newYear(), news: [], events: [], flowsY: null, cash: 1e9, debt: 0, over: false, wound: -1, tolls: { ...G.tolls }, closed: new Set(G.closed), dirty: false };
+    years: G.years.slice(-3), yr: newYear(), news: [], events: [], flowsY: null, cash: 1e9, debt: 0, over: false, wound: -1, tolls: { ...G.tolls }, mode: { ...G.mode }, fly: { ...G.fly }, unlocked: new Set(G.unlocked), log: [], dirty: false };
   potentials(F); reanalyse(F); const m0 = F.m; let net = 0, boats = 0, lostW = 0, lostC = 0, low = 1;
   for (let k = 0; k < months && m0 + k < E.YEARS * 12; k++) { const rec = step(F); if (!rec) break; net += rec.rev - rec.run; boats += rec.boats; lostW += rec.lostW; lostC += rec.lostC; for (const f of rec.fill) low = Math.min(low, f); }
   return { net, boats, lostW, lostC, low, an: F.an };
@@ -276,6 +324,6 @@ function staticBest(G) {
   if (D.paths.length) build(G, D);
   for (let k = 0; k < 2; k++) { const an = K.analyse(G.M, K.clone(G.D)); if (!an.pounds.length) break; const rc = K.bestReservoir(G.M, an, an.order[0]); if (rc < 0) break; const D2 = K.clone(G.D); D2.res.push(rc); if (build(G, D2) == null) break; }
 }
-const API = { forecast, E, TYPES, newGame, step, build, setToll, setClosed, costOf, value, score, year, branch, bot, STRATS, play, naive, staticBest, potentials, routeFactors, reanalyse, railLinked, onRail };
+const API = { act, replay, encLog, decLog, UNLOCK, unlock, forecast, E, TYPES, newGame, step, build, setToll, costOf, value, score, year, branch, bot, STRATS, play, naive, staticBest, potentials, routeFactors, reanalyse, railLinked, onRail };
 if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.AGE = API;
 })(typeof window !== 'undefined' ? window : globalThis);
