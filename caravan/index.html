@@ -173,6 +173,7 @@ function cleanCareer(raw){
   if (!Array.isArray(c.offers)) delete c.offers;
   if (!(Array.isArray(c.prices)&&c.prices.length===CITY_NAMES.length&&c.prices.every(p=>arr(p,GOODS.length)))) { delete c.prices; delete c.mods; }
   else if (!(Array.isArray(c.mods)&&c.mods.length===CITY_NAMES.length&&c.mods.every(p=>arr(p,GOODS.length)))) c.mods=CITY_NAMES.map(()=>GOODS.map(()=>1));
+  if (!(isObj(c.c2)&&isObj(c.c2.order)&&Number.isInteger(c.c2.order.g)&&Number.isInteger(c.c2.order.from)&&Number.isInteger(c.c2.order.to)&&c.c2.order.from<CITY_NAMES.length&&c.c2.order.to<CITY_NAMES.length&&c.c2.order.g<GOODS.length)) delete c.c2;
   if (!num0(c.done)) c.done=0; if (!num0(c.peak)) c.peak=0;
   return c; }
 let M = cleanMeta(RH.load('caravan-meta', null));
@@ -254,7 +255,7 @@ const gauss=()=>(rng()+rng()+rng()+rng()-2)*1.732;
 function tick(){ // one day passes
   C.day++;
   for (const c of cities){ for (let g=0;g<GOODS.length;g++){ c.drift[g]+= -c.drift[g]*DRIFT_K + DRIFT_SD*gauss(); const tgt=c.target[g]*c.mod[g]*Math.exp(c.drift[g])*season(g,C.day); c.price[g] += (tgt-c.price[g])*0.04 + rng.range(-0.02,0.02)*c.price[g]; c.price[g]=Math.max(0.5,c.price[g]); } c.closed=0; }
-  stepRivals();
+  stepRivals(); stepSecond();
   if (C.day%5===0) for (const c of cities){ (c.hist ||= []).push({day:C.day, p:c.price.slice()}); if (c.hist.length>14) c.hist.shift(); }
   // events
   for (const e of C.events){
@@ -273,6 +274,24 @@ function tick(){ // one day passes
   C.gold -= C.camels*0.05;
   if (C.gold<0){ // sell camels to pay
     if (C.camels>1){ C.camels--; C.gold+=15; logIt('You sold a camel to pay your debts.'); } else C.gold=0; }
+}
+// ===================== A second caravan on standing orders =====================
+// Once rich you can found a second caravan you never travel with. It repeats one run (buy a good in one city, sell it in another)
+// until you change the order, paying from your purse. The world keeps changing under it: events, rivals copying the run, drifting prices.
+const SECOND_COST=1500, SECOND_VALUE=600, SECOND_QTY=60;
+function foundSecond(order){ if (C.c2 || C.gold<SECOND_COST+200 || !setOrder(order,true)) return false; C.gold-=SECOND_COST; logIt(`🐪 A second caravan sets out under your colours: ${orderText(C.c2.order)}.`); if (!headless){ persist(); renderAll(); } return true; }
+function setOrder(o, fresh){ if (!o || o.from===o.to || !shortest(o.from,o.to)) return false;
+  if (fresh) C.c2={order:{...o}, at:o.from, leg:'buy', left:0, held:0, last:0, runs:0}; else { C.c2.order={...o}; logIt(`📜 New standing orders: ${orderText(o)}.`); }
+  if (!headless){ persist(); renderAll(); } return true; }
+const orderText=o=>`buy ${GOODS[o.g][0].toLowerCase()} in ${cities[o.from].name}, sell in ${cities[o.to].name}`;
+function stepSecond(){ const c2=C.c2; if (!c2) return; if (c2.left>0){ c2.left--; return; }
+  const o=c2.order;
+  if (c2.at!==o.from && !c2.held){ const p=shortest(c2.at,o.from); c2.left=p? p.days : 10; c2.at=o.from; return; } // ride (empty) to where it buys
+  if (c2.at===o.from && !c2.held){ const c=cities[o.from]; if (c.closed) { c2.left=5; return; } let n=0, spent=0; while (n<SECOND_QTY && C.gold>c.price[o.g]*1.03+50){ const pr=c.price[o.g]*1.03; C.gold-=pr; spent+=pr; c.price[o.g]*=1.004; n++; }
+    c2.held=n; c2.spent=spent; const p=shortest(o.from,o.to); c2.left=p? p.days : 10; c2.risk=p? 1-p.legs.reduce((a,l)=>a*(1-l.r.danger),1) : 0; c2.at=o.to; return; }
+  if (c2.held){ const c=cities[o.to]; if (c.closed){ c2.left=5; return; } if (rng()<(c2.risk||0)) { c2.held=Math.floor(c2.held*.5); logIt('⚔️ Bandits robbed your second caravan.'); }
+    let got=0; for (let k=0;k<c2.held;k++){ const pr=c.price[o.g]*0.97; C.gold+=pr; got+=pr; c.price[o.g]*=0.996; } c2.last=Math.round(got-(c2.spent||0)); c2.runs++; c2.held=0;
+    if (c2.runs%3===0 || c2.last<0) newsTo(`🐪 Your second caravan ${c2.last>=0?'made':'lost'} ${Math.abs(c2.last)}g on its last run (${orderText(o)}).`, o.to); }
 }
 // Rival houses: they buy a city's cheapest good, haul it to where it is dearest, and sell. Their buying lifts prices where they
 // load, their selling floods the market where they unload. They travel the same roads at the same speed, and you can see them.
@@ -334,7 +353,7 @@ function trade(g, qty){
     if (want>=C.cargo[g]+qty-1e-9 && C.cargo[g]>0){ const p=sellPrice(g)*C.cargo[g]; C.gold+=p; got+=p; qty+=C.cargo[g]; C.cargo[g]=0; } if (qty) { const profit=got-C.cost[g]*qty; if (C.cost[g]>0 && profit>5) coinBurst(profit); if (profit>250 && qty>=25) rivalCopy(g, C.at); if (C.firstJob&&!C.firstJob.done&&g===C.firstJob.g&&C.at===C.firstJob.to){ C.firstJob.done=1; setTimeout(()=>RH.toast(`First job done: ${profit>=0?'+':''}${Math.round(profit)}g. From here on, you choose: the Information tab buys you fresher prices.`,6000),300); } if (Math.abs(profit)>50) logIt(`Sold ${qty} ${GOODS[g][0].toLowerCase()} in ${c.name} for ${Math.round(got)}g (${profit>=0?'+':''}${Math.round(profit)}).`); } if (C.cargo[g]<0.01){ C.cargo[g]=0; C.cost[g]=0; } }
   see(C.at); netWorth(); if (!headless){ persist(); renderAll(); }
 }
-function netWorth(){ let w=C.gold + C.camels*25; const c=cities[C.at]; for (let g=0;g<GOODS.length;g++) w+=C.cargo[g]*c.price[g]*0.9; C.peak=Math.max(C.peak,w); return w; }
+function netWorth(){ let w=C.gold + C.camels*25 + (C.c2? SECOND_VALUE + (C.c2.held||0)*cities[C.c2.order.from].price[C.c2.order.g]*0.9 : 0); const c=cities[C.at]; for (let g=0;g<GOODS.length;g++) w+=C.cargo[g]*c.price[g]*0.9; C.peak=Math.max(C.peak,w); return w; }
 
 // ===================== Travel =====================
 const riskOf=legs=>1-legs.reduce((s,l)=>s*(1-banditChance(l.r)),1);
@@ -619,7 +638,7 @@ if (!C || C.ended){ newCareer(hashSeed ?? undefined); }
 else if (hashSeed!=null && hashSeed!==C.seed){ if (C.day===0) newCareer(hashSeed); else setTimeout(()=>RH.modal(`<h2>Another road</h2><p>This link is for a different road. Abandon your career on this one (day ${C.day}) and set out on the new road?</p>`,[{label:'Keep my career',value:0},{label:'Take the new road',value:1}]).then(v=>{ if (v) startRoad(hashSeed); else try { history.replaceState(null,'','#road='+C.seed); } catch(e){} }),600); }
 buildAndRender();
 if (C.day>=CAREER_DAYS) endCareer(); fit(); window.addEventListener('resize',fit); requestAnimationFrame(drawMap); requestAnimationFrame(loop);
-window.__caravan = { usual, quote, applyRoads, ROADS, buyCost, suggest, renderMarket, startRoad, dailySeed, hearNews, see, cam, maxBuy,  P0, zoomAt, get zoom(){ return cam.k; }, labelBoxes:()=>labels.slice(),  get headless(){ return headless; }, set headless(v){ headless=v; }, travelNow, starsFor, STAR_AT, GEO, rivalPos, newCareerSeed:(seed)=>{ traveling=null; plan=null; newCareer(seed); }, P, mapSegs:()=>mapBg&&mapBg.segs, get mapBg(){ return mapBg; }, get encountersOn(){ return encountersOn; }, set encountersOn(v){ encountersOn=v; }, ENC, resolveEncounter, maybeEncounter, renderEncounter, coins:()=>coins, get C(){ return C; }, get M(){ return M; }, get cities(){ return cities; }, get routes(){ return routes; }, get traveling(){ return traveling; }, GOODS, CAREER_DAYS, cleanCareer, cleanMeta, shortest, neighbors, trade, tick, planTo, travel, endCareer, netWorth, banditChance, buildAndRender, persist, load, cap };
+window.__caravan = { foundSecond, setOrder, SECOND_COST, usual, quote, applyRoads, ROADS, buyCost, suggest, renderMarket, startRoad, dailySeed, hearNews, see, cam, maxBuy,  P0, zoomAt, get zoom(){ return cam.k; }, labelBoxes:()=>labels.slice(),  get headless(){ return headless; }, set headless(v){ headless=v; }, travelNow, starsFor, STAR_AT, GEO, rivalPos, newCareerSeed:(seed)=>{ traveling=null; plan=null; newCareer(seed); }, P, mapSegs:()=>mapBg&&mapBg.segs, get mapBg(){ return mapBg; }, get encountersOn(){ return encountersOn; }, set encountersOn(v){ encountersOn=v; }, ENC, resolveEncounter, maybeEncounter, renderEncounter, coins:()=>coins, get C(){ return C; }, get M(){ return M; }, get cities(){ return cities; }, get routes(){ return routes; }, get traveling(){ return traveling; }, GOODS, CAREER_DAYS, cleanCareer, cleanMeta, shortest, neighbors, trade, tick, planTo, travel, endCareer, netWorth, banditChance, buildAndRender, persist, load, cap };
 if (!M.intro){ M.intro=1; persist(); RH.modal(`<h2>The Caravan</h2><p>Twenty-three cities from Chang'an to Constantinople. Silk is cheap in the east and dear in the west. Everyone knows that, and so do the six rival houses you'll see on the road, so the real money is in knowing <b>what's changed</b>. Markets drift from month to month; rivals buy out one city and flood another.</p><p>Your price book only holds what you've seen with your own eyes, and that goes out of date. News travels along the roads: arriving in a city, you hear its neighbours' prices, already days old. The domes on the map show how old your news is. Wars, plagues and famines change everything. The rumours usually arrive first.</p><p>You have two years: thirty or forty journeys. Make your house rich.</p>`,[{label:'Load the camels'}]); }
 </script>
 </body>

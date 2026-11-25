@@ -1,6 +1,7 @@
 // A strong trader for Caravan (run in the page), with each surviving decision switchable, for the ablation tests.
 //  qty:       'suggest' buys up to where one more unit stops paying (what the slider suggests) | 'fill' always buys all it can afford
 //  stale:     'discount' expects an old quote to have drifted back towards the city's usual price | 'trust' takes it at face value
+//  second:    true founds a second caravan when rich and keeps its standing order on a run it judges good, changing it when it loses
 //  news:      true uses the events it has heard of (a festival, a glut, a plague) when judging a market | false ignores them
 function strongTrader(seed, opt) {
   const K = window.__caravan; K.encountersOn = false; K.headless = true; K.newCareerSeed(seed);
@@ -28,6 +29,9 @@ function strongTrader(seed, opt) {
       return best; };
     const best = plan(null, C.gold);
     let to;
+    if (opt.second && best && best.v > 0) { const o = { g: best.g, from: C.at, to: best.to };
+      if (!C.c2 && C.gold > K.SECOND_COST + 2500 && C.day < K.CAREER_DAYS - 150) K.foundSecond(o);
+      else if (C.c2 && (C.c2.last < 0 || C.day - (C.c2.set || 0) > 150) && best.prof > 0) { K.setOrder(o); C.c2.set = C.day; } }
     if (!best || best.v <= 0) { let sc = null; for (const d of cities) { if (d.id === C.at) continue; const p = sp(d.id); if (!p) continue; const age = C.book[d.id] ? C.day - C.book[d.id].day : 999, v = age / (p.days + 5); if (!sc || v > sc.v) sc = { v, to: d.id }; } to = sc ? sc.to : null; }
     else { to = best.to; K.trade(best.g, best.qty); }
     if (to === C.at) to = null;

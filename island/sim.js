@@ -194,7 +194,8 @@
       if (S.herd && c) { let h = 0; for (let q = head[j]; q >= 0 && h < 6; q = nxt[q]) if (w.sp[q] === S.i) h++; v += .06 * h; }   /* goats keep together in herds */
       if (S === P[IDX.deer] && isl.bank[j] && w.fear[j] < .2) v += .15;   // deer love the lush riverbanks, if it is safe
       if (v > bv) { bv = v; best = j; } }
-    if (fenced && w.fence[best]) { for (const j of nbr8(best)) if (!w.fence[j] && isl.land[j]) { best = j; break; } }   // pushed out of a new fence
+    if (fenced && w.fence[best]) { const bx = best % GW, by = (best / GW) | 0;   // pushed out of a new fence, to the nearest open ground
+      out: for (let d = 1; d <= 4; d++) for (let dy = -d; dy <= d; dy++) for (let dx = -d; dx <= d; dx++) { if (Math.max(Math.abs(dx), Math.abs(dy)) !== d) continue; const x = bx + dx, y = by + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const j = y * GW + x; if (!w.fence[j] && isl.land[j]) { best = j; break out; } } }
     i = moveTo(w, k, best);
     let want = Math.min(S.bite, S.Emax - w.E[k] + S.cost);
     for (const [d, p] of S.diet) { if (want <= 0) break; const fl = w.f[d]; const avail = Math.max(0, browse(d, fl[i])) * FOOD * .5 * p; const take = Math.min(want, avail); fl[i] -= (d === 'tree' && fl[i] >= .35 ? .3 : 1) * take / FOOD;   /* a grown tree only loses bark and low leaves */ want -= take; w.E[k] += take; }
