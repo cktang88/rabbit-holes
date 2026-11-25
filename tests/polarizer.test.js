@@ -83,7 +83,7 @@ module.exports = {
         const X = window.__pz, out = [];
         const H = (i, parts) => { const h = X.simulate(X.LV[i], parts.map(([t, x, y, a = 0, m = 1]) => ({ t, x, y, a, m }))).hits, o = {}; for (const k in h) o[k] = h[k].p; return o; };
         X.LV.forEach((lv, i) => {
-          if (lv.free || lv.crate) return;
+          if (lv.free || lv.crate || lv.job) return;
           const atStart = lv.test(H(i, []), {}), sol = SOL[i];
           let solved;
           if (lv.boomBudget) { const h = H(i, sol); solved = h.D2 > .2; } // the bomb level is won by firing; checked below
@@ -272,9 +272,40 @@ module.exports = {
       await page.click('.pz-fit'); await page.waitForTimeout(450);
       eq(await page.evaluate(() => [__pz.cam.k, __pz.cam.x, __pz.cam.y]), [1, 0, 0], 'Fit returns to the fitted board');
     },
+    'workshop: jobs are deterministic per seed, always buildable from the drawer, and harder grades ask for more': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const X = __pz, o = { det: true, solved: 0, n: 0, trayOk: 0, empty: 0, nulls: 0, dets: {}, cost: {} };
+        for (let rung = 1; rung <= 7; rung++) for (let sd = 1; sd <= 12; sd++) { const a = X.genJob(sd, rung), b = X.genJob(sd, rung); if (!a) { o.nulls++; continue; }
+          if (JSON.stringify(a) !== JSON.stringify(b)) o.det = false; o.n++;
+          const h = X.simulate(a, a.ref).hits, H = {}; for (const k in h) H[k] = h[k].p; if (X.jobPass(a, H)) o.solved++;
+          const c = {}; for (const p of a.ref) c[p.t] = (c[p.t] || 0) + 1; if (Object.entries(c).every(([t, n]) => (a.tray[t] || 0) >= n)) o.trayOk++;
+          const h0 = X.simulate(a, []).hits, H0 = {}; for (const k in h0) H0[k] = h0[k].p; if (X.jobPass(a, H0)) o.empty++;
+          (o.dets[rung] ||= []).push(a.fixed.filter(f => f.t === 'det').length); (o.cost[rung] ||= []).push(a.par.cost); }
+        o.differ = JSON.stringify(X.genJob(1, 3)) !== JSON.stringify(X.genJob(2, 3)); return o; });
+      ok(r.det && r.differ, 'same seed, same job; seeds differ'); eq(r.nulls, 0, 'every seed gives a job');
+      eq(r.solved, r.n, 'the reference build delivers every job'); eq(r.trayOk, r.n, 'the drawer always holds the reference parts'); eq(r.empty, 0, 'no job is done by the bare table');
+      const avg = a => a.reduce((x, v) => x + v, 0) / a.length; ok(avg(r.cost[7]) > avg(r.cost[1]) * 3 && avg(r.dets[7]) > avg(r.dets[1]), 'later grades ask for more: ' + JSON.stringify([avg(r.cost[1]), avg(r.cost[7])]));
+    },
+    'workshop difficulty: random builds from the drawer almost never deliver; the reference build does, and a better build scores more stars': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const X = __pz; let rs = 7; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647; let wins = 0, tries = 0;
+        for (let rung = 1; rung <= 7; rung++) for (let sd = 20; sd < 26; sd++) { const J = X.genJob(sd, rung), taken = new Set([...J.fixed, ...J.sources].map(p => p.x + ',' + p.y));
+          for (let k = 0; k < 6; k++) { tries++; const parts = []; for (const [t, n] of Object.entries(J.tray)) for (let q = 0; q < n; q++) { if (rnd() < .3) continue; let x, y, g = 0; do { x = (rnd() * 15) | 0; y = (rnd() * 9) | 0; } while ((taken.has(x + ',' + y) || parts.some(p => p.x === x && p.y === y)) && g++ < 50);
+              parts.push({ t, x, y, a: Math.round(rnd() * 36) * 5, m: rnd() < .5 ? 1 : 0 }); }
+            const h = X.simulate(J, parts).hits, H = {}; for (const k in h) H[k] = h[k].p; if (X.jobPass(J, H)) wins++; } }
+        return { wins, tries }; });
+      ok(r.wins / r.tries <= .03, `random builds delivered ${r.wins}/${r.tries}`);
+      // play a job through the UI: the reference build delivers; a cheaper rebuild (same job, fewer mirrors) is recorded as better
+      const s = await page.evaluate(() => { FX.setMuted(true); const X = __pz; for (let i = 0; i < 4; i++) X.SAVE.done[i] = 1; X.openJob(4, 1); const J = X.job;
+        for (const p of J.ref) X.addPart(p.t, p.x, p.y, p.a, p.m); const best = X.SAVE.ws.best['4-1']; return { won: X.won, best, par: J.par, hash: location.hash, toast: document.getElementById('toast').textContent }; });
+      ok(s.won && s.best && s.best[0] === s.par.cost, 'reference build delivered and recorded: ' + JSON.stringify(s)); ok(/#job=4-1/.test(s.hash) && /Delivered/.test(s.toast), 'job in the URL, delivery toast');
+      // reload: the workshop reopens the same job, with the best kept
+      await page.reload(); await page.waitForTimeout(400);
+      eq(await page.evaluate(() => [__pz.job.seed, __pz.job.rung, document.getElementById('title').textContent]), [4, 1, 'Optics Workshop']);
+      ok(await page.evaluate(() => /Your best/.test(document.getElementById('goal').textContent)), 'best shown on the job card');
+      ok(await page.evaluate(() => localStorage.getItem('rh:polarizer').length < 2000), 'compact save');
+    },
     'progress and locked levels': async ({ page, eq, ok }) => {
       const locked = await page.$$eval('#levels .lv.lock', els => els.map(e => +e.dataset.i));
-      eq(locked, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+      eq(locked, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12]);
       await page.evaluate(() => __pz.load(5)); eq(await page.textContent('#title'), 'Crossed Filters', 'locked level reachable');
       await page.evaluate(() => __pz.load(11)); eq(await page.textContent('#title'), 'Lab Sandbox', 'sandbox is always open');
       await page.evaluate(() => { __pz.load(0); __pz.addPart('pol', 7, 4, 45); });
@@ -304,7 +335,7 @@ module.exports = {
     'no console errors at phone and desktop sizes; panels do not overlap the table': async ({ page, ok }) => {
       for (const [w, h] of [[390, 844], [1280, 800]]) {
         await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300);
-        for (let i = 0; i < 12; i++) await page.evaluate(i => { __pz.SAVE.done[i] = 1; __pz.load(i); }, i);
+        for (let i = 0; i < 13; i++) await page.evaluate(i => { __pz.SAVE.done[i] = 1; __pz.load(i); }, i);
         const r = await page.evaluate(() => { const hud = document.getElementById('hud').getBoundingClientRect(), tray = document.getElementById('tray').getBoundingClientRect(); return { hudB: hud.bottom, trayT: tray.top, trayR: tray.right, W: innerWidth, sw: document.documentElement.scrollWidth }; });
         ok(r.trayR <= r.W + 1 && r.sw <= r.W, `horizontal overflow at ${w}`);
         ok(r.hudB < r.trayT, `hud overlaps tray at ${w}`);
