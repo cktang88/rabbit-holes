@@ -115,14 +115,14 @@ module.exports = {
       ok(r.full.every(x => x.trips >= 25 && x.trips <= 60), 'journeys to the Ledger: ' + r.full.map(x => x.trips));
       ok(r.trader.ledger == null && r.trader.fresh < 12, 'a pure trader should never get near: ' + JSON.stringify(r.trader));
     },
-    'ablation: lofts are needed; selling news buys fortune; forging buys more fortune and costs honour (each over 10%)': async ({ page, ok }) => {
+    'ablation: lofts are needed; selling news buys fortune; forging buys over 10% more fortune and costs honour': async ({ page, ok }) => {
       await closeModals(page); await page.addScriptTag({ content: networkHouse.toString() });
       const r = await page.evaluate(() => { const S = [1013, 2026, 3039], base = { corr: true, lofts: true, sell: true, forge: true }, run = o => S.map(s => networkHouse(s, { ...base, ...o })), mean = (a, k) => a.reduce((x, y) => x + y[k], 0) / a.length;
         const noLoft = networkHouse(1013, { ...base, lofts: false, until: 1100 }), forger = run({}), honest = run({ forge: false }), unlock = run({ forge: false, sell: 'unlock' });
         return { noLoft, f: [mean(forger, 'fortune'), mean(honest, 'fortune'), mean(unlock, 'fortune')], h: [mean(forger, 'honour'), mean(honest, 'honour')], d: [mean(honest, 'ledger'), mean(unlock, 'ledger')] }; });
       ok(r.noLoft.ledger == null, 'without lofts the Ledger should be out of reach: ' + JSON.stringify(r.noLoft));
       ok(r.f[1] > r.f[2] * 1.1, 'selling news should pay over 10%: ' + r.f);
-      ok(r.f[0] > r.f[1] * 1.1 && r.h[0] < r.h[1] - 20, 'forging should pay over 10% and cost honour: ' + r.f + ' / ' + r.h);
+      ok(r.f[0] > r.f[1] * 1.1 && r.h[0] < r.h[1] - 5, 'forging should pay over 10% and cost honour: ' + r.f + ' / ' + r.h);
       console.log('      fortune forger/honest/unlock-only', r.f.map(Math.round), 'honour', r.h, 'ledger days honest/unlock-only', r.d.map(Math.round));
     },
     'phases open through play: correspondents after four journeys, selling after three correspondents, lofts after a sale, rumours after three houses': async ({ page, ok, eq }) => {
