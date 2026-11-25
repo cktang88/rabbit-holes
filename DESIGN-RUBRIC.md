@@ -186,3 +186,12 @@ Each move has a definition, two examples, and an application to a science or his
 1. **What is the verb, and could you describe it without naming the genre?** If the answer is "click to earn, buy upgrades," it is yet another clicker. If it is "cross-examine a manifest" or "rewrite gravity," you have something.
 2. **What changes when the player learns?** Does mastery change *what the game is* (a phase shift, a hidden layer, knowledge as the key, rules becoming editable), or only how fast numbers grow? Something should be revealed on the second hour, not just made bigger.
 3. **What is the game *about*, and do the mechanics say it?** Remove the theme text. Does the system still make the argument (exponential growth, bureaucratic complicity, the scale of the universe)? If the theme is only a skin, the pitch is a reskin.
+
+## House rule: explorables are welcome, but the bar is high (from the owner)
+Not everything has to be a game. An interactive educational piece (an "explorable explanation" in the vein of Bartosz Ciechanowski's articles, Nicky Case's explorables, or neal.fun's essays) is a valid entry, provided it clears a high bar:
+- **Deep interaction, not decoration.** Every section has something to manipulate that changes what you see, and the manipulation *is* the explanation. Sliders that only animate a diagram don't count.
+- **Linked, layered interactives.** Several interactives build on each other; what you discover in one becomes a tool or a parameter in the next, ending in a sandbox where everything combines.
+- **Predict, then reveal.** Ask the reader to commit a guess before the system answers, so the surprise lands.
+- **The reader can author something.** End in an open-ended toy or challenge where the reader makes, tests or shares their own creation.
+- **Same craft bar as the games:** its own world and look, phone-first touch, 60fps, no walls of text (short paragraphs between interactions), real science underneath.
+Judge explorables on time-to-first-interaction (#9), interactions that surprise (#4), a ratchet of new ideas (#11), a visible "what's that?" (#12), and a shareable artefact (#8). They need not hit #2, #3 or #10.
