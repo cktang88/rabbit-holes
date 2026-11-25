@@ -107,7 +107,7 @@
 // along that mode's field, and it stops where it is when the note ends, so order and length both matter: C then E is
 // not E then C. A commission shows a picture in sand; compose the score that draws it. Later the finger (which turns
 // twin modes and silences others) and the drill and saw (new plate shapes, new modes, new fields) rewrite the vocabulary.
-const G = 64, NS = 2400, BEAT_STEPS = 24, BEAT_MS = 300, KDRIFT = .004, KJIT = .03, VMAX = .018, MG = 16;
+const G = 128, NS = 2400, BEAT_STEPS = 24, BEAT_MS = 300, KDRIFT = .004, KJIT = .03, VMAX = .018, MG = 16;
 const DURS = [.25, .5, 1, 2], DUR_TXT = { .25: '¼', .5: '½', 1: '1', 2: '2' };
 const NOTE_N = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 const noteName = f => { const n = Math.round(12 * Math.log2(f / 440)) + 69; return NOTE_N[n % 12] + (Math.floor(n / 12) - 1); };
@@ -227,11 +227,16 @@ function sandStart(pl, start, n) {
 // one step of a note: drift down the slope of u², plus a kick as big as the local motion; into a hole and the grain is gone
 function sandStep(s, pl, F, r) {
   if (F.dead) { if (s.amp) s.amp.fill(0); return; } const { sx, sy, lost, n } = s, { u, gx, gy } = F, hi = s.hi, out = hi ? hi.out : pl.outline, mask = hi ? hi.mask : pl.mask, MS = hi ? hi.S : G;
+  const amps = s.amp, Gm = G - 2;
   for (let i = 0; i < n; i++) { if (lost[i]) continue;
-    const x = sx[i], y = sy[i], fx = x * G - .5, fy = y * G - .5, i0 = Math.max(0, Math.min(G - 2, Math.floor(fx))), j0 = Math.max(0, Math.min(G - 2, Math.floor(fy))), ax = Math.min(1, Math.max(0, fx - i0)), ay = Math.min(1, Math.max(0, fy - j0)), c = j0 * G + i0;
-    const bl = A => (A[c] * (1 - ax) + A[c + 1] * ax) * (1 - ay) + (A[c + G] * (1 - ax) + A[c + G + 1] * ax) * ay;
-    const amp = Math.abs(bl(u)); if (s.amp) s.amp[i] = amp; const jx = (r() - .5) * KJIT * amp, jy = (r() - .5) * KJIT * amp;
-    let vx = -KDRIFT * bl(gx), vy = -KDRIFT * bl(gy); const vm = Math.hypot(vx, vy); if (vm > VMAX) { vx *= VMAX / vm; vy *= VMAX / vm; }
+    const x = sx[i], y = sy[i], fx = x * G - .5, fy = y * G - .5;
+    let i0 = fx | 0, j0 = fy | 0; if (fx < 0) i0 = 0; if (fy < 0) j0 = 0; if (i0 > Gm) i0 = Gm; if (j0 > Gm) j0 = Gm;
+    let ax = fx - i0, ay = fy - j0; if (ax < 0) ax = 0; else if (ax > 1) ax = 1; if (ay < 0) ay = 0; else if (ay > 1) ay = 1;
+    const c = j0 * G + i0, w00 = (1 - ax) * (1 - ay), w10 = ax * (1 - ay), w01 = (1 - ax) * ay, w11 = ax * ay;
+    let amp = u[c] * w00 + u[c + 1] * w10 + u[c + G] * w01 + u[c + G + 1] * w11; if (amp < 0) amp = -amp; if (amps) amps[i] = amp;
+    const jx = (r() - .5) * KJIT * amp, jy = (r() - .5) * KJIT * amp;
+    const bgx = gx[c] * w00 + gx[c + 1] * w10 + gx[c + G] * w01 + gx[c + G + 1] * w11, bgy = gy[c] * w00 + gy[c + 1] * w10 + gy[c + G] * w01 + gy[c + G + 1] * w11;
+    let vx = -KDRIFT * bgx, vy = -KDRIFT * bgy; const v2 = vx * vx + vy * vy; if (v2 > VMAX * VMAX) { const f = VMAX / Math.sqrt(v2); vx *= f; vy *= f; }
     let nx = x + vx + jx, ny = y + vy + jy;
     nx = Math.min(.9995, Math.max(.0005, nx)); ny = Math.min(.9995, Math.max(.0005, ny));
     const cc = Math.floor(ny * MS) * MS + Math.floor(nx * MS);
@@ -424,7 +429,7 @@ float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f); return
 float fbm(vec2 p){ float a = .5, s = 0.; for (int i = 0; i < 5; i++) { s += a * vnoise(p); p *= 2.03; a *= .5; } return s; }
 `;
 const PLATE_FS = COMMON + `
-uniform sampler2D tSDF, tH, tU, tT; uniform float uTime, uAmp, uW, uGhost, uClamp, uHasU;
+uniform sampler2D tSDF, tH, tU, tT, tStatic; uniform float uTime, uAmp, uW, uGhost, uClamp, uHasU, uStatic;
 out vec4 o;
 const vec3 L = normalize(vec3(-.45, -.6, .66));
 float sdf(vec2 w){ vec2 q = abs(w - .5) - .5; float box = length(max(q, 0.)); float s = (texture(tSDF, clamp(w, 0., 1.)).r - .5) / 4.; return box > 0. ? min(s, 0.) - box : s; }
@@ -437,6 +442,29 @@ vec3 wood(vec2 w){ // dark walnut, long grain running across the bench
 void main(){
   vec2 css = vec2(gl_FragCoord.x, uRes.y * uDpr - gl_FragCoord.y) / uDpr; vec2 w = (css - uCam.xy) / uCam.z; float px = 1. / uCam.z;
   float d = sdf(w);
+  if (uStatic < .5) { // every frame: the baked bench and plate, plus what moves (ripple, glow, ghost, sand)
+    vec3 base = texelFetch(tStatic, ivec2(gl_FragCoord.xy), 0).rgb; if (d < -px) { o = vec4(base, 1.); return; }
+    vec3 col = base, Hh = normalize(L + vec3(0, 0, 1));
+    float u = uHasU > .5 ? texture(tU, w).r * 2. - 1. : 0.;
+    // the vibrating plate: a standing-wave ripple tilts the surface, strongest where the mode bends most
+    if (uAmp > 0.) { float du = .02; vec2 gu = vec2(texture(tU, w + vec2(du, 0)).r - texture(tU, w - vec2(du, 0)).r, texture(tU, w + vec2(0, du)).r - texture(tU, w - vec2(0, du)).r) / du;
+      col *= 1. + uAmp * sin(uTime * uW) * dot(gu, -L.xy) * .045; }
+    // the engraved ghost of the commission: hatching where its sand lies, cut into the brass
+    float tg = texture(tT, w).r;
+    if (uGhost > 0. && tg > .05) { float hatch = smoothstep(.35, .5, abs(fract((w.x + w.y) * 150.) - .5)); float a = smoothstep(.05, .3, tg) * uGhost;
+      float rim = smoothstep(.04, .0, abs(tg - .12)) * uGhost;
+      col = mix(col, col * vec3(.3, .18, .08), a * hatch * .85 + rim * .6); col += vec3(1., .8, .5) * a * (1. - hatch) * .06; }
+    // the glow along the nodal lines while a note sounds
+    if (uAmp > 0.) { float nl = exp(-u * u / .004); col += vec3(1., .72, .32) * nl * uAmp * (.18 + .07 * sin(uTime * 9.)); }
+    // sand piles: a height field from the grains, lit, with contact shadows down-light
+    float h = texture(tH, w).r, hx = texture(tH, w + vec2(.004, 0)).r - texture(tH, w - vec2(.004, 0)).r, hy = texture(tH, w + vec2(0, .004)).r - texture(tH, w - vec2(0, .004)).r;
+    float hs = texture(tH, w - L.xy * .007).r; col *= 1. - .45 * smoothstep(.0, .25, hs - h);
+    if (h > .02) { vec3 sn = normalize(vec3(-hx * 3.2, -hy * 3.2, 1.)); float g = hash(floor(w * 900.));
+      vec3 sandC = mix(vec3(.88, .76, .55), vec3(1., .93, .78), g) * (.42 + .62 * max(0., dot(sn, L))) + pow(max(0., dot(sn, Hh)), 20.) * .12;
+      col = mix(col, sandC, smoothstep(.02, .16, h)); }
+    o = vec4(mix(base, col, smoothstep(0., 1.2 * px, d)), 1.); return;
+  }
+  // ---- the bake (only when the view or the plate changes): bench, shadow, brushed brass, bevel, clamp ----
   // the bench, with the plate's soft shadow (and the light seen through drilled holes)
   vec3 bench = wood(w); float sh = smoothstep(-.06, .01, sdf(w - vec2(-.022, -.03)));
   bench *= 1. - .62 * sh; bench *= .75 + .35 * smoothstep(1.4, .2, length(w - vec2(.45, .4)));
@@ -445,10 +473,6 @@ void main(){
   float bw = .014, e = clamp(d / bw, 0., 1.);
   vec2 gr = vec2(sdf(w + vec2(px, 0)) - sdf(w - vec2(px, 0)), sdf(w + vec2(0, px)) - sdf(w - vec2(0, px))); gr = length(gr) > 0. ? normalize(gr) : vec2(0.);
   vec3 n = normalize(vec3(-gr * (1. - e) * 1.6, 1.));
-  // the vibrating plate: a standing-wave ripple tilts the surface, strongest where the mode moves most
-  float u = uHasU > .5 ? texture(tU, w).r * 2. - 1. : 0.;
-  if (uAmp > 0.) { float du = .02; vec2 gu = vec2(texture(tU, w + vec2(du, 0)).r - texture(tU, w - vec2(du, 0)).r, texture(tU, w + vec2(0, du)).r - texture(tU, w - vec2(0, du)).r) / du;
-    n = normalize(n + vec3(-gu * .05 * uAmp * sin(uTime * uW), 0.)); }
   // brushed brass, turned on a lathe: the brushing runs in circles round the centre
   vec2 rc = w - .5; float r = length(rc); vec2 T = r > 1e-4 ? vec2(-rc.y, rc.x) / r : vec2(1, 0);
   float streak = vnoise(vec2(r * 900., 0.)) * .6 + vnoise(vec2(r * 2600., atan(rc.y, rc.x) * 2.)) * .4;
@@ -465,19 +489,6 @@ void main(){
   if (uClamp > .5 && cd < .046) { float s = clamp(cd / .03, 0., 1.); vec3 cn = normalize(vec3(rc / .03 * .9 * step(cd, .03), max(.15, sqrt(max(0., 1. - s * s)))));
     vec3 stud = vec3(.55, .4, .2) * (.25 + .8 * max(0., dot(cn, L))) + vec3(1., .9, .7) * pow(max(0., dot(cn, Hh)), 40.) * .9;
     col = cd < .03 ? stud : mix(col * .45, col, smoothstep(.034, .046, cd)); }
-  // the engraved ghost of the commission: hatching where its sand lies, cut into the brass
-  float tg = texture(tT, w).r;
-  if (uGhost > 0. && tg > .05) { float hatch = smoothstep(.35, .5, abs(fract((w.x + w.y) * 150.) - .5)); float a = smoothstep(.05, .3, tg) * uGhost;
-    float rim = smoothstep(.04, .0, abs(tg - .12)) * uGhost;
-    col = mix(col, col * vec3(.3, .18, .08), a * hatch * .85 + rim * .6); col += vec3(1., .8, .5) * a * (1. - hatch) * .06; }
-  // the glow along the nodal lines while a note sounds
-  if (uAmp > 0.) { float nl = exp(-u * u / .004); col += vec3(1., .72, .32) * nl * uAmp * (.18 + .07 * sin(uTime * 9.)); }
-  // sand piles: a height field from the grains, lit, with contact shadows down-light
-  float h = texture(tH, w).r, hx = texture(tH, w + vec2(.004, 0)).r - texture(tH, w - vec2(.004, 0)).r, hy = texture(tH, w + vec2(0, .004)).r - texture(tH, w - vec2(0, .004)).r;
-  float hs = texture(tH, w - L.xy * .007).r; col *= 1. - .45 * smoothstep(.0, .25, hs - h);
-  if (h > .02) { vec3 sn = normalize(vec3(-hx * 3.2, -hy * 3.2, 1.)); float g = vnoise(w * 900.);
-    vec3 sandC = mix(vec3(.88, .76, .55), vec3(1., .93, .78), g) * (.42 + .62 * max(0., dot(sn, L))) + pow(max(0., dot(sn, Hh)), 20.) * .12;
-    col = mix(col, sandC, smoothstep(.02, .16, h)); }
   float aa = smoothstep(0., 1.2 * px, d);
   o = vec4(mix(bench, col, aa), 1.);
 }`;
@@ -497,11 +508,12 @@ void main(){
 const GRAIN_FS = `#version 300 es
 precision highp float; in float vSeed, vHop; uniform float uShadow; out vec4 o;
 void main(){ vec2 c = gl_PointCoord * 2. - 1.; float r2 = dot(c, c); if (r2 > 1.) discard;
-  if (uShadow > .5) { o = vec4(.05, .03, .01, .28 * (1. - r2)); return; }
+  if (uShadow > .5) { o = vec4(.05, .03, .01, .2 * (1. - r2)); return; }
   vec3 n = vec3(c.x, c.y, sqrt(1. - r2)); vec3 L = normalize(vec3(-.45, -.6, .66));
   vec3 tint = mix(vec3(1., .93, .77), vec3(.86, .72, .5), fract(vSeed * 7.3)); if (fract(vSeed * 3.1) > .93) tint = vec3(.55, .5, .45);
   float l = .35 + .75 * max(0., dot(n, L)) + .35 * pow(max(0., dot(n, normalize(L + vec3(0, 0, 1)))), 30.);
   o = vec4(tint * l * (1. + vHop * 25.), 1. - vHop * 18.); }`;
+let Htmp = null, ARR = null, fbo = null, texStatic = null, staticKey = '', staticSize = '';
 let P = null, G2 = null, bufPos, bufAmp, bufSeed, vao, quad, texSDF, texH, texU, texT, Hbuf, Hgrid, dirtyH = true, sdfKey = '', tKey = '';
 const HS = 160;
 function glInit() {
@@ -509,6 +521,7 @@ function glInit() {
   quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
   bufPos = gl.createBuffer(); bufAmp = gl.createBuffer(); bufSeed = gl.createBuffer();
   const tex = (w, h) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array(w * h)); return t; };
+  fbo = gl.createFramebuffer();
   texSDF = tex(256, 256); texH = tex(HS, HS); texU = tex(G, G); texT = tex(HS, HS); Hbuf = new Uint8Array(HS * HS); Hgrid = new Float32Array(HS * HS);
 }
 const upload = (t, w, h, data) => { gl.bindTexture(gl.TEXTURE_2D, t); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.UNSIGNED_BYTE, data); };
@@ -526,7 +539,7 @@ function sdfOf(pl) { // signed distance to the outline and the holes, by a two-p
 function heightOf(s, out) { // grains → a pile height field (only the piles: an even dusting stays individual grains)
   const N = HS, g = Hgrid; g.fill(0); const lost = s.lost; let alive = 0;
   for (let i = 0; i < s.n; i++) { if (lost[i]) continue; alive++; g[Math.min(N - 1, s.sy[i] * N | 0) * N + Math.min(N - 1, s.sx[i] * N | 0)]++; }
-  const t = new Float32Array(N * N);
+  const t = Htmp ||= new Float32Array(N * N);
   for (let pass = 0; pass < 2; pass++) { for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { let a = 0; for (let d = -1; d <= 1; d++) a += g[j * N + Math.min(N - 1, Math.max(0, i + d))]; t[j * N + i] = a / 3; }
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { let a = 0; for (let d = -1; d <= 1; d++) a += t[Math.min(N - 1, Math.max(0, j + d)) * N + i]; g[j * N + i] = a / 3; } }
   const mean = Math.max(1e-3, alive / (N * N) * 1.3);
@@ -579,21 +592,25 @@ function draw(now) {
   if (sdfKey !== pl.key) { upload(texSDF, 256, 256, sdfOf(pl)); sdfKey = pl.key; }
   const tk = C.id + '|' + C.ref.length; if (tKey !== tk) { upload(texT, HS, HS, heightOf(GHOST[C.id] ||= perform(cfgOf(C), C.ref, 9000), new Uint8Array(HS * HS))); tKey = tk; }
   if (dirtyH) { upload(texH, HS, HS, heightOf(vis, Hbuf)); dirtyH = false; }
-  if (!playing) note.amp *= Math.pow(.88, dt / 16);
+  if (!playing && !note.hold) note.amp *= Math.pow(.88, dt / 16);
   gl.viewport(0, 0, cv.width, cv.height); gl.disable(gl.BLEND);
   gl.useProgram(P.p); const u = P.u, T = (now - t0) / 1000;
+  const clampOn = pl.shape === 'square' && !pl.holes.some(([x, y]) => Math.hypot(x - .5, y - .5) < .12) ? 1 : 0, quadDraw = () => { const pa = gl.getAttribLocation(P.p, 'p'); gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.enableVertexAttribArray(pa); gl.vertexAttribPointer(pa, 2, gl.FLOAT, false, 0, 0); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); gl.disableVertexAttribArray(pa); };
+  const sz = cv.width + 'x' + cv.height; if (staticSize !== sz) { if (texStatic) gl.deleteTexture(texStatic); texStatic = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texStatic); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, cv.width, cv.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texStatic, 0); gl.bindFramebuffer(gl.FRAMEBUFFER, null); staticSize = sz; staticKey = ''; }
+  const sk = [cam.x, cam.y, cam.k, W, H, dpr, pl.key, clampOn].join();
   gl.uniform3f(u.uCam, cam.x, cam.y, cam.k); gl.uniform2f(u.uRes, W, H); gl.uniform1f(u.uDpr, dpr); gl.uniform1f(u.uTime, T); gl.uniform1f(u.uAmp, Math.min(1, note.amp)); gl.uniform1f(u.uW, note.w);
-  gl.uniform1f(u.uGhost, ghost ? 1 : .7); gl.uniform1f(u.uClamp, pl.shape === 'square' && !pl.holes.some(([x, y]) => Math.hypot(x - .5, y - .5) < .12) ? 1 : 0); gl.uniform1f(u.uHasU, note.k >= 0 ? 1 : 0);
+  gl.uniform1f(u.uGhost, ghost ? 1 : .7); gl.uniform1f(u.uClamp, clampOn); gl.uniform1f(u.uHasU, note.k >= 0 ? 1 : 0);
   [[texSDF, 'tSDF'], [texH, 'tH'], [texU, 'tU'], [texT, 'tT']].forEach(([t, n], i) => { gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, t); gl.uniform1i(u[n], i); });
-  const pa = gl.getAttribLocation(P.p, 'p'); gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.enableVertexAttribArray(pa); gl.vertexAttribPointer(pa, 2, gl.FLOAT, false, 0, 0); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); gl.disableVertexAttribArray(pa);
+  if (staticKey !== sk) { gl.uniform1f(u.uStatic, 1); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); quadDraw(); gl.bindFramebuffer(gl.FRAMEBUFFER, null); staticKey = sk; }
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, texStatic); gl.uniform1i(u.tStatic, 4); gl.uniform1f(u.uStatic, 0); quadDraw();
   // grains: contact shadows, then lit grains that hop while the plate sings
-  const n = vis.n, xy = new Float32Array(n * 2), amp = vis.amp; let m = 0;
+  const n = vis.n; if (!ARR || ARR.n !== n) ARR = { n, xy: new Float32Array(n * 2), amp: new Float32Array(n), seed: new Float32Array(n) }; const xy = ARR.xy, amp = vis.amp; let m = 0;
   for (let i = 0; i < n; i++) if (!vis.lost[i]) { xy[2 * m] = vis.sx[i]; xy[2 * m + 1] = vis.sy[i]; m++; }
   gl.useProgram(G2.p); const g = G2.u; gl.uniform3f(g.uCam, cam.x, cam.y, cam.k); gl.uniform2f(g.uRes, W, H); gl.uniform1f(g.uDpr, dpr); gl.uniform1f(g.uTime, T); gl.uniform1f(g.uAmp, Math.min(1, note.amp)); gl.uniform1f(g.uW, note.w);
-  gl.uniform1f(g.uSize, Math.max(1.3, Math.min(3.2, cam.k * .0024)) * dpr);
+  gl.uniform1f(g.uSize, Math.max(1.8, Math.min(3.4, cam.k * .0026)) * dpr);
   const bind = (buf, data, name, size) => { const loc = gl.getAttribLocation(G2.p, name); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0); return loc; };
-  const ampC = new Float32Array(m), seed = new Float32Array(m), S0 = seedsFor(n); let q = 0; for (let i = 0; i < n; i++) if (!vis.lost[i]) { ampC[q] = amp[i]; seed[q] = S0[i]; q++; }
-  const l1 = bind(bufPos, xy.subarray(0, 2 * m), 'aPos', 2), l2 = bind(bufAmp, ampC, 'aAmp', 1), l3 = bind(bufSeed, seed, 'aSeed', 1);
+  const ampC = ARR.amp, seed = ARR.seed, S0 = seedsFor(n); let q = 0; for (let i = 0; i < n; i++) if (!vis.lost[i]) { ampC[q] = amp[i]; seed[q] = S0[i]; q++; }
+  const l1 = bind(bufPos, xy.subarray(0, 2 * m), 'aPos', 2), l2 = bind(bufAmp, ampC.subarray(0, m), 'aAmp', 1), l3 = bind(bufSeed, seed.subarray(0, m), 'aSeed', 1);
   gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   gl.uniform1f(g.uShadow, 1); gl.drawArrays(gl.POINTS, 0, m); gl.uniform1f(g.uShadow, 0); gl.drawArrays(gl.POINTS, 0, m);
   [l1, l2, l3].forEach(l => gl.disableVertexAttribArray(l));
@@ -649,7 +666,7 @@ function share() { const link = location.origin + location.pathname + '#score=' 
   if (s) SAVE.scores[c.id] = s;
   openComm(c); })();
 resize(); requestAnimationFrame(draw);
-window.__ch = { gfx: () => ({ gl: glOK, VN, frameMs: Math.round(frameMs), grains: vis.n }), COMMS, SQ, plateOf, fieldOf, perform, matchOf, density, similarity, apprentices, workshop, stars, openComm, play, share, get C() { return C; }, get sc() { return sc; }, get sand() { return sand; }, get playing() { return playing; }, get cam() { return cam; }, SAVE, NS, BEAT_MS, BEAT_STEPS, okScore, set tool(t) { tool = t; } };
+window.__ch = { gfx: () => ({ gl: glOK, VN, frameMs: Math.round(frameMs), grains: vis.n }), set slow(v) { slow = v; }, finished, noteOn, note, G, COMMS, SQ, plateOf, fieldOf, perform, matchOf, density, similarity, apprentices, workshop, stars, openComm, play, share, get C() { return C; }, get sc() { return sc; }, get sand() { return sand; }, get playing() { return playing; }, get cam() { return cam; }, SAVE, NS, BEAT_MS, BEAT_STEPS, okScore, set tool(t) { tool = t; } };
 </script>
 </body>
 </html>

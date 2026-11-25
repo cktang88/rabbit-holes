@@ -20,7 +20,7 @@ module.exports = {
     },
     'sand flows to the nodal lines: one long note puts most grains where the plate is still; a note stops the sand where it is when it ends': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const X = __ch, pl = X.plateOf('square'), cfg = { shape: 'square', start: 'even', finger: null, holes: [] };
-        const still = s => { let n = 0; const F = X.fieldOf(pl, 3, null); for (let i = 0; i < s.n; i++) { const c = Math.floor(s.sy[i] * 64) * 64 + Math.floor(s.sx[i] * 64); if (Math.abs(F.u[c]) < .2) n++; } return n / s.n; };
+        const still = s => { let n = 0; const F = X.fieldOf(pl, 3, null); for (let i = 0; i < s.n; i++) { const c = Math.floor(s.sy[i] * X.G) * X.G + Math.floor(s.sx[i] * X.G); if (Math.abs(F.u[c]) < .2) n++; } return n / s.n; };
         const s0 = X.perform(cfg, [], 1500), sq = X.perform(cfg, [[3, .25]], 1500), s2 = X.perform(cfg, [[3, 2]], 1500);
         return { start: still(s0), quarter: still(sq), long: still(s2), same: JSON.stringify(Array.from(X.perform(cfg, [[3, 1], [1, .5]], 800).sx)) === JSON.stringify(Array.from(X.perform(cfg, [[3, 1], [1, .5]], 800).sx)) }; });
       ok(r.start < .4 && r.long > .8, JSON.stringify(r)); ok(r.quarter > r.start + .1 && r.quarter < r.long - .1, 'a quarter note should be partway: ' + JSON.stringify(r)); ok(r.same, 'not deterministic');
@@ -48,7 +48,7 @@ module.exports = {
       ok(r.ms < 250, 'perform takes ' + r.ms); ok(r.longest <= 3000, 'set pieces play ' + r.longest); ok(r.maxPlay <= 8000, 'max score ' + r.maxPlay);
     },
     'the finger: twin notes turn to put a nodal line under it; a note that moves a lot under it is choked and leaves the sand alone': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const X = __ch, pl = X.plateOf('square'), f = [.37, .21], at = (u, x, y) => u[Math.floor(y * 64) * 64 + Math.floor(x * 64)];
+      const r = await page.evaluate(() => { const X = __ch, pl = X.plateOf('square'), f = [.37, .21], at = (u, x, y) => u[Math.floor(y * X.G) * X.G + Math.floor(x * X.G)];
         const twin = pl.modes.findIndex((m, k) => m.pair && pl.modes.some((q, j) => j !== k && q.pair === m.pair)), F = X.fieldOf(pl, twin, f);
         const lone = pl.modes.findIndex(m => m.id === '01-'); // cos πy − cos πx has no twin; at (.1, .5) it moves hard
         const D = X.fieldOf(pl, lone, [.1, .5]), cfg = { shape: 'square', start: 'even', finger: [.1, .5], holes: [] }, a = X.perform(cfg, [], 400), b = X.perform(cfg, [[lone, 2]], 400);
@@ -78,11 +78,15 @@ module.exports = {
       await page.reload(); await page.waitForFunction(() => window.__ch);
       eq(await page.evaluate(() => [__ch.C.id, __ch.sc.notes.length]), ['c2', 1]);
     },
-    'the field preview: adding a note draws its nodal lines and arrows; the target can be laid over the plate': async ({ page, ok }) => {
-      await page.click('.pm[data-k="1"]'); await page.waitForTimeout(100);
-      const shot = async () => page.evaluate(() => { const c = document.getElementById('cv'), g = c.getContext('2d'), d = g.getImageData(0, 0, c.width, c.height).data; let h = 0; for (let i = 0; i < d.length; i += 4 * 97) h = (h * 31 + d[i] + d[i + 1] * 3 + d[i + 2] * 7) % 1e9; return h; });
-      const a = await shot(); await page.dispatchEvent('#tgt', 'pointerdown'); await page.waitForTimeout(120); const b = await shot(); await page.dispatchEvent('#tgt', 'pointerup'); await page.waitForTimeout(120); const c = await shot();
-      ok(a !== b && a === c, 'ghost overlay did not appear and go');
+    'graphics: a WebGL bench with tens of thousands of lit grains; the overlay of a note, the target ghost and slow devices are handled': async ({ page, ok }) => {
+      const g = await page.evaluate(() => __ch.gfx()); ok(g.gl && g.grains >= 14000, JSON.stringify(g));
+      const box = await page.evaluate(() => { const r = document.getElementById('view').getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; });
+      const shot = () => page.screenshot({ clip: box }).then(b => b.toString('base64'));
+      await page.click('.pm[data-k="1"]'); await page.waitForTimeout(150); const a = await shot();
+      await page.dispatchEvent('#tgt', 'pointerdown'); await page.waitForTimeout(200); const b = await shot(); await page.dispatchEvent('#tgt', 'pointerup'); await page.waitForTimeout(200); const c = await shot();
+      ok(a !== b && a === c, 'holding the target did not deepen the engraved ghost and let go');
+      const vn = await page.evaluate(() => { const X = __ch, v0 = X.gfx().VN; X.slow = 40; X.finished(); return [v0, X.gfx().VN]; });
+      ok(vn[1] < vn[0] && vn[1] >= 6000, 'no adaptive grain count: ' + vn);
     },
     'pan and zoom: zoomed, a finger lands under the pointer; a pinch places nothing; the zoom buttons never cover the plate': async ({ page, ok }) => {
       for (const vp of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]) {

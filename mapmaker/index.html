@@ -109,6 +109,7 @@ const MapSim = (() => {
   const rngOf = (seed) => { let a = (typeof seed === 'number' ? seed : hash(seed)) >>> 0;
     const f = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
     f.int = n => Math.floor(f() * n); f.range = (lo, hi) => lo + f() * (hi - lo); f.pick = a => a[Math.floor(f() * a.length)]; f.gauss = () => { let s = 0; for (let i = 0; i < 6; i++) s += f(); return (s - 3) / 0.7071; }; return f; };
+  const shuffle = (arr, r) => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
   const dirOf = (b) => [Math.sin(b * D), -Math.cos(b * D)];
   const brg = (dx, dy) => ((Math.atan2(dx, -dy) / D) % 360 + 360) % 360;
   const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -131,7 +132,7 @@ const MapSim = (() => {
     const PN = { W: 'Port Royal', E: 'Santa Cruz', N: 'Fort Hollis', S: 'Port Mercy' };
     for (const s of spec.ports) T.ports.push({ name: PN[s], side: s, p: portAt(s) });
     const usedC = new Set(), names = rngOf('names:' + seed);
-    const isleNames = [...ISLES].sort(() => names() - 0.5), capeNames = [...CAPES].sort(() => names() - 0.5), reefNames = [...REEFS].sort(() => names() - 0.5);
+    const isleNames = shuffle([...ISLES], names), capeNames = shuffle([...CAPES], names), reefNames = shuffle([...REEFS], names);
     for (let k = 0; k < spec.isles; k++) {
       // islands sit across the trade lanes, so a chart that is wrong about them costs ships
       const rts = spec.routes || [[0, 1]];
@@ -153,10 +154,11 @@ const MapSim = (() => {
     return T;
   }
   // ---- sailing: A* on a one-league grid around whatever is believed to be in the way ----
+  function maskOf(blocked) { const GX = WX + 1, GY = WY + 1, m = new Uint8Array(GX * GY); for (let y = 0; y < GY; y++) for (let x = 0; x < GX; x++) m[y * GX + x] = blocked([x, y]) ? 1 : 0; return m; }
   function plan(a, b, blocked) {
     const GX = WX + 1, GY = WY + 1, N = GX * GY, g = new Float32Array(N).fill(1e9), from = new Int32Array(N).fill(-1), done = new Uint8Array(N);
     const key = (x, y) => y * GX + x, sx = Math.round(a[0]), sy = Math.round(a[1]), tx = Math.round(b[0]), ty = Math.round(b[1]);
-    const blk = new Uint8Array(N); for (let y = 0; y < GY; y++) for (let x = 0; x < GX; x++) blk[key(x, y)] = blocked([x, y]) ? 1 : 0;
+    const blk = typeof blocked === 'function' ? maskOf(blocked) : blocked.slice();
     for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const X = sx + dx, Y = sy + dy, X2 = tx + dx, Y2 = ty + dy; if (X >= 0 && Y >= 0 && X < GX && Y < GY) blk[key(X, Y)] = 0; if (X2 >= 0 && Y2 >= 0 && X2 < GX && Y2 < GY) blk[key(X2, Y2)] = 0; }
     const open = [[Math.hypot(tx - sx, ty - sy), key(sx, sy)]]; g[key(sx, sy)] = 0;
     const push = (e) => { open.push(e); let i = open.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (open[p][0] <= open[i][0]) break; [open[p], open[i]] = [open[i], open[p]]; i = p; } };
@@ -177,18 +179,19 @@ const MapSim = (() => {
     // o: {from, to (port index or null), via: [points], cap, dev (points), sigma (deg), liar, phantom, lost}
     const avoid = (p) => p[0] < 0.5 || p[1] < 0.5 || p[0] > WX - 0.5 || p[1] > WY - 0.5 || T.isles.some(i => polyDist(p, i.poly) < 2.5) || T.reefs.some(f => dist(f.p, p) < 2);
     const pts = [T.ports[o.from].p, ...o.via, o.to != null ? T.ports[o.to].p : o.end];
-    let path = [pts[0]]; for (let k = 0; k < pts.length - 1; k++) { const seg = plan(pts[k], pts[k + 1], avoid); if (!seg) return null; path.push(...seg.slice(1)); }
+    const mask = T._mask || (T._mask = maskOf(avoid));
+    let path = [pts[0]]; for (let k = 0; k < pts.length - 1; k++) { const seg = plan(pts[k], pts[k + 1], mask); if (!seg) return null; path.push(...seg.slice(1)); }
     const c = T.current, devDeg = (o.dev || 0) * POINT, entries = []; let t = 0;
     const sightR = 24, seen = {};
     const visible = (p, q) => { const n = Math.ceil(dist(p, q)); for (let i = 1; i < n - 2; i++) { const u = i / n; if (T.land([p[0] + (q[0] - p[0]) * u, p[1] + (q[1] - p[1]) * u])) return false; } return true; };
     for (let k = 0; k < path.length - 1; k++) {
-      const a = path[k], b = path[k + 1], L = dist(a, b), spd = 4 + r.range(-0.6, 0.8), hours = L / spd, n = Math.max(1, Math.ceil(hours / 5));
+      const a = path[k], b = path[k + 1], L = dist(a, b), spd = 4 + r.range(-0.6, 0.8), hours = L / spd, n = Math.max(1, Math.ceil(hours / (o.legH || 5)));
       for (let s = 1; s <= n; s++) {
         const dur = hours / n, p = [a[0] + (b[0] - a[0]) * s / n, a[1] + (b[1] - a[1]) * s / n];
         // through the water = over the ground minus the current; the compass reads dev points east of true
         const gv = [(b[0] - a[0]) / hours, (b[1] - a[1]) / hours], wv = [gv[0] - c[0], gv[1] - c[1]];
         const e = { t: +(t + dur).toFixed(2), dur: +dur.toFixed(2), hd: Math.round((brg(wv[0], wv[1]) - devDeg + 360) % 360), spd: +Math.hypot(wv[0], wv[1]).toFixed(1), sights: [], p };
-        const near = Object.values(T.feats).filter(f => f.kind === 'cape' && dist(f.p, p) < sightR && visible(p, f.p)).sort((u, v) => (seen[u.name] || 0) - (seen[v.name] || 0) || dist(u.p, p) - dist(v.p, p)).slice(0, 2);
+        const near = Object.values(T.feats).filter(f => f.kind === 'cape' && dist(f.p, p) < sightR && visible(p, f.p)).sort((u, v) => (u.name === o.focus ? -1 : 0) - (v.name === o.focus ? -1 : 0) || (seen[u.name] || 0) - (seen[v.name] || 0) || dist(u.p, p) - dist(v.p, p)).slice(0, 2);
         for (const f of near) { seen[f.name] = (seen[f.name] || 0) + 1; let bb = brg(f.p[0] - p[0], f.p[1] - p[1]) + r.gauss() * (o.sigma || 2); if (o.liar) bb += (r() < 0.5 ? -1 : 1) * r.range(14, 30); e.sights.push({ f: f.name, b: Math.round((bb - devDeg + 360) % 360), d: dist(f.p, p) }); }
         for (const f of T.reefs) if (dist(f.p, p) < 7) { let bb = brg(f.p[0] - p[0], f.p[1] - p[1]) + r.gauss() * (o.sigma || 2); if (o.liar) bb += r.range(-25, 25); e.sights.push({ f: f.name, b: Math.round((bb - devDeg + 360) % 360), d: dist(f.p, p), reef: 1 }); }
         if (o.phantom && dist(o.phantom.p, p) < 22) e.sights.push({ f: o.phantom.name, b: Math.round((brg(o.phantom.p[0] - p[0], o.phantom.p[1] - p[1]) + r.gauss() * 2 - devDeg + 360) % 360), d: dist(o.phantom.p, p), fake: 1 });
@@ -206,12 +209,12 @@ const MapSim = (() => {
   }
   // ---- a sheet: truth + logs + merchants ----
   function sheet(spec, seed) {
-    for (let salt = 0; salt < 12; salt++) { const S = sheet1(spec, seed, salt); const seen = {}; S.logs.forEach(L => { if (L.kind === 'liar' || L.kind === 'lost') return; L.entries.forEach(e => e.sights.forEach(g => seen[g.f] = (seen[g.f] || 0) + 1)); });
-      const ok = Object.values(S.T.feats).every(f => f.kind !== 'cape' || (seen[f.name] || 0) >= 2) && S.logs.length === spec.logs.length; if (ok || salt === 11) return S; }
+    for (let salt = 0; salt < 8; salt++) { const S = sheet1(spec, seed, salt); const seen = {}; S.logs.forEach(L => { if (L.kind === 'liar' || L.kind === 'lost') return; L.entries.forEach(e => e.sights.forEach(g => seen[g.f] = (seen[g.f] || 0) + 1)); });
+      const ok = Object.values(S.T.feats).every(f => f.kind !== 'cape' || (seen[f.name] || 0) >= 2) && S.logs.length === spec.logs.length; if (ok || salt === 7) return S; }
   }
   function sheet1(spec, seed, salt) {
     const T = gen(spec, seed + (salt ? '#' + salt : '')), r = rngOf('logs:' + seed + ':' + salt), logs = [];
-    const caps = [...CAPTAINS].sort(() => r() - 0.5);
+    const caps = shuffle([...CAPTAINS], r);
     const P = T.ports.length;
     let phantom = null;
     if (spec.logs.includes('phantom')) { for (let t = 0; t < 200; t++) { const p = [r.range(25, 75), r.range(12, 58)]; if (T.isles.every(i => polyDist(p, i.poly) > 12) && T.reefs.every(f => dist(f.p, p) > 10)) { phantom = { name: PHANTOMS[r.int(PHANTOMS.length)], p, kind: 'phantom' }; break; } } }
@@ -238,8 +241,10 @@ const MapSim = (() => {
   function surveyLog(S, fname, k) {
     const f = S.T.feats[fname] || (S.T.phantom && S.T.phantom.name === fname ? S.T.phantom : null); if (!f) return null; const r = rngOf('survey:' + S.seed + ':' + fname + ':' + k);
     const p0 = S.T.ports.reduce((b, p) => dist(p.p, f.p) < dist(b.p, f.p) ? p : b, S.T.ports[0]); const from = S.T.ports.indexOf(p0);
-    const via = []; const a0 = r() * 6.283; for (let i = 0; i < 3; i++) { const a = a0 + i * 2.1, rr = f.kind === 'reef' ? 4 : (f.kind === 'cape' ? S.T.isles[f.isle].R + 6 : 8); const v = f.kind === 'cape' ? [S.T.isles[f.isle].c[0] + Math.sin(a) * rr, S.T.isles[f.isle].c[1] - Math.cos(a) * rr] : [f.p[0] + Math.sin(a) * rr, f.p[1] - Math.cos(a) * rr]; if (v[0] > 3 && v[1] > 3 && v[0] < 97 && v[1] < 67 && !S.T.land(v)) via.push(v); }
-    const L = makeLog(S.T, { from, to: from, via, cap: 'Survey sloop Diligence', dev: 0, sigma: 1 }, r); if (L) { L.kind = 'survey'; L.survey = fname; } return L;
+    const via = [];
+    if (f.kind === 'cape') { const il = S.T.isles[f.isle], a = Math.atan2(f.p[0] - il.c[0], -(f.p[1] - il.c[1])), R = il.R + 7; for (const da of [-0.75, 0, 0.75]) { const v = [il.c[0] + Math.sin(a + da) * R * (da ? 1 : 1.15), il.c[1] - Math.cos(a + da) * R * (da ? 1 : 1.15)]; if (v[0] > 3 && v[1] > 3 && v[0] < 97 && v[1] < 67 && !S.T.land(v)) via.push(v); } }
+    const a0 = r() * 6.283; if (!via.length) for (let i = 0; i < 3; i++) { const a = a0 + i * 2.1, rr = f.kind === 'reef' ? 4 : (f.kind === 'cape' ? S.T.isles[f.isle].R + 6 : 8); const v = f.kind === 'cape' ? [S.T.isles[f.isle].c[0] + Math.sin(a) * rr, S.T.isles[f.isle].c[1] - Math.cos(a) * rr] : [f.p[0] + Math.sin(a) * rr, f.p[1] - Math.cos(a) * rr]; if (v[0] > 3 && v[1] > 3 && v[0] < 97 && v[1] < 67 && !S.T.land(v)) via.push(v); }
+    const L = makeLog(S.T, { from, to: from, via, cap: 'Survey sloop Diligence', dev: 0, sigma: 1, focus: fname, legH: 2 }, r); if (L) { L.kind = 'survey'; L.survey = fname; } return L;
   }
   // ---- the chart: what the player's corrections make of the logs ----
   function newState(S) { return { logs: S.logs.map(() => ({ drift: [0, 0], dev: 0, struck: false, off: {} })), feats: {}, spent: 0, surveys: [] }; }
@@ -259,11 +264,12 @@ const MapSim = (() => {
       const det = a * c - b * b, tr = a + c, lmin = tr / 2 - Math.sqrt(Math.max(0, tr * tr / 4 - det)), logsN = new Set(on.map(r => r.li)).size;
       const e = { f, rays: list, n: on.length, logs: logsN, fixed: false };
       if (on.length >= 2 && lmin > 0.04 * on.length) {
-        const p = [(c * dx - b * dy) / det, (a * dy - b * dx) / det]; let ss = 0, ahead = true;
-        for (const r of on) { const d = dirOf(r.b), n = [-d[1], d[0]]; const res = n[0] * (p[0] - r.o[0]) + n[1] * (p[1] - r.o[1]); r.res = Math.abs(res); ss += res * res; if (d[0] * (p[0] - r.o[0]) + d[1] * (p[1] - r.o[1]) < -1) ahead = false; }
+        const p = [(c * dx - b * dy) / det, (a * dy - b * dx) / det]; let ss = 0, behind = 0;
+        for (const r of on) { const d = dirOf(r.b), n = [-d[1], d[0]]; const res = n[0] * (p[0] - r.o[0]) + n[1] * (p[1] - r.o[1]); r.res = Math.abs(res); ss += res * res; if (d[0] * (p[0] - r.o[0]) + d[1] * (p[1] - r.o[1]) < -1) behind++; }
+        const ahead = behind * 2 < on.length;
         for (const r of list) if (!r.on) { const d = dirOf(r.b), n = [-d[1], d[0]]; r.res = Math.abs(n[0] * (p[0] - r.o[0]) + n[1] * (p[1] - r.o[1])); }
         const rms = Math.sqrt(ss / on.length), geo = 0.7 / Math.sqrt(lmin / on.length);
-        if (ahead && p[0] > -10 && p[1] > -10 && p[0] < WX + 10 && p[1] < WY + 10) { e.p = p; e.rms = rms; e.r = Math.min(12, 0.8 + 1.6 * rms + 0.35 * geo + (logsN < 2 ? 1.5 : 0)); e.fixed = true; }
+        if (ahead && p[0] > -10 && p[1] > -10 && p[0] < WX + 10 && p[1] < WY + 10) { e.p = p; e.rms = rms; e.r = Math.min(12, 0.8 + 1.6 * rms + 0.35 * geo + (logsN < 2 ? 1.5 : 0) + behind); e.fixed = true; }
       }
       // open-sea notes from other logs that passed close by and saw nothing
       if (e.fixed) { e.contra = 0; allLogs.forEach((L, li) => { const s = st.logs[li]; if (!s || s.struck) return; if (on.some(r => r.li === li)) return; const trk = track(S, L, s); L.entries.forEach((en, k) => { if (en.nothing === e.f || (en.clear && dist(trk[k + 1], e.p) < 8)) e.contra++; }); }); }
@@ -283,7 +289,7 @@ const MapSim = (() => {
   }
   function sail(S, est) {
     const hz = chartHazards(S, est);
-    const blocked = (p) => hz.some(h => h.disc ? dist(p, h.disc) < h.R : polyDist(p, h.poly) < h.R);
+    const blocked = maskOf((p) => hz.some(h => h.disc ? dist(p, h.disc) < h.R : polyDist(p, h.poly) < h.R));
     return S.routes.map((rt, i) => {
       const a = S.T.ports[rt.from].p, b = S.T.ports[rt.to].p, direct = dist(a, b);
       const path = plan(a, b, blocked) || [a, b]; let len = 0, wreck = null;
@@ -307,13 +313,13 @@ const MapSim = (() => {
 </script>
 <script>
 const M=MapSim, {WX,WY,POINT,dist}=M;
-const TARGETS = [60, 100, 95, 90, 90, 130, 90, 110, 130, 135];
+const TARGETS = [60, 100, 100, 95, 90, 115, 90, 105, 132, 140];
 const SHEETS = [
   { n: 'A Fair Copy', spec: { ports: ['W', 'E'], isles: 1, current: 0.7, logs: ['ok', 'ok'], routes: [[0, 1]] },
     hint: 'Two honest masters, one island, and a current nobody could see. Both ships reached port; your reckoning of them did not.', first: 'Open a log in the ship\'s book.',
     note: 'Dead reckoning: heading, speed and hours give a position, but a current carries the ship sideways unseen. Closing the traverse on a known port spreads that error back along the track.' },
   { n: 'Two Islands', spec: { ports: ['W', 'E', 'N'], isles: 2, current: 0.7, logs: ['ok', 'ok', 'ok'], routes: [[0, 1], [2, 1]] },
-    hint: 'More logs, more rays. A mark is only as good as the angle between the rays that fix it.',
+    hint: 'More logs, more rays. A mark is only as good as the angle between the rays that fix it; a cape nobody saw from two sides is not on the chart at all.',
     note: 'A fix from two bearings is strongest when they cross near right angles; nearly parallel rays fix nothing.' },
   { n: 'A Liar Aboard', spec: { ports: ['W', 'E', 'S'], isles: 2, current: 0.7, logs: ['ok', 'liar', 'ok', 'ok'], routes: [[0, 1], [2, 0]] },
     hint: 'One of these masters wrote his bearings in a tavern. His rays will not meet anyone else\'s.',
@@ -451,9 +457,13 @@ const compact=matchMedia('(max-width:760px)');
 const vel=document.createElement('canvas'); vel.width=1200; vel.height=870;
 (function makeVellum(){ const g=vel.getContext('2d'), W=vel.width, H=vel.height, r=RH.rng(1680);
   const base=g.createLinearGradient(0,0,W,H); base.addColorStop(0,'#efe0b9'); base.addColorStop(.5,'#ead8ad'); base.addColorStop(1,'#e2cc9c'); g.fillStyle=base; g.fillRect(0,0,W,H);
-  g.filter='blur(18px)'; for (let i=0;i<70;i++){ g.fillStyle=`rgba(${150+r()*40|0},${110+r()*30|0},${60+r()*20|0},${0.04+r()*0.05})`; g.beginPath(); g.ellipse(r()*W,r()*H,30+r()*160,20+r()*110,r()*3,0,7); g.fill(); }
-  g.filter='blur(6px)'; for (let i=0;i<60;i++){ g.fillStyle=`rgba(255,250,230,${0.05+r()*0.08})`; g.beginPath(); g.ellipse(r()*W,r()*H,10+r()*60,6+r()*40,r()*3,0,7); g.fill(); }
-  g.filter='none';
+  // mottling painted small and scaled up: the upscale is the blur (a blur filter on a big canvas is slow without a GPU)
+  const sm=document.createElement('canvas'); sm.width=W/12|0; sm.height=H/12|0; const q=sm.getContext('2d');
+  for (let i=0;i<70;i++){ q.fillStyle=`rgba(${150+r()*40|0},${110+r()*30|0},${60+r()*20|0},${0.05+r()*0.06})`; q.beginPath(); q.ellipse(r()*sm.width,r()*sm.height,(30+r()*160)/12,(20+r()*110)/12,r()*3,0,7); q.fill(); }
+  g.imageSmoothingEnabled=true; g.imageSmoothingQuality='high'; g.drawImage(sm,0,0,W,H);
+  const sm2=document.createElement('canvas'); sm2.width=W/4|0; sm2.height=H/4|0; const q2=sm2.getContext('2d');
+  for (let i=0;i<60;i++){ q2.fillStyle=`rgba(255,250,230,${0.06+r()*0.09})`; q2.beginPath(); q2.ellipse(r()*sm2.width,r()*sm2.height,(10+r()*60)/4,(6+r()*40)/4,r()*3,0,7); q2.fill(); }
+  g.drawImage(sm2,0,0,W,H);
   const img=g.getImageData(0,0,W,H), d=img.data; for (let i=0;i<d.length;i+=4){ const n=(r()-0.5)*14; d[i]+=n; d[i+1]+=n; d[i+2]+=n*0.8; } g.putImageData(img,0,0);
   g.lineCap='round'; for (let i=0;i<2600;i++){ const x=r()*W, y=r()*H, a=r()*0.6-0.3+(r()<0.5?0:Math.PI/2)*0.1, L=4+r()*16; g.strokeStyle=r()<0.5?`rgba(120,90,50,${0.05+r()*0.08})`:`rgba(255,248,225,${0.08+r()*0.1})`; g.lineWidth=0.4+r()*0.6; g.beginPath(); g.moveTo(x,y); g.quadraticCurveTo(x+Math.cos(a)*L/2+r()*2,y+Math.sin(a)*L/2+r()*2,x+Math.cos(a)*L,y+Math.sin(a)*L); g.stroke(); }
   for (let i=0;i<55;i++){ const x=r()*W, y=r()*H, R=1+r()*5; const gr=g.createRadialGradient(x,y,0,x,y,R*3); gr.addColorStop(0,`rgba(120,70,30,${0.25+r()*0.3})`); gr.addColorStop(.35,`rgba(140,90,40,${0.12})`); gr.addColorStop(1,'rgba(140,90,40,0)'); g.fillStyle=gr; g.beginPath(); g.arc(x,y,R*3,0,7); g.fill(); }
@@ -602,7 +612,7 @@ const NAV = {
     settle();
     // commission surveys where a hazard near trade is unfixed or vague
     if (!opt.noSurvey) for (let k = 0; k < (opt.maxSurvey ?? 3); k++) {
-      const est = M.estimate(S, st, logs); const need = Object.values(est).filter(e => e.on && (e.kind === 'cape' || e.kind === 'reef') && (!e.fixed || e.r > 4) && nearRoute(M, S, e)).sort((a, b) => (b.fixed ? b.r : 99) - (a.fixed ? a.r : 99))[0];
+      const est = M.estimate(S, st, logs); const need = Object.values(est).filter(e => e.on && (e.kind === 'cape' || e.kind === 'reef') && (!e.fixed || e.r > 4) && nearRoute(M, S, e) && !st.surveys.includes(e.f)).sort((a, b) => (b.fixed ? b.r : 99) - (a.fixed ? a.r : 99))[0];
       if (!need || st.spent + 10 > (opt.cash ?? 99)) break;
       const L = M.surveyLog(S, need.f, st.surveys.length); if (!L) break; logs.push(L); st.logs.push({ drift: [0, 0], dev: 0, struck: false, off: {} }); st.surveys.push(need.f); st.spent += 10; settle();
     }
@@ -612,7 +622,7 @@ const NAV = {
 function nearRoute(M, S, e) { const pts = e.p ? [e.p] : e.rays.map(r => r.o); return S.routes.some(rt => { const a = S.T.ports[rt.from].p, b = S.T.ports[rt.to].p; return pts.some(p => { const dx = b[0] - a[0], dy = b[1] - a[1], L = dx * dx + dy * dy; const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L)); return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy) < 16; }); }); }
 function closeAll(M, S, st, logs) { logs.forEach((L, i) => { if (L.to == null) return; const s = st.logs[i]; s.drift = [0, 0]; const tr = M.track(S, L, s), end = tr[tr.length - 1], port = S.T.ports[L.to].p; s.drift = [port[0] - end[0], port[1] - end[1]]; }); }
 function totalRes(M, S, st, logs, only) { const est = M.estimate(S, st, logs); let s = 0, n = 0; for (const e of Object.values(est)) if (e.fixed) for (const r of e.rays) if (r.on && (only == null || r.li === only)) { s += Math.min(r.res, 8) ** 2; n++; } return n ? s / n : 99; }
-function fixDev(M, S, st, logs) { for (let pass = 0; pass < 2; pass++) logs.forEach((L, i) => { const s = st.logs[i]; let best = s.dev, bv = 1e9; for (let d = -2; d <= 2; d++) { s.dev = d; if (L.to != null) { s.drift = [0, 0]; const tr = M.track(S, L, s), end = tr[tr.length - 1], port = S.T.ports[L.to].p; s.drift = [port[0] - end[0], port[1] - end[1]]; } const v = totalRes(M, S, st, logs, i); if (v < bv - 0.3) { bv = v; best = d; } } s.dev = best; if (L.to != null) { s.drift = [0, 0]; const tr = M.track(S, L, s), end = tr[tr.length - 1], port = S.T.ports[L.to].p; s.drift = [port[0] - end[0], port[1] - end[1]]; } }); }
+function fixDev(M, S, st, logs) { for (let pass = 0; pass < 2; pass++) logs.forEach((L, i) => { if (L.to == null) return; const s = st.logs[i]; let best = s.dev, bv = 1e9, v0 = null; for (const d of [0, -1, 1, -2, 2]) { s.dev = d; if (L.to != null) { s.drift = [0, 0]; const tr = M.track(S, L, s), end = tr[tr.length - 1], port = S.T.ports[L.to].p; s.drift = [port[0] - end[0], port[1] - end[1]]; } const v = totalRes(M, S, st, logs, i); if (d === 0) { v0 = v; bv = v; best = 0; } else if (v < bv && v < 0.45 * v0 && v0 > 1.5) { bv = v; best = d; } } s.dev = best; if (L.to != null) { s.drift = [0, 0]; const tr = M.track(S, L, s), end = tr[tr.length - 1], port = S.T.ports[L.to].p; s.drift = [port[0] - end[0], port[1] - end[1]]; } }); }
 function fixLost(M, S, st, logs) { logs.forEach((L, i) => { if (L.to != null) return; const s = st.logs[i];
   const cost = (d) => { s.drift = d; const tr = M.track(S, L, s); let v = 0; L.noons.forEach(nn => { const k = L.entries.findIndex(e => e.t >= nn.t); const p = tr[Math.max(1, k + 1)]; v += (p[1] - nn.lat) ** 2; });
     const est = M.estimate(S, st, logs); for (const e of Object.values(est)) if (e.fixed && e.logs >= 2) for (const r of e.rays) if (r.li === i && r.on) v += Math.min(r.res, 6) ** 2 * 0.5; return v; };
@@ -625,7 +635,8 @@ function dropPhantoms(M, S, st, logs) { const est = M.estimate(S, st, logs); for
 
 NAV.noSurvey = (M, S) => NAV.competent(M, S, { noSurvey: true });
 
-function dailyTarget(d){ const S2=M.sheet(d.spec,'daily:'+d.seed); const r=NAV.competent(M,S2); return Math.max(20, Math.round(0.85*M.score(S2,r.st,r.est).coins)); }
+// the day's target scales with the work: trade lanes, capes and reefs (calibrated against the navigator bot)
+function dailyTarget(d){ const S2=M.sheet(d.spec,'daily:'+d.seed); const caps=Object.values(S2.T.feats).filter(f=>f.kind==='cape').length; return Math.round(0.9*(S2.routes.length*30+caps*5+S2.T.reefs.length*4)); }
 
 window.__map={ M, NAV, get S(){ return S; }, get st(){ return st; }, get logs(){ return logs; }, get est(){ return est; }, recompute, openSheet, publish, closeOn, setDev, toggleStrike, survey, get published(){ return published; }, get sel(){ return sel; }, set sel(v){ sel=v; renderTabs(); renderPage(); dirty=true; }, SHEETS, get SAVE(){ return SAVE; }, cleanSave, cam, toScreen:(x,y)=>cam.toScreen(x,y), get si(){ return si; }, get daily(){ return daily; }, dailySpec, renderAll };
 { const h=decodeURIComponent(location.hash.slice(1)), q=Object.fromEntries(h.split('&').map(p=>p.split('=')).filter(p=>p.length===2));

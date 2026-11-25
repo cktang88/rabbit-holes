@@ -655,17 +655,36 @@ const VOICE={
 const TS=4, terrain=document.createElement('canvas'); terrain.width=W*TS; terrain.height=H*TS; const tctx=terrain.getContext('2d');
 let roots=[], terrainDirty=true;
 function makeRoots(){ const r=RH.rng(900+ci+(years?years.k*7:0)); roots=[]; for (let k=0;k<5;k++){ let x=r()*W, y=-2, a=Math.PI/2+r.range(-.4,.4); const seg=[[x,y]]; for (let i=0;i<40;i++){ a+=r.range(-.35,.35); x+=Math.cos(a)*2.2; y+=Math.sin(a)*2.2; seg.push([x,y]); if (y>H*0.7) break; } roots.push({seg, w:1.5+r()*2}); } }
+// The soil is lit like a cross-section under a lamp: strata, light falling off with depth, occlusion around rocks,
+// and every stone shaded from a height field (distance inside the rock) with a soft specular glint.
 function renderTerrain(){
-  const g=tctx, img=g.createImageData(W*TS,H*TS), d=img.data, cold=w.spec.cold, r=RH.rng(S.hash(seedOf()));
-  const noise=new Float32Array(W*H); for (let i=0;i<W*H;i++) noise[i]=r(); const G=w.G;
-  for (let y=0;y<H*TS;y++) for (let x=0;x<W*TS;x++){ const cx=(x/TS)|0, cy=(y/TS)|0, i=cy*W+cx, k=(y*W*TS+x)*4, t=G[i], n=noise[i], grain=((x*73856093^y*19349663)>>>0)%97/97; let R,Gc,B;
-    if (t){ const edge=(cx>0&&!G[i-1]&&x%TS<1)||(cy>0&&!G[i-W]&&y%TS<1)||(cx<W-1&&!G[i+1]&&x%TS>=TS-1)||(cy<H-1&&!G[i+W]&&y%TS>=TS-1);
-      R=118+n*22+grain*14; Gc=106+n*18+grain*12; B=92+n*14+grain*10; if (edge){ R-=40; Gc-=40; B-=36; } if (cy>0&&!G[i-W]&&y%TS<2){ R+=26; Gc+=24; B+=20; } }
-    else { const band=Math.sin(cy*0.18+n)*6; R=58+n*10+band; Gc=39+n*8+band*0.7; B=23+n*5; if (grain>0.92){ R+=22; Gc+=15; B+=8; } else if (grain<0.07){ R-=18; Gc-=13; B-=8; } }
-    if (cold && grain>0.82){ R+=34; Gc+=40; B+=50; }
-    d[k]=R; d[k+1]=Gc; d[k+2]=B; d[k+3]=255; }
+  const g=tctx, PW=W*TS, PH=H*TS, img=g.createImageData(PW,PH), d=img.data, cold=w.spec.cold, G=w.G, sd=S.hash(seedOf());
+  const hsh=(x,y)=>{ let h=Math.imul(x*374761393+y*668265263+sd,1274126177); h=(h^(h>>>13))>>>0; return (h%10007)/10007; };
+  const vn=(x,y,s)=>{ const X=Math.floor(x/s), Y=Math.floor(y/s), fx=x/s-X, fy=y/s-Y, u=fx*fx*(3-2*fx), v=fy*fy*(3-2*fy); const a=hsh(X,Y), b=hsh(X+1,Y), c=hsh(X,Y+1), e=hsh(X+1,Y+1); return a+(b-a)*u+(c-a)*v+(a-b-c+e)*u*v; };
+  // distance (in cells) inside rock to open soil, and in open soil to the nearest rock
+  const dist=(want)=>{ const D=new Float32Array(W*H).fill(99), q=[]; for (let i=0;i<W*H;i++) if ((G[i]?1:0)!==want){ D[i]=0; q.push(i); } let h=0; while(h<q.length){ const i=q[h++], x=i%W, y=(i/W)|0; for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const X=x+dx,Y=y+dy; if (X<0||Y<0||X>=W||Y>=H) continue; const j=Y*W+X; if (D[j]>D[i]+1){ D[j]=D[i]+1; q.push(j); } } } return D; };
+  const box=(D)=>{ for (let pass=0;pass<3;pass++){ const o=new Float32Array(W*H); for (let y=0;y<H;y++) for (let x=0;x<W;x++){ let s2=0,n=0; for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++){ const X=x+dx,Y=y+dy; if (X<0||Y<0||X>=W||Y>=H) continue; s2+=D[Y*W+X]; n++; } o[y*W+x]=s2/n; } D.set(o); } return D; };
+  const inR=box(dist(1)), outR=box(dist(0));
+  const samp=(D,x,y)=>{ x=Math.max(0,Math.min(W-1.001,x)); y=Math.max(0,Math.min(H-1.001,y)); const X=x|0, Y=y|0, fx=x-X, fy=y-Y, i=Y*W+X; const a=D[i], b=D[Math.min(W*H-1,i+1)], c=D[Math.min(W*H-1,i+W)], e=D[Math.min(W*H-1,i+W+1)]; return a+(b-a)*fx+(c-a)*fy+(a-b-c+e)*fx*fy; };
+  const L=[-0.45,-0.65,0.62], Ln=Math.hypot(...L); L[0]/=Ln; L[1]/=Ln; L[2]/=Ln;
+  for (let y=0;y<PH;y++){ const cyf=y/TS, depth=y/PH;
+    // strata: humus near the top, then ochre clay, then grey sand, with wavy boundaries
+    for (let x=0;x<PW;x++){ const cxf=x/TS, cx=cxf|0, cy=cyf|0, i=cy*W+cx, k=(y*PW+x)*4, n1=vn(x,y,9), n2=vn(x,y,3), grit=hsh(x,y);
+      let R,Gc,B;
+      const sdf=samp(inR,cxf-0.5,cyf-0.5)-samp(outR,cxf-0.5,cyf-0.5)+(n1-0.5)*0.5; if (sdf>0){ const h=Math.min(5,samp(inR,cxf-0.5,cyf-0.5))+n1*0.6, hx=Math.min(5,samp(inR,cxf-0.25,cyf-0.5))-Math.min(5,samp(inR,cxf-0.75,cyf-0.5)), hy=Math.min(5,samp(inR,cxf-0.5,cyf-0.25))-Math.min(5,samp(inR,cxf-0.5,cyf-0.75));
+        const nx=-hx*2.2, ny=-hy*2.2, nz=1, nl=Math.hypot(nx,ny,nz), dif=Math.max(0,(nx*L[0]+ny*L[1]+nz*L[2])/nl), spec=Math.pow(Math.max(0,dif),18)*0.5;
+        const tone=hsh(cx>>2,cy>>2); R=104+tone*26+n2*18; Gc=96+tone*18+n2*14; B=86+tone*10+n2*12; const sh=0.42+0.78*dif-0.08*Math.min(1,h/4);
+        R=R*sh+spec*200; Gc=Gc*sh+spec*190; B=B*sh+spec*170; if (grit>0.97){ R+=30; Gc+=28; B+=24; } else if (grit<0.03){ R*=0.7; Gc*=0.7; B*=0.7; } }
+      else { const band=cyf+Math.sin(cxf*0.09+n1*2)*3+n1*4; let r0,g0,b0; if (band<14){ r0=52; g0=34; b0=20; } else if (band<38){ r0=82; g0=54; b0=28; } else if (band<58){ r0=70; g0=50; b0=32; } else { r0=60; g0=46; b0=34; }
+        const tex=0.82+n2*0.3+n1*0.15; R=r0*tex; Gc=g0*tex; B=b0*tex;
+        if (grit>0.985){ R+=46; Gc+=36; B+=22; } else if (grit>0.96){ R+=16; Gc+=11; B+=6; } else if (grit<0.025){ R*=0.6; Gc*=0.6; B*=0.6; }
+        const ao=0.62+0.38*Math.min(1,samp(outR,cxf-0.5,cyf-0.5)/3.2); R*=ao; Gc*=ao; B*=ao; }
+      // lamp light from the surface, falling off with depth
+      const lit=1.12-0.5*depth; R*=lit; Gc*=lit; B*=lit*0.96;
+      if (cold && grit>0.8 && sdf>0){ R+=34; Gc+=40; B+=50; } else if (cold && grit>0.93){ R+=26; Gc+=32; B+=44; }
+      d[k]=R; d[k+1]=Gc; d[k+2]=B; d[k+3]=255; } }
   g.putImageData(img,0,0);
-  g.save(); g.scale(TS,TS); g.lineCap='round'; for (const rt of roots){ g.strokeStyle='rgba(201,147,63,.38)'; g.lineWidth=rt.w*0.2; g.beginPath(); rt.seg.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y)); g.stroke(); } g.restore();
+  g.save(); g.scale(TS,TS); g.lineCap='round'; for (const rt of roots){ g.strokeStyle='rgba(20,10,4,.35)'; g.lineWidth=rt.w*0.32; g.beginPath(); rt.seg.forEach(([x,y],i)=>i?g.lineTo(x+0.3,y+0.4):g.moveTo(x+0.3,y+0.4)); g.stroke(); g.strokeStyle='rgba(201,147,63,.5)'; g.lineWidth=rt.w*0.22; g.beginPath(); rt.seg.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y)); g.stroke(); g.strokeStyle='rgba(250,220,160,.25)'; g.lineWidth=rt.w*0.07; g.stroke(); } g.restore();
   terrainDirty=false; }
 const off=document.createElement('canvas'); off.width=W; off.height=H; const octx=off.getContext('2d'); const img=octx.createImageData(W,H);
 // ants are cached sprites (one per look), blitted under a rotation: far cheaper than paths on a phone
@@ -688,10 +707,10 @@ let legs=true, scentT=0, scentW=null;
 function paintScent(){ const d=img.data, T=w.trail, R2=w.rtrail, A=w.alarm, F=w.food;
   for (let i=0;i<W*H;i++){ const k=i*4; let r=0,g=0,b=0,a=0; const t=Math.min(1,T[i]), rt=Math.min(1,R2[i])*0.6, al=Math.min(1,A[i]);
     if (t>0.02){ r=166; g=232; b=138; a=t*0.85; } if (rt>a){ r=200; g=90; b=70; a=rt*0.7; } if (al>0.05 && al>a*0.8){ r=240; g=138; b=120; a=Math.max(a,al*0.9); }
-    if (F[i]>0.05){ r=240; g=200; b=96; a=Math.min(1,0.5+F[i]); }
+    if (F[i]>0.05 && a<0.3){ r=240; g=190; b=90; a=0.3; }
     d[k]=r; d[k+1]=g; d[k+2]=b; d[k+3]=a*255; }
   octx.putImageData(img,0,0); }
-const bg=document.createElement('canvas'); let bgKey='';
+const bg=document.createElement('canvas'); let bgKey=''; const mid=document.createElement('canvas'); mid.width=W*TS; mid.height=H*TS;
 function paintBg(dpr){ if (bg.width!==cv.width||bg.height!==cv.height){ bg.width=cv.width; bg.height=cv.height; } const g=bg.getContext('2d');
   g.setTransform(1,0,0,1,0,0); g.fillStyle='#120b06'; g.fillRect(0,0,bg.width,bg.height); g.setTransform(dpr,0,0,dpr,dpr*cam.x,dpr*cam.y); g.imageSmoothingEnabled=true;
   // grass and topsoil above the cross-section
@@ -699,7 +718,13 @@ function paintBg(dpr){ if (bg.width!==cv.width||bg.height!==cv.height){ bg.width
   g.strokeStyle='#6f9a45'; g.lineWidth=Math.max(1,cell*0.25); g.beginPath(); for (let x=0;x<W;x+=1.3){ const hgt=1.2+((x*7919)%13)/9; g.moveTo(x*cell,-cell*4.6); g.lineTo((x+0.3)*cell,-cell*(4.6+hgt)); } g.stroke();
   g.fillStyle='#4a3020'; g.fillRect(-cell*1.2,-cell*1.2,W*cell+cell*2.4,H*cell+cell*2.4); g.fillStyle='#1d1209'; g.fillRect(-cell*.5,-cell*.5,W*cell+cell,H*cell+cell);
   g.drawImage(terrain,0,0,W*cell,H*cell);
-  g.drawImage(off,0,0,W*cell,H*cell);
+  { const n=w.nests[0], gl=g.createRadialGradient(n.x*cell,n.y*cell,0,n.x*cell,n.y*cell,cell*22); gl.addColorStop(0,'rgba(255,190,110,.22)'); gl.addColorStop(1,'rgba(255,190,110,0)'); g.fillStyle=gl; g.fillRect(0,0,W*cell,H*cell);
+    const vg=g.createRadialGradient(W*cell*0.5,-H*cell*0.1,H*cell*0.3,W*cell*0.5,H*cell*0.4,W*cell*0.75); vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(8,4,2,.5)'); g.fillStyle=vg; g.fillRect(0,0,W*cell,H*cell); }
+  // scent glow and food crumbs are composed on a small layer (4 px per cell), then scaled up once
+  { const m=mid.getContext('2d'), Q=TS; m.clearRect(0,0,mid.width,mid.height); m.filter='blur(3px)'; m.globalAlpha=0.85; m.drawImage(off,0,0,W*Q,H*Q); m.filter='blur(1px)'; m.globalAlpha=0.7; m.drawImage(off,0,0,W*Q,H*Q); m.filter='none'; m.globalAlpha=1;
+    const F=w.food; for (let i=0;i<W*H;i++){ const f=F[i]; if (f<=0.05) continue; const x=i%W, y=(i/W)|0, n=Math.min(3,Math.ceil(f)); for (let j=0;j<n;j++){ const h=((i*2654435761+j*40503)>>>0)%1000/1000, h2=((i*97+j*131)%100)/100; const px=(x+0.2+h*0.6)*Q, py=(y+0.2+h2*0.6)*Q, rr=Q*(0.22+h*0.12);
+      m.fillStyle='#6a4214'; m.beginPath(); m.ellipse(px+rr*0.2,py+rr*0.25,rr*1.15,rr*0.8,h*3,0,7); m.fill(); m.fillStyle='#e3ad48'; m.beginPath(); m.ellipse(px,py,rr*1.05,rr*0.72,h*3,0,7); m.fill(); m.fillStyle='#fff0c0'; m.beginPath(); m.arc(px-rr*0.35,py-rr*0.3,rr*0.32,0,7); m.fill(); } }
+    g.drawImage(mid,0,0,W*cell,H*cell); }
 }
 function draw(){
   if (!w) return; if (terrainDirty) renderTerrain();

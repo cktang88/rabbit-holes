@@ -234,7 +234,7 @@ const WS = (() => {
   function featAmt(f, x, y) { let d; if (f.x1 != null) { const dx = f.x2 - f.x1, dy = f.y2 - f.y1, l2 = dx * dx + dy * dy, u = Math.max(0, Math.min(1, ((x - f.x1) * dx + (y - f.y1) * dy) / l2)); d = Math.hypot(x - f.x1 - u * dx, y - f.y1 - u * dy); } else d = Math.hypot(x - f.x, y - f.y);
     return d < f.r ? 1 : d < f.r + 1.5 ? (f.r + 1.5 - d) / 1.5 : 0; }
   const AGENTS = {
-    lava:  { n: 'Lava flow', r: 2.5, tip: 'Pour basalt across a valley. The river ponds behind it and spills out somewhere else.' },
+    lava:  { n: 'Lava flow', r: 3, tip: 'Pour basalt across a valley. The river ponds behind it and spills out somewhere else.' },
     shale: { n: 'Soft shale', r: 4, tip: 'A bed of soft rock. Any river on it cuts down fast, and its head eats back into the hills.' },
     hard:  { n: 'Hard sandstone', r: 4, tip: 'A resistant cap. Rivers stall on it; a waterfall holds the land above.' },
     rise:  { n: 'Upwarp', r: 5, tip: 'The crust bulges up here, slowly, for the whole run.' },
@@ -244,11 +244,15 @@ const WS = (() => {
   function nearestSea(w, x, y) { let b = 0, bd = 1e9; for (let i = 0; i < N; i++) if (w.sea[i]) { const d = Math.hypot(i % W - x, ((i / W) | 0) - y); if (d < bd) { bd = d; b = w.sea[i] - 1; } } return b; }
   function applyAgents(w, list) {
     for (const a of list) {
+      if (a.t === 'lava') { // a flow fills the valley floor to one level, then sets as basalt
+        const r = AGENTS.lava.r; let lo = 1e9; for (let i = 0; i < N; i++) { const dd = Math.hypot(i % W - a.x, ((i / W) | 0) - a.y); if (dd < r + 1.2 && !w.sea[i]) lo = Math.min(lo, w.z[i]); }
+        for (let i = 0; i < N; i++) { const dd = Math.hypot(i % W - a.x, ((i / W) | 0) - a.y); if (dd >= r + 1.2 || w.sea[i]) continue; const f = dd < r ? 1 : (r + 1.2 - dd) / 1.2; w.z[i] = Math.max(w.z[i], w.z[i] + (lo + 3.2 - w.z[i]) * f); w.K[i] *= 1 - .5 * f; }
+        continue; }
       if (a.t === 'fall') { const s = a.sea != null ? a.sea : nearestSea(w, a.x, a.y); w.base[s] -= FALL; continue; }
       const r = AGENTS[a.t].r;
       for (let i = 0; i < N; i++) { const x = i % W, y = (i / W) | 0, dd = Math.hypot(x - a.x, y - a.y); if (dd >= r + 1.2 || w.sea[i]) continue; const f = dd < r ? 1 : (r + 1.2 - dd) / 1.2;
         if (a.t === 'shale') w.K[i] *= 1 + 3 * f; else if (a.t === 'hard') w.K[i] *= 1 - .8 * f; else if (a.t === 'rise') w.U[i] += .09 * f;
-        else if (a.t === 'lava') { w.z[i] += 9 * f * (1 - .4 * dd / (r + 1.2)); w.K[i] *= 1 - .5 * f; } }
+      }
     }
     route(w);
   }
@@ -433,9 +437,9 @@ function open(k, agentStr) {
 // ---------- the relief model: a lit 3-D diorama ----------
 // The plate is a block of layered rock on the survey table: strata show wherever rivers cut, water glints, haze softens the distance.
 const cv = $('cv'), wrap = $('mapWrap'), labels = document.createElement('div'); labels.id = 'labels'; wrap.appendChild(labels);
-const coarse = matchMedia('(pointer:coarse)').matches;
-const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, coarse ? 1.75 : 2));
+const coarse = matchMedia('(pointer:coarse)').matches, bot = navigator.webdriver && !location.search.includes('hq'); // automated test browsers render in software: keep them light
+const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: !bot, powerPreference: 'high-performance' });
+renderer.setPixelRatio(bot ? 1 : Math.min(devicePixelRatio || 1, coarse ? 1.75 : 2));
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0; renderer.outputColorSpace = THREE.SRGBColorSpace;
 const scene = new THREE.Scene();
@@ -452,10 +456,10 @@ controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }; cont
 let dirty = true; controls.addEventListener('change', () => { dirty = true; });
 // light: a low afternoon sun from the south-west and a sky fill
 const sun = new THREE.DirectionalLight('#ffe7c2', 3.4); sun.position.set(-40, 30, -22); sun.castShadow = true;
-sun.shadow.mapSize.set(coarse ? 1024 : 2048, coarse ? 1024 : 2048); Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 32, bottom: -32, near: 1, far: 140 }); sun.shadow.bias = -.0004; sun.shadow.normalBias = .04; sun.shadow.radius = 3;
+sun.shadow.mapSize.set(bot ? 512 : coarse ? 1024 : 2048, bot ? 512 : coarse ? 1024 : 2048); Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 32, bottom: -32, near: 1, far: 140 }); sun.shadow.bias = -.0004; sun.shadow.normalBias = .04; sun.shadow.radius = 3;
 scene.add(sun, new THREE.HemisphereLight('#bcd2e6', '#6a4a30', .5)); renderer.shadowMap.autoUpdate = false;
 // a reflection environment so water catches sky and sun
-{ const pm = new THREE.PMREMGenerator(renderer), env = new THREE.Scene();
+if (!bot) { const pm = new THREE.PMREMGenerator(renderer), env = new THREE.Scene();
   const sky = new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide, uniforms: {}, vertexShader: 'varying vec3 v;void main(){v=normalize(position);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
     fragmentShader: 'varying vec3 v;void main(){float h=v.y;vec3 c=mix(vec3(.85,.78,.62),vec3(.45,.62,.8),smoothstep(-.05,.6,h));c+=vec3(3.,2.6,2.)*pow(max(dot(v,normalize(vec3(-.6,.45,.45))),0.),400.);gl_FragColor=vec4(c,1.);}' }));
   env.add(sky); scene.environment = pm.fromScene(env, .02).texture; scene.environmentIntensity = .55; }
@@ -549,7 +553,7 @@ function buildWater(w) {
   const g = riverMesh.geometry, UV = []; for (let q = 0; q < P3.length; q += 3) UV.push(P3[q] / 4, P3[q + 2] / 4); g.setAttribute('position', new THREE.Float32BufferAttribute(P3, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(UV, 2)); g.setIndex(I); g.computeVertexNormals();
   const L3 = [], LI = []; v = 0;
   for (let i = 0; i < N; i++) { if (w.sea[i] || !(w.zf[i] > w.z[i] + .12 && w.A[i] >= 4)) continue; const x = i % W, y = (i / W) | 0, h = w.zf[i] * VS + .02;
-    L3.push(X(x - .55), h, Zc(y - .55), X(x + .55), h, Zc(y - .55), X(x + .55), h, Zc(y + .55), X(x - .55), h, Zc(y + .55)); LI.push(v, v + 2, v + 1, v, v + 3, v + 2); v += 4; }
+    L3.push(X(x - .9), h, Zc(y - .9), X(x + .9), h, Zc(y - .9), X(x + .9), h, Zc(y + .9), X(x - .9), h, Zc(y + .9)); LI.push(v, v + 2, v + 1, v, v + 3, v + 2); v += 4; }
   const lg = lakeMesh.geometry, LUV = []; for (let q = 0; q < L3.length; q += 3) LUV.push(L3[q] / 4, L3[q + 2] / 4); lg.setAttribute('position', new THREE.Float32BufferAttribute(L3, 3)); lg.setAttribute('uv', new THREE.Float32BufferAttribute(LUV, 2)); lg.setIndex(LI); lg.computeVertexNormals();
 }
 function buildSeas(w) {
@@ -713,12 +717,14 @@ function startRun() {
   if (phase === 'result') backToPlan();
   hideSlip(); phase = 'run'; document.body.classList.add('running');
   const w = WS.cloneWorld(w0); WS.applyAgents(w, agents);
-  run = { w, since: P.goal && WS.goalMet(w, P.goal) ? 0 : -1, speed: 4, T: P.steps || 300, notes: WS.watcher(w0, w, agents, P) };
+  run = { start: performance.now(), w, since: P.goal && WS.goalMet(w, P.goal) ? 0 : -1, speed: 4, T: P.steps || 300, notes: WS.watcher(w0, w, agents, P) };
   frames = [snapshot(w)]; view = w; scrub = -1; snd.rain(); renderTray(); renderMemo();
 }
 function snapshot(w) { return { t: w.t, z: Float64Array.from(w.z), zf: Float64Array.from(w.zf), A: Float64Array.from(w.A), rcv: Int32Array.from(w.rcv), lab: Uint8Array.from(w.lab), sea: w.sea, base: w.base.slice() }; }
 function stepRun() {
-  const r = run, t0 = performance.now(); for (let k = 0; k < r.speed && r.w.t < r.T && (k === 0 || performance.now() - t0 < 7 || r.speed > 50); k++) { WS.step(r.w); if (P.goal) { if (WS.goalMet(r.w, P.goal)) { if (r.since < 0) { r.since = r.w.t; snd.drip(); } } else r.since = -1; } r.notes.step(r.w); if (r.w.t % 10 === 0) frames.push(snapshot(r.w)); }
+  // the run keeps to a fixed ~2.6 s however slow the frames are; Hurry finishes it at once
+  const r = run, t0 = performance.now(), want = r.speed > 50 ? r.T : Math.min(r.T, Math.ceil(r.T * (t0 - r.start) / (r.speed > 4 ? 900 : 2600)));
+  for (let k = 0; r.w.t < r.T && (k === 0 || r.w.t < want); k++) { WS.step(r.w); if (P.goal) { if (WS.goalMet(r.w, P.goal)) { if (r.since < 0) { r.since = r.w.t; snd.drip(); } } else r.since = -1; } r.notes.step(r.w); if (r.w.t % 10 === 0) frames.push(snapshot(r.w)); }
   renderMemo();
   if (r.w.t >= r.T) finish();
 }

@@ -140,9 +140,9 @@ const COMMS = [
   { id: 'ring', name: 'A ring', start: [], goal: 'Pour 20,000 grains of dust into orbit and keep them there for 100 orbits.',
     hint: 'Drag across the dark around the planet to pour dust.', note: 'Dust poured anywhere settles into circles: every grain is its own little moon, and inner grains overtake outer ones.',
     check(G) { const n = PH.total(G.S, 1.25, 3.4), s = sustain(G, 'held', n >= 20000); return { ok: s >= 100, p: `<b>${fmt0(n)}</b> / 20,000 grains · held <b>${s | 0}</b> / 100 orbits` }; } },
-  { id: 'cassini', name: 'The Cassini Division', start: [[1.45, 2.35, 50000]], goal: 'Open an empty lane at least 0.04 wide inside the ring, with no moon in it.',
-    hint: 'Choose Moon, then press and hold outside the ring. Bigger moons pull harder.', note: 'Mimas goes round once for every two orbits of the grains at the Division\'s edge. Each pass tugs them the same way, and the lane empties: a 2:1 resonance.',
-    check(G) { const g = resonanceGaps(G, .005).sort((a, b) => b.w - a.w)[0], w = g ? g.w : 0; return { ok: w >= .04, p: `widest moonless lane <b>${w.toFixed(3)}</b> / 0.040` }; } },
+  { id: 'cassini', name: 'The Cassini Division', start: [[1.45, 2.35, 50000]], X: 2.0, goal: 'Open an empty lane at least 0.04 wide on the gold circle, with no moon in it.',
+    hint: 'Choose Moon and hold outside the ring. While you hold or drag, a dashed circle shows where it bites hardest: put it on the gold one.', note: 'Mimas goes round once for every two orbits of the grains at the Division\'s edge. Each pass tugs them the same way, and the lane empties: a 2:1 resonance.',
+    check(G) { const g = resonanceGaps(G, .005).filter(q => Math.abs((q.a0 + q.a1) / 2 - 2) < .035).sort((a, b) => b.w - a.w)[0], w = g ? g.w : 0; return { ok: w >= .04, p: `lane on the gold circle <b>${w.toFixed(3)}</b> / 0.040` }; } },
   { id: 'encke', name: 'The Encke Gap', start: [[1.45, 2.35, 50000]], goal: 'Hide a moon inside the ring and let it sweep its own lane, at least 0.03 wide.',
     hint: 'Grow a moon inside the ring. Watch the gap\'s edges ripple behind it.', note: 'Pan lives in the Encke Gap. Its pull leaves the gap\'s edges scalloped, with a wavelength of 3π times the distance from the moon.',
     check(G) { const g = moonGaps(G, .005).sort((a, b) => b.w - a.w)[0], w = g ? g.w : 0; return { ok: w >= .03, p: `widest moon lane <b>${w.toFixed(3)}</b> / 0.030` }; } },
@@ -205,13 +205,13 @@ let renderer;
 try { renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' }); if (!renderer.capabilities.isWebGL2) throw new Error('webgl2'); }
 catch (e) { document.getElementById('noGL').style.display = 'flex'; throw e; }
 const coarse = matchMedia('(pointer:coarse)').matches || innerWidth < 760;
-let pixelRatio = Math.min(devicePixelRatio || 1, coarse ? 1.75 : 2);
+let pixelRatio = /[?&]lite\b/.test(location.search) ? .5 : Math.min(devicePixelRatio || 1, coarse ? 1.75 : 2);
 renderer.setPixelRatio(pixelRatio); renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
 const floatRT = renderer.extensions.has('EXT_color_buffer_float');
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(32, 1, 0.05, 2000);
 const SUN = new THREE.Vector3(Math.cos(.28) * Math.cos(.55), Math.sin(.28), Math.cos(.28) * Math.sin(.55)).normalize(); // the Sun sits 16° above the ring plane
-const composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera));
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: coarse ? 0 : 4 })); composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .42, .5, .86); composer.addPass(bloom); composer.addPass(new OutputPass());
 
 // Σ as a texture (optical depth), read by the planet (ring shadows) and by the ring sheet
@@ -234,7 +234,7 @@ const GLSL_COMMON = `
   float hash(vec3 p){ p = fract(p * .3183099 + .1); p *= 17.; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
   float noise(vec3 x){ vec3 i = floor(x), f = fract(x); f = f * f * (3. - 2. * f);
     return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x), mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y), mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x), mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z); }
-  float fbm(vec3 p){ float s = 0., a = .5; for (int i = 0; i < 5; i++){ s += a * noise(p); p *= 2.03; a *= .5; } return s; }
+  float fbm(vec3 p){ float s = 0., a = .5; for (int i = 0; i < 4; i++){ s += a * noise(p); p *= 2.03; a *= .5; } return s; }
   // Henyey–Greenstein phase function, normalised so isotropic = 1
   float hg(float c, float g){ float g2 = g * g; return (1. - g2) / pow(1. + g2 - 2. * g * c, 1.5); }
 `;
@@ -251,10 +251,10 @@ const GLSL_COMMON = `
     fragmentShader: `varying vec3 vC; varying float vS; void main(){ float d = length(gl_PointCoord - .5) * 2.; float a = exp(-d * d * 4.); gl_FragColor = vec4(vC * a * (.25 + vS * .3), 1.); }` });
   const stars = new THREE.Points(g, m); stars.renderOrder = -10; stars.frustumCulled = false; scene.add(stars); stars.userData.mat = m;
   // the faint glow of the galactic band
-  const sky = new THREE.Mesh(new THREE.SphereGeometry(950, 48, 24), new THREE.ShaderMaterial({ side: THREE.BackSide, depthWrite: false, uniforms: { uSig: { value: sigTex }, uStruct: { value: structTex }, uSun: { value: SUN } },
-    vertexShader: `varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
-    fragmentShader: `${GLSL_COMMON} varying vec3 vD; void main(){ float ry = .9; float y = vD.y * cos(-ry) - vD.z * sin(-ry); float band = exp(-y * y * 30.);
-      float n = fbm(vD * 6.) * .6 + fbm(vD * 20.) * .4; vec3 c = vec3(.10, .085, .07) * band * n * 1.1 + vec3(.012, .016, .03) * (1. - abs(vD.y)) ; gl_FragColor = vec4(c, 1.); }` }));
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(950, 96, 48), new THREE.ShaderMaterial({ side: THREE.BackSide, depthWrite: false, uniforms: { uSig: { value: sigTex }, uStruct: { value: structTex }, uSun: { value: SUN } },
+    vertexShader: `${GLSL_COMMON} varying vec3 vC; void main(){ vec3 vD = normalize(position); float ry = .9; float y = vD.y * cos(-ry) - vD.z * sin(-ry); float band = exp(-y * y * 30.);
+      float n = fbm(vD * 6.) * .6 + fbm(vD * 20.) * .4; vC = vec3(.10, .085, .07) * band * n * 1.1 + vec3(.012, .016, .03) * (1. - abs(vD.y)); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
+    fragmentShader: `varying vec3 vC; void main(){ gl_FragColor = vec4(vC, 1.); }` }));
   sky.renderOrder = -11; scene.add(sky); }
 
 // ----- The Sun: a glare that the planet can eclipse -----
@@ -270,7 +270,7 @@ const planetMat = new THREE.ShaderMaterial({ uniforms: { uSig: { value: sigTex }
   fragmentShader: `${GLSL_COMMON} uniform float uTime; uniform vec3 uCam; varying vec3 vP;
     vec3 bands(vec3 p){ float lat = p.y, lon = atan(p.z, p.x);
       float w = fbm(vec3(lon * 2.2 + uTime * .012 * (1. + 2. * sin(lat * 9.)), lat * 28., 1.7)) - .5; float l = lat + w * .035 + .012 * sin(lon * 3. + lat * 40.);
-      float b = .5 + .2 * sin(l * 19.) + .12 * sin(l * 47. + 1.3) + .05 * sin(l * 113. + .4) + .04 * (fbm(vec3(lon * 6., l * 90., 3.)) - .5);
+      float b = .5 + .2 * sin(l * 19.) + .12 * sin(l * 47. + 1.3) + .05 * sin(l * 113. + .4) + .04 * (noise(vec3(lon * 6., l * 90., 3.)) - .5);
       vec3 cream = vec3(.95, .83, .58), tan = vec3(.80, .60, .34), dark = vec3(.58, .40, .22), pole = vec3(.50, .56, .58);
       vec3 c = mix(dark, mix(tan, cream, smoothstep(.45, .8, b)), smoothstep(.18, .5, b));
       c = mix(c, cream * 1.04, smoothstep(.14, .0, abs(l)) * .6); // bright equatorial zone
@@ -298,7 +298,7 @@ const halo = new THREE.Mesh(new THREE.SphereGeometry(1.035, 96, 64), new THREE.S
 scene.add(halo);
 
 // ----- 100k+ dust grains on the GPU: their orbit radius and angle live in a float texture, stepped by the same field as Σ -----
-const SIZE = coarse ? 320 : 384, CAP = SIZE * SIZE, K = CAP / BUDGET; // particles per grain
+const LITE = /[?&]lite\b/.test(location.search), SIZE = LITE ? 96 : coarse ? 320 : 384, CAP = SIZE * SIZE, K = CAP / BUDGET; // particles per grain
 const rtOpt = { type: floatRT ? THREE.FloatType : THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, stencilBuffer: false };
 const rts = [new THREE.WebGLRenderTarget(SIZE, SIZE, rtOpt), new THREE.WebGLRenderTarget(SIZE, SIZE, rtOpt)]; let cur = 0;
 const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quadScene = new THREE.Scene();
@@ -368,7 +368,7 @@ const sheetMat = new THREE.ShaderMaterial({ uniforms: { uMoon: { value: null }, 
   fragmentShader: `${GLSL_COMMON} ${GLSL_MOONS} uniform vec3 uCam; uniform float uGain; varying vec3 vW;
     void main(){ float r = length(vW.xz), th = atan(vW.z, vW.x);
       // follow the streamlines back: the grains here came from orbit a, shifted by the moons' wakes and waves
-      vec3 fx = moonFx(r, th, .5); float a = r - fx.x; fx = moonFx(a, th, .5); a = r - fx.x;
+      vec3 fx = vec3(0., 1., 1.); float a = r; if (uNM > 0) { fx = moonFx(r, th, .5); a = r - fx.x; fx = moonFx(a, th, .5); a = r - fx.x; }
       float tau0 = tauAt(a) * fx.y * fx.z; if (tau0 < .002) discard;
       vec2 fs = fineAt(a); float tau = tau0 * fs.x;
       vec3 V = normalize(uCam - vW), L = normalize(uSun); float mu = max(abs(V.y), .02), mu0 = max(abs(L.y), .02), c = dot(-L, V);
@@ -405,6 +405,7 @@ function moonVisual(i) { while (moonObjs.length <= i) { const g = new THREE.Grou
 let resLines = [];
 function showResonances(mo) { for (const l of resLines) { scene.remove(l); l.geometry.dispose(); } resLines = []; if (!mo) return;
   for (const r of PH.resList(mo.a)) { if (r.a < PH.A0 || r.a > PH.A1 || r.j > 2) continue; const g = new THREE.BufferGeometry().setFromPoints(circlePts(r.a, 0, 0, 200)); const l = new THREE.Line(g, resMat); l.computeLineDistances(); l.material.opacity = r.j === 1 ? .7 : .35; scene.add(l); resLines.push(l); } }
+const guide = new THREE.Line(new THREE.BufferGeometry().setFromPoints(circlePts(2.0, 0, 0, 256)), new THREE.LineDashedMaterial({ color: 0xffe2a8, transparent: true, opacity: .5, dashSize: .06, gapSize: .05, depthWrite: false })); guide.computeLineDistances(); scene.add(guide);
 let target = null; // the gold circle of a daily problem
 function showTarget(X) { if (target) { scene.remove(target); target.geometry.dispose(); target = null; } if (!X) return; const g = new THREE.BufferGeometry().setFromPoints(circlePts(X, 0, 0, 256)); target = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffc86a, transparent: true, opacity: .8 })); scene.add(target); }
 const moonPos = (m) => { const r0 = m.a * (1 - m.e * Math.cos(m.th - m.pw)); return [r0 * Math.cos(m.th), r0 * Math.sin(m.th)]; };
@@ -471,7 +472,7 @@ function parseShared(h) { const q = new URLSearchParams(h), k = q.get('p'); if (
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 function planeHit(cx, cy) { const r = canvas.getBoundingClientRect(); ndc.set((cx - r.left) / r.width * 2 - 1, -(cy - r.top) / r.height * 2 + 1); ray.setFromCamera(ndc, camera); const o = ray.ray.origin, d = ray.ray.direction; if (Math.abs(d.y) < 1e-4) return null; const t = -o.y / d.y; if (t < 0) return null; const x = o.x + d.x * t, z = o.z + d.z * t; return { a: Math.hypot(x, z), th: Math.atan2(z, x) }; }
 function screenOf(x, y, z) { const v = new THREE.Vector3(x, y, z).project(camera), r = canvas.getBoundingClientRect(); return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height]; }
-function moonAt(cx, cy) { let best = null, bd = coarse ? 34 : 22; G.moons.forEach(m => { const [x, z] = moonPos(m), [sx, sy] = screenOf(x, 0, z), d = Math.hypot(sx - cx, sy - cy); if (d < bd) { bd = d; best = m; } }); return best; }
+function moonAt(cx, cy) { let best = null, bd = coarse ? 44 : 30; G.moons.forEach(m => { const [x, z] = moonPos(m), [sx, sy] = screenOf(x, 0, z), d = Math.hypot(sx - cx, sy - cy); if (d < bd) { bd = d; best = m; } }); return best; }
 const ptrs = new Map(); let pinch = null;
 canvas.addEventListener('pointerdown', e => { setDrawer(false); document.getElementById('card').classList.remove('on'); canvas.setPointerCapture?.(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); cam.idle = 0; FX.tone({ f: 0, dur: .001, vol: 0 });
   if (ptrs.size === 2) { cancelDrag(); const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), m: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] }; return; }
@@ -529,10 +530,11 @@ function frame(now) {
   cam.idle += dtR; if (cam.idle > 6 && !drag) camGoal.az += dtR * .025;
   cam.az += (camGoal.az - cam.az) * Math.min(1, dtR * 2.2); cam.el += (camGoal.el - cam.el) * Math.min(1, dtR * 2.2); cam.d += (camGoal.d - cam.d) * Math.min(1, dtR * 2.2);
   placeCamera(); syncMoons();
+  guide.visible = PH.total(G.S) < 4000 && key === '0'; if (guide.visible) guide.material.opacity = .25 + .25 * Math.sin(now / 400);
   planetMat.uniforms.uTime.value = G.t; dustMat.uniforms.uTime.value = G.t;
   composer.render();
   // adaptive quality: hold 60 fps on phones by lowering pixel ratio, then the number of grains drawn
-  frames++; ftAcc += dtR; if (frames >= 50) { const ms = ftAcc / frames * 1000; frames = 0; ftAcc = 0;
+  frames++; ftAcc += (now - (frame.prev || now)) / 1000; frame.prev = now; if (ftAcc > 1.2 && frames >= 4) { const ms = ftAcc / frames * 1000; frames = 0; ftAcc = 0;
     if (ms > 20 && quality < 6) { quality++; if (pixelRatio > 1 && quality % 2) { pixelRatio = Math.max(1, pixelRatio - .25); renderer.setPixelRatio(pixelRatio); resize(); dustMat.uniforms.uPR.value = pixelRatio; } else { drawN = Math.max(CAP * .4 | 0, drawN * .8 | 0); dustGeo.setDrawRange(0, drawN); } } }
   requestAnimationFrame(frame);
 }

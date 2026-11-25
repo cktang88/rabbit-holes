@@ -25,6 +25,7 @@
   #sky{flex:1;position:relative;min-width:0;overflow:hidden;touch-action:none}
   #sky canvas{position:absolute;inset:0;width:100%;height:100%}
   #gl{pointer-events:none}
+  body.watching .pz-bar{display:none}
   #cap{position:absolute;left:14px;top:10px;right:14px;pointer-events:none}
   #cap .t{font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:#e6c36a}
   #cap .n{font-weight:300;font-size:30px;color:#f6e3a1;text-shadow:0 2px 18px #000;line-height:1.1}
@@ -259,7 +260,7 @@ function glowDot(x,y,r,col,blur=10){ ctx.save(); ctx.shadowColor=col; ctx.shadow
 function absent(text){ ctx.fillStyle='rgba(20,0,0,.35)'; ctx.fillRect(0,0,W,H); label(W/2, H*.45, text, '#ffb3a6', Math.min(24, W/22)); }
 function drawScene(k, o, age, now){
   const CAPY=H-(W<760?118:96), TOPY=Math.max(H*.26,150); const v=o.v, c=run.c, st=o.stages[k], broken=st.status==='broken', t=now/1000, cx=W/2, cy=H*.46, S=Math.min(W,H);
-  ctx.fillStyle='#03041a'; ctx.fillRect(0,0,W,H); ctx.globalAlpha=.55; ctx.drawImage(nebulaFor(Math.min(8,k), true),0,0,W,H); ctx.globalAlpha=1;
+  if (typeof NEB!=='undefined' && NEB){ ctx.clearRect(0,0,W,H); NEB.draw(now, [{x:W/2,y:H*.46,k:2.4,c:[.45,.32,.22]}], false); } else { ctx.fillStyle='#03041a'; ctx.fillRect(0,0,W,H); ctx.globalAlpha=.55; ctx.drawImage(nebulaFor(Math.min(8,k), true),0,0,W,H); ctx.globalAlpha=1; }
   const dens = val(c,'m')===-12? .25 : val(c,'m')===-8? 2.2 : 1;
   if (k===0){ // quark soup: matter and antimatter annihilate; a few survivors remain
     const n=Math.round(140*Math.min(1.6,dens)); for (let i=0;i<n;i++){ const x=(RND(i)*W + Math.sin(t*2+i)*8)%W, y=(RND(i+99)*H + Math.cos(t*1.7+i)*8)%H; const anti=i%2; ctx.fillStyle=['#ff6a5a','#6aff8a','#6a8aff'][i%3]; ctx.globalAlpha=anti? Math.max(0,1-age*1.3) : 1; ctx.beginPath(); ctx.arc(x,y,anti?2:2.6,0,7); ctx.fill(); if (anti && age>.3 && age<.8 && i%7===0) glowDot(x,y,4,'#fff6d0',14); }
@@ -653,8 +654,8 @@ function drawTree(now) {
 }
 // ===================== Watching one universe's history (the original Bang view) =====================
 let run = null; const STEP_MS = 1500;
-function watch(id) { const u = cos.U[id]; run = { c: u.c, o: judge(u.c).o, t0: performance.now(), u }; view = 'watch'; $('backTree').style.display = ''; SND.gong(); render(); }
-function closeWatch() { view = 'tree'; run = null; $('backTree').style.display = 'none'; $('why').innerHTML = ''; render(); }
+function watch(id) { document.body.classList.add('watching'); const u = cos.U[id]; run = { c: u.c, o: judge(u.c).o, t0: performance.now(), u }; view = 'watch'; $('backTree').style.display = ''; SND.gong(); render(); }
+function closeWatch() { document.body.classList.remove('watching'); view = 'tree'; run = null; $('backTree').style.display = 'none'; $('why').innerHTML = ''; render(); }
 function drawWatch(now) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   const o = run.o, last = o.stages.findIndex(s => s.status === 'broken'), end = last >= 0 ? last : o.stages.filter(s => s.status !== 'none').length - 1;
@@ -664,10 +665,13 @@ function drawWatch(now) {
   if (k !== run.k) { run.k = k; const st = o.stages[k]; $('why').innerHTML = `<b>${st.name}.</b> ${st.plain}`; SND.stage(st.status); }
   if (age < .3 && k < end) { ctx.globalAlpha = 1 - age / .3; ctx.textAlign = 'center'; ctx.fillStyle = GOLD; ctx.font = `300 ${Math.min(52, W / 9)}px "Cormorant Garamond", serif`; ctx.fillText(STAGES[k], W / 2, H * .5); ctx.globalAlpha = 1; }
 }
+let frameCost = 0; // a rolling average of the milliseconds each frame's drawing takes
 function frame(now) {
   if (W === 0) resize();
   requestAnimationFrame(frame);
+  const t0 = performance.now();
   if (view === 'watch' && run) drawWatch(now); else if (cos) drawTree(now);
+  frameCost = frameCost * .9 + (performance.now() - t0) * .1;
 }
 const SND = { gong(v = 1) { FX.tone({ f: 98, type: 'sine', dur: 3, vol: .2 * v, attack: .01 }); FX.tone({ f: 196.5, type: 'sine', dur: 2.2, vol: .07 * v }); },
   stage(s) { if (s === 'broken') FX.tone({ f: 110, f2: 70, type: 'sine', dur: 1.4, vol: .16 }); else FX.tone({ f: s === 'ok' ? 784 : 659, type: 'sine', dur: .8, vol: .06 }); },
@@ -748,7 +752,7 @@ setupCam();
   else startCosmos(daySeed(), 0, '', null); }
 resize(); cam.fit(); requestAnimationFrame(frame);
 if (!S.seen) { S.seen = 1; persist(); setTimeout(() => { watch(cos.frontier[0] ?? 0); run.auto = 1; }, 300); }
-window.__us = { kidsOf, canShelter, variants, get cos() { return cos; }, get S() { return S; }, get sel() { return sel; }, set sel(v) { sel = v; }, newCosmos, stepGen, judge, replay, cleanSave, act, startCosmos, STARTS, GENS, CAP, LAWS, simulate, starsOf, thawed, thawOrder, CODEX, PROPS, watch, closeWatch, get view() { return view; } };
+window.__us = { get frameCost() { return frameCost; }, kidsOf, canShelter, variants, get cos() { return cos; }, get S() { return S; }, get sel() { return sel; }, set sel(v) { sel = v; }, newCosmos, stepGen, judge, replay, cleanSave, act, startCosmos, STARTS, GENS, CAP, LAWS, simulate, starsOf, thawed, thawOrder, CODEX, PROPS, watch, closeWatch, get view() { return view; } };
 </script>
 </body>
 </html>

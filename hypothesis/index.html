@@ -64,7 +64,7 @@
   @media (max-height:500px) and (min-width:600px){
     #card{left:10px;bottom:10px;width:290px;max-height:58%;padding:10px 12px}
     #card h2{font-size:19px} #card p{font-size:15px;line-height:1.28}
-    #legend{display:none} #nav{top:8px;left:auto;right:96px;transform:none}
+    #legend{display:none} #nav{top:8px;left:auto;right:150px;transform:none}
   }
 </style>
 </head>
@@ -367,14 +367,13 @@ scene.background = new THREE.Color(0x0b0c10); scene.fog = new THREE.Fog(0x0b0c10
 function makeEnv(lightTable) {
   const es = new THREE.Scene();
   const room = new THREE.Mesh(new THREE.SphereGeometry(20, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide, uniforms: {}, vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }',
-    fragmentShader: 'varying vec3 vP; void main(){ float h = normalize(vP).y; vec3 c = mix(vec3(.012,.013,.016), vec3(.09,.095,.11), smoothstep(-.2,.9,h)); c += vec3(.05,.04,.03)*smoothstep(.0,-.6,h); gl_FragColor = vec4(c,1.); }', depthWrite: false }));
+    fragmentShader: 'varying vec3 vP; void main(){ float h = normalize(vP).y; vec3 c = mix(vec3(.012,.013,.016), vec3(.09,.095,.11), smoothstep(-.2,.9,h)); c += vec3(.05,.04,.03)*smoothstep(.0,-.6,h); vec3 n = normalize(vP); c += vec3(1.,.97,.92) * 2.6 * smoothstep(-.15, .15, n.y + .1) * pow(max(0., dot(n, normalize(vec3(.1,.25,1.)))), 2.5); c += vec3(.75,.82,1.) * 1.1 * pow(max(0., dot(n, normalize(vec3(-.6,.5,-1.)))), 4.); gl_FragColor = vec4(c,1.); }', depthWrite: false }));
   room.renderOrder = -1; es.add(room);
   const soft = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); const id = g.createImageData(128, 128);
     for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) { const u = Math.min(x, 127 - x) / 40, v = Math.min(y, 127 - y) / 40, a = Math.min(1, u) * Math.min(1, v), k = (y * 128 + x) * 4; id.data[k] = id.data[k + 1] = id.data[k + 2] = 255; id.data[k + 3] = 255 * a * a * (3 - 2 * a); }
     g.putImageData(id, 0, 0); return new THREE.CanvasTexture(c); })();
   const box = (w, h, pos, col, k) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(k), alphaMap: soft, transparent: true, side: THREE.DoubleSide, depthWrite: false })); m.position.copy(pos); m.lookAt(0, 0, 0); es.add(m); };
   box(9, 6, new V3(-8, 7, 9), 0xfff4e6, 4.5);      // key softbox
-  box(60, 26, new V3(0, 3, 15), 0xf4f1ea, 3.6);   // the big diffuser behind the camera that films are seen against
   box(3, 7, new V3(9, 0, 13), 0xffffff, 3.2);      // a bright strip in it, for crisp highlights
   box(2.2, 12, new V3(11, 2, 2), 0xe6f0ff, 4.5);   // strip light, right
   box(2.2, 12, new V3(-11, 2, -6), 0xdfe8ff, 2.6); // rim strip, back left
@@ -386,7 +385,7 @@ function makeEnv(lightTable) {
 let tableEnv = null; if (ok3d) { scene.environment = makeEnv(); tableEnv = makeEnv(true); }
 // floor, spotlight pool, back glow
 const FLOOR_Y = -1.72;
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x24262b, roughness: .78, metalness: 0, envMapIntensity: .35 }));
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x24262b, roughness: .78, metalness: 0, envMapIntensity: .2 }));
 floor.rotation.x = -Math.PI / 2; floor.position.y = FLOOR_Y; floor.receiveShadow = true; scene.add(floor);
 const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d'), gr = g.createRadialGradient(128, 128, 0, 128, 128, 128);
   gr.addColorStop(0, 'rgba(90,100,125,.55)'); gr.addColorStop(.5, 'rgba(40,46,62,.25)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 256); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
@@ -402,7 +401,7 @@ const dish = new THREE.Group(); scene.add(dish);
 const glassMat = new THREE.MeshPhysicalMaterial({ color: 0xdde8ee, metalness: 0, roughness: .04, transparent: true, opacity: .16, envMapIntensity: 1.6, clearcoat: 1, clearcoatRoughness: .03, depthWrite: false, side: THREE.DoubleSide });
 { const rimG = new THREE.Mesh(new THREE.TorusGeometry(2.55, .025, 12, 128), new THREE.MeshPhysicalMaterial({ color: 0xcfe0e8, roughness: .04, transparent: true, opacity: .35, envMapIntensity: 2, clearcoat: 1 }));
   rimG.rotation.x = Math.PI / 2; rimG.position.y = FLOOR_Y + .28; dish.add(rimG);
-  const liquid = new THREE.Mesh(new THREE.CircleGeometry(2.53, 96), new THREE.MeshPhysicalMaterial({ color: 0x06080a, roughness: .02, metalness: 0, ior: 1.36, envMapIntensity: 1.4, clearcoat: 1, clearcoatRoughness: .02 }));
+  const liquid = new THREE.Mesh(new THREE.CircleGeometry(2.53, 96), new THREE.MeshPhysicalMaterial({ color: 0x05070a, roughness: .02, metalness: 0, ior: 1.36, envMapIntensity: .45, clearcoat: .6, clearcoatRoughness: .02 }));
   liquid.rotation.x = -Math.PI / 2; liquid.position.y = FLOOR_Y + .2; liquid.receiveShadow = true; dish.add(liquid);
   const wall = new THREE.Mesh(new THREE.CylinderGeometry(2.55, 2.5, .28, 96, 1, true), new THREE.MeshStandardMaterial({ color: 0x1a1d22, roughness: .3, metalness: .2, envMapIntensity: .6, side: THREE.DoubleSide })); wall.position.y = FLOOR_Y + .14; dish.add(wall);
 }
