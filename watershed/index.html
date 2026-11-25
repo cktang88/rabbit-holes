@@ -893,6 +893,7 @@ function celebrate(n) { glow = 1; spin = n >= 2 ? 1 : .5; FX.shake(.2); }
 // Fixed timestep: 120 sim steps per second at 1×, independent of display refresh. Steps per frame are capped
 // adaptively by measured step cost, so a slow device runs the sim slower instead of dropping frames.
 const STEP_RATE = 120, FRAME_BUDGET_MS = MOBILE ? 7 : 9, FAST_BUDGET_MS = MOBILE ? 18 : 26; // the fastest speed trades smoothness for years
+const PERF = { sim: 0, steps: 0, geom: 0, render: 0 };
 let needDraw = true, hoverMoved = false, drawCount = 0; const redraw = () => { needDraw = true; };
 let last = performance.now(), acc = 0, stepCost = 1.5, frameN = 0, geomDirty = true, raf = 0;
 const warm = new THREE.Color('#ffb35c'), cool = new THREE.Color('#fff1dc');
@@ -904,14 +905,14 @@ function loop(now) {
     acc += dt * STEP_RATE * speed;
     const maxSteps = Math.max(1, Math.floor((speed >= 8 ? FAST_BUDGET_MS : FRAME_BUDGET_MS) / stepCost));
     n = Math.min(Math.floor(acc), maxSteps); acc -= n; if (acc > maxSteps) acc = 0; // drop backlog rather than spiral
-    if (n) { const t0 = performance.now(); for (let i = 0; i < n && !over; i++) step(); stepCost += ((performance.now() - t0) / n - stepCost) * .1; geomDirty = true; }
+    if (n) { const t0 = performance.now(); for (let i = 0; i < n && !over; i++) step(); const t1 = performance.now() - t0; PERF.sim += t1; PERF.steps += n; stepCost += (t1 / n - stepCost) * .1; geomDirty = true; }
     if (frameN % 15 === 0) { measure(); renderScore(); renderYears(); }
   }
   const storm = speed > 0 && !over && stormNow() > 0;
   updateRain(dt, 0, -N / 2 + N * L.stormY / 2, Math.max(40, N * L.stormY * .6), storm);
   if (simSteps !== drawnSteps) geomDirty = true;
   let draw = needDraw || storm; needDraw = false;
-  if (geomDirty && (n <= 6 || frameN % 2 === 0)) { updateGeometry(); geomDirty = false; drawnSteps = simSteps; draw = true; }
+  if (geomDirty && (n <= 6 || frameN % 2 === 0)) { const t1 = performance.now(); updateGeometry(); PERF.geom += performance.now() - t1; geomDirty = false; drawnSteps = simSteps; draw = true; }
   const rv = ring.visible; updateRing(); if (ring.visible || rv !== ring.visible) draw = draw || hoverMoved; hoverMoved = false;
   // the celebration: warm light that fades, and a slow turn of the model
   if (glow > 0) { glow = Math.max(0, glow - dt * .12); sun.color.copy(cool).lerp(warm, Math.min(1, glow * 1.5)); }
@@ -922,7 +923,7 @@ function loop(now) {
   if (!draw) return;
   if (tagEls.length) placeTags();
   camera.position.x += sx * .2; camera.position.y += sy * .2;
-  renderer.render(scene, camera); drawCount++;
+  const t2 = performance.now(); renderer.render(scene, camera); PERF.render += performance.now() - t2; drawCount++;
   camera.position.x -= sx * .2; camera.position.y -= sy * .2;
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; } else if (!raf) { last = performance.now(); raf = requestAnimationFrame(loop); } });
@@ -943,7 +944,7 @@ window.__ws = { SC, LV: SC, buildLevel: i => buildLevel(i), stat: () => stat, me
   // run whole years headless (what the game loop does, without drawing)
   stepN: n => { headless = true; for (let i = 0; i < n && !over; i++) step(); headless = false; return yStep; },
   runYears: n => { headless = true; const y1 = year + n; while (year < y1 && !over) step(); headless = false; return measure(); },
-  get stepCost() { return stepCost; }, get drawCount() { return drawCount; }, forgetPlans: () => { SAVE.plans = {}; }, budgetLeft: () => budgetLeft(), camPos: () => camera.position.toArray(), get farmDiag() { return farmDiag; } };
+  get stepCost() { return stepCost; }, get drawCount() { return drawCount; }, PERF, forgetPlans: () => { SAVE.plans = {}; }, budgetLeft: () => budgetLeft(), camPos: () => camera.position.toArray(), get farmDiag() { return farmDiag; } };
 
 </script>
 </body>

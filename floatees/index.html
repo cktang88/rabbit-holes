@@ -701,13 +701,19 @@ function toast(big, small, ms = 6000, next = false) {
 // ================= loop =================
 function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); layout(); }
 addEventListener('resize', resize); resize();
+let hot = performance.now(), idleT = 0; controls.addEventListener('change', () => { hot = performance.now(); }); canvas.addEventListener('pointerdown', () => { hot = performance.now(); });
 let last = performance.now(), tallyT = 0, duckDirty = true, drawnN = -1;
 const cen = new THREE.Vector3(), tmpV = new THREE.Vector3();
 document.addEventListener('visibilitychange', () => { last = performance.now(); });
 function frame(now) {
   requestAnimationFrame(frame);
   if (document.hidden) return;
-  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  const dt0 = Math.min(.05, (now - last) / 1000); last = now;
+  // when nothing is being dragged or played back, the globe only needs a fresh picture 20 times a second: the
+  // tracers drift slowly, and phones get their battery back. Playback, camera moves and follow run at full rate.
+  const busy = running || (follow && ducks.length) || now - hot < 500; idleT += dt0;
+  if (!busy && idleT < .05) return;
+  const dt = busy ? dt0 : Math.min(.1, idleT); idleT = 0;
   trMat.opacity = FX.damp(trMat.opacity, ducks.length ? .45 : 1, 3, dt);
   moveTracers(dt);
   if (running && ducks.length && simT < L.years && CU) {
