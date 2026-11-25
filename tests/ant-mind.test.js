@@ -174,7 +174,7 @@ module.exports = {
     'no map is unwinnable: encoded strategies win the hardest maps (Spider Season, Two Fronts, First Frost, Siege, The Long Winter), where idle play fails': async ({ page, ok }) => {
       await page.addScriptTag({ content: BOT });
       // strategy = trail strength / evaporation / wandering / % soldiers hatched [/ 0 = no scout trails]
-      const plan = { 9: 'chem:150/50/30/50/0', 13: 'chem:200/40/20/80', 15: 'chem:150/80/50/0', 17: 'chem:200/40/20/80', 19: 'chem:150/80/50/40' };
+      const plan = { 9: 'chem:200/40/20/60/0', 13: 'chem:200/40/20/80', 15: 'chem:150/80/50/0', 17: 'chem:200/40/20/80', 19: 'chem:150/80/50/40' };
       const r = await page.evaluate((plan) => { const out = []; for (const [mi, pol] of Object.entries(plan)) { window.__ant.SAVE.stars = {}; const w = window.__antbot(+mi, pol); window.__ant.SAVE.stars = {}; const idle = window.__antbot(+mi, 'idle'); out.push([+mi, w.won, idle.won && idle.stars > 1]); } return out; }, plan);
       for (const [mi, won, idleGood] of r) { ok(won, `map ${mi + 1}: the encoded strategy should win`); ok(!idleGood, `map ${mi + 1}: idle play should not win well`); }
     },

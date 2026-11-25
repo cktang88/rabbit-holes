@@ -295,6 +295,26 @@ module.exports = {
       const end = await page.evaluate(() => [window.__map.S.tut, !!window.__map.S.done[0], document.getElementById('orders').hidden]); steps.push(end[0]);
       eq(end, [5, true, true]); ok([1, 2, 3, 4].every(s => steps.includes(s)) || steps[steps.length - 1] === 5, 'went through the steps: ' + steps);
     },
+    'pan and zoom: a tap while zoomed sets the course under the finger, a pinch sets no course and zooms, Fit shows the whole chart': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(async () => { const M = window.__map, cv = document.getElementById('chart'), rc = cv.getBoundingClientRect();
+        M.cam.zoomAt(rc.left + rc.width / 2, rc.top + rc.height / 2, 2.5); const X = rc.left + rc.width * .4, Y = rc.top + rc.height * .55, want = M.cam.toWorld(X, Y);
+        const ev = (t, id, x, y, tgt = cv) => tgt.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch', isPrimary: id === 1 }));
+        M.target = null; ev('pointerdown', 1, X, Y); ev('pointerup', 1, X, Y, window); const tap = M.target && [M.target[0], M.target[1]];
+        await new Promise(r => setTimeout(r, 30)); M.target = null; const k0 = M.cam.k;
+        ev('pointerdown', 1, X, Y); ev('pointerdown', 2, X + 40, Y); ev('pointermove', 1, X - 40, Y); ev('pointermove', 2, X + 80, Y); ev('pointerup', 1, X - 40, Y, window); ev('pointerup', 2, X + 80, Y, window);
+        const pinchTarget = M.target, ratio = M.cam.k / k0; await new Promise(r => setTimeout(r, 30));
+        document.querySelector('.pz-fit').click(); await new Promise(r => setTimeout(r, 400)); const a = M.cam.toScreen(0, 0), b = M.cam.toScreen(1400, 900);
+        return { tap, want, pinchTarget, ratio, fit: [a[0] >= rc.left - 1, a[1] >= rc.top - 1, b[0] <= rc.right + 1, b[1] <= rc.bottom + 1], follow: M.follow }; });
+      ok(r.tap && Math.hypot(r.tap[0] - r.want[0], r.tap[1] - r.want[1]) < 0.5, 'course under the finger ' + JSON.stringify(r));
+      eq(r.pinchTarget, null, 'a pinch sets no course'); ok(r.ratio > 1.5, 'the pinch zoomed ' + r.ratio); eq(r.fit, [true, true, true, true], 'Fit shows the chart'); eq(r.follow, true, 'Fit brings back following the ship');
+    },
+    'the wheel zooms the chart at the cursor': async ({ page, ok }) => {
+      const rc = await page.evaluate(() => document.getElementById('chart').getBoundingClientRect().toJSON()); const x = rc.x + rc.width * .3, y = rc.y + rc.height * .5;
+      const before = await page.evaluate(([x, y]) => [window.__map.cam.k, window.__map.cam.toWorld(x, y)], [x, y]);
+      await page.mouse.move(x, y); await page.mouse.wheel(0, -300); await page.waitForTimeout(80);
+      const after = await page.evaluate(([x, y]) => [window.__map.cam.k, window.__map.cam.toWorld(x, y)], [x, y]);
+      ok(after[0] > before[0] * 1.2, 'zoomed in'); ok(Math.hypot(after[1][0] - before[1][0], after[1][1] - before[1][1]) < 1, 'the point under the cursor stays put');
+    },
     'mobile layout: no horizontal scroll, chart and sail buttons visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
       const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cv: document.getElementById('chart').getBoundingClientRect().toJSON(), look: document.getElementById('look').getBoundingClientRect().toJSON() }));

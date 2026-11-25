@@ -46,6 +46,13 @@
   .age{font-size:12px;color:var(--dim);font-style:italic}
   .news{font-size:15px;line-height:1.45;padding:5px 0;border-bottom:1px solid #c9ad7a88}
   .job{font-size:15px;line-height:1.4;padding:8px 10px;margin:-2px 0 10px;background:#fbf1da;border:2px solid var(--verm);box-shadow:inset 0 0 0 2px #f6dc8a}
+  table.mk tr[data-g]{cursor:pointer} table.mk tr.sel td{background:#d4a94055;font-weight:700}
+  table.mk tr.deal td{background:#fbf1da;padding:6px 8px}
+  .dealBox input[type=range]{width:100%;accent-color:var(--verm);height:30px;margin:4px 0}
+  table.mk .dealBox button.primary{min-height:40px;font-size:16px;padding:6px 14px;border-radius:4px;background:linear-gradient(var(--lapis2),var(--lapis));color:#f6dc8a;border-color:#0f1f48}
+  .bkWrap{overflow-x:auto;max-width:100%} table.bk{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums} table.bk td,table.bk th{padding:2px 4px;border-bottom:1px solid #c9ad7a88;text-align:left}
+  .roads{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px}
+  .mono{font-family:monospace;font-size:12px;word-break:break-all}
   .ctr{font-size:15px;padding:8px 10px;border:1px solid #8a6a3a;margin-bottom:8px;background:#fbf3df;box-shadow:2px 2px 0 #c9ad7a}
   #side hr{border:0;border-top:1px solid #8a6a3a!important}
   #side .small.dim,#side .dim{color:var(--dim)!important}
@@ -86,8 +93,8 @@
     table.mk td:nth-child(5){grid-column:1/-1;font-size:13px;padding-top:0}
     table.mk td:nth-child(6){grid-column:1/-1;display:flex;gap:6px}
     table.mk td:nth-child(6) button{flex:1;min-height:36px;font-size:14px;border-radius:18px}
-    #p-info button,#p-caravan button,#p-contracts button{min-height:36px}
-    #p-info [data-pg]{font-size:13px!important}
+    #p-contracts button{min-height:36px}
+    table.mk tr.deal{display:block}
   }
   @media (max-width:760px){
     body{height:auto;min-height:100vh;overflow:auto}
@@ -116,12 +123,10 @@
     <div id="mapTip">Click a city to plan a journey · your price book only knows what you've seen or been told</div></div>
   <div id="side">
     <div id="status"></div>
-    <div class="tabs"><button data-t="market" class="on">Market</button><button data-t="info">Information</button><button data-t="contracts">Contracts</button><button data-t="caravan">Caravan</button><button data-t="log">Ledger</button></div>
+    <div class="tabs"><button data-t="market" class="on">Market</button><button data-t="contracts">Contracts</button><button data-t="log">Ledger</button></div>
     <div class="pane on" id="p-market"></div>
-    <div class="pane" id="p-info"></div>
-    <div class="pane" id="p-contracts"></div>
-    <div class="pane" id="p-caravan"></div>
-    <div class="pane" id="p-log"></div>
+        <div class="pane" id="p-contracts"></div>
+        <div class="pane" id="p-log"></div>
   </div>
 </main>
 <script src="../shared/common.js"></script>
@@ -144,10 +149,13 @@ const CAREER_DAYS=1080, CAMEL_CAP=10;
 const GEO=[[[8,7],[10,11]],[[4,0],[10,2]],[[2,1],[8,0]],[[0,1],[4,3]],[[3,2],[8,4]],[[2,10],[7,4]],[[11,2],[8,0]],[[10,0],[8,7]],[[3,9],[8,11]],[[2,1],[4,7]],[[10,0],[3,1]],
   [[9,0],[10,8]],[[2,3],[5,4]],[[3,9],[0,8]],[[9,1],[7,5]],[[0,10],[3,6]],[[2,3],[8,5]],[[5,9],[7,8]],[[6,1],[0,3]],[[2,3],[8,11]],[[6,5],[8,7]],[[3,1],[4,5]],[[2,0],[8,7]]];
 const isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v), num0=v=>Number.isFinite(v)&&v>=0;
-function cleanMeta(raw){ const m={legacy:0, best:0, careers:0, perks:{}}; if (!isObj(raw)) return m;
-  for (const k of ['legacy','best','careers']) if (num0(raw[k])) m[k]=raw[k];
-  if (isObj(raw.perks)) for (const k of ['gold','camel','book','agent','guard']) if (Number.isInteger(raw.perks[k])&&raw.perks[k]>0) m.perks[k]=raw.perks[k];
+// old saves had a legacy shop of stat boosts (+gold, +camels); those are gone, and so is the legacy currency
+function cleanMeta(raw){ const m={best:0, careers:0, roads:{}}; if (!isObj(raw)) return m;
+  for (const k of ['best','careers']) if (num0(raw[k])) m[k]=raw[k];
+  if (isObj(raw.roads)) for (const k of Object.keys(raw.roads).slice(-40)) if (/^\d{1,10}$/.test(k)&&num0(raw.roads[k])) m.roads[k]=raw.roads[k];
   if (raw.intro) m.intro=1; return m; }
+const todayKey=()=>{ const t=new Date(); return t.getFullYear()+String(t.getMonth()+1).padStart(2,'0')+String(t.getDate()).padStart(2,'0'); };
+const dailySeed=()=>RH.hashStr('caravan:'+todayKey())%1000000000;
 // a career save is kept only if its core fields are sound; anything optional that is malformed is reset
 function cleanCareer(raw){
   if (!isObj(raw) || !Number.isInteger(raw.seed) || !num0(raw.day) || !Number.isFinite(raw.gold) || !Number.isInteger(raw.at) || raw.at<0 || raw.at>=CITY_NAMES.length) return null;
@@ -187,22 +195,22 @@ function buildWorld(seed){
   for (let i=0;i<n-3;i++) if (rng()<0.2) add(i,i+3, rng.range(0.12,0.2));
 }
 function neighbors(c){ return routes.filter(r=>r.a===c||r.b===c).map(r=>({to:r.a===c?r.b:r.a, r})); }
-function shortest(from,to){ const dist=cities.map(()=>1e9), prev=cities.map(()=>null); dist[from]=0; const q=new Set(cities.map(c=>c.id));
+function shortest(from,to,safe){ const dist=cities.map(()=>1e9), prev=cities.map(()=>null); dist[from]=0; const q=new Set(cities.map(c=>c.id));
   while(q.size){ let u=-1,bd=1e9; for (const v of q) if (dist[v]<bd){ bd=dist[v]; u=v; } if (u<0) break; q.delete(u); if (u===to) break;
-    for (const {to:v,r} of neighbors(u)){ if (cities[v].closed && v!==to) continue; const nd=dist[u]+r.days; if (nd<dist[v]){ dist[v]=nd; prev[v]={u,r}; } } }
+    for (const {to:v,r} of neighbors(u)){ if (cities[v].closed && v!==to) continue; if (safe && r.danger>0.03) continue; const nd=dist[u]+r.days; if (nd<dist[v]){ dist[v]=nd; prev[v]={u,r}; } } }
   if (dist[to]>=1e9) return null; const path=[]; let v=to; while(v!==from){ path.unshift(prev[v]); v=prev[v].u; } return {days:dist[to], legs:path}; }
 
 // ===================== Career =====================
 function newCareer(seedIn){
   const seed=Number.isInteger(seedIn)? seedIn : Math.floor(Math.random()*1e9);
-  const c={seed, day:0, gold:300+(M.perks.gold||0)*200, at:0, camels:3+(M.perks.camel||0), guards:0, cargo:GOODS.map(()=>0), cost:GOODS.map(()=>0),
+  const c={seed, daily:seed===dailySeed()?1:0, day:0, gold:300, at:0, camels:3, guards:0, cargo:GOODS.map(()=>0), cost:GOODS.map(()=>0),
     book:{}, agents:{}, mail:[], log:[], events:[], contracts:[], done:0, rumors:[], peak:0, scheduled:[]};
   C=c; buildWorld(seed); scheduleEvents();
   const rr=RH.rng(seed+5); C.rivals=RIVAL_NAMES.map((name,i)=>({name, at:RIVAL_START[i], to:null}));
   for (let d=0; d<60; d++){ C.day=d; for (const c2 of cities) for (let g=0;g<GOODS.length;g++){ c2.drift[g]+=-c2.drift[g]*DRIFT_K+DRIFT_SD*gauss(); } } C.day=0; // markets have been moving before you arrive
   for (const c2 of cities) c2.price=c2.price.map((p,g)=>p*Math.exp(c2.drift[g]));
-  see(0); if (M.perks.book) for (const {to} of neighbors(0)) see(to);
-  if (M.perks.agent) C.agents[cities.length>>1]={since:0};
+  see(0); hearNews();
+  try { history.replaceState(null,'','#road='+seed); } catch(e){}
   if (!M.careers){ let best=null; for (const d of cities) if (d.dem.includes(8)){ const p=shortest(0,d.id); if (p&&(!best||p.days<best.days)) best={to:d.id, days:p.days}; } if (best) C.firstJob={g:8, to:best.to, days:best.days}; }
   logIt(`Year 1. You set out from ${cities[0].name} with ${C.gold} gold and ${C.camels} camels.`); persist();
 }
@@ -217,6 +225,8 @@ function scheduleEvents(){
   for (let i=0;i<4;i++){ const e=r.pick(kinds); const city=3+r.int(cities.length-4); const start=120+i*220+r.int(120); C.events.push({...e, txt:undefined, city, start, end:start+60+r.int(60), rumor:start-30-r.int(30)}); }
 }
 function evText(e){ const k={plague:'Plague',war:'War',famine:'Famine',festival:'Festival',glut:'Glut'}[e.k]; const c=cities[e.city]; return {plague:`Plague in ${c.name}. The gates are shut and medicine is worth a fortune nearby.`, war:`War near ${c.name}. Horses and iron are in desperate demand.`, famine:`The harvest failed around ${c.name}. Grain prices soar.`, festival:`A great festival at ${c.name}. Silk and incense sell for double.`, glut:`A huge jade find near ${c.name}. Jade prices collapse.`}[e.k]; }
+function hearNews(){ for (const {to,r} of neighbors(C.at)){ const age=r.days, snap=priceAt(to, C.day-age), cur=C.book[to]; if (!cur || cur.day<C.day-age) C.book[to]={day:Math.max(0,C.day-age), p:snap}; } }
+function priceAt(ci, day){ const h=cities[ci].hist||[]; let best=null; for (const e of h) if (e.day<=day && (!best||e.day>best.day)) best=e; return (best? best.p : cities[ci].price).map(x=>Math.round(x*10)/10); }
 function see(ci){ const c=cities[ci]; C.book[ci]={day:C.day, p:c.price.map(x=>Math.round(x*10)/10)}; }
 // Markets wander: every city's price for every good follows a slow random drift (months-long swings of ±40%), harvests make grain
 // and tea cheap in autumn, and rival caravans buy out and flood markets. A price you saw two months ago can be badly wrong.
@@ -227,6 +237,7 @@ function tick(){ // one day passes
   C.day++;
   for (const c of cities){ for (let g=0;g<GOODS.length;g++){ c.drift[g]+= -c.drift[g]*DRIFT_K + DRIFT_SD*gauss(); const tgt=c.target[g]*c.mod[g]*Math.exp(c.drift[g])*season(g,C.day); c.price[g] += (tgt-c.price[g])*0.04 + rng.range(-0.02,0.02)*c.price[g]; c.price[g]=Math.max(0.5,c.price[g]); } c.closed=0; }
   stepRivals();
+  if (C.day%5===0) for (const c of cities){ (c.hist ||= []).push({day:C.day, p:c.price.slice()}); if (c.hist.length>14) c.hist.shift(); }
   // events
   for (const e of C.events){
     if (C.day>=e.start && C.day<e.end){ const near=[e.city, ...neighbors(e.city).map(n=>n.to)];
@@ -241,7 +252,7 @@ function tick(){ // one day passes
   for (const ci in C.agents){ C.gold-=2; const d=Math.max(1,Math.round((shortest(+ci,C.at)?.days||10)/4)); C.mail.push({arrive:C.day+d, city:+ci, snap:cities[ci].price.map(x=>Math.round(x*10)/10), from:C.day}); }
   C.mail=C.mail.filter(m=>{ if (m.news) return true; if (m.arrive<=C.day){ const cur=C.book[m.city]; if (!cur || cur.day<m.from) C.book[m.city]={day:m.from, p:m.snap}; return false; } return true; });
   // daily upkeep: camels and guards eat
-  C.gold -= C.camels*0.05 + ((M.perks.guard && C.day<360)? 0 : C.guards*0.3);
+  C.gold -= C.camels*0.05;
   if (C.gold<0){ // sell camels to pay
     if (C.camels>1){ C.camels--; C.gold+=15; logIt('You sold a camel to pay your debts.'); } else C.gold=0; }
 }
@@ -275,12 +286,22 @@ const load=()=>C.cargo.reduce((a,b)=>a+b,0);
 const cap=()=>C.camels*CAMEL_CAP;
 function buyPrice(g){ return cities[C.at].price[g]*1.03; }
 function sellPrice(g){ return cities[C.at].price[g]*0.97; }
-// "max" buys as much as fits, but keeps a fifth of your gold back for upkeep on the road
-// each unit bought pushes the price up 0.4%, so count units until the running cost would pass 80% of the gold
-const maxBuy = g => { const budget = C.gold * 0.8; let p = buyPrice(g), spent = 0, n = 0; while (spent + p <= budget && n < 10000) { spent += p; p *= 1.004; n++; } return n; };
+const CAMEL_PRICE=40;
+// what n units cost here, including the camels needed to carry them (each unit bought pushes the price up 0.4%)
+function buyCost(g, n){ let p=buyPrice(g), s=0; for (let k=0;k<n;k++){ s+=p; p*=1.004; } const room=Math.floor(cap()-load()+1e-9); return {goods:s, camels:Math.max(0,Math.ceil((n-room)/CAMEL_CAP)), total:s+Math.max(0,Math.ceil((n-room)/CAMEL_CAP))*CAMEL_PRICE}; }
+// the most you can buy, keeping a tenth of your gold for the road
+const maxBuy = g => { let lo=0, hi=2000; while (lo<hi){ const m=(lo+hi+1)>>1; if (buyCost(g,m).total<=C.gold*0.9) lo=m; else hi=m-1; } return lo; };
+// the suggested amount: sell what fetches more here than the best you know of elsewhere; buy up to where one more unit stops paying,
+// judged against the best price you know of elsewhere (less spoilage on the way)
+function suggest(g){
+  const b=bestKnown(g), sp=sellPrice(g);
+  if (C.cargo[g]>=1 && (!b || sp>=b.p*0.97 || sp>=C.cost[g]*1.05)) return -Math.floor(C.cargo[g]+1e-9);
+  if (!b) return 0; const days=shortest(C.at,b.ci)?.days||30, ratio=b.p*Math.pow(1-GOODS[g][2],days)/buyPrice(g); if (ratio<=1.05) return 0;
+  return Math.min(maxBuy(g), Math.floor(Math.log(ratio)/Math.log(1.004/.996)));
+}
 function trade(g, qty){
   const c=cities[C.at]; if (traveling || c.closed || !(qty===qty) || !qty) return;
-  if (qty>0){ qty=Math.min(qty, Math.floor(cap()-load()+1e-9)); let spent=0, n=0; for (; n<qty; n++){ const p=buyPrice(g); if (C.gold<p) break; C.gold-=p; spent+=p; c.price[g]*=1.004; } if (n){ C.cost[g]=(C.cost[g]*C.cargo[g]+spent)/(C.cargo[g]+n); C.cargo[g]+=n; } }
+  if (qty>0){ const need=buyCost(g,qty).camels, can=Math.min(need, Math.floor(C.gold/CAMEL_PRICE)); if (can>0){ C.gold-=can*CAMEL_PRICE; C.camels+=can; if (can) logIt(`Bought ${can} camel${can>1?'s':''} to carry the load.`); } qty=Math.min(qty, Math.floor(cap()-load()+1e-9)); let spent=0, n=0; for (; n<qty; n++){ const p=buyPrice(g); if (C.gold<p) break; C.gold-=p; spent+=p; c.price[g]*=1.004; } if (n){ C.cost[g]=(C.cost[g]*C.cargo[g]+spent)/(C.cargo[g]+n); C.cargo[g]+=n; } }
   else { const want=-qty; qty=Math.min(want, Math.floor(C.cargo[g]+1e-9)); let got=0; for (let n=0;n<qty;n++){ const p=sellPrice(g); C.gold+=p; got+=p; c.price[g]*=0.996; } C.cargo[g]-=qty;
     // perishables leave fractions behind (9.6 tea): selling everything sells the fraction too, so no unsellable ghost cargo is left taking up space
     if (want>=C.cargo[g]+qty-1e-9 && C.cargo[g]>0){ const p=sellPrice(g)*C.cargo[g]; C.gold+=p; got+=p; qty+=C.cargo[g]; C.cargo[g]=0; } if (qty) { const profit=got-C.cost[g]*qty; if (C.cost[g]>0 && profit>5) coinBurst(profit); if (C.firstJob&&!C.firstJob.done&&g===C.firstJob.g&&C.at===C.firstJob.to){ C.firstJob.done=1; setTimeout(()=>RH.toast(`First job done: ${profit>=0?'+':''}${Math.round(profit)}g. From here on, you choose: the Information tab buys you fresher prices.`,6000),300); } if (Math.abs(profit)>50) logIt(`Sold ${qty} ${GOODS[g][0].toLowerCase()} in ${c.name} for ${Math.round(got)}g (${profit>=0?'+':''}${Math.round(profit)}).`); } if (C.cargo[g]<0.01){ C.cargo[g]=0; C.cost[g]=0; } }
@@ -289,18 +310,20 @@ function trade(g, qty){
 function netWorth(){ let w=C.gold + C.camels*25; const c=cities[C.at]; for (let g=0;g<GOODS.length;g++) w+=C.cargo[g]*c.price[g]*0.9; C.peak=Math.max(C.peak,w); return w; }
 
 // ===================== Travel =====================
-function planTo(to){ if (to===C.at){ plan=null; renderTravel(); return; } const p=shortest(C.at,to); plan=p? {to, ...p} : {to, none:true}; renderTravel(); }
+const riskOf=legs=>1-legs.reduce((s,l)=>s*(1-banditChance(l.r)),1);
+function planTo(to){ if (to===C.at){ plan=null; renderTravel(); return; } const p=shortest(C.at,to); if (!p){ plan={to, none:true}; renderTravel(); return; }
+  const s=shortest(C.at,to,true); plan={to, ...p, safe: s && riskOf(p.legs)>0.005 && s.legs.map(l=>routes.indexOf(l.r)).join()!==p.legs.map(l=>routes.indexOf(l.r)).join()? s : null}; renderTravel(); }
 function renderTravel(){
   const box=document.getElementById('travelBox'); if (!plan){ box.style.display='none'; return; } box.style.display='block';
   const c=cities[plan.to];
   if (plan.none){ box.innerHTML=`<b>${c.name}</b><br>No open route.`; return; }
-  const risk = 1-plan.legs.reduce((s,l)=>s*(1-banditChance(l.r)),1);
-  box.innerHTML=`<b>${c.name}</b>${c.closed?' <span class="dn">(gates shut)</span>':''}<br>${plan.days} days · ${plan.legs.length} leg${plan.legs.length>1?'s':''} · bandit risk ${Math.round(risk*100)}%<br>Upkeep ≈ ${Math.round(plan.days*(C.camels*0.05+C.guards*0.3))}g${C.book[plan.to]?`<br><span class="age">Price info is ${C.day-C.book[plan.to].day} days old</span>`:'<br><span class="age">You know nothing of its markets.</span>'}<div class="row" style="margin-top:8px"><button class="primary" id="goBtn">Set out</button><button id="cancelBtn">Cancel</button></div>`;
-  document.getElementById('goBtn').onclick=()=>travel(); document.getElementById('cancelBtn').onclick=()=>{ plan=null; renderTravel(); };
+  const risk=riskOf(plan.legs), info=C.book[plan.to]?`<span class="age">Price news is ${C.day-C.book[plan.to].day} days old</span>`:'<span class="age">You know nothing of its markets.</span>';
+  box.innerHTML=`<b>${c.name}</b>${c.closed?' <span class="dn">(gates shut)</span>':''}<br>${info}<div class="roads"><button class="primary" id="goFast">${plan.safe?'Fast road':'Set out'}: ${plan.days} days${risk>0.005?` · bandits ${Math.round(risk*100)}%`:' · safe'}</button>${plan.safe?`<button class="primary" id="goSafe">Safe road: ${plan.safe.days} days</button>`:''}<button id="cancelBtn">Cancel</button></div>${risk>0.005?`<span class="small dim">Bandits take a quarter of your gold and nearly a third of the cargo.</span>`:''}`;
+  document.getElementById('goFast').onclick=()=>travel(); document.getElementById('goSafe')?.addEventListener('click',()=>travel(true)); document.getElementById('cancelBtn').onclick=()=>{ plan=null; renderTravel(); };
 }
-function banditChance(r){ return r.danger*Math.pow(0.55, C.guards/Math.max(1,C.camels/4)); }
-function travel(){
-  if (!plan||plan.none) return; const legs=plan.legs.slice(); plan=null; renderTravel();
+function banditChance(r){ return r.danger; }
+function travel(safe){
+  if (!plan||plan.none) return; const legs=(safe&&plan.safe? plan.safe.legs : plan.legs).slice(); plan=null; renderTravel();
   traveling={legs, leg:0, t:0, from:C.at}; sfx('bell');
 }
 // ===================== Encounters on the road =====================
@@ -317,9 +340,6 @@ const ENC={
   trader:{ make:(r)=>{ const g=r.int(GOODS.length); return {g, qty:10+r.int(3)*5, price:Math.round(GOODS[g][1]*(.5+r()*.15)*10)/10}; },
     text:e=>`A nomad trader offers <b>${e.qty} ${GOODS[e.g][0].toLowerCase()}</b> at ${e.price}g each. It usually sells for about ${GOODS[e.g][1]}g.`,
     opts:e=>{ const n=Math.max(0,Math.min(e.qty, Math.floor(cap()-load()+1e-9), Math.floor(C.gold/e.price))); return [{label:n?`Buy ${n} for ${Math.round(n*e.price)}g`:'No room or gold',ok:n>0,go:()=>{ const spent=n*e.price; C.cost[e.g]=(C.cost[e.g]*C.cargo[e.g]+spent)/(C.cargo[e.g]+n); C.cargo[e.g]+=n; C.gold-=spent; logIt(`🛍️ Bought ${n} ${GOODS[e.g][0].toLowerCase()} from a nomad at ${e.price}g.`); sfx('coin'); }},{label:'Decline',go:()=>{}}]; } },
-  well:{ make:(r)=>({price:25+r.int(15)}),
-    text:e=>`An oasis. The camels drink, and a herdsman offers a strong young camel for ${e.price}g.`,
-    opts:e=>[{label:`Buy the camel (${e.price}g)`,ok:C.gold>=e.price,go:()=>{ C.gold-=e.price; C.camels++; logIt(`🐪 Bought a camel at an oasis for ${e.price}g.`); }},{label:'Ride on',go:()=>{}}] },
 };
 function maybeEncounter(L){
   traveling.encDone=1; if (!encountersOn || L.r.days<5) return;
@@ -350,15 +370,15 @@ function stepTravel(dt){
     renderAll(); persist();
   }
 }
-function travelNow(to){
-  const p=shortest(C.at,to); if (!p) return false;
+function travelNow(to, safe){
+  const p=(safe&&shortest(C.at,to,true))||shortest(C.at,to); if (!p) return false;
   for (const l of p.legs){ for (let d=0; d<l.r.days; d++){ tick(); deliverNews(); processPigeons(); if (C.day>=CAREER_DAYS) return 'end'; }
     const nx=l.r.a===C.at? l.r.b : l.r.a;
     if (rng()<banditChance(l.r)){ C.gold-=Math.round(C.gold*0.25); for (let g=0;g<GOODS.length;g++) C.cargo[g]=Math.floor(C.cargo[g]*0.7); }
     C.at=nx; see(nx); checkContracts(); }
-  genContracts(); return true;
+  hearNews(); genContracts(); return true;
 }
-function arrive(){ const c=cities[C.at]; logIt(`Day ${C.day}: arrived in ${c.name}.`); genContracts(); checkContracts(); renderAll(); arrivalTip(); }
+function arrive(){ const c=cities[C.at]; logIt(`Day ${C.day}: arrived in ${c.name}.`); hearNews(); genContracts(); checkContracts(); renderAll(); arrivalTip(); }
 // arrival feedback: what your cargo fetches here against what you paid, and contracts you can hand in
 function arrivalTip(){ const c=cities[C.at]; if (c.closed) return; const bits=[];
   GOODS.forEach((gd,g)=>{ if (C.cargo[g]>=1 && C.cost[g]>0){ const d=sellPrice(g)-C.cost[g]; bits.push(`${gd[0]} <span class="${d>=0?'up':'dn'}">${d>=0?'+':''}${d.toFixed(1)}g</span>/unit`); } });
@@ -397,13 +417,11 @@ const STAR_AT=[3000,11500,35000];
 const starsFor=w=>STAR_AT.filter(t=>w>=t).length;
 function endCareer(){
   if (C.ended) return; C.ended=1; // a reload before the modal is closed must not pay the legacy twice
-  const w=Math.round(netWorth()), st=starsFor(w); C.stars=st; const legacy=Math.floor(Math.log10(Math.max(10,w))*2+C.done*0.5);
-  M.legacy+=legacy; M.best=Math.max(M.best,w); M.careers++; persist();
-  RH.modal(`<h2>Three years on the road.</h2><p style="font-size:30px;text-align:center;color:#b3402a;margin:4px 0">${'★'.repeat(st)}${'☆'.repeat(3-st)}</p><p>You retire with a fortune of <b>${w.toLocaleString()}g</b> (best ever ${M.best.toLocaleString()}g) and ${C.done} contracts fulfilled.</p><p>Your name earns <b>${legacy} legacy</b> for the next merchant of your house.</p><p class="small">★ ${STAR_AT[0].toLocaleString()}g · ★★ ${STAR_AT[1].toLocaleString()}g · ★★★ ${STAR_AT[2].toLocaleString()}g</p>`,[{label:'Found a new house'}]).then(()=>{ newCareer(); buildAndRender(); showPerks(); });
+  const w=Math.round(netWorth()), st=starsFor(w); C.stars=st; const prevRoad=M.roads[C.seed];
+  M.best=Math.max(M.best,w); M.careers++; M.roads[C.seed]=Math.max(prevRoad||0,w); const ks=Object.keys(M.roads); if (ks.length>40) delete M.roads[ks[0]]; persist();
+  RH.modal(`<h2>Three years on the road.</h2><p style="font-size:30px;text-align:center;color:#b3402a;margin:4px 0">${'★'.repeat(st)}${'☆'.repeat(3-st)}</p><p>You retire with a fortune of <b>${w.toLocaleString()}g</b> (best ever ${M.best.toLocaleString()}g) and ${C.done} contracts fulfilled.</p><p>${prevRoad!=null?`Your best on this road was ${prevRoad.toLocaleString()}g.`:'Your first career on this road.'}${C.daily?' This was <b>today\'s road</b>: everyone travels the same one today.':''}</p><p class="small">Share this road: <span class="mono">${location.href.split('#')[0]}#road=${C.seed}</span></p><p class="small">★ ${STAR_AT[0].toLocaleString()}g · ★★ ${STAR_AT[1].toLocaleString()}g · ★★★ ${STAR_AT[2].toLocaleString()}g</p>`,[{label:'The same road again',value:'same'},{label:"Today's road",value:'daily'},{label:'A new road',value:'new'}]).then(v=>startRoad(v==='same'?C.seed:v==='daily'?dailySeed():undefined));
 }
-const PERKS=[['gold','Family fortune','+200 starting gold',3],['camel','Bloodline camels','+1 starting camel',3],['book','Old letters','Start knowing prices in nearby cities',5],['agent','Cousin in the middle','A free agent in a central city',8],['guard','Old soldiers','Guards cost nothing for the first year',6]];
-function showPerks(){ const h=PERKS.map(p=>`<div class="ctr"><b>${p[1]}</b> ${M.perks[p[0]]?`(lv ${M.perks[p[0]]})`:''}<br><span class="dim">${p[2]}</span><br><button data-pk="${p[0]}" ${M.legacy<p[3]?'disabled':''}>${p[3]} legacy</button></div>`).join('');
-  RH.modal(`<h2>House legacy: ${M.legacy}</h2>${h}`,[{label:'Done'}]); setTimeout(()=>document.querySelectorAll('[data-pk]').forEach(b=>b.onclick=()=>{ const p=PERKS.find(x=>x[0]===b.dataset.pk); if (M.legacy<p[3]) return; M.legacy-=p[3]; M.perks[p[0]]=(M.perks[p[0]]||0)+1; persist(); document.querySelector('.modal-bg').remove(); showPerks(); }),30); }
+function startRoad(seed){ traveling=null; plan=null; newCareer(seed); buildAndRender(); }
 
 // ===================== Rendering =====================
 const cv=document.getElementById('map'), ctx=cv.getContext('2d'); let hoverC=-1;
@@ -524,32 +542,41 @@ cv.addEventListener('pointermove',e=>{ if (downXY && Math.hypot(e.clientX-downXY
 document.getElementById('legend').onclick=()=>document.getElementById('legend').classList.toggle('open');
 
 function bestKnown(g){ let best=null; for (const ci in C.book){ if (+ci===C.at) continue; const b=C.book[ci]; const p=b.p[g]*0.97; if (!best||p>best.p) best={ci:+ci,p,age:C.day-b.day}; } return best; }
+let selG=null; // the good picked in the market: one slider, one action
 function renderMarket(){
   const c=cities[C.at];
   const fj=C.firstJob&&!C.firstJob.done? C.firstJob : null;
-  let h=fj? `<div class="job" role="status"><b>Your first job.</b> ${C.at===fj.to? `You're in <b>${cities[fj.to].name}</b>: sell your silk here (the <i>all</i> button on the Silk row).` : `Silk is cheap in ${cities[0].name}. Buy some (<i>max</i> keeps a fifth of your gold for the road), then click <b>${cities[fj.to].name}</b> on the map (it's ringed: ${fj.days} days) and set out. It wants silk.`}</div>` : '';
+  let h=fj? `<div class="job" role="status"><b>Your first job.</b> ${C.at===fj.to? `You're in <b>${cities[fj.to].name}</b>: tap <b>Silk</b> and sell it.` : `Silk is cheap in ${cities[0].name}. Tap <b>Silk</b>, take the suggested amount, then tap <b>${cities[fj.to].name}</b> on the map (it's ringed: ${fj.days} days) and set out. It wants silk.`}</div>` : '';
   h+=`<div class="row" style="justify-content:space-between"><b style="font-size:16px">${c.name}</b><span class="small dim">makes ${c.prod.map(g=>GOODS[g][0]).join(', ')} · wants ${c.dem.map(g=>GOODS[g][0]).join(', ')}</span></div>`;
   if (traveling) h+=`<p class="dim">On the road…</p>`;
   else if (c.closed) h+=`<p class="dn">The gates are shut. Nobody is trading.</p>`;
   else {
-    h+=`<table class="mk"><tr><th>Good</th><th>Buy</th><th>Sell</th><th>Held</th><th>Best known elsewhere</th><th></th></tr>`;
+    if (selG==null) { const held=GOODS.map((_,g)=>g).find(g=>C.cargo[g]>=1); selG = held ?? (fj? fj.g : null); }
+    h+=`<table class="mk"><tr><th>Good</th><th>Buy</th><th>Sell</th><th>Held</th><th>Best known elsewhere</th></tr>`;
     GOODS.forEach((gd,g)=>{ const b=bestKnown(g); const sp=sellPrice(g), bp=buyPrice(g); const margin=b? b.p-bp : 0;
-      h+=`<tr><td>${gd[0]}${gd[2]?' <span class="age">perishes</span>':''}</td><td>${bp.toFixed(1)}</td><td>${sp.toFixed(1)}</td><td>${C.cargo[g]?Math.floor(C.cargo[g])+(C.cost[g]?` <span class="age">@${C.cost[g].toFixed(1)}</span>`:''):''}</td>
-      <td>${b?`<span class="${margin>0?'up':'dn'}">${b.p.toFixed(1)}</span> ${cities[b.ci].name} <span class="age">${b.age}d old</span>`:'<span class="age">—</span>'}</td>
-      <td style="white-space:nowrap"><button data-b="${g}:1">+1</button><button data-b="${g}:10">+10</button><button data-b="${g}:999" title="As much as fits, keeping a fifth of your gold for the road">max</button> <button data-b="${g}:-10">−10</button><button data-b="${g}:-999">all</button></td></tr>`; });
-    h+=`</table><div class="small dim" style="margin-top:6px">Your buying pushes prices up and your selling pushes them down. Big trades move the market.</div>`;
+      h+=`<tr data-g="${g}" class="${g===selG?'sel':''}" tabindex="0" role="button" aria-label="${gd[0]}"><td>${gd[0]}${gd[2]?' <span class="age">perishes</span>':''}</td><td>${bp.toFixed(1)}</td><td>${sp.toFixed(1)}</td><td>${C.cargo[g]?Math.floor(C.cargo[g])+(C.cost[g]?` <span class="age">@${C.cost[g].toFixed(1)}</span>`:''):''}</td>
+      <td>${b?`<span class="${margin>0?'up':'dn'}">${b.p.toFixed(1)}</span> ${cities[b.ci].name} <span class="age">${b.age}d old</span>`:'<span class="age">—</span>'}</td></tr>`;
+      if (g===selG) h+=`<tr class="deal"><td colspan="5" id="deal"></td></tr>`; });
+    h+=`</table><div class="small dim" style="margin-top:6px">Tap a good to trade it. Your buying pushes its price up and your selling pushes it down, so the suggested amount stops where one more unit stops paying. Buying more than your camels carry brings more camels (${CAMEL_PRICE}g each).</div>`;
   }
   const el=document.getElementById('p-market'); el.innerHTML=h;
-  el.querySelectorAll('[data-b]').forEach(b=>b.onclick=()=>{ const [g,q]=b.dataset.b.split(':').map(Number); trade(g, q===999? maxBuy(g) : q); });
+  el.querySelectorAll('tr[data-g]').forEach(tr=>{ tr.onclick=()=>{ selG=+tr.dataset.g; renderMarket(); }; tr.onkeydown=e=>{ if (e.key==='Enter'||e.key===' '){ e.preventDefault(); tr.onclick(); } }; });
+  const d=document.getElementById('deal'); if (d) renderDeal(d, selG);
 }
-function renderInfo(){
-  const c=cities[C.at]; let h=`<b>Tavern</b><div class="small dim">Rumours cost 3g. Some are true.</div><button id="rumBtn" ${traveling||C.gold<3?'disabled':''}>🍺 Buy a round and listen</button>`;
-  h+=`<hr style="border-color:var(--line)"><b>Pigeon post</b> ${c.dove?'':'<span class="dn small">(no dovecote here)</span>'}<div class="small dim">6g. The pigeon flies to a city with a dovecote and comes back with its prices.</div>`;
-  if (c.dove && !traveling) h+=`<div class="row" style="margin-top:4px">${cities.filter(x=>x.dove&&x.id!==C.at).map(x=>`<button data-pg="${x.id}" style="font-size:11px">${x.name}</button>`).join('')}</div>`;
-  h+=`<hr style="border-color:var(--line)"><b>Agents</b><div class="small dim">20g to hire, then 2g a day. They send prices daily, but the letters take time to reach you.</div><button id="agBtn" ${traveling?'disabled':''}>${C.agents[C.at]?'Dismiss agent here':'Hire agent in '+c.name}</button><div class="small" style="margin-top:4px">Agents: ${Object.keys(C.agents).map(i=>cities[i].name).join(', ')||'none'}</div>`;
-  h+=`<hr style="border-color:var(--line)"><b>Price book</b><table class="mk"><tr><th>City</th><th>Age</th>${GOODS.map(g=>`<th title="${g[0]}">${g[0].slice(0,3)}</th>`).join('')}</tr>`+Object.entries(C.book).sort((a,b)=>a[0]-b[0]).map(([ci,b])=>`<tr><td>${cities[ci].name}</td><td class="age">${C.day-b.day}d</td>${b.p.map(p=>`<td>${Math.round(p)}</td>`).join('')}</tr>`).join('')+'</table>';
-  const el=document.getElementById('p-info'); el.innerHTML=h;
-  document.getElementById('rumBtn').onclick=buyRumor; document.getElementById('agBtn').onclick=hireAgent; el.querySelectorAll('[data-pg]').forEach(b=>b.onclick=()=>sendPigeon(+b.dataset.pg));
+// the one market action: a slider from "sell all you hold" to "buy all you can", starting at the suggested amount
+function renderDeal(el, g){
+  const lo=-Math.floor(C.cargo[g]+1e-9), hi=maxBuy(g), sug=Math.max(lo,Math.min(hi,suggest(g)));
+  const b=bestKnown(g), why= sug<0? 'Suggested: sell here.' : sug>0? `Suggested: buy ${sug}, for ${b?cities[b.ci].name:''} (${b?b.p.toFixed(1):''}g, news ${b?b.age:0} days old).` : (b? `The best you know of elsewhere (${b.p.toFixed(1)}g in ${cities[b.ci].name}) does not pay for the trip.` : 'You know of nowhere better to sell it.');
+  el.innerHTML=`<div class="dealBox"><div class="small">${why}</div><input type="range" id="qty" min="${lo}" max="${hi}" step="1" value="${sug}" aria-label="Amount to buy (right) or sell (left)" ${lo===hi?'disabled':''}><div class="row" style="justify-content:space-between;align-items:center"><span class="small dim">${lo<0?`sell ${-lo}`:'—'} ◂ ▸ ${hi>0?`buy ${hi}`:'—'}</span><button class="primary" id="dealBtn"></button></div></div>`;
+  const r=el.querySelector('#qty'), btn=el.querySelector('#dealBtn');
+  const lab=()=>{ const n=+r.value; if (!n){ btn.textContent='Choose an amount'; btn.disabled=true; return; } btn.disabled=false;
+    if (n>0){ const k=buyCost(g,n); btn.textContent=`Buy ${n} ${GOODS[g][0].toLowerCase()} · ${Math.round(k.total)}g${k.camels?` (+${k.camels} camel${k.camels>1?'s':''})`:''}`; }
+    else { btn.textContent=`Sell ${-n} ${GOODS[g][0].toLowerCase()} · ≈${Math.round(-n*sellPrice(g)*Math.pow(.996,-n/2))}g`; } };
+  r.oninput=lab; lab(); btn.onclick=()=>{ const n=+r.value; if (n) trade(g, n<0 && n===lo ? -999 : n); };
+}
+function renderLedger(){
+  const h=`<b>Price book</b> <span class="small dim">what you know, and how old it is</span><div class="bkWrap"><table class="bk"><tr><th>City</th><th>Age</th>${GOODS.map(g=>`<th title="${g[0]}">${g[0].slice(0,3)}</th>`).join('')}</tr>`+Object.entries(C.book).sort((a,b)=>a[0]-b[0]).map(([ci,b])=>`<tr><td>${cities[ci].name}</td><td class="age">${C.day-b.day}d</td>${b.p.map(p=>`<td>${Math.round(p)}</td>`).join('')}</tr>`).join('')+'</table></div><hr style="border-color:var(--line)">'+C.log.slice().reverse().map(l=>`<div class="news">${l}</div>`).join('');
+  document.getElementById('p-log').innerHTML=h;
 }
 function renderContracts(){
   let h='<b>Your contracts</b>'; h+= C.contracts.length? C.contracts.map((ct,i)=>`<div class="ctr">${ct.qty} ${GOODS[ct.g][0]} → <b>${cities[ct.to].name}</b> by day ${ct.by} (${ct.by-C.day} days left) · <b>${ct.reward}g</b> ${C.at===ct.to&&C.cargo[ct.g]>=ct.qty&&C.day<=ct.by?`<button data-dv="${i}" class="primary">Deliver</button>`:''}</div>`).join('') : '<p class="small dim">None.</p>';
@@ -558,27 +585,13 @@ function renderContracts(){
   el.querySelectorAll('[data-dv]').forEach(b=>b.onclick=()=>deliver(+b.dataset.dv));
   el.querySelectorAll('[data-of]').forEach(b=>b.onclick=()=>{ if (traveling) return; const o=C.offers.splice(+b.dataset.of,1)[0]; if (o) C.contracts.push(o); persist(); renderAll(); });
 }
-function renderCaravan(){
-  const el=document.getElementById('p-caravan');
-  el.innerHTML=`<p>${C.camels} camels (carry ${cap()}) · ${C.guards} guards</p><div class="row"><button id="buyCamel" ${traveling||C.gold<40?'disabled':''}>Buy camel (40g)</button><button id="sellCamel" ${traveling||C.camels<=1||load()>cap()-CAMEL_CAP?'disabled':''}>Sell camel (+25g)</button></div>
-  <div class="row" style="margin-top:6px"><button id="hireG" ${traveling||C.gold<15?'disabled':''}>Hire guard (15g, 0.3g/day)</button><button id="fireG" ${C.guards<=0?'disabled':''}>Dismiss guard</button></div>
-  <p class="small dim">Each camel eats 0.05g a day. Guards cut the chance of losing cargo to bandits on dangerous roads; you need about one per four camels.</p>
-  <p class="small">Net worth here: <b>${Math.round(netWorth()).toLocaleString()}g</b> · peak ${Math.round(C.peak).toLocaleString()}g</p><button id="perkBtn">House legacy (${M.legacy})</button>`;
-  const act=f=>()=>{ if (traveling) return; f(); persist(); renderAll(); };
-  document.getElementById('buyCamel').onclick=act(()=>{ if (C.gold>=40){ C.gold-=40; C.camels++; } });
-  document.getElementById('sellCamel').onclick=act(()=>{ if (C.camels>1 && load()<=cap()-CAMEL_CAP){ C.gold+=25; C.camels--; } });
-  document.getElementById('hireG').onclick=act(()=>{ if (C.gold>=15){ C.gold-=15; C.guards++; } });
-  document.getElementById('fireG').onclick=()=>{ if (C.guards>0) C.guards--; persist(); renderAll(); };
-  document.getElementById('perkBtn').onclick=showPerks;
-}
-function renderLog(){ document.getElementById('p-log').innerHTML=C.log.slice().reverse().map(l=>`<div class="news">${l}</div>`).join(''); }
 function logIt(t){ C.log.push(`<span class="age">d${C.day}</span> ${t}`); if (C.log.length>200) C.log.shift(); }
 function renderStatus(){
   const yr=Math.floor(C.day/360)+1, season=['Spring','Summer','Autumn','Winter'][Math.floor((C.day%360)/90)];
-  document.getElementById('status').innerHTML=`<div>Gold<b>${Math.floor(C.gold).toLocaleString()}</b></div><div>Cargo<b>${Math.floor(load())}/${cap()}</b></div><div>Date<b>${season}, yr ${yr}</b></div><div>Days left<b>${CAREER_DAYS-C.day}</b></div>`;
+  document.getElementById('status').innerHTML=`<div>Gold<b>${Math.floor(C.gold).toLocaleString()}</b></div><div>Cargo<b>${Math.floor(load())}/${cap()}</b><span class="age">${C.camels} camels</span></div><div>Date<b>${season}, yr ${yr}</b></div><div>Days left<b>${CAREER_DAYS-C.day}</b></div>`;
   document.getElementById('career').textContent=`House of the ${['Golden','Patient','Silent','Wandering','Jade'][M.careers%5]} Road · career ${M.careers+1} · best fortune ${M.best.toLocaleString()}g`;
 }
-function renderAll(){ renderStatus(); renderMarket(); renderInfo(); renderContracts(); renderCaravan(); renderLog(); }
+function renderAll(){ renderStatus(); renderMarket(); renderContracts(); renderLedger(); }
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+b.dataset.t)); });
 
 let last=performance.now(); function loop(now){ const dt=Math.min(0.1,(now-last)/1000); last=now; if (traveling){ stepTravel(dt); processPigeons(); renderStatus(); } requestAnimationFrame(loop); }
@@ -593,8 +606,8 @@ setInterval(persist, 5000);
 if (!C || C.ended){ newCareer(); }
 buildAndRender();
 if (C.day>=CAREER_DAYS) endCareer(); fit(); window.addEventListener('resize',fit); requestAnimationFrame(drawMap); requestAnimationFrame(loop);
-window.__caravan = { buyRumor, hireAgent, sendPigeon, processPigeons, genContracts, see, cam, maxBuy,  P0, zoomAt, get zoom(){ return cam.k; }, labelBoxes:()=>labels.slice(),  get headless(){ return headless; }, set headless(v){ headless=v; }, travelNow, starsFor, STAR_AT, GEO, rivalPos, newCareerSeed:(seed)=>{ traveling=null; plan=null; newCareer(seed); }, P, mapSegs:()=>mapBg&&mapBg.segs, get mapBg(){ return mapBg; }, get encountersOn(){ return encountersOn; }, set encountersOn(v){ encountersOn=v; }, ENC, resolveEncounter, maybeEncounter, renderEncounter, coins:()=>coins, get C(){ return C; }, get M(){ return M; }, get cities(){ return cities; }, get routes(){ return routes; }, get traveling(){ return traveling; }, GOODS, CAREER_DAYS, cleanCareer, cleanMeta, shortest, neighbors, trade, tick, planTo, travel, deliver, checkContracts, endCareer, netWorth, banditChance, buildAndRender, persist, load, cap };
-if (!M.intro){ M.intro=1; persist(); RH.modal(`<h2>The Caravan</h2><p>Twenty-three cities from Chang'an to Constantinople. Silk is cheap in the east and dear in the west. Everyone knows that, and so do the six rival houses you'll see on the road, so the real money is in knowing <b>what's changed</b>. Markets drift from month to month; rivals buy out one city and flood another.</p><p>Your price book only holds what you've seen with your own eyes, and that goes out of date. Pigeons, paid agents and tavern gossip all buy you fresher information. Wars, plagues and famines change everything. The rumours usually arrive first.</p><p>You have three years. Make your house rich.</p>`,[{label:'Load the camels'}]); }
+window.__caravan = { buyCost, suggest, renderMarket, startRoad, dailySeed, hearNews, genContracts, see, cam, maxBuy,  P0, zoomAt, get zoom(){ return cam.k; }, labelBoxes:()=>labels.slice(),  get headless(){ return headless; }, set headless(v){ headless=v; }, travelNow, starsFor, STAR_AT, GEO, rivalPos, newCareerSeed:(seed)=>{ traveling=null; plan=null; newCareer(seed); }, P, mapSegs:()=>mapBg&&mapBg.segs, get mapBg(){ return mapBg; }, get encountersOn(){ return encountersOn; }, set encountersOn(v){ encountersOn=v; }, ENC, resolveEncounter, maybeEncounter, renderEncounter, coins:()=>coins, get C(){ return C; }, get M(){ return M; }, get cities(){ return cities; }, get routes(){ return routes; }, get traveling(){ return traveling; }, GOODS, CAREER_DAYS, cleanCareer, cleanMeta, shortest, neighbors, trade, tick, planTo, travel, deliver, checkContracts, endCareer, netWorth, banditChance, buildAndRender, persist, load, cap };
+if (!M.intro){ M.intro=1; persist(); RH.modal(`<h2>The Caravan</h2><p>Twenty-three cities from Chang'an to Constantinople. Silk is cheap in the east and dear in the west. Everyone knows that, and so do the six rival houses you'll see on the road, so the real money is in knowing <b>what's changed</b>. Markets drift from month to month; rivals buy out one city and flood another.</p><p>Your price book only holds what you've seen with your own eyes, and that goes out of date. News travels along the roads: arriving in a city, you hear its neighbours' prices, already days old. The domes on the map show how old your news is. Wars, plagues and famines change everything. The rumours usually arrive first.</p><p>You have three years. Make your house rich.</p>`,[{label:'Load the camels'}]); }
 </script>
 </body>
 </html>

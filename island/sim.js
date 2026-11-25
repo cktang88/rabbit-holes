@@ -278,7 +278,7 @@
   function daily(day) { return { id: 'daily', title: 'Island of ' + day, seed: 'day:' + day, years: 30, permits: 10, species: ALL, daily: true,
     brief: 'Everyone gets this island today. Ten releases; your score is the number of species alive in year 30.',
     goal: (w) => { const y = yr(w), n = speciesCount(w); if (y >= 30) return 'done'; return `${n} species now. Score taken in year 30.`; } }; }
-  const sandbox = (seed) => ({ id: 'sandbox', title: 'Free island', seed: 'free:' + seed, years: 200, permits: Infinity, species: SP.map(s => s.id), traps: SP.filter(s => s.kind === 'animal').map(s => s.id), sandbox: true,
+  const sandbox = (seed) => ({ id: 'sandbox', title: 'Free island', seed: 'free:' + seed, years: 200, permits: Infinity, species: SP.map(s => s.id), traps: ['goat', 'rabbit', 'deer'], sandbox: true,
     brief: 'No commission: any species, as many as you like. Watch what happens.', goal: (w) => `${speciesCount(w)} species. Year ${yr(w)}.` });
   function start(c, run) { const w = create(c.seed, { setup: c.setup, run }); if (c.drought) w.drought = c.drought; census(w); return w; }
 

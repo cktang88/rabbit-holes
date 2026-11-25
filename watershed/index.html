@@ -71,6 +71,8 @@
   #hint{position:fixed;bottom:96px;max-width:calc(100vw - 32px);text-align:center;left:50%;transform:translateX(-50%);color:#f4efe1;font:500 15px "Barlow Condensed";letter-spacing:.04em;background:rgba(20,18,15,.7);padding:4px 12px;pointer-events:none;transition:opacity .4s}
   #viewBtn{position:fixed;right:14px;bottom:70px;z-index:3;min-height:36px;padding:0 10px;background:#efe6cf;border:1px solid #15120f;color:var(--ink);font:700 14px "Barlow Condensed";letter-spacing:.1em;text-transform:uppercase;cursor:pointer;box-shadow:0 3px 0 #0d0b09}
   #viewBtn.moved{background:linear-gradient(#ffd99a,#e7a74e)}
+  #settle{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-1deg);display:none;z-index:5;background:var(--paper);border-left:6px solid var(--blue);padding:8px 14px;font:600 17px "Barlow Condensed";letter-spacing:.04em;pointer-events:none;box-shadow:0 10px 24px -10px rgba(0,0,0,.7);text-align:center}
+  #settle.on{display:block}#settle i{display:block;height:5px;margin-top:6px;background:#d8cfb8}#settle s{display:block;height:100%;width:0;background:var(--blue)}
   #msg{position:fixed;top:16%;left:50%;transform:translateX(-50%) rotate(-1deg);background:var(--paper);color:var(--ink);border-left:6px solid var(--red);padding:7px 14px;font:600 16px "Barlow Condensed";letter-spacing:.03em;pointer-events:none;opacity:0;transition:opacity .3s;text-align:center;max-width:80vw;box-shadow:0 10px 24px -10px rgba(0,0,0,.7)}
   #msg.on{opacity:1}
   #inq{display:none;margin-top:8px;padding:7px 9px;background:#fff8df;border-left:4px solid var(--blue);font-size:13px;line-height:1.4}
@@ -143,6 +145,7 @@
 <div id="speed"><button id="go" data-s="1">▶ Run</button><button data-s="3" title="Fast">▶▶</button><button data-s="8" title="Fastest">▶▶▶</button><button data-s="0" title="Pause">❚❚</button><button id="restart" title="Start this site again">↺</button><button id="mute" title="Sound">♪</button></div>
 <div id="hint">Pick a piece, then tap the model to place it (drag for levees, dams and cuts) · right-drag or two fingers turn it</div>
 <button id="viewBtn" title="Reset the view (pinch to zoom, two fingers to pan and twist)" aria-label="Reset view">⤢ View</button>
+<div id="settle" role="status"><b>The river finds its way…</b><i><s id="settleBar"></s></i></div>
 <div id="msg" role="status"></div>
 <div id="report" role="dialog" aria-label="Survey report"></div>
 <script src="../shared/common.js"></script>
@@ -244,7 +247,11 @@ const YEAR_STEPS = 480, CALM_STEPS = 160, STORM_FRAC = .5;
 const yearLen = y => L.storm(y) ? YEAR_STEPS : CALM_STEPS;
 let farmDiag = {};
 
-function buildLevel(i) {
+// Opening a site lets its rivers settle for ~900 steps. On screen this runs a slice per frame (you watch the river find its
+// way, and the page never locks up); tests and the debug handle run it in one go. Both run the identical steps in order.
+let settling = null;
+function buildLevel(i, sync = false) {
+  settling = null; markerMeshes.forEach(m => scene.remove(m)); markerMeshes = []; showTags(false); $('report').classList.remove('on');
   cur = i; SAVE.cur = i; if (SC[i].sketch) { SKSEED = SKSEED || SAVE.skSeed || todaySeed(); SAVE.skSeed = SKSEED; } persist(); L = SC[i].sketch ? sketchSite(SKSEED) : SC[i]; over = false; springs = []; simT = 0; thermalTick = 0; seaInWindow.length = 0; seaInflowStep = 0; stepped = false; works = []; inquest = null; farmCells = [];
   year = 0; yStep = 0; harvest = 0; power = 0; history = []; lastYield = 0;
   NOERODE.fill(0); NOSCULPT.fill(0); RAISED.fill(0); USE.fill(0); YDUR.fill(0); WORKOF.fill(-1); FH.fill(0); FDEP.fill(0); YMAX.fill(0); INB.fill(0);
@@ -261,7 +268,14 @@ function buildLevel(i) {
   seaLevel = L.sea; SEA.fill(0); floodSea();
   // let the rivers find their beds before planning starts, so you plan around a living river
   for (const [x, y, q] of L.springs) springs.push({ k: Math.round(y * (N - 1)) * N + Math.round(x * (N - 1)), q, fixed: 1 });
-  CHAN.fill(0); spinning = true; for (let i = 0; i < (L.spin ?? 900); i++) step(); spinning = false; simT = 0; DEP.fill(0);
+  CHAN.fill(0); spinning = true; setSpeed(0); const total = L.spin ?? 900;
+  $('lvName').textContent = L.n; $('place').textContent = L.place; $('goal').innerHTML = L.goal; $('first').innerHTML = L.first || '';
+  if (sync || total <= 0) { for (let i = 0; i < total; i++) step(); settled(); }
+  else { settling = { n: 0, total }; $('settle').classList.add('on'); geomDirty = true; frameCam(); resize(); }
+}
+function settled() {
+  settling = null; $('settle').classList.remove('on');
+  spinning = false; simT = 0; DEP.fill(0);
   // the channel the rivers settled into (and one cell either side) keeps its water; everywhere else floods soak away
   for (let k = N; k < NN - N; k++) if (D[k] > .05) CHAN[k] = CHAN[k - 1] = CHAN[k + 1] = CHAN[k - N] = CHAN[k + N] = 1;
   B0.set(B); SEA.fill(0); floodSea();
@@ -878,7 +892,7 @@ canvas.addEventListener('pointerup', tpUp, true); canvas.addEventListener('point
 // two fingers mean the view: drop the stroke or the piece the first finger began
 function cancelGesture() { if (SK.cur) { SK.cur = null; skRebuild(); renderScore(); } drag.on = false; hover.on = false; hoverMoved = true; }
 canvas.addEventListener('pointerdown', e => {
-  $('levels').classList.remove('open');
+  $('levels').classList.remove('open'); if (settling) return;
   if (TP.size >= 2) { cancelGesture(); return; }
   if (e.button !== 0 || tool === 'view' || (over && !L.sketch)) return;
   const g = pickGround(e); if (!g) return;
@@ -1054,7 +1068,7 @@ function placeTags() {
 }
 
 let speed = 0;
-function setSpeed(s) { if (over && s && L && L.sketch) { skRebuild(); $('report').classList.remove('on'); } else if (over && s) return; if (s && L && L.sketch) SK.ran = true; speed = s; document.querySelectorAll('#speed [data-s]').forEach(x => x.classList.toggle('on', +x.dataset.s === s)); $('go').textContent = s ? '▶ Running' : L && L.sketch ? (year || yStep ? '▶ Go on' : '▶ Run river') : year ? '▶ Next round' : '▶ Run'; if (s) showTags(false); }
+function setSpeed(s) { if (settling && s) return; if (over && s && L && L.sketch) { skRebuild(); $('report').classList.remove('on'); } else if (over && s) return; if (s && L && L.sketch) SK.ran = true; speed = s; document.querySelectorAll('#speed [data-s]').forEach(x => x.classList.toggle('on', +x.dataset.s === s)); $('go').textContent = s ? '▶ Running' : L && L.sketch ? (year || yStep ? '▶ Go on' : '▶ Run river') : year ? '▶ Next round' : '▶ Run'; if (s) showTags(false); }
 document.querySelectorAll('#speed [data-s]').forEach(b => b.onclick = () => { setSpeed(+b.dataset.s); snd.key(); if (speed) { document.body.classList.add('playing'); $('hint').style.opacity = 0; } });
 $('mute').onclick = () => { FX.setMuted(!FX.muted); $('mute').style.opacity = FX.muted ? .4 : 1; };
 $('mute').style.opacity = FX.muted ? .4 : 1;
@@ -1106,6 +1120,7 @@ function celebrate(n) { glow = 1; spin = n >= 2 ? 1 : .5; FX.shake(.2); }
 // ================= main loop =================
 // Fixed timestep: 120 sim steps per second at 1×, independent of display refresh. Steps per frame are capped
 // adaptively by measured step cost, so a slow device runs the sim slower instead of dropping frames.
+const SETTLE_MS = 30; // per frame while a site settles: the page stays live (~25 fps) and a slow phone settles in a few seconds
 const STEP_RATE = 120, FRAME_BUDGET_MS = MOBILE ? 7 : 9, FAST_BUDGET_MS = MOBILE ? 12 : 26; // the fastest speed trades smoothness for years
 const PERF = { sim: 0, steps: 0, geom: 0, render: 0 };
 let needDraw = true, hoverMoved = false, drawCount = 0; const redraw = () => { needDraw = true; };
@@ -1115,7 +1130,12 @@ function loop(now) {
   raf = requestAnimationFrame(loop);
   const dt = Math.min(.1, (now - last) / 1000); last = now; frameN++;
   let n = 0;
-  if (speed > 0 && !over) {
+  if (settling) { // a slice of the opening settle, within a frame budget, then show it
+    const t0 = performance.now(), st = settling; while (st.n < st.total && performance.now() - t0 < SETTLE_MS) { step(); st.n++; }
+    $('settleBar').style.width = (st.n / st.total * 100).toFixed(0) + '%';
+    if (now - (st.drawn || 0) > 500) { geomDirty = true; st.drawn = now; } else drawnSteps = simSteps; /* show the river a few times a second; the rest of each frame goes to settling */ if (st.n >= st.total) { settled(); geomDirty = true; }
+  }
+  else if (speed > 0 && !over) {
     acc += dt * STEP_RATE * speed;
     const maxSteps = Math.max(1, Math.floor((speed >= 8 ? FAST_BUDGET_MS : FRAME_BUDGET_MS) / stepCost));
     n = Math.min(Math.floor(acc), maxSteps); acc -= n; if (acc > maxSteps) acc = 0; // drop backlog rather than spiral
@@ -1148,7 +1168,7 @@ raf = requestAnimationFrame(loop);
 if (!SAVE.intro) { SAVE.intro = 1; persist(); }
 const tv = new THREE.Vector3();
 // ================= debug / test handle =================
-window.__ws = { SC, LV: SC, buildLevel: i => buildLevel(i), stat: () => stat, measure: () => measure(), step, B, D, N, SEA, B0, ROCK, RAISED, NOSCULPT, USE, get springs() { return springs; },
+window.__ws = { SC, LV: SC, buildLevel: i => buildLevel(i, true), buildAsync: i => buildLevel(i), get settling() { return !!settling; }, stat: () => stat, measure: () => measure(), step, B, D, N, SEA, B0, ROCK, RAISED, NOSCULPT, USE, get springs() { return springs; },
   setSpeed: s => setSpeed(s), get speed() { return speed; }, cleanSave, K, get SED() { return SED; }, brush, get simT() { return simT; }, get year() { return year; }, get over() { return over; },
   parts: { flux: () => flux(DT, G * DT, N - 1), waterStep: () => waterStep(DT, N - 1), thermal: () => { thermalTick = 2; thermal(); }, advect: () => advect(DT) },
   setTool, doUndo, get works() { return works; }, placeWork, removeWork, kitLeft, reservoirVolume, deltaLand, capacity, siltIn, get towns() { return towns; }, get inquest() { return inquest; }, WORKS,

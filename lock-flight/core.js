@@ -224,7 +224,7 @@ function analyse(M, D) {
 
 // ================= the monthly model =================
 function newState(an) {
-  return { m: 0, S: an.pounds.map(p => p.cap), RV: an.res.map(r => r.cap * .6), rev: 0, run: 0, spent: an.total, boats: 0, lostW: 0, lostC: 0, lostR: 0, dryMonths: 0, log: [] };
+  return { m: 0, S: an.pounds.map(p => p.cap), RV: an.res.map(r => r.cap * .6), rev: 0, run: 0, spent: an.total, boats: 0, lostW: 0, lostC: 0, lostR: 0, dryMonths: 0, wIn: 0, wOut: 0 };
 }
 const popAt = (t, m) => t.from && m < t.from ? t.p * .12 : t.p;
 function stepMonth(an, st, opt = {}) {
@@ -250,7 +250,7 @@ function stepMonth(an, st, opt = {}) {
   let running = 0;
   for (const pi of an.order) {
     const p = P[pi];
-    let avail = st.S[pi] + inflow[pi] + p.feed * rain - p.leak;
+    let avail = st.S[pi] + inflow[pi] + p.feed * rain - p.leak; st.wIn += p.feed * rain; st.wOut += p.leak; // water book: streams in, seepage out
     let want = 0; const dl = p.down.map(s => { const si = s.si, w = s.w * load(si); want += w; return [si, w]; });
     let resAv = 0; for (const ri of p.res) resAv += Math.min(C.RREL, RV[ri]);
     if (want > avail + resAv && want > 0) { // not enough water: the locks below this pound work fewer boats
@@ -262,10 +262,10 @@ function stepMonth(an, st, opt = {}) {
     let S = avail - out;
     // reservoirs top the pound up
     for (const ri of p.res) { const need = Math.max(0, p.cap - S), rel = Math.min(C.RREL, RV[ri], need); RV[ri] -= rel; S += rel; }
-    if (S < 0) S = 0;
+    if (S < 0) { st.wOut += S; S = 0; } // an empty pound cannot seep what it does not hold
     if (S > p.cap) { // over the weirs and down to the next pound, or away to the river
       const ex = S - p.cap; S = p.cap;
-      if (p.down.length) for (const s of p.down) inflow[s.lo] += ex / p.down.length;
+      if (p.down.length) for (const s of p.down) inflow[s.lo] += ex / p.down.length; else st.wOut += ex; // over the bottom weir to the river
     }
     st.S[pi] = S;
     for (const [si] of dl) inflow[an.sites[si].lo] += q[si];
@@ -275,7 +275,7 @@ function stepMonth(an, st, opt = {}) {
     const lo = P[s.lo], hi = P[s.hi], amt = Math.max(0, Math.min(C.PUMPCAP, st.S[s.lo] - .3 * lo.cap, hi.cap - st.S[s.hi]));
     if (amt > 0) { st.S[s.lo] -= amt; st.S[s.hi] += amt; running += C.RUN_PUMP * amt; }
   }
-  an.res.forEach((r, ri) => { if (!r.bad) RV[ri] = Math.min(r.cap, RV[ri] + r.inflow * rain); });
+  an.res.forEach((r, ri) => { if (r.bad) return; const v = RV[ri] + r.inflow * rain; st.wIn += r.inflow * rain; RV[ri] = Math.min(r.cap, v); st.wOut += v - RV[ri]; });
   // tolls and running costs
   an.routes.forEach((r, ri) => { rec.boats += f[ri]; rec.rev += f[ri] * C.R * r.e; rec.flows.push(f[ri]); });
   for (const s of an.sites) { running += s.t === 'plane' ? C.RUN_PLANE + C.RUN_PLANE_BOAT * load(s.si) : C.RUN_LOCK * s.n * (s.dbl ? 2 : 1); }
