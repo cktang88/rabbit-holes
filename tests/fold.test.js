@@ -99,7 +99,7 @@ module.exports = {
       const m = await page.evaluate((i) => [__fold.SAVE.machine[i], JSON.parse(localStorage.getItem('rh:fold')).machine[i]], i); ok(m[0] > 0); eq(m[1], m[0]);
     },
     'mouse: fold warm-up 1 by dragging both ends; celebrates and offers the next level': async ({ page, eq, ok }) => {
-      await dismiss(page);
+      await dismiss(page); await page.click('#modes [data-m="precise"]');
       const drag = async (i, dx, dy) => { const [x, y] = await page.evaluate((i) => __fold.screen(i), i); const c = await page.evaluate(() => __fold.cellPx());
         await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + dx * c * 0.5, y + dy * c * 0.5, { steps: 3 }); await page.mouse.move(x + dx * c, y + dy * c, { steps: 3 }); await page.mouse.up(); };
       await drag(0, 1, 1); await drag(3, -1, 1);
@@ -193,8 +193,40 @@ module.exports = {
       const z0 = await page.evaluate(() => __fold.cellSize); await touchPinch(cdp, c, 80, 30); const z1 = await page.evaluate(() => __fold.cellSize); ok(z1 < z0 * .6, `pinch out ${z0} -> ${z1}`);
       await touchPinch(cdp, c, 30, 90); ok(await page.evaluate(() => __fold.cellSize) > z1 * 2, 'pinch in');
       await page.click('#fitBtn'); const f = await page.evaluate(() => { const r = document.getElementById('cv').getBoundingClientRect(); return __fold.pos.every((p, i) => { const [x, y] = __fold.screen(i); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; }); }); ok(f, 'Fit shows the whole chain');
-      await page.evaluate(() => __fold.open(0)); const a = await page.evaluate(() => __fold.screen(0)); const cs = await page.evaluate(() => __fold.cellSize);
+      await page.evaluate(() => { __fold.open(0); __fold.setMode('precise'); }); const a = await page.evaluate(() => __fold.screen(0)); const cs = await page.evaluate(() => __fold.cellSize);
       await touchDrag(cdp, a, [a[0] + cs, a[1] + cs]); eq(await page.evaluate(() => JSON.stringify(__fold.pos[0])), '[1,1]');
+    },
+    'pull mode: 200 random drags always leave a valid, self-avoiding, connected chain; the grabbed ball reaches its cell': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const F = __fold; F.open(12); const n = F.pos.length; let seed = 21; const rnd = (k) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) % k; };
+        let bad = 0, reached = 0, tries = 0;
+        for (let k = 0; k < 200; k++) { const i = rnd(n), p = F.pos[i]; const t = [p[0] + rnd(9) - 4, p[1] + rnd(9) - 4]; const Q = F.relay(F.pos, i, [p[0] + Math.sign(t[0] - p[0]) || p[0] + 1, p[1]]); if (Q) { if (!F.valid(Q) || Q.length !== n) bad++; else F.pos = Q; }
+          // and through the real gesture path
+          const before = JSON.stringify(F.pos[i]); F.setMode('pull'); }
+        // real stepwise pulls toward random targets
+        for (let k = 0; k < 200; k++) { const i = rnd(n), p = F.pos[i]; const t = [p[0] + rnd(7) - 3, p[1] + rnd(7) - 3]; let P = F.pos; for (let s2 = 0; s2 < 6; s2++) { const c = P[i]; const dx = Math.sign(t[0] - c[0]), dy = Math.sign(t[1] - c[1]); if (!dx && !dy) break; const nx = Math.abs(t[0] - c[0]) >= Math.abs(t[1] - c[1]) ? [c[0] + dx, c[1]] : [c[0], c[1] + dy]; const Q = F.relay(P, i, nx); if (!Q) break; P = Q; }
+          tries++; if (!F.valid(P) || P.length !== n) bad++; if (P[i][0] === t[0] && P[i][1] === t[1]) reached++; F.pos = P; }
+        return { bad, reached, tries }; });
+      eq(r.bad, 0); ok(r.reached / r.tries > .6, 'grabbed ball usually reaches the cell: ' + r.reached + '/' + r.tries);
+    },
+    'pull mode by mouse: dragging the middle ball far moves it there and the chain follows as one gesture (one undo)': async ({ page, ok, eq }) => {
+      await dismiss(page); await page.evaluate(() => { const F = __fold; for (const k of [0, 1, 2]) F.SAVE.best[k] = F.optimum(k); F.open(10); });
+      const [x, y] = await page.evaluate(() => __fold.screen(10)); const cs = await page.evaluate(() => __fold.cellSize);
+      const start = await page.evaluate(() => JSON.stringify(__fold.pos));
+      await page.mouse.move(x, y); await page.mouse.down(); for (let k = 1; k <= 12; k++) await page.mouse.move(x, y - k * cs / 3); await page.mouse.up();
+      const r = await page.evaluate(() => ({ p: __fold.pos[10], v: __fold.valid(__fold.pos), h: __fold.hist.length }));
+      ok(r.v); eq(r.p[1], -4, 'moved 4 cells up'); eq(r.h, 1, 'one undo step');
+      await page.click('#undo'); eq(await page.evaluate(() => JSON.stringify(__fold.pos)), start);
+    },
+    'draw mode: trace a path from the N end and the chain is laid exactly along it; crossing the stroke stops it': async ({ page, ok, eq }) => {
+      await dismiss(page); await page.evaluate(() => { __fold.open(5); __fold.setMode('draw'); });
+      const cs = await page.evaluate(() => __fold.cellSize); const o = await page.evaluate(() => __fold.screen(0));
+      const path = [[0, 0], [0, 1], [1, 1], [2, 1], [2, 2], [1, 2], [0, 2], [-1, 2]]; // a compact S from bead 0's cell
+      const P0 = await page.evaluate(() => __fold.pos[0]);
+      await page.mouse.move(...o); await page.mouse.down(); for (const [dx, dy] of path.slice(1)) await page.mouse.move(o[0] + dx * cs, o[1] + dy * cs, { steps: 3 });
+      await page.mouse.move(o[0] + 1 * cs, o[1] + 1 * cs, { steps: 3 }); // try to cross the stroke: ignored
+      await page.mouse.up();
+      const r = await page.evaluate(() => ({ pos: __fold.pos, v: __fold.valid(__fold.pos) }));
+      ok(r.v); eq(r.pos.slice(0, path.length), path.map(([dx, dy]) => [P0[0] + dx, P0[1] + dy]));
     },
     'phone layout: no horizontal scroll, canvas is large enough': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);

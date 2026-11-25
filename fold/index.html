@@ -28,6 +28,7 @@
   #hint{position:absolute;bottom:10px;left:12px;font-size:12px;color:var(--dim)}
   #hud{position:absolute;top:10px;left:12px;right:12px;display:flex;gap:8px;flex-wrap:wrap}
   #pivots{display:none;gap:4px} #pivots.on{display:flex}
+  #modes{display:flex} #modes button{box-shadow:none;margin-right:-1px} #modes button.on{background:#26241e;color:#fbf8ef}
   #score.pop{animation:pop .35s ease-out}
   @keyframes pop{0%{transform:scale(1.35);color:#ffd36a}100%{transform:scale(1)}}
   #nextBtn{display:none;width:100%} #nextBtn.on{display:block}
@@ -103,7 +104,7 @@
 <main>
   <div id="left"><div id="levels"></div></div>
   <div id="stage"><canvas id="cv"></canvas>
-    <div id="hud"><button id="undo">↶ Undo</button><button id="redo" title="Redo" aria-label="Redo">↷ Redo</button><button id="unfold">Unfold</button><button id="loadBest">Load my best</button><button id="fitBtn" title="Show the whole chain">Fit</button><span id="pivots"><button data-pv="ccw" title="Rotate (Q)">⟲</button><button data-pv="cw" title="Rotate (E)">⟳</button><button data-pv="mirror" title="Mirror (W)">⇋</button></span></div>
+    <div id="hud"><span id="modes" role="group" aria-label="How dragging works"><button data-m="pull" class="on" title="Drag any ball; the chain follows like a rope">Pull</button><button data-m="draw" title="Drag from an end to lay the chain along your stroke">Draw</button><button data-m="precise" title="One textbook move at a time">Precise</button></span><button id="undo">↶ Undo</button><button id="redo" title="Redo" aria-label="Redo">↷ Redo</button><button id="unfold">Unfold</button><button id="loadBest">Load my best</button><button id="fitBtn" title="Show the whole chain">Fit</button><span id="pivots"><button data-pv="ccw" title="Rotate (Q)">⟲</button><button data-pv="cw" title="Rotate (E)">⟳</button><button data-pv="mirror" title="Mirror (W)">⇋</button></span></div>
     <div id="hint"></div></div>
   <div id="right">
     <div><div class="dim small" id="lvName"></div><div class="row" style="align-items:baseline"><span id="score">0</span><span class="dim" id="cword">contacts</span></div><div class="meter" style="margin-top:6px"><div id="meter"></div></div><div class="small" style="margin-top:4px" id="vs"></div><button class="primary" id="nextBtn" style="margin-top:8px">Next level →</button></div>
@@ -321,7 +322,8 @@ function draw(){
   ctx.strokeStyle=BEN.major; ctx.lineWidth=1; ctx.beginPath(); for (let x=((ox-cell/2)%cell+cell)%cell; x<r.width; x+=cell){ ctx.moveTo(x|0,0); ctx.lineTo(x|0,r.height); } for (let y=((oy-cell/2)%cell+cell)%cell; y<r.height; y+=cell){ ctx.moveTo(0,y|0); ctx.lineTo(r.width,y|0); } ctx.stroke();
   const {pairs, c}=contacts(); const R=cell*0.3;
   // where the dragged bead may go: pencilled circles
-  if (drag && drag.i!=null && !drag.pan){ ctx.strokeStyle=BEN.pencil; ctx.setLineDash([3,3]); ctx.lineWidth=1.2; for (const t of legalTargets(drag.i)){ const [x,y]=sp(t); ctx.beginPath(); ctx.arc(x,y,R*.9,0,7); ctx.stroke(); } ctx.setLineDash([]); }
+  if (drag && drag.i!=null && !drag.pan && drag.mode==='precise'){ ctx.strokeStyle=BEN.pencil; ctx.setLineDash([3,3]); ctx.lineWidth=1.2; for (const t of legalTargets(drag.i)){ const [x,y]=sp(t); ctx.beginPath(); ctx.arc(x,y,R*.9,0,7); ctx.stroke(); } ctx.setLineDash([]); }
+  if (drag && drag.mode==='draw' && drag.path && drag.path.length>1){ ctx.strokeStyle='rgba(31,58,122,.35)'; ctx.lineWidth=cell*.5; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.beginPath(); drag.path.forEach((c,m)=>{ const [x,y]=sp(c); m?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); }
   // backbone rods
   for (let i=1;i<pos.length;i++){ const [x1,y1]=sp(pos[i-1]),[x2,y2]=sp(pos[i]); rod(x1,y1,x2,y2,Math.max(3,cell*.13)); }
   // contacts: red cotton thread tied between the oily balls
@@ -375,18 +377,74 @@ cv.addEventListener('pointerdown',e=>{ if (e.pointerType!=='mouse') e.preventDef
   pos.forEach((p,i)=>{ const [x,y]=sp(p); const d=Math.hypot(x-mx,y-my); if (d<bd){ bd=d; best=i; } });
   if (best>=0 && LV[li].design){ seq=seq.slice(0,best)+(seq[best]==='H'?'P':'H')+seq.slice(best+1); SAVE.dseq[li]=seq; designRes=null; SND.click(); persist(); renderRight(); return; }
   if (replay){ return; }
-  if (best>=0){ drag={i:best, moved:false}; sel=best; } else { sel=-1; drag={pan:true, sx:e.clientX, sy:e.clientY, ox, oy}; } });
+  if (best>=0 && gmode==='draw' && best!==0 && best!==pos.length-1){ RH.toast('Draw from an end ball (N or C).'); best=-1; }
+  if (best>=0){ drag={i:best, moved:false, mode:gmode}; if (gmode==='draw'){ drag.end= best===0? 0 : pos.length-1; drag.path=[pos[drag.end].slice()]; } sel=best; } else { sel=-1; drag={pan:true, sx:e.clientX, sy:e.clientY, ox, oy}; } });
 window.addEventListener('pointermove',e=>{ const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left, my=e.clientY-r.top;
   hover=-1; pos.forEach((p,i)=>{ const [x,y]=sp(p); if (Math.hypot(x-mx,y-my)<cell*0.45) hover=i; });
   if (!drag) return;
   if (drag.pan){ ox=drag.ox+e.clientX-drag.sx; oy=drag.oy+e.clientY-drag.sy; return; }
   const t=toL(mx,my); const cur=pos[drag.i]; if (t[0]===cur[0]&&t[1]===cur[1]) return;
+  if (drag.mode==='pull' || drag.mode==='draw'){ const before=contacts().c, snap=pos; if (!drag.moved){ hist.push(pos); fut=[]; }
+    const ch = drag.mode==='pull'? pullGesture(drag.i, t) : drawGesture(t);
+    if (ch){ drag.moved=true; const after=contacts().c; if (after>before) SND.gain(after); else if (after<before) SND.lose(); else SND.click(); afterChangeLight(); } else if (!drag.moved) hist.pop();
+    return; }
   // try every neighbouring lattice cell, nearest to the mouse first
   const cands=[]; for (let dx=-1;dx<=1;dx++) for (let dy=-1;dy<=1;dy++) if (dx||dy) cands.push([cur[0]+dx,cur[1]+dy]);
   const [fx,fy]=[(mx-ox)/cell,(my-oy)/cell]; cands.sort((a,b)=>Math.hypot(a[0]-fx,a[1]-fy)-Math.hypot(b[0]-fx,b[1]-fy));
   const here=Math.hypot(cur[0]-fx,cur[1]-fy);
   for (const c of cands){ if (Math.hypot(c[0]-fx,c[1]-fy)>=here) break; const P=tryMove(drag.i,c); if (P){ if (!drag.moved){ hist.push(pos); fut=[]; drag.moved=true; } const before=contacts().c; pos=P; const after=contacts().c; if (after>before) SND.gain(after); else if (after<before) SND.lose(); else SND.click(); afterChangeLight(); break; } }
 });
+// ===================== Fluid gestures =====================
+// Pull: the grabbed ball follows the finger cell by cell and the chain re-lays itself like a rope on the lattice.
+// Each following ball keeps its place if it still touches its new neighbour; otherwise it steps into the cell its
+// neighbour just left (follow-the-leader), or failing that the free neighbouring cell nearest its old place.
+let gmode='pull';
+function relay(P0, i, t){
+  const n=P0.length; const P=P0.map(p=>p.slice()); P[i]=t.slice();
+  const best={P:null, moved:1e9};
+  for (const firstHigh of [true,false]){
+    const Q=P.map(p=>p.slice()); const used=new Map([[key(t[0],t[1]), i]]); let ok=true, moved=1;
+    const sides = firstHigh? [1,-1] : [-1,1];
+    for (const dir of sides){
+      for (let j=i+dir; j>=0 && j<n; j+=dir){
+        const pr=Q[j-dir], old=P0[j]; const kOld=key(old[0],old[1]);
+        // keep the old cell if it still touches its neighbour and nobody new is there
+        if (adj(old,pr) && !used.has(kOld)){ Q[j]=old.slice(); used.set(kOld,j); continue; }
+        const cands=[]; const predOld=P0[j-dir];
+        for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const c=[pr[0]+dx,pr[1]+dy], kc=key(c[0],c[1]); if (used.has(kc)) continue;
+          const score = (c[0]===predOld[0]&&c[1]===predOld[1]? 0 : 10) + Math.abs(c[0]-old[0])+Math.abs(c[1]-old[1]); cands.push([score,c]); }
+        if (!cands.length){ ok=false; break; }
+        cands.sort((a,b)=>a[0]-b[0]); Q[j]=cands[0][1]; used.set(key(Q[j][0],Q[j][1]),j); moved++;
+      }
+      if (!ok) break;
+    }
+    if (ok && valid(Q) && moved<best.moved){ best.P=Q; best.moved=moved; }
+  }
+  return best.P;
+}
+// one lattice step at a time from the grabbed ball's cell towards the finger
+function stepToward(a,b){ const dx=Math.sign(b[0]-a[0]), dy=Math.sign(b[1]-a[1]); if (!dx&&!dy) return null; return Math.abs(b[0]-a[0])>=Math.abs(b[1]-a[1])? [a[0]+dx,a[1]] : [a[0],a[1]+dy]; }
+function pullGesture(i, target){ let changed=false; for (let k=0;k<40;k++){ const cur=pos[i]; const nx=stepToward(cur,target); if (!nx) break; const Q=relay(pos,i,nx); if (!Q){ bump(); break; } pos=Q; changed=true; } return changed; }
+// Draw: from an end ball, trace a path; the chain is laid along it cell by cell and the rest follows behind.
+function drawGesture(target){ const d=drag; let changed=false;
+  for (let k=0;k<40;k++){ const tail=d.path[d.path.length-1]; const nx=stepToward(tail,target); if (!nx) break;
+    // stepping back onto the previous drawn cell un-draws the last cell
+    if (d.path.length>=2){ const pv=d.path[d.path.length-2]; if (pv[0]===nx[0]&&pv[1]===nx[1]){ d.path.pop(); continue; } }
+    if (d.path.length>=pos.length || d.path.some(p=>p[0]===nx[0]&&p[1]===nx[1])){ bump(); break; } // crossing your own path ends the stroke there
+    const n=pos.length; const idx=(m)=> d.end===0? m : n-1-m; const Q=pos.map(p=>p.slice()); const path=[...d.path, nx];
+    path.forEach((c,m)=>Q[idx(m)]=c.slice());
+    // lay the rest of the tail behind the last drawn cell
+    const used=new Map(path.map((c,m)=>[key(c[0],c[1]),idx(m)])); let ok=true; const dir= d.end===0? 1 : -1;
+    for (let m=path.length; m<n; m++){ const j=idx(m), pr=Q[idx(m-1)], old=pos[j];
+      if (adj(old,pr) && !used.has(key(old[0],old[1]))){ Q[j]=old.slice(); used.set(key(old[0],old[1]),j); continue; }
+      const cands=[]; for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const c=[pr[0]+dx,pr[1]+dy]; if (used.has(key(c[0],c[1]))) continue; cands.push([Math.abs(c[0]-old[0])+Math.abs(c[1]-old[1]),c]); }
+      if (!cands.length){ ok=false; break; } cands.sort((a,b)=>a[0]-b[0]); Q[j]=cands[0][1]; used.set(key(Q[j][0],Q[j][1]),j); }
+    if (!ok || !valid(Q)){ bump(); break; }
+    d.path.push(nx); pos=Q; changed=true; }
+  if (changed){ /* the tail of the drawn path */ }
+  return changed; }
+let bumpT=0; function bump(){ if (performance.now()-bumpT<250) return; bumpT=performance.now(); FX.tone({f:140,f2:90,type:'sine',dur:.08,vol:.08}); }
+function setMode(m){ gmode=m; document.querySelectorAll('#modes button').forEach(b=>b.classList.toggle('on', b.dataset.m===m)); }
 const endDrag=()=>{ if (drag&&drag.moved) afterChange(); drag=null; };
 window.addEventListener('pointerup',endDrag); window.addEventListener('pointercancel',endDrag);
 function afterChangeLight(){ renderRight(); }
@@ -398,6 +456,7 @@ function redo(){ if (!fut.length) return; hist.push(pos); pos=fut.pop(); afterCh
 document.querySelectorAll('#pivots button').forEach(b=>b.onclick=()=>{ if (sel<0) RH.toast('Tap a bead first, then rotate the shorter end of the chain around it.'); else pivot(sel,b.dataset.pv); });
 document.getElementById('nextBtn').onclick=()=>{ if (li+1<LV.length && unlocked(li+1)) open(li+1); };
 document.getElementById('fitBtn').onclick=fitAll;
+document.querySelectorAll('#modes button').forEach(b=>b.onclick=()=>setMode(b.dataset.m));
 document.getElementById('verifyBtn').onclick=()=>{ const L=LV[li]; if (!L.design) return; designRes=verifyDesign(L.shape, seq); if (designRes.stars>(SAVE.dstar[li]||0)){ SAVE.dstar[li]=designRes.stars; if (designRes.stars===3) photograph(designRes.t, designRes.t); } SND[designRes.stars>=2?'gain':'lose'](2); persist(); renderRight(); renderLevels(); };
 document.getElementById('watchBtn').onclick=()=>{ if (replay) stopReplay(); else startReplay(); };
 document.getElementById('lvBtn').onclick=()=>document.body.classList.toggle('drawer');
@@ -443,7 +502,7 @@ function open(i){
   hist=[]; fut=[]; sel=-1; center(); renderRight(); renderLevels();
   if (L.machine && SAVE.machine[i]==null) machineFoldAsync(i, 900+seq.length*25);
 }
-window.__fold={ fitAll, get cellSize(){ return cell; }, get ox(){ return ox; }, parityBound, verifyDesign, allFolds, startReplay, get replay(){ return replay; }, machineTraces, LV, TOOLS, contacts, valid, validFold, optimum, stars, unlocked, tryMove, pullMove, pivot, makeMachine, machineFold, open, undo, redo, commit,
+window.__fold={ relay, setMode, get gmode(){ return gmode; }, fitAll, get cellSize(){ return cell; }, get ox(){ return ox; }, parityBound, verifyDesign, allFolds, startReplay, get replay(){ return replay; }, machineTraces, LV, TOOLS, contacts, valid, validFold, optimum, stars, unlocked, tryMove, pullMove, pivot, makeMachine, machineFold, open, undo, redo, commit,
   get SAVE(){ return SAVE; }, get pos(){ return pos; }, set pos(P){ pos=P; }, get li(){ return li; }, get sel(){ return sel; }, set sel(v){ sel=v; }, get hist(){ return hist; },
   screen(i){ const r=cv.getBoundingClientRect(); const [x,y]=sp(pos[i]); return [r.left+x, r.top+y]; }, cellPx(){ return cell; }, machineRuns };
 fit(); window.addEventListener('resize',()=>{ fit(); });
