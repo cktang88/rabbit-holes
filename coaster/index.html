@@ -22,8 +22,8 @@
   #brief h2{margin:6px 0 2px;font:400 18px Limelight,Georgia,serif;color:var(--ink)}
   #brief p{margin:4px 0;font-size:14.5px;line-height:1.38}
   #brief b{color:var(--red)}
-  #brief .req{margin:6px 0 0;padding:0;list-style:none;font-size:13.5px}
-  #brief .req li::before{content:'▢ ';color:#6b5536}#brief .req li.ok::before{content:'☑ ';color:var(--teal)}#brief .req li.bad::before{content:'☒ ';color:var(--red)}
+  .req{margin:6px 0 0;padding:0;list-style:none;font-size:13.5px}
+  .req li::before{content:'▢ ';color:#6b5536}.req li.ok::before{content:'☑ ';color:var(--teal)}.req li.bad::before{content:'☒ ';color:var(--red)}
   #comSel{width:100%;margin-top:6px;font:16px "Architects Daughter",cursive;background:#fbf3df;color:var(--ink);border:0;border-bottom:2px solid var(--ink);border-radius:0}
   /* the readout: an engineer's gauge strip */
   #gauge{top:12px;right:12px;padding:10px 14px;display:none;min-width:200px;font-family:"Courier Prime",monospace;color:var(--ink)}
@@ -83,6 +83,7 @@
   }
   @media (max-width:860px) and (max-height:520px) and (orientation:landscape){
     #brief{right:auto;width:240px;max-height:calc(100vh - 70px)}
+    #brief .req{columns:1}
     #tools{left:auto;right:6px;max-width:calc(100vw - 260px);flex-wrap:nowrap;overflow-x:auto}
     #gauge{bottom:60px}
     #pov{top:8px;width:30vw;height:20vw}
@@ -231,7 +232,7 @@ function siteFrom(seed) { // rolling ground with a lake, from a seed
 const N = (x, y, o = {}) => ({ x, y, ...o });
 const COMS = [
   { id: 'first', n: 'First Ride', site: flatSite, start: () => [N(0, 2), N(40, 32), N(62, 18), N(80, 5), N(105, 36), N(130, 5), N(170, 3)],
-    story: 'The chain lift drags the train up the first hill; after that, <b>gravity is the only engine</b>. Press <b>RIDE</b>. If the train stalls, drag the red node of the hill that stopped it lower, and ride again.',
+    story: 'The chain lift drags the train up the first hill; after that, <b>gravity is the only engine</b>. Press <b>RIDE</b>. If it stalls, drag the top of the hill where it stopped lower, and ride again.',
     req: { done: 1 } },
   { id: 'loop', n: 'The Loop', site: flatSite, start: () => [N(0, 2), N(44, 34.5), N(54.5, 21), N(86.5, 4), N(103.5, .5), N(118, 2), N(130, 14), N(118, 26), N(106, 14), N(118, 2), N(150, 1), N(165, .5)],
     story: 'The park wants an inversion. This loop is a perfect <b>circle</b>: fast enough to stay pressed in at the top means a crushing squeeze at the bottom. Keep riders under <b>5 g</b>. Real loops are not circles.',
@@ -255,7 +256,15 @@ const COMS = [
     story: 'No commission. Build anything, ride it, share it. (Try a loop that is taller than it is wide.)', req: { done: 1 } },
 ];
 // a plain out-and-back that rides on any generated site: a lift, one big drop, then hills riding the ground
-function dailyStart(st) { const t = st.terrain; return [[0, 2], [40, 34], [60, 24], [80, 12], [100, 8], [120, 11], [140, 12], [160, 9], [180, 7], [200, 6], [220, 5], [240, 4]].map(([x, h]) => N(x, Math.round((t(x) + h) * 2) / 2)); }
+function dailyStart(st) { // deterministic: hug the ground, keep every hill well under the lift crest, lift higher until it rides
+  const t = st.terrain, xs = [0, 40, 60, 80, 100, 120, 140, 160, 180, 200, 220, 240], hs = [2, 0, 24, 12, 8, 11, 12, 9, 7, 6, 5, 4];
+  let maxT = 0; for (let x = 0; x <= 240; x += 2) maxT = Math.max(maxT, t(x));
+  for (let extra = 0; extra < 40; extra += 4) {
+    const crest = maxT + 30 + extra, nodes = xs.map((x, k) => N(x, Math.round((k === 0 ? t(0) + 2 : k === 1 ? crest : Math.min(crest - 10 - k * 1.5, Math.max(t(x) + 3 + extra / 4, t(x) + hs[k] * (crest - maxT) / 40))) * 2) / 2));
+    if (scores({ nodes, lift: 1 }, st).ok) return nodes;
+  }
+  return xs.map((x, k) => N(x, t(x) + (k === 1 ? 40 : 4)));
+}
 function dailySeed() { const d = new Date(); return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); }
 function checkReq(c, sc) {
   const q = c.req, rows = [];
@@ -296,8 +305,11 @@ function playRect() { // the part of the screen the drawing can use
 function fit() {
   if (!design.nodes.length) return; const R = playRect(), xs = design.nodes.map(n => n.x), ys = design.nodes.map(n => n.y);
   const x0 = Math.min(...xs) - 10, x1 = Math.max(...xs) + 10, y0 = Math.min(0, ...ys) - 4, y1 = Math.max(...ys) + 12;
-  cam.s = Math.max(.6, Math.min((R.r - R.l) / (x1 - x0), (R.b - R.t) / (y1 - y0))) * dpr;
-  cam.ox = R.l * dpr - x0 * cam.s + ((R.r - R.l) * dpr - (x1 - x0) * cam.s) / 2; cam.oy = R.b * dpr + y0 * cam.s;
+  // fit the whole ride if it reads well; on a narrow phone keep the track at least half the drawing's height and start at the station (drag to pan)
+  const sFit = Math.min((R.r - R.l) / (x1 - x0), (R.b - R.t) / (y1 - y0)), sTall = (R.b - R.t) * .36 / (y1 - y0);
+  cam.s = Math.max(.6, sFit, Math.min(sTall, 6)) * dpr;
+  const wpx = (x1 - x0) * cam.s; cam.ox = wpx <= (R.r - R.l) * dpr ? R.l * dpr - x0 * cam.s + ((R.r - R.l) * dpr - wpx) / 2 : R.l * dpr - x0 * cam.s;
+  cam.oy = R.b * dpr + y0 * cam.s - Math.max(0, ((R.b - R.t) * dpr - (y1 - y0) * cam.s) / 2);
 }
 const sx = x => cam.ox + x * cam.s, sy = y => cam.oy - y * cam.s, wx = px => (px - cam.ox) / cam.s, wy = py => (cam.oy - py) / cam.s;
 
@@ -435,7 +447,7 @@ function startRide() {
 function stepRide(now) {
   const R = last.r, el = (now - play.t0) / 1000 * (play.fast || 1.6);
   while (play.k < R.t.length - 1 && R.t[play.k] < el) play.k++;
-  play.i = R.idx[play.k] ?? 0;
+  play.i = R.idx[play.k] ?? 0; follow(design.S[play.i].x);
   const v = R.v[play.k] || 0, gg = R.gs[play.k] ?? 1, gl = R.gl[play.k] ?? 0;
   $('gV').textContent = Math.round(v * 3.6) + ' km/h'; $('gVb').style.width = clamp(v * 3.6 / 1.3, 0, 100) + '%';
   $('gG').textContent = gg.toFixed(1); $('gGb').style.width = clamp(gg / 7 * 100, 0, 100) + '%'; $('gGb').className = gg > 5 || gg < -1 ? 'hot' : '';
@@ -444,8 +456,12 @@ function stepRide(now) {
   if (play.k >= R.t.length - 1) { endRide(); return; }
   drawPOV(play.i);
 }
+function follow(x) { // keep the train (or the trouble spot) in view when the whole ride doesn't fit across the screen
+  const Rr = playRect(), X = sx(x) / dpr; if (X < Rr.l + 40 || X > Rr.r - 60) cam.ox += ((Rr.l + (Rr.r - Rr.l) * .4) - X) * dpr;
+}
 function endRide() {
-  const sc = last; play = null; pv.style.display = 'none'; $('povL').style.display = 'none'; renderTools();
+  const sc = last; play = null;
+  { const R2 = sc.r, at = R2.kink >= 0 ? R2.kink : R2.stall >= 0 ? R2.stall : R2.crash; if (at >= 0) follow(R2.S[at].x); } pv.style.display = 'none'; $('povL').style.display = 'none'; renderTools();
   if (!sc.ok) { toast(sc.r.kink >= 0 ? 'A kink tighter than 3 m: the steel cannot be bent that sharply. Spread the nodes out.' : sc.r.stall >= 0 ? 'The train stalled and rolled back. Lower that hill or start higher.' : 'The track hits the ground.', 1); FX.sfx('fail'); $('gauge').style.display = 'none'; renderReq(); kick(); return; }
   showResult(sc); kick();
 }
@@ -457,12 +473,15 @@ function guests(sc) {
   return out;
 }
 let HIST = {};
-function histogram(c) { // what a field of drafters builds for this commission: jittered variants of a known good design
+function histogram(c) { // the field: 30 other drafters each start from a known good design and polish it for a while (only passing designs kept)
   if (HIST[c.id]) return HIST[c.id];
-  const ref = REF[c.id]; if (!ref) return null; const r = RH.rng(7), costs = [], s0 = c.site();
-  for (let k = 0; k < 60; k++) { const j = k < 30 ? 1 : 2.2, d = { nodes: ref().map((n, i) => i === 0 ? { ...n } : { ...n, x: n.x + (r() - .5) * 2 * j, y: Math.max(.5, n.y + (r() - .5) * 3 * j) }), lift: 1 };
-    const sc = scores(d, s0); if (checkReq(c, sc).every(x => x[1])) costs.push(c.daily ? dailyScore(sc) : sc.cost); }
-  return HIST[c.id] = costs;
+  const ref = REF[c.id]; if (!ref) return null; const r = RH.rng(7), out = [], s0 = c.site(), metric = sc => c.daily ? -dailyScore(sc) : sc.cost;
+  for (let k = 0; k < 30; k++) { let d = { nodes: ref(), lift: 1 }, best = scores(d, s0); if (!checkReq(c, best).every(x => x[1])) continue; let m = metric(best);
+    const effort = 4 + (k % 6) * 4; // some drafters stop early, some polish for longer
+    for (let it = 0; it < effort; it++) { const nd = d.nodes.map(n => ({ ...n })), q = nd[1 + (r() * (nd.length - 1) | 0)]; q.x = Math.round((q.x + (r() - .5) * 3) * 2) / 2; q.y = Math.max(.5, Math.round((q.y + (r() - .5) * 3) * 2) / 2);
+      const t = { nodes: nd, lift: 1 }, sc = scores(t, s0); if (checkReq(c, sc).every(x => x[1]) && metric(sc) <= m) { d = t; m = metric(sc); } }
+    out.push(c.daily ? -m : m); }
+  return HIST[c.id] = out;
 }
 function showResult(sc) {
   const rows = checkReq(C, sc), pass = rows.every(r => r[1]), el = $('result');
@@ -540,9 +559,9 @@ addEventListener('resize', () => { resize(); kick(); });
 addEventListener('keydown', e => { if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return; if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); startRide(); } else if (e.key === 'z') undo(); else if (e.key === 'Delete' || e.key === 'Backspace') delNode(); });
 
 // ================= debug / test handle =================
-window.__coaster = { spline, resample, geometry, ride, scores, footprint, costOf, checkReq, siteFrom, COMS, REF, enc, dec, dailySeed, histogram, dailyScore,
+window.__coaster = { spline, resample, geometry, simulate: ride, scores, footprint, costOf, checkReq, siteFrom, COMS, REF, enc, dec, dailySeed, histogram, dailyScore,
   get design() { return design; }, set design(d) { design = d; changed(); }, get site() { return site; }, get last() { return last; }, get C() { return C; }, load: i => loadCom(i), ride: () => { startRide(); play.fast = 1e6; stepRide(performance.now()); return last; },
-  screenOf: (x, y) => [sx(x) / dpr, sy(y) / dpr], SAVE };
+  dailyStart, screenOf: (x, y) => [sx(x) / dpr, sy(y) / dpr], SAVE };
 
 // ================= boot =================
 resize();

@@ -107,6 +107,9 @@
   .coach{background:#2a1a0e;color:#f6ecd2;padding:8px 14px;margin:6px 0 10px;font-size:17px;border-left:5px solid #f1cf6d;box-shadow:0 3px 8px #0006}
   .coach .step{font-family:"Cormorant SC",serif;color:#f1cf6d;margin-right:6px}
   abbr{text-decoration:underline dotted #8f6417;cursor:help}
+  .room{margin:6px 0 10px;padding:8px 12px;background:#fbf5e4cc;box-shadow:0 2px 6px #6a3f1f55}
+  .chordpad{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin:6px 0}
+  .chordpad button{padding:4px 2px;font-size:14px}
   .panel{background:none;border:0;padding:0;border-radius:0}
   .box{background:#fbf5e4;background-image:repeating-linear-gradient(#0000 0 30px,#7a603d66 30px 31px,#0000 31px 36px,#7a603d66 36px 37px,#0000 37px 42px,#7a603d66 42px 43px,#0000 43px 48px,#7a603d66 48px 49px,#0000 49px 54px,#7a603d66 54px 55px,#0000 55px 400px);
     border:0;border-radius:0;box-shadow:0 3px 8px #6a3f1f66;padding:10px 14px}
@@ -240,7 +243,7 @@ const PRESET = {
 
 // ================= commissions =================
 // goal kinds: f = fifth from note, t = major third from note, ch = chords worst error, allF / allT bounds, eqF = all fifths equal
-const ACTS = ['Pythagoras', 'Sweet Thirds', 'Well-Tempered', 'Commissions'];
+const ACTS = ['Pythagoras', 'Sweet Thirds', 'Well-Tempered', 'Commissions', 'The Music Room'];
 const C = [
   { a: 0, n: 'A Pure Fifth', tools: [], start: { 7: -9 }, goals: [{ k: 'f', i: 0, d: 0, tol: [2, .5, .1] }],
     s: 'These two strings, <b>C</b> and <b>G</b>, should sound smooth together (a <abbr title="Two notes whose frequencies are in the ratio 3:2, the sweetest pair after the octave">fifth</abbr>). Right now they <b>beat</b>: a wah-wah-wah wobble. <b>Turn G until the wobbling stops.</b> Drag the big G peg up or down (or use the − / + buttons), watch the candle flame and listen: the wobble slows as you get close and stops when the two are <abbr title="Exactly in tune: the ratio is exactly 3:2, so nothing beats">pure</abbr>.' },
@@ -278,6 +281,36 @@ const C = [
     s: 'The final commission, and the argument of two centuries. Every one of the 24 major and minor chords must be usable, <i>and</i> the home keys must keep their sweetness: the thirds of C, F and G no wider than 8–10¢. Equal temperament fails the second test (its thirds are 13.7¢ wide). Find the <b>well-temperament</b> that balances both, as Werckmeister, Vallotti and Bach\'s circle each tried to.' },
 ];
 
+// ================= the Music Room: endless pieces, your own temperament, your own compositions =================
+// Composers bring pieces generated from real harmonic habits (cadences, circle-of-fifths sequences, modulations to the
+// dominant, subdominant and relative keys). Later pieces wander through more keys, so no one tuning suits them all.
+// You keep ONE house temperament across pieces, retune it for each, and play the piece in it. Par comes from a minimax
+// solver, so three stars mean a tuning as good as the best possible for that piece. You can also compose your own.
+const CAMP = C.length, ROOM = C.length;
+C.push({ a: 4, n: 'The Music Room', room: 1, tools: ['pure', 'temper', 'presets', 'wolf'], goals: [{ k: 'ch', list: ['C', 'F', 'G'], tol: [10, 6, 3] }], piece: [['C']], s: '' });
+const DEG = { I: [0, ''], ii: [2, 'm'], iii: [4, 'm'], IV: [5, ''], V: [7, ''], vi: [9, 'm'], i: [0, 'm'], iv: [5, 'm'], III: [3, ''], VI: [8, ''], VII: [10, ''] };
+const PROG = { maj: [['I', 'IV', 'V', 'I'], ['I', 'vi', 'IV', 'V'], ['ii', 'V', 'I'], ['I', 'V', 'vi', 'IV'], ['I', 'iii', 'vi', 'ii', 'V', 'I']], min: [['i', 'iv', 'V', 'i'], ['i', 'VI', 'III', 'VII'], ['i', 'iv', 'VII', 'III'], ['i', 'V', 'i']] };
+const COMPOSERS = ['Signor Corelli', 'Herr Buxtehude', 'Mme Jacquet', 'Mr Purcell', 'Herr Kuhnau', 'Signora Strozzi', 'Monsieur Rameau', 'Herr Telemann'];
+function pieceGen(seed, level) {
+  const r = RH.rng('tm:room:' + seed + ':' + level), segs = Math.min(5, 1 + Math.floor((level - 1) / 2)); let key = r.int(12), minor = r() < .3; const chords = [], keys = [];
+  for (let g = 0; g < segs; g++) { const P = r.pick(PROG[minor ? 'min' : 'maj']); keys.push(KEY[key] + (minor ? 'm' : '')); for (const d of P) chords.push(KEY[(key + DEG[d][0]) % 12] + DEG[d][1]);
+    const mv = r.pick(minor ? [3, 7, 5] : [7, 5, 9, 2]); if (mv === 9) minor = true; else if (mv === 3 && minor) minor = false; key = (key + (mv === 9 ? 9 : mv === 3 ? 3 : mv)) % 12; }
+  return { chords: chords.slice(0, 18), keys, who: r.pick(COMPOSERS) };
+}
+function solvePiece(list) { // minimax over the piece's chord errors: smoothed max, numerical gradient, cooling (deterministic)
+  const uniq = [...new Set(list)], fine = c => uniq.flatMap(n => chordInfo(c, n).parts.map(p => Math.abs(p.d)));
+  const c = ET();
+  for (const Tm of [3, 1, .3, .1, .03]) { const sm = c => { const v = fine(c), m = Math.max(...v); return m + Tm * Math.log(v.reduce((a, x) => a + Math.exp((x - m) / Tm), 0)); }; let lr = .5;
+    for (let it = 0; it < 300; it++) { const f0 = sm(c), gr = []; for (let n = 1; n < 12; n++) { c[n] += 1e-4; gr[n] = (sm(c) - f0) / 1e-4; c[n] -= 1e-4; } const c2 = c.map((x, n) => n ? x - lr * gr[n] : 0); if (sm(c2) < f0) { for (let n = 1; n < 12; n++) c[n] = c2[n]; lr *= 1.2; } else lr *= .5; if (lr < 1e-7) break; } }
+  return { c, worst: Math.max(...uniq.map(n => chordErr(c, n))) };
+}
+const roomKey = () => S.room.own ? 'own:' + S.room.own.join('.') : S.room.seed + ':' + S.room.level;
+function roomApply() {
+  const R0 = S.room, p = R0.own ? { chords: R0.own, keys: [], who: 'you' } : pieceGen(R0.seed, R0.level), sol = solvePiece(p.chords), par = Math.round(sol.worst * 10) / 10;
+  Object.assign(C[ROOM], { n: R0.own ? 'Your own piece' : `Piece ${R0.level}${R0.daily ? ' (today\'s)' : ''}: for ${p.who}`, piece: p.chords.map(x => [x]), par, solver: sol.c,
+    goals: [{ k: 'ch', list: [...new Set(p.chords)], tol: [Math.round((par + 6) * 10) / 10, Math.round((par + 2) * 10) / 10, Math.round((par + .2) * 10) / 10] }],
+    s: R0.own ? `Your composition, ${p.chords.length} chords. Tune your house temperament for it, then play it. The best tuning possible would leave its worst chord ${par}¢ out.` : `${p.who} brings a piece ${p.keys.length > 1 ? 'that travels through ' + p.keys.map(chordLabel).join(', ') : 'in ' + chordLabel(p.keys[0])}: ${p.chords.map(chordLabel).join(' – ')}. Retune your house temperament so every chord sounds as sweet as possible, then play it. The best tuning possible leaves its worst chord <b>${par}¢</b> out; get within 0.2¢ of that for three stars.` });
+}
 // ================= state =================
 const S = loadState();
 function loadState() {
@@ -292,10 +325,15 @@ function loadState() {
     if (s.cur === 15) s.cur = 16; s.v = 2;
   }
   s.cur = Number.isInteger(s.cur) ? s.cur : 0; s.intro = s.intro ? 1 : 0;
+  const rm = s.room && typeof s.room === 'object' ? s.room : {}, best = {};
+  if (rm.best && typeof rm.best === 'object') for (const k in rm.best) if (Object.keys(best).length < 400 && k.length < 120) best[k] = Math.max(1, Math.min(3, rm.best[k] | 0));
+  s.room = { seed: typeof rm.seed === 'string' ? rm.seed.slice(0, 40) : Math.random().toString(36).slice(2, 10), level: Math.max(1, Math.min(999, rm.level | 0 || 1)), daily: !!rm.daily, best, top: rm.top | 0,
+    own: Array.isArray(rm.own) && rm.own.length && rm.own.length <= 24 && rm.own.every(x => typeof x === 'string' && KEY.includes(x.replace(/m$/, ''))) ? rm.own : null };
+  delete s.done[ROOM];
   return s;
 }
-const persist = () => { RH.save('temper', S); RH.progress('temperament', Object.keys(S.done).length / C.length); };
-const actOpen = a => a === 0 || C.filter((c, j) => c.a === a - 1 && S.done[j]).length >= Math.min(3, C.filter(c => c.a === a - 1).length - 1);
+const persist = () => { RH.save('temper', S); RH.progress('temperament', Object.keys(S.done).filter(k => +k < CAMP).length / CAMP); };
+const actOpen = a => a === 4 ? actOpen(1) : a === 0 || C.filter((c, j) => c.a === a - 1 && S.done[j]).length >= Math.min(3, C.filter(c => c.a === a - 1).length - 1);
 let cur = S.cur; if (!C[cur] || !actOpen(C[cur].a)) cur = 0;
 function startTuning(i) { const st = C[i].start; if (typeof st === 'string') return PRESET[st].c(); const c = ET(); if (st) for (const k in st) c[k] += st[k]; return c; }
 const tun = () => (S.tun[cur] ||= startTuning(cur));
@@ -367,23 +405,24 @@ const $ = id => document.getElementById(id);
 function renderSide() {
   let h = '', last = -1;
   C.forEach((c, i) => {
-    if (c.a !== last) { last = c.a; h += `<div class="act ${actOpen(c.a) ? '' : 'locked'}"><span>${['I','II','III','IV'][c.a]}. ${ACTS[c.a]}</span><span>${actOpen(c.a) ? C.filter((x, j) => x.a === c.a && S.done[j]).length + '/' + C.filter(x => x.a === c.a).length : '🔒'}</span></div>`; }
+    if (c.a !== last) { last = c.a; h += `<div class="act ${actOpen(c.a) ? '' : 'locked'}"><span>${['I','II','III','IV','V'][c.a]}. ${ACTS[c.a]}</span><span>${actOpen(c.a) ? C.filter((x, j) => x.a === c.a && S.done[j]).length + '/' + C.filter(x => x.a === c.a).length : '🔒'}</span></div>`; }
     const d = S.done[i];
     h += `<div class="cm ${i === cur ? 'cur' : ''} ${actOpen(c.a) ? '' : 'locked'}" data-i="${i}"><span>${d ? '🎼' : '○'} ${c.n}</span><span class="st">${d ? '★'.repeat(d) + '☆'.repeat(3 - d) : ''}</span></div>`;
   });
   $('side').innerHTML = h + '<div class="note" style="margin:14px 6px">Finish most of an act to open the next. Sound on. Headphones help you hear the beats.</div>';
   $('side').querySelectorAll('.cm').forEach(el => el.onclick = () => { const i = +el.dataset.i; if (actOpen(C[i].a)) { cur = i; S.cur = i; persist(); render(); } });
-  const n = Object.keys(S.done).length, st = Object.values(S.done).reduce((a, b) => a + b, 0);
-  $('totals').textContent = `${n}/${C.length} tunings · ${st}★`;
+  const n = Object.keys(S.done).filter(k => +k < CAMP).length, st = Object.entries(S.done).filter(([k]) => +k < CAMP).reduce((a, [, b]) => a + b, 0);
+  $('totals').textContent = `${n}/${CAMP} tunings · ${st}★${S.room.top ? ' · room: piece ' + S.room.top : ''}`;
 }
 
 function render() {
   const c = C[cur];
   const presets = c.tools.includes('presets') ? `<select id="preset"><option value="">Load a tuning…</option>${Object.entries(PRESET).filter(([k]) => unlockedPreset(k)).map(([k, p]) => `<option value="${k}">${p.n}</option>`).join('')}${C.map((x, j) => S.tun[j] && j !== cur && S.done[j] ? `<option value="c${j}">Your tuning: ${x.n}</option>` : '').join('')}</select>` : '';
   $('center').innerHTML = `
-    <div class="row" style="justify-content:space-between"><div><div class="dim small">${['I','II','III','IV'][c.a]}. ${ACTS[c.a]} · Commission ${cur + 1}</div><h2>${c.n}</h2></div>
+    <div class="row" style="justify-content:space-between"><div><div class="dim small">${['I','II','III','IV','V'][c.a]}. ${ACTS[c.a]}${cur === ROOM ? '' : ' · Commission ' + (cur + 1)}</div><h2>${c.n}</h2></div>
     <div class="row">${S.done[cur] ? `<span class="stars">${'★'.repeat(S.done[cur])}${'☆'.repeat(3 - S.done[cur])}</span>` : ''}${presets}<button id="resetBtn">Reset</button></div></div>
     <p class="story">${c.s}</p>
+    ${cur === ROOM ? roomHTML() : ''}
     ${cur === 0 ? '<div id="coach" class="coach"></div>' : ''}
     <div class="wrap">
       <svg id="wheel" viewBox="-220 -220 440 440"></svg>
@@ -397,7 +436,29 @@ function render() {
   $('resetBtn').onclick = () => { S.tun[cur] = startTuning(cur); persist(); update(); };
   if ($('preset')) $('preset').onchange = () => { const v = $('preset').value; if (!v) return; S.tun[cur] = v[0] === 'c' ? S.tun[+v.slice(1)].slice() : PRESET[v].c(); persist(); update(); $('preset').value = ''; };
   if ($('pieceBtn')) { $('pieceBtn').onclick = () => playPiece(c.piece); $('stopBtn').onclick = stopAll; }
+  if (cur === ROOM) wireRoom();
   renderSide(); update();
+}
+function roomHTML() {
+  const d = todayStr(), k = roomKey(), b = S.room.best[k];
+  return `<div class="room"><div class="row"><span class="note">${b ? 'Your result: ' + '★'.repeat(b) + '☆'.repeat(3 - b) : 'Not yet performed'} · the house temperament carries over from piece to piece</span></div>
+    <div class="ctl"><button id="rNext" ${S.room.own || b ? '' : 'disabled title="Perform this piece first (any stars)"'}>➜ Next piece</button><button id="rDaily">📅 Today's piece</button><button id="rCompose">✎ Compose your own</button>${S.room.own ? '<button id="rBack">Back to commissions</button>' : ''}</div>
+    <div id="composer" hidden><div class="note">Click chords to write a piece (up to 16), then commission it from yourself.</div>
+      <div class="chordpad">${KEY.flatMap(n => [n, n + 'm']).map(n => `<button data-ch="${n}">${chordLabel(n)}</button>`).join('')}</div>
+      <div class="note" id="draft">—</div><div class="ctl"><button id="cPlay">▶ Play draft</button><button id="cUndo">⌫</button><button class="primary" id="cUse">Tune for this piece</button></div></div></div>`;
+}
+let draft = [];
+function wireRoom() {
+  if ($('rNext')) $('rNext').onclick = () => { if (S.room.own) S.room.own = null; else S.room.level++; S.room.daily = false; roomApply(); persist(); render(); };
+  $('rDaily').onclick = () => { S.room = { ...S.room, seed: 'daily:' + todayStr(), level: 5, daily: true, own: null }; roomApply(); persist(); render(); };
+  $('rCompose').onclick = () => { $('composer').hidden = !$('composer').hidden; };
+  if ($('rBack')) $('rBack').onclick = () => { S.room.own = null; roomApply(); persist(); render(); };
+  const showDraft = () => { $('draft').textContent = draft.length ? draft.map(chordLabel).join(' – ') : '—'; };
+  $('composer').querySelectorAll('[data-ch]').forEach(bn => bn.onclick = () => { if (draft.length < 16) draft.push(bn.dataset.ch); showDraft(); playNotes(chordNotes(bn.dataset.ch).map(([i, o]) => [i, o]), 1); });
+  $('cUndo').onclick = () => { draft.pop(); showDraft(); };
+  $('cPlay').onclick = () => draft.length && playPiece(draft.map(x => [x]));
+  $('cUse').onclick = () => { if (!draft.length) return; S.room.own = draft.slice(); location.hash = 'piece=' + draft.join('.'); draft = []; roomApply(); persist(); render(); };
+  showDraft();
 }
 // Historical temperaments are earned by building them yourself: each preset unlocks with the commission that builds it.
 const PRESET_FROM = { pyth: 3, mean: 7, werck: 9, vallotti: 10, et: 11 };
@@ -500,6 +561,7 @@ function award() {
   awardT = null; if (awardFor !== cur) return;
   if (ptrDown) { awaitUp = true; return; }
   const stars = Math.min(...C[cur].goals.map(g => goalEval(g, tun()).stars));
+  if (cur === ROOM) { const k = roomKey(); if (!(stars > 0) || (S.room.best[k] || 0) >= stars) return; const first = !S.room.best[k]; S.room.best[k] = stars; if (!S.room.own) S.room.top = Math.max(S.room.top, S.room.level); persist(); renderSide(); gliss(); playPiece(C[ROOM].piece); RH.toast(`${first ? 'Performed' : 'Improved'}: ${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}${S.room.own ? '' : ' · the next piece is waiting'}`, 3200); render(); return; }
   if (!(stars > 0) || (S.done[cur] || 0) >= stars) return;
   const first = !S.done[cur]; S.done[cur] = stars; persist(); renderSide();
   if (first) celebrate(); else RH.toast(`Improved: ${'★'.repeat(stars)}`);
@@ -533,6 +595,7 @@ function updateGoals() {
   scheduleAward();
 }
 
+const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const help = () => RH.modal(`<h2>🎹 Temperament</h2>
   <p>A keyboard has twelve notes per octave, and you can't make all their intervals pure at once. It's a mathematical impossibility that musicians fought over for 2,000 years.</p>
   <p>You tune the twelve notes. The <b>wheel</b> shows the circle of fifths (outer ring) and the major thirds (inner star), coloured green when pure and red when they beat. <b>Click any interval to hear it.</b> When an interval is out of tune you hear <b>beats</b>, a pulsing whose speed you can count.</p>
@@ -541,8 +604,10 @@ const help = () => RH.modal(`<h2>🎹 Temperament</h2>
 $('helpBtn').onclick = help;
 if (!S.intro) { S.intro = 1; persist(); help(); }
 buildKbd();
+{ const m = location.hash.match(/piece=([A-Gb#m.]+)/); if (m) { const ch = m[1].split('.').filter(x => KEY.includes(x.replace(/m$/, ''))).slice(0, 16); if (ch.length && actOpen(4)) { S.room.own = ch; cur = ROOM; } } }
+roomApply();
 render();
-window.__tm = { chordInfo, unlockedPreset, wolfAt, C, S, goalEval, PRESET, tun, ET, dev, iv, beats, chordErr, render, startTuning, fromFifths, chainFrom, loadState, actOpen, SETTLE_MS, get cur() { return cur; }, setCur: i => { cur = i; render(); } };
+window.__tm = { ROOM, CAMP, pieceGen, solvePiece, roomApply, roomKey, chordInfo, unlockedPreset, wolfAt, C, S, goalEval, PRESET, tun, ET, dev, iv, beats, chordErr, render, startTuning, fromFifths, chainFrom, loadState, actOpen, SETTLE_MS, get cur() { return cur; }, setCur: i => { cur = i; render(); } };
 
 // phones: level drawer and folding stories
 (() => {

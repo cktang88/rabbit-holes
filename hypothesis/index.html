@@ -329,16 +329,16 @@ function makeLaw(r, tier, avoid, tpl) {
 // ---------- state ----------
 const S = loadState();
 function loadState() {
-  const fresh = () => ({ seed: (Math.random() * 1e9) | 0, laws: {}, cur: 0, intro: 0, free: { solved: 0, i: 0 } });
+  const fresh = () => ({ seed: (Math.random() * 1e9) | 0, laws: {}, cur: 0, intro: 0, free: { best: 0, dailyBest: null, run: null, st: null } });
   const s = RH.load('hyp', null);
   if (!s || typeof s !== 'object' || Array.isArray(s) || !Number.isFinite(s.seed)) return fresh();
   if (!s.laws || typeof s.laws !== 'object' || Array.isArray(s.laws)) s.laws = {};
   const okK = k => Array.isArray(k) && k.length >= 1 && k.length <= 8 && k.every(t => Array.isArray(t) && t.length === 3 && t.every(x => x === 0 || x === 1 || x === 2));
   const okSt = st => st && typeof st === 'object' && Array.isArray(st.journal) && st.journal.every(e => e && okK(e.k) && typeof e.ok === 'boolean');
   for (const i in s.laws) { const st = s.laws[i]; if (!(+i >= 0 && +i < 60) || !okSt(st)) delete s.laws[i]; else { st.probes = st.probes | 0; st.fails = st.fails | 0; } }
-  if (!s.free || typeof s.free !== 'object') s.free = { solved: 0, i: 0 };
-  s.free.solved = s.free.solved | 0; s.free.i = s.free.i | 0;
-  if (!(s.free.tier >= 3 && s.free.tier <= 7) || (s.free.st && !okSt(s.free.st))) { s.free.st = null; s.free.tier = 3; }
+  const f = s.free && typeof s.free === 'object' ? s.free : {}, run = f.run && typeof f.run === 'object' && typeof f.run.seed === 'string' && f.run.level >= 1 ? f.run : null;
+  s.free = { best: f.best | 0, dailyBest: f.dailyBest && typeof f.dailyBest.date === 'string' ? { date: f.dailyBest.date.slice(0, 10), score: f.dailyBest.score | 0 } : null,
+    run: run && { seed: run.seed.slice(0, 40), daily: !!run.daily, level: Math.min(999, run.level | 0), budget: Math.max(0, Math.min(999, run.budget | 0)), score: run.score | 0 }, st: run && okSt(f.st) ? f.st : null };
   if (s.cur !== 'free' && !(Number.isInteger(s.cur) && s.cur >= 0 && s.cur < 60)) s.cur = 0;
   return s;
 }
@@ -427,41 +427,57 @@ function renderSide() {
     const st = S.laws[i], op = tierOpen(L.tier);
     h += `<div class="law ${i === cur ? 'cur' : ''} ${op ? '' : 'locked'}" data-i="${i}"><span>${st?.solved ? '✓' : '·'} Law ${i + 1}</span><span class="st">${st?.solved ? (st.solved.revealed ? 'revealed' : '★'.repeat(st.solved.stars) + '☆'.repeat(3 - st.solved.stars)) : st?.probes ? st.probes + ' probes' : ''}</span></div>`;
   });
-  h += `<div class="tier"><span>∞. Free lab</span><span>${S.free.solved}</span></div><div class="law ${cur === 'free' ? 'cur' : ''} ${tierOpen(3) ? '' : 'locked'}" data-i="free"><span>🎲 Random law</span><span class="st">${tierOpen(3) ? '' : 'tier 4+'}</span></div>`;
+  h += `<div class="tier"><span>∞. The Grant</span><span>${S.free.best ? 'best ' + S.free.best : ''}</span></div><div class="law ${cur === 'free' ? 'cur' : ''} ${tierOpen(1) ? '' : 'locked'}" data-i="free"><span>🎲 ${S.free.run ? 'Run: ' + S.free.run.score + ' published' : 'Endless run'}</span><span class="st">${tierOpen(1) ? '' : 'tier 2+'}</span></div>`;
   h += `<div class="note" style="margin:14px 6px">Solve ${TIER_NEED} laws in a tier to open the next one.</div>`;
   $('side').innerHTML = h;
   $('side').querySelectorAll('.law').forEach(el => el.onclick = () => {
     const i = el.dataset.i === 'free' ? 'free' : +el.dataset.i;
-    if (i === 'free') { if (tierOpen(3)) openFree(false); } else if (tierOpen(LAWS[i].tier)) openLaw(i);
+    if (i === 'free') { if (tierOpen(1)) openFree(); } else if (tierOpen(LAWS[i].tier)) openLaw(i);
   });
   const sv = Object.values(S.laws).filter(l => l.solved), stars = sv.reduce((a, l) => a + (l.solved.stars || 0), 0);
   $('totals').textContent = `${sv.length}/${LAWS.length} laws · ${stars}★`;
 }
 
 function openLaw(i) { cur = i; S.cur = i; builder = []; sel = -1; mode = 'probe'; preds = null; lastVerdict = null; lawState(i); persist(); render(); }
-function openFree(fresh) {
-  if (fresh || !S.free.st) {
-    S.free.i++; const r = RH.rng('hyp:free:' + S.seed + ':' + S.free.i), t = 3 + r.int(5);
-    S.free.tier = t; S.free.st = null;
-  }
-  const r = RH.rng('hyp:free:' + S.seed + ':' + S.free.i); r.int(5);
-  freeLaw = makeLaw(r, S.free.tier, []);
-  if (!S.free.st) {
-    const j = []; let y = null, n = null; for (let t = 0; t < 20000 && (!y || !n); t++) { const k = t < 5000 ? randKoan(r, 2, 5) : randKoan(r, 1, 8); /* some laws only reject 1-token or long koans */ if (freeLaw.f(k)) y ||= k; else n ||= k; }
-    if (y) j.push({ k: y, ok: true, given: 1 }); if (n) j.push({ k: n, ok: false, given: 1 }); S.free.st = { journal: j, probes: 0, fails: 0, notes: '' };
-  }
-  cur = 'free'; builder = []; sel = -1; mode = 'probe'; preds = null; lastVerdict = null; persist(); render();
+// ================= the Grant: an endless run of generated laws =================
+// A grant of probes funds a run of machines with freshly generated laws that grow harder (later tiers, then combinations).
+// Every probe spends the grant, every wrong prediction costs two, every law published renews it (more if right first time).
+// The run ends when the money does. Score = laws published. Runs are seeded (#grant=…) and there is a daily seed.
+const RUN_START = 24, RUN_PUBLISH = 8, RUN_CLEAN = 4;
+function runLawAt(seed, level) { const r = RH.rng('hyp:run:' + seed + ':' + level), tier = Math.min(7, Math.floor((level - 1) / 2)); return { L: makeLaw(r, tier, []), r }; }
+const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+function runStart(seed, daily) { S.free.run = { seed: String(seed).slice(0, 40), daily: !!daily, level: 1, budget: RUN_START, score: 0 }; S.free.st = null; openFree(); }
+function openFree() {
+  cur = 'free'; S.cur = 'free'; builder = []; sel = -1; mode = 'probe'; preds = null; lastVerdict = null;
+  const run = S.free.run;
+  if (!run) { persist(); renderSide(); const d = todayStr(), db = S.free.dailyBest?.date === d ? S.free.dailyBest.score : null;
+    $('center').innerHTML = `<div class="head"><div><span class="plate">The Grant</span><h2>An endless run of machines</h2></div></div>
+      <div class="method">The Academy funds you with <b>${RUN_START} probes</b>. Each machine in a run has a freshly generated law, and they grow harder as you go. Every probe spends the grant; every wrong prediction costs two more. Publishing a law brings <b>+${RUN_PUBLISH}</b> (and +${RUN_CLEAN} more if your first prediction round is perfect). When the grant runs out, the run ends. Your score is how many laws you publish.</div>
+      <div class="ctl" style="margin-top:14px"><button class="primary" id="runNew">🎲 New run</button><button id="runDaily">📅 Today's machines (${d})${db != null ? ' · your best ' + db : ''}</button></div>
+      <div class="note" style="margin-top:8px">Best run: ${S.free.best}. A run's link (#grant=…) gives anyone the same machines.</div>`;
+    $('runNew').onclick = () => runStart(Math.random().toString(36).slice(2, 10)); $('runDaily').onclick = () => runStart('daily:' + d, true); return; }
+  const { L, r } = runLawAt(run.seed, run.level); freeLaw = L;
+  if (!S.free.st) { const j = []; let y = null, n = null; for (let t = 0; t < 20000 && (!y || !n); t++) { const k = t < 5000 ? randKoan(r, 2, 5) : randKoan(r, 1, 8); if (freeLaw.f(k)) y ||= k; else n ||= k; }
+    if (y) j.push({ k: y, ok: true, given: 1 }); if (n) j.push({ k: n, ok: false, given: 1 }); S.free.st = { journal: j, probes: 0, fails: 0, notes: '' }; }
+  persist(); render();
 }
-
+async function runEnd() {
+  const run = S.free.run; S.free.best = Math.max(S.free.best, run.score);
+  if (run.daily) { const d = run.seed.slice(6); if (!S.free.dailyBest || S.free.dailyBest.date !== d || run.score > S.free.dailyBest.score) S.free.dailyBest = { date: d, score: run.score }; }
+  S.free.run = null; S.free.st = null; mode = 'probe'; persist(); beep(false);
+  const link = location.origin + location.pathname + '#grant=' + encodeURIComponent(run.seed);
+  await RH.modal(`<h2>The grant has run out</h2><p style="text-align:center;font-size:22px">${run.score} law${run.score === 1 ? '' : 's'} published</p><p class="dim small" style="text-align:center">Best run: ${S.free.best}. The last machine's law was “${esc(freeLaw.d)}”.</p><p class="dim small" style="word-break:break-all">Same machines for anyone: ${esc(link)}</p>`, [{ label: 'Back to the Grant' }]);
+  openFree();
+}
 function render() {
   const L = curLaw(), st = lawState(cur), tier = L.tier, solved = st.solved;
-  const title = cur === 'free' ? `Random law · ${TIERS[tier]}` : `Law ${cur + 1}`;
+  const title = cur === 'free' ? `Machine ${S.free.run.level} · ${TIERS[tier]}` : `Law ${cur + 1}`;
   const yes = st.journal.filter(e => e.ok), no = st.journal.filter(e => !e.ok);
   const nNew = st.journal.length - 1;
   $('center').innerHTML = `
     <div class="head">
       <div><span class="plate">Model ${['I','II','III','IV','V','VI','VII','VIII'][tier]} · ${MODELS[tier]}</span><div class="dim small" style="margin-top:4px" title="Each tier's engine judges a different kind of law">Tier ${tier + 1} · ${TIERS[tier]}</div><h2>${solved ? '✓ ' : ''}${title}</h2></div>
-      <div class="row">${st.sealed && !solved ? '<span class="sealed" title="No experiments on this one: judge from the evidence">🔒 Sealed case · no probes</span>' : `<span class="pill">Probes <b>${st.probes}</b> / par ${par(tier)}</span>`}${st.fails ? `<span class="pill">Failed predictions <b>${st.fails}</b></span>` : ''}${cur === 'free' ? '<button id="rerollBtn">🎲 New random law</button>' : ''}</div>
+      <div class="row">${cur === 'free' ? `<span class="pill" title="Probes left in the grant">Grant <b>${S.free.run.budget}</b> probes</span><span class="pill">Published <b>${S.free.run.score}</b></span>` : ''}${cur === 'free' ? '' : st.sealed && !solved ? '<span class="sealed" title="No experiments on this one: judge from the evidence">🔒 Sealed case · no probes</span>' : `<span class="pill">Probes <b>${st.probes}</b> / par ${par(tier)}</span>`}${st.fails ? `<span class="pill">Failed predictions <b>${st.fails}</b></span>` : ''}${cur === 'free' ? '<button id="endRun" title="Bank this run\'s score and stop">End run</button>' : ''}</div>
     </div>
     ${solved ? `<div class="lawtext">“${L.d}”</div>` : ''}
     ${!solved ? `<div class="method">${METHODS[tier]}</div>` : ''}
@@ -478,7 +494,7 @@ function render() {
     const all = [...yes, ...no]; builder = all[idx].k.map(t => t.slice()); sel = -1; if (mode !== 'probe') return; renderBuilder();
   });
   $('notes').oninput = () => { st.notes = $('notes').value; persist(); };
-  if ($('rerollBtn')) $('rerollBtn').onclick = () => openFree(true);
+  if ($('endRun')) $('endRun').onclick = () => runEnd();
   if (mode === 'predict') wirePred(); else wireBuilder();
   renderSide();
 }
@@ -549,6 +565,7 @@ function test() {
   if (lawState(cur).sealed && !lawState(cur).solved) return;
   const st = lawState(cur), k = builder.map(t => t.slice());
   if (st.journal.some(e => kkey(e.k) === kkey(k))) { lastVerdict = 'dup'; render(); return; }
+  if (cur === 'free') { if (S.free.run.budget <= 0) return runEnd(); S.free.run.budget--; }
   const wasRefuted = cur === 'free' || refuted(cur, st);
   const ok = curLaw().f(k); st.journal.push({ k, ok }); if (!st.solved) st.probes++;
   if (!wasRefuted && refuted(cur, st)) setTimeout(() => RH.toast('Refuted! Dr Ashcombe\'s theory predicted the opposite verdict.', 3600), 400);
@@ -596,16 +613,18 @@ async function submitPred() {
   let wrong = 0;
   preds.forEach(p => { p.res = L.f(p.k) === p.ans; if (!p.res) { wrong++; st.journal.push({ k: p.k, ok: L.f(p.k), pred: 1 }); } });
   if (wrong) {
-    st.fails++; st.probes += 2 * wrong; persist(); mode = 'probe'; lastVerdict = null;
+    st.fails++; st.probes += 2 * wrong; mode = 'probe'; lastVerdict = null;
+    if (cur === 'free') { S.free.run.budget -= 2 * wrong; if (S.free.run.budget <= 0) { persist(); return runEnd(); } }
+    persist();
     beep(false); render();
-    const giveUp = st.fails >= 3 ? [{ label: 'Reveal the law', value: 'reveal' }] : [];
+    const giveUp = st.fails >= 3 && cur !== 'free' ? [{ label: 'Reveal the law', value: 'reveal' }] : [];
     const v = await RH.modal(`<h2>Not yet.</h2><p>${wrong} of 8 predictions were wrong. Those koans are now in your journal with their true verdicts. Look at them closely: each one is a counterexample to the law you had in mind.</p>`, [...giveUp, { label: 'Back to the lab', value: 0 }]);
     if (v === 'reveal') reveal();
     return;
   }
   const stars = st.sealed ? (st.fails === 0 ? 3 : st.fails === 1 ? 2 : 1) : st.probes <= par(L.tier) ? 3 : st.probes <= 2 * par(L.tier) ? 2 : 1;
   st.solved = { stars, probes: st.probes }; mode = 'probe';
-  if (cur === 'free') { S.free.solved++; }
+  if (cur === 'free') { const run = S.free.run; run.score++; run.budget += RUN_PUBLISH + (st.fails ? 0 : RUN_CLEAN); S.free.best = Math.max(S.free.best, run.score); }
   persist();
   engraveSound(L.d.length);
   const nxt = cur === 'free' ? -1 : LAWS.findIndex((l, j) => j > cur && !S.laws[j]?.solved && tierOpen(l.tier));
@@ -613,8 +632,8 @@ async function submitPred() {
     ${st.notes ? `<p class="dim small">Your notes said: <i>${esc(st.notes)}</i></p>` : ''}
     <p style="text-align:center;color:var(--accent);font-size:22px">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</p>
     <p class="dim small" style="text-align:center">${st.sealed ? `Sealed case: ${st.fails ? st.fails + ' failed round' + (st.fails > 1 ? 's' : '') : 'right first time'}.` : `${st.probes} probes (par ${par(L.tier)}). Fewer probes means better science.`}</p>`,
-    cur === 'free' ? [{ label: 'Stay', value: 0 }, { label: '🎲 Another random law', value: 'free' }] : nxt >= 0 ? [{ label: 'Stay', value: 0 }, { label: `Next: Law ${nxt + 1}`, value: 1 }] : [{ label: 'Close', value: 0 }]);
-  if (go === 'free') openFree(true); else if (go === 1) openLaw(nxt); else render();
+    cur === 'free' ? [{ label: `Next machine (grant ${S.free.run.budget})`, value: 'free' }] : nxt >= 0 ? [{ label: 'Stay', value: 0 }, { label: `Next: Law ${nxt + 1}`, value: 1 }] : [{ label: 'Close', value: 0 }]);
+  if (cur === 'free') { S.free.run.level++; S.free.st = null; openFree(); } else if (go === 1) openLaw(nxt); else render();
 }
 async function reveal() {
   const st = lawState(cur), L = curLaw();
@@ -635,8 +654,9 @@ const help = () => RH.modal(`<h2>⚗️ Hypothesis</h2>
   <p class="dim">Sixty laws in eight tiers, generated for your save, plus an endless free lab. Good scientists change one thing at a time.</p>`, [{ label: 'Enter the lab' }]);
 $('helpBtn').onclick = help;
 if (!S.intro) { S.intro = 1; persist(); help(); }
-if (cur === 'free' && tierOpen(3)) openFree(false); else openLaw(typeof cur === 'number' && LAWS[cur] && tierOpen(LAWS[cur].tier) ? cur : 0);
-window.__hyp = { rivalPool, dossier, rivalOf, hasRival, refuted, SAMPLE_D, isSealed, TIER_NEED, GEN, makeLaw, randKoan, kkey, mutate, lawState, loadState, tierOpen, openFree, par, get cur() { return cur; }, get mode() { return mode; }, LAWS, S, openLaw, test, get builder() { return builder; }, set builder(b) { builder = b; }, startPredict, get preds() { return preds; }, submitPred, render, fp };
+{ const m = location.hash.match(/grant=([^&]+)/); if (m && tierOpen(1)) { const seed = decodeURIComponent(m[1]); if (S.free.run?.seed !== seed) { S.free.run = { seed: seed.slice(0, 40), daily: seed.startsWith('daily:'), level: 1, budget: RUN_START, score: 0 }; S.free.st = null; } cur = 'free'; } }
+if (cur === 'free' && tierOpen(1)) openFree(); else openLaw(typeof cur === 'number' && LAWS[cur] && tierOpen(LAWS[cur].tier) ? cur : 0);
+window.__hyp = { runStart, runLawAt, runEnd, RUN_START, todayStr, get freeLaw() { return freeLaw; }, rivalPool, dossier, rivalOf, hasRival, refuted, SAMPLE_D, isSealed, TIER_NEED, GEN, makeLaw, randKoan, kkey, mutate, lawState, loadState, tierOpen, openFree, par, get cur() { return cur; }, get mode() { return mode; }, LAWS, S, openLaw, test, get builder() { return builder; }, set builder(b) { builder = b; }, startPredict, get preds() { return preds; }, submitPred, render, fp };
 
 // phones: level drawer and folding stories
 (() => {

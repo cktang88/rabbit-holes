@@ -29,7 +29,7 @@ module.exports = {
     'every commission: unmet at start, met by a known tuning': async ({ page, ok, eq }) => {
       const r = await page.evaluate(sol => {
         const T = window.__tm, S = eval('(' + sol + ')')();
-        return T.C.map((c, i) => ({ i, start: Math.min(...c.goals.map(g => T.goalEval(g, T.startTuning(i)).stars)), sol: Math.min(...c.goals.map(g => T.goalEval(g, S[i]).stars)) }));
+        return T.C.slice(0, T.CAMP).map((c, i) => ({ i, start: Math.min(...c.goals.map(g => T.goalEval(g, T.startTuning(i)).stars)), sol: Math.min(...c.goals.map(g => T.goalEval(g, S[i]).stars)) }));
       }, solutions.toString());
       eq(r.length, 17);
       ok(r.slice(11).every(x => x.sol === 3), 'late known tunings should reach 3 stars: ' + JSON.stringify(r.slice(11)));
@@ -177,6 +177,43 @@ module.exports = {
       ok(r.naiveOk >= .8, 'naive policies scored above 1 star too often: ' + r.naiveOk);
       ok(r.competent.every(s => s >= 1), 'competent policy failed a late commission: ' + r.competent);
       ok(r.competent.slice(1).filter(s => s === 3).length <= 1, 'a simple optimiser already gets 3 stars: ' + r.competent);
+    },
+    'Music Room: pieces are deterministic per seed, wander through more keys as you climb, and the solver tuning earns three stars': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const T = window.__tm, a = JSON.stringify(T.pieceGen('s1', 4)), b = JSON.stringify(T.pieceGen('s1', 4)), c = JSON.stringify(T.pieceGen('s2', 4));
+        const keys = [1, 3, 5, 9].map(l => T.pieceGen('s1', l).keys.length), out = [];
+        for (let l = 1; l <= 12; l++) { const p = T.pieceGen('lad', l), sol = T.solvePiece(p.chords), g = { k: 'ch', list: [...new Set(p.chords)], tol: [sol.worst + 6, sol.worst + 2, sol.worst + .2] };
+          const st = T.goalEval(g, sol.c).stars, et = T.goalEval(g, T.ET()).stars; out.push([st, et, Math.round(sol.worst * 10) / 10]); }
+        return { same: a === b, differ: a !== c, keys, out }; });
+      ok(r.same && r.differ, 'not deterministic per seed'); ok(r.keys[0] === 1 && r.keys[3] >= 4, 'later pieces should modulate more: ' + r.keys);
+      ok(r.out.every(([st]) => st === 3), 'solver tuning should earn 3 stars: ' + JSON.stringify(r.out));
+      ok(r.out.filter(([, et]) => et === 3).length <= 2, 'equal temperament should rarely be good enough for three stars: ' + JSON.stringify(r.out));
+    },
+    'Music Room: perform, advance, daily piece and your own composition, all through the UI': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { const T = window.__tm; for (let i = 0; i < 4; i++) T.S.done[i] = 3; T.setCur(T.ROOM); });
+      ok(await page.isDisabled('#rNext'), 'next piece before performing');
+      await page.evaluate(() => { const T = window.__tm; T.S.tun[T.ROOM] = T.C[T.ROOM].solver.slice(); T.render(); }); await page.waitForTimeout(1300);
+      ok(await page.evaluate(() => window.__tm.S.room.best[window.__tm.roomKey()] === 3), 'solver tuning not awarded');
+      await page.click('#rNext'); eq(await page.evaluate(() => window.__tm.S.room.level), 2);
+      await page.click('#rDaily'); ok(await page.evaluate(() => window.__tm.S.room.seed.startsWith('daily:')));
+      await page.click('#rCompose'); for (const ch of ['C', 'Am', 'F', 'G']) await page.click(`[data-ch="${ch}"]`); await page.click('#cUse');
+      eq(await page.evaluate(() => window.__tm.C[window.__tm.ROOM].goals[0].list), ['C', 'Am', 'F', 'G']);
+      ok(await page.evaluate(() => location.hash === '#piece=C.Am.F.G'), 'no share link');
+      ok(await page.evaluate(() => (localStorage.getItem('rh:temper') || '').length < 50000));
+    },
+    'Music Room difficulty: naive tunings score worse than a sensible tuner, who falls short of the solver': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const T = window.__tm, res = { naive: [], comp: [] };
+        for (let l = 7; l <= 12; l++) { const p = T.pieceGen('diff', l), list = [...new Set(p.chords)], sol = T.solvePiece(p.chords), g = { k: 'ch', list, tol: [sol.worst + 6, sol.worst + 2, sol.worst + .2] };
+          const st = c => T.goalEval(g, c).stars;
+          res.naive.push(st(T.ET()), st(T.PRESET.mean.c()), st(T.PRESET.pyth.c()), st(T.PRESET.vallotti.c()));
+          // a sensible tuner: from equal temperament, follow the worst chords downhill at a coarse focus only (no fine cooling)
+          const fine = c => list.flatMap(n => T.chordInfo(c, n).parts.map(q => Math.abs(q.d))), c = T.ET();
+          for (const Tm of [1, .5]) { const sm = c => { const v = fine(c), m = Math.max(...v); return m + Tm * Math.log(v.reduce((a, x) => a + Math.exp((x - m) / Tm), 0)); }; let lr = .5;
+            for (let it = 0; it < 150; it++) { const f0 = sm(c), gr = []; for (let q = 1; q < 12; q++) { c[q] += 1e-4; gr[q] = (sm(c) - f0) / 1e-4; c[q] -= 1e-4; } const c2 = c.map((x, q) => q ? x - lr * gr[q] : 0); if (sm(c2) < f0) { for (let q = 1; q < 12; q++) c[q] = c2[q]; lr *= 1.2; } else lr *= .5; } }
+          res.comp.push(st(c)); }
+        return res; });
+      ok(r.naive.filter(x => x <= 1).length / r.naive.length >= .8, 'naive presets score too well: ' + r.naive);
+      ok(r.comp.every(x => x >= 1), 'a sensible tuner should perform every late piece: ' + r.comp);
+      ok(r.comp.filter(x => x === 3).length <= 2, 'three stars should need a solver-level tuning: ' + r.comp);
     },
     'phone: level list is a drawer behind a labelled button; picking a level closes it': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(500);

@@ -157,6 +157,43 @@ module.exports = {
       ok(errs.length === 0, errs.join());
       await ctx.close();
     },
+    'design: the eigen-solver reproduces the square plate, is deterministic, and handles any outline': async ({ page, ok, near }) => {
+      const r = await page.evaluate(() => { const X = __ch, D = X.newDesign('square', X.SHAPES.square()), a = X.solvePlate(D), b = X.solvePlate(D);
+        const o = { r: a.slice(0, 3).map(m => m.lam / a[0].lam), det: a.slice(0, 6).map(m => m.lam).join() === b.slice(0, 6).map(m => m.lam).join(), n: {} };
+        for (const sh of Object.keys(X.SHAPES)) { const S = X.newDesign(sh, X.SHAPES[sh]()), t0 = performance.now(), ms = X.solvePlate(S); o.n[sh] = [ms.length, performance.now() - t0]; }
+        const S2 = X.newDesign('d', X.dailyShape(20261125)), S3 = X.newDesign('d', X.dailyShape(20261125)); o.daily = S2.mask.join() === S3.mask.join();
+        return o; });
+      near(r.r[1], 1, .01, 'the (1,0) / (0,1) twins'); near(r.r[2], 2, .02, '(1,1) sings at twice the lowest note, as n² + m² says'); ok(r.det && r.daily, 'deterministic');
+      for (const [sh, [n, ms]] of Object.entries(r.n)) { ok(n >= 8, sh + ' has modes'); ok(ms < 400, sh + ' solves fast: ' + ms); }
+    },
+    'design: every bell commission has a known solution; random edits rarely pass': async ({ page, ok }) => {
+      const R = await page.evaluate(() => { const X = __ch, G = X.DG;
+        const rect = h => [[[.06, .5 - .44 * h], [.94, .5 - .44 * h], [.94, .5 + .44 * h], [.06, .5 + .44 * h]]];
+        const recipes = [[.7071, [['thick', 26, 14], ['thick', 26, 14], ['thick', 26, 14]]], [.8, [['thick', 14, 6], ['thick', 14, 6], ['thick', 18, 6], ['thick', 14, 6], ['thick', 18, 6], ['thick', 14, 6], ['thick', 18, 6], ['thick', 14, 6], ['thick', 18, 6], ['thick', 18, 6], ['thin', 2, 18]]],
+          [.78, [['thin', 14, 6], ['thin', 14, 6], ['thin', 14, 6], ['thin', 14, 6]]], [.7071, [['thick', 26, 14], ['thick', 26, 14], ['thin', 14, 6], ['thick', 10, 18]]]];
+        const out = { known: [], rand: 0, randN: 0 };
+        recipes.forEach(([h, ops], k) => { X.dz = X.newDesign('r', rect(h)); for (const [t, i, j] of ops) { X.SAVE.mode; window.__tool = t; X.editAtTool(t, (i + .5) / G, (j + .5) / G); } out.known.push(X.bellGrade(X.BELLS[k], X.bellErr(X.BELLS[k], X.dz.modes))); });
+        let rs = 3; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647, shapes = Object.keys(X.SHAPES);
+        for (let k = 0; k < X.BELLS.length; k++) for (let t = 0; t < 5; t++) { X.dz = X.newDesign('x', X.SHAPES[shapes[(rnd() * shapes.length) | 0]]()); for (let e = 0; e < 8; e++) X.editAtTool(['thin', 'thick', 'clamp'][(rnd() * 3) | 0], rnd(), rnd()); X.installDesign(); out.randN++; if (X.bellGrade(X.BELLS[k], X.bellErr(X.BELLS[k], X.dz.modes)) >= 1) out.rand++; }
+        return out; });
+      ok(R.known.every(g => g >= 1), 'known solutions: ' + R.known);
+      ok(R.rand / R.randN <= .1, `random plates passed ${R.rand}/${R.randN}`);
+    },
+    'design: the figure museum counts distinct figures once; plates share by URL': async ({ page, eq, ok }) => {
+      await page.click('[data-m="design"]');
+      const r = await page.evaluate(() => { const X = __ch, P = X.PLATES.custom; const k0 = X.figureKey(P.modes[0].u), k1 = X.figureKey(P.modes[2].u);
+        const code = X.encodePlate(X.dz), D2 = X.decodePlate(code); D2.modes = X.solvePlate(D2);
+        return { distinct: k0 !== k1, share: Math.abs(D2.modes[0].lam - X.dz.modes[0].lam) < 1e-9, n: P.modes.length }; });
+      ok(r.distinct && r.share && r.n >= 8, JSON.stringify(r));
+      await page.evaluate(() => { const md = __ch.PLATES.custom.modes[1]; __ch.setFreq(md.f); });
+      await page.waitForFunction(() => Object.keys(__ch.SAVE.museum).length >= 1, null, { timeout: 9000 });
+      // tools by touch/mouse: thin the plate where you click
+      await page.click('[data-tool="thin"]'); const before = await page.evaluate(() => __ch.dz.edits);
+      const b = await page.evaluate(() => { const r = document.getElementById('cv').getBoundingClientRect(); return [r.left, r.top]; });
+      const pb = await page.evaluate(() => { const { x, y, s } = __ch.plateBox; return [x, y, s]; });
+      await page.mouse.click(b[0] + (pb[0] + pb[2] * .5) / 1, b[1] + (pb[1] + pb[2] * .5) / 1);
+      ok(await page.evaluate(n => __ch.dz.edits > n, before), 'a click with the thinning tool edits the plate');
+    },
     'corrupted / odd saves load without errors': async ({ page, eq, ok }) => {
       for (const save of ['null', '3', '[]', '"s"', '{"got":7,"solved":"x","mode":"match","tgt":{"square":999}}', '{"plate":"hexagon","tgt":[1]}', '{"tgt":-5,"mode":"match"}',
         '{"tgt":{"square":"abc"},"mode":"match"}', '{"got":{"s01p":"data:image/png;base64,AAAA"},"tgt":3,"plate":"circle"}', '{bad']) {

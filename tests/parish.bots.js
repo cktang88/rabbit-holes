@@ -1,34 +1,27 @@
-// Scripted genealogists for Parish, run inside the page (toString'd). Policies:
-//  random   - pins every name match, strikes random entries with random reasons, cites random burials
-//  dates    - the obvious approach: only strikes what a date check proves; guesses other reasons in menu order, cites nothing
-//  simple   - competent but simple: reads every entry exactly, but finds "buried as a child" evidence by trying burials one by one
-//  solver   - knows which burial proves it
-// Returns { done, stars, blots } for letter i.
-function parishBot(i, policy) {
-  const P = window.__parish, W = P.W(), R = W.R, c = P.COMS()[i], rnd = RH.rng('pb' + i + policy);
-  P.openLetter(i); P.S.wrong[i] = 0;
-  const burials = R.filter(x => x.t === 'D');
-  for (let guard = 0; guard < 400 && !P.S.done[i]; guard++) {
-    const prog = P.S.prog[i], ti = c.tasks.findIndex((k, j) => !prog[j] && (k.dep < 0 || prog[k.dep]) && (k.dep2 == null || k.dep2 < 0 || prog[k.dep2]));
-    if (ti < 0) break;
-    const k = c.tasks[ti], K = P.KIND[k.kind];
-    for (const x of P.candidates(R, k)) if (!P.S.pins.includes(x.id)) P.togglePin(x.id);
-    const left = P.remaining(ti); if (left.length === 0) { P.declareAbsent(ti); continue; } if (left.length === 1 && !k.absent) { P.confirmTask(ti); continue; }
-    if (policy === 'random') { const x = left[rnd.int(left.length)], code = K.strikes[rnd.int(K.strikes.length)]; P.strike(ti, x.id, code, burials[rnd.int(burials.length)].id); continue; }
-    const decoys = left.filter(x => x.id !== k.truth); // (bots other than random never touch the truth: a reader can see it fits)
-    let progress = false;
-    for (const d of decoys) {
-      const why = K.why(R, d, k).filter(x => K.strikes.includes(x));
-      if (policy === 'dates') { const dt = why.find(x => x === 'late' || x === 'early'); if (dt) { P.strike(ti, d.id, dt); progress = true; continue; } for (const code of K.strikes) { if (code === 'late' || code === 'early') continue; const r = P.strike(ti, d.id, code); if (r) { progress = true; break; } } continue; }
-      const visible = why.find(x => !P.CITE[x]);
-      if (visible) { P.strike(ti, d.id, visible); progress = true; continue; }
-      // needs a cited burial
-      const proof = burials.find(b => P.isChildBurial(b, d, R[k.a].d));
-      if (policy === 'solver') { P.strike(ti, d.id, 'dead', proof.id); progress = true; continue; }
-      for (const b of burials.filter(b => b.g === d.g && b.d > d.d && b.d < R[k.a].d).sort((a, b2) => a.d - b2.d)) if (P.strike(ti, d.id, 'dead', b.id)) { progress = true; break; }
-    }
-    if (!progress && policy !== 'random') break;
-  }
-  return { done: !!P.S.done[i], stars: P.S.done[i] ? P.S.done[i].stars : 0, blots: P.S.wrong[i] || 0 };
+// Scripted families for the Parish saga (run in the page). Each returns an answer for a pending choice.
+//  idle      - always the first option ("not yet", "work the land", "let it go")
+//  random    - any option
+//  steward   - competent: marries everyone off to the best match, the heir works the land and younger sons learn trades,
+//              buys land when the purse allows, shuts the house against sickness, sends spare children abroad
+function sagaPolicy(name) {
+  if (name === 'idle') return () => 0;
+  if (name === 'random') { let k = 7; return (V, c) => { k = (k * 1103515245 + 12345) % 2147483648; return k % window.__parish.optionsFor(V, c).length; }; }
+  return (V, c) => {
+    const P = window.__parish, F = V.fam, p = V.P[c.id], opts = P.optionsFor(V, c), us = P.kin(V);
+    if (c.k === 'name') return 0;
+    if (c.k === 'match') { let best = 1, bv = -1; c.offers.forEach((o, i) => { const v = (p.sex === 'M' ? o.dowry : -o.dowry) + (o.hale ? 25 : 0); if (v > bv) { bv = v; best = i + 1; } }); return best; }
+    if (c.k === 'trade') { const sons = us.filter(x => x.sex === 'M' && x.s === F.sur && x.died === null).sort((a, b) => a.born - b.born); if (p.sex === 'M' && sons[0] === p) return 0; return F.coin > 40 ? 1 : 2; }
+    if (c.k === 'land') return F.coin > c.price + 30 ? 1 : 0;
+    if (c.k === 'plague') return F.coin > 12 ? 1 : 0;
+    if (c.k === 'ship') return us.length > 9 && us.filter(x => x.sex === 'M' && x.s === F.sur).length > 3 ? 1 : 0;
+    if (c.k === 'warden') return F.coin > 40 ? 1 : 0;
+    return 0;
+  };
 }
-module.exports = { parishBot };
+function runSaga(seed, name) {
+  const P = window.__parish, V = P.newVillage(seed), pol = sagaPolicy(name);
+  while (!V.ended) { P.stepYear(V); if (V.ended) break; P.resolvePending(V, pol); }
+  const all = V.P, babies = all.filter(p => p.born >= 1700 && p.born < 1840), infant = babies.filter(p => p.died !== null && p.died - p.born < 1).length / babies.length;
+  return { sc: P.scoreOf(V), score: P.scoreOf(V).total, end: V.ended.y, why: V.ended.why, pop: all.filter(p => p.died === null && p.left === null).length, infant: +infant.toFixed(3), regs: V.reg.length };
+}
+module.exports = { sagaPolicy, runSaga };

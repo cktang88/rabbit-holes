@@ -213,7 +213,7 @@ module.exports = {
       eq(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:gridlock')).done), { 2: 1 });
       ok(await waitFor(page, () => __gl.forecasts[2] === 1), 'a good forecast is not recorded');
       ok((await page.locator('#fcRes').textContent()).includes('good call'), 'forecast result');
-      near(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).gridlock), 1 / 11, 1e-9);
+      near(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).gridlock), 1 / 12, 1e-9);
     },
     'toll slider held on the answer does not win until released': async ({ page, ok }) => {
       await page.evaluate(() => __gl.load(7)); await page.waitForTimeout(300);

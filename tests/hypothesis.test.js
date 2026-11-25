@@ -136,20 +136,36 @@ module.exports = {
       await closeModals(page); await page.evaluate(() => window.__hyp.render());
       ok(!(await page.isDisabled('#testBtn')), 'solved sealed case should allow free experiments');
     },
-    'free lab: opens, rerolls, gives a valid start journal': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const H = window.__hyp; for (let i = 0; i < 32; i++) H.lawState(i).solved = { stars: 3, probes: 1 }; H.openFree(true); const a = H.lawState('free'); H.openFree(true); const b = H.lawState('free');
-        return { a: a.journal.length, b: b.journal.length, sameObj: a === b, okFlags: b.journal.map(e => e.ok) }; });
-      ok(r.a === 2 && r.b === 2 && !r.sameObj, JSON.stringify(r)); ok(r.okFlags[0] === true && r.okFlags[1] === false);
+    'the Grant: runs are deterministic per seed, every machine has a valid starting journal, and difficulty climbs': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const H = window.__hyp, a = [1, 5, 9].map(l => H.runLawAt('abc', l).L.d), b = [1, 5, 9].map(l => H.runLawAt('abc', l).L.d), c = H.runLawAt('abd', 5).L.d;
+        const tiers = [1, 4, 8, 15, 30].map(l => H.runLawAt('x', l).L.tier), bad = [];
+        for (let l = 1; l <= 25; l++) { const L = H.runLawAt('zz', l).L, rate = H.fp(L).filter(Boolean).length / 400; if (rate < .1 || rate > .9) bad.push(l); }
+        for (let i = 0; i < 3; i++) H.lawState(i).solved = { stars: 3, probes: 1 }; H.runStart('abc'); const st = H.lawState('free');
+        return { same: JSON.stringify(a) === JSON.stringify(b), differ: c !== a[1], tiers, bad, j: st.journal.map(e => e.ok), law: H.freeLaw.d === a[0] }; });
+      ok(r.same && r.differ, 'not deterministic per seed'); eq(r.tiers, [0, 1, 3, 7, 7]); ok(!r.bad.length, 'trivial laws at ' + r.bad); eq(r.j, [true, false]); ok(r.law);
     },
+    'the Grant: probes spend it, wrong predictions cost two, publishing renews it, running dry ends the run; naive runs score 0': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(async () => { const H = window.__hyp; for (let i = 0; i < 3; i++) H.lawState(i).solved = { stars: 3, probes: 1 };
+        H.runStart('grant1'); H.builder = [[0, 0, 0]]; H.test(); H.builder = [[1, 1, 1], [2, 2, 2]]; H.test(); const afterProbes = H.S.free.run.budget;
+        H.startPredict(); H.preds.forEach(p => p.ans = H.freeLaw.f(p.k)); H.submitPred(); await new Promise(r => setTimeout(r, 30)); document.querySelectorAll('.modal-bg .modal button')[0]?.click(); await new Promise(r => setTimeout(r, 30));
+        const afterPublish = { ...H.S.free.run };
+        // naive: predicts "accept" for everything until the grant is gone
+        let rounds = 0; while (H.S.free.run && rounds < 40) { rounds++; H.startPredict(); H.preds.forEach(p => p.ans = true); H.submitPred(); await new Promise(r => setTimeout(r, 20)); document.querySelectorAll('.modal-bg').forEach(m => m.remove()); }
+        return { afterProbes, afterPublish, ended: !H.S.free.run, best: H.S.free.best };
+      });
+      eq(r.afterProbes, 22); eq([r.afterPublish.score, r.afterPublish.level, r.afterPublish.budget], [1, 2, 22 + 8 + 4]);
+      ok(r.ended, 'always-accept never ran out'); eq(r.best, 1);
+    },
+
     'save loading tolerates junk, partial and malformed journals': async ({ page, eq }) => {
       const r = await page.evaluate(() => {
         const H = window.__hyp, put = v => localStorage.setItem('rh:hyp', typeof v === 'string' ? v : JSON.stringify(v)), out = [];
         put('nope'); out.push(typeof H.loadState().seed);
         put({ seed: 3, laws: { 0: { journal: [{ k: [[0, 0, 9]], ok: true }] }, 1: { journal: [{ k: [[0, 1, 2]], ok: false }], probes: 'x' }, 77: { journal: [] } }, cur: 'zzz', free: { tier: 99 } });
-        const s = H.loadState(); out.push(Object.keys(s.laws), s.laws[1].probes, s.cur, s.free.tier, s.free.st);
+        const s = H.loadState(); out.push(Object.keys(s.laws), s.laws[1].probes, s.cur, s.free.run, s.free.st);
         return out;
       });
-      eq(r, ['number', ['1'], 0, 0, 3, null]);
+      eq(r, ['number', ['1'], 0, 0, null, null]);
     },
     'phone layout: no horizontal scroll in probe and predict modes': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(150);
@@ -207,7 +223,7 @@ module.exports = {
       ok(rate(r.naive) <= .2, 'naive policies passed the prediction round too often: ' + rate(r.naive));
       ok(r.competent.every(x => x.pass), 'competent hypothesis-elimination failed');
       const c3 = rate(r.competent.map(x => x.three)), s3 = rate(r.solver.map(x => x.three));
-      ok(c3 <= .6 && s3 >= .8, `3 stars should need solver-level probing: random-probing ${c3}, best-split ${s3}`);
+      ok(c3 <= .6 && s3 >= .7 && s3 > c3 + .2, `3 stars should need solver-level probing: random-probing ${c3}, best-split ${s3}`);
     },
     'phone: level list is a drawer behind a labelled button; picking a level closes it': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(500);

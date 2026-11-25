@@ -53,6 +53,7 @@
   /* Chladni's book: a bound page of numbered engravings */
   #book{top:16px;right:16px;padding:14px 16px;width:300px;max-height:calc(100vh - 220px);overflow:auto;transform:rotate(.5deg)}
   #book h4{margin:0 0 10px;font:400 17px "IM Fell English SC",serif;color:var(--ink);text-align:center;border-bottom:1px solid rgba(43,29,16,.35);padding-bottom:6px}
+  #shapeSel{font:600 15px 'Cormorant Garamond',serif;background:#f3e8cd;border:1px solid #5a4018;padding:2px 4px;min-height:30px}
   .tt{border-collapse:collapse;margin:6px 0;font-size:15px} .tt td{padding:0 8px 0 0}
   .pg{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;counter-reset:fig}
   .pg div{aspect-ratio:1;background:rgba(120,90,50,.08);display:flex;align-items:center;justify-content:center;color:rgba(43,29,16,.35);font:italic 16px "Cormorant Garamond",serif;overflow:hidden;border:1px solid rgba(43,29,16,.25);position:relative;counter-increment:fig}
@@ -164,20 +165,141 @@ for (let n = 0; n <= 9; n++) for (let m = 0; m <= 4; m++) { if (n + m < 2) conti
 // keep only modes a listener can tell apart (each ≥2.2% from the previous one) and comfortably inside the dial range
 Object.values(PLATES).forEach(p => { p.modes.sort((a, b) => a.f - b.f); const keep = []; for (const md of p.modes) if (md.f > FMIN * 1.1 && md.f < FMAX * .92 && (!keep.length || md.f / keep[keep.length - 1].f > 1.022 || (md.pair && md.pair === keep[keep.length - 1].pair))) keep.push(md); p.modes = keep; p.fields = new Array(keep.length).fill(null); });
 const sliderToF = v => FMIN * Math.pow(FMAX / FMIN, v / 1000), fToSlider = f => Math.log(f / FMIN) / Math.log(FMAX / FMIN) * 1000;
-const insideP = (pl, x, y) => pl !== 'circle' || (x * 2 - 1) ** 2 + (y * 2 - 1) ** 2 < .97;
+const insideP = (pl, x, y) => pl === 'custom' ? !!maskAt(x, y) : pl !== 'circle' || (x * 2 - 1) ** 2 + (y * 2 - 1) ** 2 < .97;
+
+// ================= DESIGN THE INSTRUMENT: any plate shape, clamps and thickness, real eigenmodes =================
+// The plate is a GxG grid of cells inside your outline. Its vibration modes solve  K u = λ M u, where
+//   K = the bending stiffness between neighbouring cells (∝ thickness³, a free edge where the outline ends; a clamp pins a cell),
+//   M = the mass of each cell (∝ thickness).
+// For a uniform square this gives exactly the cos·cos families of the tutorial plates, with pitch ∝ λ. Lanczos iteration with full
+// re-orthogonalisation finds the lowest modes in a few tens of milliseconds, so every edit re-solves at once.
+const DG = 32;
+const SHAPES = {
+  square: () => [[[.06, .06], [.94, .06], [.94, .94], [.06, .94]]],
+  oblong: () => [[[.06, .19], [.94, .19], [.94, .81], [.06, .81]]], // √2 : 1, the shape of A4 paper
+  circle: () => [Array.from({ length: 40 }, (_, i) => [.5 + .45 * Math.cos(i / 40 * 2 * Math.PI), .5 + .45 * Math.sin(i / 40 * 2 * Math.PI)])],
+  guitar: () => { const c = (cx, cy, r, n = 28) => Array.from({ length: n }, (_, i) => [cx + r * Math.cos(i / n * 2 * Math.PI), cy + r * .8 * Math.sin(i / n * 2 * Math.PI)]); return [c(.5, .3, .24), c(.5, .68, .3), [[.36, .4], [.64, .4], [.64, .55], [.36, .55]]]; },
+  bell: () => [[[.38, .1], [.62, .1], [.7, .45], [.92, .88], [.08, .88], [.3, .45]]],
+  star: () => [Array.from({ length: 10 }, (_, i) => { const r = i % 2 ? .2 : .46, a = i / 10 * 2 * Math.PI - Math.PI / 2; return [.5 + r * Math.cos(a), .52 + r * Math.sin(a)]; })],
+  heart: () => [Array.from({ length: 40 }, (_, i) => { const t = i / 40 * 2 * Math.PI, x = 16 * Math.sin(t) ** 3, y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t); return [.5 + x / 37, .45 - y / 37]; })],
+};
+function dailyShape(seed) { const r = RH.rng(seed), k = [2, 3, 5][(r() * 3) | 0], a = .06 + r() * .1, b = r() * .06, ph = r() * 6.28; return [Array.from({ length: 48 }, (_, i) => { const t = i / 48 * 2 * Math.PI, rr = .36 + a * Math.cos(k * t + ph) + b * Math.cos((k + 1) * t); return [.5 + rr * Math.cos(t), .5 + rr * Math.sin(t)]; })]; }
+const inPoly = (P, x, y) => { let c = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const [xi, yi] = P[i], [xj, yj] = P[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+let dz = null; // the design: { shape name, polys, h: Float64Array(G²), clamp: Uint8Array(G²), mask, modes }
+function newDesign(name, polys) {
+  const mask = new Uint8Array(DG * DG); for (let j = 0; j < DG; j++) for (let i = 0; i < DG; i++) { const x = (i + .5) / DG, y = (j + .5) / DG; if (polys.some(P => inPoly(P, x, y))) mask[j * DG + i] = 1; }
+  return { name, polys, mask, h: new Float64Array(DG * DG).fill(1), clamp: new Uint8Array(DG * DG), edits: 0, modes: null };
+}
+// symmetric tridiagonal eigensolver (implicit QL), eigenvectors of the tridiagonal in z (row-major m×m)
+function tqli(d, e, m, z) {
+  for (let i = 1; i < m; i++) e[i - 1] = e[i]; e[m - 1] = 0;
+  for (let l = 0; l < m; l++) { let iter = 0, mm;
+    do { for (mm = l; mm < m - 1; mm++) { const dd = Math.abs(d[mm]) + Math.abs(d[mm + 1]); if (Math.abs(e[mm]) <= 1e-12 * dd) break; }
+      if (mm !== l) { if (iter++ > 60) break; let g = (d[l + 1] - d[l]) / (2 * e[l]), r = Math.hypot(g, 1); g = d[mm] - d[l] + e[l] / (g + (g >= 0 ? Math.abs(r) : -Math.abs(r))); let s = 1, c = 1, p = 0, i;
+        for (i = mm - 1; i >= l; i--) { let f = s * e[i]; const b = c * e[i]; r = Math.hypot(f, g); e[i + 1] = r; if (r === 0) { d[i + 1] -= p; e[mm] = 0; break; } s = f / r; c = g / r; g = d[i + 1] - p; r = (d[i] - g) * s + 2 * c * b; p = s * r; d[i + 1] = g + p; g = c * r - b;
+          for (let k = 0; k < m; k++) { f = z[k * m + i + 1]; z[k * m + i + 1] = s * z[k * m + i] + c * f; z[k * m + i] = c * z[k * m + i] - s * f; } }
+        if (r === 0 && i >= l) continue; d[l] -= p; e[l] = g; e[mm] = 0; } } while (mm !== l); }
+}
+function solvePlate(D, nModes = 14) {
+  const idx = new Int32Array(DG * DG).fill(-1), cells = []; for (let c = 0; c < DG * DG; c++) if (D.mask[c] && !D.clamp[c]) { idx[c] = cells.length; cells.push(c); }
+  const n = cells.length; if (n < 8) return [];
+  // no real plate is perfect: a fixed, tiny unevenness (±0.3%) splits look-alike twins the way it does on real brass
+  const hh = c => D.h[c] * (1 + .003 * Math.sin(c * 12.9898) * Math.cos(c * 4.1414));
+  const isq = new Float64Array(n); for (let a = 0; a < n; a++) isq[a] = 1 / Math.sqrt(hh(cells[a]));
+  const nb = []; for (let a = 0; a < n; a++) { const c = cells[a], i = c % DG, j = (c / DG) | 0, L = []; for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= DG || jj >= DG) continue; const c2 = jj * DG + ii; if (!D.mask[c2]) continue; L.push([idx[c2], (hh(c) ** 3 + hh(c2) ** 3) / 2]); } nb.push(L); }
+  const Av = (v, out) => { for (let a = 0; a < n; a++) { let s = 0; const va = v[a] * isq[a]; for (const [b, w] of nb[a]) s += w * (va - (b >= 0 ? v[b] * isq[b] : 0)); out[a] = s * isq[a]; } };
+  const m = Math.min(n, 150), Q = []; const al = new Float64Array(m), be = new Float64Array(m + 1); let q = new Float64Array(n), r = new Float64Array(n);
+  let rs = 12345; for (let a = 0; a < n; a++) { rs = (rs * 16807) % 2147483647; q[a] = rs / 2147483647 - .5; } let nq = Math.hypot(...q); for (let a = 0; a < n; a++) q[a] /= nq;
+  let mm = m;
+  for (let k = 0; k < m; k++) { Q.push(q); Av(q, r); let a0 = 0; for (let a = 0; a < n; a++) a0 += q[a] * r[a]; al[k] = a0;
+    for (const qq of Q) { let dp = 0; for (let a = 0; a < n; a++) dp += qq[a] * r[a]; for (let a = 0; a < n; a++) r[a] -= dp * qq[a]; } // full re-orthogonalisation
+    let b = 0; for (let a = 0; a < n; a++) b += r[a] * r[a]; b = Math.sqrt(b); be[k + 1] = b; if (b < 1e-10) { mm = k + 1; break; }
+    q = new Float64Array(n); for (let a = 0; a < n; a++) q[a] = r[a] / b; r = new Float64Array(n); }
+  const d = al.slice(0, mm), e = new Float64Array(mm); for (let k = 1; k < mm; k++) e[k] = be[k]; const z = new Float64Array(mm * mm); for (let k = 0; k < mm; k++) z[k * mm + k] = 1;
+  tqli(d, e, mm, z);
+  const order = Array.from({ length: mm }, (_, k) => k).sort((a, b) => d[a] - d[b]), modes = [];
+  for (const k of order) { if (d[k] < 1e-6) continue; // the rigid "mode" of an unclamped plate: it just moves as a whole
+    const u = new Float32Array(DG * DG); let mx = 0;
+    for (let a = 0; a < n; a++) { let s = 0; for (let j2 = 0; j2 < mm; j2++) s += Q[j2][a] * z[j2 * mm + k]; const v = s * isq[a]; u[cells[a]] = v; if (Math.abs(v) > mx) mx = Math.abs(v); }
+    for (let c = 0; c < u.length; c++) u[c] /= mx || 1;
+    modes.push({ lam: d[k], u }); if (modes.length >= nModes) break; }
+  return modes;
+}
+const lamToF = lam => 46 * lam * DG * DG / (Math.PI * Math.PI); // same scale as the tutorial square
+// turn solved modes into plate modes the sand engine can use
+function installDesign() {
+  const ms = solvePlate(dz); dz.modes = ms;
+  const P = PLATES.custom = { n: dz.name, modes: [], fields: [] };
+  ms.forEach((m2, k) => { const u = m2.u, f = lamToF(m2.lam); if (f < FMIN * 1.05 || f > FMAX * .95) return;
+    P.modes.push({ id: 'x' + k, name: `mode ${k + 1}`, f, z: (x, y) => { const gx = x * DG - .5, gy = y * DG - .5, i0 = Math.max(0, Math.min(DG - 2, Math.floor(gx))), j0 = Math.max(0, Math.min(DG - 2, Math.floor(gy))), fx = Math.max(0, Math.min(1, gx - i0)), fy = Math.max(0, Math.min(1, gy - j0)); return (u[j0 * DG + i0] * (1 - fx) + u[j0 * DG + i0 + 1] * fx) * (1 - fy) + (u[(j0 + 1) * DG + i0] * (1 - fx) + u[(j0 + 1) * DG + i0 + 1] * fx) * fy; }, zmax: 1, u }); });
+  P.fields = new Array(P.modes.length).fill(null); dirty = true;
+}
+const maskAt = (x, y) => { const i = Math.floor(x * DG), j = Math.floor(y * DG); return i >= 0 && j >= 0 && i < DG && j < DG && dz && dz.mask[j * DG + i]; };
+// commissions for the bellmaker: tune the first notes of your plate to musical ratios
+const BELLS = [
+  { n: 'Octave', story: 'Make the second note exactly an <b>octave</b> above the first (2 : 1). Hint: an oblong plate puts its two lowest figures further apart.', ratios: [2], tol: .01 },
+  { n: 'Perfect fifth', story: 'The second note a <b>fifth</b> above the first (3 : 2), the interval of a violin\'s strings.', ratios: [1.5], tol: .01 },
+  { n: 'Major sixth', story: 'The second note a <b>major sixth</b> up (5 : 3), the opening of "My Bonnie".', ratios: [5 / 3], tol: .01 },
+  { n: 'Harmonic plate', story: '<b>Master commission.</b> Plates are not strings: their overtones are out of tune. Make the first three notes <b>1 : 2 : 3</b>, like a string or a flute, the bellmaker\'s dream.', ratios: [2, 3], tol: .01, master: 1 },
+];
+function bellErr(B, ms = dz && dz.modes) { if (!ms || ms.length < B.ratios.length + 1) return 9; const f0 = ms[0].lam; return Math.max(...B.ratios.map((r, i) => Math.abs(ms[i + 1].lam / f0 / r - 1))); }
+const bellGrade = (B, e) => e <= B.tol / 4 ? 3 : e <= B.tol / 2 ? 2 : e <= B.tol ? 1 : 0;
+// the museum: every distinct figure you find, across every plate you design
+function figureKey(u) { // sign pattern on a coarse 8×8 grid, up to an overall sign: the shape of the nodal lines
+  const S = 8, v = []; for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { let s = 0; for (let b = 0; b < 4; b++) for (let a = 0; a < 4; a++) s += u[(j * 4 + b) * DG + i * 4 + a]; v.push(Math.abs(s) < .4 ? 0 : s > 0 ? 1 : -1); }
+  const first = v.find(x => x); return v.map(x => first < 0 ? -x : x).map(x => x + 1).join('');
+}
+function domains(u, mask) { const seen = new Uint8Array(DG * DG); let n = 0; for (let c = 0; c < DG * DG; c++) { if (!mask[c] || seen[c] || Math.abs(u[c]) < .05) continue; n++; const sg = Math.sign(u[c]), st = [c]; seen[c] = 1;
+    while (st.length) { const q = st.pop(), i = q % DG, j = (q / DG) | 0; for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= DG || jj >= DG) continue; const c2 = jj * DG + ii; if (!seen[c2] && mask[c2] && Math.sign(u[c2]) === sg && Math.abs(u[c2]) >= .05) { seen[c2] = 1; st.push(c2); } } } } return n; }
+function museumAdd(md) {
+  const k = figureKey(md.u); if (SAVE.museum[k]) return false;
+  SAVE.museum[k] = [domains(md.u, dz.mask), dz.name.slice(0, 12), todaySeedC()]; const ks = Object.keys(SAVE.museum); if (ks.length > 400) delete SAVE.museum[ks[0]];
+  persist(); return true;
+}
+const todaySeedC = () => { const d = new Date(); return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate(); };
+// play the plate: a strike excites every mode in proportion to how much it moves where you hit
+function strike(x, y) { if (!dz || !dz.modes) return; const ms = PLATES.custom.modes.slice(0, 8); ms.forEach(md => { const a = Math.abs(md.z(x, y)); if (a < .05) return; FX.tone({ f: md.f, type: 'sine', dur: 2.2 * 300 / Math.max(300, md.f) + .4, vol: .12 * a, attack: .004 }); }); }
+// designs travel in the URL hash
+function encodePlate(D) { const pts = D.polys.map(P => P.map(([x, y]) => [Math.round(x * 99), Math.round(y * 99)])), cl = [], hh = []; for (let c = 0; c < DG * DG; c++) { if (D.clamp[c]) cl.push(c); if (Math.abs(D.h[c] - 1) > .001) hh.push(c, Math.round(D.h[c] * 100)); }
+  return btoa(JSON.stringify({ n: D.name, p: pts, c: cl, h: hh })).replace(/=+$/, ''); }
+function decodePlate(s) { try { const o = JSON.parse(atob(s)); const D = newDesign(String(o.n || 'shared plate').slice(0, 24), o.p.map(P => P.map(([x, y]) => [x / 99, y / 99]))); for (const c of o.c || []) if (c >= 0 && c < DG * DG) D.clamp[c] = 1; for (let k = 0; k + 1 < (o.h || []).length; k += 2) if (o.h[k] >= 0 && o.h[k] < DG * DG) D.h[o.h[k]] = Math.max(.3, Math.min(2, o.h[k + 1] / 100)); return D; } catch (e) { return null; } }
+let dtool = 'bow', drawPts = null, bellI = 0;
+function setShape(name) { dz = newDesign(name, name === 'daily' ? dailyShape(todaySeedC()) : SHAPES[name]()); if (name === 'daily') dz.name = 'plate of ' + todaySeedC(); installDesign(); sprinkle(true); bake(); computeResponse(); renderUI(); }
+function editAtTool(t, px, py) { const was = dtool; dtool = t; editAt(px, py); dtool = was; }
+function editAt(px, py) {
+  const i = Math.floor(px * DG), j = Math.floor(py * DG); if (i < 0 || j < 0 || i >= DG || j >= DG || !dz.mask[j * DG + i]) return;
+  const c = j * DG + i;
+  if (dtool === 'clamp') dz.clamp[c] ^= 1;
+  else if (dtool === 'thin' || dtool === 'thick') for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= DG || jj >= DG) continue; const c2 = jj * DG + ii; if (!dz.mask[c2]) continue; const k = (di || dj) ? .5 : 1; dz.h[c2] = Math.max(.3, Math.min(2, dz.h[c2] * (dtool === 'thin' ? 1 - .12 * k : 1 + .12 * k))); }
+  dz.edits++; FX.sfx(dtool === 'clamp' ? 'press' : 'scrape', 0); installDesign(); bake(); computeResponse(); designGoal();
+}
+function designGoal() {
+  const B = BELLS[bellI], e = bellErr(B), g = bellGrade(B, e), ms = dz.modes || [], f0 = ms[0] ? lamToF(ms[0].lam) : 0, nMu = Object.keys(SAVE.museum).length;
+  $('target').style.display = 'none';
+  $('goal').innerHTML = `<div class="tabs"><select id="shapeSel" aria-label="Plate shape">${Object.keys(SHAPES).concat('daily').map(n => `<option value="${n}" ${dz.name === n || (n === 'daily' && /plate of/.test(dz.name)) ? 'selected' : ''}>${n === 'daily' ? "today's plate" : n}</option>`).join('')}${SHAPES[dz.name] || /plate of/.test(dz.name) ? '' : `<option selected>${dz.name}</option>`}</select>`
+    + `${[['draw', 'draw'], ['bow', 'bow'], ['clamp', 'clamp'], ['thin', 'thin'], ['thick', 'thicken'], ['strike', 'strike']].map(([t, n]) => `<button class="b ${dtool === t ? 'on' : ''}" data-tool="${t}">${n}</button>`).join('')}</div>`
+    + `<div style="margin-top:6px">Notes: ${ms.slice(0, 4).map((m2, k) => `<b>${Math.round(lamToF(m2.lam))}</b>${k ? ` (×${(m2.lam / ms[0].lam).toFixed(3)})` : ''}`).join(' · ')} Hz</div>`
+    + `<div style="margin-top:6px"><b>Commission:</b> ${BELLS.map((b, k) => `<button class="b ${k === bellI ? 'on' : ''}" data-bell="${k}">${b.n} ${SAVE.bells[k] ? '★'.repeat(SAVE.bells[k]) : ''}</button>`).join(' ')}<br>${B.story}<br>off by <b>${e > 5 ? '–' : (e * 100).toFixed(2) + '%'}</b> (★ ≤ ${(B.tol * 100).toFixed(1)}%) · edits ${dz.edits}${g ? ` · <b>${'★'.repeat(g)}</b>` : ''}</div>`
+    + `<div style="margin-top:6px">Figure museum: <b>${nMu}</b> distinct figures found <button class="b" id="shareP">share plate</button></div>`;
+  $('shapeSel').onchange = e => { FX.sfx('click'); if (SHAPES[e.target.value] || e.target.value === 'daily') setShape(e.target.value); };
+  $('goal').querySelectorAll('[data-tool]').forEach(b => b.onclick = () => { dtool = b.dataset.tool; FX.sfx('click'); designGoal(); });
+  $('goal').querySelectorAll('[data-bell]').forEach(b => b.onclick = () => { bellI = +b.dataset.bell; FX.sfx('click'); designGoal(); });
+  $('shareP').onclick = () => { const u = location.href.split('#')[0] + '#plate=' + encodePlate(dz); try { history.replaceState(null, '', '#plate=' + encodePlate(dz)); navigator.clipboard.writeText(u); } catch (e2) {} toast('Plate link copied', '', 2500); };
+  if (g > (SAVE.bells[bellI] || 0)) { SAVE.bells[bellI] = g; persist(); FX.sfx('win'); toast(B.n + ' ' + '★'.repeat(g), 'Strike the plate to hear it.', 3500); }
+}
 
 // ================= state =================
 const obj = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 const SAVE = obj(RH.load('chladni', {})); // tolerate corrupted / hand-edited saves
 // migrate: figures used to be stored as PNG data URLs (~1 MB); now just ids. Target index is per plate.
 SAVE.got = obj(SAVE.got); for (const k in SAVE.got) SAVE.got[k] = 1;
-SAVE.solved = obj(SAVE.solved); SAVE.mode = ['match', 'tune'].includes(SAVE.mode) ? SAVE.mode : 'explore'; SAVE.tune = obj(SAVE.tune);
+SAVE.solved = obj(SAVE.solved); SAVE.mode = ['match', 'tune', 'design'].includes(SAVE.mode) ? SAVE.mode : 'explore'; SAVE.tune = obj(SAVE.tune); SAVE.museum = obj(SAVE.museum); SAVE.bells = obj(SAVE.bells);
 if (typeof SAVE.tgt !== 'object' || !SAVE.tgt || Array.isArray(SAVE.tgt)) SAVE.tgt = { [PLATES[SAVE.plate] ? SAVE.plate : 'square']: +SAVE.tgt || 0 };
 if (!PLATES[SAVE.plate]) delete SAVE.plate;
 const TOTAL = Object.values(PLATES).reduce((a, p) => a + p.modes.length, 0);
 const persist = () => { RH.save('chladni', SAVE); RH.progress('chladni', Object.values(PLATES).reduce((a, p) => a + p.modes.filter(m => SAVE.got[m.id]).length, 0) / TOTAL); };
 persist();
-let plate = PLATES[SAVE.plate] ? SAVE.plate : 'square', freq = sliderToF(300), holdT = 0, holdF = 0, dirty = true;
+let plate = PLATES[SAVE.plate] && SAVE.plate !== 'custom' ? SAVE.plate : 'square', freq = sliderToF(300), holdT = 0, holdF = 0, dirty = true;
 const focus = { k: 0, strength: 0, thr: .16 };
 
 // ================= sand =================
@@ -276,13 +398,14 @@ function computeResponse() {
   U /= cnt; const E = en / ed; focus.thr = E + .3 * (U - E);
 }
 function shake(steps) {
-  const str = .02 + focus.strength * .9, circ = plate === 'circle';
+  const str = .02 + focus.strength * .9, circ = plate === 'circle', cust = plate === 'custom';
   for (let s = 0; s < steps; s++) for (let i = 0; i < NS; i++) {
     const x = sx[i], y = sy[i], gi = Math.min(GRID - 1, x * GRID | 0), gj = Math.min(GRID - 1, y * GRID | 0);
     const jump = AMP[gj * GRID + gi] * str * JK + .0006; // grains on moving metal get thrown; grains on nodal lines sit still
     const nx = x + (Math.random() - .5) * jump, ny = y + (Math.random() - .5) * jump;
     if (nx < 0 || nx > 1 || ny < 0 || ny > 1) continue;
     if (circ) { const dx = nx * 2 - 1, dy = ny * 2 - 1; if (dx * dx + dy * dy >= .97) continue; }
+    if (cust && !maskAt(nx, ny)) continue;
     sx[i] = nx; sy[i] = ny;
   }
 }
@@ -319,7 +442,7 @@ function bake() {
   const s = plateBox.s, h = plate === 'rect' ? s / 2 : s; plPad = 70 * dpr;
   plC.width = Math.ceil(s + plPad * 2); plC.height = Math.ceil(h + plPad * 2);
   plg.setTransform(1, 0, 0, 1, plPad, plPad);
-  const shape = () => { plg.beginPath(); if (plate === 'circle') plg.arc(s / 2, s / 2, s / 2, 0, 7); else plg.roundRect(0, 0, s, h, 4 * dpr); };
+  const shape = () => { plg.beginPath(); if (plate === 'custom' && dz) { for (const P of dz.polys) { P.forEach(([px, py], i) => i ? plg.lineTo(px * s, py * s) : plg.moveTo(px * s, py * s)); plg.closePath(); } } else if (plate === 'circle') plg.arc(s / 2, s / 2, s / 2, 0, 7); else plg.roundRect(0, 0, s, h, 4 * dpr); };
   plg.shadowColor = 'rgba(0,0,0,.75)'; plg.shadowBlur = 40 * dpr; plg.shadowOffsetY = 22 * dpr;
   const gr = plg.createLinearGradient(0, 0, s, h); gr.addColorStop(0, '#5e441c'); gr.addColorStop(.35, '#80602a'); gr.addColorStop(.55, '#6a4d1f'); gr.addColorStop(1, '#3a2810');
   plg.fillStyle = gr; shape(); plg.fill(); plg.shadowColor = 'transparent';
@@ -391,6 +514,10 @@ function draw(now) {
   rasterSand();
   g.imageSmoothingEnabled = true; g.drawImage(sandC, 0, 0, SZ, ph, x + wob, yy, s, h);
   g.globalCompositeOperation = 'lighter'; g.globalAlpha = .35; g.drawImage(glowC, 0, 0, SZ / 4, ph / 4, x + wob, yy, s, h); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+  if (plate === 'custom' && dz) { for (let c = 0; c < DG * DG; c++) { if (!dz.mask[c]) continue; const cx0 = x + wob + (c % DG) / DG * s, cy0 = yy + ((c / DG) | 0) / DG * h, t = dz.h[c] - 1;
+      if (Math.abs(t) > .01) { g.fillStyle = t < 0 ? `rgba(30,18,6,${Math.min(.5, -t)})` : `rgba(255,220,150,${Math.min(.35, t * .6)})`; g.fillRect(cx0, cy0, s / DG + .5, h / DG + .5); }
+      if (dz.clamp[c]) { g.fillStyle = '#1a1612'; g.beginPath(); g.arc(cx0 + s / DG / 2, cy0 + h / DG / 2, s / DG * .45, 0, 7); g.fill(); g.fillStyle = '#9a9da0'; g.beginPath(); g.arc(cx0 + s / DG / 2, cy0 + h / DG / 2, s / DG * .2, 0, 7); g.fill(); } }
+    if (drawPts && drawPts.length > 1) { g.strokeStyle = 'rgba(255,235,190,.9)'; g.lineWidth = 2 * dpr; g.beginPath(); drawPts.forEach(([px, py], i) => i ? g.lineTo(x + px * s, yy + py * h) : g.moveTo(x + px * s, yy + py * h)); g.stroke(); } }
   if (tuneOn()) { for (let c = 0; c < TG * TG; c++) { const t = 1 - tune.h[c]; if (t <= 0) continue; const cx0 = x + wob + (c % TG) / TG * s, cy0 = yy + ((c / TG) | 0) / TG * h; g.fillStyle = `rgba(30,18,6,${Math.min(.6, t * 1.4)})`; g.fillRect(cx0, cy0, s / TG, h / TG); }
     g.strokeStyle = 'rgba(40,25,8,.35)'; g.lineWidth = dpr; g.beginPath(); for (let k = 1; k < TG; k++) { g.moveTo(x + wob + k / TG * s, yy); g.lineTo(x + wob + k / TG * s, yy + h); g.moveTo(x + wob, yy + k / TG * h); g.lineTo(x + wob + s, yy + k / TG * h); } g.stroke(); }
   drawBow(x + wob, yy, s, h, now);
@@ -477,13 +604,24 @@ function renderUI() {
   const P = PLATES[plate];
   $('story').innerHTML = SAVE.mode === 'explore'
     ? 'In 1787 Ernst Chladni bowed sand-covered metal plates and drew these figures, and Napoleon paid him to explain them. <b>Sweep the frequency.</b> At each <b>resonance</b> the plate sings and the sand runs to the lines that stay still.'
+    : SAVE.mode === 'design' ? 'Your own instrument. Pick or <b>draw</b> a plate, pin it with <b>clamps</b>, <b>thin</b> or <b>thicken</b> it, and the real vibration modes are solved on the spot. Bow it to see each figure in the sand; strike it to hear the chord it makes. Bellmakers and luthiers tune exactly these notes.'
     : SAVE.mode === 'tune' ? 'Violin makers still hold a free plate to the light and tap it, scraping spruce until its Chladni figures ring at the right pitches. Here the plate is brass and the commissions are intervals.'
     : 'Find the figure. Look-alike <b>twins</b> sing almost the same note: keep the pitch and pick one by <b>dragging the bow</b> along the edge (it must move where the bow is) or <b>tapping a finger</b> onto the plate (it must stay still under your finger).';
   $('plates').innerHTML = Object.entries(PLATES).map(([k, p]) => `<button class="b ${k === plate ? 'on' : ''}" data-p="${k}">${p.n}</button>`).join('');
-  $('modes').innerHTML = `<button class="b ${SAVE.mode === 'explore' ? 'on' : ''}" data-m="explore">Collect<span class="lw"> figures</span></button><button class="b ${SAVE.mode === 'match' ? 'on' : ''}" data-m="match">Match<span class="lw"> the figure</span></button><button class="b ${SAVE.mode === 'tune' ? 'on' : ''}" data-m="tune">Tune<span class="lw"> a plate</span></button>`;
+  $('modes').innerHTML = `<button class="b ${SAVE.mode === 'explore' ? 'on' : ''}" data-m="explore">Collect<span class="lw"> figures</span></button><button class="b ${SAVE.mode === 'match' ? 'on' : ''}" data-m="match">Match<span class="lw"> the figure</span></button><button class="b ${SAVE.mode === 'tune' ? 'on' : ''}" data-m="tune">Tune<span class="lw"> a plate</span></button><button class="b ${SAVE.mode === 'design' ? 'on' : ''}" data-m="design">Design<span class="lw"> your own</span></button>`;
   $('plates').querySelectorAll('[data-p]').forEach(b => b.onclick = () => setPlate(b.dataset.p));
   $('modes').querySelectorAll('[data-m]').forEach(b => b.onclick = () => { SAVE.mode = b.dataset.m; holdT = 0; persist(); FX.sfx('click'); renderUI(); });
   const got = P.modes.filter(md => SAVE.got[md.id]).length, t = SAVE.mode === 'match' ? curTarget() : null;
+  $('plates').style.display = SAVE.mode === 'design' ? 'none' : '';
+  if (SAVE.mode === 'design') {
+    if (plate !== 'custom') { if (!dz) { dz = decodePlate(((/plate=([\w+/]+)/.exec(location.hash)) || [])[1] || '') || newDesign('guitar', SHAPES.guitar()); } installDesign(); plate = 'custom'; bow = toEdge(1, .4); finger = null; sprinkle(true); layout(); computeResponse(); }
+    designGoal(); layout();
+    const mu = Object.entries(SAVE.museum).sort((a, b) => b[1][2] - a[1][2]);
+    $('book').innerHTML = `<h4>The figure museum · ${mu.length}<span class="mob" style="float:right">✕</span></h4><div style="font-size:15px;line-height:1.35">${mu.length ? 'Every distinct figure your plates have drawn. Bow and hold a resonance to add one.' : 'Empty so far. Bow a plate and hold a resonance until the sand settles: each new figure goes on display here.'}</div>`
+      + mu.slice(0, 60).map(([k, [d, sh, day]], i) => `<div style="border-top:1px dotted rgba(43,29,16,.3);padding:3px 0;font-size:14px">No. ${mu.length - i} · <b>${d}</b> region${d === 1 ? '' : 's'} · on a ${sh} · ${String(day).slice(6)}/${String(day).slice(4, 6)}</div>`).join('');
+    return;
+  }
+  if (plate === 'custom') { plate = PLATES[SAVE.plate] && SAVE.plate !== 'custom' ? SAVE.plate : 'square'; bow = defaultBow(plate); finger = null; sprinkle(true); layout(); computeResponse(); }
   if (SAVE.mode === 'tune') {
     if (plate !== 'square') { setPlate('square'); return; }
     if (!tune) startTune(0); $('target').style.display = 'none';
@@ -507,18 +645,29 @@ function renderUI() {
 }
 function setPlate(p) { if (!PLATES[p]) return; plate = p; bow = defaultBow(p); finger = null; SAVE.plate = p; holdT = 0; persist(); sprinkle(); FX.sfx('click'); renderUI(); computeResponse(); }
 const plateXY = e => { const { x, y, s } = plateBox, h = plate === 'rect' ? s / 2 : s, yy = plate === 'rect' ? y + s / 4 : y; return [((e.clientX * dpr) - x) / s, ((e.clientY * dpr) - yy) / h]; };
-function edgeDist(px, py) { if (plate === 'circle') return Math.abs(Math.hypot(px - .5, py - .5) - .5); return Math.min(Math.abs(px), Math.abs(1 - px), Math.abs(py), Math.abs(1 - py)) * (px < -.2 || px > 1.2 || py < -.2 || py > 1.2 ? 99 : 1); }
-function toEdge(px, py) { if (plate === 'circle') { const a = Math.atan2(py - .5, px - .5); return { x: .5 + .49 * Math.cos(a), y: .5 + .49 * Math.sin(a) }; }
+function edgeDist(px, py) { if (plate === 'custom') { const inn = maskAt(px, py); for (let r = 1; r <= 3; r++) for (const [dx, dy] of [[r, 0], [-r, 0], [0, r], [0, -r]]) if (!!maskAt(px + dx / DG, py + dy / DG) !== !!inn) return r / DG; return 1; } if (plate === 'circle') return Math.abs(Math.hypot(px - .5, py - .5) - .5); return Math.min(Math.abs(px), Math.abs(1 - px), Math.abs(py), Math.abs(1 - py)) * (px < -.2 || px > 1.2 || py < -.2 || py > 1.2 ? 99 : 1); }
+function toEdge(px, py) { if (plate === 'custom') { let best = null, bd2 = 9; for (let c = 0; c < DG * DG; c++) { if (!dz.mask[c]) continue; const i = c % DG, j = (c / DG) | 0; if ([[1, 0], [-1, 0], [0, 1], [0, -1]].every(([a, b2]) => i + a >= 0 && i + a < DG && j + b2 >= 0 && j + b2 < DG && dz.mask[(j + b2) * DG + i + a])) continue; const x2 = (i + .5) / DG, y2 = (j + .5) / DG, d2 = (x2 - px) ** 2 + (y2 - py) ** 2; if (d2 < bd2) { bd2 = d2; best = { x: x2, y: y2 }; } } return best || bow; } if (plate === 'circle') { const a = Math.atan2(py - .5, px - .5); return { x: .5 + .49 * Math.cos(a), y: .5 + .49 * Math.sin(a) }; }
   px = Math.max(0, Math.min(1, px)); py = Math.max(0, Math.min(1, py)); const d = [px, 1 - px, py, 1 - py], k = d.indexOf(Math.min(...d)); return k === 0 ? { x: 0, y: py } : k === 1 ? { x: 1, y: py } : k === 2 ? { x: px, y: 0 } : { x: px, y: 1 }; }
 let bowDrag = false;
 function setBow(b) { bow = b; dirty = true; holdT = 0; }
 function setFinger(f) { finger = f; dirty = true; holdT = 0; FX.sfx(f ? 'press' : 'lift'); }
+let brushing = false;
 cv.addEventListener('pointerdown', e => {
   const [px, py] = plateXY(e); if (tuneOn()) return scrapeAt(px, py, e);
+  if (plate === 'custom' && SAVE.mode === 'design') {
+    if (dtool === 'draw') { drawPts = [[px, py]]; brushing = true; try { cv.setPointerCapture(e.pointerId); } catch (err) {} return; }
+    if (dtool === 'strike') { if (maskAt(px, py)) strike(px, py); return; }
+    if (dtool !== 'bow') { brushing = true; try { cv.setPointerCapture(e.pointerId); } catch (err) {} editAt(px, py); return; }
+  }
   if (edgeDist(px, py) < .08) { bowDrag = true; cv.setPointerCapture(e.pointerId); setBow(toEdge(px, py)); return; }
   if (px > 0 && px < 1 && py > 0 && py < 1 && insideP(plate, px, py)) { if (finger && Math.hypot(finger.x - px, finger.y - py) < .07) setFinger(null); else setFinger({ x: px, y: py }); }
 });
-cv.addEventListener('pointermove', e => { if (bowDrag) { const [px, py] = plateXY(e); setBow(toEdge(px, py)); } });
+cv.addEventListener('pointermove', e => { if (bowDrag) { const [px, py] = plateXY(e); setBow(toEdge(px, py)); }
+  if (brushing && plate === 'custom') { const [px, py] = plateXY(e); if (dtool === 'draw') { const q = drawPts[drawPts.length - 1]; if (Math.hypot(px - q[0], py - q[1]) > .02) drawPts.push([Math.max(.02, Math.min(.98, px)), Math.max(.02, Math.min(.98, py))]); }
+    else if ((dtool === 'thin' || dtool === 'thick') && Math.random() < .35) editAt(px, py); } });
+addEventListener('pointerup', () => { if (!brushing) return; brushing = false;
+  if (dtool === 'draw' && drawPts && drawPts.length >= 10) { const D = newDesign('your shape', [drawPts]); if (D.mask.reduce((a, v) => a + v, 0) >= 60) { dz = D; installDesign(); sprinkle(true); bake(); computeResponse(); dtool = 'bow'; renderUI(); FX.sfx('place'); } else toast('Too small', 'Draw a bigger outline.', 1600); }
+  drawPts = null; });
 addEventListener('pointerup', () => { bowDrag = false; }); addEventListener('pointercancel', () => { bowDrag = false; });
 // slider input only marks the response dirty: it is recomputed at most once per animation frame
 $('slider').oninput = () => { freq = sliderToF(+$('slider').value); dirty = true; };
@@ -540,6 +689,7 @@ let last = performance.now(), shownF = -1, shownS = -1, raf = 0;
 const HOLD_TOL = .015; let shownL = '';
 function record(md) {
   if (SAVE.mode === 'tune') return;
+  if (SAVE.mode === 'design') { if (md.u && museumAdd(md)) { FX.sfx('chime', Object.keys(SAVE.museum).length); flyToBook(md); toast('New figure for the museum', `${Object.keys(SAVE.museum).length} distinct figures so far. First found by you, on the ${dz.name}.`, 3000); renderUI(); } return; }
   const cx = plateBox.x + plateBox.s / 2, cy = plateBox.y + plateBox.s / 2;
   if (SAVE.mode === 'explore') {
     if (SAVE.got[md.id]) return;
@@ -580,7 +730,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) { can
 $('slider').value = fToSlider(freq);
 bow = defaultBow(plate); sprinkle(true); renderUI(); computeResponse();
 raf = requestAnimationFrame(frame);
-window.__ch = { PLATES, setFreq: f => { freq = f; $('slider').value = fToSlider(f); computeResponse(); }, setPlate, focus: () => focus, SAVE, get plate() { return plate; }, curTarget, targetsOf, EAR_FROM, couple, setBow, setFinger, get bow() { return bow; }, TUNE, startTune, tunedF, tuneErr, kOf, scrapeCell: (c, light) => { tune.light = light; scrapeAt(((c % TG) + .5) / TG, (((c / TG) | 0) + .5) / TG); }, get tune() { return tune; }, tuneGrade, TG, tuneSq, get flights() { return flights; }, get holdT() { return holdT; }, record, HOLD_TOL };
+window.__ch = { PLATES, setFreq: f => { freq = f; $('slider').value = fToSlider(f); computeResponse(); }, setPlate, focus: () => focus, SAVE, get plate() { return plate; }, curTarget, targetsOf, EAR_FROM, solvePlate, newDesign, SHAPES, setShape, get dz() { return dz; }, set dz(v) { dz = v; }, installDesign, editAtTool, get plateBox() { return { x: plateBox.x / dpr, y: plateBox.y / dpr, s: plateBox.s / dpr }; }, bellErr, BELLS, bellGrade, editAt, encodePlate, decodePlate, figureKey, dailyShape, lamToF, DG, couple, setBow, setFinger, get bow() { return bow; }, TUNE, startTune, tunedF, tuneErr, kOf, scrapeCell: (c, light) => { tune.light = light; scrapeAt(((c % TG) + .5) / TG, (((c / TG) | 0) + .5) / TG); }, get tune() { return tune; }, tuneGrade, TG, tuneSq, get flights() { return flights; }, get holdT() { return holdT; }, record, HOLD_TOL };
 </script>
 </body>
 </html>

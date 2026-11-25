@@ -50,6 +50,8 @@
   #rtX{position:absolute;right:2px;top:2px;border:0;background:none;font-size:15px;cursor:pointer;min-width:28px;min-height:28px}
   #fitBtn{position:fixed;right:16px;bottom:190px;z-index:3;border:2px solid var(--ink);background:#fbf7ec;font-size:14px;font-weight:700;letter-spacing:.1em;padding:4px 10px;cursor:pointer;min-height:36px}
   #fitBtn.moved{background:var(--orange);color:#fff}
+  @media (max-width:760px){body.growMode #fitBtn{bottom:118px}body.growMode #tools{flex-wrap:wrap;justify-content:center;width:calc(100vw - 12px);box-sizing:border-box}}
+  @media (max-width:760px),(max-height:520px){#days{margin-top:12px;font-size:12px}#days svg,#adapt{display:none}body.brief #days svg,body.brief #adapt{display:block}#fitBtn{bottom:auto;top:auto;right:8px;bottom:64px}}
   #grade{font:600 13px "Barlow Condensed";letter-spacing:.06em;text-transform:uppercase;color:var(--navy);margin-top:6px}#grade:empty{display:none}
   #next{display:none;margin-top:14px;border:2px solid var(--ink);background:var(--ink);color:#fbf7ec;font-size:16px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 14px;cursor:pointer;box-shadow:3px 3px 0 var(--orange)}
   #next:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--orange)}
@@ -248,7 +250,7 @@ function load(i) {
   const t = $('toast'); clearTimeout(toast.h); t.classList.remove('on'); // a win toast must not linger over the next city
   DAY.n = 0; DAY.since = 0; DAY.hist = []; DAY.t = 0; routesFor = null; $('routes').classList.remove('on'); cam.z = 1; cam.x = cam.y = 0; cam.user = false;
   $('title').textContent = L.n; $('story').innerHTML = L.story; $('toll').style.display = 'none'; $('lvBox').classList.remove('open');
-  document.body.classList.toggle('tollLv', !!L.tools.toll);
+  document.body.classList.toggle('tollLv', !!L.tools.toll); document.body.classList.toggle('growMode', !!L.grow);
   renderUI(); fit();
 }
 const usable = r => (!r.ghost || r.built) && !r.closed;
@@ -503,7 +505,7 @@ function draw(now) {
       g.fillStyle = '#fbf7ec'; g.beginPath(); g.arc(x, y, r + 5, 0, 7); g.fill(); g.strokeStyle = '#1d2733'; g.lineWidth = 2.5; g.stroke();
       g.fillStyle = oc(Math.max(0, j)); g.beginPath(); g.arc(x, y, r - 1, 0, 7); g.fill();
       if (L.grow && P[j] && !P[j].length) { g.strokeStyle = `rgba(200,49,43,${.5 + .5 * Math.sin(now / 150)})`; g.lineWidth = 5; g.beginPath(); g.arc(x, y, r + 11, 0, 7); g.stroke(); } // cut off: connect me
-      g.fillStyle = '#fff'; g.font = '700 14px "Barlow Condensed"'; g.fillText(homes.length > 1 ? 'HOME ' + k : 'HOME', x, y - 6); g.font = '600 12px "Barlow Condensed"'; g.fillText(((L.demand[j]?.n || 0) / 1000) + 'K CARS', x, y + 9);
+      g.fillStyle = '#fff'; g.font = '700 14px "Barlow Condensed"'; g.fillText(homes.length > 1 ? 'HOME ' + k : 'HOME', x, y - 6); g.font = '600 12px "Barlow Condensed"'; { const n = L.demand[j]?.n || 0; g.fillText((n < 1000 ? n : (n / 1000).toFixed(1) + 'K') + ' CARS', x, y + 9); }
     } else { g.fillStyle = '#fbf7ec'; g.strokeStyle = '#1d2733'; g.lineWidth = 3.5; g.beginPath(); g.arc(x, y, 13, 0, 7); g.fill(); g.stroke(); g.fillStyle = '#1d2733'; g.font = '700 15px "Barlow Condensed"'; g.fillText(k, x, y + 1); }
   }
   if (L.grow) { g.setTransform(view.s, 0, 0, view.s, view.ox + sx, view.oy + sy); drawGrowExtras(now); }
@@ -620,7 +622,7 @@ const LETTERS = 'ABCDEFGHKLMNPRSTUVXYZ';
 const roadCost = (a, b, type) => { const [x1, y1] = L.nodes[a], [x2, y2] = L.nodes[b]; return Math.max(1, Math.round(Math.hypot(x2 - x1, y2 - y1) / 110 * RTYPE[type].cost)); };
 function initGrow(seed) {
   GROW.seed = String(seed); GROW.rng = RH.rng('grow:' + GROW.seed); GROW.daily = GROW.seed === todaySeed();
-  Object.assign(GROW, { on: true, month: 0, t: 0, money: 6, meter: 0, over: false, drag: null, jn: 0, hn: 0, wn: 0, log: [] });
+  Object.assign(GROW, { on: true, month: 0, t: 0, money: 6, meter: 0, over: false, drag: null, jn: 0, hn: 0, wn: 0, log: [], speed: 0 }); // the calendar waits for your first road (or ▶)
   const r = GROW.rng, a = r() * Math.PI * 2;
   L.nodes = { W1: [500, 350, 'work'] }; GROW.wn = 1;
   L.roads = []; L.demand = [];
@@ -697,7 +699,7 @@ function buildRoad(a, b, type) {
   const c = roadCost(a, b, type); if (c > GROW.money) return `That ${RTYPE[type].n.toLowerCase()} costs $${c}M; you have $${GROW.money}M.`;
   if (L.roads.filter(q => q.a === a && q.b === b).length >= 2) return 'Two roads there already.';
   if (L.nodes[b][2] === 'work' && L.roads.filter(q => q.b === b).length >= DOOR) return `Downtown ${b} has no room for a ${DOOR + 1}th road in. Join an existing road at a junction instead.`;
-  GROW.money -= c; L.roads.push(mkRoad(a, b, type)); growRebuild(); return null;
+  GROW.money -= c; L.roads.push(mkRoad(a, b, type)); if (!GROW.month && !GROW.speed && !growHeadless) GROW.speed = 1; growRebuild(); return null;
 }
 // joining an existing road: it is split by a new junction at the closest point, and the new road ends there
 function splitRoad(i, p) {
@@ -750,7 +752,7 @@ function growLoop(dt) {
   const bad = avg > GLIMIT, cls = 'target' + (bad ? '' : ' ok'); if (ui.cls !== cls) { ui.cls = cls; $('tgt').className = cls; }
   const unreached = P.filter(ps => !ps.length).length;
   setText('tgt', GROW.over ? `Gridlock after ${GROW.month} months` : `Limit ${GLIMIT} min · gridlock meter ${'●'.repeat(GROW.meter)}${'○'.repeat(3 - GROW.meter)}${unreached ? ` · ${unreached} suburb${unreached > 1 ? 's' : ''} cut off` : ''}`);
-  setText('per', `Month ${GROW.month} · ${population().toLocaleString('en')} commuters · $${GROW.money}M · next month ${Math.max(0, Math.ceil(MONTH_S - GROW.t))} s${GROW.best ? ` · best ${GROW.best} mo` : ''}`);
+  setText('per', `${GROW.speed ? '' : 'PAUSED · '}Month ${GROW.month} · ${population().toLocaleString('en')} commuters · $${GROW.money}M · next month ${Math.max(0, Math.ceil(MONTH_S - GROW.t))} s${GROW.best ? ` · best ${GROW.best} mo` : ''}`);
   const span = GLIMIT * 1.6;
   setStyle('bar', 'width', Math.min(100, avg / span * 100).toFixed(1) + '%'); setStyle('bar', 'background', bad ? '#e0663a' : '#2c8a56'); setStyle('tick', 'left', (GLIMIT / span * 100).toFixed(1) + '%');
 }
