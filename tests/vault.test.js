@@ -223,7 +223,7 @@ module.exports = {
     'alarm vault: when time runs out the intercept and key change, tools stay': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => {
         const X = window.__vault, i = X.V.findIndex(v => v.alarm); X.S.solved[0] = X.S.solved[1] = { stars: 3, time: 0 };
-        X.openVault(i); const before = X.build(i).cipher, st0 = X.workOf(i).stages[0], key = Object.keys(st0.s)[0], t0 = st0.t; st0.s[key] = 7; const left0 = X.alarmLeft(i);
+        X.openVault(i); const pre = X.alarmLeft(i); for (let t = 0; t < 5; t++) X.alarmTick(i); if (X.alarmLeft(i) !== pre) throw new Error('alarm ran before the bench was touched'); X.workOf(i).armed = true; const before = X.build(i).cipher, st0 = X.workOf(i).stages[0], key = Object.keys(st0.s)[0], t0 = st0.t; st0.s[key] = 7; const left0 = X.alarmLeft(i);
         for (let t = 0; t < X.V[i].alarm; t++) X.alarmTick(i);
         return { i, left0, alarm: X.V[i].alarm, changed: X.build(i).cipher !== before, variant: X.S.variant[i], k: X.workOf(i).stages[0].s[key] !== 7, t: X.workOf(i).stages[0].t === t0, left: X.alarmLeft(i), shown: !!document.getElementById('alarm') };
       });
@@ -296,6 +296,26 @@ module.exports = {
       });
       ok(r.naiveFail >= .8, 'naive bots opened late vaults too often: ' + (1 - r.naiveFail));
       ok(r.competent.every(Boolean), 'hint-following policy failed');
+    },
+    'every vault explains its lock, its key and a first step, and only names tools you have there': async ({ page, ok }) => {
+      const bad = await page.evaluate(() => { const X = window.__vault, out = [], names = Object.entries(X.TOOLS).map(([k, t]) => [k, t.name]);
+        X.V.forEach((v, i) => { const av = X.toolsAt(i), text = X.caseCard(i).replace(/<[^>]+>/g, '') + ' ' + [0, 1, 2].map(k => X.hintText(i, k)).join(' ');
+          if (!v.pad && !/Lock:.*Key:.*First step:/.test(text)) out.push(i + ' missing lock/key/first step');
+          if (!v.pad) for (const s of v.steps) { const need = { caesar: 'shift', atbash: 'atbash', affine: 'affine', subst: 'subst', rail: 'rail', col: 'col', rev: 'rev', vig: 'vig' }[s.t]; if (!av.has(need)) out.push(i + ' needs ' + need + ' before it is introduced'); }
+          for (const [k, nm] of names) if (text.includes(nm) && !av.has(k)) out.push(i + ' mentions ' + nm);
+          if (/Probable word slot under the substitution/.test(text) && !av.has('crib')) out.push(i + ' mentions the crib slot early'); });
+        return out; });
+      ok(!bad.length, bad.join('; '));
+    },
+    'Sealed in Rome: the hint word plus the Probable word slot gives the shift, and one carbon opens it': async ({ page, ok }) => {
+      const i = await page.evaluate(() => { const X = window.__vault, i = X.V.findIndex(v => v.n === 'Sealed in Rome'); X.S.solved[0] = X.S.solved[1] = { stars: 3, time: 0 }; X.openVault(i); return i; });
+      const word = await page.evaluate(i => window.__vault.build(i).plain.split(/[^A-Z]+/).filter(w => w.length >= 6)[0], i);
+      await page.fill('[data-kw2]', word);
+      const k = await page.evaluate(i => window.__vault.build(i).keys[0].k, i);
+      ok(await page.locator(`[data-kwres] button:has-text("shift ${k}")`).count() === 1, 'the right shift was not offered');
+      await page.click(`[data-kwres] button:has-text("shift ${k}")`);
+      await page.click('#pullBtn');
+      ok(await page.evaluate(i => !!window.__vault.S.solved[i], i), 'did not open');
     },
     'phone: level list is a drawer behind a labelled button; picking a level closes it': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(500);

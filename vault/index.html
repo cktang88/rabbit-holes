@@ -176,6 +176,8 @@
   .alarm{display:inline-block;font-family:"Stardos Stencil",monospace;color:#fff;background:#7e1811;padding:3px 10px;letter-spacing:.08em;box-shadow:0 2px 0 #3d0905}
   .alarm.hot{animation:alarm .6s infinite alternate}
   @keyframes alarm{to{background:#d93a2c;transform:rotate(-1.5deg)}}
+  .case{margin:8px 0;padding:8px 12px;background:#f6f0de;border:1px solid #8f7647;font-size:14px;line-height:1.45;max-width:760px;box-shadow:0 1px 3px #0003}
+  .case b{font-family:"Stardos Stencil",monospace;font-weight:400;letter-spacing:.04em;color:#7e1811}
   .pw{margin-top:8px;padding:8px;background:#fffbea;border:1px dashed #8f7647}
   .pw .hits button{margin:3px 4px 0 0;font-size:12px;padding:2px 8px;background:linear-gradient(#f4eedb,#ddd2b3);color:var(--ink);border-color:#8f7647;box-shadow:0 1px 0 #0003}
   /* signature: the DECRYPTED stamp */
@@ -530,10 +532,11 @@ function openVault(i) {
   $('center').innerHTML = `
     <div class="row" style="justify-content:space-between;align-items:flex-start">
       <div><div class="dim small">${['I','II','III','IV','V','VI'][v.e]}. ${ERAS[v.e]} · Vault ${i + 1}</div><h2 class="vt">${sv ? '🔓' : '🔒'} ${v.n}</h2></div>
-      <div class="row">${v.alarm && !sv ? `<span class="alarm" id="alarm" title="When this runs out, the message and its key change">⏰ ${Math.floor(alarmLeft(i) / 60)}:${String(alarmLeft(i) % 60).padStart(2, '0')}</span>` : ''}<span class="pill" id="timer">⏱ ${fmtT(w.time)}</span><button id="hintBtn">💡 Hint (${3 - nh} left)</button>${sv ? '<button id="newMsg" title="Same cipher, new message and key">🔁 New intercept</button>' : ''}</div>
+      <div class="row">${v.alarm && !sv ? `<span class="alarm ${w.armed ? 'live' : ''}" id="alarm" title="When this runs out, the message and its key change">⏰ ${Math.floor(alarmLeft(i) / 60)}:${String(alarmLeft(i) % 60).padStart(2, '0')}${w.armed ? '' : ' · starts when you touch the bench'}</span>` : ''}<span class="pill" id="timer">⏱ ${fmtT(w.time)}</span><button id="hintBtn">💡 Hint (${3 - nh} left)</button>${sv ? '<button id="newMsg" title="Same cipher, new message and key">🔁 New intercept</button>' : ''}</div>
     </div>
     ${V.findIndex(x => x.e === v.e) === i ? `<div class="brief">${ERA_BRIEF[v.e]}</div>` : ''}
     <p class="story">${story}</p>
+    ${caseCard(i)}
     <div id="hints">${hintList(i, nh)}</div>
     ${v.pad ? padHTML(i) : benchHTML(i)}
   `;
@@ -545,6 +548,29 @@ function openVault(i) {
   update();
 }
 
+// Every vault answers in plain words: what kind of lock, whether you have its key, what on your bench works on it, the first step.
+const LOCK = { caesar: 'a Caesar shift', atbash: 'Atbash (a mirrored alphabet)', affine: 'an affine cipher', subst: 'a substitution alphabet', rail: 'a rail fence (letters moved, not changed)', col: 'a columnar transposition (letters moved, not changed)', rev: 'a reversal', vig: 'a Vigenère cipher' };
+const KEYS = { caesar: 'a shift between 1 and 25', atbash: 'none at all', affine: 'two numbers, a (12 possibilities) and b (0–25)', subst: 'a whole scrambled alphabet', rail: 'the number of rails', col: 'the number of columns and their order', rev: 'none', vig: 'a keyword' };
+const TOOLFOR = { caesar: 'shift', atbash: 'atbash', affine: 'affine', subst: 'subst', rail: 'rail', col: 'col', rev: 'rev', vig: 'vig' };
+const FIRST = {
+  caesar: 'type a word you expect (THE, or a hint word) into the Probable word slot of the Caesar tool, or turn the wheel until short words read as English',
+  atbash: 'put the Atbash tool on the bench',
+  affine: 'type a word you expect into the Probable word slot of the Affine tool; it finds the a and b that fit',
+  subst: 'open the Frequency tab: the commonest cipher letters are probably E, T, A. Fill those in on the board, then guess short words',
+  rail: 'add the Rail fence tool and try different numbers of rails until words appear',
+  col: 'set the Columns tool to a width that divides the letter count, then swap columns until the rows read as English',
+  rev: 'put the Reverse tool on the bench',
+  vig: 'find the key length (story, Repeats or Periods tab), then line up each column\'s bars with the English outline',
+};
+function caseCard(i) {
+  const v = V[i], av = toolsAt(i);
+  if (v.pad) return `<div class="case"><b>Lock:</b> a one-time pad, used twice. <b>Key:</b> random letters; you will never have it, but two messages under the same pad betray each other. <b>On your desk:</b> the pad grid and crib dragging. <b>First step:</b> type a word you expect (${v.startA ? v.startA : 'THE, WILL, THAT'}) into the crib box and click the result that reads best.</div>`;
+  const steps = v.steps, keyLine = steps.map(s => s.t === 'caesar' && s.k ? `a shift of ${s.k} (the story tells you)` : KEYS[s.t]).join(', then ');
+  const tools = [...new Set(steps.map(s => TOOLFOR[s.t]))].map(t => TOOLS[t].name);
+  const fresh = (v.intro || []).filter(t => TOOLS[t]).map(t => `<b>New tool:</b> ${TOOLS[t].name}, ${TOOLS[t].blurb.toLowerCase()}`);
+  const hard = steps.reduce((a, s) => ['subst', 'vig', 'col', 'affine', 'rail'].includes(s.t) ? s.t : a, steps[0].t);
+  return `<div class="case"><b>Lock:</b> ${steps.map(s => LOCK[s.t]).join(', then ')}. <b>Key:</b> ${keyLine}${steps.some(s => !(s.t === 'caesar' && s.k) && !['atbash', 'rev'].includes(s.t)) ? '; you do not have it, so work it out' : ''}. <b>Tools that work on it:</b> ${tools.join(' and ')}${steps.length > 1 ? ', stacked on the bench (undo the last layer first)' : ''}. ${fresh.join('. ')}${fresh.length ? '. ' : ''}<b>First step:</b> ${steps.length > 1 ? 'peel the easy layer first; then ' : ''}${FIRST[hard]}.${v.carbons ? ` <b>Careful:</b> the output stays hidden; you only see it on the ${v.carbons} carbon copies you pull.` : ''}${v.alarm ? ` <b>Alarm:</b> once you touch the bench you have ${Math.round(v.alarm / 60 * 10) / 10} minutes before the message is re-keyed.` : ''}</div>`;
+}
 function hintText(i, k) {
   const v = V[i], b = build(i);
   if (v.pad) {
@@ -562,7 +588,7 @@ function hintText(i, k) {
   const hard = v.steps.reduce((a, s, j) => (['subst', 'vig', 'col', 'affine', 'rail'].includes(s.t) ? j : a), 0);
   const st = v.steps[hard], kk = b.keys[hard];
   return [
-    `The message contains the word <b>${crib}</b>.`,
+    `The message contains the word <b>${crib}</b>. ` + (v.steps.some(s => s.t === 'caesar' || s.t === 'affine') ? 'Type it into the Probable word slot of your ' + (v.steps.some(s => s.t === 'affine') ? 'Affine' : 'Caesar') + ' tool: it shows the key that turns a stretch of the ciphertext into that word.' : v.steps.some(s => s.t === 'subst') && toolsAt(i).has('crib') ? 'Type it into the Probable word slot under the substitution board.' : v.steps.some(s => s.t === 'subst') ? 'Find a cipher word with the same length and the same repeated letters, and fill its letters in on the board.' : 'When your output shows that word, the setting is right.'),
     (layers.length > 1 ? `Layers, in the order they were applied: ${layers.join(', then ')}. ` : '') + STEP[st.t].hint2(kk),
     STEP[st.t].reveal(kk) + (layers.length > 1 ? ' ' + v.steps.filter((_, j) => j !== hard).map((s, j) => STEP[s.t].reveal(b.keys[v.steps.indexOf(s)])).join(' ') : ''),
   ][k];
@@ -597,6 +623,7 @@ function stageHTML(st, k, n) {
   let body = '';
   if (st.t === 'shift') body = `<div class="ctl"><button data-a="k-">◀</button><span class="big mono" data-v="k">${s.k}</span><button data-a="k+">▶</button><input type="range" min="0" max="25" value="${s.k}" data-r="k"><span class="mono dim" data-v="kmap"></span></div>`;
   else if (st.t === 'affine') body = `<div class="ctl">a <select data-sel="a">${COPR.map(a => `<option ${a === s.a ? 'selected' : ''}>${a}</option>`).join('')}</select> b <button data-a="b-">◀</button><span class="big mono" data-v="b">${s.b}</span><button data-a="b+">▶</button><input type="range" min="0" max="25" value="${s.b}" data-r="b"></div><div class="note">Decrypts with x = a⁻¹·(y − b). a⁻¹ = <span data-v="ainv"></span></div>`;
+  if (st.t === 'shift' || st.t === 'affine') body += `<div class="pw"><label class="row">Probable word <input data-kw2 placeholder="e.g. THE" style="width:150px;text-transform:uppercase" autocomplete="off"></label><div class="hits" data-kwres><span class="note">Type a word you expect in the message. Every place in the ciphertext where one ${st.t === 'shift' ? 'shift' : 'pair a, b'} turns those letters into your word is listed with its key.</span></div></div>`;
   else if (st.t === 'subst') body = `<div class="subgrid" data-sub></div><div class="row" style="margin-top:6px"><button data-a="clr" class="small">Clear all</button><span class="note">Type the plaintext letter under each cipher letter. Red means two cipher letters map to the same letter. Numbers are frequencies (%).</span></div>${toolsAt(cur).has('crib') ? `<div class="pw"><label class="row">Probable word <input data-pw placeholder="e.g. PASSWORD" style="width:170px;text-transform:uppercase" autocomplete="off"></label><div class="hits" data-pwres><span class="note">Guess a word you expect in the message. Long words with repeated letters (BARRELS, ATTENTION) narrow it down fastest.</span></div></div>` : ''}`;
   else if (st.t === 'rail') body = `<div class="ctl">Rails <button data-a="n-">◀</button><span class="big mono" data-v="n">${s.n}</span><button data-a="n+">▶</button></div>`;
   else if (st.t === 'col') body = `<div class="ctl">Columns <button data-a="w-">◀</button><span class="big mono" data-v="w">${s.w || '–'}</span><button data-a="w+">▶</button><span class="note" data-v="colinfo"></span></div><div class="cols" data-cols style="margin-top:8px"></div>`;
@@ -606,6 +633,7 @@ function stageHTML(st, k, n) {
 }
 function wireBench(i) {
   const w = workOf(i);
+  if (V[i].alarm && !w.armed) $('center').addEventListener('input', () => arm8(i), { once: true }), $('stages')?.addEventListener('click', () => arm8(i), { once: true });
   if ($('pullBtn')) $('pullBtn').onclick = () => pullCarbon(i);
   $('addBtn').onclick = () => { const t = $('addSel').value; w.stages.push({ t, s: DEF[t]() }); persist(); openVault(i); };
   document.querySelectorAll('.stage').forEach(el => {
@@ -627,6 +655,12 @@ function wireBench(i) {
     });
     el.querySelectorAll('[data-r]').forEach(rg => rg.oninput = () => { s[rg.dataset.r] = +rg.value; update(); });
     el.querySelectorAll('[data-sel]').forEach(sel => sel.onchange = () => { s[sel.dataset.sel] = +sel.value; update(); });
+    const kw2 = el.querySelector('[data-kw2]');
+    if (kw2) kw2.oninput = () => { const res = el.querySelector('[data-kwres]'), word = letters(kw2.value.toUpperCase()), hits = keyCribs(st.t, runPipeline(i).ins[k], word);
+      if (word.length < 3) { res.innerHTML = '<span class="note">Three letters or more.</span>'; return; }
+      res.innerHTML = hits.length ? hits.map(h => `<button data-key='${JSON.stringify(h.key)}'>${h.seg} → ${word} · ${st.t === 'shift' ? 'shift ' + h.key.k : 'a ' + h.key.a + ', b ' + h.key.b}${h.n > 1 ? ` <span class="dim">×${h.n}</span>` : ''}</button>`).join('') : '<span class="note">No setting of this tool turns any stretch of the ciphertext into that word.</span>';
+      res.querySelectorAll('[data-key]').forEach(bn => bn.onclick = () => { Object.assign(s, JSON.parse(bn.dataset.key)); SND.clack(); arm8(i); update(); });
+    };
     const pw = el.querySelector('[data-pw]');
     if (pw) pw.oninput = () => {
       const res = el.querySelector('[data-pwres]'), word = letters(pw.value.toUpperCase()), hits = probable(runPipeline(i).ins[k], word, s.m);
@@ -643,6 +677,17 @@ function wireBench(i) {
   });
 }
 
+// Probable word for keyed letter-shifting tools: every stretch of ciphertext that one key of the tool turns into the word.
+function arm8(i) { const w = workOf(i); if (V[i].alarm && !w.armed && !S.solved[i]) { w.armed = true; persist(); const el = $('alarm'); if (el) el.classList.add('live'); } }
+function keyCribs(t, text, word) {
+  const L = letters(text), n = word.length, out = new Map();
+  if (n < 3) return [];
+  for (let p = 0; p + n <= L.length; p++) { const seg = L.substr(p, n);
+    if (t === 'shift') { const k = (ix(seg[0]) - ix(word[0]) + 26) % 26; if ([...seg].every((c, j) => (ix(c) - ix(word[j]) + 26) % 26 === k)) { const key = JSON.stringify({ k }); const o = out.get(key) || { seg, key: { k }, n: 0 }; o.n++; out.set(key, o); } }
+    else for (const a of COPR) { const b = ((ix(seg[0]) - a * ix(word[0])) % 26 + 26) % 26; if ([...seg].every((c, j) => (a * ix(word[j]) + b) % 26 === ix(c))) { const key = JSON.stringify({ a, b }); const o = out.get(key) || { seg, key: { a, b }, n: 0 }; o.n++; out.set(key, o); } }
+  }
+  return [...out.values()].sort((x, y) => y.n - x.n).slice(0, 8);
+}
 // Probable-word (pattern word) search: cipher stretches whose repeated-letter pattern matches the guess and which
 // agree with the mapping so far. Returns [[segment, count]], most frequent first.
 function probable(text, word, m) {
@@ -962,7 +1007,7 @@ setInterval(() => {
 // tools stay on the bench but their settings go back to zero.
 function alarmLeft(i) { const v = V[i], w = workOf(i); return v.alarm ? Math.max(0, v.alarm - (w.alarmT || 0)) : null; }
 function alarmTick(i) {
-  const v = V[i]; if (!v.alarm || S.solved[i] || settleT) return;
+  const v = V[i]; if (!v.alarm || S.solved[i] || settleT || !workOf(i).armed) return;
   const w = workOf(i); w.alarmT = (w.alarmT || 0) + 1;
   const left = alarmLeft(i), el = $('alarm');
   if (el) { el.textContent = `⏰ ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; el.classList.toggle('hot', left <= 20); }
@@ -982,7 +1027,7 @@ const help = () => RH.modal(`<h2>🔐 The Vault</h2>
 $('helpBtn').onclick = help;
 if (!S.intro) { S.intro = 1; persist(); help(); }
 openVault(eraOpen(V[cur].e) ? cur : 0);
-window.__vault = { pullCarbon, intelFor, probable, alarmLeft, alarmTick, V, build, S, workOf, openVault, update, APPLY, isOpenNow, findWords, SETTLE_MS, eraOpen, toolsAt, loadState, get cur() { return cur; } };
+window.__vault = { keyCribs, caseCard, hintText, TOOLS, pullCarbon, intelFor, probable, alarmLeft, alarmTick, V, build, S, workOf, openVault, update, APPLY, isOpenNow, findWords, SETTLE_MS, eraOpen, toolsAt, loadState, get cur() { return cur; } };
 
 // phones: level drawer and folding stories
 (() => {
