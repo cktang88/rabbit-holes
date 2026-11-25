@@ -948,14 +948,15 @@ let assay = null, pondP = null, pSel = null, pArm = false, pAcc = 0, pEnded = fa
 const pondSave = () => { const S = obj(SAVE.pond); return { seed: Number.isInteger(S.seed) && S.seed >= 0 ? S.seed : 1, tier: Number.isInteger(S.tier) && S.tier >= 1 && S.tier <= 9 ? S.tier : 1, top: Number.isInteger(S.top) ? FX.clamp(S.top, 1, 9) : 1, best: obj(S.best), f: typeof S.f === 'string' && decGenome(S.f) ? S.f : null }; };
 function pondInit() {
   const h = /#pond=(\d{1,9})-(\d)(?:~([A-Za-z0-9_.-]+))?/.exec(location.hash), S = pondSave();
-  if (h && h[3] && decGenome(h[3])) setLoop(decGenome(h[3]).loop.map(p => p.slice()), true); else if (S.f) setLoop(decGenome(S.f).loop.map(p => p.slice()), true);
+  const G0 = h && h[3] && decGenome(h[3]) || (S.f && decGenome(S.f)); if (G0) { setLoop(G0.loop.map(p => p.slice()), true); fRate = G0.rate; fK = G0.k; }
   openPond(h ? +h[1] : S.seed, h ? +h[2] : S.tier);
 }
 function openPond(seed, tier) {
   pondP = pondOf(seed >>> 0, tier); const S = pondSave(); SAVE.pond = { ...S, seed: seed >>> 0, tier: pondP.tier }; persist();
   assay = null; pSel = null; pArm = false; pEnded = false; renderPondRow(); pondHash(); $('toast').classList.remove('on');
 }
-const founderG = () => mkGenome(loop.length >= 3 ? loop : circLoop(0, 0, 1.15, 24), 9, .1, 200);
+let fRate = 9, fK = .1, fHue = 200; // the founder's stroke rate and reflex: a bred champion passes its own on
+const founderG = () => mkGenome(loop.length >= 3 ? loop : circLoop(0, 0, 1.15, 24), fRate, fK, fHue);
 function pondHash() { try { history.replaceState(null, '', '#pond=' + (pondP.seed >>> 0) + '-' + pondP.tier + '~' + encGenome(founderG())); } catch (e) {} }
 function release() { assay = newAssay(pondP, founderG()); pSel = null; pArm = false; pEnded = false; playing = true; $('play').textContent = '❚❚'; pondHash(); const S = pondSave(); S.f = encGenome(assay.founder); SAVE.pond = { ...S, seed: pondP.seed >>> 0, tier: pondP.tier }; persist(); FX.sfx('place'); renderPondRow(); }
 const NEWS = ['', 'Food patches and nothing else. Swim to them, eat, divide.', 'A current: it washes cells out of the sample downstream. Swim against it.', 'A ciliate guards the food with a feeding current.', 'More grains, a stronger current.', 'The food patches drift about.', 'Two ciliates.', 'Leaner patches; they regrow slowly.', 'Three ciliates and a strong current.', 'Everything at once.'];
@@ -977,7 +978,7 @@ function pondEnd() {
   const lost = A.dead.starve + A.dead.eaten + A.dead.washed, why = lost ? Object.entries({ starved: A.dead.starve, 'were eaten': A.dead.eaten, 'washed out': A.dead.washed }).filter(e => e[1]).map(([k, v]) => `${v} ${k}`).join(', ') : 'none lost';
   toast(n ? `${n} cells ${starStr(st)}` : 'Extinct', `Par ${P.par}. Born ${A.born}, ${why}. ${ch ? `The champion is generation <b>${ch.G.gen}</b>: ${(ch.G.vx).toFixed(2)} BL/s, turning ${(ch.G.w * 180 / Math.PI).toFixed(0)}°/s, costs ${(ch.G.cost * 1000).toFixed(0)} (your founder ${(A.founder.cost * 1000).toFixed(0)}), reflex ${Math.round(ch.G.k * 100)}%. Its stroke is dashed on the pad.` : 'Nothing survived: what killed them is above. Change the stroke and try again.'}`, 60000, false, false, !!st);
   const t = $('toast'); t.insertAdjacentHTML('beforeend', (ch ? '<button class="b on" id="pBreed">Breed from the champion</button>' : '') + `<button class="b" id="pAgain">↺ Again</button>` + (st >= 2 && P.tier < 9 ? '<button class="b on" id="pNext">Next pond ▸</button>' : ''));
-  if ($('pBreed')) $('pBreed').onclick = () => { setLoop(ch.G.loop.map(p => p.slice())); St.drawn = true; t.classList.remove('on'); FX.sfx('place'); flash = ['Founder = the champion. Edit it on the pad, or release it as it is.', performance.now()]; pondHash(); renderPondRow(); };
+  if ($('pBreed')) $('pBreed').onclick = () => { setLoop(ch.G.loop.map(p => p.slice())); fRate = ch.G.rate; fK = ch.G.k; fHue = ch.G.hue; St.drawn = true; t.classList.remove('on'); FX.sfx('place'); flash = ['Founder = the champion. Edit it on the pad, or release it as it is.', performance.now()]; pondHash(); renderPondRow(); };
   $('pAgain').onclick = () => { t.classList.remove('on'); release(); };
   if ($('pNext')) $('pNext').onclick = () => { t.classList.remove('on'); openPond(P.seed + 1, P.tier + 1); };
   renderPondRow();

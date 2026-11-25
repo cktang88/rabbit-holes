@@ -193,7 +193,7 @@ module.exports = {
       await drag(p, pts); await p.waitForTimeout(300);
       const pros = await p.evaluate(() => ({ paths: __lf.D.paths.length, net: __lf.fore && __lf.fore.net, txt: document.getElementById('goals').textContent }));
       ok(pros.paths === 1 && pros.net != null && /Prospectus/.test(pros.txt), 'prospectus after the first drag: ' + JSON.stringify(pros));
-      await p.click('#tOpen'); await p.waitForTimeout(1600);
+      await p.click('#tOpen'); for (let k = 0; k < 8; k++) { await p.waitForTimeout(350); await p.evaluate(() => { const n = document.getElementById('note'); if (n && n.style.display === 'block' && document.getElementById('nOk')) document.getElementById('nOk').click(); }); } // news cards pause the clock: carry on
       const run = await p.evaluate(() => ({ mode: __lf.mode, m: __lf.G.m, cash: __lf.G.cash })); ok(run.mode === 'run' && run.m >= 2, 'months pass in real time: ' + JSON.stringify(run));
       // a branch while running: the estimate card, then Build pays from the bank
       await p.evaluate(() => { __lf.setSpeed(0); document.querySelectorAll('#note').forEach(e => e.style.display = 'none'); });

@@ -83,7 +83,7 @@ module.exports = {
         const X = window.__pz, out = [];
         const H = (i, parts) => { const h = X.simulate(X.LV[i], parts.map(([t, x, y, a = 0, m = 1]) => ({ t, x, y, a, m }))).hits, o = {}; for (const k in h) o[k] = h[k].p; return o; };
         X.LV.forEach((lv, i) => {
-          if (lv.free || lv.crate || lv.job) return;
+          if (lv.free || lv.crate || lv.box) return;
           const atStart = lv.test(H(i, []), {}), sol = SOL[i];
           let solved;
           if (lv.boomBudget) { const h = H(i, sol); solved = h.D2 > .2; } // the bomb level is won by firing; checked below
@@ -290,11 +290,14 @@ module.exports = {
       await page.click('#bf1'); ok(await page.evaluate(() => __pz.bx.shots === 1 && __pz.bx.left === __pz.box.budget - 1), 'Fire 1 spends one photon');
     },
     'sealed boxes, difficulty: a careful prober profits; firing straight through and guessing loses money': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { FX.setMuted(true); const X = __pz; for (let i = 0; i < 4; i++) X.SAVE.done[i] = 1; let rs = 11; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647; Math.random = rnd;
+      const r = await page.evaluate(() => { FX.setMuted(true); const X = __pz; for (let i = 0; i < 4; i++) X.SAVE.done[i] = 1; const rnd = RH.rng(11); Math.random = RH.rng(12);
         const sign = ans => { ans.forEach((a, i) => { document.querySelector(`[data-ci="${i}"]`).value = a.k; document.querySelector(`[data-ca="${i}"]`).value = a.a == null ? '' : a.a; }); const c0 = X.bxSave().cash; document.getElementById('bSign').click(); return X.bxSave().cash - c0; };
-        const careful = (sd, g) => { X.openBox(sd, g); if (!X.parts.some(p => p.t === 'det')) X.addPart('det', 12, 4); X.boxFire(30); const T0 = X.bx.log[Object.keys(X.bx.log)[0]]; const t0 = (T0.clicks.P1 || 0) / T0.shots;
-          const an = X.addPart('pol', 10, 4, 0); for (const a of [0, 45, 90, 135]) { X.setAngle(an, a); X.boxFire(30); } const f = X.cosFit(X.evidence()), r15 = v => Math.round(v / 15) * 15;
-          return sign(g === 1 || t0 < .9 ? [{ k: 'pol', a: r15(f.ph) % 180 }] : [{ k: 'hwp', a: r15(f.ph / 2) % 90 }]); };
+        // careful: transmission with no analyser, an analyser sweep fitted to cos², and (for grade 2) vertical light in: a filter blocks some, a wave plate never absorbs
+        const careful = (sd, g) => { X.openBox(sd, g); if (!X.parts.some(p => p.t === 'det')) X.addPart('det', 12, 4); X.boxFire(40); const T0 = X.bx.log[Object.keys(X.bx.log)[0]], t0 = (T0.clicks.P1 || 0) / T0.shots;
+          const an = X.addPart('pol', 10, 4, 0); for (const a of [0, 45, 90, 135]) { X.setAngle(an, a); X.boxFire(25); } const f = X.cosFit(X.evidence()), r15 = v => ((Math.round(v / 15) * 15) % 180 + 180) % 180;
+          if (g === 1) return sign([{ k: 'pol', a: r15(f.ph) }]);
+          X.parts.splice(X.parts.indexOf(an), 1); const pre = X.addPart('pol', 4, 4, 90); const n0 = X.bx.shots; X.boxFire(20); const tv = Object.values(X.bx.log).slice(-1)[0], v = (tv.clicks.P1 || 0) / tv.shots;
+          return sign(t0 > .7 && v > .7 ? [{ k: 'hwp', a: r15(f.ph / 2) % 90 }] : [{ k: 'pol', a: r15(f.ph) }]); };
         const naive = (sd, g) => { X.openBox(sd, g); if (!X.parts.some(p => p.t === 'det')) X.addPart('det', 12, 4); X.boxFire(20); const k = g === 1 || rnd() < .5 ? 'pol' : 'hwp'; return sign([{ k, a: Math.floor(rnd() * 12) * 15 }]); };
         const o = { care: [], naive: [] }; for (const g of [1, 2]) for (let sd = 40; sd < 48; sd++) { o.care.push(careful(sd, g)); o.naive.push(naive(sd + 100, g)); }
         const sum = a => a.reduce((x, v) => x + v, 0); o.careSum = sum(o.care); o.naiveSum = sum(o.naive); o.carePerfect = o.care.filter(v => v > 60).length; return o; });
@@ -302,18 +305,18 @@ module.exports = {
     },
     'sealed boxes: a live bomb hit by a photon destroys the box; an interferometer can certify it untouched; the shop stocks the drawer': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { FX.setMuted(true); const X = __pz; for (let i = 0; i < 4; i++) X.SAVE.done[i] = 1; const o = {};
-        let s = 5; Math.random = () => (s = (s * 16807) % 2147483647) / 2147483647;
+        Math.random = RH.rng(77);
         // straight through: the first photon on a live bomb ends it
         const live = X.genBox(1, 4).els[0].k === 'live' ? 1 : [2, 3, 4, 5, 6, 7, 8].find(sd => X.genBox(sd, 4).els[0].k === 'live'); X.openBox(live, 4); X.boxFire(5); o.direct = [X.bx.destroyed, X.bx.shots];
         // Elitzur–Vaidman round the box: half mirror at C5 up to C3, mirror at K5 up to K3, mirror C3 across, half mirror K3; detectors right of and above K3
-        let cert = 0, lost = 0; for (let t = 0; t < 12; t++) { X.openBox(live, 4); X.addPart('bs', 2, 4, 0, 0); X.addPart('mirror', 2, 2, 0, 0); X.addPart('mirror', 10, 4, 0, 0); X.addPart('bs', 10, 2, 0, 0); X.addPart('det', 12, 2); X.addPart('det', 10, 0);
+        let cert = 0, lost = 0; for (let t = 0; t < 24; t++) { X.openBox(live, 4); X.addPart('bs', 2, 4, 0, 0); X.addPart('mirror', 2, 2, 0, 0); X.addPart('mirror', 10, 4, 0, 0); X.addPart('bs', 10, 2, 0, 0); X.addPart('det', 12, 2); X.addPart('det', 10, 0);
           const hd = X.simulate({ sources: [{ x: 1, y: 4, d: 0, pol: 0 }], fixed: X.boxParts({ els: [{ k: 'dud' }] }) }, X.parts).hits, dark = ['P1', 'P2'].find(k => !hd[k] || hd[k].p < 1e-9); o.dark = dark;
           while (!X.bx.destroyed && X.bx.left > 0) { X.boxFire(1); if (X.fires[dark]) break; } if (X.bx.destroyed) lost++; else cert++; }
         o.ev = [cert, lost];
         const c0 = X.bxSave().cash; document.getElementById('bShop').click(); const btn = document.querySelector('[data-buy="pol"]'); btn.click(); o.shop = [c0 - X.bxSave().cash, X.bxSave().own.pol, X.LV[12].n];
         o.tray = [...document.querySelectorAll('#tray [data-t]')].map(b => b.dataset.t); return o; });
       eq(r.direct, [true, 1], 'the first photon straight through detonates a live bomb');
-      ok(r.ev[0] >= 3 && r.ev[1] >= 3, 'an interferometer certifies some live bombs untouched (and loses some): ' + r.ev);
+      ok(r.ev[0] >= 4 && r.ev[1] >= 8, 'an interferometer certifies some live bombs untouched (and loses some): ' + r.ev);
       eq(r.shop.slice(0, 2), [30, 2], 'bought a second filter'); ok(r.tray.includes('pol') && !r.tray.includes('bs') || r.tray.length >= 1, 'drawer shows what you own');
     },
     'progress and locked levels': async ({ page, eq, ok }) => {

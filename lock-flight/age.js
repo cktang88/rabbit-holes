@@ -260,7 +260,8 @@ function forecast(G, D2, months = 120) {
   for (let k = 0; k < months && m0 + k < E.YEARS * 12; k++) { const rec = step(F); if (!rec) break; net += rec.rev - rec.run; boats += rec.boats; lostW += rec.lostW; lostC += rec.lostC; for (const f of rec.fill) low = Math.min(low, f); fill = rec.fill; }
   return { net, boats, lostW, lostC, low, fill, an: F.an };
 }
-// ================= the company's engineers (bots; the tests use them) =================
+// ================= the company's engineers
+const B = (G, D2) => act(G, { k: 'build', d: K.enc(D2) }) ? 1 : null; // bots build through act, so their games replay too (bots; the tests use them) =================
 // a branch from place p to the network (or to place q): routed and levelled like the planner does
 function branch(G, from, toCells, v = { al: 1.5, be: .6, lam: 0 }) {
   const M = G.M, tg = new Set(toCells); if (!tg.size || tg.has(from)) return null;
@@ -280,7 +281,7 @@ function bot(G, cfg) {
     let best = null;
     for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) { if (cfg.only && !cfg.only(P[i], P[j])) continue; const D2 = branch(G, P[i].c, [P[j].c], cfg.v); if (!D2) continue; const price = costOf(G, D2); if (price > cash()) continue;
       const val = cfg.look ? forecast(G, D2, 120).net - price * .3 : (G.pot[i][j] + G.pot[j][i]) / price; if (!best || val > best.val) best = { D2, val }; }
-    if (best) build(G, best.D2);
+    if (best) B(G, best.D2);
     return;
   }
   // 2. branches to the most valuable place not yet on the network (rival petitions first)
@@ -292,22 +293,23 @@ function bot(G, cfg) {
       const D2 = branch(G, P[i].c, nc, cfg.v); if (!D2) continue; const price = priceOf(G, D2); if (price > cash()) continue;
       if (cfg.look) { const left = Math.min(120, E.YEARS * 12 - G.m); gain = (forecast(G, D2, left).net - (G.base ?? (G.base = forecast(G, null, left).net))) / price; if (!best || gain > best.v) best = { D2, v: gain }; }
       else if (!best || gain / price > best.v) best = { D2, v: gain / price }; }
-    if (best && best.v > (cfg.look ? 1 : (cfg.minGain || .02))) { build(G, best.D2); G.base = null; } else break;
+    if (best && best.v > (cfg.look ? 1 : (cfg.minGain || .02))) { B(G, best.D2); G.base = null; } else break;
   }
   // 3. care: double jammed locks, dam a stream for a pound that ran dry
   if (cfg.care && G.years.length) {
     const ly = G.years[G.years.length - 1];
-    if (ly.lostC > ly.boats * .08) for (const s of G.an.sites) { const ld = s.routes.reduce((a, ri) => a + G.rf[ri].d, 0); if (ld > s.cap * .9 && !s.dbl) { const D2 = K.clone(G.D); D2.locks[s.key] = { ...(D2.locks[s.key] || {}), dbl: 1 }; if (build(G, D2) == null) break; } }
+    if (ly.lostC > ly.boats * .08) for (const s of G.an.sites) { const ld = s.routes.reduce((a, ri) => a + G.rf[ri].d, 0); if (ld > s.cap * .9 && !s.dbl) { const D2 = K.clone(G.D); D2.locks[s.key] = { ...(D2.locks[s.key] || {}), dbl: 1 }; if (B(G, D2) == null) break; } }
     // the pound that strands the most trade: a dam above it, else back-pumps up to it, else side ponds below it
     const strand = new Map(); G.an.routes.forEach((r, ri) => { for (const pi of r.pounds) if (G.st.S[pi] < .25 * G.an.pounds[pi].cap) strand.set(pi, (strand.get(pi) || 0) + G.rf[ri].d); });
     const worst = [...strand.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2);
     for (const [pi, d] of worst) { if (d < 1) continue; const p = G.an.pounds[pi], rc = K.bestReservoir(G.M, G.an, pi); let D2 = K.clone(G.D);
       if (rc >= 0) D2.res.push(rc); else if (p.up.some(s => !s.pump)) { const s = p.up.find(s => !s.pump); D2.locks[s.key] = { ...(D2.locks[s.key] || {}), pump: 1 }; } else if (p.down.some(s => !s.ponds && s.t !== 'plane')) { for (const s of p.down) if (s.t !== 'plane') D2.locks[s.key] = { ...(D2.locks[s.key] || {}), ponds: 1 }; } else D2 = null;
-      if (D2) build(G, D2); }
+      if (D2) B(G, D2); }
   }
   // 4. tolls
-  if (cfg.toll === 'rail') { G.D.paths.forEach((p, pi) => { const comp = G.an.routes.some((r, ri) => G.rf[ri].rail < 1 && r.cells.some(c => G.cellPath.get(c) === pi)); G.tolls[pi] = comp ? .75 : 1.5; }); routeFactors(G); }
-  else if (cfg.toll != null) { G.D.paths.forEach((p, pi) => G.tolls[pi] = cfg.toll); routeFactors(G); }
+  const T = (pi, v) => { if ((G.tolls[pi] ?? 1) !== v) act(G, { k: 'toll', pi, v }); };
+  if (cfg.toll === 'rail') G.D.paths.forEach((p, pi) => { const comp = G.an.routes.some((r, ri) => G.rf[ri].rail < 1 && r.cells.some(c => G.cellPath.get(c) === pi)); T(pi, comp ? .75 : 1.5); });
+  else if (cfg.toll != null) G.D.paths.forEach((p, pi) => T(pi, cfg.toll));
 }
 const STRATS = {
   adaptive: { branches: 2, care: 1, toll: 'rail', reserve: 10, look: 1 },
@@ -323,14 +325,14 @@ function play(seed, cfg, opt = {}) {
   return G;
 }
 // "draw the shortest line between the towns and wait"
-function naive(G) { if (G.m === 0) { const D2 = K.naiveDesign({ ...G.M, towns: G.places.filter(p => p.type === 'town') }); if (build(G, D2) == null) { const D3 = K.newDesign(); const t = G.places.filter(p => p.type === 'town'); K.addPath(G.M, D3, [t[0].c, ...K.lineCells(t[0].c, t[1].c)]); build(G, D3); } } }
+function naive(G) { if (G.m === 0) { const D2 = K.naiveDesign({ ...G.M, towns: G.places.filter(p => p.type === 'town') }); if (B(G, D2) == null) { const D3 = K.newDesign(); const t = G.places.filter(p => p.type === 'town'); K.addPath(G.M, D3, [t[0].c, ...K.lineCells(t[0].c, t[1].c)]); B(G, D3); } } }
 // the best canal the planner can design on day one, then nothing
 function staticBest(G) {
   if (G.m !== 0) return; const M2 = { ...G.M, towns: G.places.map(p => ({ c: p.c, p: 3, req: false, name: p.name })) };
   const t = K.townTree(M2); let D = K.newDesign();
   for (const [a, b] of t) { const g2 = { ...G, D }; const D2 = branch(g2, G.places[b].c, [G.places[a].c, ...netCells(g2)]); if (!D2) continue; if (costOf(G, D2) > G.cash - 5) break; D = D2; }
-  if (D.paths.length) build(G, D);
-  for (let k = 0; k < 2; k++) { const an = K.analyse(G.M, K.clone(G.D)); if (!an.pounds.length) break; const rc = K.bestReservoir(G.M, an, an.order[0]); if (rc < 0) break; const D2 = K.clone(G.D); D2.res.push(rc); if (build(G, D2) == null) break; }
+  if (D.paths.length) B(G, D);
+  for (let k = 0; k < 2; k++) { const an = K.analyse(G.M, K.clone(G.D)); if (!an.pounds.length) break; const rc = K.bestReservoir(G.M, an, an.order[0]); if (rc < 0) break; const D2 = K.clone(G.D); D2.res.push(rc); if (B(G, D2) == null) break; }
 }
 // the surveyor's hint for a first canal: the pair of places whose canal would pay best over ten years
 function firstHint(G) { let best = null; const P = G.places;

@@ -206,76 +206,63 @@ module.exports = {
         ev('pointerdown', 20, 20); ev('pointermove', 60, 20); ev('pointercancel', 60, 20); ev('pointermove', 60, 80); ev('pointerup', 60, 80); });
       eq(await page.evaluate(() => __lr.St().drawn), false, 'a cancelled touch still drew a loop');
     },
-    'swim: dishes are deterministic per seed, the reference swimmer reaches every one, and they get bigger': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(() => { const X = __lr, o = { det: true, solved: 0, n: 0, fallback: 0, size: {} };
-        for (const rung of [1, 3, 5, 7, 9]) for (const seed of [11, 12, 13]) { const a = X.swimDish(seed, rung), b = X.swimDish(seed, rung); if (JSON.stringify(a) !== JSON.stringify(b)) o.det = false;
-          o.n++; if (a.tries == null) o.fallback++; if (X.swimBot(a).reached) o.solved++; (o.size[rung] ||= []).push(Math.hypot(...a.target)); }
-        o.differ = JSON.stringify(X.swimDish(11, 3)) !== JSON.stringify(X.swimDish(12, 3)); return o; });
-      ok(r.det && r.differ, 'same seed, same dish; different seeds differ');
-      eq(r.solved, r.n, 'the reference swimmer reaches every dish'); eq(r.fallback, 0, 'no dish fell back to the plain one');
-      const avg = k => r.size[k].reduce((a, v) => a + v, 0) / r.size[k].length; ok(avg(9) > avg(1) * 1.6, 'later dishes are further: ' + avg(1) + ' → ' + avg(9));
+    'pond: a seed always makes the same pond and the same assay; a genome\'s gait is its stroke under the Stokes solver': async ({ page, ok, eq, near }) => {
+      const r = await page.evaluate(() => { const Q = __lr.pond, C = __lr.circLoop, P1 = Q.pondOf(4242, 3), P2 = Q.makePond(P1.seed, 3), P3 = Q.makePond(4243, 3);
+        const g = Q.mkGenome(C(.2, .1, 1, 24), 11, .15), A = Q.runAssay(P1, g), B = Q.runAssay(P1, Q.mkGenome(C(.2, .1, 1, 24), 11, .15));
+        const line = Q.mkGenome(Array.from({ length: 12 }, (_, i) => { const t = Math.sin(i / 12 * 6.28) * 1.2; return [t, t]; }));
+        const f = Q.mkGenome(C(0, 0, 1.15, 24), 15), s = Q.mkGenome(C(0, 0, 1.15, 24), 5);
+        return { same: JSON.stringify([P1.patches.map(p => [p.x0, p.y0]), P1.grains]) === JSON.stringify([P2.patches.map(p => [p.x0, p.y0]), P2.grains]), differ: JSON.stringify(P3.grains) !== JSON.stringify(P2.grains),
+          runs: [A.cells.length, A.born, B.cells.length, B.born], step: g.step, line: line.step, fast: [f.vx / s.vx, f.cost / s.cost],
+          enc: Q.encGenome(Q.decGenome(Q.encGenome(g))) === Q.encGenome(g), bad: [Q.decGenome('x'), Q.decGenome('A'.repeat(24) + '.99.99')].map(v => !!v) }; });
+      ok(r.same && r.differ, 'seeded ponds'); eq(r.runs[0], r.runs[2], 'assay replays'); eq(r.runs[1], r.runs[3]);
+      ok(r.step > .1 && r.line < .005, 'a loop swims, a back-and-forth stroke has no step: ' + JSON.stringify(r));
+      near(r.fast[0], 3, .01, 'three times the rate, three times the speed (the step per stroke is geometry)'); near(r.fast[1], 9, .05, 'and nine times the drag power');
+      ok(r.enc, 'genome codes round-trip'); eq(r.bad, [false, true]);
     },
-    'swim, difficulty: back-and-forth and random scribbles never reach the food; steady loops toward it do': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { FX.setMuted(true); const X = __lr; X.SAVE.done[0] = X.SAVE.done[1] = 1; X.load(9); X.playing = false;
-        // drive the pad target like a player would, frame by frame at 60 fps, until won, failed or out of time
-        const play = (seed, rung, policy) => { X.openDish(seed, rung); const D = X.dish, sw = X.sw(); X.live.started = true; let t = 0, rs = seed * 7 + 3; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647;
-          while (!X.won && !X.failed && t < D.limit + 1) { t += 1 / 60; X.live.tgt = policy(t, sw, D, rnd); X.liveStep(1 / 60); } return X.won ? X.live.t : 0; };
-        const recip = (t) => { const u = 1.2 * Math.sin(t * Math.PI * 2 * 2); return [u, u]; };
-        const scribble = (t, sw, D, rnd) => [(rnd() * 2 - 1) * 1.4, (rnd() * 2 - 1) * 1.4];
-        // competent: circle at 1.6 Hz, nudging the centre off-axis to steer towards the food (a player who reads the turn hint)
-        const steer = (t, sw, D) => { let e = Math.atan2(D.target[1] - sw.y, D.target[0] - sw.x) - sw.phi; e = Math.atan2(Math.sin(e), Math.cos(e)); const c = Math.abs(e) > .3 ? (e > 0 ? -.45 : .45) : 0, R = c ? .95 : 1.15, a = t * Math.PI * 2 * 1.6; return [c + R * Math.cos(a), c - R * Math.sin(a)]; };
-        const o = { recip: 0, scribble: 0, steer: 0, n: 0, times: [] };
-        for (const [seed, rung] of [[5, 1], [6, 2], [7, 2], [8, 3]]) { o.n++; if (play(seed, rung, recip)) o.recip++; if (play(seed, rung, scribble)) o.scribble++; const ts = play(seed, rung, steer); if (ts) { o.steer++; o.times.push(+(ts / X.dish.par).toFixed(2)); } }
+    'pond difficulty: naive founders die out; a round stroke meets par; the pipette and breeding from champions beat it': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const Q = __lr.pond; let x = 5; const R = () => (x = x * 16807 % 2147483647) / 2147483647, o = { line: 0, scrib: 0, ref: 0, pip: 0, bred: 0, par: 0, n: 0, refOK: 0 };
+        const pip = A => { if (A.drops && Math.abs(A.t - [40, 70, 100][3 - A.drops]) < .05) { const c = A.cells.reduce((b, c) => !b || c.E > b.E ? c : b, null); if (c) Q.pipetteClone(A, c); } };
+        for (const tier of [1, 2, 3, 4, 5]) for (const sd of [101, 202, 303]) { const P = Q.pondOf(sd, tier); o.n++; o.par += P.par;
+          o.line += Q.runAssay(P, Q.mkGenome(Array.from({ length: 12 }, (_, i) => { const t = Math.sin(i / 12 * 6.28) * 1.2; return [t, t]; }))).cells.length;
+          o.scrib += Q.runAssay(P, Q.mkGenome(Array.from({ length: 12 }, () => [(R() * 2 - 1) * 1.3, (R() * 2 - 1) * 1.3]))).cells.length;
+          const ref = Q.runAssay(P, Q.refGenome()).cells.length; o.ref += ref; if (ref >= P.par) o.refOK++;
+          o.pip += Q.runAssay(P, Q.refGenome(), pip).cells.length;
+          let g = Q.refGenome(), n = 0; for (let k = 0; k < 4; k++) { const A = Q.runAssay(P, g); n = A.cells.length; const ch = Q.champion(A); if (ch) g = Q.mkGenome(ch.G.loop, ch.G.rate, ch.G.k); } o.bred += n; }
         return o; });
-      ok(r.recip === 0 && r.scribble === 0, 'reciprocal or random strokes reached food: ' + JSON.stringify(r));
-      ok(r.steer >= 3, 'steady steering loops reach the food: ' + JSON.stringify(r));
+      ok(r.line === 0, 'a back-and-forth founder can never colonise: ' + JSON.stringify(r)); ok(r.scrib <= r.n, 'random scribbles all but die: ' + JSON.stringify(r));
+      ok(r.refOK === r.n, 'the reference stroke sets (and meets) par in every pond: ' + JSON.stringify(r));
+      ok(r.pip > r.ref * 1.5, 'three well-placed drops of the pipette should pay: ' + JSON.stringify(r)); ok(r.bred > r.ref * 1.1, 'breeding from champions should improve on the founder: ' + JSON.stringify(r));
     },
-    'swim by hand: the pad moves the hinges the same frame; a closed loop reports its swim; back-and-forth reports none; loop it replays': async ({ page, ok, eq }) => {
-      await page.evaluate(() => { FX.setMuted(true); __lr.SAVE.done[0] = __lr.SAVE.done[1] = 1; __lr.load(9); __lr.openDish(31, 1); });
-      const b = await page.locator('#pad').boundingBox(), cx = b.x + b.width / 2, cy = b.y + b.height / 2, R = b.width * .38;
-      await page.mouse.move(cx + R, cy); await page.mouse.down(); await page.waitForTimeout(80);
-      const p0 = await page.evaluate(() => [__lr.sw().t1, __lr.sw().t2, __lr.LIM]); ok(Math.abs(p0[0] - .76 * p0[2]) < .05 && Math.abs(p0[1]) < .05, 'hinges jumped to the finger: ' + p0);
-      for (let k = 1; k <= 3 * 40; k++) { const a = k / 40 * Math.PI * 2; await page.mouse.move(cx + R * Math.cos(a), cy + R * Math.sin(a)); await page.waitForTimeout(12); }
-      await page.mouse.up(); await page.waitForTimeout(50);
-      const L1 = await page.evaluate(() => ({ loops: __lr.live.loops, fwd: __lr.live.last && __lr.live.last.fwd, area: __lr.live.last && __lr.live.last.area, t: __lr.live.t, stat: document.getElementById('stat').textContent }));
-      ok(L1.loops >= 2 && L1.fwd > .08 && Math.abs(L1.area) > 2, 'clockwise loops swim forward: ' + JSON.stringify(L1)); ok(L1.t > 0, 'the clock started with the first stroke'); ok(/last stroke/.test(L1.stat), 'stroke readout');
-      // back and forth along a line: loops close but have no area and no swim
-      await page.mouse.move(cx - R, cy + R); await page.mouse.down(); for (let k = 0; k < 80; k++) { const u = Math.sin(k / 20 * Math.PI * 2); await page.mouse.move(cx + R * u, cy - R * u); await page.waitForTimeout(12); } await page.mouse.up();
-      const L2 = await page.evaluate(() => __lr.live.last); ok(Math.abs(L2.area) < .15 && Math.abs(L2.fwd) < .02, 'reciprocal stroke: ' + JSON.stringify([L2.area, L2.fwd]));
-      // draw one more real loop, then loop it: it keeps swimming with no hands
-      await page.mouse.move(cx + R, cy); await page.mouse.down(); for (let k = 1; k <= 60; k++) { const a = k / 40 * Math.PI * 2; await page.mouse.move(cx + R * Math.cos(a), cy + R * Math.sin(a)); await page.waitForTimeout(12); } await page.mouse.up();
-      eq(await page.evaluate(() => document.getElementById('loopIt').disabled), false); await page.click('#loopIt');
-      const x0 = await page.evaluate(() => [__lr.sw().x, __lr.sw().y]); await page.waitForTimeout(1500); const x1 = await page.evaluate(() => [__lr.sw().x, __lr.sw().y, __lr.live.auto]);
-      ok(x1[2] && Math.hypot(x1[0] - x0[0], x1[1] - x0[1]) > .1, 'loop it keeps swimming: ' + JSON.stringify([x0, x1]));
-      await page.mouse.click(cx, cy); eq(await page.evaluate(() => __lr.live.auto), false, 'touching the stage takes over');
+    'pond UI: release, tap to inspect, pipette clones and feeds (three drops), the report breeds the next founder; links carry the genome; saves stay small': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { __lr.SAVE.done[0] = __lr.SAVE.done[1] = 1; __lr.load(9); __lr.pond.openPond(77, 2); });
+      ok(/Release/.test(await page.textContent('#pRel')), 'release button'); ok(await page.isDisabled('#pPip'), 'no pipette before release');
+      await page.click('#pRel'); await page.click('[data-s="1"]'); await page.evaluate(() => { __lr.playing = false; }); await page.waitForTimeout(200);
+      const tapCell = async () => { const xy = await page.evaluate(() => { const c = __lr.pond.assay.cells[0], v = __lr.toV(c.x, c.y), d = Math.min(devicePixelRatio, 2); return [v[0] / d, v[1] / d]; }); await page.mouse.click(xy[0], xy[1]); };
+      await tapCell(); ok(await page.evaluate(() => !!__lr.pond.sel), 'a tap inspects a cell');
+      const n0 = await page.evaluate(() => __lr.pond.assay.cells.length); await page.click('#pPip'); await tapCell();
+      eq(await page.evaluate(() => [__lr.pond.assay.drops, __lr.pond.arm]), [2, false]); ok(await page.evaluate(() => __lr.pond.assay.cells.length) >= n0 + 5, 'six clones');
+      await page.click('#pPip'); const f = await page.evaluate(() => { const Q = __lr.pond, A = Q.assay, i = 20, j = 2, v = __lr.toV(i + .5, j + .5), d = Math.min(devicePixelRatio, 2); return [v[0] / d, v[1] / d, A.F[j * Q.PW + i]]; });
+      await page.mouse.click(f[0], f[1]); ok(await page.evaluate(() => __lr.pond.assay.F[2 * __lr.pond.PW + 20]) > f[2] + .5, 'a drop of food where you tap');
+      await page.evaluate(() => { const A = __lr.pond.assay; while (!A.done) __lr.pond.pondTick(A); __lr.playing = true; }); await page.waitForTimeout(400);
+      ok(await page.evaluate(() => document.getElementById('toast').classList.contains('on')), 'the report');
+      if (await page.$('#pBreed')) { const ch = await page.evaluate(() => __lr.pond.encGenome(__lr.pond.sel.G).split('.')[0]); await page.click('#pBreed'); eq(await page.evaluate(() => __lr.pond.encGenome(__lr.pond.mkGenome(__lr.loop)).split('.')[0]), ch, 'the champion is the new founder'); }
+      const url = await page.evaluate(() => location.href); ok(/#pond=\d+-2~[A-Za-z0-9_-]{24}\.\d+\.\d+/.test(url), 'link: ' + url);
+      const p2 = await page.context().newPage(); await p2.goto(url); await p2.waitForFunction(() => window.__lr && __lr.pond.P);
+      eq(await p2.evaluate(() => [__lr.level.n, __lr.pond.P.tier, __lr.pond.encGenome(__lr.pond.mkGenome(__lr.loop)).split('.')[0]]), ['The Pond', 2, url.split('~')[1].split('.')[0]]); await p2.close();
+      ok(await page.evaluate(() => localStorage.getItem('rh:lowre').length) < 3000, 'small save');
     },
-    'swim: thumbs drive one hinge each; a shared dish link opens that dish; saves stay small': async ({ page, ok, eq }) => {
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.evaluate(() => { __lr.SAVE.done[0] = __lr.SAVE.done[1] = 1; __lr.load(9); __lr.openDish(77, 2); });
-      const tl = await page.locator('#thumbL').boundingBox(), tr = await page.locator('#thumbR').boundingBox(); ok(tl && tr && tl.height > 100, 'thumb tracks shown on a phone');
-      await page.mouse.move(tl.x + tl.width / 2, tl.y + tl.height * .1); await page.mouse.down(); await page.waitForTimeout(60);
-      const a = await page.evaluate(() => [__lr.sw().t1, __lr.sw().t2]); await page.mouse.up(); ok(a[0] > 1 && Math.abs(a[1]) < .05, 'left thumb is the back hinge: ' + a);
-      await page.mouse.move(tr.x + tr.width / 2, tr.y + tr.height * .9); await page.mouse.down(); await page.waitForTimeout(60);
-      const c = await page.evaluate(() => [__lr.sw().t1, __lr.sw().t2]); await page.mouse.up(); ok(c[1] < -1 && c[0] > 1, 'right thumb is the front hinge: ' + c);
-      const url = await page.evaluate(() => location.href); ok(/#swim=77-2/.test(url), 'dish in the URL: ' + url);
-      const p2 = await page.context().newPage(); await p2.goto(url.replace('77-2', '78-3')); await p2.waitForTimeout(500);
-      eq(await p2.evaluate(() => [__lr.level.n, __lr.dish.seed, __lr.dish.rung]), ['Swim', 78, 3], 'a shared link opens that dish'); await p2.close();
-      ok((await page.evaluate(() => localStorage.getItem('rh:lowre'))).length < 1500, 'compact save');
-      await page.setViewportSize({ width: 1280, height: 800 });
-    },
-    'pan and zoom: the field zooms around the pointer, drags pan, the pad still steers, Fit restores': async ({ page, ok, eq, near }) => {
-      await page.evaluate(() => { __lr.SAVE.done[0] = __lr.SAVE.done[1] = 1; __lr.load(9); __lr.openDish(31, 1); });
-      const s0 = await page.evaluate(() => __lr.toV(__lr.sw().x, __lr.sw().y).map(v => v / Math.min(devicePixelRatio, 2)));
-      await page.mouse.move(s0[0], s0[1]); await page.mouse.wheel(0, -300); await page.waitForTimeout(80);
-      const s1 = await page.evaluate(() => [__lr.toV(__lr.sw().x, __lr.sw().y).map(v => v / Math.min(devicePixelRatio, 2)), __lr.pz.k]);
-      ok(s1[1] > 1.3, 'zoomed in ' + s1[1]); near(s1[0][0], s0[0], 3); near(s1[0][1], s0[1], 3);
+    'pan and zoom: the pond zooms round the pointer, drags pan, a pinch does nothing else, a tap while zoomed picks the cell under it, Fit restores': async ({ page, ok, eq, near }) => {
+      await page.evaluate(() => { __lr.SAVE.done[0] = __lr.SAVE.done[1] = 1; __lr.load(9); __lr.pond.openPond(31, 1); __lr.pond.release(); __lr.playing = false; });
+      await page.waitForTimeout(100);
+      const d = await page.evaluate(() => Math.min(devicePixelRatio, 2)), at = () => page.evaluate(d => { const c = __lr.pond.assay.cells[3]; return __lr.toV(c.x, c.y).map(v => v / d); }, d);
+      const s0 = await at(); await page.mouse.move(s0[0], s0[1]); await page.mouse.wheel(0, -300); await page.waitForTimeout(80);
+      const s1 = await at(); ok(await page.evaluate(() => __lr.pz.k) > 1.3, 'zoomed'); near(s1[0], s0[0], 3); near(s1[1], s0[1], 3);
+      await page.mouse.click(s1[0], s1[1]); ok(await page.evaluate(() => __lr.pond.sel === __lr.pond.assay.cells[3]), 'a tap while zoomed picks the cell under it');
       const x0 = await page.evaluate(() => __lr.pz.x); await page.mouse.move(640, 600); await page.mouse.down(); await page.mouse.move(700, 600, { steps: 5 }); await page.mouse.up();
       near(await page.evaluate(() => __lr.pz.x) - x0, 60, 2, 'drag pans');
-      const b = await page.locator('#pad').boundingBox(); await page.mouse.click(b.x + b.width * .8, b.y + b.height / 2); ok(await page.evaluate(() => __lr.live.tgt[0] > .5), 'the pad still steers while zoomed');
-      // a pinch on the field changes the zoom and touches nothing else
-      const r = await page.evaluate(() => { const el = document.getElementById('cv'), k = __lr.pz.k, t = __lr.live.tgt.slice(); const ev = (ty, id, x, y) => el.dispatchEvent(new PointerEvent(ty, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch' }));
-        ev('pointerdown', 1, 500, 400); ev('pointerdown', 2, 560, 400); ev('pointermove', 1, 470, 400); ev('pointermove', 2, 590, 400); ev('pointerup', 1, 470, 400); ev('pointerup', 2, 590, 400); return [__lr.pz.k / k, JSON.stringify(t) === JSON.stringify(__lr.live.tgt)]; });
-      ok(r[0] > 1.5 && r[1], 'pinch zoomed and steered nothing: ' + r);
+      const r = await page.evaluate(() => { const el = document.getElementById('cv'), k = __lr.pz.k, n = __lr.pond.assay.cells.length, sel = __lr.pond.sel; const ev = (ty, id, x, y) => el.dispatchEvent(new PointerEvent(ty, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch' }));
+        ev('pointerdown', 1, 500, 400); ev('pointerdown', 2, 560, 400); ev('pointermove', 1, 470, 400); ev('pointermove', 2, 590, 400); ev('pointerup', 1, 470, 400); ev('pointerup', 2, 590, 400); return [__lr.pz.k / k, __lr.pond.assay.cells.length === n && __lr.pond.sel === sel]; });
+      ok(r[0] > 1.5 && r[1], 'pinch zoomed and did nothing else: ' + r);
       await page.click('.pz-fit'); await page.waitForTimeout(450); eq(await page.evaluate(() => [__lr.pz.k, __lr.pz.x, __lr.pz.y]), [1, 0, 0]);
     },
     'no overflow or console errors at phone and desktop sizes': async ({ page, ok }) => {
