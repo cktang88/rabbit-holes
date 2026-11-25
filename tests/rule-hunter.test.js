@@ -1,4 +1,4 @@
-// Rule Hunter: CA stepping, object separation, classifier on known Life patterns, naming/speeds, scanning, bounties, saves, UI.
+// Rule Hunter: Lawmaker (change the laws until a seed obeys), CA stepping, object separation, classifier on known Life patterns, naming/speeds, scanning, bounties, saves, UI.
 const P = (t) => t.split('\n').flatMap((r, y) => [...r].map((c, x) => c === 'O' ? [x, y] : null).filter(Boolean));
 const PAT = {
   block: [[0, 0], [1, 0], [0, 1], [1, 1]],
@@ -25,6 +25,34 @@ const noBet = (page) => page.evaluate(() => { if (__rh.mode !== 'dish') { __rh.s
 module.exports = {
   page: 'rule-hunter/index.html',
   tests: {
+    'lawmaker: the first law is playable at once (no text to read): a seed, its ghost, the switches; one flip obeys': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => ({ mode: __rh.mode, modal: !!document.querySelector('.modal'), id: __rh.LM.pz.id, bits: document.querySelectorAll('#lwBits button').length, title: document.getElementById('lwTitle').textContent }));
+      eq(r.mode, 'law'); eq(r.modal, false, 'no intro screen'); eq(r.id, 'blink'); eq(r.bits, 18); ok(/beat in 2/.test(r.title), r.title);
+      await page.waitForTimeout(400); const ink = await page.evaluate(() => { const c = document.getElementById('lwGhost'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) n += d[i] > 0; return n; }); ok(ink > 100, 'the ghost shows the wanted behaviour');
+      await page.waitForTimeout(6500); ok(await page.isVisible('#lwBits button.hint'), 'after a few idle seconds the obvious switch glows');
+      await page.click('#lwBits button[data-k="s"][data-i="2"]'); await page.waitForTimeout(200);
+      const s = await page.evaluate(() => ({ res: document.getElementById('lwRes').textContent, best: __rh.S.law.blink, next: !document.getElementById('lwNext').hidden }));
+      ok(/Obeyed, at par/.test(s.res), s.res); eq(s.best.f, 1); eq(s.best.l, 3); ok(s.next, 'next law');
+      await page.click('#lwNext'); eq(await page.evaluate(() => __rh.LM.pz.id), 'hold');
+      await page.click('#lwBits button[data-k="s"][data-i="0"]'); ok(/Not yet: /.test(await page.textContent('#lwRes')), 'says what the seed did instead');
+    },
+    'lawmaker: every law is solvable at par by its ghost rule, and no rule fewer switches away obeys': async ({ page, ok }) => {
+      const r = await page.evaluate(() => __rh.PZ.map(pz => { const g = LAW.parse(pz.ghost), c = LAW.check(pz, g); const tight = pz.par <= 2 ? LAW.search(pz, pz.par - 1).length === 0 : true; return [pz.id, !!c && c.flips === pz.par, tight, !LAW.check(pz, LAW.parse(pz.start))]; }));
+      ok(r.length >= 16, r.length + ' laws'); for (const [id, a, b, c] of r) { ok(a, id + ' ghost obeys at par'); ok(b, id + ' par is the minimum'); ok(c, id + ' the start does not already obey'); }
+    },
+    'lawmaker: the axes pull against each other (fewest switches, fewest laws, fastest are often different rules)': async ({ page, ok }) => {
+      const r = await page.evaluate(() => __rh.PZ.filter(p => p.par <= 2).map(pz => { const sols = LAW.search(pz, pz.par + 1); const minF = Math.min(...sols.map(s => s.flips)), minL = Math.min(...sols.map(s => s.laws)), minG = Math.min(...sols.map(s => s.gen));
+        const all3 = sols.some(s => s.flips === minF && s.laws === minL && (pz.target === 'box' || s.gen === minG)); return [pz.id, !all3]; }));
+      const n = r.filter(x => x[1]).length; ok(n >= r.length / 2, `${n} of ${r.length} laws have no single best solution: ` + JSON.stringify(r));
+    },
+    "lawmaker: today's law is the same for everyone, solvable at par 2, and the dish unlocks after three laws": async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const a = LAW.daily('2026-03-03'), b = LAW.daily('2026-03-03'); return { same: JSON.stringify(a) === JSON.stringify(b), par: a.par, ok: !!LAW.check(a, LAW.parse(a.ghost)) }; });
+      ok(r.same); eq(r.par, 2); ok(r.ok);
+      ok(await page.isHidden('#lwDish'), 'the dish waits'); await page.evaluate(() => { for (const id of ['blink', 'hold', 'fly']) __rh.S.law[id] = { f: 1, l: 3, g: 1 }; __rh.openLaw(__rh.PZ[3]); });
+      await page.evaluate(() => { const pz = __rh.LM.pz; const g = LAW.parse(pz.ghost); for (const k of ['b', 's']) for (let i = 0; i < 9; i++) if (((g[k] ^ __rh.LM.rule[k]) >> i) & 1) document.querySelector(`#lwBits button[data-k="${k}"][data-i="${i}"]`).click(); });
+      ok(await page.isVisible('#lwDish'), 'the dish opens after three laws'); await page.click('#lwAll'); await page.waitForTimeout(300); ok((await page.locator('#p-laws .pz').count()) >= 17);
+      const p2 = await page.context().newPage(); await p2.goto(page.url().split('#')[0] + '#law=tick3'); await p2.waitForTimeout(500); eq(await p2.evaluate(() => __rh.LM.pz.id), 'tick3', 'a law link opens that law'); await p2.close();
+    },
     'parseRule / ruleStr round-trip; B0 is stripped; bad text rejected': async ({ page, eq }) => {
       const r = await page.evaluate(() => { const R = __rh; let bad = 0; for (let b = 0; b < 512; b += 2) for (let s = 0; s < 512; s += 37) { const x = R.parseRule(R.ruleStr({ b, s })); if (x.b !== b || x.s !== s) bad++; }
         return { bad, b0: R.parseRule('B03/S23'), compact: R.parseRule('b3s23'), sp: R.parseRule(' B 3 / S 2 3 '), junk: [R.parseRule('B9/S1'), R.parseRule('hello'), R.parseRule(''), R.parseRule('3/23')] }; });

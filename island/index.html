@@ -151,6 +151,7 @@ const validAct = (a) => Array.isArray(a) && a.length === 4 && Number.isInteger(a
 const validRun = (r) => isObj(r) && typeof r.c === 'string' && Array.isArray(r.a) && r.a.length < 400 && r.a.every(validAct) && Number.isInteger(r.t) && r.t >= 0 && r.t < 300 * TPY;
 const validCamp = (c) => isObj(c) && typeof c.seed === 'string' && c.seed.length < 40 && isObj(c.snap) && c.snap.v === 1 && Array.isArray(c.a) && c.a.length < 400 && c.a.every(validAct) && Number.isInteger(c.t) && c.t >= 0;
 if (!validRun(M.run)) delete M.run; if (!validCamp(M.camp)) delete M.camp;
+if (M.camp && !(Array.isArray(M.camp.moves) && M.camp.moves.every(m => Array.isArray(m) && Number.isInteger(m[0]) && typeof m[1] === 'string' && I.validId(m[1])))) M.camp.moves = [];
 const chDone = () => M.camp && M.camp.snap && M.camp.snap.camp ? M.camp.snap.camp.ch : 0;
 const persist = () => { RH.save('island', M); RH.progress('island', Math.min(1, (Object.keys(M.best).length + Object.keys(M.codex).length / 4) / (I.CH.length - 1 + I.CODEX.length / 4))); };
 const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
@@ -172,7 +173,7 @@ function beginCamp(seed) { reset(); MODE = 'camp'; C = null; let w = null; const
   if (!w) { w = I.newCampaign(seed); M.camp = { seed, snap: I.snapshot(w), a: [], t: w.t }; }
   W = w; M.lastMode = 'camp'; M.camp.a = W.actions; lastYear = Math.floor(W.t / TPY); mergeCodex(); persist(); started(!W.actions.length);
   if (location.hash && !/^#camp=/.test(location.hash)) history.replaceState(null, '', location.pathname); }
-function rewind() { if (MODE !== 'camp') return; reset(); W = I.restore(M.camp.snap); M.camp.a = W.actions; M.camp.t = W.t; lastYear = Math.floor(W.t / TPY); persist(); started(true); say('Back to the start of the chapter, year ' + lastYear); }
+function rewind() { if (MODE !== 'camp') return; reset(); W = I.restore(M.camp.snap); M.camp.moves = (M.camp.moves || []).filter(m => m[0] < W.t); M.camp.a = W.actions; M.camp.t = W.t; lastYear = Math.floor(W.t / TPY); persist(); started(true); say('Back to the start of the chapter, year ' + lastYear); }
 function newIsland(seed) { M.camp = null; beginCamp(seed); }
 function started(wait) { running = true; waiting = wait; floraDirty = vegDirty = true; buildStatic(); renderCards(); renderBrief(); renderBook(); fitIsland(); syncPlay(); }
 // a one-off island: the daily island, or a free island
@@ -385,7 +386,7 @@ let censusFrame = 0;
 function series(si) { if (MODE === 'camp') return W.years.map(y => y[si]); const H = W.census[si], v = []; for (let i = 0; i < H.length; i += TPY) v.push(H[i]); return v; }
 const seriesX = (k) => MODE === 'camp' ? W.years.map(y => y[k]) : W.riverHist.filter((_, i) => i % TPY === 0);
 // your moves, as marks on the timeline: [year, sprite]
-function marks() { const a = MODE === 'camp' ? M.camp.a : W.actions; return a.map(([t, id]) => [t / TPY, I.TOOLS[id] ? TOOLSPR[id] : id[0] === '-' ? 'trap' : id]); }
+function marks() { const a = MODE === 'camp' ? (M.camp.moves || []) : W.actions; return a.map(([t, id]) => [t / TPY, I.TOOLS[id] ? TOOLSPR[id] : id[0] === '-' ? 'trap' : id]); }
 function drawCensus() { if (++censusFrame % 10) return; const c = document.getElementById('census'); if (!c.offsetWidth) return; const g = c.getContext('2d'), w = c.width, h = c.height; g.clearRect(0, 0, w, h);
   const now = W.t / TPY, span = 15, y0 = Math.max(0, now - span), X = (y) => 3 + (y - y0) / span * (w - 6);
   g.fillStyle = '#4a3a28'; g.font = '700 13px Caveat'; g.fillText('census, 15 yrs', 4, 11);
@@ -403,7 +404,7 @@ function drawBig() { const c = document.getElementById('bigChart'), g = c.getCon
   g.font = '700 12px Caveat'; g.fillStyle = '#4a3a28'; let lastX = -99, row = 0;
   for (const [y, spr] of marks()) { const x = X(y); row = x - lastX < 14 ? (row + 1) % 2 : 0; lastX = x; g.drawImage(sprite(spr), x - 7, 2 + row * 14, 14, 14); g.strokeStyle = 'rgba(74,58,40,.35)'; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(x, 16 + row * 14); g.lineTo(x, h - 18); g.stroke(); g.setLineDash([]); }
   if (MODE === 'camp') for (const [y, t] of W.camp.log) if (/^Fulfilled/.test(t)) { g.fillStyle = '#b5476b'; g.beginPath(); g.arc(X(y), h - 20, 4, 0, 7); g.fill(); }
-  document.getElementById('legend').innerHTML = leg.map(s => `<span><i style="background:${COL[s.id]}"></i>${s.name}</span>`).join('') + (MODE === 'camp' ? ' <span class="dim">icons: your moves this chapter · red dots: chapters fulfilled</span>' : '') || '<span class="dim">No animals yet.</span>';
+  document.getElementById('legend').innerHTML = leg.map(s => `<span><i style="background:${COL[s.id]}"></i>${s.name}</span>`).join('') + (MODE === 'camp' ? ' <span class="dim">icons: your moves · red dots: chapters fulfilled</span>' : '') || '<span class="dim">No animals yet.</span>';
   const p = document.getElementById('plantChart'), q = p.getContext('2d'), pw = p.width, ph = p.height; q.clearRect(0, 0, pw, ph); const pl = [], PX = (i) => 4 + i / span * (pw - 8);
   for (const id of I.PLANTS) { const hh = series(IDX[id]); pl.push(id); q.strokeStyle = COL[id]; q.lineWidth = 2; q.beginPath(); hh.forEach((v, i) => { const y = ph - 4 - Math.min(1, v / .5) * (ph - 10); i ? q.lineTo(PX(i), y) : q.moveTo(PX(i), y); }); q.stroke(); }
   q.strokeStyle = '#3f7fb0'; q.setLineDash([4, 3]); q.beginPath(); seriesX(13).forEach((v, i) => { const y = ph - 4 - Math.min(1, v / .5) * (ph - 10); i ? q.lineTo(PX(i), y) : q.moveTo(PX(i), y); }); q.stroke(); q.setLineDash([]);
@@ -497,7 +498,7 @@ function releaseAt(tx, ty) {
   else if (id === '#burn') say('Burned. The ash will feed the soil.');
   else if (id === '#dam') say('Dammed. The ground around will stay wet.');
   else { const s = SP[IDX[id.replace('-', '')]]; say(id[0] === '-' ? `${n} ${s.name.toLowerCase()} trapped` : s.kind === 'animal' ? `${n} ${s.name.toLowerCase()} released` : `${s.name} planted`); }
-  if (MODE === 'camp') { M.camp.a = W.actions; M.camp.t = W.t; } else { M.run.a = W.actions; M.run.t = W.t; if (C.sandbox) setHash(); }
+  if (MODE === 'camp') { M.camp.a = W.actions; M.camp.t = W.t; (M.camp.moves = M.camp.moves || []).push([W.t, id]); if (M.camp.moves.length > 300) M.camp.moves.shift(); } else { M.run.a = W.actions; M.run.t = W.t; if (C.sandbox) setHash(); }
   persist(); if (left() <= 0) sel = null; renderCards(); renderBrief(); return true; }
 let down = null;
 cv.addEventListener('pointerdown', (e) => { userMoved = true; down = { x: e.clientX, y: e.clientY, n: (down && down.n || 0) + 1, multi: !!down }; if (narrow() && bookOpen()) closeBook(); });
