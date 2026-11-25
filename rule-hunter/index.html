@@ -103,12 +103,23 @@
   .modal .modal-actions{background-color:#efe2c2}
   .toast{background:#f9f1dc;color:#3b2a1a;border:1px solid #3b2a1a;border-radius:0;font-family:"IM Fell English",serif;box-shadow:3px 3px 0 rgba(0,0,0,.35)}
   .toast-wrap{bottom:128px}
+  /* the neighbour picker: four rules one switch away, each with a live thumbnail */
+  .nbrs{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:6px 0}
+  .nbrs button{display:flex;align-items:center;gap:8px;padding:5px 6px;text-align:left;min-height:0;font-size:14px;line-height:1.25}
+  .nbrs canvas{width:58px;height:58px;flex:0 0 auto;border-radius:50%;background:#e9c57d;box-shadow:inset 0 0 0 1px #3b2a1a}
+  .nbrs b{font-family:"IM Fell English SC",serif;font-weight:400;letter-spacing:.04em;display:block}
+  .nbrs .fl{font-size:12px;color:#7a6248}
+  #predict .pl{font-size:14px;color:#5a4630;margin:2px 0 6px}
+  #breedBtn{display:none} body.canbreed #breedBtn{display:inline-block}
+  #breedBtn.pulse{animation:bpulse 1.2s ease-in-out 3}
+  @keyframes bpulse{50%{transform:scale(1.08);box-shadow:inset 0 0 0 2px #f6eed8,inset 0 0 0 3px #b9a27a,0 0 0 4px #e0a93b}}
   /* phones: the journal is a sheet that rises from the bottom; the top of the dish stays in view */
   @media (max-width:700px){
     .topbar h1{display:none}
     #sheet{top:auto;left:0;right:0;width:auto;height:66%;border-left:0;border-top:3px double #3b2a1a;box-shadow:0 -8px 24px rgba(0,0,0,.45);transform:translateY(105%)}
     #dock button.primary{padding:4px 22px}
     #log{bottom:68px;font-size:14px}
+    .toast{font-size:14px;padding:6px 10px;max-width:86vw} .toast-wrap{bottom:74px}
   }
   @media (max-height:520px) and (min-width:600px){
     .topbar{padding:3px 10px} .topbar h1{font-size:18px}
@@ -125,11 +136,11 @@
   <div id="agar"></div><canvas id="world" data-play></canvas><div id="lens"></div>
   <div id="behav"></div><div id="log"></div><div id="predict"></div>
   <div id="dock">
-    <span class="dk-play"><button id="playBtn" aria-label="Play or pause">⏸</button><button id="soupBtn">New soup</button><button class="primary" id="scanBtn">Scan</button></span>
+    <span class="dk-play"><button id="playBtn" aria-label="Play or pause">⏸</button><button id="soupBtn">New soup</button><button class="primary" id="scanBtn">Scan</button><button id="breedBtn" title="Cross two rules to make a new one">Breed</button></span>
     <span class="dk-draw"><button id="drawClear">Clear</button><button class="primary" id="testDrawBtn">Test it</button><button id="drawDone">Done</button></span>
   </div>
   <aside id="sheet" aria-label="Field journal">
-    <div class="tabs"><button data-t="rule">Rule</button><button data-t="guide" class="on">Guide</button><button data-t="bounty">Prizes</button><button data-t="map">Map</button><button data-t="lab">Breed</button><button class="x" id="sheetX" aria-label="Close the journal">×</button></div>
+    <div class="tabs"><button data-t="rule">Rule</button><button data-t="lab">Breed</button><button data-t="guide" class="on">Guide</button><button data-t="bounty">Prizes</button><button data-t="map">Map</button><button class="x" id="sheetX" aria-label="Close the journal">×</button></div>
     <div class="pane" id="p-rule">
       <div class="panel" id="ruleInfo"></div>
       <button class="primary" id="trySoup" style="width:100%;margin-top:10px">Try it: a new soup</button>
@@ -137,7 +148,10 @@
       <div class="nbr"><div class="nb3" aria-hidden="true"></div><div>Each cell counts its 8 neighbours. A dead cell is <b>B</b>orn if that count is lit in the B row; a live cell <b>S</b>urvives if it is lit in the S row.</div></div>
       <div class="bits" id="bits"></div>
       <input id="ruleStr" aria-label="Rule">
-      <div class="row"><button id="mutBtn" title="Flip one random switch">Mutate</button><button id="rndBtn">Random</button><button id="lifeBtn">Life</button></div>
+      <div class="tierH">Next door</div>
+      <div class="small dim">Four rules one switch away from this one, running live. λ is the share of switches turned on: low λ dies or freezes, high λ boils.</div>
+      <div class="nbrs" id="nbrs"></div>
+      <div class="row"><button id="nbrMore">Other neighbours</button><button id="rndBtn">Random</button><button id="lifeBtn">Life</button></div>
       <div class="tierH">Experiments</div>
       <div class="row" style="margin-top:4px"><button id="drawBtn">Draw a pattern</button><button id="stepBtn">Step once</button></div>
       <details><summary>The assistant, soup and speed</summary>
@@ -161,7 +175,7 @@
 // ===================== State =====================
 const isObj=(o)=>o&&typeof o==='object'&&!Array.isArray(o);
 let S = RH.load('rh', null); if (!isObj(S)) S = {};
-if (!isObj(S.rule) || !Number.isInteger(S.rule.b) || !Number.isInteger(S.rule.s)) S.rule={b:0b000001000,s:0b000001100};
+if (!isObj(S.rule) || !Number.isInteger(S.rule.b) || !Number.isInteger(S.rule.s)) S.rule={b:0b101001000,s:0b000110100};   // B368/S245: not Life, so the first bet is a real one
 S.rule={b:S.rule.b&0b111111110, s:S.rule.s&0b111111111};
 for (const k of ['species','rules','bounties']) if (!isObj(S[k])) S[k]={};
 for (const [id,sp] of Object.entries(S.species)) if (!isObj(sp) || typeof sp.rule!=='string' || !Array.isArray(sp.phases) || !sp.phases.length || typeof sp.phases[0]!=='string' || !(sp.type in {still:1,osc:1,ship:1,diag:1,knight:1,grower:1})) delete S.species[id];
@@ -178,6 +192,9 @@ if (!Array.isArray(S.shelf)) S.shelf=[]; S.shelf=S.shelf.filter(x=>isObj(x)&&typ
 if (!isObj(S.daily)) S.daily={};
 if (!Number.isFinite(S.scans) || S.scans<0) S.scans=0;
 // Only bounties that still exist count (ids are their text, so an edited bounty must not push the total past 100%)
+// Toasts come one at a time (a scan can win a species, a prize and a commission at once; stacked, they hide the dish)
+const toast=(()=>{ const q=[]; let busy=false; const pump=()=>{ if (!q.length){ busy=false; return; } busy=true; const [m,ms]=q.shift(); const t=q.length? Math.min(ms,2200) : ms; RH.toast(m,t); setTimeout(pump, t+300); };
+  return (m,ms=2600)=>{ if (q.some(x=>x[0]===m)) return; q.push([m,ms]); if (q.length>4) q.splice(0,q.length-4); if (!busy) pump(); }; })();
 const claimed=()=>BOUNTIES.filter(b=>S.bounties[b.id]).length;
 const persist=()=>{ RH.save('rh', S); RH.progress('rule-hunter', claimed()/BOUNTIES.length); };
 const W=160, H=160;
@@ -209,6 +226,8 @@ function soup(seedStr, noBet){
 // Before a rule you have never charted runs, you say what you expect. The soup waits for your bet.
 const CLASSES=['dies','freezes','complex','chaotic','explodes'];
 const bitsOf=(r)=>{ let n=0; for (let i=0;i<9;i++){ n+=(r.b>>i)&1; n+=(r.s>>i)&1; } return n; };
+const lam=(r)=>bitsOf(r)/17;
+const lamHint=(r)=>{ const l=lam(r); return l<.2? 'Few switches: things tend to die or freeze.' : l>.5? 'Many switches: things tend to explode or boil.' : 'The middle band, where complex rules live.'; };
 // Field notes: rules of thumb the player earns by seeing them happen
 const NOTES={
   B1:{t:'B1 rules almost always explode.', d:'With B1, any lone live cell gives birth to all eight of its neighbours. Nothing can stay small.', when:(r)=>(r.b>>1)&1},
@@ -222,7 +241,7 @@ function maybePredict(){
   const el=document.getElementById('predict'); if (!el) return;
   if (auto || S.rules[rkey(S.rule)] || S.noPredict){ el.classList.remove('on'); pending=null; return; }
   pending={rule:{...S.rule}}; running=false; document.getElementById('playBtn').textContent='▶';
-  el.innerHTML=`<div class="pq">What will <b>${ruleStr(S.rule)}</b> do to this soup?</div><div class="pr">${CLASSES.map(c=>`<button data-p="${c}">${c==='complex'?'stay complex':c==='chaotic'?'boil':c==='dies'?'die out':c}</button>`).join('')}</div><button class="pskip" data-p="">Skip the bet</button>`;
+  el.innerHTML=`<div class="pq">What will <b>${ruleStr(S.rule)}</b> do to this soup?</div><div class="pl">λ ${lam(S.rule).toFixed(2)}: ${bitsOf(S.rule)} of 17 switches on. ${lamHint(S.rule)}</div><div class="pr">${CLASSES.map(c=>`<button data-p="${c}">${c==='complex'?'stay complex':c==='chaotic'?'boil':c==='dies'?'die out':c}</button>`).join('')}</div><button class="pskip" data-p="">Skip the bet</button>`;
   el.classList.add('on'); el.querySelectorAll('[data-p]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); predict(b.dataset.p||null); });
 }
 function predict(guess){
@@ -258,7 +277,7 @@ const mod=(a,n)=>((a%n)+n)%n;
 function makeCanvas(w,h){ const c=document.createElement('canvas'); c.width=w; c.height=h; return c; }
 function buildOverlays(){ const m=makeCanvas(32,32), mg=m.getContext('2d'); const gr=mg.createRadialGradient(13,12,2,16,16,15); gr.addColorStop(0,'rgba(0,0,0,.82)'); gr.addColorStop(.75,'#000'); gr.addColorStop(1,'rgba(0,0,0,0)'); mg.fillStyle=gr; mg.beginPath(); mg.arc(16,16,15,0,7); mg.fill(); maskPat=cx.createPattern(m,'repeat'); }
 // The agar and the lens are CSS layers (composited, not repainted): the agar's speckles move with the view.
-const SPECK=(()=>{ const sp=makeCanvas(64,64), sg=sp.getContext('2d'); const r=RH.rng('agar'); for (let i=0;i<46;i++){ sg.fillStyle=`rgba(${90+r.int(40)},${55+r.int(30)},20,${.05+r()*.08})`; sg.beginPath(); sg.arc(r()*64,r()*64,1+r()*3.5,0,7); sg.fill(); } return sp.toDataURL(); })();
+const SPECK=(()=>{ const sp=makeCanvas(64,64), sg=sp.getContext('2d'); const r=RH.rng('agar'); for (let i=0;i<22;i++){ sg.fillStyle=`rgba(${120+r.int(40)},${80+r.int(30)},30,${.02+r()*.035})`; sg.beginPath(); sg.ellipse(r()*64,r()*64,2+r()*6,1.5+r()*4,r()*3,0,7); sg.fill(); } return sp.toDataURL(); })();
 const agarEl=document.getElementById('agar'); agarEl.style.backgroundImage=`url(${SPECK}),radial-gradient(ellipse at 42% 38%,#f6dc9c,#e2b766 55%,#a97a35)`;
 let lastAgar='';
 function layout(){ const r=cv.getBoundingClientRect(); const w=Math.max(100,Math.round(r.width)), h=Math.max(100,Math.round(r.height)), d=Math.min(1,window.devicePixelRatio||1);
@@ -442,9 +461,20 @@ function classifyRule(rule=S.rule){
 }
 
 // ===================== Names =====================
+// The famous Life objects keep their real names, wherever they turn up; everything else gets a Latin binomial.
+const CLASSIC={};
+function buildClassic(){ const life={b:8,s:12}, P=(s)=>s.split(' ').map(p=>p.split(',').map(Number));
+  const pulsar=[]; for (const [a,b] of [[1,1],[1,-1],[-1,1],[-1,-1]]) for (const k of [2,3,4]) for (const [x,y] of [[k,1],[k,6],[1,k],[6,k]]) pulsar.push([6+a*x,6+b*y]);
+  const L={ Block:'0,0 1,0 0,1 1,1', Beehive:'1,0 2,0 0,1 3,1 1,2 2,2', Loaf:'1,0 2,0 0,1 3,1 1,2 3,2 2,3', Boat:'0,0 1,0 0,1 2,1 1,2', Tub:'1,0 0,1 2,1 1,2', Ship:'0,0 1,0 0,1 2,1 1,2 2,2', Pond:'1,0 2,0 0,1 3,1 0,2 3,2 1,3 2,3',
+    Blinker:'0,0 1,0 2,0', Toad:'1,0 2,0 3,0 0,1 1,1 2,1', Beacon:'0,0 1,0 0,1 1,1 2,2 3,2 2,3 3,3', Glider:'1,0 2,1 0,2 1,2 2,2',
+    'Lightweight spaceship':'1,0 4,0 0,1 0,2 4,2 0,3 1,3 2,3 3,3', 'Middleweight spaceship':'3,0 1,1 5,1 0,2 0,3 5,3 0,4 1,4 2,4 3,4 4,4', 'Heavyweight spaceship':'3,0 4,0 1,1 6,1 0,2 0,3 6,3 0,4 1,4 2,4 3,4 4,4 5,4',
+    Pentadecathlon:'2,0 7,0 0,1 1,1 3,1 4,1 5,1 6,1 8,1 9,1 2,2 7,2' };
+  const add=(name,pts)=>{ const x=analyzeObject(pts, life); if (!x || !x.id) return; CLASSIC[spKey(x.type,x.p,x.dx,x.dy,x.id.slice(x.id.indexOf('|')+1))]=name; };
+  for (const [n,c] of Object.entries(L)) add(n, P(c)); add('Pulsar', [...new Set(pulsar.map(p=>p.join(',')))].map(p=>p.split(',').map(Number)));
+  for (const [id,sp] of Object.entries(S.species)) if (CLASSIC[id]) sp.name=CLASSIC[id]; }
 const GENUS={still:'Statica',osc:'Pulsator',ship:'Velox',diag:'Obliqua',knight:'Equus',grower:'Crescens'};
 const TYPEN={still:'still life',osc:'oscillator',ship:'spaceship',diag:'diagonal ship',knight:'knightship',grower:'grower'};
-function nameFor(id, type){ const r=RH.rng(id); const sy=['ka','ri','lo','men','tu','vex','or','zan','pi','qu','lu','dra','sel','ny','bo','thi','ae','cor'];
+function nameFor(id, type){ if (CLASSIC[id]) return CLASSIC[id]; const r=RH.rng(id); const sy=['ka','ri','lo','men','tu','vex','or','zan','pi','qu','lu','dra','sel','ny','bo','thi','ae','cor'];
   let s=''; const n=2+r.int(2); for (let i=0;i<n;i++) s+=r.pick(sy); return GENUS[type]+' '+s+r.pick(['us','a','um','ensis','oides','ii']); }
 function speedStr(sp){ if (!sp.dx&&!sp.dy) return ''; const d=Math.max(sp.dx,sp.dy); const gg=(a,b)=>b?gg(b,a%b):a; const g=gg(d,sp.p);
   const num=d/g, den=sp.p/g; const v=(num===1?'':num)+'c'+(den===1?'':'/'+den); return sp.type==='knight'? `(${sp.dx},${sp.dy})c/${sp.p}` : v; }
@@ -467,19 +497,20 @@ function catalog(o, seenIds){
 }
 function announce(found){
   if (!found.length) return; if (typeof breeding!=='undefined' && breeding){ SND.bell(found.length); return; } SND.bell(found.length); const rare=[...found].sort((a,b)=>rarity(b)-rarity(a))[0];
-  RH.toast(`New ${TYPEN[rare.type]}: <i>${rare.name}</i>${found.length>1?` (+${found.length-1} more)`:''}`); pinSpecimen(rare);
+  toast(`New ${TYPEN[rare.type]}: <i>${rare.name}</i>${found.length>1?` (+${found.length-1} more)`:''}`); pinSpecimen(rare);
 }
 function scan(quiet){
   const objs=components(grid,W,H); let found=[], known=0, tested=0;
   const seenIds=new Set(); growthBudget=2;
-  let again=0; for (const o of objs){ if (o.length>220) continue; tested++; const r=catalog(o, seenIds); if (r.status==='known') known++; else if (r.status==='newrule') again++; else if (r.status==='new') found.push(r.sp); }
+  let again=0; for (const o of objs){ if (o.length>220) continue; tested++; const r=catalog(o, seenIds); if (r.status==='known') known++; else if (r.status==='newrule') again++; else if (r.status==='new') found.push(r.sp); else if (r.status==='dup') known++; }
   S.scans++;
   const k=rkey(S.rule); if(!S.rules[k]) S.rules[k]={beh:classifyRule()};
   S.rules[k].scans=(S.rules[k].scans||0)+1; S.rules[k].found=Math.max(S.rules[k].found||0, 0);
   persist(); if (!quiet) SND.scan();
-  log(`scan: ${objs.length} objects, ${tested} tested, ${found.length} new, ${again} known species found in a new rule, ${known} already known`);
+  const parts=[]; if (found.length) parts.push(`${found.length} new species`); if (again) parts.push(`${again} already in your guide, seen in this rule for the first time`); if (known) parts.push(`${known} already catalogued here`);
+  log(`Scanned ${objs.length} colon${objs.length===1?'y':'ies'}${tested<objs.length?` (${objs.length-tested} too big to test)`:''}: ${parts.length? parts.join(' · ') : 'nothing that lives on its own'}.`);
   announce(found);
-  checkBounties(); renderGuide(); renderTotals(); renderRuleInfo(); drawMap(); renderAuto();
+  checkBounties(); renderGuide(); renderTotals(); renderRuleInfo(); drawMap(); renderAuto(); if (typeof syncBreed==='function') syncBreed();
   return found.length;
 }
 const rarity=(sp)=>({still:1,osc:2,grower:3,ship:4,diag:5,knight:9}[sp.type]) + (sp.p||0)/10;
@@ -567,7 +598,7 @@ bty(6,'Design: draw a pattern of 6 cells or fewer that turns out to be a ship', 
 bty(6,'Design: draw an oscillator of period 3 or more', ()=>sps().some(s=>s.drawn && s.type==='osc' && s.p>=3));
 bty(6,'Master: a knightship you drew yourself', ()=>sps().some(s=>s.drawn && s.type==='knight'));
 function checkBounties(){ if (typeof checkDaily==='function') try{ checkDaily(); }catch(e){} let n=0; const got=[]; for (const b of BOUNTIES) if(!S.bounties[b.id] && b.test()){ S.bounties[b.id]=Date.now(); n++; got.push(b.text); }
-  if (got.length){ SND.seal(); RH.toast(got.length===1? `Prize of the Society awarded: ${got[0]}` : `${got.length} prizes awarded, including: ${got[0]}`, 3500); } if(n){ persist(); renderBounties(); } }
+  if (got.length){ SND.seal(); toast(got.length===1? `Prize of the Society awarded: ${got[0]}` : `${got.length} prizes awarded, including: ${got[0]}`, 3500); } if(n){ persist(); renderBounties(); } }
 function renderBounties(){
   const tiers=['','Still lifes','Oscillators','Orthogonal ships','Diagonal & knight ships','Growth','Experiments & design'];
   // Where to look, so the hunt isn't blind trial and error. Rule names are clickable.
@@ -577,7 +608,7 @@ function renderBounties(){
     'Life\'s glider is a c/4 diagonal ship: <a data-r="B3/S23">B3/S23</a>, also in <a data-r="B36/S23">B36/S23</a>. Knightships are very rare; turn on auto-hunt with drift.',
     'Rules on the edge of exploding are good hunting grounds: <a data-r="B34/S34">B34/S34</a>, or <a data-r="B3/S12345">B3/S12345</a> (Maze).',
     'Predict before you run: go to uncharted rules (the rule map shows your neighbours). Use Draw a pattern to design creatures.'];
-  setTimeout(()=>document.querySelectorAll('#p-bounty [data-r]').forEach(a=>a.onclick=()=>{ const r=parseRule(a.dataset.r); if (r){ setRule(r); goDish(); soup(); RH.toast('Rule set to '+a.dataset.r+'. Let it settle, then scan.'); } }));
+  setTimeout(()=>document.querySelectorAll('#p-bounty [data-r]').forEach(a=>a.onclick=()=>{ const r=parseRule(a.dataset.r); if (r){ setRule(r); goDish(); soup(); toast('Rule set to '+a.dataset.r+'. Let it settle, then scan.'); } }));
   let h=`<div class="tierH">Your predictions</div><div class="small">${S.pred.n? `${S.pred.right} right of ${S.pred.n} (${Math.round(S.pred.right/S.pred.n*100)}%) · best streak ${S.pred.best}` : 'Go to an uncharted rule and make your first prediction.'}</div>`+
     `<div class="tierH">Field notes</div>`+Object.keys(NOTES).map(k=>S.notes[k]? `<p class="small"><b>${NOTES[k].t}</b> ${NOTES[k].d}</p>` : `<p class="small dim">· an unearned note</p>`).join('')+
     `<div class="small dim" style="margin-top:10px">${claimed()} / ${BOUNTIES.length} prizes claimed</div>`;
@@ -631,7 +662,7 @@ mapCv.onclick=(e)=>{ const c=mapHit(e); if (!c) return; const id=c.k+c.i;
   if (e.pointerType==='touch' || (typeof matchMedia==='function' && matchMedia('(pointer:coarse)').matches)){ if (mapArmed!==id){ mapArmed=id; mapCv.onmousemove(e); document.getElementById('mapInfo').textContent+=' · tap again to go'; return; } }
   mapArmed=null; const r={...S.rule}; r[c.k]^=1<<c.i; setRule(r); goDish(); soup(); };
 mapCv.onmousemove=(e)=>{ const c=mapHit(e); const el=document.getElementById('mapInfo'); if (!c){ el.textContent=''; return; } const r={...S.rule}; r[c.k]^=1<<c.i; const v=S.rules[rkey(r)]; el.textContent = ruleStr(r)+(v?` · ${v.beh}${v.pred? ' · you predicted '+v.pred : ''}`:' · uncharted: click to go there and make a prediction'); };
-function setRule(r){ S.rule={b:r.b&~1, s:r.s}; persist(); renderBits(); renderRuleInfo(); drawMap(); renderChip(); }
+function setRule(r){ S.rule={b:r.b&~1, s:r.s}; nbrRoll=0; persist(); renderBits(); renderRuleInfo(); drawMap(); renderChip(); if (document.getElementById('nbrs')) renderNbrs(); }
 function renderBits(){
   let h='<span>B</span>'; for (let i=0;i<9;i++) h+=`<button data-k="b" data-i="${i}" class="${(S.rule.b>>i)&1?'on':''}" ${i===0?'disabled title="B0 rules flash on and off every generation, so they are excluded"':''}>${i}</button>`;
   h+='<span>S</span>'; for (let i=0;i<9;i++) h+=`<button data-k="s" data-i="${i}" class="${(S.rule.s>>i)&1?'on':''}">${i}</button>`;
@@ -658,7 +689,7 @@ function breed(ra, rb, op){ const a=parseRule(ra), b=parseRule(rb); const c=OPS[
   setRule(c); breeding=true; let found=0; try { soup('breed:'+rs, true); tick(220); found=scan(true); } finally { breeding=false; } const beh=S.rules[rkey(c)].beh;
   let card=known; if (!card){ card={n:ruleName(rs), r:rs, from:`${shelf().find(x=>x.r===ra)?.n||ra} ${OPS[op].n.toLowerCase()} ${shelf().find(x=>x.r===rb)?.n||rb}`, t:Date.now(), first}; S.shelf.push(card); }
   running=true; persist(); checkBounties(); renderLab(card); drawMap();
-  if (!known) { if (first) SND.bell(2); RH.toast(`${first? 'New rule' : 'Rule'}: <b>${card.n}</b> (${rs}) ${beh==='complex'?'stays complex':beh==='chaotic'?'boils':beh==='dies'?'dies out':beh}${found? `, with ${found} new species` : ''}`); }
+  if (!known) { if (first) SND.bell(2); toast(`${first? 'New rule' : 'Rule'}: <b>${card.n}</b> (${rs}) ${beh==='complex'?'stays complex':beh==='chaotic'?'boils':beh==='dies'?'dies out':beh}${found? `, with ${found} new species` : ''}`); }
   return {card, beh, found, first}; }
 function renderLab(last){
   const el=document.getElementById('p-lab'); if (!el) return; const sh=shelf(); const today=todayGoal();
@@ -671,7 +702,7 @@ function renderLab(last){
     <div class="shelf">${sh.map(x=>{ const v=done(x); return `<button class="rc ${pick.includes(x.r)?'on':''} ${v?v.beh:''}" data-r="${x.r}" title="${x.r}"><b>${x.n}</b><span>${x.r}</span></button>`; }).join('')}</div>`;
   el.querySelectorAll('[data-watch]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); closeSheet(); fitColonies(); });
   el.querySelectorAll('[data-op]').forEach(b=>b.onclick=()=>{ breedOp=b.dataset.op; renderLab(last); });
-  el.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{ if (!pick.length){ pick=[b.dataset.r]; renderLab(last); return; } const a=pick[0]; pick=[]; const res=breed(a, b.dataset.r, breedOp); if (res.err){ RH.toast(res.err); renderLab(last); } });
+  el.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{ if (!pick.length){ pick=[b.dataset.r]; renderLab(last); return; } const a=pick[0]; pick=[]; const res=breed(a, b.dataset.r, breedOp); if (res.err){ toast(res.err); renderLab(last); } });
 }
 // A daily commission: a property a rule must have, checked against the real simulation
 const todayKey=()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
@@ -684,7 +715,7 @@ const GOALS=[
   {text:'Breed a rule in which every soup dies out.', t:()=>S.shelf.some(x=>behOf(x.r)==='dies')},
 ];
 function todayGoal(day=todayKey()){ return GOALS[RH.rng('goal:'+day).int(GOALS.length)]; }
-function checkDaily(){ const g=todayGoal(); if (!S.daily[todayKey()] && g.t()){ S.daily[todayKey()]=1; persist(); RH.toast('Commission complete: '+g.text); } }
+function checkDaily(){ const g=todayGoal(); if (!S.daily[todayKey()] && g.t()){ S.daily[todayKey()]=1; persist(); toast('Commission complete: '+g.text); } }
 function renderTotals(){ document.getElementById('totals').textContent = `${sps().length} species · ${Object.keys(S.rules).length} rules explored · ${claimed()}/${BOUNTIES.length} prizes`; renderChip(); }
 // The rule chip in the top bar names the rule in the dish (and its behaviour, once charted); tapping it opens the switches.
 function renderChip(){ const rs=ruleStr(S.rule); const nm=(STARTERS.find(x=>x[1]===rs)||[])[0] || (S.shelf.find(x=>x.r===rs)||{}).n; const v=S.rules[rkey(S.rule)];
@@ -703,10 +734,29 @@ function goDish(){ if (narrow()) closeSheet(); }
 document.querySelectorAll('.tabs button[data-t]').forEach(b=>b.onclick=()=>showTab(b.dataset.t));
 document.getElementById('sheetX').onclick=closeSheet;
 document.getElementById('moreBtn').onclick=()=>{ if (sheetOpen()) closeSheet(); else openSheet(tab==='rule'?'guide':tab); };
-document.getElementById('ruleChip').onclick=()=>{ if (sheetOpen() && tab==='rule') closeSheet(); else openSheet('rule'); };
+document.getElementById('ruleChip').onclick=()=>openSheet('rule');
+document.getElementById('breedBtn').onclick=()=>{ document.getElementById('breedBtn').classList.remove('pulse'); openSheet('lab'); };
+// breeding is the long game: once you have scanned a few soups by hand, the shelf opens and gets a button of its own
+const canBreed=()=>S.scans>=3 || S.shelf.length>0;
+function syncBreed(){ const on=canBreed(); if (on && !document.body.classList.contains('canbreed')){ document.body.classList.add('canbreed'); if (!S.breedHint){ S.breedHint=1; persist(); document.getElementById('breedBtn').classList.add('pulse'); toast('The breeding shelf is open: cross two rules and see what their child does.', 4000); } } }
 document.getElementById('trySoup').onclick=()=>{ goDish(); soup(); };
-document.getElementById('ruleStr').onchange=(e)=>{ const r=parseRule(e.target.value); if(r){ setRule(r); soup(); } else RH.toast('Use the form B3/S23'); };
-document.getElementById('mutBtn').onclick=()=>{ const r={...S.rule}; const k=Math.random()<.5?'b':'s'; const i=k==='b'?1+Math.floor(Math.random()*8):Math.floor(Math.random()*9); r[k]^=1<<i; setRule(r); goDish(); soup(); };
+document.getElementById('ruleStr').onchange=(e)=>{ const r=parseRule(e.target.value); if(r){ setRule(r); soup(); } else toast('Use the form B3/S23'); };
+// Next door: four rules one switch away, each running a tiny soup of its own. Uncharted ones first, births and survivals mixed.
+let nbrRoll=0, NB=[];
+function neighbours(rule=S.rule, roll=nbrRoll){ const all=[]; for (let i=1;i<9;i++) all.push(['b',i]); for (let i=0;i<9;i++) all.push(['s',i]);
+  const R=RH.rng('nbr:'+rkey(rule)+':'+roll); const c=all.map(([k,i])=>{ const r={...rule}; r[k]^=1<<i; return {r, k, i, sc:(S.rules[rkey(r)]?1:0)+R()*.9}; }).filter(x=>x.r.b);
+  c.sort((a,b)=>a.sc-b.sc); const out=[]; for (const k of ['b','s','b','s']){ const j=c.findIndex(x=>x.k===k && !out.includes(x)); if (j>=0) out.push(c[j]); } for (const x of c) if (out.length<4 && !out.includes(x)) out.push(x);
+  return out.slice(0,4); }
+const NBW=40;
+function renderNbrs(){ NB=neighbours().map((x,j)=>{ const R=RH.rng('nbs:'+rkey(x.r)); const g=new Uint8Array(NBW*NBW); for (let y=12;y<28;y++) for (let xx=12;xx<28;xx++) g[y*NBW+xx]=R()<.4?1:0; return {...x, g, g0:g.slice(), n:new Uint8Array(NBW*NBW), gen:0}; });
+  const el=document.getElementById('nbrs'); el.innerHTML=NB.map((x,j)=>{ const v=S.rules[rkey(x.r)]; return `<button data-j="${j}" title="Flip ${x.k.toUpperCase()}${x.i} ${(S.rule[x.k]>>x.i)&1?'off':'on'}"><canvas width="${NBW*2}" height="${NBW*2}"></canvas><span><b>${ruleStr(x.r)}</b>${x.k.toUpperCase()}${x.i} ${(S.rule[x.k]>>x.i)&1?'off':'on'} · λ ${lam(x.r).toFixed(2)}<br><span class="fl" style="${v?`color:${BEHC[v.beh]}`:''}">${v? v.beh : 'uncharted'}</span></span></button>`; }).join('');
+  el.querySelectorAll('[data-j]').forEach(b=>b.onclick=()=>{ const x=NB[+b.dataset.j]; setRule(x.r); goDish(); soup(); });
+  NB.forEach((x,j)=>{ x.c=el.querySelectorAll('canvas')[j].getContext('2d'); drawNbr(x); }); }
+function drawNbr(x){ const c=x.c; c.fillStyle='#e9c57d'; c.fillRect(0,0,NBW*2,NBW*2); c.fillStyle='#7a2a14'; for (let i=0;i<NBW*NBW;i++) if (x.g[i]) c.fillRect((i%NBW)*2,((i/NBW)|0)*2,2,2); }
+let nbrT=0;
+function stepNbrs(now){ if (!NB.length || !sheetOpen() || tab!=='rule' || now-nbrT<110) return; nbrT=now;
+  for (const x of NB){ if (x.gen>=48){ x.g.set(x.g0); x.gen=0; } else { stepGrid(x.g,x.n,NBW,NBW,x.r); [x.g,x.n]=[x.n,x.g]; x.gen++; } drawNbr(x); } }
+document.getElementById('nbrMore').onclick=()=>{ nbrRoll++; renderNbrs(); };
 document.getElementById('rndBtn').onclick=()=>{ const R=()=>Math.random(); let b=0,s=0; for(let i=1;i<9;i++) if(R()<(i<=4?0.35:0.18)) b|=1<<i; for(let i=0;i<9;i++) if(R()<0.35) s|=1<<i; if(!b) b=8; setRule({b,s}); goDish(); soup(); };
 document.getElementById('lifeBtn').onclick=()=>{ setRule({b:8,s:12}); goDish(); soup(); };
 document.getElementById('soupBtn').onclick=()=>soup();
@@ -731,21 +781,25 @@ function autoStep(){
   }
 }
 
-window.__rh={ breed, shelf, todayGoal, GOALS, OPS, ruleName, renderLab, predict, maybePredict, NOTES, noteFor, bitsOf, testDrawing, setDrawing, get pending(){ return pending; }, examineAt, catalog, autoUnlocked, dishToCell, cellToClient, cam, get view(){ return view; }, setView, zoomAt, fitColonies, fitSoup, fps, openSheet, closeSheet, showTab, refreshImage, render, stepGrid, components, normalize, canon, unwrap, analyzeObject, growthCheck, classifyRule, parseRule, ruleStr, speedStr, nameFor, scan, setRule, soup, tick, checkBounties, renderBounties, BOUNTIES, claimed, W, H,
+window.__rh={ CLASSIC, neighbours, renderNbrs, get NB(){ return NB; }, lam, toast, syncBreed, breed, shelf, todayGoal, GOALS, OPS, ruleName, renderLab, predict, maybePredict, NOTES, noteFor, bitsOf, testDrawing, setDrawing, get pending(){ return pending; }, examineAt, catalog, autoUnlocked, dishToCell, cellToClient, cam, get view(){ return view; }, setView, zoomAt, fitColonies, fitSoup, fps, openSheet, closeSheet, showTab, refreshImage, render, stepGrid, components, normalize, canon, unwrap, analyzeObject, growthCheck, classifyRule, parseRule, ruleStr, speedStr, nameFor, scan, setRule, soup, tick, checkBounties, renderBounties, BOUNTIES, claimed, W, H,
   get S(){ return S; }, get grid(){ return grid; }, get gen(){ return gen; }, setBudget(n){ growthBudget=n; }, get running(){ return running; }, set running(v){ running=v; }, get auto(){ return auto; },
   place(pts, ox=70, oy=70){ grid.fill(0); gen=0; for (const [x,y] of pts) grid[(oy+y)*W+ox+x]=1; draw(); } };
 // Main loop: step, repaint only what changed, and keep a frame clock (the tests read it to check 60fps).
 let lastGen=-1, frames=[];
-function loop(now){ if (running){ const sp=+document.getElementById('speed').value; tick(auto? Math.max(sp,10) : sp); autoStep(); }
+let slowF=0;
+function loop(now){ if (running){ const sp=+document.getElementById('speed').value;
+    // past 400 generations the soup has mostly settled: slow to a watchable 30 a second (the assistant keeps full speed)
+    if (auto) tick(Math.max(sp,10)); else if (gen<400) tick(sp); else if (++slowF%2===0) tick(1); autoStep(); }
+  stepNbrs(now||performance.now());
   if (gen!==lastGen){ refreshImage(); lastGen=gen; }
   if (dirty || lensMark) render();
   const bet=!!pending; if (document.body.classList.contains('betting')!==bet) document.body.classList.toggle('betting',bet);
   frames.push(now||performance.now()); if (frames.length>240) frames.splice(0,frames.length-240);
   requestAnimationFrame(loop); }
 function fps(ms=1000){ const t=performance.now(); const f=frames.filter(x=>x>t-ms); return f.length<2? 0 : (f.length-1)*1000/(f[f.length-1]-f[0]); }
-renderBits(); renderRuleInfo(); renderGuide(); renderBounties(); renderTotals(); renderAuto(); renderLab(); layout(); fitSoup(); soup(); requestAnimationFrame(loop);
+buildClassic(); renderBits(); renderNbrs(); renderRuleInfo(); syncBreed(); renderGuide(); renderBounties(); renderTotals(); renderAuto(); renderLab(); layout(); fitSoup(); soup(); requestAnimationFrame(loop);
 window.addEventListener('resize', ()=>{ const c=[view.vx,view.vy], k=cam.k; layout(); if (cam.touched) setView(c[0],c[1],k); render(); });  // keep the same spot in the middle
-if (!S.intro){ S.intro=1; persist(); const hint='Pinch or scroll to zoom · drag to look around · tap a colony to examine it'; log(hint); setTimeout(()=>{ if (document.getElementById('log').textContent===hint) log(''); }, 12000); RH.modal(`<h2>Rule Hunter</h2><p>Conway's Game of Life is one rule: a dead cell is <b>B</b>orn with exactly 3 neighbours, and a live cell <b>S</b>urvives with 2 or 3. Change those numbers and you get a different universe. There are 262,144 of them.</p><p>Most are empty. Some explode. Some hold creatures that crawl, blink and grow, and nobody has ever named them.</p><p>Let a soup settle, then <b>tap a colony</b> to examine it under the lens, or <b>Scan</b> the whole dish. Tap the <b>rule</b> at the top to change the switches. Everything else (your field guide, prizes, the rule map and the breeding shelf) is in the journal, <b>⋯</b>.</p>`,[{label:'Go hunting'}]); }
+if (!S.intro){ S.intro=1; persist(); const hint='Pinch or scroll to zoom · drag to look around · tap a colony to examine it'; log(hint); setTimeout(()=>{ if (document.getElementById('log').textContent===hint) log(''); }, 12000); RH.modal(`<h2>Rule Hunter</h2><p>Conway's Game of Life is one rule: a dead cell is <b>B</b>orn with exactly 3 neighbours, and a live cell <b>S</b>urvives with 2 or 3. Change those numbers and you get a different universe. There are 262,144 of them.</p><p>Most are empty. Some explode. Some hold creatures that crawl, blink and grow, and nobody has ever named them.</p><p>Let a soup settle, then <b>tap a colony</b> to examine it under the lens, or <b>Scan</b> the whole dish. Tap the <b>rule</b> at the top to change the switches.</p><p>The dish holds an unfamiliar rule, <b>${ruleStr(S.rule)}</b>. Before it runs, bet on what it will do.</p>`,[{label:'Go hunting'}]); }
 </script>
 </body>
 </html>

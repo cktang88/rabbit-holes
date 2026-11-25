@@ -72,8 +72,8 @@ module.exports = {
         for (const [x, y] of PAT.glider) R.grid[(20 + y) * R.W + 20 + x] = 1; for (const [x, y] of PAT.block) R.grid[(100 + y) * R.W + 100 + x] = 1; for (const [x, y] of PAT.block) R.grid[(60 + y) * R.W + 120 + x] = 1;
         const n1 = R.scan(); const n2 = R.scan(); const S = R.S;
         return { n1, n2, types: Object.values(S.species).map(s => s.type).sort(), scans: S.scans, bounties: Object.keys(S.bounties).length, prog: JSON.parse(localStorage.getItem('rh:hub'))['rule-hunter'], claimed: R.claimed(), total: R.BOUNTIES.length,
-          guide: document.querySelectorAll('#guide .card').length, log: document.getElementById('log').textContent }; }, PAT);
-      eq(r.n1, 2); eq(r.n2, 0); eq(r.types, ['diag', 'still']); eq(r.scans, 2); ok(r.bounties >= 3); eq(r.prog, r.claimed / r.total); eq(r.guide, 2); ok(/2 already known/.test(r.log), r.log);
+          guide: document.querySelectorAll('#guide .card').length, names: Object.values(S.species).map(s => s.name).sort(), log: document.getElementById('log').textContent }; }, PAT);
+      eq(r.n1, 2); eq(r.n2, 0); eq(r.types, ['diag', 'still']); eq(r.scans, 2); ok(r.bounties >= 3); eq(r.prog, r.claimed / r.total); eq(r.guide, 2); ok(/3 already catalogued/.test(r.log), r.log); eq(r.names, ['Block', 'Glider'], 'the famous Life objects keep their real names');
     },
     'no bounties are claimed on a fresh start; stale bounty ids never push progress past 100%': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => { const R = __rh; const a = R.claimed(); R.checkBounties(); const b = R.claimed();
@@ -142,6 +142,35 @@ module.exports = {
       await page.click('#sheetX'); await page.waitForTimeout(350);
       const s0 = await page.evaluate(() => __rh.S.scans); await page.click('#scanBtn'); eq(await page.evaluate(() => __rh.S.scans), s0 + 1);
       await page.evaluate(() => { __rh.tick(30); }); await page.click('#soupBtn'); eq(await page.evaluate(() => __rh.gen), 0);
+    },
+    'the famous Life objects carry their real names, found in any rule': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => ({ names: Object.values(__rh.CLASSIC).sort(), id: Object.keys(__rh.CLASSIC).find(k => __rh.CLASSIC[k] === 'Glider') }));
+      eq(r.names.length, 16, r.names.join(', ')); for (const n of ['Block', 'Beehive', 'Blinker', 'Toad', 'Beacon', 'Pulsar', 'Pentadecathlon', 'Glider', 'Lightweight spaceship', 'Heavyweight spaceship']) ok(r.names.includes(n), n);
+      ok(/^diag\|4\|1\|1\|/.test(r.id), 'the glider is a c/4 diagonal ship: ' + r.id);
+    },
+    'the first bet is on an unfamiliar rule, and shows its λ': async ({ page, ok }) => {
+      ok(await page.isVisible('.modal'), 'the intro'); ok(/B368\/S245/.test(await page.textContent('.modal')), 'the intro names the rule'); await page.click('.modal button'); await page.waitForTimeout(300);
+      const r = await page.evaluate(() => ({ rule: __rh.ruleStr(__rh.S.rule), pending: !!__rh.pending, txt: document.getElementById('predict').textContent }));
+      ok(r.rule !== 'B3/S23', 'not Life: ' + r.rule); ok(r.pending, 'a bet is waiting'); ok(/λ 0\.\d\d: \d+ of 17 switches/.test(r.txt), r.txt);
+    },
+    'next door: four neighbouring rules, one switch away each, with live thumbnails; picking one goes there': async ({ page, eq, ok }) => {
+      await dismiss(page); await noBet(page); await page.click('#ruleChip'); await page.waitForTimeout(300);
+      const a = await page.evaluate(() => { const R = __rh, r0 = R.S.rule; const flips = R.NB.map(x => { let d = 0; for (const k of ['b', 's']) { let v = x.r[k] ^ r0[k]; while (v) { d += v & 1; v >>= 1; } } return d; });
+        const px = (c) => { const d = c.getImageData(0, 0, 80, 80).data; let h = 0; for (let i = 0; i < d.length; i += 4) h = (h * 31 + d[i]) | 0; return h; }; return { n: R.NB.length, flips, h0: R.NB.map(x => px(x.c)), lams: [...document.querySelectorAll('#nbrs button')].map(b => /λ 0\.\d\d/.test(b.textContent)) }; });
+      eq(a.n, 4); eq(a.flips, [1, 1, 1, 1]); eq(a.lams, [true, true, true, true]);
+      await page.waitForTimeout(700); const h1 = await page.evaluate(() => { const px = (c) => { const d = c.getImageData(0, 0, 80, 80).data; let h = 0; for (let i = 0; i < d.length; i += 4) h = (h * 31 + d[i]) | 0; return h; }; return __rh.NB.map(x => px(x.c)); });
+      ok(h1.some((h, i) => h !== a.h0[i]), 'the thumbnails are running');
+      const want = await page.evaluate(() => __rh.ruleStr(__rh.NB[2].r)); await page.click('#nbrs button[data-j="2"]'); eq(await page.evaluate(() => __rh.ruleStr(__rh.S.rule)), want);
+      const b0 = await page.evaluate(() => __rh.NB.map(x => __rh.ruleStr(x.r)).join()); await page.click('#ruleChip'); await page.click('#nbrMore'); ok(await page.evaluate((b0) => __rh.NB.map(x => __rh.ruleStr(x.r)).join() !== b0, b0), 'other neighbours');
+      await page.click('#ruleChip'); await page.waitForTimeout(300); ok(await page.evaluate(() => document.body.classList.contains('sheet')), 'the rule chip only ever opens the sheet');
+    },
+    'toasts come one at a time; breeding gets its own button after a few scans': async ({ page, eq, ok }) => {
+      await dismiss(page); await noBet(page);
+      ok(!(await page.isVisible('#breedBtn')), 'no breed button on a fresh save');
+      const n = await page.evaluate(() => { __rh.toast('one'); __rh.toast('two'); __rh.toast('three'); return document.querySelectorAll('.toast').length; }); eq(n, 1);
+      await page.evaluate(() => { for (let i = 0; i < 3; i++) __rh.scan(true); });
+      ok(await page.isVisible('#breedBtn'), 'the breed button'); await page.click('#breedBtn'); await page.waitForTimeout(300); ok(await page.isVisible('#p-lab .shelf'), 'opens the breeding shelf');
+      eq(await page.evaluate(() => [...document.querySelectorAll('.tabs button[data-t]')].map(b => b.dataset.t).slice(0, 2)), ['rule', 'lab']);
     },
     'species are patterns, not pattern-per-rule: a glider found in two rules is one species living in both': async ({ page, eq }) => {
       await dismiss(page);

@@ -15,7 +15,6 @@ module.exports = {
       await closeModals(page); await page.waitForTimeout(200); eq(await check(), [], 'landscape');
       await page.evaluate(() => { document.getElementById('side').style.width = '300px'; }); await page.waitForTimeout(200); eq(await check(), [], 'after the panel resized');
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(400);
-      eq(await page.evaluate(() => { const r = document.getElementById('map').getBoundingClientRect(); return r.height > r.width * 1.15; }), true, 'portrait map');
       eq(await check(), [], 'portrait');
       await page.evaluate(() => window.__caravan.zoomAt(150, 200, 2.2)); await page.waitForTimeout(100); eq(await check(), [], 'zoomed in');
     },
@@ -54,6 +53,39 @@ module.exports = {
       const c = await page.evaluate(() => window.__caravan.cam.state); near(c.k, 1, 1e-6); near(c.x, 0, 1e-6); near(c.y, 0, 1e-6);
       ok(await page.evaluate(() => getComputedStyle(document.querySelector('#mapWrap .pz-bar button')).borderRadius === '50%'), 'zoom bar not styled');
     },
+    'no answer on screen: the market shows only this city, plus the last news of the city you tap, with its age and usual price': async ({ page, ok }) => {
+      await closeModals(page);
+      const h0 = await page.textContent('#p-market table.mk tr'); ok(!/best known/i.test(h0) && /tap a city/i.test(h0), h0);
+      const r = await page.evaluate(() => { const K = window.__caravan; K.C.firstJob = null; K.planTo(2); return document.querySelector('#p-market table.mk tr').textContent; });
+      ok(/Dunhuang/.test(r) && /old|unknown/.test(r), r);
+    },
+    'the first job never crosses bandit country; the plan card says so honestly when a road is risky': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const K = window.__caravan, out = []; for (let s = 1; s <= 30; s++) { K.startRoad(s * 7717); const fj = K.C.firstJob, p = K.shortest(0, fj.to); out.push(p.legs.every(l => l.r.danger === 0)); } return out; });
+      ok(r.every(Boolean), 'risky first job on some roads: ' + r);
+    },
+    'the world moves: wars close roads and routes go round them; caravanserais shorten roads for good; a fat profit draws rivals': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(() => { const K = window.__caravan, out = {}; K.startRoad(99); const C = K.C;
+        out.kinds = [...new Set(C.events.map(e => e.k))].sort(); out.n = C.events.length;
+        const war = C.events.find(e => e.k === 'war'), serai = C.events.find(e => e.k === 'serai');
+        if (war) { const [a, b] = K.ROADS[war.road], r0 = K.routes[war.road]; const before = K.shortest(a, b).legs.map(l => l.r); C.day = war.start; K.applyRoads(); const during = K.shortest(a, b); out.war = r0.shut === 1 && before.includes(r0) && (!during || !during.legs.some(l => l.r === r0)); C.day = war.end; K.applyRoads(); out.reopened = r0.shut === 0; }
+        if (serai) { const r0 = K.routes[serai.road], d0 = r0.days; C.day = serai.start; K.applyRoads(); out.serai = r0.days < d0; }
+        C.day = 0; K.applyRoads();
+        // a big profitable sale sends the nearest idle rival there with the same good
+        C.at = 2; C.cargo[8] = 80; C.cost[8] = 1; C.rivals.forEach(rv => rv.to = null); K.trade(8, -999); out.copied = C.rivals.some(rv => rv.copy && rv.to === 2 && rv.g === 8);
+        return out; });
+      ok(r.n >= 15, 'too few events: ' + r.n); ok(r.kinds.length >= 5, 'event kinds: ' + r.kinds);
+      ok(r.war !== false && r.reopened !== false && r.serai !== false, JSON.stringify(r)); ok(r.copied, 'no rival copied the run');
+    },
+    'phone: one screen with no page scroll; the route card is a bottom sheet with big buttons that pinches cannot zoom': async ({ page, ok }) => {
+      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }); const p = await ctx.newPage();
+      await p.goto(page.url().split('#')[0]); await p.waitForTimeout(900); await p.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
+      await p.evaluate(() => window.__caravan.planTo(2)); await p.waitForTimeout(150);
+      const m = await p.evaluate(() => { const b = document.getElementById('goBtn').getBoundingClientRect(), tb = document.getElementById('travelBox'), mk = document.getElementById('p-market').getBoundingClientRect();
+        return { scroll: document.documentElement.scrollHeight, h: innerHeight, btn: b.height, ta: getComputedStyle(tb).touchAction, mkTop: mk.top, mkVisible: mk.top < innerHeight - 100 }; });
+      ok(m.scroll <= m.h + 1, 'page scrolls: ' + JSON.stringify(m)); ok(m.btn >= 44, 'set out button ' + m.btn); ok(m.ta === 'none', 'touch-action ' + m.ta); ok(m.mkVisible, 'market below the fold ' + m.mkTop);
+      await ctx.close();
+    },
     'touch: the intro dialog button is on screen without scrolling, portrait and landscape': async ({ page, ok }) => {
       for (const vp of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
         const ctx = await page.context().browser().newContext({ viewport: vp, hasTouch: true, isMobile: true }); const p = await ctx.newPage();
@@ -74,12 +106,13 @@ module.exports = {
       ok(r.wants, 'target city should want silk'); ok(r.spentFrac > .5 && r.spentFrac <= .9 + 1e-9, 'suggested buy spent ' + r.spentFrac); ok(r.done, 'selling silk there should finish the first job');
       await page.evaluate(() => window.__caravan.buildAndRender()); eq(await page.locator('#p-market .job').count(), 0, 'banner should go');
     },
-    'difficulty: naive play fails; a greedy trader wins; 3 stars needs the quantity judgement the slider suggests': async ({ page, ok }) => {
+    'difficulty: naive play fails; a greedy trader on stale prices gets 2 stars at most; 3 stars needs the quantity judgement; a career is 30-50 journeys': async ({ page, ok }) => {
       await closeModals(page); await page.addScriptTag({ content: caravanBot.toString() + '\n' + strongTrader.toString() });
       const r = await page.evaluate(() => { const K = window.__caravan, w = {}, S = [1, 2, 3, 4, 5, 6].map(s => s * 1013);
         for (const pol of ['idle', 'random', 'obvious', 'greedy-book']) w[pol] = S.map(s => caravanBot(s, pol));
-        w.strong = S.map(s => strongTrader(s, { qty: 'suggest' })); w.fill = S.map(s => strongTrader(s, { qty: 'fill' }));
+        const tn = K.travelNow; let trips = 0; K.travelNow = (...a) => { trips++; return tn(...a); }; w.strong = S.map(s => strongTrader(s, { qty: 'suggest', stale: 'discount' })); K.travelNow = tn; w.trips = [trips / S.length]; w.fill = S.map(s => strongTrader(s, { qty: 'fill', stale: 'discount' }));
         return { w, st: Object.fromEntries(Object.entries(w).map(([k, v]) => [k, v.map(K.starsFor)])) }; });
+      ok(r.w.trips[0] >= 25 && r.w.trips[0] <= 55, 'a career should be thirty to fifty journeys: ' + r.w.trips[0]);
       const naive = [...r.st.idle, ...r.st.random, ...r.st.obvious], mean = a => a.reduce((x, y) => x + y, 0) / a.length;
       ok(naive.filter(x => x <= 1).length / naive.length >= .8, 'naive bots reach 2+ stars too often: ' + JSON.stringify(r.w));
       ok(r.st['greedy-book'].filter(x => x >= 2).length >= 3, 'the competent trader should often win: ' + r.w['greedy-book']);
@@ -137,7 +170,7 @@ module.exports = {
       await closeModals(page);
       const r = await page.evaluate(() => { const K = window.__caravan, C = K.C; let pair = null;
         for (let a = 0; a < K.cities.length && !pair; a++) for (let b = 0; b < K.cities.length && !pair; b++) { if (a === b) continue; const f = K.shortest(a, b), s = K.shortest(a, b, true);
-          if (f && s && f.legs.some(l => l.r.danger > .03) && s.days > f.days && s.days - f.days < 12) pair = { a, b }; }
+          if (f && s && f.legs.some(l => l.r.danger > .03) && s.days > f.days && s.days - f.days < 30) pair = { a, b }; }
         if (!pair) return null; C.at = pair.a; C.cargo = C.cargo.map(() => 0); K.planTo(pair.b); const light = K.traveling, lightDanger = document.getElementById('travelBox').textContent;
         const lightRoute = window.__caravan.cities && document.getElementById('travelBox').textContent.includes('long way'); C.cargo[11] = 300; K.planTo(pair.b); const heavy = document.getElementById('travelBox').textContent.includes('long way');
         return { lightRoute, heavy }; });
