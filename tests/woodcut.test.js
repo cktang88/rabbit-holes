@@ -257,8 +257,8 @@ module.exports = {
     'a half-printed colour commission with friskets survives a reload': async ({ page, eq, ok }) => {
       const a = await page.evaluate(() => { const W = __wc; for (let k = 0; k < W.CLUB_OPEN; k++) W.SAVE.best[k] = { lk: .9, st: 3 }; W.clubSet('wip', 3); W.load(W.CLUB);
         const rg = W.T.regions.find(g => g.n > 300), i = rg.px[rg.px.length >> 1]; W.toggleMask(i % 320, i / 320 | 0); W.pull(1); W.wipSave(); return { m: W.passLog.map(p => p.m), cov: W.passLog[0].cov.reduce((x, y) => x + y, 0) }; });
-      await page.reload(); await ready(page);
-      const b = await page.evaluate(() => ({ m: __wc.passLog.map(p => p.m), cov: __wc.passLog[0] ? __wc.passLog[0].cov.reduce((x, y) => x + y, 0) : -1 }));
+      const p2 = await reopen(page);
+      const b = await p2.evaluate(() => ({ m: __wc.passLog.map(p => p.m), cov: __wc.passLog[0] ? __wc.passLog[0].cov.reduce((x, y) => x + y, 0) : -1 }));
       eq(b, a);
     },
     'colour commissions: a cut made while zoomed lands under the finger, and a pinch never carves': async ({ page, ok, eq }) => {

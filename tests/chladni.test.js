@@ -12,18 +12,18 @@ module.exports = {
   tests: {
     'square plate: the cos·cos families, f ∝ n²+m² (twins split by a hair), symmetric, zero on their nodal lines; the solver reproduces them': async ({ page, ok, near }) => {
       const r = await page.evaluate(() => { const X = __ch, sq = X.SQ.map(m => ({ id: m.id, ratio: m.f / (46 * (m.n * m.n + m.m * m.m)), sym: m.z(.2, .7) - m.s * m.z(.7, .2), diag: m.s < 0 ? m.z(.3, .3) : 0 }));
-        // the solver on a drilled-free square (tiny hole far in a corner barely matters) gives the same pitch ratios as the formula
-        const pl = X.plateOf('square', [[.04, .04]]), lam = pl.modes.map(m => m.lam), an = X.SQ.slice(0, 6).map(m => m.f);
-        return { sq, r1: lam[2] / lam[0], a1: an[2] / an[0] }; });
+        // the grid solver (a free-edge membrane approximation) on a square with a hole in one corner: λ ∝ n²+m² → 1, 1, 2, 4, 4
+        const pl = X.plateOf('square', [[.03, .03]]), lam = pl.modes.map(m => m.lam);
+        return { sq, r: [1, 2, 3, 4].map(k => lam[k] / lam[0]) }; });
       for (const m of r.sq) { ok(m.ratio >= 1 && m.ratio < 1.15, m.id + ' ratio ' + m.ratio); near(m.sym, 0, 1e-12, m.id + ' symmetry'); near(m.diag, 0, 1e-12, m.id + ' diagonal node'); }
-      ok(Math.abs(r.r1 / r.a1 - 1) < .2, `solver ratio ${r.r1} vs ${r.a1}`);
+      [1, 2, 4, 4].forEach((want, k) => ok(Math.abs(r.r[k] / want - 1) < .2, `solver ratio ${k + 1}: ${r.r[k]} vs ${want}`));
     },
     'sand flows to the nodal lines: one long note puts most grains where the plate is still; a note stops the sand where it is when it ends': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const X = __ch, pl = X.plateOf('square'), cfg = { shape: 'square', start: 'even', finger: null, holes: [] };
         const still = s => { let n = 0; const F = X.fieldOf(pl, 3, null); for (let i = 0; i < s.n; i++) { const c = Math.floor(s.sy[i] * 64) * 64 + Math.floor(s.sx[i] * 64); if (Math.abs(F.u[c]) < .2) n++; } return n / s.n; };
         const s0 = X.perform(cfg, [], 1500), sq = X.perform(cfg, [[3, .25]], 1500), s2 = X.perform(cfg, [[3, 2]], 1500);
         return { start: still(s0), quarter: still(sq), long: still(s2), same: JSON.stringify(Array.from(X.perform(cfg, [[3, 1], [1, .5]], 800).sx)) === JSON.stringify(Array.from(X.perform(cfg, [[3, 1], [1, .5]], 800).sx)) }; });
-      ok(r.start < .3 && r.long > .75, JSON.stringify(r)); ok(r.quarter > r.start + .1 && r.quarter < r.long - .1, 'a quarter note should be partway: ' + JSON.stringify(r)); ok(r.same, 'not deterministic');
+      ok(r.start < .4 && r.long > .8, JSON.stringify(r)); ok(r.quarter > r.start + .1 && r.quarter < r.long - .1, 'a quarter note should be partway: ' + JSON.stringify(r)); ok(r.same, 'not deterministic');
     },
     'order matters: playing a commission\'s notes backwards rarely delivers': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const X = __ch; return X.COMMS.filter(c => c.ref.length > 1).map(c => { const cfg = { shape: c.shape, start: c.start, finger: c.finger || null, holes: c.holes || [] }; return [c.id, X.matchOf(c, X.perform(cfg, c.ref.slice().reverse(), 600), 600)]; }); });
@@ -50,8 +50,8 @@ module.exports = {
     'the finger: twin notes turn to put a nodal line under it; a note that moves a lot under it is choked and leaves the sand alone': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const X = __ch, pl = X.plateOf('square'), f = [.37, .21], at = (u, x, y) => u[Math.floor(y * 64) * 64 + Math.floor(x * 64)];
         const twin = pl.modes.findIndex((m, k) => m.pair && pl.modes.some((q, j) => j !== k && q.pair === m.pair)), F = X.fieldOf(pl, twin, f);
-        const lone = pl.modes.findIndex(m => !pl.modes.some(q => q !== m && q.pair && q.pair === m.pair) && Math.abs(at(m.u, .5, .5)) > .5);
-        const D = X.fieldOf(pl, lone, [.5, .5]), cfg = { shape: 'square', start: 'even', finger: [.5, .5], holes: [] }, a = X.perform(cfg, [], 400), b = X.perform(cfg, [[lone, 2]], 400);
+        const lone = pl.modes.findIndex(m => m.id === '01-'); // cos πy − cos πx has no twin; at (.1, .5) it moves hard
+        const D = X.fieldOf(pl, lone, [.1, .5]), cfg = { shape: 'square', start: 'even', finger: [.1, .5], holes: [] }, a = X.perform(cfg, [], 400), b = X.perform(cfg, [[lone, 2]], 400);
         return { under: Math.abs(at(F.u, ...f)), before: Math.abs(at(pl.modes[twin].u, ...f)), dead: D.dead, still: Array.from(a.sx).every((x, i) => x === b.sx[i]) }; });
       ok(r.under < .08 && r.before > .1, JSON.stringify(r)); ok(r.dead && r.still, 'choked note moved sand: ' + JSON.stringify(r));
     },

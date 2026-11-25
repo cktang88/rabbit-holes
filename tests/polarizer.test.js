@@ -410,7 +410,7 @@ module.exports = {
         const vis = sel => page.evaluate(s => { const e = document.querySelector(s); if (!e) return false; const r = e.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2; return r.width > 0 && y > 0 && y < innerHeight && x > 0 && x < innerWidth && (document.elementFromPoint(x, y) === e || e.contains(document.elementFromPoint(x, y))); }, sel);
         ok(await vis('#sheet #bf10') && await vis('#sheet #bSign'), `${w}: Fire and Sign are on screen`);
         await page.click('#sheet #bf10'); ok(await page.evaluate(() => __pz.bx.shots === 10), `${w}: fired from the sheet`);
-        await page.click('#sheet #shT'); ok(await vis('#sheet [data-ci="0"]'), `${w}: the card opens in the sheet, no scrolling`);
+        if (await page.getAttribute('#sheet #shT', 'aria-expanded') !== 'true') await page.click('#sheet #shT'); ok(await vis('#sheet [data-ci="0"]'), `${w}: the card opens in the sheet, no scrolling`);
         const truth = await page.evaluate(() => __pz.box.els[0]);
         await page.selectOption('#sheet [data-ci="0"]', truth.k); await page.fill('#sheet [data-ca="0"]', String(truth.a));
         const c0 = await page.evaluate(() => __pz.bxSave().cash); await page.click('#sheet #bSign'); ok(await page.evaluate(c0 => __pz.bxSave().cash > c0 + 50, c0), `${w}: signed and paid`);
