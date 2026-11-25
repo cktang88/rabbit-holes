@@ -59,6 +59,9 @@
   #insp .opts{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
   #insp .opts .tool{font-size:12.5px;padding:7px 9px 5px;min-height:34px}
   #insp .x{position:absolute;right:10px;top:8px;background:none;border:0;color:var(--cream);font-size:18px;cursor:pointer;min-width:30px;min-height:30px}
+  #note{left:50%;bottom:86px;transform:translateX(-50%);padding:14px 16px;z-index:11;display:none;width:min(420px,calc(100vw - 24px));font-size:14px;line-height:1.4}
+  #note h4{margin:0 0 6px;font:400 19px Rye,Georgia,serif;color:var(--yellow)}
+  #note .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
   #lvBox{top:12px;right:12px;padding:12px 12px 8px;width:260px;max-height:calc(100vh - 110px);overflow:auto;display:none;z-index:9}
   #lvBox.open{display:block}
   #lvBox h4{margin:2px 4px 8px;font:400 17px Rye,Georgia,serif;color:var(--yellow);text-align:center}
@@ -164,6 +167,7 @@
 <script src="../shared/fx.js"></script>
 <script src="../shared/panzoom.js"></script>
 <script src="core.js"></script>
+<script src="age.js"></script>
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
@@ -313,7 +317,7 @@ function draw(t) {
   // boats
   for (const b of boats) { const p = boatPos(b); if (!p) continue; g.save(); g.translate(p[0], p[1]); g.rotate(p[2]); g.fillStyle = '#2a2622'; g.fillRect(-.32, -.1, .64, .2); g.fillStyle = b.col; g.fillRect(-.22, -.07, .36, .14); g.restore(); }
   // towns
-  M.towns.forEach((tn, i) => { const X = cx(tn.c), Y = cy(tn.c), on = A.cells.has(tn.c), grown = !(tn.from && run && st.m < tn.from), r2 = K.rng(i * 7 + 3), nh = grown ? 3 + tn.p : 2;
+  if (Cm.age) ageDraw(t); else M.towns.forEach((tn, i) => { const X = cx(tn.c), Y = cy(tn.c), on = A.cells.has(tn.c), grown = !(tn.from && run && st.m < tn.from), r2 = K.rng(i * 7 + 3), nh = grown ? 3 + tn.p : 2;
     g.fillStyle = on ? 'rgba(227,178,60,.35)' : 'rgba(179,38,30,.18)'; g.beginPath(); g.arc(X, Y, .95, 0, 7); g.fill();
     g.save(); g.translate(X, Y); if (ROT) g.rotate(-Math.PI / 2); // roofs point up on screen however the map is turned
     for (let j = 0; j < nh; j++) { const hx = (r2() - .5) * 1.5, hy = (r2() - .5) * 1.3; g.fillStyle = '#efe4c4'; g.fillRect(hx - .17, hy - .1, .34, .22); g.fillStyle = j % 3 ? '#a8402c' : '#7d2a1e'; g.beginPath(); g.moveTo(hx - .22, hy - .08); g.lineTo(hx, hy - .3); g.lineTo(hx + .22, hy - .08); g.fill(); }
@@ -387,6 +391,7 @@ function profBoat(b, G2) { const r = b.route, cells = r.cells, i = Math.floor(b.
 
 // ================= analysis, forecast and the HUD =================
 function reanalyse() {
+  if (Cm.age) return ageReanalyse();
   an = K.analyse(M, K.clone(D));
   if (mode === 'survey') { fore = K.simulate(M, D, { forecast: true }); }
   else migrate();
@@ -403,6 +408,7 @@ const fmtK = v => (v < 0 ? '−£' : '£') + Math.round(Math.abs(v)).toLocaleStr
 const monthName = m => ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m % 12] + ' ' + (M.start + Math.floor(m / 12));
 const ui = {}; const setText = (id, v) => { if (ui[id] !== v) { ui[id] = v; $(id).textContent = v; } };
 function hud() {
+  if (Cm.age) return ageHud();
   if (!an) return;
   if (mode === 'survey') {
     setText('vS', fmtK(an.total)); setText('vR', fore && fore.ok ? fmtK(fore.rev) : '–'); setText('lD', 'prospectus'); setText('vD', fore && fore.ok ? fmtK(fore.dividend) : '–'); setText('vT', String(M.start)); setText('lT', 'survey');
@@ -422,7 +428,7 @@ function setWater(f, txt) { $('wFill').style.width = Math.round(Math.max(0, f) *
 // ================= input: digging, filling, dams, sections =================
 let dig = null, selSite = null, downAt = null;
 const cellAt = (cxp, cyp) => { const [wx, wy] = toW(cxp, cyp), x = Math.floor(wx), y = Math.floor(wy); return K.inb(x, y) ? idx(x, y) : -1; };
-const isTown = c => M.towns.some(t => t.c === c);
+const isTown = c => (Cm.age && G ? G.places : M.towns).some(t => t.c === c);
 function siteAt(cxp, cyp) { if (!an) return null; let best = null, bd = .55; const [wx, wy] = toW(cxp, cyp); for (const s of an.sites) { const d = Math.hypot((cx(s.a) + cx(s.b)) / 2 - wx, (cy(s.a) + cy(s.b)) / 2 - wy); if (d < bd) { bd = d; best = s; } } return best; }
 function panFrom(e) { if (e.pointerType === 'mouse' && e.button !== 0) return true; const c = cellAt(e.clientX, e.clientY); if (siteAt(e.clientX, e.clientY)) return false; if (tool === 'dig') return !(c >= 0 && (isTown(c) || an && an.cells.has(c))); if (tool === 'res') return false; return false; }
 function snapshot() { hist.push(JSON.stringify(D)); if (hist.length > 60) hist.shift(); }
@@ -449,7 +455,7 @@ const endPtr = e => {
   dig = null; downAt = null; kick();
 };
 cv.addEventListener('pointerup', endPtr); cv.addEventListener('pointercancel', () => { dig = null; downAt = null; kick(); });
-function tapCell(c) { if (c < 0) return; const pi = D.paths.findIndex(p => p.includes(c)); if (pi >= 0) { sel = pi; openProf(true); FX.sfx('tick'); } else if (tool === 'dig' && !isTown(c)) banner('', 'Start a canal at a town or on a canal: drag from there.', 1600); kick(); }
+function tapCell(c) { if (c < 0) return; const pi = D.paths.findIndex(p => p.includes(c)); if (pi >= 0) { sel = pi; openProf(true); FX.sfx('tick'); if (Cm.age) ageSectionCard(pi); } else if (tool === 'dig' && !isTown(c)) banner('', 'Start a canal at a town or on a canal: drag from there.', 1600); kick(); }
 function fillCell(c) { // the navvies fill a stretch back in: paths split around it
   let hit = false; const out = [];
   for (const p of D.paths) { if (!p.includes(c)) { out.push(p); continue; } hit = true; let cur = []; for (const q of p) { if (q === c) { if (cur.length) out.push(cur); cur = []; } else cur.push(q); } if (cur.length) out.push(cur); }
@@ -463,7 +469,7 @@ function toggleRes(c) {
   snapshot(); D.res.push(c); FX.sfx('place'); reanalyse();
   const r = an.res[an.res.length - 1]; if (r && r.bad) banner('', 'This stream is no higher than the pounds near it, so the dam feeds nothing. <b>Drag the summit pound down</b> in the section, or dam a higher stream.', 3200); else FX.sfx('whoosh');
 }
-function checkJoin() { if (an && K.connected(an) && !SAVE.joined) { SAVE.joined = 1; persist(); banner('Towns joined!', 'Press <b>Open</b> to run ten years, or improve the prospectus first.', 2600); FX.sfx('chime', 4); pulseOpen = true; renderTools(); } }
+function checkJoin() { if (Cm.age) return; if (an && K.connected(an) && !SAVE.joined) { SAVE.joined = 1; persist(); banner('Towns joined!', 'Press <b>Open</b> to run ten years, or improve the prospectus first.', 2600); FX.sfx('chime', 4); pulseOpen = true; renderTools(); } }
 let pulseOpen = false;
 // section interactions: vertical drag shifts a pound, sideways drag holds a level, tap a lock for its card
 let pdrag = null;
@@ -494,6 +500,7 @@ $('profX').onclick = () => { sel = -1; openProf(false); };
 
 // ================= the lock card =================
 function openInsp(key) {
+  if (Cm.age) return ageLockCard(key);
   const s = an.sites.find(z => z.key === key); if (!s) return; selSite = key; const cfg = D.locks[key] || {}, el = $('insp');
   const T2 = K.LOCKT[s.t], kind = s.t === 'plane' ? 'Inclined plane' : s.t === 'stair' ? `Staircase of ${s.n}` : s.n > 1 ? `Flight of ${s.n} locks` : 'A lock';
   const load = lastRec ? s.routes.reduce((a, ri) => a + (lastRec.flows[ri] || 0), 0) : null;
@@ -512,11 +519,13 @@ function closeInsp() { $('insp').style.display = 'none'; selSite = null; kick();
 
 // ================= running the canal =================
 function openCanal() {
+  if (Cm.age) return ageOpen();
   if (!K.connected(an)) { banner('', `Join every town first: ${M.towns.filter(t => !an.cells.has(t.c)).map(t => t.name).join(', ') || 'the network is in pieces'}.`, 2400); FX.sfx('fail'); return; }
   mode = 'run'; runAn = K.analyse(M, K.clone(D)); an = runAn; st = K.newState(runAn); lastRec = null; monthT = 0; boats = []; pulseOpen = false; closeInsp();
   setMini(true); banner('The canal is open', `${M.start}: ten years of trade begin`, 2000); FX.sfx('win'); renderTools(); hud(); kick();
 }
 function stepOne() {
+  if (Cm.age) return ageStepOne();
   const rec = K.stepMonth(runAn, st); lastRec = rec;
   // news from the towpath
   if (rec.dry.length && !(events.dry > rec.m - 6)) { events.dry = rec.m; const p = runAn.pounds[rec.dry[0]]; banner('Boats stopped!', `${p.lv === Math.max(...runAn.pounds.map(q => q.lv)) ? 'The summit pound' : 'A pound'} is too low to work the locks${K.inDrought(M, rec.m) ? ' in the drought' : ''}. Tap a lock for side ponds or a back-pump, or dam a stream.`, 3200); FX.sfx('warn'); }
@@ -574,6 +583,7 @@ function share() { const url = location.href.split('#')[0] + `#c=${Cm.id}${Cm.fr
 
 // ================= tools, commissions =================
 function renderTools() {
+  if (Cm.age) return ageTools();
   const el = $('tools'), run = mode === 'run';
   const b = (id, txt, lbl, cls = '', title = '') => `<button class="tool ${cls}" id="${id}" title="${title || lbl}">${txt}<span class="lbl"> ${lbl}</span></button>`;
   el.innerHTML = (mode === 'survey' ? b('tDig', '✎', 'Dig', tool === 'dig' ? 'on' : '', 'Dig: drag from a town or a canal') + b('tFill', '⌫', 'Fill in', tool === 'fill' ? 'on' : '') + b('tRes', '⛲', 'Reservoir', tool === 'res' ? 'on' : '', 'Dam a stream') + b('tUndo', '↶', 'Undo', '', 'Undo')
@@ -588,7 +598,7 @@ function renderTools() {
   on('tStop', toSurvey); on('tAgain', toSurvey); on('tLv', () => { $('lvBox').classList.toggle('open'); renderLevels(); });
 }
 function renderLevels() {
-  const open = i => i === 0 || COMS[i].free || COMS[i].daily || SAVE.done[COMS[i - 1].id];
+  const open = i => i === 0 || COMS[i].free || COMS[i].daily || COMS[i].age || SAVE.done[COMS[i - 1].id];
   $('lvBox').innerHTML = `<h4>The Company's Commissions</h4>` + COMS.map((c, i) => `<div class="lv${c === Cm ? ' cur' : ''}${open(i) ? '' : ' lock'}" data-i="${i}"><span>${c.daily ? '☀ ' : ''}${c.n}</span><span class="st">${SAVE.done[c.id] ? '★'.repeat(SAVE.done[c.id]) : open(i) ? '' : '🔒'}</span></div>`).join('')
     + (Cm.free ? `<div class="lv" id="lvNew"><span>⟳ New country</span></div>` : '');
   $('lvBox').querySelectorAll('[data-i]').forEach(e => e.onclick = () => { $('lvBox').classList.remove('open'); loadCom(+e.dataset.i); });
@@ -597,6 +607,8 @@ function renderLevels() {
 function setMini(on) { const was = $('hud').classList.contains('mini'); $('hud').classList.toggle('mini', on); if (was !== on) requestAnimationFrame(() => { if (!cam.touched) fitMap(); kick(); }); }
 $('title').onclick = () => setMini(!$('hud').classList.contains('mini'));
 function loadCom(i, shared, sd) {
+  if (COMS[i].age) return ageLoad(i, sd);
+  G = null;
   Cm = COMS[i]; seed = sd || (Cm.free ? (SAVE.seed || 1) : 1); if (Cm.free) SAVE.seed = seed; M = mapFor(Cm, seed); bake();
   D = shared || (SAVE.designs[Cm.id + (Cm.free ? ':' + seed : '')] && K.dec(SAVE.designs[Cm.id + (Cm.free ? ':' + seed : '')])) || K.newDesign();
   mode = 'survey'; st = null; runAn = null; lastRec = null; boats = []; hist = []; sel = -1; tool = 'dig'; closeInsp(); openProf(false); pulseOpen = false; events = {};
@@ -612,7 +624,7 @@ const saveDesign = () => { SAVE.designs[Cm.id + (Cm.free ? ':' + seed : '')] = K
 let lastT = performance.now();
 function frame(now) {
   raf = 0; const dt = Math.min(.1, (now - lastT) / 1000); lastT = now; const t = now / 1000;
-  if (mode === 'run' && speed) { monthT += dt * speed / .8; while (monthT >= 1 && mode === 'run') { monthT -= 1; stepOne(); hud(); } }
+  if (mode === 'run' && speed) { monthT += dt * speed / (Cm.age ? .35 : .8); while (monthT >= 1 && mode === 'run') { monthT -= 1; stepOne(); hud(); } }
   if (boats.length || siteAnim.size) stepBoats(dt * (speed || 0));
   draw(t); drawProf(t);
   if (mode === 'run' || boats.length || siteAnim.size || (Cm.id === 'first' && !D.paths.length) || pc.classList.contains('on') || tool === 'res') kick();
@@ -620,19 +632,14 @@ function frame(now) {
 addEventListener('resize', resize);
 addEventListener('keydown', e => { if (e.key === 'z' && (e.ctrlKey || e.metaKey) || e.key === 'u') $('tUndo') && $('tUndo').click(); });
 // keep the design whenever it changes
-const _re = reanalyse; reanalyse = function () { _re(); if (mode === 'survey') saveDesign(); };
+const _re = reanalyse; reanalyse = function () { _re(); if (mode === 'survey' && !Cm.age) saveDesign(); };
 
 // ================= debug / test handle =================
-window.__lf = { K, COMS, get M() { return M; }, get D() { return D; }, set D(d) { D = d; hist = []; reanalyse(); }, get an() { return an; }, get fore() { return fore; }, get mode() { return mode; }, get st() { return st; }, get cam() { return cam; }, get sel() { return sel; },
+window.__lf = { get G() { return G; }, get AGE() { return window.AGE; }, setSpeed: v => { speed = v; renderTools(); }, K, COMS, get M() { return M; }, get D() { return D; }, set D(d) { D = d; hist = []; reanalyse(); }, get an() { return an; }, get fore() { return fore; }, get mode() { return mode; }, get st() { return st; }, get cam() { return cam; }, get sel() { return sel; },
   load: (i, sd) => loadCom(i, null, sd), open: openCanal, skip: () => { while (mode === 'run') stepOne(); }, fieldFor, par, SAVE, toSurvey,
   screenOf: c => toS(cx(c), cy(c)), get ROT() { return ROT; }, toW, profX: i => { const G2 = PV; const r = pc.getBoundingClientRect(); return [r.left + G2.X(G2.xs[i]) / dpr, r.top + G2.Y(D.lv[G2.p[i]]) / dpr]; } };
 
-// ================= boot =================
-resize();
-{ const m = /#c=([a-z]+)(?:&s=(\d+))?&d=([A-Za-z0-9_~.!-]*)/.exec(location.hash), ci = m ? COMS.findIndex(c => c.id === m[1]) : -1;
-  if (ci >= 0) { const d = K.dec(m[3]); loadCom(ci, d || null, m[2] ? +m[2] : undefined); if (d) banner('', 'A shared canal. Press <b>Open</b> to run it.', 2400); }
-  else loadCom(Math.min(COMS.length - 1, Math.max(0, Number.isInteger(SAVE.cur) ? SAVE.cur : 0))); }
-if (document.fonts) document.fonts.ready.then(() => kick());
 </script>
+<script src="age-ui.js"></script>
 </body>
 </html>

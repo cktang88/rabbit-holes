@@ -9,11 +9,11 @@ const K = typeof module !== 'undefined' && module.exports ? require('./core.js')
 const { W, H, N, C, idx, xy, inb, eucl, cheb, rng, isStream, ekey } = K;
 
 const E = {
-  START: 1790, YEARS: 70, CAPITAL: 140,          // £k subscribed by the proprietors
+  START: 1790, YEARS: 70, CAPITAL: 280, COST: 2,  // works cost twice the commissions' prices (a canal age of dearer labour)          // £k subscribed by the proprietors
   TOLLS: [.5, .75, 1, 1.5, 2], EPS: .65,         // toll levels; how much traffic a dearer toll drives off (before railways)
-  BUY: 8, REV: .5,                      // tolls per boat-furlong, relative to the commissions                                        // years' purchase: value = cash + BUY × annual net income
+  BUY: 8, REV: .7,                      // tolls per boat-furlong, relative to the commissions                                        // years' purchase: value = cash + BUY × annual net income
   LOCAL: 1.2,                                    // share of every output that never travels far (by road, whatever you build)
-  GROW: .2, DECAY: .04, OUT: 1.8, TGROW: .006, TSERVE: .035,
+  GROW: .14, DECAY: .04, OUT: 1.8, TGROW: .006, TSERVE: .035,
   RIVAL_LEAD: 36, WIND: 36,                      // months' warning of a rival canal; months in debt before the company is wound up
   RAIL_FROM: 1829, RAILK: 4,
 };
@@ -21,10 +21,10 @@ const E = {
 const TYPES = {
   town: { n: 'Town', w: { town: 1, port: 1.4, mill: .3, pottery: .2, iron: .2 }, rail: 1 },
   port: { n: 'Port', w: { town: 1.2, iron: .6, mill: .8, pottery: .4 }, rail: 1.1 },
-  coal: { n: 'Colliery', o0: 24, max: 95, w: { iron: 3, pottery: 2, mill: 1.4, town: 1, port: 1.1 }, rail: 1.45 },
-  pottery: { n: 'Potteries', o0: 13, max: 55, w: { town: 1.2, port: 2 }, rail: .95 },
-  iron: { n: 'Ironworks', o0: 18, max: 80, w: { town: 1, port: 1.6, mill: .6, coal: .4 }, rail: 1.25 },
-  mill: { n: 'Mill', o0: 11, max: 55, w: { port: 2.4, town: 1 }, rail: .95 },
+  coal: { n: 'Colliery', o0: 24, max: 70, w: { iron: 3, pottery: 2, mill: 1.4, town: 1, port: 1.1 }, rail: 1.45 },
+  pottery: { n: 'Potteries', o0: 13, max: 40, w: { town: 1.2, port: 2 }, rail: .95 },
+  iron: { n: 'Ironworks', o0: 18, max: 60, w: { town: 1, port: 1.6, mill: .6, coal: .4 }, rail: 1.25 },
+  mill: { n: 'Mill', o0: 11, max: 40, w: { port: 2.4, town: 1 }, rail: .95 },
 };
 const SUFFIX = { coal: 'Colliery', pottery: 'Potteries', iron: 'Ironworks', mill: 'Mill' };
 
@@ -33,7 +33,7 @@ function newGame(seed, opt = {}) {
   const spec = opt.spec || K.goodSpec(seed), r = rng(seed * 977 + 31);
   // seventy years of weather: a dry summer one year in four or so
   spec.drought = []; for (let y = 1; y < E.YEARS; y++) if (r() < .27) spec.drought.push([y * 12 + 5 + r.int(3), 2 + r.int(4)]);
-  const M = K.genMap(spec);
+  const M = K.genMap(spec); M.start = E.START;
   const places = M.towns.map(t => ({ type: 'town', c: t.c, p: t.p, p0: t.p, name: t.name, born: 0 }));
   // the port: where the biggest river meets the sea (the map edge)
   let pc = -1, pa = -1; for (let c = 0; c < N; c++) { const [x, y] = xy(c); if ((x === 0 || y === 0 || x === W - 1 || y === H - 1) && M.acc[c] > pa && !places.some(p => cheb(p.c, c) < 4)) { pa = M.acc[c]; pc = c; } }
@@ -134,10 +134,11 @@ function reanalyse(G) {
   routeFactors(G); G.dirty = false;
 }
 // ================= building =================
-const costOf = (G, D) => K.analyse(G.M, K.clone(D)).total;
+const costOf = (G, D) => K.analyse(G.M, K.clone(D)).total * E.COST;
+const priceOf = (G, D2) => Math.max(0, costOf(G, D2) - (G.an ? G.an.total * E.COST : 0));
 // commit a new design if the company can pay for the difference; returns the price (or null if refused)
 function build(G, D2) {
-  if (G.over) return null; const price = Math.max(0, costOf(G, D2) - G.an.total);
+  if (G.over) return null; const price = priceOf(G, D2);
   if (price > G.cash + 1e-6) return null;
   G.cash -= price; G.spent += price; G.yr.built += price; G.D = D2; reanalyse(G); return price;
 }
@@ -193,11 +194,16 @@ function event(G, ev) {
   } else if (ev.k === 'rival') { // the richest trade you leave unserved
     const P = G.places, linked = new Set(G.an.routes.map(q => q.i + '-' + q.j)); let best = null, bv = 4;
     for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) { if (linked.has(i + '-' + j) || G.rivals.some(v => (v.i === i && v.j === j))) continue; const v = G.pot[i][j] + G.pot[j][i]; if (v > bv) { bv = v; best = [i, j]; } }
-    if (best) { const v = { i: best[0], j: best[1], at: G.m + E.RIVAL_LEAD, open: false, name: `${P[best[0]].name.split(' ')[0]} & ${P[best[1]].name.split(' ')[0]} Canal Co.` };
+    if (best) { const v = { i: best[0], j: best[1], at: G.m + E.RIVAL_LEAD, open: false, name: (() => { const a = P[best[0]].name.split(' '), b = P[best[1]].name.split(' '); return `${a[0]} & ${b[0] === a[0] ? b[b.length - 1] : b[0]} Canal Co.`; })() };
       G.rivals.push(v); news(G, 'A rival petitions Parliament', `The ${v.name} will open in ${year(G, v.at)} unless your canal joins ${P[v.i].name} and ${P[v.j].name} first.`, 'rival'); }
+  } else if (ev.k === 'offer') { // a railway company bids for the canal: the bid falls as the railways spread
+    const v = value(G), price = Math.round(v * (1.3 - .08 * ev.n)); if (price > 20 && !G.over) { G.offer = { price, until: G.m + 12 };
+      news(G, 'An offer for the canal', `The railway company bids ${price.toLocaleString()} thousand pounds for your canal, good for a year. Sell, and the story ends here; refuse, and fight on to 1860.`, 'offer'); }
   } else if (ev.k === 'rail') { // a line between the busiest pair not yet on the railway
     const P = G.places; let best = null, bv = 0;
     for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) { if (railLinked(G, i, j)) continue; const v = (G.pot[i][j] + G.pot[j][i]) * (1 + P[i].p / 20 + P[j].p / 20); if (v > bv) { bv = v; best = [i, j]; } }
+    if (best && !G.rails.length) for (let k = 1; k <= 6; k++) { const m = G.m + 30 + 48 * (k - 1); if (m < E.YEARS * 12 - 6) G.plan.push({ m, k: 'offer', n: k }); } // the railway will want to buy you out
+    G.plan.sort((a, b) => a.m - b.m);
     if (best) { G.rails.push(best); G.dirty = true; news(G, G.rails.length === 1 ? 'The railway age begins' : 'A new railway opens', `${P[best[0]].name} to ${P[best[1]].name}${G.rails.length === 1 ? ': trains are fast, and your slow, dear routes will lose trade to them' : ''}.`, 'rail'); }
   }
 }
@@ -230,6 +236,7 @@ function act(G, a) {
   else if (a.k === 'mode') { if (a.v === 'open') delete G.mode[a.key]; else G.mode[a.key] = a.v; routeFactors(G); }
   else if (a.k === 'fly') { if (a.v) G.fly[a.pi] = 1; else delete G.fly[a.pi]; routeFactors(G); }
   else if (a.k === 'toll') setToll(G, a.pi, a.v);
+  else if (a.k === 'sell') { ok = !!(G.offer && G.m <= G.offer.until && !G.over); if (ok) { G.sold = G.offer.price; G.over = true; news(G, 'Sold to the railway', `The proprietors take ${G.sold.toLocaleString()} thousand pounds, ${year(G)}.`, 'good'); } }
   if (ok) G.log.push({ ...a, m: G.m });
   return ok;
 }
@@ -239,18 +246,18 @@ function replay(seed, log, until = Infinity, opt = {}) {
   while (i < log.length && log[i].m <= G.m && G.m < until) act(G, log[i++]);
   return G;
 }
-const encLog = log => log.map(a => [a.m.toString(36), a.k[0], a.k === 'build' ? a.d : a.k === 'mode' ? a.key + ':' + a.v[0] : a.pi + ':' + (a.v === true ? 1 : a.v === false ? 0 : a.v)].join('|')).join(' ');
+const encLog = log => log.map(a => [a.m.toString(36), a.k[0], a.k === 'build' ? a.d : a.k === 'sell' ? '1' : a.k === 'mode' ? a.key + ':' + a.v[0] : a.pi + ':' + (a.v === true ? 1 : a.v === false ? 0 : a.v)].join('|')).join(' ');
 const decLog = s => { if (typeof s !== 'string' || !s) return []; const out = []; for (const t of s.split(' ')) { const [m, k, v] = t.split('|'); if (v == null) continue; const mm = parseInt(m, 36); if (!(mm >= 0)) continue;
-  if (k === 'b') out.push({ m: mm, k: 'build', d: v }); else if (k === 'm') { const [key, x] = v.split(':'); out.push({ m: mm, k: 'mode', key, v: { o: 'open', p: 'pair', s: 'shut' }[x] || 'open' }); } else if (k === 'f') { const [pi, x] = v.split(':'); out.push({ m: mm, k: 'fly', pi: +pi, v: x === '1' }); } else if (k === 't') { const [pi, x] = v.split(':'); out.push({ m: mm, k: 'toll', pi: +pi, v: +x || 1 }); } }
+  if (k === 'b') out.push({ m: mm, k: 'build', d: v }); else if (k === 'm') { const [key, x] = v.split(':'); out.push({ m: mm, k: 'mode', key, v: { o: 'open', p: 'pair', s: 'shut' }[x] || 'open' }); } else if (k === 'f') { const [pi, x] = v.split(':'); out.push({ m: mm, k: 'fly', pi: +pi, v: x === '1' }); } else if (k === 't') { const [pi, x] = v.split(':'); out.push({ m: mm, k: 'toll', pi: +pi, v: +x || 1 }); } else if (k === 's') out.push({ m: mm, k: 'sell' }); }
   return out; };
-function score(G) { if (G.wound >= 0) return 0; return Math.round(value(G)); }
+function score(G) { if (G.sold) return G.sold; if (G.wound >= 0) return 0; return Math.round(value(G)); }
 // ================= the prospectus: what a design would earn over the next years, if nothing else changed =================
 function forecast(G, D2, months = 120) {
   const F = { ...G, M: { ...G.M }, places: G.places.map(p => ({ ...p })), D: K.clone(D2 || G.D), st: null, an: null, plan: [], rivals: G.rivals.map(v => ({ ...v })), rails: G.rails.map(r => r.slice()),
     years: G.years.slice(-3), yr: newYear(), news: [], events: [], flowsY: null, cash: 1e9, debt: 0, over: false, wound: -1, tolls: { ...G.tolls }, mode: { ...G.mode }, fly: { ...G.fly }, unlocked: new Set(G.unlocked), log: [], dirty: false };
-  potentials(F); reanalyse(F); const m0 = F.m; let net = 0, boats = 0, lostW = 0, lostC = 0, low = 1;
-  for (let k = 0; k < months && m0 + k < E.YEARS * 12; k++) { const rec = step(F); if (!rec) break; net += rec.rev - rec.run; boats += rec.boats; lostW += rec.lostW; lostC += rec.lostC; for (const f of rec.fill) low = Math.min(low, f); }
-  return { net, boats, lostW, lostC, low, an: F.an };
+  potentials(F); reanalyse(F); const m0 = F.m; let net = 0, boats = 0, lostW = 0, lostC = 0, low = 1, fill = null;
+  for (let k = 0; k < months && m0 + k < E.YEARS * 12; k++) { const rec = step(F); if (!rec) break; net += rec.rev - rec.run; boats += rec.boats; lostW += rec.lostW; lostC += rec.lostC; for (const f of rec.fill) low = Math.min(low, f); fill = rec.fill; }
+  return { net, boats, lostW, lostC, low, fill, an: F.an };
 }
 // ================= the company's engineers (bots; the tests use them) =================
 // a branch from place p to the network (or to place q): routed and levelled like the planner does
@@ -281,7 +288,7 @@ function bot(G, cfg) {
     for (let i = 0; i < P.length; i++) { if (onNet(G, i)) continue; if (cfg.only && !cfg.only(P[i])) continue;
       let gain = 0; for (let j = 0; j < P.length; j++) if (onNet(G, j)) gain += G.pot[i][j] + G.pot[j][i];
       if (G.rivals.some(v => !v.open && !v.gone && (v.i === i || v.j === i))) gain *= 2;
-      const D2 = branch(G, P[i].c, nc, cfg.v); if (!D2) continue; const price = costOf(G, D2) - G.an.total; if (price > cash()) continue;
+      const D2 = branch(G, P[i].c, nc, cfg.v); if (!D2) continue; const price = priceOf(G, D2); if (price > cash()) continue;
       if (cfg.look) { const left = Math.min(120, E.YEARS * 12 - G.m); gain = (forecast(G, D2, left).net - (G.base ?? (G.base = forecast(G, null, left).net))) / price; if (!best || gain > best.v) best = { D2, v: gain }; }
       else if (!best || gain / price > best.v) best = { D2, v: gain / price }; }
     if (best && best.v > (cfg.look ? 1 : (cfg.minGain || .02))) { build(G, best.D2); G.base = null; } else break;
@@ -324,6 +331,13 @@ function staticBest(G) {
   if (D.paths.length) build(G, D);
   for (let k = 0; k < 2; k++) { const an = K.analyse(G.M, K.clone(G.D)); if (!an.pounds.length) break; const rc = K.bestReservoir(G.M, an, an.order[0]); if (rc < 0) break; const D2 = K.clone(G.D); D2.res.push(rc); if (build(G, D2) == null) break; }
 }
-const API = { act, replay, encLog, decLog, UNLOCK, unlock, forecast, E, TYPES, newGame, step, build, setToll, costOf, value, score, year, branch, bot, STRATS, play, naive, staticBest, potentials, routeFactors, reanalyse, railLinked, onRail };
+// the surveyor's hint for a first canal: the pair of places whose canal would pay best over ten years
+function firstHint(G) { let best = null; const P = G.places;
+  for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) { if (K.eucl(P[i].c, P[j].c) > 22) continue; const D2 = branch(G, P[i].c, [P[j].c]); if (!D2) continue; const price = costOf(G, D2); if (price > G.cash * .85) continue;
+    const v = forecast(G, D2, 120).net - price * .5; if (!best || v > best.v) best = { i, j, v }; }
+  return best; }
+// the best canal the company's engineers could plan on day one (with the prospectus), then never touched again
+function staticPlan(G) { if (G.m !== 0) return; const cfg = { ...STRATS.adaptive, branches: 4, reserve: 0 }; bot(G, cfg); G.m = 12; bot(G, cfg); G.m = 0; }
+const API = { staticPlan, priceOf, firstHint, act, replay, encLog, decLog, UNLOCK, unlock, forecast, E, TYPES, newGame, step, build, setToll, costOf, value, score, year, branch, bot, STRATS, play, naive, staticBest, potentials, routeFactors, reanalyse, railLinked, onRail };
 if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.AGE = API;
 })(typeof window !== 'undefined' ? window : globalThis);

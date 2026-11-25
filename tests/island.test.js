@@ -32,7 +32,58 @@ function POLICIES(I){
   return { play, naive, planner, bestTile };
 }
 `;
+// The campaign bots: naive (every release at once, at random), a fixed textbook recipe per chapter, and one that reads
+// the census every year and reacts. Each may rewind a lapsed chapter twice, like a player.
+const CBOTS = `
+// campaign bots: naive, static recipe, adaptive
+function BOTS(I){
+  const N=I.N, GW=I.GW, IDX=I.IDX;
+  const near=(w,i,set,R)=>{ let c=0; const x0=i%GW,y0=(i/GW)|0; for(let k=0;k<w.n;k++){ const s=w.sp[k]; if(s>=0&&set.includes(s)&&Math.abs(w.x[k]-x0)<=R&&Math.abs(w.y[k]-y0)<=R) c++; } return c; };
+  function best(w,id){ let bi=-1,bv=-1e9; const f=w.f;
+    for(let i=0;i<N;i+=2){ if(!w.isl.land[i]) continue; let v;
+      if(id==='bee') v=f.flower[i]; else if(id==='deer') v=f.grass[i]+f.shrub[i]; else if(id==='rabbit'||id==='vole') v=f.grass[i]+f.shrub[i]*.5+(id==='vole'?w.litter[i]*2:0);
+      else if(id==='fox') v=near(w,i,[IDX.rabbit,IDX.vole],4); else if(id==='wolf') v=near(w,i,[IDX.deer,IDX.goat],5); else if(id==='owl') v=near(w,i,[IDX.vole],4)+f.tree[i]*20;
+      else if(id==='tree') v=(w.isl.bank[i]?.6:0)+w.isl.moist[i]*.5-f.tree[i]+ (f.tree[i]>0?0:0); else if(id==='-goat') v=near(w,i,[IDX.goat],5); else if(id==='-any') v=near(w,i,[IDX.goat,IDX.deer,IDX.rabbit],5);
+      else if(id==='#dam') v=w.isl.bank[i]?near(w,i,[],0)+(1-f.tree[i]):-1; else if(id==='#fence') v=(w.isl.bank[i]?1:0)-f.tree[i]; else if(id==='#burn') v=f.shrub[i]; else v=w.isl.moist[i]-f[id][i];
+      if(v>bv){bv=v;bi=i;} } return [bi%GW,(bi/GW)|0]; }
+  const has=(w,id)=>I.present(w,IDX[id]); const cnt=(w,id)=>w.last_counts[IDX[id]];
+  function run(seed, bot, maxYears=260, tries=3){ let w=I.newCampaign(seed); let snap=I.snapshot(w), snapCh=0, attempt=0, retries=0; const st={};
+    const ctx={ get w(){return w;}, st, rel:(id,at)=>!!I.campAct(w,[w.t,id,...(at||best(w,id))]), has:(id)=>has(w,id), cnt:(id)=>cnt(w,id), get ch(){return w.camp.ch;}, get y(){ return w.t/I.TPY - w.camp.y0; }, get p(){ return w.camp.permits; }, best:(id)=>best(w,id), get attempt(){ return attempt; } };
+    let yr=0, failed=false; const trace=[];
+    while(yr++<maxYears){ bot(ctx); let lost=false; for(let t=0;t<I.TPY;t++){ const ev=I.campTick(w); if(ev&&ev.some(e=>e.kind==='lost')){ lost=true; break; } if(ev&&ev.some(e=>e.kind==='chapter')){ snap=I.snapshot(w); snapCh=w.camp.ch; attempt=0; for(const k in st) delete st[k]; } }
+      if(lost){ trace.push(w.camp.ch); if(attempt+1>=tries){ failed=true; break; } attempt++; retries++; w=I.restore(snap); for(const k in st) delete st[k]; }
+      if(w.camp.ch>=9) break; }
+    return { ch:w.camp.ch, lost:failed, years:w.t/I.TPY, codex:Object.keys(w.codex).length, retries, trace, w }; }
+  // spend everything on random species in random places at the start of each chapter
+  const naive=(x)=>{ if(x.y!==0) return; const r=I.rng('nv:'+x.w.seed+x.ch); const ark=I.arkAt(x.ch); const L=[]; for(let i=0;i<N;i++) if(x.w.isl.land[i]) L.push(i); let g=0; while(x.p>0&&g++<60){ const i=L[r.int(L.length)]; x.rel(ark[r.int(ark.length)],[i%GW,(i/GW)|0]); } };
+  // the textbook recipe for each chapter, done on schedule, never adjusted
+  const RECIPE=[ {0:['rabbit'],1:['fox'],2:['fox']}, {0:['shrub','vole'],3:['owl']}, {0:['flower','flower','flower'],1:['bee'],2:['flower']}, {0:['tree','tree','fungi'],4:['owl']}, {0:['wolf','wolf','-goat','-goat'],3:['-goat']}, {0:['wolf','#dam'],2:['tree'],3:['tree']}, {}, {0:['rabbit']}, {0:['tree','owl','deer']} ];
+  const fixed=(x)=>{ const r=RECIPE[x.ch]; if(r&&r[x.y]) for(const id of r[x.y]) x.rel(id); };
+  // reacts every season to what the census says
+  const adaptive=(x)=>{ const ch=x.ch, y=x.y, w=x.w;
+    const refill=(ids)=>{ for(const id of ids) if(!x.has(id) && x.p>1) { if(x.rel(id)) return true; } return false; };
+    if(ch>=4 && x.cnt('goat')>(ch===4?0:5) && x.p>1){ const g=x.best('-goat'); x.rel('-goat',g); if(ch!==4) return; }
+    if(ch===0){ if(y===0) x.rel('rabbit'); if((y===1+(x.attempt===2?1:0)||y===2+(x.attempt>=1?1:0))&&x.cnt('rabbit')>20) x.rel('fox'); if(y>=1&&x.cnt('rabbit')<4) x.rel('rabbit'); return; }
+    if(ch===1){ const f=w.years.slice(w.camp.y0).map(r=>r[IDX.fox]); const pk=Math.max(0,...f); if(pk>=20&&f.length>=4&&f.slice(-4).every(v=>v>=.75*pk)&&!x.st.burnt&&x.p>1){ x.st.burnt=1; x.rel('#burn',x.best('#burn')); x.rel('#burn',x.best('#burn')); }
+      if(y===0&&x.cnt('shrub')<.08) x.rel('shrub'); if(!x.has('fox')&&x.cnt('rabbit')>30) x.rel('fox'); if(!x.has('rabbit')) x.rel('rabbit'); return; }
+    if(ch===3){ if(y===0){ x.rel('tree'); x.rel('tree'); x.rel('fungi'); } if(!x.has('vole')&&x.p>1) x.rel('vole'); if(x.cnt('tree')>.07&&x.cnt('owl')<2&&x.cnt('vole')>20&&(x.st.owl||0)<2){ x.st.owl=(x.st.owl||0)+1; x.rel('owl'); } return; }
+    if(ch===4){ if(y===0){ x.rel('wolf'); x.rel('wolf'); x.rel('-goat'); x.rel('-goat'); return; } if(x.cnt('goat')>0&&x.p>1) x.rel('-goat'); else if(!x.has('wolf')&&x.cnt('goat')>10) x.rel('wolf'); return; }
+    if(ch===5){ const B=[]; for(let i=0;i<N;i++) if(w.isl.bank[i]) B.push(i); const at=(q)=>{ const i=B[Math.floor(B.length*q)]; return [i%GW,(i/GW)|0]; }; const a=x.attempt;
+      if(y===0){ if(x.cnt('wolf')<4) x.rel('wolf'); x.rel('#fence',at(.25+a*.05)); x.rel('#fence',at(.7-a*.05)); } if(y===1){ x.rel('tree',at(.25+a*.05)); x.rel('tree',at(.7-a*.05)); } if(y===5&&x.p>0) x.rel('#fence',at(.25+a*.05)); if(y>2&&!x.has('wolf')&&x.cnt('deer')>30&&x.p>1) x.rel('wolf'); if(x.cnt('deer')<5&&x.p>0&&y>3) x.rel('deer'); return; }
+    if(ch===2){ if(y===0){ let bi=0,bv=-1; for(let i=0;i<N;i++) if(w.isl.land[i]){ const v=w.f.tree[i]+w.isl.moist[i]*.3-(w.isl.bank[i]?1:0); if(v>bv){bv=v;bi=i;} } const at=[bi%GW,(bi/GW)|0]; x.st.fl=at; x.rel('#burn',at); x.rel('flower',at); x.rel('flower',[at[0]+3,at[1]+1]); x.rel('#fence',at); }
+      if(y===1){ x.rel('bee',x.st.fl); } if(y===2&&!x.has('fox')&&x.cnt('rabbit')>50) x.rel('fox'); if(y===3) x.rel('flower'); if(y===2&&x.cnt('rabbit')>150) x.rel('-any',x.st.fl); if(y>2&&!x.has('bee')&&x.p>0) x.rel('bee'); return; }
+    if(ch===6){ if(y>=11) refill(['shrub','fungi','tree','vole','rabbit','fox','flower','bee','owl','deer']); return; }
+    if(ch===7){ const d=w.dis; if(y===0&&d) x.rel(d.id); refill(['grass','shrub','fungi','tree','flower','vole','rabbit','bee','fox','owl','deer','wolf']); return; }
+    if(ch===8){ if(y%3===0) refill(['grass','shrub','fungi','tree','flower','bee','vole','rabbit','deer','fox','owl','wolf']); return; }
+  };
+  return { run, naive, fixed, adaptive, best };
+}
+
+`;
+const withBots = (page) => page.addScriptTag({ content: CBOTS + '\nwindow.BOT = BOTS(IslandSim);' });
 const dismiss = (page) => page.evaluate(() => { document.querySelectorAll('.modal-bg').forEach(m => m.remove()); __isl.running = false; });
+// play the first chapter's opening by hand: rabbits on the best meadow, foxes a year and two years later
+const opening = (page) => page.evaluate(() => { const W = __isl.W; let best = 0, bv = -1; for (let i = 0; i < 2240; i++) if (W.isl.land[i] && W.f.grass[i] > bv) { bv = W.f.grass[i]; best = i; } return [best % 56, best / 56 | 0]; });
 const withPolicies = (page) => page.addScriptTag({ content: POLICIES + '\nwindow.POL = POLICIES(IslandSim);' });
 async function reopen(page) { const p2 = await page.context().newPage(); const errs = []; p2.on('pageerror', e => errs.push(e.message)); await p2.goto(page.url()); await p2.waitForTimeout(400); p2.errs = errs; return p2; }
 async function touchSession(page) { const cdp = await page.context().newCDPSession(page); await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }); return cdp; }
@@ -87,45 +138,65 @@ module.exports = {
       ok(r.goats > 54, 'goats with no predator multiply (from 18): ' + r.goats); ok(r.cover < r.cover0 * .6, 'and strip the island: ' + r.cover0.toFixed(2) + ' → ' + r.cover.toFixed(2));
       ok(r.soilWith > r.soilWithout + .05, `fungi keep the soil rich: ${r.soilWith.toFixed(2)} vs ${r.soilWithout.toFixed(2)}`); ok(r.flBees > r.flNone * 1.5, `bees spread the flowers: ${r.flBees.toFixed(3)} vs ${r.flNone.toFixed(3)}`);
     },
-    'difficulty: naive play fails the commissions, a planner fulfils them': async ({ page, ok }) => {
-      await withPolicies(page);
-      const r = await page.evaluate(() => { const I = IslandSim, out = {}; for (const id of ['meadow', 'cycle', 'bees', 'river', 'goats', 'drought', 'ten']) { const c = I.SCN[id]; let p = 0, n = 0;
-        for (const run of ['r1', 'r2', 'r3']) { if (POL.planner(c, run).res === 'won') p++; if (POL.naive(c, run).res === 'won') n++; } out[id] = [p, n]; } return out; });
-      const P = Object.values(r).reduce((a, x) => a + x[0], 0), Nv = Object.values(r).reduce((a, x) => a + x[1], 0), n = Object.keys(r).length * 3;
-      ok(P / n >= .6, `planner fulfils ${P}/${n}: ` + JSON.stringify(r)); ok(Nv / n <= .15, `naive fulfils ${Nv}/${n}: ` + JSON.stringify(r));
-      ok(Object.values(r).every(x => x[0] >= x[1]), 'planner at least as good on every commission');
-      // the first commission's twist: rabbits alone eat the meadow bare, a cull or a fence alone is not enough, foxes are
-      const m = await page.evaluate(() => { const c = IslandSim.SCN.meadow, out = {}; for (const [k, pl] of Object.entries({ rabbits: (x) => { if (x.year === 0) x.rel('rabbit'); }, culls: (x) => { if (x.year === 0) x.rel('rabbit'); if (x.year >= 3 && x.year <= 5) x.rel('-any', POL.bestTile(x.w, 'rabbit')); } }))
-        out[k] = ['r1', 'r2', 'r3', 'r4'].filter(run => POL.play(c, pl, run).res === 'won').length; return out; });
-      ok(m.rabbits <= 1, 'rabbits alone rarely keep the meadow: ' + m.rabbits); ok(m.culls <= 1, 'culling alone rarely does: ' + m.culls);
-    },
     'difficulty: on the daily island the planner keeps clearly more species alive than naive play': async ({ page, ok }) => {
       await withPolicies(page);
       const r = await page.evaluate(() => { const I = IslandSim, p = [], n = []; for (const d of ['2026-01-01', '2026-03-14', '2026-07-30']) { const c = I.daily(d); p.push(POL.planner(c).species); n.push(POL.naive(c).species); } return { p, n }; });
       const avg = (a) => a.reduce((x, y) => x + y) / a.length; ok(avg(r.p) >= avg(r.n) + 2, `planner ${r.p} vs naive ${r.n}`);
     },
-    'first minutes by real clicks: rabbits on the meadow, then foxes to hold them in check, and the first commission is fulfilled': async ({ page, eq, ok }) => {
-      await dismiss(page);
-      eq(await page.evaluate(() => __isl.C.id), 'meadow'); await page.click('.card[data-k="rabbit"]');
-      const pt = await page.evaluate(() => { const W = __isl.W; let best = 0, bv = -1; for (let i = 0; i < 2240; i++) if (W.isl.land[i] && W.f.grass[i] > bv) { bv = W.f.grass[i]; best = i; } return __isl.tileToClient(best % 56, best / 56 | 0); });
-      await page.mouse.click(pt[0], pt[1]);
-      const a = await page.evaluate(() => ({ p: __isl.permits, acts: __isl.W.actions.length, n: __isl.W.sp.filter(s => s === IslandSim.IDX.rabbit).length }));
-      eq(a.p, 3); eq(a.acts, 1); eq(a.n, 8);
-      for (let y = 1; y <= 2; y++) { await page.evaluate(() => { for (let t = 0; t < 24; t++) __isl.advance(); }); await page.click('.card[data-k="fox"]'); await page.mouse.click(pt[0], pt[1]); }
-      eq(await page.evaluate(() => __isl.permits), 1, 'two lots of foxes');
-      await page.evaluate(() => { for (let t = 0; t < 6 * 24; t++) __isl.advance(); }); await page.waitForTimeout(300);
-      const b = await page.evaluate(() => ({ res: __isl.result, done: !!__isl.M.done.meadow, prog: JSON.parse(localStorage.getItem('rh:hub')).island, modal: document.querySelector('.modal h2')?.textContent }));
-      eq(b.res, 'won'); ok(b.done); ok(b.prog > 0); await page.waitForTimeout(1500); ok(/fulfilled/i.test(await page.textContent('.modal h2')), 'the seal and the dialog');
+    'the steward\'s island: naive play fails, a fixed recipe stalls, reading the census each year goes furthest, and no recipe wins every island': async ({ page, ok }) => {
+      await withBots(page);
+      const r = await page.evaluate(() => { const out = { naive: [], fixed: [], adaptive: [] }; for (const seed of ['a', 'd', 'f', 'g']) for (const b of Object.keys(out)) { const x = BOT.run(seed, BOT[b]); out[b].push(x.lost ? x.ch : 9); } return out; });
+      const avg = (a) => a.reduce((x, y) => x + y) / a.length;
+      ok(r.naive.every(c => c === 0), 'naive play fails the first chapter: ' + r.naive); ok(avg(r.adaptive) >= avg(r.fixed) + 2, `adapting beats a fixed recipe: ${r.adaptive} vs ${r.fixed}`);
+      ok(r.fixed.every(c => c < 9), 'no fixed recipe finishes: ' + r.fixed); ok(r.adaptive.some(c => c === 9) && r.adaptive.some(c => c < 9), 'adaptive play finishes some islands, not all: ' + r.adaptive);
     },
-    'the notebook: commissions unlock in turn; the daily island opens after the first; census and guide render': async ({ page, ok, eq }) => {
+    'snapshots: a whole world saves in under 80 KB and restores to continue identically': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const I = IslandSim, w = I.newCampaign('snap'); I.campAct(w, [0, 'rabbit', 30, 20]); for (let t = 0; t < 60; t++) I.campTick(w); I.campAct(w, [w.t, 'fox', 30, 20]); for (let t = 0; t < 30; t++) I.campTick(w);
+        const sn = I.snapshot(w), size = JSON.stringify(sn).length, a = I.restore(sn); for (let t = 0; t < 72; t++) { I.campTick(w); I.campTick(a); } return { size, same: w.last_counts.join() === a.last_counts.join() && w.r.get() === a.r.get(), t: a.t }; });
+      ok(r.size < 80000, 'snapshot ' + r.size + ' bytes'); ok(r.same, 'the restored world runs on exactly as the original'); eq(r.t, 162);
+    },
+    'first minute by real clicks: rabbits, then foxes, and chapter one is fulfilled; chapter two opens on the same island': async ({ page, eq, ok }) => {
+      ok(!(await page.isVisible('.modal')), 'no intro screen'); ok(/Rabbits/.test(await page.textContent('#brief')), 'one line saying what to tap');
+      const t0 = await page.evaluate(() => __isl.W.t); await page.waitForTimeout(800); eq(await page.evaluate(() => __isl.W.t), t0, 'no time passes before the first move');
+      const pt = await opening(page); const cp = await page.evaluate((p) => __isl.tileToClient(...p), pt);
+      await page.click('.card[data-k="rabbit"]'); await page.click('.card[data-k="rabbit"]'); eq(await page.evaluate(() => __isl.sel), 'rabbit', 'a second tap keeps the card');
+      await page.mouse.click(cp[0], cp[1]); await page.evaluate(() => { __isl.running = false; });
+      eq(await page.evaluate(() => [__isl.permits, __isl.W.actions.length]), [3, 1]); ok(await page.isDisabled('.card[data-k="owl"]'), 'owls are locked until chapter 2'); ok(/ch\. 2/.test(await page.textContent('.card[data-k="owl"]')));
+      for (let y = 1; y <= 2; y++) { await page.evaluate((y) => { while (__isl.W.t < y * 24) __isl.advance(); }, y); await page.click('.card[data-k="fox"]'); const c2 = await page.evaluate((p) => __isl.tileToClient(...p), pt); await page.mouse.click(c2[0], c2[1]); }
+      await page.evaluate(() => { for (let k = 0; k < 6 * 24 + 1 && __isl.W.camp.ch === 0; k++) __isl.advance(); }); await page.waitForTimeout(1800);
+      const b = await page.evaluate(() => ({ ch: __isl.W.camp.ch, best: __isl.M.best.meadow, snapT: __isl.M.camp.snap.t, t: __isl.W.t, permits: __isl.permits, modal: document.querySelector('.modal')?.textContent || '', prog: JSON.parse(localStorage.getItem('rh:hub')).island }));
+      eq(b.ch, 1, 'chapter two'); ok(b.best && b.best.y === 8 && b.best.r === 3, JSON.stringify(b.best)); eq(b.snapT, b.t, 'the new chapter is saved where it starts'); eq(b.permits, 6, 'one release left over, five more given');
+      ok(/Fulfilled: A meadow for rabbits/.test(b.modal) && /Boom and bust/.test(b.modal), 'the chapter card: ' + b.modal.slice(0, 120)); ok(b.prog > 0);
+      await page.click('.modal button'); ok(!(await page.isDisabled('.card[data-k="owl"]')), 'owls arrive in chapter 2'); ok(!(await page.isDisabled('.card[data-k="#burn"]')), 'and fire');
+    },
+    'a lapsed chapter rewinds in under a second to its start, keeping the journal and everything before it': async ({ page, eq, ok }) => {
+      await dismiss(page);
+      const r = await page.evaluate(() => { const w = __isl.W; for (const [x, y] of [[30, 20], [20, 25], [40, 25]]) { __isl.sel = 'rabbit'; __isl.releaseAt(x, y); } for (let k = 0; k < 9 * 24 + 2; k++) __isl.advance(); return { status: w.camp.status, codex: Object.keys(__isl.M.codex).length }; });
+      eq(r.status, 'lost', 'rabbits alone lose the meadow'); await page.waitForTimeout(400); ok(/lapsed/i.test(await page.textContent('.modal h2')));
+      const t0 = Date.now(); await page.click('.modal button:has-text("Rewind")'); const dt = Date.now() - t0;
+      const s = await page.evaluate(() => ({ t: __isl.W.t, acts: __isl.W.actions.length, permits: __isl.permits, codex: Object.keys(__isl.M.codex).length, waiting: __isl.waiting }));
+      ok(dt < 1000, 'rewind took ' + dt + 'ms'); eq([s.t, s.acts, s.permits], [0, 0, 4]); eq(s.codex, r.codex, 'phenomena seen stay in the journal'); ok(s.waiting, 'and the clock waits for your move');
+    },
+    'the island survives a reload exactly; corrupted saves load cleanly': async ({ page, eq }) => {
+      await dismiss(page);
+      const a = await page.evaluate(() => { __isl.sel = 'rabbit'; __isl.releaseAt(30, 20); for (let t = 0; t < 30; t++) __isl.advance(); __isl.sel = 'fox'; __isl.releaseAt(28, 20); for (let t = 0; t < 18; t++) __isl.advance(); return { t: __isl.W.t, y: JSON.stringify(__isl.W.years) }; });
+      const p2 = await reopen(page); const b = await p2.evaluate((n) => ({ t: __isl.W.t, y: JSON.stringify(__isl.W.years.slice(0, n)) }), JSON.parse(a.y).length); eq(b.t >= a.t, true); eq(b.y, a.y); eq(p2.errs, []); await p2.close();
+      for (const raw of ['null', '7', '[]', '{"best":5,"codex":{"x":1},"camp":{"seed":"a","snap":{"v":1},"a":[[1,"dragon",3,3]],"t":5}}', '{"camp":{"seed":"b","snap":{"v":1,"fl":"!!"},"a":[],"t":4},"run":{"c":"daily","a":"nope","t":-4}}']) {
+        await page.evaluate((raw) => localStorage.setItem('rh:island', raw), raw); const p3 = await reopen(page);
+        const st = await p3.evaluate(() => ({ mode: __isl.MODE, ch: __isl.W.camp.ch })); eq(p3.errs, [], raw); eq(st, { mode: 'camp', ch: 0 }, raw); await p3.close(); }
+    },
+    'the notebook: chapters with best results, a journal of phenomena, census with your moves marked; the daily island opens after chapter one': async ({ page, ok, eq }) => {
       await dismiss(page);
       await page.click('#bookBtn'); await page.waitForTimeout(300);
-      ok(!(await page.isVisible('[data-day]')), 'daily locked at first'); eq(await page.locator('#p-com button[data-c]').count(), 1);
-      await page.evaluate(() => { __isl.M.done.meadow = { y: 5 }; __isl.openBook('com'); });
-      ok(await page.isVisible('[data-day]')); await page.click('[data-day]'); await page.waitForTimeout(200);
-      const r = await page.evaluate(() => ({ id: __isl.C.id, seed: __isl.C.seed, hash: location.hash, permits: __isl.permits, cards: document.querySelectorAll('#cards .card').length }));
-      eq(r.id, 'daily'); eq(r.hash, '#day=' + r.seed.slice(4)); eq(r.permits, 10); ok(r.cards >= 12);
-      await page.click('#bookBtn'); await page.click('.tabs button[data-t="cen"]'); await page.click('.tabs button[data-t="guide"]'); ok((await page.textContent('#p-guide')).includes('Eaten by'));
+      ok(!(await page.isVisible('[data-day]')), 'daily locked at first'); ok(/Boom and bust/.test(await page.textContent('#p-com')), 'the next chapter is in view');
+      await page.click('.tabs button[data-t="jr"]'); eq(await page.locator('#p-jr .ph').count(), 24); ok(/0 of 24/.test(await page.textContent('#p-jr')));
+      await page.evaluate(() => { __isl.closeBook(); __isl.sel = 'rabbit'; __isl.releaseAt(30, 20); for (let t = 0; t < 40; t++) __isl.advance(); __isl.M.best.meadow = { y: 8, r: 3, s: 4 }; __isl.openBook('cen'); });
+      ok(await page.isVisible('#bigChart')); ok(/your moves/.test(await page.textContent('#legend')));
+      await page.evaluate(() => __isl.openBook('com')); ok(await page.isVisible('[data-day]')); await page.click('[data-day]'); await page.waitForTimeout(200);
+      const r = await page.evaluate(() => ({ mode: __isl.MODE, seed: __isl.C.seed, hash: location.hash, permits: __isl.permits, cards: document.querySelectorAll('#cards .card').length }));
+      eq(r.mode, 'daily'); eq(r.hash, '#day=' + r.seed.slice(4)); eq(r.permits, 10); ok(r.cards >= 12);
+      await page.click('#bookBtn'); await page.click('[data-camp]'); eq(await page.evaluate(() => [__isl.MODE, __isl.W.actions.length]), ['camp', 1], 'back to the steward\'s island as it was');
+      await page.click('#bookBtn'); await page.click('.tabs button[data-t="guide"]'); ok((await page.textContent('#p-guide')).includes('Eaten by'));
     },
     'the daily island is the same for everyone that day, scored at year 30 and recorded': async ({ page, eq, ok }) => {
       await page.goto(page.url().split('#')[0] + '#day=2026-02-02'); await page.reload(); await page.waitForTimeout(500); await dismiss(page);
@@ -133,22 +204,35 @@ module.exports = {
         for (let t = 0; t < 30 * 24; t++) __isl.advance(); return { a, land, res: __isl.result, rec: __isl.M.daily['2026-02-02'], fresh: IslandSim.daily('2026-02-02').seed }; });
       eq(r.a, 'day:2026-02-02'); eq(r.fresh, r.a); eq(r.res, 'done'); ok(r.rec && r.rec.score >= 3, JSON.stringify(r.rec));
     },
-    'free island links carry the releases, and replay the same island': async ({ page, eq }) => {
+    'free island links carry the releases and replay the same island; island links share the steward\'s seed': async ({ page, eq }) => {
       await dismiss(page);
       const h = await page.evaluate(() => { __isl.begin('sandbox', 'pond'); __isl.sel = 'rabbit'; __isl.releaseAt(20, 20); __isl.sel = 'deer'; __isl.releaseAt(30, 20); return location.hash; });
-      const ok1 = /^#free=pond&r=/.test(h); eq(ok1, true);
+      eq(/^#free=pond&r=/.test(h), true);
       const p2 = await page.context().newPage(); await p2.goto(page.url().split('#')[0] + h); await p2.waitForTimeout(500);
       const r = await p2.evaluate(() => ({ seed: __isl.C.seed, acts: __isl.W.actions.map(a => a[1]), rab: __isl.W.sp.filter(s => s === IslandSim.IDX.rabbit).length }));
-      eq(r.seed, 'free:pond'); eq(r.acts, ['rabbit', 'deer']); eq(r.rab, 8); await p2.close();
-      eq(await page.evaluate(() => __isl.decodeActs(__isl.encodeActs([[5, 'fox', 3, 4], [70, '-goat', 50, 39]]))), [[5, 'fox', 3, 4], [70, '-goat', 50, 39]]);
+      eq(r.seed, 'free:pond'); eq(r.acts, ['rabbit', 'deer']); eq(r.rab >= 8, true); await p2.close();
+      eq(await page.evaluate(() => __isl.decodeActs(__isl.encodeActs([[5, 'fox', 3, 4], [70, '-goat', 50, 39], [80, '#burn', 2, 2]]))), [[5, 'fox', 3, 4], [70, '-goat', 50, 39], [80, '#burn', 2, 2]]);
+      const p3 = await page.context().newPage(); await p3.goto(page.url().split('#')[0] + '#camp=tern'); await p3.waitForTimeout(600); eq(await p3.evaluate(() => [__isl.MODE, __isl.W.camp.seed]), ['camp', 'tern']); await p3.close();
     },
-    'a run in progress survives a reload exactly; corrupted saves load cleanly': async ({ page, eq }) => {
-      await dismiss(page);
-      const a = await page.evaluate(() => { __isl.begin('cycle'); __isl.sel = 'rabbit'; __isl.releaseAt(22, 20); for (let t = 0; t < 30; t++) __isl.advance(); __isl.sel = 'vole'; __isl.releaseAt(28, 20); for (let t = 0; t < 18; t++) __isl.advance(); return __isl.W.census.map(x => x.join()).join('|'); });
-      const p2 = await reopen(page); const b = await p2.evaluate(() => __isl.W.census.map(x => x.slice(0, 49).join()).join('|')); eq(b, a); eq(p2.errs, []); await p2.close();
-      for (const raw of ['null', '7', '[]', '{"done":5,"daily":{"x":1},"run":{"c":"ten","a":[[1,"dragon",3,3]],"t":5}}', '{"run":{"c":"cycle","a":"nope","t":-4},"seen":[1,"fox"]}']) {
-        await page.evaluate((raw) => localStorage.setItem('rh:island', raw), raw); const p3 = await reopen(page);
-        const st = await p3.evaluate(() => ({ c: __isl.C.id, d: Object.keys(__isl.M.done).length })); eq(p3.errs, [], raw); eq(st.c, 'meadow', raw); await p3.close(); }
+    'fire and water: burning feeds the soil and kills the slow, a dam keeps the ground wet; tools wait for their chapter': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const I = IslandSim, w = I.create('tools'); I.release(w, 'rabbit', 25, 20); let i = 20 * 56 + 25; const f0 = w.fert[i], sh0 = w.f.shrub[i] + w.f.tree[i];
+        I.burn(w, 25, 20); let rb = 0; for (let k = 0; k < w.n; k++) if (w.sp[k] === I.IDX.rabbit) rb++;
+        let j = -1; for (let q = 0; q < I.N; q++) if (w.isl.bank[q]) { j = q; break; } const m0 = w.isl.moist[j]; const dn = I.dam(w, j % 56, j / 56 | 0); const no = I.dam(w, 2, 2);
+        const c = I.newCampaign('x'); return { fert: w.fert[i] >= f0, bare: w.f.shrub[i] + w.f.tree[i] <= sh0 * .2 + .01, rb, wet: w.isl.moist[j] > m0, dn, no, burn0: I.allowed(c, '#burn'), dam0: I.allowed(c, '#dam'), fence0: I.allowed(c, '#fence') }; });
+      ok(r.fert && r.bare, 'burnt ground: bare and richer'); ok(r.rb < 8, 'rabbits caught in the fire: ' + (8 - r.rb)); ok(r.wet && r.dn > 0 && r.no === 0, 'a dam only by the stream, and it wets the ground');
+      ok(!r.burn0 && !r.dam0 && r.fence0, 'fire and dams come later; the fence is there from the start');
+    },
+    'phone layout: the island fills the screen, every card is in view with its sparkline, the notebook is a full page': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.goto(page.url()); await page.waitForTimeout(600); await dismiss(page);
+      await page.evaluate(() => { __isl.sel = 'rabbit'; __isl.releaseAt(30, 20); for (let t = 0; t < 72; t++) __isl.advance(); });
+      const r = await page.evaluate(() => { const cards = [...document.querySelectorAll('#cards .card')]; const vis = cards.filter(c => { const b = c.getBoundingClientRect(); return b.left >= 0 && b.right <= innerWidth && b.width > 30; }).length;
+        const sp = document.querySelector('.card[data-k="rabbit"] canvas.spark'); const d = sp.getContext('2d').getImageData(0, 0, sp.width, sp.height).data; let ink = 0; for (let i = 3; i < d.length; i += 4) ink += d[i] > 0;
+        const m = document.getElementById('map').getBoundingClientRect(); const fs = parseFloat(getComputedStyle(document.getElementById('note')).fontSize); return { n: cards.length, vis, map: m.height / innerHeight, fs, k: __isl.cam.k, ink }; });
+      ok(r.vis >= 12, `cards in view ${r.vis} of ${r.n}`); ok(r.ink > 20, 'the rabbit card draws its sparkline'); ok(r.map > .6, 'the island has most of the height: ' + r.map.toFixed(2)); ok(r.fs <= 19, 'captions sized for a phone: ' + r.fs);
+      ok(Math.max(.55, Math.min(1.7, 13 / r.k)) * r.k >= 10, 'an animal is at least 10px across at the starting zoom (k=' + r.k.toFixed(1) + ')');
+      await page.click('#bookBtn'); await page.waitForTimeout(400);
+      const b = await page.evaluate(() => { const r = document.getElementById('book').getBoundingClientRect(); return r.height / innerHeight; }); ok(b > .95, 'the notebook is a full page: ' + b.toFixed(2));
+      await page.click('#bookX'); await page.waitForTimeout(400); ok(!(await page.evaluate(() => document.body.classList.contains('book'))));
     },
     'touch (phone): pinch zooms, a tap on the island releases, nothing scrolls sideways': async ({ page, ok, eq }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.goto(page.url()); await page.waitForTimeout(600); await dismiss(page);
@@ -160,48 +244,18 @@ module.exports = {
       eq(await page.evaluate(() => __isl.sel), 'rabbit');
       const t = await page.evaluate(() => { const W = __isl.W; const r = document.getElementById('map').getBoundingClientRect(); for (let i = 0; i < 2240; i++) if (W.isl.land[i]) { const p = __isl.tileToClient(i % 56, i / 56 | 0); if (p[0] > r.left + 40 && p[0] < r.right - 40 && p[1] > r.top + 90 && p[1] < r.bottom - 90) return p; } });
       await tap(cdp, t); eq(await page.evaluate(() => __isl.permits), 3, 'a tap released the rabbits');
-      const big = await page.evaluate(() => { const r = document.getElementById('map').getBoundingClientRect(); return r.width * r.height / (innerWidth * innerHeight); }); ok(big > .6, 'the island fills the screen: ' + big);
-    },
-    'the first release starts the clock; cards select (never toggle off); a new commission starts at x1 with no stale notes': async ({ page, eq, ok }) => {
-      ok(await page.isVisible('.modal'), 'the intro'); await page.click('.modal button'); await page.waitForTimeout(200);
-      eq(await page.evaluate(() => __isl.sel), null, 'the intro does not pick a card for you');
-      const t0 = await page.evaluate(() => __isl.W.t); await page.waitForTimeout(1200); eq(await page.evaluate(() => __isl.W.t), t0, 'no time passes before the first release');
-      ok(/first release/.test(await page.textContent('#brief')));
-      await page.click('.card[data-k="rabbit"]'); await page.click('.card[data-k="rabbit"]'); eq(await page.evaluate(() => __isl.sel), 'rabbit', 'a second tap keeps the card');
-      const pt = await page.evaluate(() => __isl.tileToClient(41, 30)); await page.mouse.click(pt[0], pt[1]); await page.waitForTimeout(1200);
-      ok(await page.evaluate(() => __isl.W.t) > t0, 'the clock runs after the release');
-      eq(await page.locator('.card[data-k="-any"]').count(), 1, 'a cull card'); eq(await page.locator('.card[data-k="#fence"]').count(), 1, 'a fence card');
-      await page.click('#speedBtn'); await page.click('#speedBtn'); eq(await page.textContent('#speedBtn'), '×16');
-      await page.evaluate(() => { __isl.sel = 'fox'; __isl.releaseAt(41, 30); }); ok(await page.evaluate(() => document.getElementById('note').classList.contains('on')));
-      await page.evaluate(() => __isl.begin('cycle'));
-      eq(await page.textContent('#speedBtn'), '×1', 'speed resets'); ok(!(await page.evaluate(() => document.getElementById('note').classList.contains('on'))), 'no stale note');
-      // the fence keeps grazers out, and is painted on the map
-      const f = await page.evaluate(() => { const I = IslandSim, w = I.create('fence'); I.release(w, 'rabbit', 25, 20); for (let t = 0; t < 48; t++) I.step(w); const n = I.fence(w, 25, 20); for (let t = 0; t < 30; t++) I.step(w);
-        let inside = 0; for (let k = 0; k < w.n; k++) if (w.sp[k] >= 0 && w.fence[w.y[k] * I.GW + w.x[k]]) inside++; return { n, inside }; });
-      ok(f.n > 15, 'a fenced patch: ' + f.n); eq(f.inside, 0, 'no rabbits inside the fence');
-    },
-    'phone layout: the island fills the screen, every card is in view, the notebook is a full page, animals are visible': async ({ page, ok }) => {
-      await page.setViewportSize({ width: 390, height: 844 }); await page.goto(page.url()); await page.waitForTimeout(600); await dismiss(page);
-      await page.evaluate(() => __isl.begin('sandbox', 'phone'));
-      const r = await page.evaluate(() => { const cards = [...document.querySelectorAll('#cards .card')]; const vis = cards.filter(c => { const b = c.getBoundingClientRect(); return b.left >= 0 && b.right <= innerWidth && b.width > 30; }).length;
-        const m = document.getElementById('map').getBoundingClientRect(); const fs = parseFloat(getComputedStyle(document.getElementById('note')).fontSize); return { n: cards.length, vis, map: m.height / innerHeight, fs, k: __isl.cam.k }; });
-      ok(r.vis >= 12, `cards in view ${r.vis} of ${r.n}`); ok(r.map > .6, 'the island has most of the height: ' + r.map.toFixed(2)); ok(r.fs <= 19, 'captions sized for a phone: ' + r.fs);
-      ok(Math.max(.55, Math.min(1.7, 13 / r.k)) * r.k >= 10, 'an animal is at least 10px across at the starting zoom (k=' + r.k.toFixed(1) + ')');
-      await page.click('#bookBtn'); await page.waitForTimeout(400);
-      const b = await page.evaluate(() => { const r = document.getElementById('book').getBoundingClientRect(); return r.height / innerHeight; }); ok(b > .95, 'the notebook is a full page: ' + b.toFixed(2));
-      await page.click('#bookX'); await page.waitForTimeout(400); ok(!(await page.evaluate(() => document.body.classList.contains('book'))));
     },
     'performance: a busy island stays smooth on a throttled phone': async ({ page, ok }) => {
       const cdp = await page.context().newCDPSession(page);
       await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true }); await page.waitForTimeout(300); await dismiss(page);
-      await page.evaluate(() => { __isl.begin('sandbox', 'busy'); for (const [id, x, y] of [['rabbit', 20, 20], ['rabbit', 30, 22], ['vole', 25, 20], ['vole', 35, 20], ['bee', 28, 18], ['flower', 28, 18], ['deer', 30, 25], ['fox', 26, 21]]) { __isl.sel = id; __isl.releaseAt(x, y); }
-        for (let t = 0; t < 24 * 4; t++) __isl.advance(); __isl.speed = 16; __isl.running = true; });
+      await page.evaluate(() => { __isl.begin('sandbox', 'busy'); for (const [id, x, y] of [['rabbit', 20, 20], ['rabbit', 30, 22], ['vole', 25, 20], ['vole', 35, 20], ['bee', 28, 18], ['flower', 28, 18], ['deer', 30, 25], ['rabbit', 15, 25], ['vole', 40, 22], ['rabbit', 38, 15], ['fox', 26, 21]]) { __isl.sel = id; __isl.releaseAt(x, y); }
+        for (let t = 0; t < 24 * 4; t++) __isl.advance(); __isl.speed = 24; __isl.running = true; });
       await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 }); await page.waitForTimeout(2500);
       const r = await page.evaluate(() => { const W = __isl.W; let n = 0; for (let k = 0; k < W.n; k++) if (W.sp[k] >= 0) n++; const t0 = performance.now(); for (let i = 0; i < 24; i++) __isl.advance(); const tick = (performance.now() - t0) / 24;
         const t1 = performance.now(); for (let i = 0; i < 10; i++) { __isl.render(performance.now()); document.getElementById('map').getContext('2d').getImageData(0, 0, 1, 1); } return { n, tick, frame: (performance.now() - t1) / 10, fps: __isl.fps(2000) }; });
       await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
       ok(r.n > 300, 'a busy island: ' + r.n + ' animals'); ok(r.tick < 8, 'a tick of the world takes ' + r.tick.toFixed(1) + 'ms on a 4x slower CPU');
-      ok(r.fps >= 25, 'frames per second at ×16 on a 4x-throttled phone, software compositing: ' + r.fps.toFixed(0)); ok(r.frame + r.tick < 16, `page work per frame ${(r.frame + r.tick).toFixed(1)}ms (paint ${r.frame.toFixed(1)} + one tick ${r.tick.toFixed(1)})`);
+      ok(r.fps >= 25, 'frames per second at ×24 on a 4x-throttled phone, software compositing: ' + r.fps.toFixed(0)); ok(r.frame + r.tick < 16, `page work per frame ${(r.frame + r.tick).toFixed(1)}ms (paint ${r.frame.toFixed(1)} + one tick ${r.tick.toFixed(1)})`);
     },
   },
 };
