@@ -392,7 +392,9 @@ function useMaps(tag) { const m = baseMaps[tag], M = globe.material; if (!m) ret
 function* paintState(st) { // brighten the ocean where the current runs fast; ~10× cheaper than repainting from scratch
   const c = document.createElement('canvas'); c.width = TW; c.height = TH; const g = c.getContext('2d'), im = g.createImageData(TW, TH), d = im.data;
   d.set(BASE); const k = 2.2 * VS / 260; yield;
-  for (let n = 0; n < OPIX.length; n++) { const o = OPIX[n], s = Math.min(1, st.SP[OGRID[n]] * k); d[o] += s * 70; d[o + 1] += s * 78; d[o + 2] += s * 52; if ((n & 65535) === 65535) yield; } // fast water painted paler, like an old current chart
+  const SPs = new Float32Array(NG); for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) { let a = 0, m = 0; for (let dj = -1; dj <= 1; dj++) { const jj = Math.max(0, Math.min(GH - 1, j + dj)); for (let di = -1; di <= 1; di++) { const kk = jj * GW + (i + di + GW) % GW; if (!LANDG[kk] || !di && !dj) { a += st.SP[kk]; m++; } } } SPs[j * GW + i] = m ? a / m : 0; } // smoothed, and spread a cell onto the coast so shallows don't come out in steps
+  for (let n = 0; n < OPIX.length; n++) { const o = OPIX[n], px = (o >> 2) % TW, py = (o >> 2) / TW | 0, gx = (px + .5) / TW * GW - .5, gy = Math.max(0, Math.min(GH - 1.001, (py + .5) / TH * GH - .5)), i0 = Math.floor(gx), j0 = Math.floor(gy), fx = gx - i0, fy = gy - j0, ia = (i0 + GW) % GW, ib = (ia + 1) % GW, j1 = Math.min(GH - 1, j0 + 1);
+    const s = Math.min(1, ((SPs[j0 * GW + ia] * (1 - fx) + SPs[j0 * GW + ib] * fx) * (1 - fy) + (SPs[j1 * GW + ia] * (1 - fx) + SPs[j1 * GW + ib] * fx) * fy) * k); d[o] += s * 70; d[o + 1] += s * 78; d[o + 2] += s * 52; if ((n & 65535) === 65535) yield; } // fast water painted paler, like an old current chart
   g.putImageData(im, 0, 0);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MOBILE ? 2 : 8; st.tex = t;
 }
@@ -441,27 +443,27 @@ setTimeout(() => { ensureOcean(0); ensureOcean(-1); }, 2500);
 // matches three.js SphereGeometry's texture wrap: u = (lon + 180) / 360 runs round from the -x axis
 const toXYZ = (lat, lon, r = 1.004, out = []) => { const a = lat * Math.PI / 180, u = (lon + 180) / 360 * Math.PI * 2, ca = Math.cos(a); out[0] = -r * ca * Math.cos(u); out[1] = r * Math.sin(a); out[2] = r * ca * Math.sin(u); return out; };
 // current streamlines: comet-tailed streaks that flow with the computed currents, brighter and warmer where the water runs fast
-const NT = MOBILE ? 1400 : 3000, TL = 16, tr = { lat: new Float32Array(NT), lon: new Float32Array(NT), age: new Float32Array(NT), sp: new Float32Array(NT), hist: new Float32Array(NT * TL * 3) };
+const NT = MOBILE ? 1400 : 3000, TL = 20, tr = { lat: new Float32Array(NT), lon: new Float32Array(NT), age: new Float32Array(NT), sp: new Float32Array(NT), hist: new Float32Array(NT * TL * 3) };
 const trGeo = new THREE.BufferGeometry(), trPos = new Float32Array(NT * (TL - 1) * 6), trCol = new Float32Array(NT * (TL - 1) * 6);
 trGeo.setAttribute('position', new THREE.BufferAttribute(trPos, 3)); trGeo.setAttribute('color', new THREE.BufferAttribute(trCol, 3));
 const trMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
 const tracers = new THREE.LineSegments(trGeo, trMat);
 globe.add(tracers);
-function respawnTracer(i) { let lat, lon; do { lat = Math.asin(Math.random() * 2 - 1) * 180 / Math.PI; lon = Math.random() * 360 - 180; } while (isLand(lat, lon) || Math.abs(lat) > 78); tr.lat[i] = lat; tr.lon[i] = lon; tr.age[i] = 1 + Math.random() * 3; toXYZ(lat, lon, 1.003, XYZ0); for (let k = 0; k < TL; k++) tr.hist.set(XYZ0, (i * TL + k) * 3); }
+function respawnTracer(i) { let lat, lon; do { lat = Math.asin(Math.random() * 2 - 1) * 180 / Math.PI; lon = Math.random() * 360 - 180; } while (isLand(lat, lon) || Math.abs(lat) > 78); tr.lat[i] = lat; tr.lon[i] = lon; tr.age[i] = 1.5 + Math.random() * 2.5; toXYZ(lat, lon, 1.003, XYZ0); for (let k = 0; k < TL; k++) tr.hist.set(XYZ0, (i * TL + k) * 3); }
 const XYZ0 = [0, 0, 0];
 for (let i = 0; i < NT; i++) respawnTracer(i);
 const camL = new THREE.Vector3(), XYZ = [0, 0, 0]; let trTick = 0;
 function moveTracers(dt) {
   if (!CU) return;
   camL.copy(camera.position); globe.worldToLocal(camL); camL.normalize();
-  trTick += dt; const push = trTick > 1 / 24; if (push) trTick = 0; // the tail keeps a point every 1/24 s: over half a second of motion
+  trTick += dt; const push = trTick > 1 / 20; if (push) trTick = 0; // the tail keeps a point every 1/20 s: a second of motion
   const H = tr.hist, P = trPos, Cc = trCol, seg = (TL - 1) * 6;
   for (let i = 0; i < NT; i++) {
     const hb = i * TL * 3;
     // the far side of the globe can't be seen: just let those streaks age, and hide them
     if (H[hb] * camL.x + H[hb + 1] * camL.y + H[hb + 2] * camL.z < -.25) { tr.age[i] -= dt; if (tr.age[i] < 0) respawnTracer(i); Cc.fill(0, i * seg, i * seg + seg); continue; }
     const v = vel(tr.lat[i], tr.lon[i]), u = v[0], w = v[1], c = Math.max(.15, Math.cos(tr.lat[i] * Math.PI / 180));
-    tr.lat[i] += w * dt * .06; tr.lon[i] += u * dt * .06 / c; tr.age[i] -= dt;
+    tr.lat[i] += w * dt * .08; tr.lon[i] += u * dt * .08 / c; tr.age[i] -= dt;
     if (tr.lon[i] > 180) tr.lon[i] -= 360; if (tr.lon[i] < -180) tr.lon[i] += 360;
     if (tr.age[i] < 0 || isLand(tr.lat[i], tr.lon[i]) || Math.abs(tr.lat[i]) > 80) { respawnTracer(i); Cc.fill(0, i * seg, i * seg + seg); continue; }
     if (push) H.copyWithin(hb + 3, hb, hb + (TL - 1) * 3);
