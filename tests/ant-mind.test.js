@@ -6,7 +6,7 @@ const reloadWith = async (page, key, v) => { await page.addInitScript(([k, val])
 const ADAPT = `(sea) => { const t = sea.tags;
   if (t.includes('cold')) return (t.includes('spider')?'danger>flee,':'')+'always>pick,carry>mark,always>revisit,scout>wander,always>home';
   if (t.includes('spider') && t.includes('rain')) return 'danger>flee,always>pick,carry>mark,tired>home,always>revisit,always>trail';
-  if (t.includes('spider')) return 'danger>flee,always>pick,carry>mark,tired>home,always>trail';
+  if (t.includes('spider')) return 'danger>flee,always>pick,carry>mark,always>revisit,always>trail,tired>home';
   if (t.includes('rain')) return 'always>pick,carry>mark,tired>home,always>revisit,always>trail';
   return 'always>pick,carry>mark,tired>home,always>trail'; }`;
 const YEARS = (cards, seeds, adapt) => `(() => { const S = window.__ant.S, adapt = ${adapt || 'null'}; const out = {};

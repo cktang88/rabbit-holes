@@ -1,251 +1,128 @@
-// Chladni: plate mode frequencies and shapes, resonance response, and that a figure is only recorded
-// when the dial is held near a resonance (not swept past).
-const openWith = async (page, save) => {
-  const p2 = await page.context().newPage(), errs = []; p2.on('pageerror', e => errs.push(e.message));
-  await p2.goto(page.url()); await p2.evaluate(s => localStorage.setItem('rh:chladni', s), save); await p2.reload(); await p2.waitForTimeout(500);
-  return { p2, errs };
-};
-const toMatch = page => page.click('[data-m="match"]');
-// drive the dial with real time passing; returns whether the target got solved
-const sweep = (page, f0, f1, seconds) => page.evaluate(([f0, f1, ms]) => new Promise(res => {
-  const t0 = performance.now(); const id = setInterval(() => { const u = Math.min(1, (performance.now() - t0) / ms); __ch.setFreq(f0 * Math.pow(f1 / f0, u)); if (u >= 1) { clearInterval(id); res(); } }, 16);
-}), [f0, f1, seconds * 1000]);
-
-// put the bow where mode k moves most (and its twin least): that is how you excite one figure on purpose
-const BEST_BOW = `window.bestBow = k => { const X = __ch, M = X.PLATES[X.plate].modes, md = M[k], tw = M.find(m => m !== md && m.pair && m.pair === md.pair), pts = [];
-  if (X.plate === 'circle') for (let a = 0; a < 360; a += 3) pts.push({ x: .5 + .49 * Math.cos(a * Math.PI / 180), y: .5 + .49 * Math.sin(a * Math.PI / 180) });
-  else for (let t = 0; t <= 1.0001; t += .02) pts.push({ x: 1, y: t }, { x: 0, y: t }, { x: t, y: 0 }, { x: t, y: 1 });
-  const zm = m => m.zmax || 1; let best = pts[0], bv = -9; for (const p of pts) { const v = Math.abs(md.z(p.x, p.y)) / zm(md) - (tw ? Math.abs(tw.z(p.x, p.y)) / zm(tw) : 0); if (v > bv) { bv = v; best = p; } } X.setFinger(null); X.setBow(best); }`;
+// Chladni · Sand Score: plate physics, sand that flows to nodal lines, scores that are order-dependent and deterministic,
+// commissions that are reachable but not by chance, the finger and the drill, speed, saves, links, pan/zoom, phones.
+const fresh = async page => { await page.evaluate(() => localStorage.clear()); await page.reload(); await page.waitForFunction(() => window.__ch); };
+const BEAM = `window.__beam = (c, n = 300, W = 6) => { const X = __ch, DURS = [.25, .5, 1, 2], cfg = { shape: c.shape, start: c.start, finger: c.finger || null, holes: c.holes || [] }, M = X.plateOf(c.shape, c.holes || []).modes.length;
+  let beams = [{ s: [], m: 0 }], best = { s: [], m: 0 };
+  for (let len = 0; len < c.par + 1; len++) { const cand = []; for (const bm of beams) for (const k of c.pal) if (k < M) for (const d of DURS) { const s2 = [...bm.s, [k, d]]; cand.push({ s: s2, m: X.matchOf(c, X.perform(cfg, s2, n), n) }); }
+    cand.sort((a, b) => b.m - a.m); beams = cand.slice(0, W); if (beams[0].m > best.m) best = beams[0]; }
+  return best; };`;
 module.exports = {
   page: 'chladni/index.html',
+  ready: async page => { await page.waitForFunction(() => window.__ch); await page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove())); await page.evaluate(BEAM); },
   tests: {
-    'round plate: frequencies ∝ k², k = zeros of Jn′ (free edge)': async ({ page, near, ok }) => {
-      const KNOWN = { c11: 1.8412, c21: 3.0542, c01: 3.8317, c31: 4.2012, c41: 5.3176, c12: 5.3314, c51: 6.4156, c22: 6.7061, c02: 7.0156, c32: 8.0152 };
-      const f = await page.evaluate(() => Object.fromEntries(__ch.PLATES.circle.modes.map(m => [m.id, m.f])));
-      let n = 0; for (const [id, k] of Object.entries(KNOWN)) if (f[id]) { near(Math.sqrt(f[id] / 20), k, 2e-3, id); n++; }
-      ok(n >= 8, 'checked ' + n);
-      // mode shapes: n nodal diameters → z(θ) changes sign 2n times round a circle
-      const signs = await page.evaluate(() => __ch.PLATES.circle.modes.map(m => { let c = 0, p = 0; for (let i = 0; i < 720; i++) { const a = i / 720 * 2 * Math.PI, z = m.z(.5 + .3 * Math.cos(a + .01), .5 + .3 * Math.sin(a + .01)); const s = Math.sign(z); if (p && s && s !== p) c++; if (s) p = s; } return [m.id, c]; }));
-      for (const [id, c] of signs) ok(c === 2 * +id[1], `${id}: ${c} sign changes`);
+    'square plate: the cos·cos families, f ∝ n²+m² (twins split by a hair), symmetric, zero on their nodal lines; the solver reproduces them': async ({ page, ok, near }) => {
+      const r = await page.evaluate(() => { const X = __ch, sq = X.SQ.map(m => ({ id: m.id, ratio: m.f / (46 * (m.n * m.n + m.m * m.m)), sym: m.z(.2, .7) - m.s * m.z(.7, .2), diag: m.s < 0 ? m.z(.3, .3) : 0 }));
+        // the solver on a drilled-free square (tiny hole far in a corner barely matters) gives the same pitch ratios as the formula
+        const pl = X.plateOf('square', [[.04, .04]]), lam = pl.modes.map(m => m.lam), an = X.SQ.slice(0, 6).map(m => m.f);
+        return { sq, r1: lam[2] / lam[0], a1: an[2] / an[0] }; });
+      for (const m of r.sq) { ok(m.ratio >= 1 && m.ratio < 1.15, m.id + ' ratio ' + m.ratio); near(m.sym, 0, 1e-12, m.id + ' symmetry'); near(m.diag, 0, 1e-12, m.id + ' diagonal node'); }
+      ok(Math.abs(r.r1 / r.a1 - 1) < .2, `solver ratio ${r.r1} vs ${r.a1}`);
     },
-    'square & 2:1 plates: f ∝ n²+m² / n²+4m² (with small detuning); shapes are symmetric and vanish on nodal lines': async ({ page, ok, near }) => {
-      const r = await page.evaluate(() => {
-        const sq = __ch.PLATES.square.modes.map(m => { const [n, k] = [+m.id[1], +m.id[2]], sg = m.id[3] === 'p' ? 1 : -1; return { id: m.id, ratio: m.f / (46 * (n * n + k * k)), sym: [[.13, .71], [.4, .9], [.62, .27]].map(([x, y]) => m.z(x, y) - sg * m.z(y, x)) }; });
-        const rc = __ch.PLATES.rect.modes.map(m => { const [n, k] = [+m.id[1], +m.id[2]]; return { id: m.id, ratio: m.f / (32 * (n * n + 4 * k * k)), node: n ? m.z(1 / (2 * n), .37) : k ? m.z(.37, 1 / (2 * k)) : 0 }; });
-        return { sq, rc };
-      });
-      for (const m of r.sq) { ok(m.ratio > 1 && m.ratio < 1.25, m.id + ' ratio ' + m.ratio); for (const d of m.sym) near(d, 0, 1e-12, m.id + ' symmetry'); }
-      for (const m of r.rc) { ok(m.ratio >= 1 && m.ratio < 1.3, m.id + ' ratio ' + m.ratio); near(m.node, 0, 1e-12, m.id + ' nodal line'); }
+    'sand flows to the nodal lines: one long note puts most grains where the plate is still; a note stops the sand where it is when it ends': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = __ch, pl = X.plateOf('square'), cfg = { shape: 'square', start: 'even', finger: null, holes: [] };
+        const still = s => { let n = 0; const F = X.fieldOf(pl, 3, null); for (let i = 0; i < s.n; i++) { const c = Math.floor(s.sy[i] * 64) * 64 + Math.floor(s.sx[i] * 64); if (Math.abs(F.u[c]) < .2) n++; } return n / s.n; };
+        const s0 = X.perform(cfg, [], 1500), sq = X.perform(cfg, [[3, .25]], 1500), s2 = X.perform(cfg, [[3, 2]], 1500);
+        return { start: still(s0), quarter: still(sq), long: still(s2), same: JSON.stringify(Array.from(X.perform(cfg, [[3, 1], [1, .5]], 800).sx)) === JSON.stringify(Array.from(X.perform(cfg, [[3, 1], [1, .5]], 800).sx)) }; });
+      ok(r.start < .3 && r.long > .75, JSON.stringify(r)); ok(r.quarter > r.start + .1 && r.quarter < r.long - .1, 'a quarter note should be partway: ' + JSON.stringify(r)); ok(r.same, 'not deterministic');
     },
-    'mode lists: sorted, distinguishable (≥2.2% apart), inside the dial range; 10 distinct targets per plate': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(() => Object.entries(__ch.PLATES).map(([k, p]) => [k, p.modes.map(m => m.f), __ch.targetsOf(k).map(m => m.id), p.modes.map(m => m.pair || m.id)]));
-      for (const [k, fs, T, pairs] of r) {
-        ok(fs.length >= 12, k + ' modes ' + fs.length);
-        for (let i = 1; i < fs.length; i++) ok(fs[i] / fs[i - 1] > 1.022 || pairs[i] === pairs[i - 1], `${k} modes ${i - 1},${i} too close`); // twins sit closer: that's the point
-        ok(fs[0] > 44 && fs[fs.length - 1] < 4200 * .92, k + ' range');
-        eq(T.length, Math.min(10, Math.ceil(fs.length / 2)), k + ' targets'); ok(T.length >= 8); eq(new Set(T).size, T.length);
+    'order matters: playing a commission\'s notes backwards rarely delivers': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = __ch; return X.COMMS.filter(c => c.ref.length > 1).map(c => { const cfg = { shape: c.shape, start: c.start, finger: c.finger || null, holes: c.holes || [] }; return [c.id, X.matchOf(c, X.perform(cfg, c.ref.slice().reverse(), 600), 600)]; }); });
+      const delivered = r.filter(([, m]) => m >= .8); ok(delivered.length <= 2, 'backwards delivers: ' + JSON.stringify(delivered));
+      ok(r.filter(([, m]) => m < .7).length >= r.length * .6, JSON.stringify(r));
+    },
+    'every commission: the start is 0%, its hidden score is 100%; a methodical composer (beam search) delivers it; random apprentices rarely earn 90%': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = __ch; return X.COMMS.map(c => { const cfg = { shape: c.shape, start: c.start, finger: c.finger || null, holes: c.holes || [] };
+        return { id: c.id, start: X.matchOf(c, X.perform(cfg, [])), ref: X.matchOf(c, X.perform(cfg, c.ref)), beam: window.__beam(c).m, appr: X.apprentices(c, 10) }; }); });
+      for (const c of r) { ok(c.start < .01 && c.ref > .99, `${c.id} start ${c.start} ref ${c.ref}`); ok(c.beam >= .8, `${c.id} beam only ${c.beam}`); }
+      const late = r.filter(c => !/^c[12]$/.test(c.id)), hits = late.reduce((a, c) => a + c.appr.filter(v => v >= .9).length, 0);
+      ok(hits <= late.length * 10 * .05, `apprentices hit 90% ${hits} times`);
+    },
+    'the first commission is tiny: three notes to choose from, two to play, found by trying pairs within about a minute': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const X = __ch, c = X.COMMS[0], cfg = { shape: c.shape, start: c.start, finger: null, holes: [] }; let hits = 0, tot = 0;
+        for (const a of c.pal) for (const b of c.pal) { tot++; if (X.matchOf(c, X.perform(cfg, [[a, 1], [b, 1]])) >= .8) hits++; }
+        return { pal: c.pal.length, par: c.par, hits, tot, play: c.ref.reduce((a, [, d]) => a + d, 0) * X.BEAT_MS }; });
+      eq(r.pal, 3); eq(r.par, 2); ok(r.hits >= 1 && r.tot <= 9, JSON.stringify(r)); ok(r.play <= 1000, 'first score plays too long');
+    },
+    'speed: the longest score plays in about 8 s or less, a whole score computes in a blink, replay restarts from the same sand': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = __ch, cfg = { shape: 'square', start: 'even', finger: null, holes: [] }, t = performance.now(); for (let k = 0; k < 5; k++) X.perform(cfg, X.COMMS[5].ref); return { ms: (performance.now() - t) / 5, maxPlay: 12 * 2 * X.BEAT_MS, longest: Math.max(...X.COMMS.map(c => c.ref.reduce((a, [, d]) => a + d, 0))) * X.BEAT_MS }; });
+      ok(r.ms < 250, 'perform takes ' + r.ms); ok(r.longest <= 3000, 'set pieces play ' + r.longest); ok(r.maxPlay <= 8000, 'max score ' + r.maxPlay);
+    },
+    'the finger: twin notes turn to put a nodal line under it; a note that moves a lot under it is choked and leaves the sand alone': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = __ch, pl = X.plateOf('square'), f = [.37, .21], at = (u, x, y) => u[Math.floor(y * 64) * 64 + Math.floor(x * 64)];
+        const twin = pl.modes.findIndex((m, k) => m.pair && pl.modes.some((q, j) => j !== k && q.pair === m.pair)), F = X.fieldOf(pl, twin, f);
+        const lone = pl.modes.findIndex(m => !pl.modes.some(q => q !== m && q.pair && q.pair === m.pair) && Math.abs(at(m.u, .5, .5)) > .5);
+        const D = X.fieldOf(pl, lone, [.5, .5]), cfg = { shape: 'square', start: 'even', finger: [.5, .5], holes: [] }, a = X.perform(cfg, [], 400), b = X.perform(cfg, [[lone, 2]], 400);
+        return { under: Math.abs(at(F.u, ...f)), before: Math.abs(at(pl.modes[twin].u, ...f)), dead: D.dead, still: Array.from(a.sx).every((x, i) => x === b.sx[i]) }; });
+      ok(r.under < .08 && r.before > .1, JSON.stringify(r)); ok(r.dead && r.still, 'choked note moved sand: ' + JSON.stringify(r));
+    },
+    'the drill: a hole re-solves the plate (new notes) and sand that reaches it falls through': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = __ch, a = X.plateOf('square'), b = X.plateOf('square', [[.5, .5]]), cfg = { shape: 'square', start: 'heap', finger: null, holes: [[.5, .5]] }, s0 = X.perform(cfg, [], 600), s = X.perform(cfg, [[2, 2], [4, 1]], 600);
+        return { differ: Math.abs(b.modes[3].lam / b.modes[0].lam - a.modes[3].f / a.modes[0].f) > .01, lost0: s0.lost.reduce((x, y) => x + y, 0), lost: s.lost.reduce((x, y) => x + y, 0) }; });
+      ok(r.differ, 'hole did not change the notes'); ok(r.lost0 === 0 && r.lost > 0, JSON.stringify(r));
+    },
+    'compose through the page: tap notes, change a length, Play, deliver with stars; the next commission unlocks; the score survives a reload': async ({ page, ok, eq }) => {
+      await fresh(page); await page.evaluate(BEAM);
+      ok(!(await page.$('.modal-bg')), 'a modal greets a new player');
+      const ref = await page.evaluate(() => __ch.COMMS[0].ref);
+      for (const [k] of ref) await page.click(`.pm[data-k="${k}"]`);
+      eq(await page.evaluate(() => __ch.sc.notes.length), 2);
+      await page.click('.chip[data-i="0"] img'); eq(await page.evaluate(() => __ch.sc.notes[0][1]), 2); // 1 → 2 beats
+      for (let i = 0; i < 3; i++) await page.click('.chip[data-i="0"] img'); // 2 → ¼ → ½ → 1
+      eq(await page.evaluate(() => __ch.sc.notes[0][1]), 1);
+      await page.click('#playBtn'); await page.waitForFunction(() => !__ch.playing, null, { timeout: 5000 });
+      ok(await page.evaluate(() => (__ch.SAVE.done.c1?.stars | 0) === 3), 'not delivered with 3 stars');
+      ok(await page.isVisible('#nextBtn'), 'no Next button');
+      await page.click('#listBtn'); ok(await page.evaluate(() => !document.querySelector('.clist [data-c="c2"]').disabled && document.querySelector('.clist [data-c="c3"]').disabled), 'unlocks wrong');
+      await page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
+      await page.click('#nextBtn'); await page.click('.pm[data-k="2"]');
+      await page.reload(); await page.waitForFunction(() => window.__ch);
+      eq(await page.evaluate(() => [__ch.C.id, __ch.sc.notes.length]), ['c2', 1]);
+    },
+    'the field preview: adding a note draws its nodal lines and arrows; the target can be laid over the plate': async ({ page, ok }) => {
+      await page.click('.pm[data-k="1"]'); await page.waitForTimeout(100);
+      const shot = async () => page.evaluate(() => { const c = document.getElementById('cv'), g = c.getContext('2d'), d = g.getImageData(0, 0, c.width, c.height).data; let h = 0; for (let i = 0; i < d.length; i += 4 * 97) h = (h * 31 + d[i] + d[i + 1] * 3 + d[i + 2] * 7) % 1e9; return h; });
+      const a = await shot(); await page.dispatchEvent('#tgt', 'pointerdown'); await page.waitForTimeout(120); const b = await shot(); await page.dispatchEvent('#tgt', 'pointerup'); await page.waitForTimeout(120); const c = await shot();
+      ok(a !== b && a === c, 'ghost overlay did not appear and go');
+    },
+    'pan and zoom: zoomed, a finger lands under the pointer; a pinch places nothing; the zoom buttons never cover the plate': async ({ page, ok }) => {
+      for (const vp of [{ width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]) {
+        await page.setViewportSize(vp); await page.waitForTimeout(250); await page.evaluate(() => __ch.cam.fit());
+        const over = await page.evaluate(() => { const bar = document.querySelector('.pz-bar').getBoundingClientRect(), [x0, y0] = __ch.cam.toScreen(0, 0), [x1, y1] = __ch.cam.toScreen(1, 1);
+          return !(bar.right <= x0 || bar.left >= x1 || bar.bottom <= y0 || bar.top >= y1); });
+        ok(!over, `zoom bar overlaps the plate at ${vp.width}×${vp.height}`);
+      }
+      await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(200);
+      await page.evaluate(() => { const X = __ch; X.openComm(X.COMMS.find(c => c.id === 'f1')); X.tool = 'finger'; const r = document.getElementById('view').getBoundingClientRect(); X.cam.zoomAt(r.left + r.width / 2, r.top + r.height / 2, 2.5); });
+      const [sx, sy] = await page.evaluate(() => __ch.cam.toScreen(.55, .45));
+      await page.mouse.click(sx, sy);
+      const f = await page.evaluate(() => __ch.sc.finger); ok(f && Math.abs(f[0] - .55) < .01 && Math.abs(f[1] - .45) < .01, 'finger landed at ' + f);
+      await page.evaluate(() => { __ch.sc.finger = null; });
+      const cdp = await page.context().newCDPSession(page);
+      const tp = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], i) => ({ x, y, id: i })) });
+      await tp('touchStart', [[sx - 40, sy], [sx + 40, sy]]); await tp('touchMove', [[sx - 80, sy], [sx + 80, sy]]); await tp('touchEnd', []);
+      await page.waitForTimeout(100); ok(!(await page.evaluate(() => __ch.sc.finger)), 'a pinch placed the finger');
+    },
+    'workshop: seeded commissions are deterministic, reachable by their own score, and open after chapter II; a #score= link carries a piece': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const X = __ch, a = JSON.stringify(X.workshop('abc')), b = JSON.stringify(X.workshop('abc')), c = JSON.stringify(X.workshop('abd'));
+        const ok = ['a', 'b', 'c', 'd'].every(s => { const w = X.workshop(s); return X.matchOf(w, X.perform({ shape: w.shape, start: w.start, finger: w.finger, holes: [] }, w.ref)) > .99; });
+        return { same: a === b, differ: a !== c, ok }; });
+      ok(r.same && r.differ && r.ok, JSON.stringify(r));
+      const link = await page.evaluate(() => { const X = __ch; X.openComm(X.COMMS[2]); X.sc.notes = [[1, .5], [3, 2]]; return X.share(); });
+      const p2 = await page.context().newPage(); await p2.goto(link); await p2.waitForFunction(() => window.__ch);
+      eq(await p2.evaluate(() => [__ch.C.id, JSON.stringify(__ch.sc.notes)]), ['c3', '[[1,0.5],[3,2]]']); await p2.close();
+    },
+    'odd and corrupted saves load without errors': async ({ page, ok }) => {
+      for (const bad of ['null', '[]', '{"v":2,"done":5,"scores":{"c1":{"notes":[[99,3]]}},"cur":7}', '{"v":2,"scores":{"c1":{"notes":[[1,1]],"finger":[2,2]}},"cur":"w:zz"}', '{"v":1,"mode":"tune"}', '{"v":2,"cur":"nope"}']) {
+        const p2 = await page.context().newPage(), errs = []; p2.on('pageerror', e => errs.push(e.message));
+        await p2.goto(page.url()); await p2.evaluate(s => localStorage.setItem('rh:chladni', s), bad); await p2.reload(); await p2.waitForTimeout(400);
+        ok(!errs.length && await p2.evaluate(() => !!__ch.C), bad + ': ' + errs.join('; ')); await p2.close();
       }
     },
-    'resonance: driving at a mode frequency focuses that mode at full strength; between modes it is weak': async ({ page, ok, eq }) => {
-      await page.evaluate(BEST_BOW);
-      const r = await page.evaluate(() => { const out = []; for (const pl of ['square', 'circle', 'rect']) { __ch.setPlate(pl); const M = __ch.PLATES[pl].modes;
-        M.forEach((m, k) => { m.zmax ||= 0; bestBow(k); __ch.setFreq(m.f); out.push([pl, k, __ch.focus().k, __ch.focus().strength]); }); __ch.setBow({ x: 1, y: .37 });
-        for (let k = 1; k < M.length; k++) if (M[k].f / M[k - 1].f > 1.15) { __ch.setFreq(Math.sqrt(M[k].f * M[k - 1].f)); out.push([pl, -1, -1, __ch.focus().strength]); } } return out; });
-      for (const [pl, k, fk, s] of r) { if (k >= 0) { eq(fk, k, pl + ' focus ' + k); ok(s > .5, pl + ' strength ' + s); } else ok(s < .55, `${pl}: between modes strength ${s}`); }
-    },
-    'sweeping across the target resonance does not match it': async ({ page, eq }) => {
-      await toMatch(page);
-      const f = await page.evaluate(() => __ch.curTarget().f), id = await page.evaluate(() => __ch.curTarget().id);
-      // a slow 6 s sweep from 10% below to 10% above (≈3.3%/s): passes through the resonance for ~2 s
-      await sweep(page, f * .9, f * 1.1, 6);
-      eq(await page.evaluate(id => !!__ch.SAVE.solved[id], id), false, 'swept past and matched');
-      // back and forth across it a few times
-      for (let k = 0; k < 3; k++) { await sweep(page, f * 1.06, f * .94, 1.2); await sweep(page, f * .94, f * 1.06, 1.2); }
-      eq(await page.evaluate(id => !!__ch.SAVE.solved[id], id), false, 'wiggled past and matched');
-    },
-    'holding at the target resonance matches it, also with small fine-tuning': async ({ page, eq, ok }) => {
-      await toMatch(page);
-      const t = await page.evaluate(() => { const t = __ch.curTarget(); __ch.setFreq(t.f * 1.004); return t; });
-      for (let k = 0; k < 6; k++) { await page.waitForTimeout(400); await page.evaluate(([f, k]) => __ch.setFreq(f * (k % 2 ? 1.004 : .997)), [t.f, k]); }
-      await page.waitForFunction(id => __ch.SAVE.solved[id], t.id, { timeout: 6000 });
-      ok(await page.evaluate(id => __ch.SAVE.got[id] === 1, t.id), 'matched figure also goes in the book');
-      eq(await page.evaluate(() => __ch.curTarget().id !== undefined && __ch.curTarget().id), await page.evaluate(() => __ch.targetsOf('square')[1].id), 'advanced to next target');
-      ok(/Target 2 of 10/.test(await page.textContent('#goal')));
-    },
-    'holding a wrong mode says which way to go; holding an already-matched one stays quiet': async ({ page, ok, eq }) => {
-      await toMatch(page);
-      const r = await page.evaluate(() => { const T = __ch.targetsOf('square'), M = __ch.PLATES.square.modes; const t = __ch.curTarget(); const wrong = M.find(m => m.f > t.f * 1.3); __ch.record(wrong); return document.getElementById('toast').innerHTML; });
-      ok(/nodal line/.test(r) && !/sweep|higher|lower/.test(r), 'hint counts lines, never gives the direction: ' + r);
-      const r2 = await page.evaluate(() => { __ch.record(__ch.curTarget()); const solved = __ch.PLATES.square.modes.find(m => __ch.SAVE.solved[m.id]); document.getElementById('toast').innerHTML = ''; __ch.record(solved); return document.getElementById('toast').innerHTML; });
-      eq(r2, '', 'nagged about an already matched figure');
-    },
-    'explore mode: holding a resonance records each figure once; progress counts figures': async ({ page, ok, eq }) => {
-      await page.evaluate(BEST_BOW); await page.evaluate(() => { bestBow(3); __ch.setFreq(__ch.PLATES.square.modes[3].f); });
-      await page.waitForFunction(() => __ch.SAVE.got[__ch.PLATES.square.modes[3].id], null, { timeout: 7000 });
-      const total = await page.evaluate(() => Object.values(__ch.PLATES).reduce((a, p) => a + p.modes.length, 0));
-      const hub = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).chladni); ok(Math.abs(hub - 1 / total) < 1e-9, 'progress ' + hub);
-      ok(/1<\/b> of/.test(await page.innerHTML('#goal')));
-      eq(await page.evaluate(() => Object.keys(__ch.SAVE.got).length), 1);
-    },
-    'skip and all-matched states; per-plate target index': async ({ page, ok, eq }) => {
-      await toMatch(page);
-      await page.click('#skip'); ok(/Target 2 of 10/.test(await page.textContent('#goal')));
-      await page.evaluate(() => { for (const t of __ch.targetsOf('square')) __ch.SAVE.solved[t.id] = 1; __ch.setPlate('circle'); __ch.setPlate('square'); });
-      ok(/All matched/.test(await page.textContent('#goal'))); eq(await page.evaluate(() => __ch.curTarget()), null);
-      await page.evaluate(() => __ch.setPlate('circle')); ok(/Target 1 of 8/.test(await page.textContent('#goal')));
-      await page.evaluate(() => __ch.setPlate('nonsense')); eq(await page.evaluate(() => __ch.plate), 'circle');
-    },
-    'later targets are by ear: a sealed note and a hum button, matched by holding the right pitch': async ({ page, ok, eq }) => {
-      await toMatch(page);
-      await page.evaluate(() => { for (const t of __ch.targetsOf('square').slice(0, __ch.EAR_FROM)) __ch.SAVE.solved[t.id] = 1; __ch.setPlate('square'); });
-      ok(/By ear/.test(await page.textContent('#goal')), 'by-ear goal');
-      ok(await page.isVisible('#hum')); await page.click('#hum');
-      // the target canvas shows a sealed note, not the figure: its centre pixel is wax red
-      const px = await page.evaluate(() => Array.from(document.getElementById('target').getContext('2d').getImageData(112, 132, 1, 1).data));
-      ok(px[0] > 120 && px[1] < 90, 'sealed note pixel ' + px);
-      const t = await page.evaluate(() => { const t = __ch.curTarget(); __ch.setFreq(t.f); return t.id; });
-      await page.waitForFunction(id => __ch.SAVE.solved[id], t, { timeout: 7000 });
-      ok(await page.evaluate(() => __ch.flights >= 1), 'figure flew into the book');
-    },
-    'twins: the bow picks one, a finger on the other\'s node picks the other': async ({ page, eq }) => {
-      const r = await page.evaluate(() => { const X = __ch, M = X.PLATES.square.modes, ip = M.findIndex(m => m.id === 's13p'), im = M.findIndex(m => m.id === 's13m'), f = Math.sqrt(M[ip].f * M[im].f);
-        X.setBow({ x: 1, y: 1 }); X.setFreq(f); const corner = X.focus().k; X.setBow({ x: 1, y: .37 }); X.setFinger({ x: .3, y: .3 }); X.setFreq(f); const diag = X.focus().k; X.setFinger(null); return [corner === ip, diag === im]; });
-      eq(r, [true, true]);
-      // by real input: drag the bow to a corner, tap the plate for a finger, tap it again to lift
-      const box = await page.evaluate(() => { const b = document.getElementById('cv').getBoundingClientRect(); return null; });
-    },
-    'luthier: where you thin the plate decides how much each note drops; scrapes are permanent and limited': async ({ page, ok, eq }) => {
-      await page.click('[data-m="tune"]');
-      const r = await page.evaluate(() => { const X = __ch, k = X.kOf('s02m'), TG = X.TG, f0 = X.tunedF(k);
-        // bend-heavy vs motion-heavy cells for this mode, from its own maps
-        const h = new Float64Array(TG * TG).fill(1), res = [];
-        for (let c = 0; c < TG * TG; c++) { const hh = h.slice(); hh[c] = .8; res.push(X.tunedF(k, hh) / f0 - 1); }
-        return { min: Math.min(...res), max: Math.max(...res), used0: X.tune.used }; });
-      ok(r.max < 0 && r.min / r.max > 5, `thinning always lowers a note, but where you scrape matters (5× or more): ${r.min} … ${r.max}`);
-      const u = await page.evaluate(() => { const X = __ch; X.startTune(0); for (let i = 0; i < 30; i++) X.scrapeCell(0, false); return [X.tune.used, X.TUNE[0].budget]; });
-      ok(u[0] <= u[1], 'never more scrapes than the budget: ' + u);
-    },
-    'difficulty: naive play fails': async ({ page, ok }) => {
-      await page.click('[data-m="tune"]');
-      const R = await page.evaluate(() => { FX.setMuted(true); const X = __ch, N = X.TG ** 2, out = { naive: 0, naiveN: 0, comp: [] };
-        for (let ci = 0; ci < X.TUNE.length; ci++) { const T = X.TUNE[ci];
-          for (let t = 0; t < 8; t++) { X.startTune(ci); let rs = 3 + t + 10 * ci; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647;
-            for (let g = 0; g < 300 && !X.tune.done && X.tune.used < T.budget; g++) X.scrapeCell((rnd() * N) | 0, rnd() < .5); out.naiveN++; if (X.tune.done && X.tuneGrade(T, X.tuneErr(T)) > 1) out.naive++; }
-          X.startTune(ci); out.naiveN++; // idle: never scrape
-          // competent: greedy least squares, light or heavy, one scrape at a time
-          X.startTune(ci); for (let g = 0; g < 60 && !X.tune.done && X.tune.used < T.budget; g++) { let best = [X.tuneSq(T, X.tune.h), -1, 0]; for (let c = 0; c < N; c++) for (const d of [.98, .9]) { if (X.tune.h[c] * d < .35) continue; const h = X.tune.h.slice(); h[c] *= d; const e = X.tuneSq(T, h); if (e < best[0]) best = [e, c, d]; } if (best[1] < 0) break; X.scrapeCell(best[1], best[2] > .95); }
-          out.comp.push(X.tune.done ? X.tuneGrade(T, X.tuneErr(T)) : 0);
-        }
-        // matching: holding the right pitch with the bow left where it is fails on the twins
-        X.setPlate('square'); const M = X.PLATES.square.modes; let tw = 0, twOk = 0; for (const t of X.targetsOf('square')) { if (!M.some(m => m !== t && m.pair === t.pair)) continue; tw++; X.setFreq(t.f); if (X.focus().k === M.indexOf(t)) twOk++; }
-        out.twin = [twOk, tw];
-        return out; });
-      ok(R.naive / R.naiveN <= .2, `random / idle luthiers delivered ${R.naive}/${R.naiveN}`);
-      ok(R.comp.every(g => g >= 1), 'greedy least-squares luthier delivers every commission: ' + R.comp);
-      ok(R.comp.every(g => g < 3), '3★ needs planning beyond greedy: ' + R.comp);
-      ok(R.twin[0] / R.twin[1] <= .6, `pitch alone matches ${R.twin[0]}/${R.twin[1]} twin targets`);
-    },
-    'touch: ◀ ▶ nudge the pitch by 0.2% so a finger can sit on a resonance': async ({ page, ok, near }) => {
-      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }), p2 = await ctx.newPage(), errs = []; p2.on('pageerror', e => errs.push(e.message));
-      await p2.goto(page.url()); await p2.waitForTimeout(600);
-      const f0 = await p2.evaluate(() => { const m = __ch.PLATES.square.modes[0]; __ch.setFreq(m.f * .992); return m.f; });
-      const b = await p2.locator('#fUp').boundingBox();
-      for (let k = 0; k < 4; k++) { await p2.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2); await p2.waitForTimeout(40); }
-      const f1 = await p2.evaluate(() => +document.getElementById('freq').firstChild.nodeValue);
-      near(f1 / f0, 1, .004, 'four taps walk onto the resonance');
-      await p2.waitForFunction(() => Object.keys(__ch.SAVE.got).length >= 1, null, { timeout: 8000 });
-      ok(errs.length === 0, errs.join());
-      await ctx.close();
-    },
-    'design: the eigen-solver reproduces the square plate, is deterministic, and handles any outline': async ({ page, ok, near }) => {
-      const r = await page.evaluate(() => { const X = __ch, D = X.newDesign('square', X.SHAPES.square()), a = X.solvePlate(D), b = X.solvePlate(D);
-        const o = { r: a.slice(0, 3).map(m => m.lam / a[0].lam), det: a.slice(0, 6).map(m => m.lam).join() === b.slice(0, 6).map(m => m.lam).join(), n: {} };
-        for (const sh of Object.keys(X.SHAPES)) { const S = X.newDesign(sh, X.SHAPES[sh]()), t0 = performance.now(), ms = X.solvePlate(S); o.n[sh] = [ms.length, performance.now() - t0]; }
-        const S2 = X.newDesign('d', X.dailyShape(20261125)), S3 = X.newDesign('d', X.dailyShape(20261125)); o.daily = S2.mask.join() === S3.mask.join();
-        return o; });
-      near(r.r[1], 1, .01, 'the (1,0) / (0,1) twins'); near(r.r[2], 2, .02, '(1,1) sings at twice the lowest note, as n² + m² says'); ok(r.det && r.daily, 'deterministic');
-      for (const [sh, [n, ms]] of Object.entries(r.n)) { ok(n >= 8, sh + ' has modes'); ok(ms < 400, sh + ' solves fast: ' + ms); }
-    },
-    'design: every bell commission has a known solution; random edits rarely pass': async ({ page, ok }) => {
-      const R = await page.evaluate(() => { const X = __ch, G = X.DG;
-        const rect = h => [[[.06, .5 - .44 * h], [.94, .5 - .44 * h], [.94, .5 + .44 * h], [.06, .5 + .44 * h]]];
-        const recipes = [[.7071, [['thick', 26, 14], ['thick', 26, 14], ['thick', 26, 14]]], [.8, [['thick', 14, 6], ['thick', 14, 6], ['thick', 18, 6], ['thick', 14, 6], ['thick', 18, 6], ['thick', 14, 6], ['thick', 18, 6], ['thick', 14, 6], ['thick', 18, 6], ['thick', 18, 6], ['thin', 2, 18]]],
-          [.78, [['thin', 14, 6], ['thin', 14, 6], ['thin', 14, 6], ['thin', 14, 6]]], [.7071, [['thick', 26, 14], ['thick', 26, 14], ['thin', 14, 6], ['thick', 10, 18]]]];
-        const out = { known: [], rand: 0, randN: 0 };
-        recipes.forEach(([h, ops], k) => { X.dz = X.newDesign('r', rect(h)); for (const [t, i, j] of ops) { X.SAVE.mode; window.__tool = t; X.editAtTool(t, (i + .5) / G, (j + .5) / G); } out.known.push(X.bellGrade(X.BELLS[k], X.bellErr(X.BELLS[k], X.dz.modes))); });
-        let rs = 3; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647, shapes = Object.keys(X.SHAPES);
-        for (let k = 0; k < X.BELLS.length; k++) for (let t = 0; t < 5; t++) { X.dz = X.newDesign('x', X.SHAPES[shapes[(rnd() * shapes.length) | 0]]()); for (let e = 0; e < 8; e++) X.editAtTool(['thin', 'thick', 'clamp'][(rnd() * 3) | 0], rnd(), rnd()); X.installDesign(); out.randN++; if (X.bellGrade(X.BELLS[k], X.bellErr(X.BELLS[k], X.dz.modes)) >= 1) out.rand++; }
-        return out; });
-      ok(R.known.every(g => g >= 1), 'known solutions: ' + R.known);
-      ok(R.rand / R.randN <= .1, `random plates passed ${R.rand}/${R.randN}`);
-    },
-    'design: the figure museum counts distinct figures once; plates share by URL': async ({ page, eq, ok }) => {
-      await page.click('[data-m="design"]');
-      const r = await page.evaluate(() => { const X = __ch, P = X.PLATES.custom; const k0 = X.figureKey(P.modes[0].u), k1 = X.figureKey(P.modes[2].u);
-        const code = X.encodePlate(X.dz), D2 = X.decodePlate(code); D2.modes = X.solvePlate(D2);
-        return { distinct: k0 !== k1, share: Math.abs(D2.modes[0].lam - X.dz.modes[0].lam) < 1e-9, n: P.modes.length }; });
-      ok(r.distinct && r.share && r.n >= 8, JSON.stringify(r));
-      await page.evaluate(() => { let best = null, bs = -1; for (const md of __ch.PLATES.custom.modes.slice(0, 8)) { __ch.setFreq(md.f); const st = __ch.focus().strength; if (st > bs) { bs = st; best = md; } } __ch.setFreq(best.f); }); // today's plate: bow its loudest mode (the daily shape changes which modes the default bow excites)
-      await page.waitForFunction(() => Object.keys(__ch.SAVE.museum).length >= 1, null, { timeout: 9000 });
-      // tools by touch/mouse: thin the plate where you click
-      await page.click('[data-tool="thin"]'); const before = await page.evaluate(() => __ch.dz.edits);
-      const b = await page.evaluate(() => { const r = document.getElementById('cv').getBoundingClientRect(); return [r.left, r.top]; });
-      const pb = await page.evaluate(() => { const { x, y, s } = __ch.plateBox; return [x, y, s]; });
-      await page.mouse.click(b[0] + (pb[0] + pb[2] * .5) / 1, b[1] + (pb[1] + pb[2] * .5) / 1);
-      ok(await page.evaluate(n => __ch.dz.edits > n, before), 'a click with the thinning tool edits the plate');
-    },
-    'pan and zoom: a tap lands under the finger when zoomed; a pinch presses nothing; the bench pans; Fit restores': async ({ page, ok, eq, near }) => {
-      await page.evaluate(() => { __ch.setPlate('square'); });
-      const scr = (px, py) => page.evaluate(([px, py]) => { const X = __ch, { x, y, s } = X.plateBox, d = devicePixelRatio > 1 ? Math.min(devicePixelRatio, 1.5) : 1; return X.cam.toScreen((x + px * s) / d, (y + py * s) / d); }, [px, py]);
-      const k0 = await page.evaluate(() => __ch.cam.k); await page.click('.pz-in'); await page.click('.pz-in');
-      ok(await page.evaluate(() => __ch.cam.k) > k0 * 1.8, 'zoomed in');
-      let [x, y] = await scr(.3, .6); await page.mouse.click(x, y);
-      const f = await page.evaluate(() => __ch.finger); ok(f && Math.abs(f.x - .3) < .01 && Math.abs(f.y - .6) < .01, 'finger pressed where clicked: ' + JSON.stringify(f));
-      await page.mouse.click(x, y); eq(await page.evaluate(() => __ch.finger), null, 'second tap lifts it');
-      // a two-finger pinch on the plate presses nothing, and zooms
-      const r = await page.evaluate(([a, b]) => { const el = document.getElementById('cv'), k = __ch.cam.k;
-        const ev = (t, id, x, y) => el.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch', isPrimary: id === 1 }));
-        ev('pointerdown', 1, a[0], a[1]); ev('pointerdown', 2, b[0], b[1]); ev('pointermove', 1, a[0] - 25, a[1]); ev('pointermove', 2, b[0] + 25, b[1]); ev('pointerup', 1, a[0] - 25, a[1]); ev('pointerup', 2, b[0] + 25, b[1]);
-        return { finger: __ch.finger, zoom: __ch.cam.k / k }; }, [await scr(.45, .5), await scr(.55, .5)]);
-      eq(r.finger, null, 'pinch pressed a finger'); ok(r.zoom > 1.1, 'pinch zoomed ' + r.zoom);
-      // dragging the bench (off the plate) pans
-      await page.click('.pz-fit'); await page.waitForTimeout(400); await page.click('.pz-out'); await page.click('.pz-out'); const cx0 = await page.evaluate(() => __ch.cam.x);
-      const [bx, by] = await scr(-.15, .5); await page.mouse.move(bx, by); await page.mouse.down(); await page.mouse.move(bx + 50, by, { steps: 5 }); await page.mouse.up();
-      near(await page.evaluate(() => __ch.cam.x) - cx0, 50, 2, 'bench drag pans'); eq(await page.evaluate(() => __ch.finger), null);
-      // design mode: a clamp lands on the zoomed cell
-      await page.click('[data-m="design"]'); await page.click('.pz-in'); await page.click('[data-tool="clamp"]');
-      const c = await page.evaluate(() => { const D = __ch.dz, G = __ch.DG; for (let j = 8; j < G - 8; j++) for (let i = 8; i < G - 8; i++) if (D.mask[j * G + i] && !D.clamp[j * G + i]) return [i, j]; });
-      [x, y] = await scr((c[0] + .5) / 32, (c[1] + .5) / 32); await page.mouse.click(x, y);
-      ok(await page.evaluate(c => !!__ch.dz.clamp[c[1] * __ch.DG + c[0]], c), 'clamp at the zoomed cell ' + c);
-      await page.click('.pz-fit'); await page.waitForTimeout(400); eq(await page.evaluate(() => [__ch.cam.k, __ch.cam.x, __ch.cam.y]), [1, 0, 0], 'Fit');
-    },
-    'design: a shared #plate= link opens the workshop on that plate; figures get names from their shapes': async ({ page, ok, eq }) => {
-      const code = await page.evaluate(() => { const X = __ch, D = X.newDesign('star', X.SHAPES.star()); X.dz = D; X.editAtTool('clamp', .5, .5); return X.encodePlate(D); });
-      const p2 = await page.context().newPage(), errs = []; p2.on('pageerror', e => errs.push(e.message));
-      await p2.goto(page.url().split('#')[0] + '#plate=' + code); await p2.waitForTimeout(1500);
-      const r = await p2.evaluate(() => ({ mode: __ch.SAVE.mode, plate: __ch.plate, name: __ch.dz && __ch.dz.name })); await p2.close();
-      eq(errs, []); eq([r.mode, r.plate], ['design', 'custom'], 'opened in the workshop'); eq(r.name, 'star', 'on the shared plate');
-      const n = await page.evaluate(() => { const X = __ch, P = X.PLATES.square.modes, names = new Set(); for (const md of P.slice(0, 12)) { const u = new Float64Array(X.DG * X.DG); for (let j = 0; j < X.DG; j++) for (let i = 0; i < X.DG; i++) u[j * X.DG + i] = md.z((i + .5) / X.DG, (j + .5) / X.DG); names.add(X.figureName(X.figureKey(u), 3)); }
-        return { n: names.size, one: [...names][0], same: X.figureName('1'.repeat(64), 2) === X.figureName('1'.repeat(64), 2), bad: X.figureName(null, 2) }; });
-      ok(n.n >= 6, 'distinct figures get varied names: ' + JSON.stringify(n)); ok(/^the [A-Z][\w-]+ [A-Z]/.test(n.one) && n.same && n.bad === 'an unnamed figure', 'names are deterministic words: ' + n.one);
-    },
-    'corrupted / odd saves load without errors': async ({ page, eq, ok }) => {
-      for (const save of ['null', '3', '[]', '"s"', '{"got":7,"solved":"x","mode":"match","tgt":{"square":999}}', '{"plate":"hexagon","tgt":[1]}', '{"tgt":-5,"mode":"match"}',
-        '{"tgt":{"square":"abc"},"mode":"match"}', '{"got":{"s01p":"data:image/png;base64,AAAA"},"tgt":3,"plate":"circle"}', '{bad']) {
-        const { p2, errs } = await openWith(page, save);
-        eq(errs, [], 'errors for ' + save);
-        ok(await p2.evaluate(() => !!document.getElementById('goal').textContent), 'goal rendered for ' + save);
-        const hub = await p2.evaluate(() => JSON.parse(localStorage.getItem('rh:hub') || '{}').chladni); ok(hub >= 0 && hub <= 1, 'progress ' + hub);
-        await p2.close();
-      }
-    },
-    'no overflow or console errors at phone and desktop sizes': async ({ page, ok }) => {
-      for (const [w, h] of [[390, 844], [1280, 800]]) {
-        await page.setViewportSize({ width: w, height: h });
-        for (const pl of ['square', 'circle', 'rect']) { await page.evaluate(pl => __ch.setPlate(pl), pl); await page.waitForTimeout(150); }
-        await toMatch(page); await page.waitForTimeout(150);
-        const r = await page.evaluate(() => { const d = document.getElementById('dial').getBoundingClientRect(); return { sw: document.documentElement.scrollWidth, W: innerWidth, dialR: d.right, dialB: d.bottom, H: innerHeight }; });
-        ok(r.sw <= r.W && r.dialR <= r.W && r.dialB <= r.H, `layout at ${w}: ` + JSON.stringify(r));
+    'no sideways scroll at phone sizes; the plate gets most of the screen': async ({ page, ok }) => {
+      for (const vp of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
+        await page.setViewportSize(vp); await page.waitForTimeout(250);
+        const r = await page.evaluate(() => { const s = document.getElementById('stage').getBoundingClientRect(); return { h: document.documentElement.scrollWidth > innerWidth + 1, frac: s.width * s.height / (innerWidth * innerHeight) }; });
+        ok(!r.h && r.frac > .45, `${vp.width}×${vp.height}: ${JSON.stringify(r)}`);
       }
     },
   },

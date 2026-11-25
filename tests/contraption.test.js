@@ -16,8 +16,8 @@ module.exports = {
     'every bench has a scripted machine that passes, using only the parts in its box': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const { GM } = window.__gm; return GM.BENCHES.map(B => { const R = GM.runAll(B, B.sol);
         const fits = Object.entries(B.sol.reduce((m, p) => (m[p[0]] = (m[p[0]] || 0) + 1, m), {})).every(([t, n]) => (B.bin[t] || 0) >= n);
-        return { id: B.id, saved: R.saved, pass: B.pass || 7, fits }; }); });
-      for (const b of r) { ok(b.fits, b.id + ' solution fits the box'); ok(b.saved >= b.pass, `${b.id}: ${b.saved}/10 (needs ${b.pass})`); }
+        return { id: B.id, saved: R.saved, pass: B.pass || 7, fits, hist: !!(GM.HIST[B.id] && GM.HIST[B.id].n >= 30 && GM.HIST[B.id].cost.some(([c]) => c === R.cost)) }; }); });
+      for (const b of r) { ok(b.fits, b.id + ' solution fits the box'); ok(b.hist, b.id + ' has a solver histogram that includes its scripted cost'); ok(b.saved >= b.pass, `${b.id}: ${b.saved}/10 (needs ${b.pass})`); }
     },
     'random machines from the same box mostly fail: placement matters': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const { GM } = window.__gm, rnd = GM.rng('random-machines'); const out = {};

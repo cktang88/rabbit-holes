@@ -430,7 +430,8 @@ function genComm(seed, lv) {
 }
 // friskets: the fewest masks a plan needs if its glazes are pulled in a given order, over every order
 const PERMS = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
-function masksFor(regions, ord) { let n = 0; for (const rg of regions) { let last = -1; ord.forEach((b, p) => { if (rg.s >> b & 1) last = p; }); for (let p = 0; p < last; p++) if (!(rg.s >> ord[p] & 1)) n++; } return n; }
+// one frisket is cut to every shape of one colour, so friskets are counted per colour, not per shape
+function masksFor(regions, ord) { let n = 0; for (const rg of [...new Map(regions.map(g => [g.s, g])).values()]) { let last = -1; ord.forEach((b, p) => { if (rg.s >> b & 1) last = p; }); for (let p = 0; p < last; p++) if (!(rg.s >> ord[p] & 1)) n++; } return n; }
 function planMasks(regions) { let best = 1e9, ord = null; for (const o of PERMS) { const n = masksFor(regions, o); if (n < best) { best = n; ord = o; } } return { n: best, ord }; }
 const clubKey = () => SAVE.club.seed + ':' + SAVE.club.lv;
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
@@ -522,7 +523,7 @@ function buildTarget(layers) {
   const maxS = Math.max(...comps.map(c => c.s));
   // "holey" regions enclose a later colour: a lasso around them would carve that too early, so they need a clean Region cut
   let holey = 0;
-  if (!L.studio) { const seen = new Uint8Array(N);
+  if (!L.studio && !L.glaze) { const seen = new Uint8Array(N);
     for (const r of regions) { if (r.s >= L.need) continue; seen.fill(0); let sp = 0;
       for (let x = 0; x < R; x++) for (const i of [x, N - R + x, x * R, x * R + R - 1]) if (!seen[i] && comp[i] !== r.comp) { seen[i] = 1; stack[sp++] = i; }
       while (sp) { const i = stack[--sp], x = i % R; if (x > 0 && !seen[i - 1] && comp[i - 1] !== r.comp) { seen[i - 1] = 1; stack[sp++] = i - 1; } if (x < R - 1 && !seen[i + 1] && comp[i + 1] !== r.comp) { seen[i + 1] = 1; stack[sp++] = i + 1; }
@@ -554,7 +555,7 @@ function load(i, opts = {}) {
   if (!L.studio) { L.show.sort((a, b) => lightness(L.inks[b]) - lightness(L.inks[a]));
     // from the teapot on, the palette is shuffled: the player has to work out the order themselves
     if (i >= 8) { const r = RH.rng(i * 13 + 7), lt = L.show.join(); let g = 0; do r.shuffle(L.show); while (g++ < 20 && (L.show.join() === lt || L.show.every((k, j) => k === j))); } }
-  $('title').textContent = L.n; $('story').innerHTML = L.story;
+  $('title').textContent = L.n; $('story').innerHTML = L.story; $('story').style.display = L.glaze ? 'none' : '';
   renderPrint(); blockDirty = true; pvDirty = true; hlComp = -2; renderLevels(); renderTray(); updateHUD(); layout(); cam.fit();
   // phones: the story sits in the slip's step line until the first cut (no card covering the level picker)
   if (!opts.fresh) restoreWip();
@@ -573,7 +574,7 @@ function renderBlock(yA = 0, yB = R - 1) {
   const d = blockImg.data, a = anim && anim.phase === 'roll' ? anim.k : -1, rollRow = a >= 0 ? a * R : -1, ic = [0, 0, 0], ic2 = [0, 0, 0];
   for (let y = yA; y <= yB; y++) for (let x = 0; x < R; x++) {
     const i = y * R + x, g = grain[i]; let r, gg, b;
-    if (uncut[i] && masks.size && T && masks.has(T.comp[i])) { // a paper frisket lies on this shape for the next pull
+    if (uncut[i] && masks.size && T && masks.has(T.st[i])) { // a paper frisket lies on this shape for the next pull
       const f = .93 + .07 * g + ((x + y) % 9 === 0 ? -.08 : 0); r = PAPER[0] * f; gg = PAPER[1] * f; b = PAPER[2] * f;
     } else if (uncut[i]) {
       const f = .78 + .3 * g; r = WOOD[0] * f; gg = WOOD[1] * f; b = WOOD[2] * f;
@@ -592,7 +593,7 @@ function renderBlock(yA = 0, yB = R - 1) {
 const PVO = [0, 0, 0], pvImg = new ImageData(R, R), hlImg = new ImageData(R, R);
 function renderPreview() {
   pvDirty = false; if (sel < 0) return; const ink = L.inks[sel], o = PVO, img = pvImg, d = img.data;
-  for (let i = 0; i < N; i++) { o[0] = pcol[i * 3]; o[1] = pcol[i * 3 + 1]; o[2] = pcol[i * 3 + 2]; if (uncut[i] && !(masks.size && masks.has(T.comp[i]))) over(o, ink, i % R, o); d[i * 4] = to8(o[0]); d[i * 4 + 1] = to8(o[1]); d[i * 4 + 2] = to8(o[2]); d[i * 4 + 3] = 255; }
+  for (let i = 0; i < N; i++) { o[0] = pcol[i * 3]; o[1] = pcol[i * 3 + 1]; o[2] = pcol[i * 3 + 2]; if (uncut[i] && !(masks.size && masks.has(T.st[i]))) over(o, ink, i % R, o); d[i * 4] = to8(o[0]); d[i * 4 + 1] = to8(o[1]); d[i * 4 + 2] = to8(o[2]); d[i * 4 + 3] = 255; }
   pvCtx.putImageData(img, 0, 0);
 }
 
@@ -625,8 +626,8 @@ function regionAt(x, y) {
   return n;
 }
 const masksUsed = () => passLog.reduce((a, p) => a + p.m.length, 0) + masks.size;
-function toggleMask(x, y) { // lay a paper frisket on a shape (or lift it): that shape skips the next pull only
-  if (!T || !L.glaze || finished || anim) return 0; const i = y * R + x, c = T.comp[i]; if (!uncut[i]) { FX.sfx('tick'); return 0; }
+function toggleMask(x, y) { // lay a paper frisket (cut to every shape of the colour under the finger) or lift it: those shapes skip the next pull only
+  if (!T || !L.glaze || finished || anim) return 0; const i = y * R + x, c = T.st[i]; if (!uncut[i]) { FX.sfx('tick'); return 0; }
   if (masks.has(c)) masks.delete(c);
   else { if (masksUsed() >= L.fBudget) { FX.sfx('tick'); toast('No friskets left', `This commission allows ${L.fBudget} paper mask${L.fBudget === 1 ? '' : 's'}. Carve instead, or pull the glazes in another order.`, 3200); return 0; } masks.add(c); }
   FX.tone({ noise: 1, f: 3200, q: .7, dur: .08, vol: .07 }); touched = true; blockDirty = pvDirty = true; hlComp = -2; updateHUD(); renderTray(); return 1;
@@ -634,17 +635,19 @@ function toggleMask(x, y) { // lay a paper frisket on a shape (or lift it): that
 // the edition: four sheets, each pass laid down with its own small registration error; a frisket under a pass lifts the sheet and
 // makes that pass wander further. The block's edges wear a little more with every sheet.
 function editionScores() {
-  const r = RH.rng('drift:' + (L.ckey || Li)), o = [0, 0, 0], lb = new Float32Array(N * 3), lks = [], thumbs = [], img = tmpCtx.createImageData(R, R);
-  const offs = []; for (let s = 0; s < ED_N; s++) offs.push(passLog.map(p => { const a = r() * 6.283, mag = (s ? .3 + r() * .8 : 0) + 1.1 * p.m.length; return [Math.round(Math.cos(a) * mag), Math.round(Math.sin(a) * mag)]; }));
+  const r = RH.rng('drift:' + (L.ckey || Li)), o = [0, 0, 0], lks = [], thumbs = [];
+  const offs = []; for (let s = 0; s < ED_N; s++) offs.push(passLog.map(p => { const a = r() * 6.283, mag = (s ? .3 + r() * .8 : 0) + .9 * p.m.length; return [Math.round(Math.cos(a) * mag), Math.round(Math.sin(a) * mag)]; }));
+  const colAt = (s, i) => { const x = i % R, y = i / R | 0; o[0] = PAPER[0]; o[1] = PAPER[1]; o[2] = PAPER[2];
+    for (let k = 0; k < passLog.length; k++) { const p = passLog[k], xx = x - offs[s][k][0], yy = y - offs[s][k][1]; if (xx < 0 || yy < 0 || xx >= R || yy >= R) continue; const j = yy * R + xx; if (!p.cov[j]) continue;
+      if (s && ((Math.imul(j, 2654435761) + k * 97 + s * 13) >>> 0) % 100 < 7 * s && ((xx > 0 && !p.cov[j - 1]) || (xx < R - 1 && !p.cov[j + 1]) || (yy > 0 && !p.cov[j - R]) || (yy < R - 1 && !p.cov[j + R]))) continue; // worn edge: no ink
+      over(o, L.inks[p.k], xx, o); }
+    return o; };
+  const TS = 72, timg = new ImageData(TS, TS);
   for (let s = 0; s < ED_N; s++) {
-    for (let i = 0; i < N; i++) { const x = i % R, y = i / R | 0; o[0] = PAPER[0]; o[1] = PAPER[1]; o[2] = PAPER[2];
-      for (let k = 0; k < passLog.length; k++) { const p = passLog[k], xx = x - offs[s][k][0], yy = y - offs[s][k][1]; if (xx < 0 || yy < 0 || xx >= R || yy >= R) continue; const j = yy * R + xx; if (!p.cov[j]) continue;
-        if (s && ((Math.imul(j, 2654435761) + k * 97 + s * 13) >>> 0) % 100 < 7 * s && ((xx > 0 && !p.cov[j - 1]) || (xx < R - 1 && !p.cov[j + 1]) || (yy > 0 && !p.cov[j - R]) || (yy < R - 1 && !p.cov[j + R]))) continue; // worn edge: no ink
-        over(o, L.inks[p.k], xx, o); }
-      lab(o[0], o[1], o[2], lb, i * 3); img.data[i * 4] = to8(o[0]); img.data[i * 4 + 1] = to8(o[1]); img.data[i * 4 + 2] = to8(o[2]); img.data[i * 4 + 3] = 255; }
-    let sw = 0, ss = 0; for (const rg of T.regions) { let e = 0; for (const i of rg.px) { const j = i * 3; e += Math.hypot(lb[j] - T.tlab[j], lb[j + 1] - T.tlab[j + 1], lb[j + 2] - T.tlab[j + 2]); } e /= rg.px.length; ss += clamp(1 - (e - 4) / 16, 0, 1) * rg.w; sw += rg.w; }
+    let sw = 0, ss = 0; for (const rg of T.regions) { let e = 0; for (const i of rg.px) { colAt(s, i); lab(o[0], o[1], o[2], LB, 0); const j = i * 3; e += Math.hypot(LB[0] - T.tlab[j], LB[1] - T.tlab[j + 1], LB[2] - T.tlab[j + 2]); } e /= rg.px.length; ss += clamp(1 - (e - 4) / 16, 0, 1) * rg.w; sw += rg.w; }
     lks.push(clamp((ss / sw - T.blank) / (1 - T.blank), 0, 1));
-    try { tmpCtx.setTransform(1, 0, 0, 1, 0, 0); tmpCtx.putImageData(img, 0, 0); const c = mk(72, 72); c.getContext('2d').drawImage(tmpCv, 0, 0, 72, 72); thumbs.push(c.toDataURL('image/jpeg', .7)); } catch (e) { thumbs.push(''); }
+    for (let y = 0; y < TS; y++) for (let x = 0; x < TS; x++) { colAt(s, ((y * R / TS) | 0) * R + ((x * R / TS) | 0)); const q = (y * TS + x) * 4; timg.data[q] = to8(o[0]); timg.data[q + 1] = to8(o[1]); timg.data[q + 2] = to8(o[2]); timg.data[q + 3] = 255; }
+    try { const c = mk(TS, TS); c.getContext('2d').putImageData(timg, 0, 0); thumbs.push(c.toDataURL('image/jpeg', .75)); } catch (e) { thumbs.push(''); }
   }
   return { lks, mean: lks.reduce((a, b) => a + b, 0) / lks.length, thumbs };
 }
@@ -659,7 +662,7 @@ function applyPull(k) {
   const ink = L.inks[k], ic = [0, 0, 0], rnd = RH.rng(passes.length * 977 + Li * 31 + 5), mk = masks, hasM = mk.size > 0 && T, covM = L.glaze ? new Uint8Array(N) : null;
   prevCtx.drawImage(printCv, 0, 0);
   for (let i = 0; i < N; i++) {
-    if (!uncut[i] || (hasM && mk.has(T.comp[i]))) continue; const x = i % R, j = i * 3; inkAt(ink, x, ic); if (covM) covM[i] = 1;
+    if (!uncut[i] || (hasM && mk.has(T.st[i]))) continue; const x = i % R, j = i * 3; inkAt(ink, x, ic); if (covM) covM[i] = 1;
     // ideal colour (for scoring) and a speckled display colour: grain and paper tooth starve a few spots of ink
     let cov = .93 + .07 * rnd() - .16 * Math.max(0, grain[i] - .72) * 3; if (rnd() < .012) cov *= .45;
     if (ink.m === 't') for (let c = 0; c < 3; c++) { pcol[j + c] *= ic[c]; disp[j + c] *= 1 + (ic[c] - 1) * cov; }
@@ -889,14 +892,19 @@ function drawChips(dt) {
   g.globalAlpha = 1;
 }
 function nameForT(t) { if (!t) return 'paper'; let j = t - 1; while (j > 0 && L.inks[passes[j]].m === 't') j--; const base = L.inks[passes[j]].m === 't' ? ['paper'] : []; const out = base.concat(passes.slice(j, t).map(k => L.inks[k].n)); return out.join(' + '); }
-function drawTooltip() {
-  if (!hover || anim || finished || mobile || drag) return; const [bx, by] = hover, i = by * R + bx; if (bx < 0 || by < 0 || bx >= R || by >= R) return;
-  const rows = []; const here = [pcol[i * 3], pcol[i * 3 + 1], pcol[i * 3 + 2]];
+function tipRows(bx, by) { // what the hover card says about one spot of the block
+  const i = by * R + bx, rows = [], here = [pcol[i * 3], pcol[i * 3 + 1], pcol[i * 3 + 2]];
   const nm = L.glaze ? (passLog.filter(p => p.cov[i]).map(p => L.inks[p.k].n).join(' + ') || 'paper') : nameForT(pt[i]);
-  if (uncut[i] && L.glaze && masks.has(T.comp[i])) rows.push(['Under a frisket: skips the next pull', here, nm]); else
+  if (uncut[i] && L.glaze && masks.has(T.st[i])) rows.push(['Under a frisket: skips the next pull', here, nm]); else
   if (uncut[i]) { rows.push(['Carve now → stays', here, nm]); if (sel >= 0) rows.push(['Leave → next pull', over(here.slice(), L.inks[sel], bx, []), (L.inks[sel].m === 't' && pt[i] ? nm + ' + ' : '') + L.inks[sel].n]); }
   else rows.push(['Carved: will remain', here, nm]);
   if (T && !L.untraced) rows.push(['Target here', [T.tcol[i * 3], T.tcol[i * 3 + 1], T.tcol[i * 3 + 2]], '']);
+  return rows;
+}
+function drawTooltip() {
+  if (!hover || anim || finished || mobile || drag) return; const [bx, by] = hover; if (bx < 0 || by < 0 || bx >= R || by >= R) return;
+  const rows = tipRows(bx, by);
+ = [pcol[i * 3], pcol[i * 3 + 1], pcol[i * 3 + 2]];
   const [sx, sy] = b2s(bx, by), fs = 11.5 * dpr, lh = 19 * dpr, w = 250 * dpr, h = rows.length * lh + 10 * dpr; let x = sx + 18 * dpr, y = sy + 18 * dpr; if (x + w > W) x = sx - w - 18 * dpr; if (y + h > H) y = sy - h - 18 * dpr;
   g.fillStyle = 'rgba(30,23,18,.93)'; g.beginPath(); g.roundRect(x, y, w, h, 8 * dpr); g.fill(); g.font = `${fs}px Spectral,Georgia,serif`; g.textAlign = 'left';
   rows.forEach(([lbl, col, nm], k) => { const yy = y + 8 * dpr + k * lh; g.fillStyle = css(col); g.fillRect(x + 8 * dpr, yy, 22 * dpr, 13 * dpr); g.strokeStyle = 'rgba(255,255,255,.25)'; g.strokeRect(x + 8 * dpr, yy, 22 * dpr, 13 * dpr); g.fillStyle = '#f4ead8'; g.fillText(lbl + (nm ? ': ' + nm : ''), x + 38 * dpr, yy + 11 * dpr, w - 46 * dpr); });
@@ -931,7 +939,8 @@ let lastScratch = 0; function scratch(big) { const n = performance.now(); if (!b
 function setHover(p) {
   const b = [Math.floor(p[0]), Math.floor(p[1])]; hover = inBlock(p) && b[0] >= 0 && b[1] >= 0 && b[0] < R && b[1] < R ? b : null;
   let c = -1; if (hover && (tool === 'region' || tool === 'mask') && !L.untraced) { if (T) c = T.comp[b[1] * R + b[0]]; }
-  if (c !== hlComp) { hlComp = c; if (c >= 0) { const img = hlImg; img.data.fill(0); for (let i = 0; i < N; i++) if (T.comp[i] === c && uncut[i]) { img.data[i * 4] = 255; img.data[i * 4 + 1] = 230; img.data[i * 4 + 2] = 170; img.data[i * 4 + 3] = 110; } hlCtx.putImageData(img, 0, 0); } }
+  if (c >= 0 && tool === 'mask') c = 1e6 + T.st[b[1] * R + b[0]];
+  if (c !== hlComp) { hlComp = c; if (c >= 0) { const img = hlImg; img.data.fill(0); for (let i = 0; i < N; i++) if ((c >= 1e6 ? T.st[i] === c - 1e6 : T.comp[i] === c) && uncut[i]) { img.data[i * 4] = 255; img.data[i * 4 + 1] = 230; img.data[i * 4 + 2] = 170; img.data[i * 4 + 3] = 110; } hlCtx.putImageData(img, 0, 0); } }
   kick();
 }
 cv.addEventListener('pointerdown', e => {
@@ -1021,8 +1030,8 @@ function updateHUD() {
   if (finished) s = result.pass || L.studio ? 'Signed and stamped. The block is spent.' : result.lk >= PASS ? `${result.miss} missed detail${result.miss > 1 ? 's' : ''}: every shape counts. Try a fresh block.` : 'Missed the 85% mark. Try a fresh block.';
   else if (anim) s = 'Printing… (tap to skip)';
   else if (L.studio) s = sel < 0 ? 'Carve, then pick an ink. Tap the selected ink again to toggle opaque / transparent.' : 'Pull when ready. Pulls are permanent.';
-  else if (!passes.length && !strokes && innerWidth < 900 && !(innerHeight < 520 && innerWidth > innerHeight)) s = L.story;
-  else if (L.glaze && !passes.length && !strokes) s = `<b>Three pulls, six colours.</b> Glazes multiply: pick three tins whose stacks make the commission. Carve what is finished; lay a <b>frisket</b> ▭ on a shape to skip one pull (${L.fBudget} on the bench).`;
+  else if (!L.glaze && !passes.length && !strokes && innerWidth < 900 && !(innerHeight < 520 && innerWidth > innerHeight)) s = L.story;
+  else if (L.glaze && !passes.length && !strokes) s = `${L.story} Glazes multiply: find the three tins whose stacks make it. Carve what is finished; a <b>frisket</b> ▭ makes a colour skip one pull (${L.fBudget} on the bench).`;
   else if (L.glaze && sel < 0) s = `Carve the shapes that are finished, mask the ones that must skip, then pick the next glaze. ${3 - passes.length} pull${passes.length === 2 ? '' : 's'} left.`;
   else if (!passes.length && !strokes) s = L.untraced ? `<b>Untraced block:</b> no pencil lines from here on. Read the commission, decide which shapes stay <b>paper</b>, and carve them.${L.spare ? ' One tin on the bench does not belong in this print.' : ''}` : '<b>Step 1:</b> carve away everything that should stay <b>paper</b>. The Region tool clears one shape per tap.';
   else if (sel < 0) s = passes.length ? `Carve what should <b>stay as it is now</b>, then pick the next ink.` : 'Then pick an ink below. Its swatch shows: now | after.';
@@ -1126,7 +1135,7 @@ window.__wc = {
       T.regions.forEach((rg, ri) => { const s2 = sub[ri]; if (!ord.slice(p).some(bb => s2 >> bb & 1) && uncut[rg.px[0]] && carveComp(rg.comp)) cuts++; });
       T.comps.forEach((c, id) => { if (c.n < 10 && !ord.slice(p).some(bb => c.s >> bb & 1)) carveComp(id); });
       if (cuts) { undo.push(before); strokes += cuts; }
-      masks = new Set(); T.regions.forEach((rg, ri) => { const s2 = sub[ri]; if (!(s2 >> b & 1) && uncut[rg.px[0]] && masksUsed() < L.fBudget) masks.add(rg.comp); });
+      masks = new Set(); T.regions.forEach((rg, ri) => { const s2 = sub[ri]; if (!(s2 >> b & 1) && uncut[rg.px[0]] && (masks.has(rg.s) || masksUsed() < L.fBudget)) masks.add(rg.s); });
       pull(inks[b], true); }
     return result; },
   solveGlaze(ord) { return this.execPlan(L.glaze, T.regions.map(r => r.s), ord || L.bestOrd); },
@@ -1143,8 +1152,8 @@ window.__wc = {
   greedyCarve() { let n = 0; T.regions.forEach(r => { let un = 0, e = 0; for (const i of r.px) { if (uncut[i]) un++; const j = i * 3; e += Math.hypot(plab[j] - T.tlab[j], plab[j + 1] - T.tlab[j + 1], plab[j + 2] - T.tlab[j + 2]); }
     if (un && e / r.px.length < 6) { carveComp(r.comp); n++; } }); if (n) { strokes += n; blockDirty = pvDirty = true; } return n; },
   lightOrder: () => L.inks.map((_, k) => k).sort((a, b) => lightness(L.inks[b]) - lightness(L.inks[a])),
-  get anchor() { return anchor; },
-  over, cover, lin, I, ftT, rleEnc, rleDec, wipSave, rLeft, PASS, NLV, SAVE, get GAL() { return GAL; }, get undoN() { return undo.length; }, pullBtn, applyPull,
+  get anchor() { return anchor; }, tipRows,
+  over, cover, lin, I, ftT, dE, lum, rleEnc, rleDec, wipSave, rLeft, PASS, NLV, SAVE, get GAL() { return GAL; }, get undoN() { return undo.length; }, pullBtn, applyPull,
   get anim() { return anim; }, get draws() { return draws; }, cam, blockToScreen: (x, y) => { const [dx, dy] = b2s(x, y); return cam.toScreen(dx / dpr, dy / dpr); }, get uncutAt() { return (x, y) => uncut[(y | 0) * R + (x | 0)]; }, _tgt: () => targetCv.toDataURL(), layout, get boxes() { return { B, PR, TC, dpr }; },
 };
 </script>

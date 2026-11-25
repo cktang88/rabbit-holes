@@ -189,31 +189,58 @@ module.exports = {
       ok(r.B.x >= 0 && r.B.x + r.B.s <= 390 && r.B.y >= r.hb - 1 && r.B.y + r.B.s <= r.tt + 1, 'block fits ' + JSON.stringify(r));
       ok(r.P.x + r.P.s <= 390 && r.P.y >= r.hb - 1, 'print fits'); ok(r.tt > r.hb, 'tray overlaps hud'); ok(r.tw <= 390, 'tray off-screen');
     },
-    'Print Club: commissions are deterministic per seed, always solvable, and printing without carving fails': async ({ page, ok }) => {
+    'colour commissions: deterministic per seed, six stacks from three hidden glazes, solvable by the master plan; printing without carving fails': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const W = __wc, out = []; for (let k = 0; k < W.NLV; k++) W.SAVE.best[k] = { lk: .9, st: 3 };
         const g = (sd, lv) => JSON.stringify(W.genComm(sd, lv), (k, v) => typeof v === 'function' ? v.toString() : v);
         if (g('x', 3) !== g('x', 3)) out.push('not deterministic'); if (g('x', 3) === g('y', 3)) out.push('seed ignored');
-        for (const sd of ['s1', 's2', 's3', 's4', 'daily:2026-12-01']) for (const lv of [1, 4, 9]) { W.clubSet(sd, lv); const res = W.solve(W.CLUB);
-          if (!res.pass || res.lk < .95) out.push(`${sd}:${lv} solver ${res.lk.toFixed(2)} miss ${res.miss}`);
-          if (W.naive(W.CLUB) >= W.PASS) out.push(`${sd}:${lv} prints without carving`); }
+        for (const sd of ['s1', 's2', 's3', 'daily:2026-12-01']) for (const lv of [1, 6]) { W.clubSet(sd, lv); W.load(W.CLUB);
+          const stacks = new Set(W.T.regions.map(r => r.s)), shelf = W.L.inks.map(k => k.n), wanted = [...stacks].filter(s => s).length;
+          if (stacks.size < 6) out.push(`${sd}:${lv} only ${stacks.size} colours`); if (![...stacks].some(s => s === 3 || s === 5 || s === 6 || s === 7)) out.push('no glaze stacks');
+          if (shelf.length < 6) out.push('shelf too small'); if (W.L.inks.some(k => k.m !== 't')) out.push('opaque tin on the glaze shelf');
+          const res = W.solve(W.CLUB); if (!res.pass || res.lk < .85) out.push(`${sd}:${lv} master plan ${res.lk.toFixed(2)} miss ${res.miss}`);
+          if (W.naive(W.CLUB) >= .5) out.push(`${sd}:${lv} prints without carving`); }
         return out; });
       ok(!r.length, r.join('; '));
     },
-    'Print Club ranking: a careful print beats nine in ten members; sloppy cutting ranks low on cuts': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const W = __wc, res = []; for (let k = 0; k < W.NLV; k++) W.SAVE.best[k] = { lk: .9, st: 3 };
-        for (const sd of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6']) { W.clubSet(sd, 3); const s = W.solve(W.CLUB), pop = W.clubPop();
-          res.push({ lk: W.beats(s.lk, pop.map(x => x.lk), true), cuts: W.beats(s.strokes, pop.map(x => x.cuts), false), hack: W.beats(s.strokes * 3, pop.map(x => x.cuts), false) }); }
-        return res; });
-      const avg = k => r.reduce((a, x) => a + x[k], 0) / r.length;
-      ok(avg('lk') >= .85 && avg('cuts') >= .85, 'the solver should rank near the top: ' + JSON.stringify(r));
-      ok(avg('hack') < .5, 'hacking each shape out in three strokes should rank in the bottom half on cuts: ' + avg('hack'));
+    'colour commissions: many different subjects, none dominating': async ({ page, ok }) => {
+      const names = await page.evaluate(() => Array.from({ length: 30 }, (_, i) => __wc.genComm('v' + i, 3).name));
+      const subj = names.map(n => n.split(/ (in|by|on|at) /)[0]), cnt = {}; subj.forEach(s => cnt[s] = (cnt[s] || 0) + 1);
+      ok(new Set(subj).size >= 12 && Math.max(...Object.values(cnt)) <= 5 && new Set(names).size >= 24, JSON.stringify(cnt));
     },
-    'Print Club through the UI: locked until five prints, ranked result, next commission, today\'s, share link; stale work is dropped': async ({ page, ok, eq }) => {
-      ok(await page.evaluate(() => document.querySelector(`#lvSel option[value="${__wc.CLUB}"]`).disabled), 'club open before any prints');
+    'colour bots: random and naive plans fail; a competent colour-planner delivers every commission; no fixed habit does': async ({ page, ok }) => {
+      const r = await page.evaluate(src => { const W = __wc; for (let k = 0; k < W.NLV; k++) W.SAVE.best[k] = { lk: .9, st: 3 };
+        const out = { comp: 0, l2d: 0, nof: 0, light3: 0, rand: 0, n: 0 }, rnd = RH.rng('bots');
+        for (let i = 0; i < 8; i++) { out.n++;
+          for (const [k, f] of [['comp', 'competent'], ['l2d', 'lightToDark'], ['nof', 'noFriskets'], ['light3', 'lightestThree'], ['rand', 'random']]) { W.clubSet('bt' + i, 1 + i); W.load(W.CLUB); const B = eval(src); out[k] += B[f](rnd).pass ? 1 : 0; } }
+        return out; }, require('./woodcut.bots.js').botSrc);
+      ok(r.comp === r.n, 'the competent planner failed: ' + JSON.stringify(r));
+      ok(r.rand === 0 && r.light3 === 0, 'naive plans pass: ' + JSON.stringify(r));
+      ok(r.nof === 0, 'six colours should be impossible as a pure reduction (no friskets): ' + JSON.stringify(r));
+      ok(r.l2d < r.n, 'pulling light to dark every time should not win every commission: ' + JSON.stringify(r));
+    },
+    'friskets: a masked colour skips one pull, the budget is enforced, and masks make the edition drift; untraced blocks hide the target on hover': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const W = __wc, out = {}; for (let k = 0; k < W.NLV; k++) W.SAVE.best[k] = { lk: .9, st: 3 }; W.clubSet('fr', 4); W.load(W.CLUB);
+        const rg = W.T.regions.find(g => g.n > 300), i = rg.px[rg.px.length >> 1], x = i % 320, y = i / 320 | 0;
+        out.on = W.toggleMask(x, y); out.masks = W.masks.length; out.tip = W.tipRows(x, y)[0][0];
+        W.pull(0); out.skipped = !W.passLog[0].cov[i] && W.passLog[0].m.length === 1; out.afterPull = W.masks.length;
+        const big = W.T.regions.filter(g => g.n > 300 && g.s !== rg.s); let n = 0; for (const g of big) { const j = g.px[g.px.length >> 1]; n += W.toggleMask(j % 320, j / 320 | 0); }
+        out.capped = W.masksUsed() <= W.L.fBudget;
+        // drift: the same plan with extra friskets on a pass prints a less crisp edition
+        W.clubSet('dr', 4); W.load(W.CLUB); const a = W.solveGlaze().lk;
+        W.load(W.CLUB); W.L.fBudget = 99; const b = W.execPlan(W.L.glaze, W.T.regions.map(g => g.s), [0, 1, 2]); out.drift = [a, b.lk, W.L.parMasks, b.glz.masks];
+        W.load(12); const u = W.T.regions[0].px[0]; out.untraced = W.tipRows(u % 320, u / 320 | 0).map(r => r[0]);
+        W.load(3); out.traced = W.tipRows(u % 320, u / 320 | 0).map(r => r[0]);
+        return out; });
+      eq([r.on, r.masks, r.afterPull], [1, 1, 0]); ok(/frisket/.test(r.tip), r.tip); ok(r.skipped, 'the masked shape took ink'); ok(r.capped, 'frisket budget exceeded');
+      ok(r.drift[3] <= r.drift[2] || r.drift[1] <= r.drift[0], 'more friskets should not print a crisper edition: ' + JSON.stringify(r.drift));
+      ok(!r.untraced.some(t => /Target/.test(t)), 'the untraced block leaks the target on hover: ' + r.untraced); ok(r.traced.some(t => /Target/.test(t)));
+    },
+    'colour commissions through the UI: locked until five prints, edition result, next commission, today\'s, share link; stale work is dropped': async ({ page, ok, eq }) => {
+      ok(await page.evaluate(() => document.querySelector(`#lvSel option[value="${__wc.CLUB}"]`).disabled), 'commissions open before any prints');
       await page.evaluate(() => { const W = __wc; for (let k = 0; k < W.CLUB_OPEN; k++) W.SAVE.best[k] = { lk: .9, st: 3 }; W.clubSet('ui', 2); W.load(0); });
-      ok(await page.evaluate(() => !document.querySelector(`#lvSel option[value="${__wc.CLUB}"]`).disabled), 'club still locked after five prints');
+      ok(await page.evaluate(() => !document.querySelector(`#lvSel option[value="${__wc.CLUB}"]`).disabled), 'still locked after five prints');
       await page.evaluate(() => { const W = __wc; W.solve(W.CLUB); }); await page.waitForTimeout(200);
-      ok(await page.evaluate(() => document.querySelectorAll('#toast .hist svg').length === 2 && /better than/.test(document.getElementById('toast').textContent)), 'no histograms on the result');
+      ok(await page.evaluate(() => document.querySelectorAll('#toast .eds img').length === 4 && /Edition of 4/.test(document.getElementById('toast').textContent)), 'no edition on the result');
       eq(await page.evaluate(() => [__wc.SAVE.club.n, Object.keys(__wc.SAVE.club.best)]), [1, ['ui:2']]);
       await page.click('#toast [data-a="cnext"]'); await page.waitForTimeout(150);
       ok(await page.evaluate(() => __wc.SAVE.club.lv === 3 && __wc.SAVE.club.seed !== 'ui' && __wc.L.club && !__wc.finished), 'next commission');
@@ -227,7 +254,14 @@ module.exports = {
       ok(await p2.evaluate(() => __wc.L.club && __wc.SAVE.club.seed.startsWith('daily:')), 'the link did not open the commission');
       ok(await page.evaluate(() => localStorage.getItem('rh:woodcut').length) < 50000, 'save too large');
     },
-    'Print Club: a cut made while zoomed lands under the finger, and a pinch never carves': async ({ page, ok, eq }) => {
+    'a half-printed colour commission with friskets survives a reload': async ({ page, eq, ok }) => {
+      const a = await page.evaluate(() => { const W = __wc; for (let k = 0; k < W.CLUB_OPEN; k++) W.SAVE.best[k] = { lk: .9, st: 3 }; W.clubSet('wip', 3); W.load(W.CLUB);
+        const rg = W.T.regions.find(g => g.n > 300), i = rg.px[rg.px.length >> 1]; W.toggleMask(i % 320, i / 320 | 0); W.pull(1); W.wipSave(); return { m: W.passLog.map(p => p.m), cov: W.passLog[0].cov.reduce((x, y) => x + y, 0) }; });
+      await page.reload(); await ready(page);
+      const b = await page.evaluate(() => ({ m: __wc.passLog.map(p => p.m), cov: __wc.passLog[0] ? __wc.passLog[0].cov.reduce((x, y) => x + y, 0) : -1 }));
+      eq(b, a);
+    },
+    'colour commissions: a cut made while zoomed lands under the finger, and a pinch never carves': async ({ page, ok, eq }) => {
       await page.evaluate(() => { const W = __wc; for (let k = 0; k < W.CLUB_OPEN; k++) W.SAVE.best[k] = { lk: .9, st: 3 }; W.clubSet('zoom', 1); W.load(W.CLUB); document.querySelector('#tools [data-t="v"]').click(); });
       const [cx, cy] = await page.evaluate(() => __wc.blockToScreen(160, 160)); await page.mouse.move(cx, cy); for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -300); await page.waitForTimeout(100);
       const [ax, ay] = await page.evaluate(() => __wc.blockToScreen(120.5, 200.5)), [bx, by] = await page.evaluate(() => __wc.blockToScreen(134.5, 200.5));

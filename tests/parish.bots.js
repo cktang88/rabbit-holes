@@ -46,7 +46,10 @@ function parishBot(E, seed, name, budget) {
       return undefined;
     };
     const resets = {};
-    const options = k => { const c = cands(k, P).filter(x => !x.strike); const main = c.filter(x => !x.other).sort((x, y) => fit(k, x) - fit(k, y)), oth = c.filter(x => x.other).sort((x, y) => fit(k, x) - fit(k, y)); const all = [...main.map(x => x.id), ...oth.map(x => x.id), null];
+    // a 'bachelor' already married elsewhere is unlikely, unless a letter says he had a wife already
+    const suspicious = new Set(V.letters.filter(L => /wife already/.test(L.text)).flatMap(L => L.targets));
+    const wed = (k, x) => x.note && /married/.test(x.note) ? (suspicious.has(k) ? -50 : 50) : 0;
+    const options = k => { const c = cands(k, P).filter(x => !x.strike); const main = c.filter(x => !x.other).sort((x, y) => (fit(k, x) + wed(k, x)) - (fit(k, y) + wed(k, y))), oth = c.filter(x => x.other).sort((x, y) => fit(k, x) - fit(k, y)); const all = [...main.map(x => x.id), ...oth.map(x => x.id), null];
       let o = all.filter(a => !(tried[k] || []).includes(a));
       if (!o.length && (resets[k] || 0) < 2) { resets[k] = (resets[k] || 0) + 1; tried[k] = []; o = all; } // every option failed: some evidence was bad, so look again
       return o; };

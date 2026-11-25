@@ -43,9 +43,11 @@ module.exports = {
     },
     'tag on a card filters to that tag; search narrows; no-match message': async ({ page, ok }) => {
       await page.click('#vibes [data-tag="quick"]');
-      await page.click('article.card[data-id="gridlock"] .t[data-tag="maths"]');
+      // click the maths tag on whichever quick-hit card carries one (the catalogue changes as games are replaced)
+      await page.click('article.card .t[data-tag="maths"]');
       const ids = [...new Set((await cards(page)).map(c => c[0]))];
-      ok(ids.includes('ruin') && ids.includes('gridlock') && ids.includes('escapement') && !ids.includes('caravan'), ids.join());
+      const maths = await page.evaluate(() => RH_CATALOG.filter(x => x.tags.includes('maths')).map(x => x.id));
+      ok(ids.length > 2 && ids.every(id => maths.includes(id)) && ids.includes('ruin') && !ids.includes('caravan'), ids.join());
       await page.fill('#q', 'zzzz-nothing'); await page.waitForTimeout(300);
       ok(await page.isVisible('.empty'));
       await page.click('#tags [data-clear]'); await page.fill('#q', 'bee'); await page.waitForTimeout(300);

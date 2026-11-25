@@ -712,7 +712,7 @@ function decodeTray(str){
 // that decays by itself; one that grows into another; one that eats another. The same cellular engine runs them.
 // Experiments cost drops. File each law on a card: predict, then test. The office stamps a card only if the tray shows
 // that law at work during the test, and pays for it; a card the tray refutes is fined. Patrons pay for products in bulk.
-const GLYPHS=['◐','▲','✶','◆','⬣','✚','☾','≋'], CATC=6, OFFICE_DROPS=5000, FALSE_FINE=400, STAMP_PAY=250, PATRON_PAY=800;
+const GLYPHS=['◐','▲','✶','◆','⬣','✚','☾','≋'], CATC=6, OFFICE_DROPS=5000, dropsFor=t=>2500+1000*t, FALSE_FINE=400, STAMP_PAY=250, PATRON_PAY=800;
 let world=null, cards=[], fines=0;
 function makeWorld(wseed, tier){
   tier=Math.max(1,Math.min(6,tier|0)); const r=RH.rng('office:'+wseed+':'+tier), pick=a=>a[Math.floor(r()*a.length)];
@@ -729,7 +729,7 @@ function makeWorld(wseed, tier){
   const p2=next(); add(p0,base[2],p2,K,.05+r()*.07,'mix');
   if (tier>=2){ const p3=next(), s=pick([base[0],p1]); add(FIRE,s,K,p3,.12+r()*.1,'heat'); }
   if (tier>=3){ const p4=next(), cat=pick([p1,p2]); add(base[2],base[0],p4,K,.12+r()*.1,'cat',cat); }
-  if (tier>=4){ const src=pick(prods.slice(0,pi)), to=pick(prods.slice(0,pi).filter(x=>x!==src).concat(base)); add(src,0,to,K,.006+r()*.006,'decay'); }
+  if (tier>=4){ const src=pick(prods.slice(0,pi)), to=pick(prods.slice(0,pi).filter(x=>x!==src).concat(base)); add(src,0,to,K,.003+r()*.003,'decay'); }
   if (tier>=5){ const q=pickPair(prods.slice(0,pi), base); if (q) add(q[0],q[1],K,q[0],.03+r()*.03,'grow'); }
   if (tier>=6){ const q=pickPair(prods.slice(0,pi), prods.slice(0,pi).concat(base)); if (q) add(q[0],q[1],K,0,.04+r()*.04,'eat'); }
   const used=new Set([...base]); for (const l of laws) for (const x of [l.a,l.b,l.oa,l.ob,l.cat]) if (x>=NREAL) used.add(x);
@@ -762,7 +762,7 @@ function runBench(){
   if (bench.k) fillRect(bench.k, xa, H-4, xb+BLK-1, H-1);
   if (bench.b===FIRE){ fillRect(bench.a, xa, top, xb+BLK-1, bot); const keep=budgetLeft; fillRect(FIRE, xa, top-5, xb+BLK-1, top-1); budgetLeft=keep; }
   else if (bench.b===0) fillRect(bench.a, xa, top, xb+BLK-1, bot);
-  else { fillRect(bench.a, xa, top, xa+BLK-1, bot); fillRect(bench.b, xb, top, xb+BLK-1, bot); }
+  else for (let x=xa; x<xb+BLK; x+=2) fillRect(((x-xa)>>1)&1? bench.b : bench.a, x, top, x+1, bot);   // the wells pour in, striped together
   trial={ card: bench.p>=0? [bench.a, bench.b, bench.p, bench.k] : null, t:0, before: made.slice(), ins:[...new Set([bench.a,bench.b,bench.k].filter(t=>t>=NREAL))], put: poured.slice() }; paused=false; $('pauseBtn').textContent='Pause';
   FX.sfx('pop'); lastResult=null; renderBench(); focusBench(); return 'ok';
 }
@@ -776,7 +776,7 @@ function gone(T0){ census(); return T0.ins.map(t=>[t, T0.put[t]+(made[t]-T0.befo
 function formed(T0){ const out=[]; for (let t=NREAL;t<NT;t++){ const d=made[t]-T0.before[t]; if (d>0) out.push([t,d]); } return out.sort((x,y)=>y[1]-x[1]); }
 function verdict(T0){
   const got=formed(T0), gn=gone(T0), list=(got.length? got.map(([t,n])=>`${glyph(t)} ×${n}`).join(', ') : 'nothing new')+(gn.length? `; used up: ${gn.map(([t,n])=>`${glyph(t)} ×${n}`).join(', ')}` : '');
-  reveal={ pred: T0.card? T0.card[2] : null, got: got.map(g=>g[0]), gone: gn.map(g=>g[0]), ok:null, at: performance.now() };
+  reveal={ pred: T0.card? T0.card[2] : null, got: got.map(g=>g[0]), n: got.map(g=>g[1]), gone: gn.map(g=>g[0]), ok:null, at: performance.now() };
   if (!T0.card){ lastResult={ kind:'mix', text:`Formed: ${list}.${got.length? ' Now predict it and test the card.':''}` }; if (got.length){ bench.p=-1; bench.slot='p'; } saveOffice(); renderBench(); updGoal(true); return; }
   const c=T0.card, l=matchLaw(c), ok=!!l && TF[l.a*NT+l.b]===1; reveal.ok=ok;
   if (cards.some(x=>x.c.join()===c.join() && x.st==='seen')){ reveal.ok=true; lastResult={ kind:'seen', text:`Already stamped. Formed: ${list}.` }; renderBench(); return; }
@@ -839,7 +839,7 @@ function startOffice(wseed, tier, keep){
   world=makeWorld(wseed, tier); installWorld(world); clearTray(); seed=(RH.hashStr('office:'+wseed)|1); FIRED.fill(0); fresh.clear();
   const S=SAVE.office, same= keep && S.w===world.seed && S.tier===world.tier;
   if (same){ const seen=new Set(S.seen); cards=S.cards.map(c=>({ c:c.slice(0,4), st: seen.has(c.slice(0,4).join()) && matchLaw(c)? 'seen' : 'false' })); budgetLeft=S.left; fines=S.fines; }
-  else { cards=[]; budgetLeft=OFFICE_DROPS; fines=0; Object.assign(SAVE.office,{ w:world.seed, tier:world.tier, cards:[], seen:[], left:budgetLeft, fines:0, pd:[], made:[], closed:0 }); }
+  else { cards=[]; budgetLeft=dropsFor(world.tier); fines=0; Object.assign(SAVE.office,{ w:world.seed, tier:world.tier, cards:[], seen:[], left:budgetLeft, fines:0, pd:[], made:[], closed:0 }); }
   SAVE.m='office'; const k=new Uint8Array(NT); k[FIRE]=world.tier>=2?1:0; for (const t of world.base) k[t]=1; if (same) for (const t of S.made) if (world.ids.includes(t)) k[t]=1;
   Object.assign(bench,{ a:world.base[0], b:world.base[1], k:0, p:-1, slot:'p' }); if (cards.length) bench.slot='a';
   setKnown(k); sel=world.base[0]; fam='Recent'; renderVials(); renderBench(); updGoal(true); persist();

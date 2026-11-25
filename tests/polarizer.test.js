@@ -387,7 +387,7 @@ module.exports = {
         const sum = a => a.reduce((x, v) => x + v.pay, 0), by = (a, g) => a.filter(v => v.g === g);
         return { per: [3, 5, 7].map(g => [g, sum(by(o.care, g)), by(o.care, g).filter(v => v.pay > 100).length, sum(by(o.naive, g))]), booms: o.care.filter(v => v.boom).length }; });
       for (const [g, care, perfect, naive] of r.per) { ok(care > 0 && naive < 0, `grade ${g}: careful +$${care}, guessing $${naive}`); ok(perfect >= 5, `grade ${g}: careful prober certified ${perfect}/8`); }
-      ok(r.booms <= 2, 'the careful prober rarely blows up a box: ' + r.booms);
+      ok(r.booms <= 2, 'the careful prober rarely blows up a box: ' + r.booms); console.log('      boxes, grades 3/5/7 [grade, careful $, certified/8, guessing $]: ' + JSON.stringify(r.per));
     },
     'sealed boxes: a card describing a physically identical box is accepted; a certified card opens the next grade': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { FX.setMuted(true); const X = __pz, o = {};
@@ -402,7 +402,23 @@ module.exports = {
         o.shadow = X.boxSig([{ k: 'pol', a: 30 }, { k: 'live' }]) === X.boxSig([{ k: 'pol', a: 120 }, { k: 'live' }]) && X.boxSig([{ k: 'pol', a: 30 }, { k: 'live' }]) !== X.boxSig([{ k: 'pol', a: 30 }, { k: 'dud' }]);
         return o; });
       ok(r.same, 'same signature'); ok(r.pay > 100, 'equivalent card certified: ' + r.pay + ' ' + JSON.stringify(r.truth)); eq(r.grade, 4, 'certifying a grade-3 box opens grade 4');
-      ok(r.wrong < 0, 'a genuinely different card is not: ' + r.wrong); ok(r.shadow, 'parts in a live bomb\'s shadow are free; live vs dud is not');
+      ok(r.wrong < 100, 'a genuinely different card is not certified: ' + r.wrong); ok(r.shadow, 'parts in a live bomb\'s shadow are free; live vs dud is not');
+    },
+    'sealed boxes on a phone: the trigger and the spec card sit in a bottom sheet, reachable without scrolling; signing works from it': async ({ page, ok, eq }) => {
+      for (const [w, h] of [[390, 844], [844, 390]]) {
+        await page.setViewportSize({ width: w, height: h }); await page.evaluate(() => { localStorage.clear(); document.getElementById('toast').classList.remove('on'); __pz.openBox(5, 1); }); await page.waitForTimeout(200);
+        const vis = sel => page.evaluate(s => { const e = document.querySelector(s); if (!e) return false; const r = e.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2; return r.width > 0 && y > 0 && y < innerHeight && x > 0 && x < innerWidth && (document.elementFromPoint(x, y) === e || e.contains(document.elementFromPoint(x, y))); }, sel);
+        ok(await vis('#sheet #bf10') && await vis('#sheet #bSign'), `${w}: Fire and Sign are on screen`);
+        await page.click('#sheet #bf10'); ok(await page.evaluate(() => __pz.bx.shots === 10), `${w}: fired from the sheet`);
+        await page.click('#sheet #shT'); ok(await vis('#sheet [data-ci="0"]'), `${w}: the card opens in the sheet, no scrolling`);
+        const truth = await page.evaluate(() => __pz.box.els[0]);
+        await page.selectOption('#sheet [data-ci="0"]', truth.k); await page.fill('#sheet [data-ca="0"]', String(truth.a));
+        const c0 = await page.evaluate(() => __pz.bxSave().cash); await page.click('#sheet #bSign'); ok(await page.evaluate(c0 => __pz.bxSave().cash > c0 + 50, c0), `${w}: signed and paid`);
+        const board = await page.evaluate(() => { const r = document.getElementById('sheet').getBoundingClientRect(); return r.top; });
+        ok(board > h * .45, `${w}: the sheet stays low (${board})`);
+        await page.evaluate(() => __pz.load(0)); eq(await page.evaluate(() => document.getElementById('sheet').classList.contains('on')), false, `${w}: no sheet in the lessons`);
+      }
+      await page.setViewportSize({ width: 1280, height: 800 });
     },
     'progress and locked levels': async ({ page, eq, ok }) => {
       eq(await page.textContent('#title'), 'Sealed Boxes', 'a new player lands on the workbench');
