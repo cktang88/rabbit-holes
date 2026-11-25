@@ -279,7 +279,7 @@ const planetMat = new THREE.ShaderMaterial({ uniforms: { uSig: { value: sigTex }
       float nl = dot(n, L), mu = max(dot(n, V), 0.);
       vec3 base = bands(vP);
       // the rings' shadow: follow the sunbeam from this point to the ring plane
-      float sh = 1.; if (w.y * L.y < 0.) { float t = -w.y / L.y; vec3 h = w + L * t; float rr = length(h.xz), tau = tauAt(rr) * fineAt(rr).x; sh = mix(.04, 1., exp(-tau / max(abs(L.y), .05))); }
+      float sh = 1.; if (w.y * L.y < 0.) { float t = -w.y / L.y; vec3 h = w + L * t; float rr = length(h.xz), tau = tauAt(rr) * mix(fineAt(rr).x, 1., .6); sh = mix(.04, 1., exp(-tau / max(abs(L.y), .05))); }
       float diff = smoothstep(-.08, .55, nl) * (.35 + .65 * max(nl, 0.));
       float limb = pow(mu, .38);
       vec3 col = base * diff * limb * sh * vec3(1.35, 1.3, 1.22);
@@ -370,7 +370,8 @@ const sheetMat = new THREE.ShaderMaterial({ uniforms: { uMoon: { value: null }, 
       // follow the streamlines back: the grains here came from orbit a, shifted by the moons' wakes and waves
       vec3 fx = vec3(0., 1., 1.); float a = r; if (uNM > 0) { fx = moonFx(r, th, .5); a = r - fx.x; fx = moonFx(a, th, .5); a = r - fx.x; }
       float tau0 = tauAt(a) * fx.y * fx.z; if (tau0 < .002) discard;
-      vec2 fs = fineAt(a); float tau = tau0 * fs.x;
+      // fade the finest ringlets out where a pixel spans many of them (no moiré at grazing angles)
+      vec2 fs = fineAt(a); fs.x = mix(fs.x, 1., smoothstep(.0006, .004, fwidth(r))); float tau = tau0 * fs.x;
       vec3 V = normalize(uCam - vW), L = normalize(uSun); float mu = max(abs(V.y), .02), mu0 = max(abs(L.y), .02), c = dot(-L, V);
       // phase function: icy boulders scatter back towards the Sun; the fine dust between them scatters forward
       float dust = .5 * exp(-tau * 2.5);
@@ -443,9 +444,9 @@ let hintTimer = 0; function hint(t, ms = 5000) { const h = document.getElementBy
 function solved() { const s = G.solved; const prev = SAVE.done[key], first = !prev; const better = !prev || s.moons < prev.moons || (s.moons === prev.moons && s.orbits < prev.orbits);
   SAVE.done[key] = prev ? { moons: Math.min(prev.moons, s.moons), orbits: Math.min(prev.orbits, s.orbits) } : { moons: s.moons, orbits: s.orbits }; if (key.startsWith('day:')) SAVE.days[key.slice(4)] = 1; persist(); renderList();
   const i = /^\d$/.test(key) ? +key : -1, nx = i >= 0 && i + 1 < COMMS.length ? String(i + 1) : null;
-  const card = document.getElementById('card'); card.innerHTML = `<h2>Solved</h2><div class="sc">${s.moons} moon${s.moons === 1 ? '' : 's'} · ${s.orbits} orbits</div><div class="note">${first ? '' : better ? 'A new best. ' : `Your best: ${SAVE.done[key].moons} moons · ${SAVE.done[key].orbits} orbits. `}${C.note || ''}</div>
+  const card = document.getElementById('card'); card.innerHTML = `<h2>Solved</h2><div class="sc">${s.moons} moon${s.moons === 1 ? '' : 's'} · ${s.orbits} orbits</div><div class="note">${first ? '' : better ? 'A new best. ' : `Your best: ${SAVE.done[key].moons} moon${SAVE.done[key].moons === 1 ? '' : 's'} · ${SAVE.done[key].orbits} orbits. `}${C.note || ''}</div>
     <div class="row">${nx ? `<button id="cNext" class="on">Next: ${COMMS[+nx].name}</button>` : i === COMMS.length - 1 ? '<button id="cDay" class="on">Problem of the day</button>' : ''}<button id="cShare">Share</button><button id="cStay">Keep watching</button></div>`;
-  card.classList.add('on'); FX.sfx('win');
+  card.classList.add('on'); hint(''); FX.sfx('win');
   document.getElementById('cNext')?.addEventListener('click', () => openComm(nx)); document.getElementById('cDay')?.addEventListener('click', () => openComm('day:' + todayKey()));
   document.getElementById('cShare').onclick = share; document.getElementById('cStay').onclick = () => card.classList.remove('on');
   if (first && i === 1) setTimeout(() => RH.toast('The sandbox and the problem of the day are open: see Problems.', 4000), 1500); }

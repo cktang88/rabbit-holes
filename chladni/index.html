@@ -168,6 +168,13 @@ function solve(mask, nModes) {
 }
 // a plate = outline + drilled holes. Its masks on the field grid, and its modes (each sampled on G×G, max |u| = 1)
 const PLATES = {};
+function smoothField(u, mask) { // the 32-grid solution, upsampled, still has creases at its cell edges; two gentle passes take them out
+  const t = new Float32Array(u.length);
+  for (let pass = 0; pass < 2; pass++) for (const [di, dj] of [[1, 0], [0, 1]]) {
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const c = j * G + i; if (!mask[c]) { t[c] = 0; continue; } let a = 2 * u[c], w = 2;
+      for (const s of [-1, 1]) { const ii = i + s * di, jj = j + s * dj; if (ii < 0 || jj < 0 || ii >= G || jj >= G) continue; const c2 = jj * G + ii; if (mask[c2]) { a += u[c2]; w++; } } t[c] = a / w; }
+    u.set(t); }
+}
 const plateKey = (shape, holes) => shape + (holes && holes.length ? ':' + holes.map(h => h.map(v => v.toFixed(3)).join(',')).join(';') : '');
 const HOLE_R = .07;
 function plateOf(shape, holes = []) {
@@ -183,6 +190,7 @@ function plateOf(shape, holes = []) {
     modes = sol.map((s, k) => { const u = new Float32Array(G * G); let mx = 0;
       for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { if (!mask[j * G + i]) continue; const gx = (i + .5) / G * DG - .5, gy = (j + .5) / G * DG - .5, i0 = Math.max(0, Math.min(DG - 2, Math.floor(gx))), j0 = Math.max(0, Math.min(DG - 2, Math.floor(gy))), fx = Math.min(1, Math.max(0, gx - i0)), fy = Math.min(1, Math.max(0, gy - j0));
         const at = (a, b) => s.u[b * DG + a]; const v = (at(i0, j0) * (1 - fx) + at(i0 + 1, j0) * fx) * (1 - fy) + (at(i0, j0 + 1) * (1 - fx) + at(i0 + 1, j0 + 1) * fx) * fy; u[j * G + i] = v; mx = Math.max(mx, Math.abs(v)); }
+      smoothField(u, mask); mx = 0; for (let c = 0; c < u.length; c++) mx = Math.max(mx, Math.abs(u[c]));
       for (let c = 0; c < u.length; c++) u[c] /= mx || 1; return { id: 'm' + k, f: s.lam / lam0, lam: s.lam, u }; });
     modes.forEach((md, k) => { const nx = modes[k + 1], pv = modes[k - 1]; if (nx && nx.lam / md.lam < 1.03) md.pair = nx.pair = 'p' + k; else if (!md.pair && pv && md.lam / pv.lam < 1.03) md.pair = pv.pair = 'p' + (k - 1); });
   }
@@ -275,7 +283,7 @@ const COMMS = [
   { id: 'f2', ch: 1, n: 'Sideways', shape: 'square', start: 'heap', pal: [0, 1, 2, 3, 4, 5], finger: [.22, .4], tools: ['finger'], ref: [[2, .5], [5, .5]], text: 'Where you touch decides which way the figure turns.' },
   { id: 'f3', ch: 1, n: 'Lopsided', shape: 'square', start: 'band', pal: [0, 1, 2, 3, 4, 5, 6], finger: [.62, .5], tools: ['finger'], ref: [[2, 1], [5, .5], [0, .5]], text: 'A band of sand. Silence the notes you do not want.' },
   { id: 'f4', ch: 1, n: 'The comb', shape: 'square', start: 'even', pal: [0, 1, 2, 3, 4, 5, 6, 7, 8], finger: [.15, .5], tools: ['finger'], ref: [[1, 2], [6, .5], [2, .5]], text: 'Nine notes now. Fewer is better.' },
-  { id: 'f5', ch: 1, n: 'Off centre', shape: 'square', start: 'four', pal: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], finger: [.4, .15], tools: ['finger'], ref: [[4, 1], [9, 1], [3, 1]], text: 'Four heaps, the finger, and ten notes.' },
+  { id: 'f5', ch: 1, n: 'Off centre', shape: 'square', start: 'four', pal: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], finger: [.4, .15], tools: ['finger'], ref: [[0, 2], [8, 1]], text: 'Four heaps, the finger, and ten notes.' },
   { id: 's1', ch: 2, n: 'The round plate', shape: 'circle', start: 'even', pal: [0, 1, 2, 3, 4, 5], tools: ['finger'], ref: [[3, 1], [0, .5]], text: 'The saw: a round plate has round notes. Same rules, new words.' },
   { id: 's2', ch: 2, n: 'Rings', shape: 'circle', start: 'heap', pal: [0, 1, 2, 3, 4, 5, 6, 7], tools: ['finger'], ref: [[0, 2], [2, .5], [7, 1]], text: 'A heap on the round plate.' },
   { id: 's3', ch: 2, n: 'The drill', shape: 'square', start: 'even', pal: [0, 1, 2, 3, 4, 5, 6], holes: [[.5, .5]], tools: ['drill', 'finger'], ref: [[2, 1], [5, .5]], text: 'The drill: a hole changes every note, and sand that reaches it falls through. Drill where the target has a hole.' },
@@ -515,32 +523,32 @@ void main(){ vec2 c = gl_PointCoord * 2. - 1.; float r2 = dot(c, c); if (r2 > 1.
   o = vec4(tint * l * (1. + vHop * 25.), 1. - vHop * 18.); }`;
 let Htmp = null, ARR = null, fbo = null, texStatic = null, staticKey = '', staticSize = '';
 let P = null, G2 = null, bufPos, bufAmp, bufSeed, vao, quad, texSDF, texH, texU, texT, Hbuf, Hgrid, dirtyH = true, sdfKey = '', tKey = '';
-const HS = 160;
+const HS = 200;
 function glInit() {
   P = prog(QUAD_VS, PLATE_FS); G2 = prog(GRAIN_VS, GRAIN_FS);
   quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
   bufPos = gl.createBuffer(); bufAmp = gl.createBuffer(); bufSeed = gl.createBuffer();
   const tex = (w, h) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array(w * h)); return t; };
   fbo = gl.createFramebuffer();
-  texSDF = tex(256, 256); texH = tex(HS, HS); texU = tex(G, G); texT = tex(HS, HS); Hbuf = new Uint8Array(HS * HS); Hgrid = new Float32Array(HS * HS);
+  texSDF = tex(512, 512); texH = tex(HS, HS); texU = tex(G, G); texT = tex(HS, HS); Hbuf = new Uint8Array(HS * HS); Hgrid = new Float32Array(HS * HS);
 }
 const upload = (t, w, h, data) => { gl.bindTexture(gl.TEXTURE_2D, t); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.UNSIGNED_BYTE, data); };
 function sdfOf(pl) { // signed distance to the outline and the holes, by a two-pass chamfer transform on a 256 grid
-  const S = 256, inside = new Uint8Array(S * S), polys = SHAPES[pl.shape].polys;
+  const S = 512, inside = new Uint8Array(S * S), polys = SHAPES[pl.shape].polys;
   for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const x = (i + .5) / S, y = (j + .5) / S; inside[j * S + i] = polys.some(P => inPoly(P, x, y)) && !pl.holes.some(([hx, hy]) => (x - hx) ** 2 + (y - hy) ** 2 < HOLE_R * HOLE_R) ? 1 : 0; }
   const dist = val => { const D = new Float32Array(S * S); for (let k = 0; k < S * S; k++) D[k] = inside[k] === val ? 0 : 1e9;
     for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const k = j * S + i; if (i) D[k] = Math.min(D[k], D[k - 1] + 1); if (j) D[k] = Math.min(D[k], D[k - S] + 1); if (i && j) D[k] = Math.min(D[k], D[k - S - 1] + 1.414); if (j && i < S - 1) D[k] = Math.min(D[k], D[k - S + 1] + 1.414); }
     for (let j = S - 1; j >= 0; j--) for (let i = S - 1; i >= 0; i--) { const k = j * S + i; if (i < S - 1) D[k] = Math.min(D[k], D[k + 1] + 1); if (j < S - 1) D[k] = Math.min(D[k], D[k + S] + 1); if (i < S - 1 && j < S - 1) D[k] = Math.min(D[k], D[k + S + 1] + 1.414); if (j < S - 1 && i) D[k] = Math.min(D[k], D[k + S - 1] + 1.414); }
     return D; };
   const din = dist(0), dout = dist(1), out = new Uint8Array(S * S);
-  for (let k = 0; k < S * S; k++) { let d = inside[k] ? din[k] / S : -dout[k] / S; if (inside[k] && (k % S === 0 || k % S === S - 1 || k < S || k >= S * S - S)) d = Math.min(d, .5 / S); out[k] = Math.max(0, Math.min(255, Math.round((.5 + d * 4) * 255))); }
+  for (let k = 0; k < S * S; k++) { let d = inside[k] ? din[k] / S : -dout[k] / S; if (pl.shape === 'square' && inside[k] && (k % S === 0 || k % S === S - 1 || k < S || k >= S * S - S)) d = Math.min(d, .5 / S); out[k] = Math.max(0, Math.min(255, Math.round((.5 + d * 4) * 255))); }
   return out;
 }
 function heightOf(s, out) { // grains → a pile height field (only the piles: an even dusting stays individual grains)
   const N = HS, g = Hgrid; g.fill(0); const lost = s.lost; let alive = 0;
   for (let i = 0; i < s.n; i++) { if (lost[i]) continue; alive++; g[Math.min(N - 1, s.sy[i] * N | 0) * N + Math.min(N - 1, s.sx[i] * N | 0)]++; }
   const t = Htmp ||= new Float32Array(N * N);
-  for (let pass = 0; pass < 2; pass++) { for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { let a = 0; for (let d = -1; d <= 1; d++) a += g[j * N + Math.min(N - 1, Math.max(0, i + d))]; t[j * N + i] = a / 3; }
+  for (let pass = 0; pass < 3; pass++) { for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { let a = 0; for (let d = -1; d <= 1; d++) a += g[j * N + Math.min(N - 1, Math.max(0, i + d))]; t[j * N + i] = a / 3; }
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { let a = 0; for (let d = -1; d <= 1; d++) a += t[Math.min(N - 1, Math.max(0, j + d)) * N + i]; g[j * N + i] = a / 3; } }
   const mean = Math.max(1e-3, alive / (N * N) * 1.3);
   for (let k = 0; k < N * N; k++) out[k] = Math.max(0, Math.min(255, Math.round(255 * (1 - Math.exp(-Math.max(0, g[k] / mean - 1.6) / 4)))));
@@ -589,7 +597,7 @@ function draw(now) {
   if (playing && frameMs > 24 && VN > 6000) slow++; else slow = Math.max(0, slow - 1);
   const pl = curPlate();
   if (!glOK) { drawFlat(pl); return requestAnimationFrame(draw); }
-  if (sdfKey !== pl.key) { upload(texSDF, 256, 256, sdfOf(pl)); sdfKey = pl.key; }
+  if (sdfKey !== pl.key) { upload(texSDF, 512, 512, sdfOf(pl)); sdfKey = pl.key; }
   const tk = C.id + '|' + C.ref.length; if (tKey !== tk) { upload(texT, HS, HS, heightOf(GHOST[C.id] ||= perform(cfgOf(C), C.ref, 9000), new Uint8Array(HS * HS))); tKey = tk; }
   if (dirtyH) { upload(texH, HS, HS, heightOf(vis, Hbuf)); dirtyH = false; }
   if (!playing && !note.hold) note.amp *= Math.pow(.88, dt / 16);

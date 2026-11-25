@@ -89,8 +89,9 @@ module.exports = {
       await page.goto(page.url().split('#')[0] + '#survey=2026-11-25'); await page.reload(); await page.waitForTimeout(600);
       const r = await page.evaluate(() => ({ d: __map.daily && __map.daily.seed, t: __map.daily && __map.daily.target, logs: __map.logs.length }));
       eq(r.d, '2026-11-25'); ok(r.t > 40 && r.logs >= 4);
-      const days = await page.evaluate(() => { const A = __map, M = A.M; return ['2026-11-25', '2026-11-26', '2026-11-28', '2026-12-02'].map(k => { const d = A.dailySpec(k); d.seed = k; const S = M.sheet(d.spec, 'daily:' + k); const t = Math.round(0.9 * (S.routes.length * 30 + Object.values(S.T.feats).filter(f => f.kind === 'cape').length * 5 + S.T.reefs.length * 4));
-        const sc = (b) => { const r = A.NAV[b](M, S); return M.score(S, r.st, r.est).coins; }; return { idle: sc('idle') >= t, close: sc('close') >= t }; }); });
+      const days = await page.evaluate(() => { const A = __map, M = A.M; return ['2026-12-02', '2026-12-04', '2026-12-09', '2026-12-12'].map(k => { const d = A.dailySpec(k); d.seed = k; const S = M.sheet(d.spec, 'daily:' + k); const t = Math.round(1.05 * (S.routes.length * 30 + Object.values(S.T.feats).filter(f => f.kind === 'cape').length * 5 + S.T.reefs.length * 4));
+        const sc = (b) => { const r = A.NAV[b](M, S); return M.score(S, r.st, r.est).coins; }; return { idle: sc('idle') >= t, close: sc('close') >= t, nav: sc('competent') >= t }; }); });
+      ok(days.every(d => d.nav), 'the navigator passes these days');
       ok(days.every(d => !d.idle), 'idle never passes a daily'); ok(days.some(d => !d.close), 'closing traverses alone fails some days');
     },
   },

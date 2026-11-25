@@ -685,7 +685,7 @@ function renderTerrain(){
       d[k]=R; d[k+1]=Gc; d[k+2]=B; d[k+3]=255; } }
   g.putImageData(img,0,0);
   g.save(); g.scale(TS,TS); g.lineCap='round'; for (const rt of roots){ g.strokeStyle='rgba(20,10,4,.35)'; g.lineWidth=rt.w*0.32; g.beginPath(); rt.seg.forEach(([x,y],i)=>i?g.lineTo(x+0.3,y+0.4):g.moveTo(x+0.3,y+0.4)); g.stroke(); g.strokeStyle='rgba(201,147,63,.5)'; g.lineWidth=rt.w*0.22; g.beginPath(); rt.seg.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y)); g.stroke(); g.strokeStyle='rgba(250,220,160,.25)'; g.lineWidth=rt.w*0.07; g.stroke(); } g.restore();
-  terrainDirty=false; }
+  terrainDirty=false; terrainStamp++; }
 const off=document.createElement('canvas'); off.width=W; off.height=H; const octx=off.getContext('2d'); const img=octx.createImageData(W,H);
 // ants are cached sprites (one per look), blitted under a rotation: far cheaper than paths on a phone
 const sprites=new Map(); let spriteCell=0;
@@ -709,9 +709,9 @@ function paintScent(){ const d=img.data, T=w.trail, R2=w.rtrail, A=w.alarm, F=w.
     if (t>0.02){ r=166; g=232; b=138; a=t*0.85; } if (rt>a){ r=200; g=90; b=70; a=rt*0.7; } if (al>0.05 && al>a*0.8){ r=240; g=138; b=120; a=Math.max(a,al*0.9); }
     if (F[i]>0.05 && a<0.3){ r=240; g=190; b=90; a=0.3; }
     d[k]=r; d[k+1]=g; d[k+2]=b; d[k+3]=a*255; }
-  octx.putImageData(img,0,0); }
-const bg=document.createElement('canvas'); let bgKey=''; const mid=document.createElement('canvas'); mid.width=W*TS; mid.height=H*TS;
-function paintBg(dpr){ if (bg.width!==cv.width||bg.height!==cv.height){ bg.width=cv.width; bg.height=cv.height; } const g=bg.getContext('2d');
+  octx.putImageData(img,0,0); const hc=half.getContext('2d'); hc.clearRect(0,0,half.width,half.height); hc.imageSmoothingEnabled=true; hc.drawImage(off,0,0,half.width,half.height); const sc=soft.getContext('2d'); sc.clearRect(0,0,soft.width,soft.height); sc.imageSmoothingEnabled=true; sc.globalAlpha=0.6; sc.drawImage(half,0,0,soft.width,soft.height); sc.globalAlpha=0.85; sc.drawImage(off,0,0,soft.width,soft.height); sc.globalAlpha=1; }
+const bg=document.createElement('canvas'); let bgKey=''; const stat=document.createElement('canvas'); let statKey='', statStamp=-1, terrainStamp=0; const mid=document.createElement('canvas'); mid.width=W*TS; mid.height=H*TS; const soft=document.createElement('canvas'); soft.width=W*2; soft.height=H*2; const half=document.createElement('canvas'); half.width=W/2; half.height=H/2;
+function paintStatic(dpr){ if (stat.width!==cv.width||stat.height!==cv.height){ stat.width=cv.width; stat.height=cv.height; } const g=stat.getContext('2d');
   g.setTransform(1,0,0,1,0,0); g.fillStyle='#120b06'; g.fillRect(0,0,bg.width,bg.height); g.setTransform(dpr,0,0,dpr,dpr*cam.x,dpr*cam.y); g.imageSmoothingEnabled=true;
   // grass and topsoil above the cross-section
   g.fillStyle='#3d5a2a'; g.fillRect(-cell*1.2,-cell*5,W*cell+cell*2.4,cell*2.2); g.fillStyle='#5a3c22'; g.fillRect(-cell*1.2,-cell*2.8,W*cell+cell*2.4,cell*1.8);
@@ -720,8 +720,11 @@ function paintBg(dpr){ if (bg.width!==cv.width||bg.height!==cv.height){ bg.width
   g.drawImage(terrain,0,0,W*cell,H*cell);
   { const n=w.nests[0], gl=g.createRadialGradient(n.x*cell,n.y*cell,0,n.x*cell,n.y*cell,cell*22); gl.addColorStop(0,'rgba(255,190,110,.22)'); gl.addColorStop(1,'rgba(255,190,110,0)'); g.fillStyle=gl; g.fillRect(0,0,W*cell,H*cell);
     const vg=g.createRadialGradient(W*cell*0.5,-H*cell*0.1,H*cell*0.3,W*cell*0.5,H*cell*0.4,W*cell*0.75); vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(8,4,2,.5)'); g.fillStyle=vg; g.fillRect(0,0,W*cell,H*cell); }
+  statKey=bgKey; }
+function paintBg(dpr){ if (bg.width!==cv.width||bg.height!==cv.height){ bg.width=cv.width; bg.height=cv.height; } const g=bg.getContext('2d'); if (statKey!==bgKey || terrainStamp!==statStamp){ statStamp=terrainStamp; paintStatic(dpr); }
+  g.setTransform(1,0,0,1,0,0); g.clearRect(0,0,bg.width,bg.height); g.drawImage(stat,0,0); g.setTransform(dpr,0,0,dpr,dpr*cam.x,dpr*cam.y); g.imageSmoothingEnabled=true;
   // scent glow and food crumbs are composed on a small layer (4 px per cell), then scaled up once
-  { const m=mid.getContext('2d'), Q=TS; m.clearRect(0,0,mid.width,mid.height); m.filter='blur(3px)'; m.globalAlpha=0.85; m.drawImage(off,0,0,W*Q,H*Q); m.filter='blur(1px)'; m.globalAlpha=0.7; m.drawImage(off,0,0,W*Q,H*Q); m.filter='none'; m.globalAlpha=1;
+  { const m=mid.getContext('2d'), Q=TS; m.clearRect(0,0,mid.width,mid.height); m.imageSmoothingEnabled=true; m.drawImage(soft,0,0,W*Q,H*Q);
     const F=w.food; for (let i=0;i<W*H;i++){ const f=F[i]; if (f<=0.05) continue; const x=i%W, y=(i/W)|0, n=Math.min(3,Math.ceil(f)); for (let j=0;j<n;j++){ const h=((i*2654435761+j*40503)>>>0)%1000/1000, h2=((i*97+j*131)%100)/100; const px=(x+0.2+h*0.6)*Q, py=(y+0.2+h2*0.6)*Q, rr=Q*(0.22+h*0.12);
       m.fillStyle='#6a4214'; m.beginPath(); m.ellipse(px+rr*0.2,py+rr*0.25,rr*1.15,rr*0.8,h*3,0,7); m.fill(); m.fillStyle='#e3ad48'; m.beginPath(); m.ellipse(px,py,rr*1.05,rr*0.72,h*3,0,7); m.fill(); m.fillStyle='#fff0c0'; m.beginPath(); m.arc(px-rr*0.35,py-rr*0.3,rr*0.32,0,7); m.fill(); } }
     g.drawImage(mid,0,0,W*cell,H*cell); }

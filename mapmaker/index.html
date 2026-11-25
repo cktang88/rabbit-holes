@@ -449,7 +449,7 @@ const WRECK=()=>{ T_({noise:1,f:250,q:.6,dur:.7,vol:.18}); T_({f:70,f2:40,type:'
 const cv=document.getElementById('chart'), ctx=cv.getContext('2d');
 const coarse=matchMedia('(pointer:coarse)').matches, DPR=()=>Math.min(coarse?2:2,devicePixelRatio||1);
 let dragging=null;
-const cam=PanZoom(cv,{ world:()=>({x:-10,y:-6,w:WX+17,h:WY+12}), pad:4, min:.8, max:7, onChange:()=>{ dirty=true; }, canPanFrom:(e)=>!hitHandle(e) && !hitTrack(e) });
+const cam=PanZoom(cv,{ world:()=>({x:-10,y:-6,w:WX+17,h:WY+12}), pad:4, min:.8, max:7, onChange:()=>{ dirty=true; }, canPanFrom:(e)=>!hitHandle(e) && hitTrack(e)===false });
 function fitChart(){ const r=document.getElementById('stage').getBoundingClientRect(), d=DPR(); cv.width=Math.max(1,Math.round(r.width*d)); cv.height=Math.max(1,Math.round(r.height*d)); if (!cam.touched) cam.fit(false); dirty=true; }
 function frameLog(i){ if (!compact.matches) return; const tr=M.track(S,logs[i],st.logs[i]); let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; for (const p of tr){ x0=Math.min(x0,p[0]); y0=Math.min(y0,p[1]); x1=Math.max(x1,p[0]); y1=Math.max(y1,p[1]); } cam.frame({x:x0-4,y:y0-4,w:x1-x0+8,h:y1-y0+8}); }
 const compact=matchMedia('(max-width:760px)');
@@ -586,7 +586,7 @@ function hitTrack(e){ if (!S) return -1; const w=toW(e), tol=Math.max(1,14/cam.k
 function segD(p,a,b){ const dx=b[0]-a[0], dy=b[1]-a[1], L=dx*dx+dy*dy||1; const t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L)); return Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy); }
 function hitRay(e){ if (sel<0||!S) return null; const w=toW(e), tol=Math.max(0.8,10/cam.k); let best=null, bd=tol; for (const r of M.rays(S,st,logs)){ if (r.li!==sel) continue; const d=M.dirOf(r.b), q=[r.o[0]+d[0]*40,r.o[1]+d[1]*40], dd=segD(w,r.o,q); if (dd<bd){ bd=dd; best=r; } } return best; }
 let down=null;
-cv.addEventListener('pointerdown',e=>{ if (cam.gesturing||!S) return; down={x:e.clientX,y:e.clientY,t:performance.now()}; if (hitHandle(e)){ dragging={i:sel, start:toW(e), d0:st.logs[sel].drift.slice()}; cv.classList.add('drag'); try{ cv.setPointerCapture(e.pointerId); }catch(_){} } });
+cv.addEventListener('pointerdown',e=>{ if (!S || !e.isPrimary) { down=null; return; } down={x:e.clientX,y:e.clientY,t:performance.now()}; if (hitHandle(e)){ dragging={i:sel, start:toW(e), d0:st.logs[sel].drift.slice()}; cv.classList.add('drag'); try{ cv.setPointerCapture(e.pointerId); }catch(_){} } });
 cv.addEventListener('pointermove',e=>{ if (!dragging||cam.gesturing) return; const w=toW(e), s=st.logs[dragging.i], L=logs[dragging.i]; s.drift=[dragging.d0[0]+w[0]-dragging.start[0], dragging.d0[1]+w[1]-dragging.start[1]];
   // snap onto the port she really reached
   if (L.to!=null){ s.drift=dragging.d0.slice(); s.drift=[dragging.d0[0]+w[0]-dragging.start[0], dragging.d0[1]+w[1]-dragging.start[1]]; const tr=M.track(S,L,s), en=tr[tr.length-1], p=S.T.ports[L.to].p; if (dist(en,p)<2.5){ s.drift=[s.drift[0]+p[0]-en[0], s.drift[1]+p[1]-en[1]]; if (!dragging.snapped){ dragging.snapped=1; CLICK(); } } else dragging.snapped=0; }
@@ -636,7 +636,7 @@ function dropPhantoms(M, S, st, logs) { const est = M.estimate(S, st, logs); for
 NAV.noSurvey = (M, S) => NAV.competent(M, S, { noSurvey: true });
 
 // the day's target scales with the work: trade lanes, capes and reefs (calibrated against the navigator bot)
-function dailyTarget(d){ const S2=M.sheet(d.spec,'daily:'+d.seed); const caps=Object.values(S2.T.feats).filter(f=>f.kind==='cape').length; return Math.round(0.9*(S2.routes.length*30+caps*5+S2.T.reefs.length*4)); }
+function dailyTarget(d){ const S2=M.sheet(d.spec,'daily:'+d.seed); const caps=Object.values(S2.T.feats).filter(f=>f.kind==='cape').length; return Math.round(1.05*(S2.routes.length*30+caps*5+S2.T.reefs.length*4)); }
 
 window.__map={ M, NAV, get S(){ return S; }, get st(){ return st; }, get logs(){ return logs; }, get est(){ return est; }, recompute, openSheet, publish, closeOn, setDev, toggleStrike, survey, get published(){ return published; }, get sel(){ return sel; }, set sel(v){ sel=v; renderTabs(); renderPage(); dirty=true; }, SHEETS, get SAVE(){ return SAVE; }, cleanSave, cam, toScreen:(x,y)=>cam.toScreen(x,y), get si(){ return si; }, get daily(){ return daily; }, dailySpec, renderAll };
 { const h=decodeURIComponent(location.hash.slice(1)), q=Object.fromEntries(h.split('&').map(p=>p.split('=')).filter(p=>p.length===2));
