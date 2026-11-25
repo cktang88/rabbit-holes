@@ -283,7 +283,11 @@ function adjust(rate) {
     if (!ps.length) continue; let b = 0;
     for (let q = 0; q < ps.length; q++) { ps[q].c = cost(ps[q]); if (ps[q].c < ps[b].c) b = q; }
     const m = ps[b].c;
-    for (let q = 0; q < ps.length; q++) { if (q === b) continue; const p = ps[q], d = p.c - m; if (d > 1e-6 && p.f > 0) { const mv = p.f * Math.min(.5, rate * d); p.f -= mv; ps[b].f += mv; adjMoved += mv; if (p.f > 1 && d > gap) gap = d; } }
+    for (let q = 0; q < ps.length; q++) { if (q === b) continue; const p = ps[q], d = p.c - m; if (d > 1e-6 && p.f > 0) { let mv = p.f * Math.min(.5, rate * d);
+        // don't overshoot: moving cars raises the best route's time and lowers this one's, by their roads' slopes
+        let sl = 0; for (const i of p.e) if (!ps[b].e.includes(i)) sl += roads[i].k; for (const i of ps[b].e) if (!p.e.includes(i)) sl += roads[i].k;
+        if (sl > 0) mv = Math.min(mv, d / (sl / 1000) * .5);
+        p.f -= mv; ps[b].f += mv; adjMoved += mv; if (p.f > 1 && d > gap) gap = d; } }
   }
   flows(); return gap;
 }

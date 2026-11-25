@@ -193,7 +193,7 @@ module.exports = {
       ok(await page.evaluate(() => __gl.P()[2].length > 0 && Object.keys(__gl.LV[__gl.GI].nodes).some(k => /^J/.test(k))), 'drag onto a road did not connect the suburb by a junction');
       await page.evaluate(() => { const G = __gl.grow; G.headless = true; while (!G.GROW.over) G.month(); G.headless = false; });
       ok(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:gridlock')).growBest.share1 >= 1), 'best not saved');
-      await page.goto(page.url().replace(/#.*/, '') + '#grow=share2'); await page.waitForTimeout(800);
+      await page.goto(page.url().replace(/#.*/, '') + '#grow=share2'); await page.reload(); await page.waitForTimeout(800);
       eq(await page.evaluate(() => [__gl.grow.GROW.seed, document.getElementById('title').textContent]), ['share2', 'Growing City']);
     },
     'a road with no route to work makes the average infinite (multi-home too)': async ({ page, eq }) => {
@@ -252,7 +252,7 @@ module.exports = {
       for (const bad of ['{not json', '"str"', '{"done":7,"cur":-1}']) {
         await plant(page, bad);
         eq(await page.evaluate(() => document.getElementById('title').textContent), 'Rush Hour', bad);
-        eq(await page.evaluate(() => document.querySelectorAll('.lv.lock').length), 10, 'locks after ' + bad);
+        eq(await page.evaluate(() => document.querySelectorAll('.lv.lock').length), 11, 'locks after ' + bad);
       }
     },
     'progress: replaying a solved city never lowers it, and it never exceeds 1': async ({ page, ok, eq }) => {
