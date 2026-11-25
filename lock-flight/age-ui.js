@@ -126,12 +126,14 @@ function ageSectionCard(pi) {
   const rts = G.an.routes.map((r, ri) => [r, ri]).filter(([r]) => r.cells.some(c => G.cellPath && G.cellPath.get(c) === pi));
   const boatsM = lastRec ? rts.reduce((a, [, ri]) => a + (lastRec.flows[ri] || 0), 0) : 0, rail = rts.some(([, ri]) => G.rf[ri] && G.rf[ri].rail < 1);
   el.innerHTML = `<button class="x" aria-label="Close">×</button><h4>Canal section ${pi + 1}</h4><div>${p.length} furlongs · ${Math.round(boatsM)} boats along it last month${rail ? ' · <b>trains compete here</b>' : ''}</div>
-    ${G.unlocked.has('fly') ? `<div class="opts"><button class="tool${G.fly[pi] ? ' on' : ''}" id="sFly">Fly-boats ${G.fly[pi] ? 'running' : 'off'}</button></div><div style="font-size:12px;color:#cdbf9a;margin-top:4px">Express boats, day and night: a third quicker, so trade stays off the trains. About ${fmtK(.12 + .015 * p.length).replace('k', 'k')} a month to run.</div>` : '<div style="font-size:12px;color:#cdbf9a;margin-top:4px">Drag a pound in the section below to change its level (paid from the bank).</div>'}`;
+    ${G.unlocked.has('fly') ? `<div class="opts"><button class="tool${G.fly[pi] ? ' on' : ''}" id="sFly">Fly-boats ${G.fly[pi] ? 'running' : 'off'}</button>${[1, .75, .5].map(v => `<button class="tool${(G.tolls[pi] ?? 1) === v ? ' on' : ''}" data-toll="${v}">${v === 1 ? 'Full toll' : v === .75 ? '¾ toll' : '½ toll'}</button>`).join('')}</div><div style="font-size:12px;color:#cdbf9a;margin-top:4px">Express boats, day and night, are a third quicker; a lower toll keeps traders from the trains, but each boat pays less. About ${fmtK(.12 + .015 * p.length).replace('k', 'k')} a month to run.</div>` : '<div style="font-size:12px;color:#cdbf9a;margin-top:4px">Drag a pound in the section below to change its level (paid from the bank).</div>'}`;
   el.style.display = 'block'; el.querySelector('.x').onclick = closeInsp;
+  el.querySelectorAll('[data-toll]').forEach(b => b.onclick = () => { AGE.act(G, { k: 'toll', pi, v: +b.dataset.toll }); FX.sfx('click'); ageSave(); ageSectionCard(pi); });
   if ($('sFly')) $('sFly').onclick = () => { AGE.act(G, { k: 'fly', pi, v: !G.fly[pi] }); FX.sfx('click'); ageSave(); ageSectionCard(pi); };
 }
 
 // ================= the HUD, the tools =================
+const fmtM = v => Math.abs(v) >= 10000 ? (v < 0 ? '−£' : '£') + (Math.abs(v) / 1000).toFixed(Math.abs(v) >= 100000 ? 0 : 1) + 'M' : fmtK(v);
 function ageHud() {
   if (!G) return; const lab = (id, t) => { const e = document.querySelector('#' + id + ' span'); if (e && e.textContent !== t) e.textContent = t; };
   $('sub').textContent = G.rails.length ? 'The Railway Age' : 'Canal Mania';
@@ -143,9 +145,9 @@ function ageHud() {
     $('goals').innerHTML = D.paths.length ? `Prospectus for ten years: ${fore ? Math.round(fore.boats / 10).toLocaleString() : 0} boats a year${fore && fore.lostW > fore.boats * .1 ? `, <i>${Math.round(fore.lostW / 10)} turned away for want of water</i>` : ''}. Press <i>▶ Open</i> when it pays.` : 'Drag from a town to dig. The port and the first pit want a canal.';
   } else {
     const ly = G.years[G.years.length - 1], net = ly ? ly.net : (G.yr.rev - G.yr.run) * 12 / Math.max(1, G.m % 12);
-    setText('vS', fmtK(G.cash)); lab('stS', 'in the bank'); $('stS').className = 'stat' + (G.cash < 0 ? ' bad' : '');
+    setText('vS', fmtM(G.cash)); lab('stS', 'in the bank'); $('stS').className = 'stat' + (G.cash < 0 ? ' bad' : '');
     setText('vR', fmtK(net)); lab('stR', 'a year'); $('stR').className = 'stat' + (net < 0 ? ' bad' : '');
-    setText('vD', fmtK(G.sold || AGE.value(G))); setText('lD', G.sold ? 'sold for' : 'company value'); $('stD').className = 'stat ok';
+    setText('vD', fmtM(G.sold || AGE.value(G))); setText('lD', G.sold ? 'sold for' : 'company value'); $('stD').className = 'stat ok';
     setText('vT', monthName(Math.min(G.m, AGE.E.YEARS * 12 - 1))); setText('lT', mode === 'done' ? 'closed' : G.debt ? `in debt ${G.debt} mo` : K.inDrought(M, G.m) ? 'drought!' : speed ? 'open' : 'paused');
     $('stT').className = 'stat' + (K.inDrought(M, G.m) || G.debt ? ' bad' : '');
     // the water book at a glance: the pound that strands the most trade

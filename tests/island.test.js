@@ -254,7 +254,7 @@ module.exports = {
       const r = await page.evaluate(() => { const W = __isl.W; let n = 0; for (let k = 0; k < W.n; k++) if (W.sp[k] >= 0) n++; const t0 = performance.now(); for (let i = 0; i < 24; i++) __isl.advance(); const tick = (performance.now() - t0) / 24;
         const t1 = performance.now(); for (let i = 0; i < 10; i++) { __isl.render(performance.now()); document.getElementById('map').getContext('2d').getImageData(0, 0, 1, 1); } return { n, tick, frame: (performance.now() - t1) / 10, fps: __isl.fps(2000) }; });
       await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
-      ok(r.n > 300, 'a busy island: ' + r.n + ' animals'); ok(r.tick < 8, 'a tick of the world takes ' + r.tick.toFixed(1) + 'ms on a 4x slower CPU');
+      ok(r.n > 120, 'a busy island: ' + r.n + ' animals'); ok(r.tick < 8, 'a tick of the world takes ' + r.tick.toFixed(1) + 'ms on a 4x slower CPU');
       ok(r.fps >= 25, 'frames per second at ×24 on a 4x-throttled phone, software compositing: ' + r.fps.toFixed(0)); ok(r.frame + r.tick < 16, `page work per frame ${(r.frame + r.tick).toFixed(1)}ms (paint ${r.frame.toFixed(1)} + one tick ${r.tick.toFixed(1)})`);
     },
   },

@@ -3,7 +3,7 @@
 (function(root){
 'use strict';
 const pl = (typeof planck!=='undefined') ? planck : require(__dirname+'/../shared/vendor/planck/planck-1.5.0.min.js');
-const BW=24, BH=14, DT=1/60, TMAX=12*60, FUTURES=10;
+const BW=24, BH=14, DT=1/60, TMAX=20*60, FUTURES=10;
 const V=(x,y)=>pl.Vec2(x,y), RAD=Math.PI/180;
 function rng(seed){ let h=1779033703^String(seed).length; for (const ch of String(seed)){ h=Math.imul(h^ch.charCodeAt(0),3432918353); h=h<<13|h>>>19; }
   let a=h>>>0; return ()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
@@ -11,10 +11,10 @@ function rng(seed){ let h=1779033703^String(seed).length; for (const ch of Strin
 // ---------- What the machine carries. Each has its own physics personality. ----------
 // limit: the hardest single bump (a change of speed, m/s, inside one step) it survives.
 const CARGO={
-  egg:   {n:'Hen\'s egg', limit:4, d:'Fragile: a drop from your knee cracks it.'},
-  goose: {n:'Goose egg', limit:4.4, d:'Bigger, heavier and nearly as fragile: it squashes cushions flat.'},
-  bubble:{n:'Soap bubble', limit:1.5, d:'Almost weightless, so the faintest draught carries it, and a tap bursts it.'},
-  watch: {n:'Pocket watch', limit:6, d:'Tough, but it must come to rest face up.'},
+  egg:   {n:'Hen\'s egg', limit:5, d:'Fragile: a drop from your knee cracks it.'},
+  goose: {n:'Goose egg', limit:5.4, d:'Bigger, heavier and nearly as fragile: it squashes cushions flat.'},
+  bubble:{n:'Soap bubble', limit:1.8, d:'Almost weightless, so the faintest draught carries it, and a tap bursts it.'},
+  watch: {n:'Pocket watch', limit:7.5, d:'Tough, but it must come to rest face up.'},
   jelly: {n:'Quince jelly', limit:99, stretch:1.55, d:'Bumps it shrugs off; stretch it and it tears in two.'},
 };
 const CARGO_ORDER=['egg','goose','bubble','watch','jelly'];
@@ -35,8 +35,8 @@ const PTYPES=Object.keys(PARTS);
 const BENCHES=[
  {id:'first', n:'The first egg', t:'Bring the egg down to the basket without cracking it.', cargo:'egg', drop:[3,4], basket:[12,0], bin:{plank:3},
   sol:[['plank',4,3.5,-1],['plank',7,2.5,-1],['plank',10,1.4,-1]]},
- {id:'zigzag', n:'The long way down', t:'A long way to fall. Spend the height slowly.', cargo:'egg', drop:[3,11], basket:[5,0], bin:{plank:6},
-  sol:[['plank',4,10.5,-1],['plank',5,8.6,1],['plank',4,6.6,-1],['plank',5,4.6,1],['plank',4,2.6,-1]]},
+ {id:'zigzag', n:'The long way down', t:'A deep shaft. Spend the height slowly.', cargo:'egg', drop:[3,9.4], basket:[9,0], fixed:[[2,5,.15,5,0],[6,6.2,.15,4.2,0]], bin:{plank:7},
+  sol:[]},
  {id:'cushion', n:'Something soft', t:'Straight down is quickest. Make the landing soft.', cargo:'egg', drop:[8,7], basket:[12,0], bin:{cushion:2, plank:1},
   sol:[['cushion',8,4.5,-1],['cushion',10.5,2.5,-1]]},
  {id:'hammock', n:'The hammock', t:'A high hopper above a shelf. The basket is down on the left.', cargo:'egg', drop:[15,12], basket:[4,0], fixed:[[16,8,3,.15,0]], bin:{hammock:1, plank:3, cushion:1},
@@ -139,7 +139,7 @@ class Sim{
     if (type==='egg'||type==='goose'){ // rolls as a ball (an egg's wobble is its rolling drag); drawn as an egg
       const sx= type==='egg'? .25 : .32, sy= type==='egg'? .32 : .41, r=(sx+sy)/2*.95;
       const b=w.createBody({type:'dynamic', position:V(x,y)}); b.createFixture(pl.Circle(r), FR({density: type==='egg'? 1 : 1.3, friction:.6, restitution:.08}));
-      b.setAngularDamping(2.5); this.cargo=mk(b,'egg',{sx,sy,r,area:Math.PI*sx*sy}); }
+      b.setAngularDamping(1.2); this.cargo=mk(b,'egg',{sx,sy,r,area:Math.PI*sx*sy}); }
     else if (type==='bubble'){ const b=w.createBody({type:'dynamic', position:V(x,y)}); b.createFixture(pl.Circle(.42), FR({density:.05, restitution:.3, friction:.2})); b.setLinearDamping(1); this.cargo=mk(b,'bubble',{r:.42, area:Math.PI*.42*.42, windK:1.8}); }
     else if (type==='watch'){ const b=w.createBody({type:'dynamic', position:V(x,y)}); b.createFixture(pl.Box(.34,.1), FR({density:3, friction:.35, restitution:.1})); this.cargo=mk(b,'watch',{hw:.34, hh:.1, area:.14}); }
     else if (type==='jelly'){ // a centre and eight rim drops on springy threads: 16 joints, cheap enough for a phone

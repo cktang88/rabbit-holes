@@ -218,123 +218,167 @@ const LV = [
     lesson: 'The quantum Zeno effect: with N passes a live bomb survives with probability cos²ᴺ(90°/N), which goes to 1 as N grows. Measurement can protect as well as disturb.' },
   { n: 'Lab Sandbox', sources: [S0(1, 4)], fixed: [P('det', 13, 4, 0, 0, { id: 'D1' }), P('det', 13, 7, 0, 0, { id: 'D2' }), P('det', 7, 8, 0, 0, { id: 'D3' })], tray: { pol: 4, hwp: 3, bs: 2, pbs: 2, mirror: 6, phase: 2, bomb: 1 }, free: 1, fire: 1,
     story: 'Everything in the drawer. Build your own experiments.', goal: 'No goal.', test: () => false, lesson: '' },
-  { n: 'Optics Workshop', job: 1, openAfter: 3, sources: [S0(1, 4)], fixed: [], tray: {}, story: '', goal: '', test: () => false, lesson: '' },
+  { n: 'Sealed Boxes', box: 1, openAfter: 3, sources: [S0(1, 4)], fixed: [], tray: {}, test: () => false, lesson: '',
+    story: 'Clients post you <b>sealed optics</b>. You can\'t see the light inside, only what comes out. Build probes around the box, fire single photons, and each one clicks a detector <b>at random</b>, with odds set by what is in there. Then sign a card saying what\'s inside. Correct lines pay; wrong lines, wasted photons and exploded boxes cost.', goal: '' },
 ];
 
-// ================= the optics workshop: generated commissions =================
-// A client wants light split a certain way between their detectors. Any arrangement that delivers it passes; it is
-// then judged on what it costs, how much table it takes and how many parts. Each job is built by first assembling a
-// hidden reference instrument from random parts (so every job is solvable), then measuring what it delivers.
-const PRICE = { pol: 5, mirror: 10, bs: 20, phase: 30, pbs: 40, hwp: 60 };
-const RUNG = [null,
-  { ops: { pol: 3, mirror: 2 }, maxDet: 1, posts: 2, ops0: 1, mz: 0, name: 'attenuator' },
-  { ops: { pol: 2, hwp: 2, mirror: 2, pbs: 3 }, maxDet: 2, posts: 3, ops0: 2, mz: 0, name: 'splitter' },
-  { ops: { pol: 2, hwp: 3, mirror: 2, pbs: 3 }, maxDet: 3, posts: 4, ops0: 3, mz: 0, name: 'three-way splitter' },
-  { ops: { pol: 1, mirror: 2 }, maxDet: 2, posts: 3, ops0: 1, mz: 1, name: 'interferometer' },
-  { ops: { pol: 2, hwp: 2, mirror: 2, pbs: 1 }, maxDet: 3, posts: 5, ops0: 2, mz: 1, name: 'labelled interferometer' },
-  { ops: { pol: 2, hwp: 2, mirror: 2, pbs: 2 }, maxDet: 3, posts: 6, ops0: 3, mz: .5, name: 'instrument' },
-  { ops: { pol: 2, hwp: 2, mirror: 3, pbs: 2 }, maxDet: 4, posts: 8, ops0: 3, mz: .5, name: 'instrument' }];
-const JOBMAX = RUNG.length - 1;
-function genJob(seed, rung) {
-  rung = Math.max(1, Math.min(JOBMAX, rung | 0)); seed = seed >>> 0;
-  for (let attempt = 0; attempt < 300; attempt++) { const J = tryJob(RH.rng((seed * 7919 + rung * 104729 + attempt * 31337) >>> 0), rung); if (J) { J.seed = seed; J.rung = rung; J.attempt = attempt; return J; } }
-  return null;
+// ================= sealed boxes: interrogate hidden optics with single photons =================
+// A client posts a sealed module: real parts at unknown angles sit inside, in a row, and you can't see the light in
+// there. The laser feeds the box; you build probes around it from your own drawer and fire single photons, which
+// click one detector at random with exactly the probabilities the optics give. Then you sign a specification card.
+// Correct lines are paid, wrong ones cost, photons cost, and a photon on a live bomb destroys the box.
+const BOX = { x0: 6, y: 4, n: 3 }; // the box covers holes G–I on row 5
+const SHOP = { pol: 30, det: 40, mirror: 20, hwp: 60, bs: 50, phase: 40, pbs: 80 };
+const KINDS = { pol: 'Polarising filter', hwp: 'Half-wave plate', phase: 'Phase plate', live: 'Bomb: LIVE', dud: 'Bomb: dud', up: 'Mirror to the top port', down: 'Mirror to the bottom port' };
+// which contents each grade of box may hold, and how fine its angles are
+const GRADES = [null,
+  { pick: [['pol']], step: 15, budget: 160, fee: 60, label: 'one filter' },
+  { pick: [['pol'], ['hwp']], step: 15, budget: 180, fee: 80, label: 'one optic' },
+  { pick: [['pol', 'pol'], ['hwp', 'pol'], ['pol', 'hwp'], ['hwp', 'hwp']], step: 15, budget: 240, fee: 110, label: 'two optics' },
+  { pick: [['live'], ['dud']], step: 15, budget: 60, fee: 120, label: 'a bomb' },
+  { pick: [['phase'], ['hwp', 'phase']], step: 45, budget: 200, fee: 130, label: 'a delay' },
+  { pick: [['pol', 'live'], ['hwp', 'dud'], ['up'], ['down'], ['pol', 'up']], step: 15, budget: 160, fee: 140, label: 'mixed' },
+  { pick: [['hwp', 'pol', 'hwp'], ['pol', 'phase', 'live'], ['hwp', 'down'], ['phase', 'dud'], ['pol', 'pol', 'pol']], step: 5, budget: 300, fee: 180, label: 'three-part' }];
+const BGMAX = GRADES.length - 1;
+function genBox(seed, grade) {
+  grade = Math.max(1, Math.min(BGMAX, grade | 0)); seed = seed >>> 0;
+  const G = GRADES[grade], r = RH.rng((seed * 7919 + grade * 104729) >>> 0), kinds = G.pick[Math.floor(r() * G.pick.length)];
+  const els = kinds.map(k => k === 'pol' || k === 'hwp' ? { k, a: Math.floor(r() * (k === 'hwp' ? 90 : 180) / G.step) * G.step } : k === 'phase' ? { k, a: (1 + Math.floor(r() * (360 / G.step - 1))) * G.step } : { k });
+  // a box that does nothing visible to a bare beam would be unfair at grade 1: avoid a filter at 90° there (nothing ever gets through)
+  if (grade === 1 && els[0].a === 90) els[0].a = 105;
+  return { seed, grade, els, budget: G.budget, fee: G.fee };
 }
-function tryJob(rnd, rung) {
-  const C = RUNG[rung], ri = (a, b) => a + Math.floor(rnd() * (b - a + 1)), pick = a => a[Math.floor(rnd() * a.length)];
-  const used = new Set(), K = (x, y) => x + ',' + y, inB = (x, y) => x >= 0 && y >= 0 && x < GW && y < GH, free = (x, y) => inB(x, y) && !used.has(K(x, y));
-  const sy = ri(1, GH - 2), src = { x: 1, y: sy, d: 0, pol: pick([0, 15, 30, 45, 60, 75, 90]) }; used.add(K(0, sy)); used.add(K(1, sy));
-  const ref = [], dets = []; let open = 1, ops = 0, mzDone = !(rnd() < C.mz);
-  const ang = () => ri(1, 35) * 5;
-  const mOf = (din, dout) => reflect(din, 0) === dout ? 0 : 1;
-  const walk = (x, y, d, n) => { for (let k = 0; k < n; k++) { x += DIRS[d][0]; y += DIRS[d][1]; if (!free(x, y)) return null; used.add(K(x, y)); } return [x, y]; };
-  function grow(x, y, d, depth) {
-    const p = walk(x, y, d, ri(0, 2)); if (!p) return false; [x, y] = p;
-    const cx = x + DIRS[d][0], cy = y + DIRS[d][1]; if (!free(cx, cy)) return false; used.add(K(cx, cy));
-    if (!mzDone && depth === 0) { mzDone = true; return mz(cx, cy, d, depth); }
-    let op = 'det';
-    if (ops < C.ops0 + 2 && depth < 5 && !(ops >= C.ops0 && rnd() < .45)) {
-      const w = Object.entries(C.ops).filter(([t]) => t !== 'pbs' || dets.length + open + 1 <= C.maxDet); let tot = 0; for (const [, v] of w) tot += v; let r = rnd() * tot; for (const [t, v] of w) { r -= v; if (r <= 0) { op = t; break; } }
-    }
-    if (op === 'det') { dets.push(P('det', cx, cy, 0, 0, { id: 'D' + (dets.length + 1) })); open--; return true; }
-    ops++;
-    if (op === 'mirror') { const m = ri(0, 1); ref.push(P('mirror', cx, cy, 0, m)); return grow(cx, cy, reflect(d, m), depth + 1); }
-    if (op === 'pol' || op === 'hwp') { ref.push(P(op, cx, cy, ang(), 1)); return grow(cx, cy, d, depth + 1); }
-    if (op === 'pbs') { const m = ri(0, 1); ref.push(P('pbs', cx, cy, 0, m)); open++; return grow(cx, cy, d, depth + 1) && grow(cx, cy, reflect(d, m), depth + 1); }
-    return false;
-  }
-  // a Mach–Zehnder: half mirror, two arms round a rectangle, a phase plate (and sometimes a wave plate) in the arms, half mirror
-  function mz(bx, by, d, depth) {
-    const m = ri(0, 1), dp = reflect(d, m), a = ri(2, 4), b = ri(2, 3), at = (k, dd, x0 = bx, y0 = by) => [x0 + DIRS[dd][0] * k, y0 + DIRS[dd][1] * k];
-    const M1 = at(a, d), M2 = at(b, dp), B2 = at(b, dp, ...M1), arm1 = [], arm2 = [];
-    for (let k = 1; k < a; k++) arm1.push(at(k, d)); for (let k = 1; k < b; k++) arm1.push(at(k, dp, ...M1));
-    for (let k = 1; k < b; k++) arm2.push(at(k, dp)); for (let k = 1; k < a; k++) arm2.push(at(k, d, ...M2));
-    for (const [x, y] of [M1, M2, B2, ...arm1, ...arm2]) { if (!free(x, y)) return false; used.add(K(x, y)); }
-    ref.push(P('bs', bx, by, 0, m), P('mirror', ...M1, 0, mOf(d, dp)), P('mirror', ...M2, 0, mOf(dp, d)), P('bs', ...B2, 0, m));
-    const ph = pick(arm1.concat(arm2)); ref.push(P('phase', ph[0], ph[1], pick([45, 90, 135, 180, 225, 270, 315]), 1));
-    if (rung >= 5 && rnd() < .6) { const rest = (arm1.includes(ph) ? arm2 : arm1); const q = pick(rest); ref.push(P('hwp', q[0], q[1], pick([10, 15, 20, 25, 30, 35, 40]), 1)); }
-    open++; ops += 2;
-    return grow(...B2, d, depth + 1) && grow(...B2, dp, depth + 1);
-  }
-  if (!grow(1, sy, 0, 0) || open !== 0 || !dets.length) return null;
-  const lv = { sources: [src], fixed: dets }, H = simulate(lv, ref).hits, targets = {};
-  let dark = 0, live = 0;
-  for (const D of dets) { const t = H[D.id]?.p || 0; targets[D.id] = +t.toFixed(3); if (t < .005) dark++; else if (t >= .06) live++; else return null; }
-  if (!live || dark > (rung >= 4 ? 1 : 0) || (rung >= 6 && dets.length < 2)) return null;
-  if (dets.length === 1 && (targets.D1 > .92)) return null; // a single detector wants an actual cut in the light
-  const job = { sources: [src], fixed: dets.slice(), targets, ref, tol: .02, kind: ref.some(p => p.t === 'bs') ? (dets.length > 2 ? 'interferometer with a third port' : 'interferometer') : ['attenuator', 'two-way splitter', 'three-way splitter', 'four-way splitter'][dets.length - 1] };
-  const pass = parts => { const h = simulate(job, parts).hits; return dets.every(D => Math.abs((h[D.id]?.p || 0) - targets[D.id]) <= job.tol); };
-  if (pass([])) return null; // the bare table must not already do it
-  if (pass(ref.map(p => ({ ...p, a: p.t === 'phase' ? 90 : 0 })))) return null; // nor the parts at their fresh angles
-  // posts: other experiments' clamps bolted to the table, never on the reference beam
-  const nPost = C.posts + ri(0, 2); for (let k = 0; k < 200 && job.fixed.length < dets.length + nPost; k++) { const x = ri(0, GW - 1), y = ri(0, GH - 1); if (free(x, y)) { used.add(K(x, y)); job.fixed.push(P('post', x, y, 0, 0, { lock: 1 })); } }
-  const tray = {}; for (const p of ref) tray[p.t] = (tray[p.t] || 0) + 1; tray.mirror = (tray.mirror || 0) + 2; tray.pol = (tray.pol || 0) + 1; if (rung >= 2 && !tray.hwp) tray.hwp = 1;
-  job.tray = tray; job.par = jobMetrics(job, ref); return job;
+// the hidden parts as real board parts (never drawn), plus inert filler so the whole box is sealed
+function boxParts(B) {
+  const out = [];
+  for (let i = 0; i < BOX.n; i++) { const e = B.els[i], x = BOX.x0 + i, y = BOX.y, h = { lock: 1, hidden: 1 };
+    if (!e) out.push(P('boxwall', x, y, 0, 0, h));
+    else if (e.k === 'pol' || e.k === 'hwp' || e.k === 'phase') out.push(P(e.k, x, y, e.a, 1, h));
+    else if (e.k === 'live') out.push(P('bomb', x, y, 0, 0, { ...h, id: 'BOMB' }));
+    else if (e.k === 'dud') out.push(P('dud', x, y, 0, 0, h));
+    else out.push(P('mirror', x, y, 0, e.k === 'up' ? 0 : 1, h)); }
+  return out;
 }
-// what an arrangement costs: money, table (cells the light crosses) and parts
-function jobMetrics(lv, parts) {
-  const R = simulate(lv, parts), cells = new Set(); for (const s of R.segs) if (s.p > .003 && s.x1 >= 0 && s.y1 >= 0 && s.x1 < GW && s.y1 < GH) cells.add(s.x1 + ',' + s.y1);
-  return { cost: parts.reduce((a, p) => a + (PRICE[p.t] || 0), 0), table: cells.size, parts: parts.length };
-}
-const jobPass = (J, H) => J.fixed.every(D => D.t !== 'det' || Math.abs((H[D.id] || 0) - J.targets[D.id]) <= J.tol);
+const sharedBox = /box=\d+-\d/.test(location.hash);
 const dayNum = () => { const d = new Date(); return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate(); };
-const sharedJob = /job=\d+-\d/.test(location.hash);
-let job = null;
-function wsSave() { const S = obj(SAVE.ws); return { seed: Number.isInteger(S.seed) && S.seed >= 0 ? S.seed : 1, rung: Number.isInteger(S.rung) && S.rung >= 1 && S.rung <= JOBMAX ? S.rung : 1, d: S.d ? 1 : 0, top: Math.max(0, Math.min(JOBMAX, S.top | 0)), best: obj(S.best), daily: obj(S.daily) }; }
-function jobLevel(base) {
-  const h = /job=(\d+)-(\d)/.exec(location.hash), S = wsSave();
-  if (!job) job = h ? genJob(+h[1], +h[2]) : genJob(S.seed, S.rung);
-  if (job.daily == null) job.daily = !h && !!S.d;
-  SAVE.ws = { ...S, seed: job.seed, rung: job.rung, d: job.daily ? 1 : 0 };
-  try { history.replaceState(null, '', '#job=' + job.seed + '-' + job.rung); } catch (e) {}
-  const t = Object.entries(job.targets).map(([k, v]) => `<b>${k}</b> ${Math.round(v * 100)}%`).join(' · ');
-  return { ...base, sources: job.sources, fixed: job.fixed, tray: job.tray, test: H => jobPass(job, H),
-    story: `A client wants a <b>${job.kind}</b>. Deliver exactly the light they ask for at each detector. Any arrangement that does it is paid; the workshop then compares your bill, the table you took and your parts count with our own reference build. Grey clamps belong to other experiments.`,
-    goal: `${job.daily ? '<b>Daily job</b>' : `Job <b>${job.seed}</b> · grade ${job.rung}/${JOBMAX}`}: ${t} (each ±${Math.round(job.tol * 100)}).` };
+function bxSave() { const S = obj(SAVE.bx), own = obj(S.own); const o = { cash: Number.isFinite(S.cash) ? Math.round(S.cash) : 100, grade: Number.isInteger(S.grade) && S.grade >= 1 && S.grade <= BGMAX ? S.grade : 1, top: Math.max(1, Math.min(BGMAX, S.top | 0)), seed: Number.isInteger(S.seed) && S.seed >= 0 ? S.seed : 1, n: Math.max(0, S.n | 0), own: {}, daily: obj(S.daily), d: S.d ? 1 : 0 };
+  for (const t of Object.keys(SHOP)) o.own[t] = Math.max(0, Math.min(9, own[t] | 0)); o.own.pol = Math.max(1, o.own.pol); o.own.det = Math.max(1, o.own.det); return o; }
+let box = null, bx = null; // the box on the bench, and this box's session: photons left, evidence, destroyed?
+function boxLevel(base) {
+  const h = /box=(\d+)-(\d)/.exec(location.hash), S = bxSave();
+  if (!box) box = h ? genBox(+h[1], +h[2]) : genBox(S.seed, S.grade);
+  if (box.daily == null) box.daily = !h && !!S.d;
+  SAVE.bx = { ...S, seed: box.seed, grade: box.grade, d: box.daily ? 1 : 0 };
+  try { history.replaceState(null, '', '#box=' + box.seed + '-' + box.grade); } catch (e) {}
+  bx = { left: box.budget, log: {}, destroyed: false, shots: 0, signed: false };
+  return { ...base, sources: [S0(1, 4, 0)], fixed: boxParts(box), tray: { ...S.own }, test: () => false };
 }
-function jobBest() { const S = wsSave(); return S.best[job.seed + '-' + job.rung] || null; }
-const better = (m, b) => !b || m.cost < b[0] || m.table < b[1] || m.parts < b[2];
-function jobStars(m) { const P = job.par; return 1 + (m.cost <= P.cost ? 1 : 0) + (m.cost <= P.cost && m.table <= P.table ? 1 : 0); }
-function jobSolved(H) {
-  const m = jobMetrics(L, parts), S = wsSave(), key = job.seed + '-' + job.rung, b = S.best[key], first = !b;
-  if (!better(m, b)) return;
-  S.best[key] = [Math.min(m.cost, b ? b[0] : 1e9), Math.min(m.table, b ? b[1] : 1e9), Math.min(m.parts, b ? b[2] : 1e9)];
-  const ks = Object.keys(S.best); while (ks.length > 60) delete S.best[ks.shift()];
-  if (job.daily) { const prev = S.daily[dayNum()]; if (!prev || m.cost < prev) S.daily[dayNum()] = m.cost; const kd = Object.keys(S.daily).sort(); while (kd.length > 30) delete S.daily[kd.shift()]; }
-  S.top = Math.max(S.top, job.rung); SAVE.ws = { ...S, seed: job.seed, rung: job.rung, d: job.daily ? 1 : 0 }; persist();
-  const st = jobStars(m), P = job.par; won = true; FX.sfx('win'); celeb = performance.now();
-  const cmp = (v, p, unit = '') => `<b>${unit}${v}</b> <span style="color:#6b6556">(ref ${unit}${p})</span>`;
-  toast((first ? '✓ Delivered ' : 'Better build ') + `<span style="color:#a8321e">${stars(st)}</span>`, `Bill ${cmp(m.cost, P.cost, '$')} · table ${cmp(m.table, P.table)} cells · parts ${cmp(m.parts, P.parts)}. ★★ at or under the reference bill, ★★★ also on table. Keep improving it, or take the next job.`, 12000,
-    `<div><button class="b" id="tjob">${job.daily ? 'Endless jobs →' : 'Next job →'}</button></div>`);
-  $('tjob').onclick = e => { e.stopPropagation(); nextJob(); };
-  renderGoal();
+function openBox(seed, grade, daily) { box = genBox(seed, grade); box.daily = !!daily; load(LV.findIndex(l => l.box)); }
+// the probe set-up, as a key: evidence is kept per set-up so a fit never mixes different experiments
+const cfgKey = () => parts.map(p => [p.t, p.x, p.y, p.t === 'pol' || p.t === 'hwp' || p.t === 'phase' ? p.a : p.m].join(':')).sort().join('|');
+// the analyser: the player's filter after the box on its own row, if there is one (the x-axis of the evidence plot)
+const analyser = () => { const a = parts.filter(p => p.t === 'pol' && p.y === BOX.y && p.x > BOX.x0 + BOX.n - 1).sort((p, q) => p.x - q.x)[0]; return a ? a.a : null; };
+function boxFire(n) {
+  if (!box || !bx || bx.destroyed || bx.signed) return 0; n = Math.min(n, bx.left); if (n <= 0) { toast('Out of photons', 'Sign the card with what you know.', 2500); return 0; }
+  const outs = Object.entries(Rz.hits), key = cfgKey(), E = (bx.log[key] ||= { shots: 0, clicks: {}, ana: analyser(), desc: parts.length }), now = performance.now(); let shown = 0;
+  for (let i = 0; i < n; i++) {
+    bx.left--; bx.shots++; E.shots++;
+    let r = Math.random(), res = null; for (const o of outs) { r -= o[1].p; if (r <= 0) { res = o; break; } }
+    if (res && shown < 6) { const path = pathTo(res[1]); photons.push({ path, t: now + shown * 70, dur: Math.max(300, path.length * 28) }); shown++; }
+    if (!res) continue; // absorbed, or off the bench
+    if (res[1].c.t === 'bomb') { bx.destroyed = true; FX.sfx('boom'); FX.shake(.6); const [x, y] = C(res[1].c.x, res[1].c.y); particles.burst(x, y, { n: 80, color: ['#ff5a3a', '#ffb23a', '#fff2d0'], speed: 420 * dpr, life: .9 }); boxLost(); break; }
+    E.clicks[res[0]] = (E.clicks[res[0]] || 0) + 1; fires[res[0]] = (fires[res[0]] || 0) + 1; flashes.push({ id: res[0], t: now });
+  }
+  if (!bx.destroyed) FX.sfx('geiger');
+  need = true; renderBoxPanel(); return n;
 }
-function openJob(seed, rung, daily) { job = genJob(seed, rung); job.daily = !!daily; load(LV.findIndex(l => l.job)); }
-function nextJob() { const S = wsSave(); FX.sfx('click'); if (job.daily) openJob((Math.random() * 1e6) | 0, Math.max(1, S.top), false); else openJob(job.seed + 1, Math.min(JOBMAX, job.rung + 1), false); }
-const jobNow = () => { const m = jobMetrics(L, parts), P = job.par; return `Now: $${m.cost} · ${m.table} cells · ${m.parts} parts <span style="color:#6b6556">· ref $${P.cost} · ${P.table} · ${P.parts}</span>`; };
-function jobRow() {
-  if (!L.job) return ''; const b = jobBest(), m = jobMetrics(L, parts), P = job.par;
-  return `<div style="margin-top:6px;font-size:12px"><span id="jobNow">${jobNow()}</span>${b ? `<br>Your best: $${b[0]} · ${b[1]} · ${b[2]}` : ''}</div><div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap"><button class="b ghost" id="jNew">New job</button><button class="b ghost" id="jDaily">Daily</button><button class="b ghost" id="jShare">Share</button></div>`;
+function boxLost() {
+  const S = bxSave(); S.cash -= 50; SAVE.bx = { ...S, seed: box.seed, grade: box.grade }; persist();
+  toast('BOX DESTROYED', 'A photon reached a live bomb inside. The client\'s box is gone and so is $50 of your deposit. A live bomb can be certified without touching it: put the box in one arm of an interferometer and watch the port that should stay dark.', 12000, `<div><button class="b" id="tnextbox">Next box →</button></div>`);
+  $('tnextbox').onclick = e => { e.stopPropagation(); nextBox(false); };
+}
+// least-squares fit of clicks/shots = A cos²(a − φ) over the analyser angles tried
+function cosFit(pts) {
+  if (pts.length < 2) return null; let best = null;
+  for (let ph = 0; ph < 180; ph++) { let sxy = 0, sxx = 0; for (const p of pts) { const c = Math.cos((p.a - ph) * Math.PI / 180) ** 2; sxy += p.w * p.y * c; sxx += p.w * c * c; } const A = sxx ? Math.min(1, sxy / sxx) : 0; let err = 0; for (const p of pts) err += p.w * (p.y - A * Math.cos((p.a - ph) * Math.PI / 180) ** 2) ** 2; if (!best || err < best.err) best = { ph, A, err }; }
+  return best;
+}
+function evidence() { const pts = []; for (const E of Object.values(bx.log)) { if (E.ana == null || !E.shots) continue; const c = Object.values(E.clicks).reduce((a, v) => a + v, 0); pts.push({ a: E.ana, y: c / E.shots, w: E.shots, n: E.shots }); } return pts; }
+function drawEvidence() {
+  const c = $('evid'); if (!c || !bx) return; const w = c.width = c.clientWidth * 2, h = c.height = c.clientHeight * 2, x = c.getContext('2d');
+  x.fillStyle = '#f4f0e1'; x.fillRect(0, 0, w, h); x.strokeStyle = 'rgba(200,60,40,.18)'; x.lineWidth = 1; for (let i = 0; i <= 12; i++) { x.beginPath(); x.moveTo(i / 12 * w, 0); x.lineTo(i / 12 * w, h); x.stroke(); } for (let j = 0; j <= 4; j++) { x.beginPath(); x.moveTo(0, j / 4 * h); x.lineTo(w, j / 4 * h); x.stroke(); }
+  const pts = evidence(), f = cosFit(pts), X = a => (((a % 180) + 180) % 180) / 180 * w, Y = v => h - 6 - v * (h - 12);
+  if (f) { x.strokeStyle = '#a8321e'; x.lineWidth = 2; x.beginPath(); for (let a = 0; a <= 180; a += 2) { const v = f.A * Math.cos((a - f.ph) * Math.PI / 180) ** 2; a ? x.lineTo(X(a), Y(v)) : x.moveTo(X(a), Y(v)); } x.stroke(); }
+  for (const p of pts) { const e = Math.sqrt(Math.max(p.y * (1 - p.y), .01) / p.n); x.strokeStyle = '#1d1c18'; x.lineWidth = 1.5; x.beginPath(); x.moveTo(X(p.a), Y(p.y - e)); x.lineTo(X(p.a), Y(p.y + e)); x.stroke(); x.fillStyle = '#1d1c18'; x.beginPath(); x.arc(X(p.a), Y(p.y), 4, 0, 7); x.fill(); }
+  x.fillStyle = '#3b372c'; x.font = '18px "Share Tech Mono", monospace'; x.fillText(pts.length ? (f ? `fit: axis ${f.ph}° · peak ${Math.round(f.A * 100)}%` : 'one setting so far: turn the analyser') : 'analyser angle →  (put a filter after the box)', 8, 20);
+}
+function cardHTML() {
+  const opts = Object.entries(KINDS).filter(([k]) => GRADES.slice(1, Math.max(box.grade, 1) + 1).some(G => G.pick.some(p => p.includes(k === 'live' || k === 'dud' ? (box.grade >= 4 ? k : 'x') : k)))).map(([k, n]) => `<option value="${k}">${n}</option>`).join('');
+  return box.els.map((e, i) => `<div class="crow"><span>${i + 1}.</span><select data-ci="${i}" aria-label="Part ${i + 1}"><option value="">— what is it? —</option>${opts}</select><input type="number" data-ca="${i}" min="0" max="359" step="1" placeholder="angle°" aria-label="Angle of part ${i + 1}"></div>`).join('');
+}
+function renderBoxPanel() {
+  if (!L || !L.box || !$('boxp')) return; const S = bxSave(), clicks = {};
+  for (const E of Object.values(bx.log)) for (const k in E.clicks) clicks[k] = (clicks[k] || 0) + E.clicks[k];
+  $('boxStat').innerHTML = `Photons left <b>${bx.left}</b> / ${box.budget} · cash <b>$${S.cash}</b>` + (Object.keys(clicks).length ? '<br>clicks: ' + Object.entries(clicks).map(([k, v]) => `<b>${k}</b> ${v}`).join(' · ') : '') + (bx.destroyed ? '<br><b style="color:#a8321e">Box destroyed.</b>' : '');
+  drawEvidence();
+}
+function boxGoalHTML() {
+  const S = bxSave();
+  return `${box.daily ? '<b>Daily box</b>' : `Box <b>${box.seed}</b> · grade ${box.grade}/${BGMAX}`}: the label says <b>${box.els.length} part${box.els.length > 1 ? 's' : ''}</b>, entry side first. Fee $${box.fee}.`
+    + (bxSave().top < 4 ? `<div style="margin-top:6px;font-size:12px;color:#6b6556">On the shelf, not yet yours: a crate stamped <b style="color:#a8321e">⚠ DO NOT ILLUMINATE</b> (grade 4).</div>` : '')
+    + `<div id="boxp"><div id="boxStat" style="margin-top:6px;font-size:12px"></div><canvas id="evid" style="width:100%;height:92px;display:block;margin-top:6px;border:1px solid rgba(0,0,0,.25)"></canvas>`
+    + `<div id="card" style="margin-top:6px">${cardHTML()}</div><div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap"><button class="b" id="bSign">Sign the card</button><button class="b ghost" id="bShop">Shop</button><button class="b ghost" id="bNew">Skip</button><button class="b ghost" id="bDaily">Daily</button><button class="b ghost" id="bShare">Share</button></div></div>`;
+}
+function wireBoxPanel() {
+  $('bSign').onclick = signCard; $('bShop').onclick = openShop;
+  $('bNew').onclick = () => { FX.sfx('click'); openBox((Math.random() * 1e6) | 0, bxSave().grade, false); };
+  $('bDaily').onclick = () => { FX.sfx('click'); openBox(dayNum() % 1000000, 4, true); };
+  $('bShare').onclick = () => { const u = location.href.split('#')[0] + '#box=' + box.seed + '-' + box.grade; try { navigator.clipboard.writeText(u); } catch (e) {} toast('Box link copied', u, 3000); };
+  renderBoxPanel();
+}
+// grading a card: types must match; angles within half a step (filters repeat every 180°, wave plates every 90°, delays every 360°)
+function gradeCard(answers) {
+  const G = GRADES[box.grade], tol = Math.max(5, G.step / 2), lines = [];
+  box.els.forEach((e, i) => { const a = answers[i] || {}, typeOk = a.k === e.k; let angOk = true;
+    if (typeOk && (e.k === 'pol' || e.k === 'hwp' || e.k === 'phase')) { const per = e.k === 'pol' ? 180 : e.k === 'hwp' ? 90 : 360, d = Math.abs((((+a.a - e.a) % per) + per * 1.5) % per - per / 2); angOk = isFinite(+a.a) && a.a !== '' && d <= (e.k === 'phase' ? 22 : tol); }
+    lines.push({ typeOk, angOk, pay: typeOk ? (angOk ? 40 : 15) : -30 }); });
+  const photons = box.budget - bx.left, pay = lines.reduce((s, l) => s + l.pay, 0) + (lines.every(l => l.typeOk && l.angOk) ? box.fee : 0) - Math.round(photons * .25);
+  return { lines, pay, perfect: lines.every(l => l.typeOk && l.angOk), photons };
+}
+function signCard() {
+  if (!bx || bx.signed) return; if (bx.destroyed) { nextBox(false); return; }
+  const ans = box.els.map((_, i) => ({ k: document.querySelector(`[data-ci="${i}"]`).value, a: document.querySelector(`[data-ca="${i}"]`).value }));
+  if (ans.some(a => !a.k)) { toast('Unfinished card', 'Name every part on the label before you sign.', 2500); return; }
+  const R = gradeCard(ans), S = bxSave(); bx.signed = true;
+  S.cash += R.pay; S.n += R.perfect ? 1 : 0; if (R.perfect && !box.daily) S.grade = Math.min(BGMAX, Math.max(S.grade, box.grade + 1)); S.top = Math.max(S.top, S.grade);
+  if (box.daily) { S.daily[dayNum()] = R.pay; const kd = Object.keys(S.daily).sort(); while (kd.length > 30) delete S.daily[kd.shift()]; }
+  SAVE.bx = { ...S, seed: box.seed, grade: box.grade, d: box.daily ? 1 : 0 }; persist();
+  const truth = box.els.map((e, i) => `${i + 1}. ${KINDS[e.k]}${e.a != null ? ' at ' + e.a + '°' : ''} ${R.lines[i].typeOk && R.lines[i].angOk ? '✓' : R.lines[i].typeOk ? '(angle off)' : '✗'}`).join('<br>');
+  if (R.perfect) { won = true; FX.sfx('win'); celeb = performance.now(); } else FX.sfx('fail');
+  toast(R.perfect ? `✓ Certified <span style="color:#a8321e">+$${R.pay}</span>` : `Card returned <span style="color:#a8321e">${R.pay >= 0 ? '+' : ''}$${R.pay}</span>`, `${truth}<br>${R.photons} photons used ($${Math.round(R.photons * .25)}). Cash now $${S.cash}.` + (R.perfect && box.grade < BGMAX && !box.daily ? ' The next grade of box is open.' : ''), 14000, `<div><button class="b" id="tnextbox">Next box →</button></div>`);
+  $('tnextbox').onclick = e => { e.stopPropagation(); nextBox(R.perfect); };
+  renderBoxPanel();
+}
+function nextBox(up) { const S = bxSave(); FX.sfx('click'); openBox(box.seed + 1, box.daily ? S.grade : S.grade, false); }
+function openShop() {
+  const S = bxSave(), row = ([t, c]) => `<button class="b ${S.cash >= c ? '' : 'ghost'}" data-buy="${t}" ${S.cash >= c ? '' : 'disabled'}>${NAMES[t]} $${c} <i>${S.own[t]}</i></button>`;
+  toast('Supply catalogue', `Cash $${S.cash}. Parts you buy stay in your drawer for every box.`, 20000, `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px">${Object.entries(SHOP).map(row).join('')}</div>`);
+  document.querySelectorAll('[data-buy]').forEach(b => b.onclick = e => { e.stopPropagation(); const S2 = bxSave(), t = b.dataset.buy; if (S2.cash < SHOP[t] || S2.own[t] >= 9) return; S2.cash -= SHOP[t]; S2.own[t]++; SAVE.bx = { ...S2, seed: box.seed, grade: box.grade, d: box.daily ? 1 : 0 }; persist(); L.tray = { ...S2.own }; FX.sfx('place'); renderTray(); openShop(); renderBoxPanel(); });
+}
+// draw the sealed box over its holes: brushed steel, rivets, the shipping label, the ports
+function drawBox(now) {
+  if (!L.box) return; const [x0, y0] = C(BOX.x0, BOX.y), s = cell, bxl = x0 - s * .5, byt = y0 - s * .55, bw = s * BOX.n, bh = s * 1.1;
+  g.save(); g.shadowColor = 'rgba(0,0,0,.75)'; g.shadowBlur = 14 * dpr; g.shadowOffsetY = 5 * dpr;
+  const sg = g.createLinearGradient(bxl, byt, bxl, byt + bh); sg.addColorStop(0, '#6f7478'); sg.addColorStop(.5, '#4a4e52'); sg.addColorStop(1, '#2e3134'); g.fillStyle = sg; g.beginPath(); g.roundRect(bxl, byt, bw, bh, s * .08); g.fill(); g.shadowColor = 'transparent';
+  g.strokeStyle = 'rgba(255,255,255,.18)'; g.lineWidth = dpr; g.stroke();
+  for (const [rx, ry] of [[bxl + s * .1, byt + s * .1], [bxl + bw - s * .1, byt + s * .1], [bxl + s * .1, byt + bh - s * .1], [bxl + bw - s * .1, byt + bh - s * .1]]) bolt(g, rx, ry, s * .05);
+  g.fillStyle = '#f3eedc'; g.fillRect(bxl + bw * .2, byt + bh * .22, bw * .6, bh * .56); g.fillStyle = '#1d1c18'; g.font = `700 ${Math.max(8, s * .2)}px "Share Tech Mono", monospace`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(box ? `SEALED · ${box.els.length} PART${box.els.length > 1 ? 'S' : ''}` : 'SEALED', bxl + bw / 2, byt + bh * .4); g.font = `${Math.max(7, s * .16)}px "Share Tech Mono", monospace`; g.fillStyle = bx && bx.destroyed ? '#a8321e' : '#6b6556'; g.fillText(bx && bx.destroyed ? 'DESTROYED' : box ? `No. ${box.seed}` : '', bxl + bw / 2, byt + bh * .62);
+  // ports: the entry on the left, the exit on the right, and the side ports on top and bottom
+  g.fillStyle = '#0b0c0c'; for (const [px, py] of [[bxl, y0], [bxl + bw, y0]]) { g.beginPath(); g.arc(px, py, s * .1, 0, 7); g.fill(); }
+  for (let i = 0; i < BOX.n; i++) { const [cx] = C(BOX.x0 + i, BOX.y); g.fillRect(cx - s * .08, byt - s * .02, s * .16, s * .06); g.fillRect(cx - s * .08, byt + bh - s * .04, s * .16, s * .06); }
+  if (bx && bx.destroyed) { g.strokeStyle = 'rgba(30,10,5,.7)'; g.lineWidth = 3 * dpr; g.beginPath(); g.moveTo(bxl + bw * .3, byt); g.lineTo(bxl + bw * .45, byt + bh * .5); g.lineTo(bxl + bw * .38, byt + bh); g.stroke(); }
+  g.restore();
 }
 // ================= sound: a lab, not an arcade =================
 // relay clacks, bolts seating into tapped holes, and Geiger-tube clicks from the detectors
@@ -352,11 +396,11 @@ const SND = {
 // ================= state =================
 const obj = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 const SAVE = obj(RH.load('polarizer', {})); SAVE.done = obj(SAVE.done); SAVE.stars = obj(SAVE.stars); // tolerate corrupted / hand-edited saves
-const NCAMP = LV.filter(l => !l.free && !l.job).length;
+const NCAMP = LV.filter(l => !l.free && !l.box).length;
 for (const k in SAVE.done) if (!(+k >= 0 && +k < NCAMP)) delete SAVE.done[k];
 const persist = () => { RH.save('polarizer', SAVE); RH.progress('polarizer', Object.keys(SAVE.done).length / NCAMP); };
 const maxOpen = () => { let m = 0; while (m < NCAMP && SAVE.done[m]) m++; return m; };
-const isOpen = i => Number.isInteger(i) && i >= 0 && i < LV.length && (i <= maxOpen() || SAVE.done[i] || LV[i].free || (LV[i].job && (SAVE.done[LV[i].openAfter] || sharedJob)));
+const isOpen = i => Number.isInteger(i) && i >= 0 && i < LV.length && (i <= maxOpen() || SAVE.done[i] || LV[i].free || (LV[i].box && (SAVE.done[LV[i].openAfter] || sharedBox)));
 let L, parts = [], sel = null, tool = null, Rz, fires = {}, flashes = [], photons = [], won = false, need = true;
 const timers = new Set();
 const $ = id => document.getElementById(id);
@@ -366,10 +410,11 @@ function load(i) {
   if (!isOpen(i)) i = maxOpen();
   cancelShots(); hideToast(); clearTimeout(settleH); settleH = 0; holding = false;
   crate = null;
-  SAVE.cur = i; L = LV[i].job ? jobLevel(LV[i]) : LV[i]; persist(); parts = []; sel = null; tool = null; fires = {}; flashes = []; photons = []; won = false;
+  SAVE.cur = i; L = LV[i].box ? boxLevel(LV[i]) : LV[i]; persist(); parts = []; sel = null; tool = null; fires = {}; flashes = []; photons = []; won = false;
+  if (L.box && box.grade === 1 && bxSave().n === 0) parts.push(P('det', 12, BOX.y, 0, 1, { id: 'P1' })); // the very first box comes with a detector already in place: fire within seconds
   $('title').textContent = L.n; $('story').innerHTML = L.story; renderGoal(); renderLevels(); renderTray(); showSel(); recompute();
 }
-function recompute() { Rz = simulate(L, parts); need = true; if (L.job && $('jobNow')) $('jobNow').innerHTML = jobNow(); }
+function recompute() { Rz = simulate(L, parts); need = true; }
 const used = t => parts.filter(p => p.t === t).length;
 
 // ================= drawing =================
@@ -459,6 +504,7 @@ function mountPlate(s) {
   bolt(g, s * .82, -s * .82, s * .13);
 }
 function drawPart(p, now, ghost) {
+  if (p.hidden) return;
   let [x, y] = C(p.x, p.y); if (ghost) { x = ghost[0]; y = ghost[1]; }
   const s = cell * .38;
   g.save(); g.translate(x, y); g.lineCap = 'round'; if (ghost) g.globalAlpha = .75;
@@ -493,7 +539,7 @@ function drawPart(p, now, ghost) {
     // meter arc and needle (0–100 %)
     g.strokeStyle = 'rgba(233,228,214,.6)'; g.lineWidth = dpr; g.beginPath(); g.arc(0, s * .02, s * .7, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
     const na = Math.PI * (1.15 + .7 * Math.min(1, hit + (pulse ? .04 : 0))); g.strokeStyle = '#ff5a3a'; g.lineWidth = 1.5 * dpr; g.beginPath(); g.moveTo(0, s * .02); g.lineTo(Math.cos(na) * s * .66, s * .02 + Math.sin(na) * s * .66); g.stroke();
-    g.fillStyle = '#1b1a16'; g.font = `700 ${Math.max(9, s * .42)}px "Share Tech Mono", monospace`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(p.id + ' ' + Math.round(hit * 100) + '%', 0, s * .45);
+    g.fillStyle = '#1b1a16'; g.font = `700 ${Math.max(9, s * .42)}px "Share Tech Mono", monospace`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(p.id + ' ' + (L.box ? String(fires[p.id] || 0).padStart(3, '0') : Math.round(hit * 100) + '%'), 0, s * .45);
     g.fillStyle = pulse ? '#fff6d0' : hit > .01 ? `rgba(255,150,40,${.35 + hit * .6})` : '#4a3a26'; if (pulse || hit > .01) { g.shadowColor = '#ffb23a'; g.shadowBlur = (pulse ? 18 : 6 + hit * 10) * dpr; }
     g.beginPath(); g.arc(s * .78, s * .82, s * .14, 0, 7); g.fill(); g.shadowBlur = 0;
     if (fires[p.id]) { g.fillStyle = '#ffb23a'; g.font = `${Math.max(9, s * .4)}px "Share Tech Mono", monospace`; g.fillText(String(fires[p.id]).padStart(3, '0') + ' CTS', 0, s * 1.45); }
@@ -525,7 +571,7 @@ function draw(now) {
     g.fillStyle = '#ff2d1e'; g.shadowColor = '#ff2d1e'; g.shadowBlur = 12 * dpr; g.beginPath(); g.arc(cell * .33, 0, s * .16, 0, 7); g.fill(); g.restore(); }
   // beams: a red laser whose brightness is the probability; little bars across it show the polarisation axis
   g.globalCompositeOperation = 'lighter'; g.lineCap = 'round';
-  for (const sg of Rz.segs) {
+  if (!L.box) for (const sg of Rz.segs) {
     const p = sg.p; if (p < .003) continue;
     const [x0, y0] = C(sg.x0, sg.y0), [x1, y1] = C(sg.x1, sg.y1);
     g.strokeStyle = `rgba(255,40,20,${Math.min(1, p * 1.1) * .28})`; g.lineWidth = (5 + 12 * p) * dpr; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
@@ -534,7 +580,7 @@ function draw(now) {
       g.strokeStyle = `rgba(255,236,210,${Math.min(.85, p * 1.6)})`; g.lineWidth = 1.4 * dpr; g.beginPath(); g.moveTo(mx - Math.cos(a) * l, my + Math.sin(a) * l); g.lineTo(mx + Math.cos(a) * l, my - Math.sin(a) * l); g.stroke(); }
   }
   // the win: a pulse of light runs the whole optical path, segment by segment, out to the detectors
-  if (celeb) { const u = (now - celeb) / 1300, n = Rz.segs.length;
+  if (celeb && !L.box) { const u = (now - celeb) / 1300, n = Rz.segs.length;
     for (let i = 0; i < n; i++) { const sg = Rz.segs[i], k = u * n - i; if (k < 0 || sg.p < .01) continue; const [x0, y0] = C(sg.x0, sg.y0), [x1, y1] = C(sg.x1, sg.y1), f = Math.min(1, k), fade = Math.max(0, 1 - (u - 1) * 1.5);
       g.strokeStyle = `rgba(255,250,235,${.9 * fade})`; g.lineWidth = (2 + 6 * sg.p) * dpr; g.shadowColor = '#ff6a40'; g.shadowBlur = 24 * dpr; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f); g.stroke(); }
     g.shadowBlur = 0; if (u > 2.2) celeb = 0; }
@@ -557,6 +603,7 @@ function draw(now) {
     let n = 0; for (const f of photons) if (now - f.t < f.dur) photons[n++] = f; photons.length = n;
   }
   if (flashes.length) { let n = 0; for (const f of flashes) if (now - f.t < 260) flashes[n++] = f; flashes.length = n; }
+  drawBox(now); // the sealed case goes on last: photons inside it can't be seen
   particles.update(1 / 60); particles.draw(g);
 }
 const particles = FX.particles();
@@ -572,6 +619,7 @@ let drag = null, celeb = 0;
 function placeNew(t, x, y) {
   const max = L.tray[t] || 0; if (used(t) >= max) { FX.sfx('fail'); return null; }
   const p = P(t, x, y, t === 'phase' ? 90 : 0, 1); // filters and wave plates start at 0°: no free solutions
+  if (t === 'det') { let k = 1; while (parts.some(q => q.id === 'P' + k)) k++; p.id = 'P' + k; }
   parts.push(p); sel = p; FX.sfx('place'); FX.shake(.08); recompute(); renderTray(); showSel(); check(); return p;
 }
 // taps on empty holes act on release, so a drag there can pan the view and a second finger can pinch instead
@@ -650,7 +698,7 @@ const SETTLE = 1000; let settleH = 0, holding = false, sliding = false;
 const hitsNow = () => { const H = {}; for (const k in Rz.hits) H[k] = Rz.hits[k].p; return H; };
 function settle() {
   clearTimeout(settleH); settleH = 0;
-  const H0 = hitsNow(), pass = !L.free && !L.crate && L.test(H0, fires) && (!won || (L.grade && L.grade(H0) > (SAVE.stars[SAVE.cur] || 0)) || (L.job && better(jobMetrics(L, parts), jobBest())));
+  const H0 = hitsNow(), pass = !L.free && !L.crate && L.test(H0, fires) && (!won || (L.grade && L.grade(H0) > (SAVE.stars[SAVE.cur] || 0)));
   if (pass !== holding) { holding = pass; $('goal').classList.toggle('hold', pass); }
   if (pass) settleH = setTimeout(() => { settleH = 0; if (!sliding) { holding = false; $('goal').classList.remove('hold'); check(); } }, SETTLE);
 }
@@ -739,7 +787,7 @@ function crateTray() {
 }
 
 // ================= UI =================
-const NAMES = { pol: '⊘ Polariser', hwp: '◐ Wave plate', bs: '⟋ Half mirror', pbs: '⧄ Polarising splitter', mirror: '╱ Mirror', phase: '▯ Phase plate', bomb: '● Bomb' };
+const NAMES = { det: '◉ Detector', pol: '⊘ Polariser', hwp: '◐ Wave plate', bs: '⟋ Half mirror', pbs: '⧄ Polarising splitter', mirror: '╱ Mirror', phase: '▯ Phase plate', bomb: '● Bomb' };
 function renderTray() {
   if (L.crate) { if (!crate) newCrate(); $('tray').innerHTML = crateTray();
     if ($('crFire')) { $('crFire').onclick = () => crateFire(); $('crLive').onclick = () => crateStamp(true); $('crDud').onclick = () => crateStamp(false); }
@@ -748,28 +796,26 @@ function renderTray() {
     if ($('crNew')) $('crNew').onclick = () => { newCrate(); FX.sfx('pop'); renderTray(); };
     fit(); return; }
   $('tray').innerHTML = Object.entries(L.tray).map(([t, n]) => `<button class="pc ${tool === t ? 'on' : ''}" data-t="${t}">${NAMES[t]} <i>${n - used(t)}</i></button>`).join('') +
-    (L.fire ? `<button class="b" id="f1">Fire 1 photon</button><button class="b" id="f20">Fire 20</button>` : `<button class="b ghost" id="f20">Fire 20 photons</button>`) + `<button class="b ghost" id="rst">Reset</button>`;
+    (L.box ? `<button class="b" id="bf1">Fire 1</button><button class="b" id="bf10">Fire 10</button><button class="b" id="bf50">Fire 50</button>` : L.fire ? `<button class="b" id="f1">Fire 1 photon</button><button class="b" id="f20">Fire 20</button>` : `<button class="b ghost" id="f20">Fire 20 photons</button>`) + `<button class="b ghost" id="rst">${L.box ? 'Clear' : 'Reset'}</button>`;
   $('tray').querySelectorAll('[data-t]').forEach(b => {
     b.onpointerdown = e => { if (e.button) return; e.preventDefault(); drag = { mode: 'new', type: b.dataset.t, cx: e.clientX, cy: e.clientY, moved: false }; FX.sfx('tick'); };
     b.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tool = tool === b.dataset.t ? null : b.dataset.t; FX.sfx('click'); renderTray(); renderGoal(); } };
   });
   if ($('f1')) $('f1').onclick = () => fire(1);
-  $('f20').onclick = () => fire(20);
-  $('rst').onclick = () => { load(SAVE.cur); FX.sfx('pop'); };
+  if ($('f20')) $('f20').onclick = () => fire(20);
+  for (const n of [1, 10, 50]) if ($('bf' + n)) $('bf' + n).onclick = () => boxFire(n);
+  $('rst').onclick = () => { if (L.box) { parts = []; sel = null; showSel(); recompute(); renderTray(); FX.sfx('pop'); return; } load(SAVE.cur); FX.sfx('pop'); };
   fit();
 }
 const stars = n => '★'.repeat(n) + '☆'.repeat(3 - n);
 const nextBtn = () => SAVE.cur < NCAMP - 1 && SAVE.done[SAVE.cur] ? `<button class="b" data-next>Next experiment →</button>` : '';
 const goNext = () => { FX.sfx('click'); load(SAVE.cur + 1); };
 function renderGoal() {
+  if (L && L.box) { $('goal').className = ''; $('goal').innerHTML = boxGoalHTML(); wireBoxPanel(); fit(); return; }
   const ok = SAVE.done[SAVE.cur], st = SAVE.stars[SAVE.cur];
   $('goal').className = (ok ? 'ok' : '') + (holding ? ' hold' : '');
   $('goal').innerHTML = (ok ? '✓ ' : '▸ ') + L.goal + (st ? ` <span style="color:#ffd27a">${stars(st)}</span>` : '') + (tool || ok || L.crate ? '' : '<br><span style="color:#6b6556;font-size:12px">Drag a part from the drawer onto any hole. Twist a mount by its knurled ring; drag its middle to move it, or off the board to remove it.</span>') + (nextBtn() ? '<br>' + nextBtn() : '');
   $('goal').querySelectorAll('[data-next]').forEach(b => b.onclick = goNext);
-  if (L && L.job) { $('goal').insertAdjacentHTML('beforeend', jobRow());
-    $('jNew').onclick = () => { FX.sfx('click'); openJob((Math.random() * 1e6) | 0, Math.max(1, wsSave().top || 1), false); };
-    $('jDaily').onclick = () => { FX.sfx('click'); openJob(dayNum() % 1000000, 5, true); };
-    $('jShare').onclick = () => { const u = location.href.split('#')[0] + '#job=' + job.seed + '-' + job.rung; try { navigator.clipboard.writeText(u); } catch (e) {} toast('Job link copied', u, 3000); }; }
   if (L) fit();
 }
 function renderLevels() {
@@ -789,7 +835,7 @@ $('toast').onclick = hideToast;
 $('storyT').onclick = () => { const on = $('hud').classList.toggle('story'); $('storyT').setAttribute('aria-expanded', on); $('storyT').textContent = on ? 'Hide' : 'Notes'; fit(); };
 function check() {
   if (L.free || L.crate) return;
-  if (L.job) { const H = hitsNow(); if (L.test(H)) jobSolved(H); return; }
+  if (L.box) return;
   const H = {}; for (const k in Rz.hits) H[k] = Rz.hits[k].p;
   if (won) { if (L.grade && L.test(H, fires)) { const g = L.grade(H); if (g > (SAVE.stars[SAVE.cur] || 0)) { SAVE.stars[SAVE.cur] = g; persist(); FX.sfx('win'); celeb = performance.now(); toast('Better: ' + stars(g), '', 3000); renderGoal(); renderLevels(); } } return; }
   if (L.test(H, fires)) {
@@ -820,7 +866,7 @@ cam = PanZoom(cv, { onChange: () => { need = true; clearTimeout(bakeT); bakeT = 
   cam.fit = goFit; } // the fitted view is the layout's own: Fit eases back to it
 load(+SAVE.cur || 0);
 raf = requestAnimationFrame(frame);
-window.__pz = { genJob, jobMetrics, jobPass, openJob, get job() { return job; }, PRICE, LV, load, simulate, addPart: (t, x, y, a = 0, m = 1) => { if (occupied(x, y)) return null; const p = P(t, x, y, a, m); parts.push(p); recompute(); renderTray(); check(); return p; }, setAngle: (p, a) => { p.a = a; recompute(); check(); }, hits: () => Rz.hits, fire, get fires() { return fires; }, get parts() { return parts; }, get won() { return won; }, select: p => { sel = p; showSel(); }, setAngleUI: a => setAngle(a), get holding() { return holding; }, get crate() { return crate; }, newCrate, crateFire, crateStamp, crateSeed: sd => { crateRng = RH.rng(sd); }, SAVE, screenOf: (x, y) => { const [px, py] = C(x, y), [sx, sy] = cam.toScreen(px / dpr, py / dpr); return [sx, sy, cell / dpr * cam.k]; }, get cam() { return cam; }, get tool() { return tool; }, setTool: t => { tool = t; renderTray(); }, get celeb() { return celeb; } };
+window.__pz = { genBox, boxParts, openBox, boxFire, gradeCard, cosFit, evidence, bxSave, get box() { return box; }, get bx() { return bx; }, BOX, GRADES, LV, load, simulate, addPart: (t, x, y, a = 0, m = 1) => { if (occupied(x, y)) return null; const p = P(t, x, y, a, m); if (t === 'det') { let k = 1; while (parts.some(q => q.id === 'P' + k)) k++; p.id = 'P' + k; } parts.push(p); recompute(); renderTray(); check(); return p; }, setAngle: (p, a) => { p.a = a; recompute(); check(); }, hits: () => Rz.hits, fire, get fires() { return fires; }, get parts() { return parts; }, get won() { return won; }, select: p => { sel = p; showSel(); }, setAngleUI: a => setAngle(a), get holding() { return holding; }, get crate() { return crate; }, newCrate, crateFire, crateStamp, crateSeed: sd => { crateRng = RH.rng(sd); }, SAVE, screenOf: (x, y) => { const [px, py] = C(x, y), [sx, sy] = cam.toScreen(px / dpr, py / dpr); return [sx, sy, cell / dpr * cam.k]; }, get cam() { return cam; }, get tool() { return tool; }, setTool: t => { tool = t; renderTray(); }, get celeb() { return celeb; } };
 </script>
 </body>
 </html>

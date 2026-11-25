@@ -34,6 +34,21 @@
   function search(pz, d = 3) { const st = parse(pz.start), out = []; const sw = []; for (let i = 1; i < 9; i++) sw.push(['b', i]); for (let i = 0; i < 9; i++) sw.push(['s', i]);
     const rec = (from, k, r) => { if (k > 0) { const c = check(pz, r); if (c) out.push({ r: ruleStr(r), ...c }); } if (k === d) return; for (let j = from; j < sw.length; j++) { const [q, i] = sw[j]; const n = { ...r }; n[q] ^= 1 << i; rec(j + 1, k + 1, n); } };
     rec(0, 0, st); return out; }
-  const api = { G, NN, step, run, check, search, bits, dist, ruleStr, parse, place, pop, T };
+
+  // today's law: a seed, a behaviour and a starting rule made from the date (same for everyone), two switches from a solution
+  function rng(seed) { let a = 0; for (const c of String(seed)) a = (a * 31 + c.charCodeAt(0)) | 0; return () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  const SW = []; for (let i = 1; i < 9; i++) SW.push(['b', i]); for (let i = 0; i < 9; i++) SW.push(['s', i]);
+  function make(spec, R) { const pz = { seed: spec.cells, target: spec.target, arg: spec.arg, gens: spec.gens }; const homes = [];
+    for (let n = 0; n < 1500 && homes.length < 3; n++) { const r = { b: 0, s: 0 }; for (const [k, i] of SW) if (R() < .3) r[k] |= 1 << i; if (!r.b) continue; const l = bits(r); if (l < 3 || l > 8) continue; if (T[pz.target](run(pz.seed, r, pz.gens), pz.arg)) homes.push(r); }
+    for (const home of homes) for (let tries = 0; tries < 12; tries++) { const st = { ...home }, used = new Set(); while (used.size < spec.k) { const j = Math.floor(R() * SW.length); if (used.has(j)) continue; used.add(j); st[SW[j][0]] ^= 1 << SW[j][1]; } if (!st.b) continue;
+      const q = { ...pz, start: ruleStr(st) }; if (check(q, st) || search(q, spec.k - 1).length) continue; const sols = search(q, spec.k + 1); if (!sols.length) continue; const par = Math.min(...sols.map(s => s.flips)); if (par !== spec.k) continue;
+      const ghost = sols.filter(s => s.flips === par).sort((a, b) => a.gen - b.gen)[0]; const hist = { flips: {}, laws: {}, gen: {} }; for (const s of sols) { hist.flips[s.flips] = (hist.flips[s.flips] || 0) + 1; hist.laws[s.laws] = (hist.laws[s.laws] || 0) + 1; hist.gen[s.gen] = (hist.gen[s.gen] || 0) + 1; }
+      return { seed: spec.cells.map(c => c.join(',')).join(' '), target: spec.target, arg: spec.arg, gens: spec.gens, start: q.start, par, ghost: ghost.r, n: sols.length, hist }; }
+    return null; }
+  function daily(day) { const R = rng('law:' + day); const kinds = [['vanish', 0, 60], ['still', 0, 60], ['osc', 2, 60], ['osc', 3, 80], ['box', 7, 150]];
+    for (let attempt = 0; attempt < 6; attempt++) { const cells = []; const want = 4 + Math.floor(R() * 3); while (cells.length < want) { const c = [Math.floor(R() * 3), Math.floor(R() * 3)]; if (!cells.some(d => d[0] === c[0] && d[1] === c[1])) cells.push(c); }
+      const [target, arg, gens] = kinds[Math.floor(R() * kinds.length)]; const pz = make({ cells, target, arg, gens, k: 2 }, R); if (pz) return pz; }
+    return null; }
+  const api = { G, daily, make, NN, step, run, check, search, bits, dist, ruleStr, parse, place, pop, T };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.LAW = api;
 })(typeof window !== 'undefined' ? window : this);

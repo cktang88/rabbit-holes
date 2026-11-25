@@ -52,7 +52,7 @@ function schedule(G) {
   const r = G.rngEv; G.plan = [];
   for (let y = 3; y < 62; y += 3 + r.int(4)) G.plan.push({ m: y * 12 + r.int(12), k: 'spawn' });
   for (const y of [7, 16, 25, 34]) G.plan.push({ m: (y + r.int(4)) * 12 + r.int(12), k: 'rival' });
-  for (let y = E.RAIL_FROM - E.START + r.int(4); y < E.YEARS - 1; y += 3 + r.int(3)) G.plan.push({ m: y * 12 + r.int(12), k: 'rail' });
+  for (let y = E.RAIL_FROM - E.START + r.int(4); y < E.YEARS - 1; y += 2 + r.int(3)) G.plan.push({ m: y * 12 + r.int(12), k: 'rail' });
   G.plan.sort((a, b) => a.m - b.m);
 }
 const year = (G, m = G.m) => E.START + Math.floor(m / 12);
@@ -94,6 +94,7 @@ function railLinked(G, i, j) {
   while (st.length) { const a = st.pop(); if (a === j) return true; for (const [u, v] of G.rails) { const b = u === a ? v : v === a ? u : -1; if (b >= 0 && !seen.has(b)) { seen.add(b); st.push(b); } } }
   return false;
 }
+const railK = G => G.railFrom == null ? 1 : Math.min(2.4, 1 + (G.m - G.railFrom) / 150);
 const onRail = (G, i) => G.rails.some(([u, v]) => u === i || v === i);
 // the toll on a route: the average level over the sections (drawn canals) it runs along
 function routeToll(G, r) { let s = 0, n = 0; for (const c of r.cells) { const pi = G.cellPath.get(c); s += G.tolls[pi] ?? 1; n++; } return n ? s / n : 1; }
@@ -110,7 +111,7 @@ function routeFactors(G) {
     if (rival) share *= .45;
     let rail = 1;
     if (railLinked(G, i, j)) { // the railway: fast, but dearer for heavy goods; a straight, cheap canal keeps much of its trade
-      const cc = Math.max(1, t / Math.max(1, r.e)) * Math.sqrt(toll) * (1 + .06 * r.sites.length), rc = (TYPES[P[i].type].rail + TYPES[P[j].type].rail) / 2;
+      const cc = Math.max(1, t / Math.max(1, r.e)) * Math.sqrt(toll) * (1 + .06 * r.sites.length), rc = (TYPES[P[i].type].rail + TYPES[P[j].type].rail) / 2 / railK(G); // and the railways get better every year
       rail = 1 / (1 + Math.pow(cc / rc, E.RAILK)) * 1.6; rail = Math.min(1, rail);
     }
     return { toll, pot, A, t, fly, share: share * rail, rail, rival: !!rival, d: pot * share * rail };
@@ -204,7 +205,7 @@ function event(G, ev) {
     for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) { if (railLinked(G, i, j)) continue; const v = (G.pot[i][j] + G.pot[j][i]) * (1 + P[i].p / 20 + P[j].p / 20); if (v > bv) { bv = v; best = [i, j]; } }
     if (best && !G.rails.length) for (let k = 1; k <= 6; k++) { const m = G.m + 30 + 48 * (k - 1); if (m < E.YEARS * 12 - 6) G.plan.push({ m, k: 'offer', n: k }); } // the railway will want to buy you out
     G.plan.sort((a, b) => a.m - b.m);
-    if (best) { G.rails.push(best); G.dirty = true; news(G, G.rails.length === 1 ? 'The railway age begins' : 'A new railway opens', `${P[best[0]].name} to ${P[best[1]].name}${G.rails.length === 1 ? ': trains are fast, and your slow, dear routes will lose trade to them' : ''}.`, 'rail'); }
+    if (best) { if (G.railFrom == null) G.railFrom = G.m; G.rails.push(best); G.dirty = true; news(G, G.rails.length === 1 ? 'The railway age begins' : 'A new railway opens', `${P[best[0]].name} to ${P[best[1]].name}${G.rails.length === 1 ? ': trains are fast, and your slow, dear routes will lose trade to them' : ''}.`, 'rail'); }
   }
 }
 function rivalDecides(G, v) {
@@ -218,7 +219,7 @@ const UNLOCK = {
   pump: ['Coal at the wharf', 'Coal is cheap now your canal reaches a pit: a steam back-pump can lift water up a flight.'],
   double: ['Queues at the locks', 'A flight passes only so many boats. Tap it to double it (two chambers side by side).'],
   plane: ['Steam on the hill', 'Inclined planes: a steam engine hauls boats up a slope, using no water at all.'],
-  fly: ['The railway comes', 'Fly-boats: tap a canal to run express boats day and night. Dear, but quick enough to keep trade from the trains.'],
+  fly: ['The railway comes', 'Tap a canal: run fly-boats (express, day and night) or cut its toll to keep trade from the trains. Both cost you; doing nothing costs more.'],
 };
 function unlock(G, k) { if (G.unlocked.has(k)) return; G.unlocked.add(k); news(G, UNLOCK[k][0], UNLOCK[k][1], 'unlock').unlock = k; }
 function unlocks(G, rec, coal) {

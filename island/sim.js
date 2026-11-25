@@ -326,7 +326,7 @@
     const fe = new Uint16Array(nl); for (let q = 0; q < nl; q++) fe[q] = w.fence[L[q]];
     const live = []; for (let k = 0; k < w.n; k++) if (w.sp[k] >= 0) live.push(k); const m = live.length;
     const ai = new Int16Array(m * 6), ae = new Float32Array(m); live.forEach((k, j) => { ai.set([k, w.sp[k] | w.fem[k] << 8, w.x[k] | w.y[k] << 8, w.age[k], w.last[k], 0], j * 6); ae[j] = w.E[k]; });
-    const yrs = w.years.map(y => y.map(v => Math.round(v * 1e5) / 1e5));
+    const yrs = w.years.map(y => y.slice());
     return { v: 1, seed: w.seed, t: w.t, r: w.r.get(), n: w.n, fl: b64(new Uint8Array(fl.buffer, 0, nl * 40)), fe: b64(new Uint8Array(fe.buffer)), ai: b64(new Uint8Array(ai.buffer)), ae: b64(new Uint8Array(ae.buffer)),
       years: yrs, camp: JSON.parse(JSON.stringify(w.camp)), codex: { ...w.codex }, harsh: w.harsh.slice(), drought: w.drought.slice(), burns: (w.burns || []).slice(-20), dams: (w.dams || []).slice(-20), dis: w.dis || null }; }
   function restore(sn) { const w = create(sn.seed); const L = []; for (let i = 0; i < N; i++) if (w.isl.land[i]) L.push(i); const nl = L.length;
@@ -409,7 +409,7 @@
         else { scatterAt(w, 'goat', 6, 'cast' + yAbs); msg = 'Six goats have washed ashore from a wreck.'; }
         c.log.push([yAbs, msg]); ev.push({ kind: 'shock', msg }); } }
     if (CH[c.ch].endless && y > 0 && y % 10 === 0) { c.permits += 4; ev.push({ kind: 'permits', n: 4 }); }
-    if (c.status === 'on') { const g = CH[c.ch].goal(w, y, c); if (g === 'won') { c.log.push([yAbs, 'Fulfilled: ' + CH[c.ch].title]); ev.push({ kind: 'won', ch: c.ch }); c.ch++; const msg = startChapter(w); ev.push({ kind: 'chapter', ch: c.ch, msg }); } else if (g === 'lost') { c.status = 'lost'; ev.push({ kind: 'lost', ch: c.ch }); } }
+    if (c.status === 'on') { const g = CH[c.ch].goal(w, y, c); if (g === 'won') { c.log.push([yAbs, 'Fulfilled: ' + CH[c.ch].title]); ev.push({ kind: 'won', ch: c.ch, years: y }); c.ch++; const msg = startChapter(w); ev.push({ kind: 'chapter', ch: c.ch, msg }); } else if (g === 'lost') { c.status = 'lost'; ev.push({ kind: 'lost', ch: c.ch }); } }
     return ev; }
   const goalText = (w) => { const c = w.camp; return c.status === 'lost' ? 'Lapsed.' : CH[c.ch].goal(w, Math.floor(w.t / TPY) - c.y0, c); };
 
