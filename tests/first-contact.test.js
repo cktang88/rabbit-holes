@@ -1,5 +1,6 @@
 // First Contact: decode a generated alien language. Logic via window.__fc.
 const { fcBot } = require('./first-contact.bots.js');
+const { newcomer } = require('./first-contact.newcomer.js');
 const closeModals = page => page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
 const withSave = async (page, save) => { await page.addInitScript(s => localStorage.setItem('rh:fc', s), typeof save === 'string' ? save : JSON.stringify(save)); await page.reload(); await page.waitForTimeout(500); };
 // compose an answer by clicking palette glyphs in question k of the current chapter
@@ -91,6 +92,39 @@ module.exports = {
       ok(all.solver.every(x => x === 3), 'the solver should get 3 stars');
       ok(all.english.filter(x => x === 3).length / all.english.length < .5, 'English grammar should usually cost stars: ' + all.english);
     },
+    'newcomer: a first-timer following the GOAL prompts clears transmission 1 (desktop and phone)': async ({ page, ok }) => {
+      for (const touch of [false, true]) {
+        const ctx = await page.context().browser().newContext(touch ? { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } : { viewport: { width: 1280, height: 800 } });
+        const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+        await p.goto(page.url()); await p.waitForTimeout(1000);
+        ok(await p.locator('.modal .annot').count() === 1, 'intro should show an annotated frame');
+        await p.locator('.modal-bg button').last().click();
+        ok(/Tap the symbol/.test(await p.locator('#goal').textContent()), 'first goal');
+        const base = await p.evaluate(() => window.__fc.LANG.base); ok([8, 10, 12].includes(base), 'first species base ' + base);
+        const r = await newcomer(p, loc => touch ? loc.tap() : loc.click());
+        ok(r.done && r.tut === 7, 'newcomer stuck: ' + JSON.stringify(r) + ' goal: ' + await p.locator('#goal').textContent());
+        ok(r.actions < 45, 'too many actions: ' + r.actions);
+        ok(await p.evaluate(() => Object.keys(window.__fc.S.miss || {}).length === 0), 'transmission 1 should not count misses');
+        ok(!errs.length, errs.join());
+        await ctx.close();
+      }
+    },
+    'tutorial: a wrong pencilled number is flagged, not accepted; hints point at the evidence, not the answer': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(() => { const fc = window.__fc; fc.S.tut = 1; fc.render();
+        const inp = document.querySelector('.nbRow[data-w="D1"] input'); inp.value = '5'; inp.dispatchEvent(new Event('input')); inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+        return { bad: !!fc.S.bad.D1, known: !!(fc.S.known && fc.S.known.D1), tut: fc.S.tut }; });
+      eq(r, { bad: true, known: false, tut: 1 });
+      await page.evaluate(() => { const fc = window.__fc; fc.S.tut = 7; for (let c = 0; c < 3; c++) fc.CH[c].qs.forEach((q, k) => fc.S.solved[c + ':' + k] = 1); fc.S.chapter = 3; fc.render(); });
+      await page.click('#hintBtn');
+      const t = await page.locator('.toast').last().textContent();
+      ok(/compare frames/i.test(t) && !/means/.test(t), 'hint: ' + t);
+      ok(/Reply 1 of 3/.test(await page.locator('#goal').textContent()), 'goal bar shows the next reply');
+    },
+    'counting pictures group the dots in bundles of their base': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const fc = window.__fc, b = fc.LANG.base, s = fc.picDots(2 * b + 3); const d = new DOMParser().parseFromString(s, 'image/svg+xml'); return [d.querySelectorAll('circle').length, d.querySelectorAll('rect').length, b]; });
+      eq([r[0], r[1]], [2 * r[2] + 3, 2]);
+    },
     'palette lists digits first in numeric order': async ({ page, eq }) => {
       await closeModals(page);
       const r = await page.evaluate(() => [...document.querySelectorAll('.q[data-q="0"] [data-pw]')].map(e => e.dataset.pw));
@@ -115,22 +149,23 @@ module.exports = {
       await page.click('#hintBtn');
       eq(await page.locator('.q[data-q="1"] [data-compose] .g').count(), 2);
     },
-    'wrong transmissions jam the channel for longer each time; sending while jammed does nothing': async ({ page, ok, eq }) => {
+    'wrong transmissions jam the channel for longer each time (from transmission 3); sending while jammed does nothing': async ({ page, ok, eq }) => {
       await closeModals(page);
-      const q = page.locator('.q[data-q="0"]'), ans = await page.evaluate(() => window.__fc.CH[0].qs[0].ans);
-      const wrong = ans[0] === 'D1' ? 'D2' : 'D1';
+      const ans = await page.evaluate(() => { const fc = window.__fc; fc.S.tut = 7; for (let c = 0; c < 2; c++) fc.CH[c].qs.forEach((q, k) => fc.S.solved[c + ':' + k] = 1); fc.S.chapter = 2; fc.render(); return fc.CH[2].qs[0].ans; });
+      const q = page.locator('.q[data-q="0"]'), wrong = ans[0] === 'D1' ? 'D2' : 'D1';
       await q.locator(`[data-pw="${wrong}"]`).click(); await q.locator('[data-send]').click();
       ok(await q.locator('[data-send]').isDisabled(), 'transmit should be jammed');
       await page.waitForTimeout(1700);
       await q.locator('[data-send]').click();
-      eq(await page.evaluate(() => window.__fc.lockFor('0:0')), 3000, 'second miss jams twice as long');
+      eq(await page.evaluate(() => window.__fc.lockFor('2:0')), 3000, 'second miss jams twice as long');
       await q.locator('[data-clear]').click();
       for (const w of ans) await q.locator(`[data-pw="${w}"]`).click();
       await q.locator('[data-send]').click({ force: true });
-      ok(!(await page.evaluate(() => window.__fc.S.solved['0:0'])), 'accepted while jammed');
+      ok(!(await page.evaluate(() => window.__fc.S.solved['2:0'])), 'accepted while jammed');
       await page.waitForTimeout(3100);
       await q.locator('[data-send]').click();
-      ok(await page.evaluate(() => !!window.__fc.S.solved['0:0']), 'right answer after the jam');
+      ok(await page.evaluate(() => !!window.__fc.S.solved['2:0']), 'right answer after the jam');
+      eq(await page.evaluate(() => window.__fc.lockFor('0:0')), 0, 'transmission 1 never jams');
     },
     'replies confirm the symbols they used; no English is printed for glyphs the player never annotated': async ({ page, ok, eq }) => {
       await closeModals(page);

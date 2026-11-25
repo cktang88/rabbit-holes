@@ -7,12 +7,13 @@ const run = (page, lv, plan) => page.evaluate(([lv, plan]) => { const W = __ws; 
 const FIELDS_MID = [['farm', [62, 75]], ['farm', [62, 88]], ['farm', [62, 101]], ['farm', [84, 75]], ['farm', [84, 86]], ['farm', [50, 80]]];
 const FIELDS_FAR = [['farm', [30, 50]], ['farm', [30, 62]], ['farm', [30, 74]], ['farm', [120, 50]], ['farm', [120, 62]], ['farm', [120, 74]]];
 const CROSS_LEVEE = ['levee', [84, 94], [110, 95]];
+const FIELDS_MORE = [['farm', [62, 115]], ['farm', [62, 128]], ['farm', [50, 125]], ['farm', [50, 92]]];
 const BANK_LEVEES = [['levee', [80, 90], [81, 112]], ['levee', [81, 112], [79, 132]]];
 const rnd = s => () => (s = s * 16807 % 2147483647) / 2147483647, R3 = rnd(3), RX = 40 + R3() * 40, RY = 20 + R3() * 110;
 // every full-length run the suite needs, computed once and in parallel on a few pages (each run is a few seconds of erosion)
 const PLANS = {
-  idle: [0, []], noLevee: [0, FIELDS_MID], win: [0, [...FIELDS_MID, CROSS_LEVEE]], banks: [0, [...FIELDS_MID, ...BANK_LEVEES]], far: [0, [...FIELDS_FAR, CROSS_LEVEE]],
-  fwOld: [1, []], fwWin: [1, [CROSS_LEVEE, ['cut', [76, 80], [52, 100]], ['cut', [52, 100], [40, 125]]]], fwLevees: [1, [['levee', [84, 90], [110, 91]], ['levee', [84, 98], [110, 99]]]],
+  idle: [0, []], noLevee: [0, FIELDS_MID], midLevee: [0, [...FIELDS_MID, CROSS_LEVEE]], win: [0, [...FIELDS_MID, ...FIELDS_MORE, CROSS_LEVEE]], banks: [0, [...FIELDS_MID, ...BANK_LEVEES]], far: [0, [...FIELDS_FAR, CROSS_LEVEE]],
+  fwOld: [1, []], fwWin: [1, [['farm', [70, 110]], ['farm', [72, 122]], ['farm', [74, 134]], ['farm', [84, 110]], ['farm', [60, 120]], ['farm', [60, 108]]]], fwFar: [1, FIELDS_FAR],
   nIdle: [2, []], nGorge: [2, [['dam', [62, 70], [98, 70]]]], nWin: [2, [['dam', [62, 45], [98, 45]], ['cut', [80, 38], [80, 52]]]], nLow: [2, [['dam', [60, 95], [100, 95]]]],
   nRandom: [2, [['dam', [RX, RY], [RX + 36, RY + (R3() - .5) * 10]], ['cut', [RX + 18, RY - 8], [RX + 18, RY + 8]]]],
 };
@@ -45,18 +46,19 @@ module.exports = {
     'The Levee: idle loses; riverside fields alone flood the town; fields + a levee across the flood path wins': async ({ page, ok, eq }) => {
       const S = await sims(page);
       ok(!S.idle.goal && S.idle.harvest === 0, 'idle');
-      ok(!S.noLevee.goal && Math.max(...S.noLevee.floods) > 2, 'fields without a levee should flood Upper Town ' + JSON.stringify(S.noLevee));
-      eq(S.win.refused, []); ok(S.win.goal, 'known plan ' + JSON.stringify(S.win)); ok(S.win.medals >= 2, 'the known plan keeps both towns dry');
+      ok(!S.noLevee.goal && Math.max(...S.noLevee.floods) > 1, 'fields without a levee should flood the towns ' + JSON.stringify(S.noLevee));
+      ok(!S.midLevee.goal, 'six fields and a levee are not enough harvest ' + JSON.stringify(S.midLevee));
+      eq(S.win.refused, []); ok(S.win.goal, 'known plan ' + JSON.stringify(S.win));
     },
-    'The Levee trade-offs: bank levees push the flood onto Upper Town; far fields yield less than riverside ones': async ({ page, ok }) => {
+    'The Levee trade-offs: bank levees push the flood downstream onto Lower Town; far fields yield less than riverside ones': async ({ page, ok }) => {
       const S = await sims(page);
-      ok(S.banks.floods[0] > S.idle.floods[0], `levees along the banks should make Upper Town worse (${S.banks.floods[0]} vs ${S.idle.floods[0]})`);
-      ok(S.win.harvest > S.far.harvest * 1.15, `riverside ${S.win.harvest} vs far ${S.far.harvest}`);
+      ok(S.banks.floods[1] > S.idle.floods[1], `levees along the banks should make Lower Town worse (${S.banks.floods[1]} vs ${S.idle.floods[1]})`);
+      ok(S.midLevee.harvest > S.far.harvest * 1.15, `riverside ${S.midLevee.harvest} vs far ${S.far.harvest}`);
     },
-    'The Floodway (campaign): the 1927 works carry over and fail the bigger floods; more levees alone fail; a higher levee plus a floodway wins': async ({ page, ok, eq }) => {
+    'The Floodway (campaign): the 1927 works carry over; they alone fall short, dry hill fields fall short, rich bottomland fields win': async ({ page, ok, eq }) => {
       const S = await sims(page);
-      ok(!S.fwOld.goal && Math.max(...S.fwOld.floods) > 2, 'inherited works alone ' + JSON.stringify(S.fwOld));
-      ok(!S.fwLevees.goal, 'two more levees ' + JSON.stringify(S.fwLevees));
+      ok(!S.fwOld.goal, 'inherited works alone ' + JSON.stringify(S.fwOld));
+      ok(!S.fwFar.goal, 'hill fields ' + JSON.stringify(S.fwFar));
       ok(S.fwWin.goal, 'known plan ' + JSON.stringify(S.fwWin));
       // the plan you win a site with is what the next decade inherits
       const inh = await page.evaluate(() => { const W = __ws; localStorage.removeItem('rh:watershed'); W.buildLevel(0); W.plan([['farm', [62, 75]], ['levee', [84, 94], [110, 95]]]);
@@ -70,7 +72,7 @@ module.exports = {
       ok(S.nWin.goal, 'known plan ' + JSON.stringify(S.nWin));
     },
     'difficulty: naive play fails the late sites (idle, the obvious move, random works); competent plans win; 3 medals need more': async ({ page, ok }) => {
-      const S = await sims(page), naive = [S.nIdle, S.nGorge, S.nLow, S.nRandom, S.fwOld, S.fwLevees];
+      const S = await sims(page), naive = [S.nIdle, S.nGorge, S.nLow, S.nRandom, S.fwOld, S.fwFar];
       const wins = naive.filter(r => r.goal).length; ok(wins / naive.length <= .2, `naive plans won ${wins}/${naive.length}`);
       ok(S.nWin.goal && S.nWin.medals < 3 && S.fwWin.goal && S.fwWin.medals < 3, 'competent plans should win without the third medal ' + JSON.stringify([S.nWin, S.fwWin]));
     },

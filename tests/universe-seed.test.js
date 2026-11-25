@@ -32,9 +32,9 @@ module.exports = {
       ok(await page.isVisible('#skipBtn')); await page.waitForTimeout(2500);
       eq(await page.evaluate(() => __us.run.idx), 1);
       await page.click('#skipBtn'); eq(await page.evaluate(() => [__us.run.done, __us.run.o.broke.name]), [true, 'Planets']);
-      ok(/four dimensions/.test(await page.textContent('#why')));
+      ok(/stable orbits/.test(await page.textContent('#why')), await page.textContent('#why'));
       eq(await page.locator('#ribbon button.broken').count(), 1); eq(await page.locator('#ribbon button.ok').count(), 6);
-      await page.click('#ribbon button[data-i="4"]'); ok(/Stars ignite/.test(await page.textContent('#why')));
+      await page.click('#ribbon button[data-i="4"]'); ok(/sun-like star lives/.test(await page.textContent('#why')));
       ok(/Universe 1/.test(await page.textContent('#p-atlas')));
     },
     'measurements are only shown for universes you have run, not the laws you are about to try': async ({ page, ok }) => {
@@ -49,10 +49,27 @@ module.exports = {
       await page.click('.tabs button[data-t="laws"]');
       await page.click('#p-laws [data-k="G"][data-j="3"]'); await page.click('#bangBtn'); await page.click('#skipBtn'); // fails: stars burn out
       eq(await page.evaluate(() => [__us.M.chal.heavy, __us.M.att.heavy]), [undefined, 1]);
-      await page.click('#p-laws [data-k="a"][data-j="2"]'); await page.click('#bangBtn'); await page.click('#skipBtn');
+      await page.click('.tabs button[data-t="laws"]'); await page.click('#p-laws [data-k="a"][data-j="2"]'); await page.click('#bangBtn'); await page.click('#skipBtn');
       eq(await page.evaluate(() => [__us.M.chal.heavy, __us.M.active]), [{ n: 2, st: 3 }, null]);
       eq(await page.evaluate(() => [__us.starsFor('heavy', 2, 5), __us.starsFor('heavy', 3, 1), __us.starsFor('heavy', 4, 1), __us.starsFor('heavy', 2, 0)]), [2, 2, 1, 2]);
-      eq(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub'))['universe-seed']), 1 / 13);
+      eq(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub'))['universe-seed']), 1 / 14);
+    },
+    'law cards explain in plain words, with "in our universe / at this setting" on hover, and live previews': async ({ page, ok, eq }) => {
+      await dismiss(page);
+      eq(await page.locator('#p-laws canvas.prev').count(), 6);
+      ok(/A sun lives about 10 billion years/.test(await page.textContent('[data-cmp="G"]')));
+      await page.hover('#p-laws [data-k="G"][data-j="4"]'); const t = await page.textContent('[data-cmp="G"]'); ok(/In our universe/.test(t) && /black hole/.test(t), t);
+      ok(await page.evaluate(() => { const c = document.querySelector('canvas.prev[data-prev="G"]').getContext('2d').getImageData(0, 0, 96, 60).data; let n = 0; for (let i = 0; i < c.length; i += 4) if (c[i] > 150) n++; return n > 10; }), 'preview drawn');
+    },
+    'first experiment walks through changing one law; History names the culprit of a broken link': async ({ page, ok, eq }) => {
+      await dismiss(page);
+      ok(await page.isVisible('.tut')); ok(await page.isVisible('#p-laws [data-k="G"][data-j="1"].pulse'));
+      await page.click('#p-laws [data-k="G"][data-j="1"]'); await page.click('#bangBtn'); await page.click('#skipBtn');
+      ok(await page.evaluate(() => !!__us.M.chal.first)); ok(await page.isVisible('#p-hist'), 'History tab opens after the bang');
+      ok(/Gravity 0\.3× → a sun-like star lives/.test(await page.textContent('#p-hist')));
+      await page.click('.tabs button[data-t="laws"]'); eq(await page.isVisible('.tut'), false);
+      await page.click('#p-laws [data-k="G"][data-j="4"]'); await page.click('#bangBtn'); await page.click('#skipBtn');
+      ok(/Culprit: Gravity 10×/.test(await page.textContent('#p-hist .hl.broken')), await page.textContent('#p-hist .hl.broken'));
     },
     'difficulty: naive play fails': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const X = __us; const late = X.CHAL.slice(-4); let seed = 1; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) % n; };
