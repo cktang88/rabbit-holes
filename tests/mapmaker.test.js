@@ -259,11 +259,15 @@ module.exports = {
         return { d: M.lastDrift && [Math.round(M.lastDrift.off), M.lastDrift.dir], log: M.S.log[1].t, modals, txt: window.__lastModal }; });
       eq(r.d, [10, 'west']); ok(/current carried us 36 miles south-east/.test(r.log), r.log); eq(r.modals, 1, 'explained only once'); ok(/Dead reckoning/.test(r.txt), r.txt);
     },
-    'first commission walkthrough: set sail → chart the coast → take bearings → allow for current → deliver': async ({ page, eq }) => {
-      const r = await page.evaluate(() => { const M = window.__map, S = M.S; const steps = []; const look = () => { M.renderOrders(); steps.push(S.tut); };
-        look(); M.atPort = false; M.ship.sail = 2; look(); S.ink = M.islands[0].coast.slice(0, Math.ceil(M.islands[0].coast.length * 0.2)).map(p => [p[0], p[1]]); M.hashInk(); look();
-        S.tutFix = 1; look(); S.allow = true; look(); S.done[0] = 1; look(); return { steps, hidden: document.getElementById('orders').hidden }; });
-      eq(r.steps, [0, 1, 2, 3, 4, 5]); eq(r.hidden, true);
+    'first commission walkthrough: one step at a time, never skipped: half sail to the ring → chart the coast → bearings → allow for current → deliver': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const M = window.__map, S = M.S; const steps = []; const adv = () => { M.simClock += 2; M.renderOrders(); steps.push(S.tut); };
+        adv(); // at port: still step 0
+        const [sx, sy] = S.tutSpot; M.atPort = false; M.ship = { x: sx, y: sy, bx: sx, by: sy, h: 0, sail: 1, voyageDmg: 0 }; S.tutFix = 1; S.allow = true; // everything later already "true": must still go one step at a time
+        S.ink = M.islands[0].coast.slice(0, Math.ceil(M.islands[0].coast.length * 0.3)).map(p => [p[0], p[1]]); M.hashInk();
+        adv(); adv(); adv(); // 0 → 1 → 2 (needs a charted landmark in sight) → stays at 2 until a bearing is taken while step 3 is showing
+        const f = M.bearingFix(); if (!f.err) M.fixAt(f.x, f.y, 'Bearings taken on two charted landmarks'); else { const c = M.islands[0].coast[0]; M.ship = { x: c[0] + 20, y: c[1], bx: c[0] + 20, by: c[1], h: 0, sail: 1, voyageDmg: 0 }; const g = M.bearingFix(); M.fixAt(g.x || M.ship.x, g.y || M.ship.y, 'Bearings taken on two charted landmarks'); }
+        adv(); adv(); S.done[0] = 1; adv(); return { steps, hidden: document.getElementById('orders').hidden }; });
+      eq(r.steps, [0, 1, 2, 2, 3, 4, 5]); eq(r.hidden, true);
     },
     'event sounds are rate-limited: a burst of bumps makes one soft knock, not a scrape': async ({ page, eq }) => {
       const n = await page.evaluate(() => { let c = 0; const t = FX.tone; FX.tone = () => { c++; }; const M = window.__map; for (let i = 0; i < 6; i++) M.damage(1, 'x'); FX.tone = t; return c; });
@@ -275,7 +279,7 @@ module.exports = {
       const steps = [];
       await page.evaluate(() => { const M = window.__map; M.S = M.freshSave(424242); M.boot(); RH.modal = () => Promise.resolve(); });
       steps.push(await page.evaluate(() => (window.__map.renderOrders(), window.__map.S.tut)));
-      await page.click('#sails [data-sail="2"]');
+      await page.click('#sails [data-sail="1"]'); const spot = await page.evaluate(() => (window.__map.renderOrders(), window.__map.S.tutSpot)); await sailTo(spot[0], spot[1], 2500); await page.click('#sails [data-sail="2"]');
       const ring = await page.evaluate(() => { const is = window.__map.islands[0]; const cs = is.coast.slice().sort((a, b) => Math.atan2(a[1] - is.cy, a[0] - is.cx) - Math.atan2(b[1] - is.cy, b[0] - is.cx)); const out = []; for (let k = 0; k < cs.length; k += Math.max(1, Math.floor(cs.length / 14))) { const [x, y] = cs[k], dx = x - is.cx, dy = y - is.cy, L = Math.hypot(dx, dy); out.push([x + dx / L * 26, y + dy / L * 26]); } return out; });
       for (let k = 0; k < ring.length; k++) { await sailTo(ring[k][0], ring[k][1], 1500);
         // a careful newcomer takes bearings now and then, and follows the orders

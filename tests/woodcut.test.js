@@ -141,6 +141,11 @@ module.exports = {
         return { out, rt: d.every((v, i) => v === a[i]) }; });
       for (const s of r.out) ok(s > .99, 'prompt solution ' + s); eq(r.rt, true);
     },
+    'regression: a failed print shows no stars on the result card': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const w = __wc; w.load(0); w.carveState(0); w.pull(0); w.pull(1); return { pass: w.result.pass, stars: w.result.stars, html: document.getElementById('toast').innerHTML }; });
+      eq(r.pass, false); eq(r.stars, 0); ok(!/[★☆]/.test(r.html), 'star glyphs shown on a failed print'); ok(/not yet/.test(r.html));
+      const w2 = await page.evaluate(() => { __wc.solve(0); return document.getElementById('toast').innerHTML; }); ok(/★★★/.test(w2), 'passed print should show its stars');
+    },
     'touch straight cuts: tap where the cut starts, tap where it ends': async ({ page, ok, eq }) => {
       await page.evaluate(() => { __wc.load(0); document.querySelector('#tools [data-t="v"]').click(); });
       const b = await page.evaluate(() => { const x = __wc.boxes; return { x: x.B.x / x.dpr, y: x.B.y / x.dpr, s: x.B.s / x.dpr }; });

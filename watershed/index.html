@@ -32,6 +32,7 @@
   #score td.v{text-align:right;font-variant-numeric:tabular-nums}
   #score td.t{text-align:right;color:var(--ink2);font-weight:500;width:70px}
   #score td.ok{width:18px;text-align:center;font-weight:700}
+  #score tr.pace td{font-style:italic;font-weight:500;color:var(--ink2);border-bottom:2px solid rgba(38,35,30,.25)}#score tr.pace.bad td.v{color:var(--red)}
   #score tr.good td.ok{color:var(--green)}#score tr.bad td.ok{color:var(--red)}#score tr.bad td.v{color:var(--red)}
   /* the years: one tick per season, storms drawn as clouds */
   #years{display:flex;gap:2px;margin-top:8px;align-items:flex-end;height:26px}
@@ -134,7 +135,7 @@
 </div></div>
 <div id="levels"></div>
 <div id="tools"></div>
-<div id="speed"><button id="go" data-s="1">▶ Run</button><button data-s="3" title="Fast">▶▶</button><button data-s="0" title="Pause">❚❚</button><button id="restart" title="Start this site again">↺</button><button id="mute" title="Sound">♪</button></div>
+<div id="speed"><button id="go" data-s="1">▶ Run</button><button data-s="3" title="Fast">▶▶</button><button data-s="8" title="Fastest">▶▶▶</button><button data-s="0" title="Pause">❚❚</button><button id="restart" title="Start this site again">↺</button><button id="mute" title="Sound">♪</button></div>
 <div id="hint">Pick a piece, then tap the model to place it (drag for levees, dams and cuts) · right-drag or two fingers turn it</div>
 <div id="msg" role="status"></div>
 <div id="report" role="dialog" aria-label="Survey report"></div>
@@ -787,6 +788,11 @@ function renderScore() {
   const W = L.want || {}, S = stat, rows = [];
   const row = (label, v, t, ok) => rows.push(`<tr class="${ok == null ? '' : ok ? 'good' : 'bad'}"><td>${label}</td><td class="v">${v}</td><td class="t">${t}</td><td class="ok">${ok == null ? '' : ok ? '✓' : '✗'}</td></tr>`);
   if (L.kit.farm) row('Harvest (bu)', S.harvest.toLocaleString('en') + (lastYield ? ` <small>+${lastYield}</small>` : ''), W.harvest != null ? '≥ ' + W.harvest.toLocaleString('en') : '', W.harvest != null ? S.ok.harvest : null);
+  // from year 2, a projection: at this pace, where will you end up?
+  const pace = (v, last) => Math.round(v + last * Math.max(0, L.years - year));
+  if (L.kit.farm && W.harvest != null && year >= 2 && !over) { const last = (history.slice(-3).reduce((a, h) => a + h.y, 0)) / Math.min(3, history.length), p = pace(S.harvest, last);
+    rows.push(`<tr class="pace ${p >= W.harvest ? 'good' : 'bad'}"><td>On pace for</td><td class="v">~${p.toLocaleString('en')}</td><td class="t">bu</td><td class="ok">${p >= W.harvest ? '✓' : '✗'}</td></tr>`); }
+  if (L.kit.dam && W.power != null && year >= 2 && !over) { const p = pace(S.power, S.power / year); rows.push(`<tr class="pace ${p >= W.power ? 'good' : 'bad'}"><td>On pace for</td><td class="v">~${p}</td><td class="t">GWh</td><td class="ok">${p >= W.power ? '✓' : '✗'}</td></tr>`); }
   towns.forEach(t => row(t.n + ' floods', t.floods, W.floods != null ? '≤ ' + W.floods : '', W.floods != null ? t.floods <= W.floods : null));
   if (L.dam) row('Reservoir capacity', S.capPct.toFixed(0) + '%', W.cap != null ? '≥ ' + W.cap + '%' : '', W.cap != null ? S.ok.cap : null);
   if (L.kit.dam) row('Power (GWh)', S.power, W.power != null ? '≥ ' + W.power : '', W.power != null ? S.ok.power : null);
@@ -883,7 +889,7 @@ function celebrate(n) { glow = 1; spin = n >= 2 ? 1 : .5; FX.shake(.2); }
 // ================= main loop =================
 // Fixed timestep: 120 sim steps per second at 1×, independent of display refresh. Steps per frame are capped
 // adaptively by measured step cost, so a slow device runs the sim slower instead of dropping frames.
-const STEP_RATE = 120, FRAME_BUDGET_MS = MOBILE ? 7 : 9;
+const STEP_RATE = 120, FRAME_BUDGET_MS = MOBILE ? 7 : 9, FAST_BUDGET_MS = MOBILE ? 18 : 26; // the fastest speed trades smoothness for years
 let last = performance.now(), acc = 0, stepCost = 1.5, frameN = 0, geomDirty = true, raf = 0;
 const warm = new THREE.Color('#ffb35c'), cool = new THREE.Color('#fff1dc');
 function loop(now) {
@@ -892,7 +898,7 @@ function loop(now) {
   let n = 0;
   if (speed > 0 && !over) {
     acc += dt * STEP_RATE * speed;
-    const maxSteps = Math.max(1, Math.floor(FRAME_BUDGET_MS / stepCost));
+    const maxSteps = Math.max(1, Math.floor((speed >= 8 ? FAST_BUDGET_MS : FRAME_BUDGET_MS) / stepCost));
     n = Math.min(Math.floor(acc), maxSteps); acc -= n; if (acc > maxSteps) acc = 0; // drop backlog rather than spiral
     if (n) { const t0 = performance.now(); for (let i = 0; i < n && !over; i++) step(); stepCost += ((performance.now() - t0) / n - stepCost) * .1; geomDirty = true; }
     if (frameN % 15 === 0) { measure(); renderScore(); renderYears(); }

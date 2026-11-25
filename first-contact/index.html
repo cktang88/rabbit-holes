@@ -121,6 +121,7 @@
   .goal .gl0{font-family:"VT323",monospace;font-size:18px;color:var(--crt);background:var(--amber);padding:0 6px;margin-right:4px;border-radius:2px}
   .goal .prog{display:inline-block;margin-left:6px;color:#8fd08a}
   .goal button{margin-top:8px}
+  .goal .jump{margin:4px 0 0 6px;padding:3px 10px;font-size:17px;vertical-align:middle}
   .strip{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
   .strip .mini{background:var(--paper);color:var(--ink);padding:6px;border-radius:4px;display:flex;flex-direction:column;align-items:center;gap:4px;width:128px}
   .strip .pic{width:116px;height:75px;background:var(--crt);border-radius:6px;overflow:hidden}
@@ -577,7 +578,7 @@ function render(){
       jam();
     };
   });
-  renderNotebook(); applyCoach();
+  renderNotebook(); applyCoach(); focusCard();
 }
 // one transmission: the reply is checked, a miss is counted (misses cost stars and jam the channel)
 function transmit(id, comp){
@@ -678,6 +679,15 @@ function goalText(){
   const plain=ch.qs[k].prompt.replace(/<[^>]+>/g,'');
   return `<b>Reply ${k+1} of ${req(i).length}:</b> ${plain} <span class="dim">Read the frames, pencil guesses on the cards, use SETI hint if you're stuck.</span>`;
 }
+// which reply the current goal is about (null when the goal is something else)
+function replyTarget(){
+  if (tutOn()) return S.tut>=4 ? S.tut-4 : null;
+  const i=S.chapter, k=req(i).find(j=>!S.solved[i+':'+j]); return k ?? null;
+}
+let lastReplyGoal=null;
+function scrollToReply(k){ const q=document.querySelector(`#feed .q[data-q="${k}"]`); if (!q) return; const feed=document.getElementById('feed'), goal=document.getElementById('goal');
+  const top=q.getBoundingClientRect().top-feed.getBoundingClientRect().top+feed.scrollTop-(goal?goal.offsetHeight+8:0);
+  if (feed.scrollHeight>feed.clientHeight+4) feed.scrollTo({top,behavior:'smooth'}); else window.scrollTo({top:q.getBoundingClientRect().top+scrollY-(goal?goal.offsetHeight+8:0),behavior:'smooth'}); }
 function applyCoach(){
   const g=document.getElementById('goal'); if (!g) return;
   document.querySelectorAll('.coach').forEach(e=>e.classList.remove('coach'));
@@ -687,7 +697,10 @@ function applyCoach(){
     if (st.strip){ const b=LANG.base; h+=`<div class="strip">${[b-1,b,b+1,b+2].map(n=>`<div class="mini"><div class="pic">${picDots(n)}</div>${sentenceHTML(num(n))}<i>${n===b-1?'the last single symbol':n===b?'one bundle, none loose':`one bundle, ${n-b} loose`}</i></div>`).join('')}</div>`; }
     if (st.button) h+=`<button class="primary" id="coachBtn">${st.button}</button>`;
   }
+  const rk=replyTarget(); if (rk!=null) h+=` <button class="jump" id="toReply">↓ Reply ${rk+1}</button>`;
   g.innerHTML=h;
+  document.getElementById('toReply')?.addEventListener('click',()=>scrollToReply(rk));
+  if (rk!=null && lastReplyGoal!==S.chapter+':'+rk+':'+S.tut){ const first=lastReplyGoal==null; lastReplyGoal=S.chapter+':'+rk+':'+S.tut; if (!first || tutOn()) setTimeout(()=>scrollToReply(rk),350); }
   document.getElementById('coachBtn')?.addEventListener('click',()=>{ coach.seen=true; coachTick(); });
   g.querySelectorAll('.g[data-w]').forEach(el=>el.onclick=()=>focusGlyph(el.dataset.w));
   const card=document.querySelector('.nbRow.coach'); if (card && document.body.classList.contains('lex')) card.scrollIntoView({block:'nearest'});
@@ -718,12 +731,16 @@ function evidenceHint(){
   const w=want[0]; S.seti[w] = /^D\d+$/.test(w) ? `digit ${w.slice(1)}` : MEANING[w]; if (!forgiving(i+':0')) S.hints[i]=(S.hints[i]||0)+1; persist(); render(); focusGlyph(w);
   say(`SETI team: "We're fairly sure this one means <b>${S.seti[w]}</b>."${forgiving(i+':0')? '' : ' (costs a star\'s worth: counts as a miss)'}`, 5000);
 }
+let wantFocus=null, wantAt=0; // the card whose pencil line should get the cursor right after a tap (survives the re-render that follows)
+function focusCard(){ const w=wantFocus; if (!w || Date.now()-wantAt>2500) return; const row=document.querySelector(`.nbRow[data-w="${w}"]`); if (!row) return;
+  document.querySelectorAll('.nbRow.hl').forEach(e=>e.classList.remove('hl')); row.classList.add('hl'); row.scrollIntoView({block:'nearest'});
+  const inp=row.querySelector('input'); if (document.activeElement!==inp) inp.focus({preventScroll:true}); }
 function focusGlyph(w){
   if (tutOn() && S.tut===0) { if (w!=='D1') return say('That is a different frame\'s symbol. Frame 002 is the one with a single dot.', 2600); coach.tapped = true; setTimeout(coachTick,0); }
   if (phone()) lex(true); // on a phone the lexicon is a drawer: tapping a glyph opens it at that card
   document.querySelectorAll('.g.hl,.nbRow.hl').forEach(e=>e.classList.remove('hl'));
   document.querySelectorAll(`#feed .g[data-w="${w}"]`).forEach(e=>e.classList.add('hl'));
-  const row=document.querySelector(`.nbRow[data-w="${w}"]`); if(row){ row.classList.add('hl'); row.scrollIntoView({block:'nearest'}); if (!matchMedia('(pointer:coarse)').matches) row.querySelector('input').focus(); }
+  wantFocus=w; wantAt=Date.now(); focusCard();
 }
 function renderNotebook(){
   const confs=['?','~','✓'];
@@ -732,7 +749,7 @@ function renderNotebook(){
   document.querySelectorAll('.nbRow').forEach(row=>{ const w=row.dataset.w;
     row.querySelector('svg').onclick=()=>focusGlyph(w);
     const inp=row.querySelector('input');
-    inp.onkeydown=e=>{ if (e.key==='Enter'){ e.preventDefault(); tutCheckNote(w); if (phone()) lex(false); } };
+    inp.onkeydown=e=>{ if (e.key==='Enter'){ e.preventDefault(); wantFocus=null; inp.blur(); tutCheckNote(w); if (phone()) lex(false); } };
     inp.onchange=()=>tutCheckNote(w);
     inp.oninput=()=>{ S.notes[w]=inp.value; if (S.bad) delete S.bad[w]; persist(); document.querySelectorAll(`#feed .g[data-w="${w}"] .gl`).forEach(e=>e.textContent=S.gloss?glossOf(w):''); };
     inp.onfocus=()=>{ document.querySelectorAll('#feed .g.hl').forEach(e=>e.classList.remove('hl')); document.querySelectorAll(`#feed .g[data-w="${w}"]`).forEach(e=>e.classList.add('hl')); };
@@ -763,7 +780,7 @@ function boot(){
   render();
 }
 boot();
-window.__fc = { TUT, coachTick, tutOn, goalText, evidenceHint, picDots, buildChapters, transmit, chStars, chMisses, guessRight, gradeNotes, ord, picPoly, planetIn, get S(){ return S; }, get LANG(){ return LANG; }, get CH(){ return CH; }, buildLanguage, num, np, clause, cleanSave, seenUpTo, chapterUnlocked, allSolved, solve, render, newSignal, LOCKOUT, lockFor, misses, meaningOf };
+window.__fc = { replyTarget, scrollToReply, TUT, coachTick, tutOn, goalText, evidenceHint, picDots, buildChapters, transmit, chStars, chMisses, guessRight, gradeNotes, ord, picPoly, planetIn, get S(){ return S; }, get LANG(){ return LANG; }, get CH(){ return CH; }, buildLanguage, num, np, clause, cleanSave, seenUpTo, chapterUnlocked, allSolved, solve, render, newSignal, LOCKOUT, lockFor, misses, meaningOf };
 if (!S.intro){ S.intro=1; persist(); RH.modal(`<h2>FIRST CONTACT</h2><p class="lede">An alien radio signal is a picture followed by symbols. Work out what the symbols mean, then reply in their language.</p>
   <div class="annot"><div class="pic">${picDots(3)}</div><div class="arr">these symbols<br>describe<br>this picture<br><span>⟵ ⟶</span></div>${sentenceHTML(num(3))}</div>
   <p>Transmission 1 walks you through it: count, name the symbols, reply.</p><p class="dim">All eight transmissions come from one species. Pencil your guesses on the lexicon cards: when a transmission is decoded, the SETI team checks them. Tune in to a new signal and it's a new species with a new grammar.</p>`,[{label:'Start listening'}]); }

@@ -190,7 +190,7 @@ function powerOf(x0, x1, x2, d1, d2) { // drag power for body motion (x0, x1, x2
 const LV = [
   { n: 'The Scallop', chapter: 'I · Purcell\'s swimmer', hinges: 1, mirror: 1, start: [0, 0, Math.PI / 2], line: 2.5, obstacles: [],
     story: 'You are a bacterium. At your size water is like <b>honey</b>: stop moving and you stop dead, with no gliding. You have <b>one hinge</b>, like a scallop. Open and close it any way you like, even <b>fast one way and slow the other</b> (the <i>fast open, slow close</i> key), and try to swim across the line.',
-    goal: 'Try to cross the line. Do 8 strokes with any stroke you like.', test: S => S.cycles >= 8, lesson: '<b>The scallop theorem.</b> With one hinge, every stroke runs backwards over exactly the path it came. In honey, undoing a stroke undoes the motion. Speed doesn\'t matter, fast or slow: you can\'t swim. (E. M. Purcell, 1976)' },
+    goal: 'Choose a stroke (drag left and right on the pad, or press a stroke key) and try to cross the line. Do 8 strokes.', waitAct: 1, test: S => S.acted && S.cycles >= 8, lesson: '<b>The scallop theorem.</b> With one hinge, every stroke runs backwards over exactly the path it came. In honey, undoing a stroke undoes the motion. Speed doesn\'t matter, fast or slow: you can\'t swim. (E. M. Purcell, 1976)' },
   { n: 'Two Hinges', chapter: 'I · Purcell\'s swimmer', hinges: 2, start: [0, 0, 0], line: 2.5, dir: 1, obstacles: [],
     story: 'Purcell\'s fix: <b>two hinges</b>. Now a stroke can trace a <b>loop</b> in shape space, going out one way and coming back another. That is a stroke time can\'t simply rewind.',
     goal: 'Draw your <b>own</b> loop on the pad (the presets don\'t count here) and cross the line 2.5 body lengths ahead.', test: S => S.reached && S.drawn, lesson: 'Net motion comes from the <b>area</b> your loop encloses. A back-and-forth line has no area and goes nowhere.' },
@@ -281,7 +281,7 @@ function presetLoop(p) {
   if (p === 'square') { const a = 1.2, c = [[-a, a], [a, a], [a, -a], [-a, -a]], out = []; for (let s = 0; s < 4; s++) for (let k = 0; k < 16; k++) { const A = c[s], B = c[(s + 1) % 4]; out.push([A[0] + (B[0] - A[0]) * k / 16, one ? 0 : A[1] + (B[1] - A[1]) * k / 16]); } return out; }
   if (p === 'line') return Array.from({ length: n }, (_, i) => { const t = Math.sin(i / n * Math.PI * 2) * 1.2; return [t, one ? 0 : t]; });
 }
-function preset(p) { setLoop(presetLoop(p)); }
+function preset(p) { setLoop(presetLoop(p)); St.acted = true; }
 // Change the stroke. The pose never jumps: it travels in a straight line through shape space to the
 // nearest point of the new loop, and that journey moves the body and costs energy like any other.
 function setLoop(nl, snap = false) {
@@ -468,15 +468,15 @@ pad.addEventListener('pointerup', () => {
   if (drawing.length > 3) {
     if (L.hinges === 1) { let lo = Infinity, hi = -Infinity; for (const p of drawing) { lo = Math.min(lo, p[0]); hi = Math.max(hi, p[0]); } setLoop(Array.from({ length: 48 }, (_, i) => [lo + (hi - lo) * (.5 - .5 * Math.cos(i / 48 * Math.PI * 2)), 0])); }
     else setLoop(resample(drawing, 64));
-    St.drawn = true; FX.sfx('place');
+    St.drawn = St.acted = true; FX.sfx('place');
   }
   drawing = null;
 });
 function resample(pts, n) { const d = [0]; for (let i = 1; i <= pts.length; i++) { const a = pts[i - 1], b = pts[i % pts.length]; d.push(d[i - 1] + Math.hypot(b[0] - a[0], b[1] - a[1])); } const tot = d[d.length - 1], out = []; let j = 0; for (let k = 0; k < n; k++) { const t = k / n * tot; while (d[j + 1] < t) j++; const a = pts[j], b = pts[(j + 1) % pts.length], f = (t - d[j]) / Math.max(1e-9, d[j + 1] - d[j]); out.push([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]); } return out; }
 document.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { preset(b.dataset.p); FX.sfx('click'); });
-function reverseLoop() { setLoop(loop.slice().reverse()); FX.sfx('whoosh'); }
+function reverseLoop() { setLoop(loop.slice().reverse()); St.acted = true; FX.sfx('whoosh'); }
 $('rev').onclick = reverseLoop;
-$('asym').onclick = () => { asym = !asym; $('asym').classList.toggle('on', asym); FX.sfx('click'); };
+$('asym').onclick = () => { asym = !asym; St.acted = true; $('asym').classList.toggle('on', asym); FX.sfx('click'); };
 $('play').onclick = () => { playing = !playing; $('play').textContent = playing ? '❚❚' : '▶'; FX.sfx('click'); };
 document.querySelectorAll('[data-s]').forEach(b => b.onclick = () => { speed = +b.dataset.s; document.querySelectorAll('[data-s]').forEach(x => x.classList.toggle('on', x === b)); FX.sfx('click'); });
 $('storyT').onclick = () => { const on = $('hud').classList.toggle('story'); $('storyT').setAttribute('aria-expanded', on); $('storyT').textContent = on ? 'Hide' : 'Notes'; layout(); };
@@ -678,6 +678,7 @@ function failHint() {
   return `You got ${got.toFixed(2)} of ${need} body lengths in ${L.maxCycles} strokes (${pct}%). ` + (pct < 50 ? 'Draw a <b>bigger</b> loop that sits over the brightest amber (or darkest blue, run backwards) patch.' : 'Nearly! Make the loop a bit bigger.');
 }
 function hintText() {
+  if (L.waitAct && !St.acted) return 'Your move: drag left and right on the pad to set a stroke (or press a stroke key). Nothing swims until you do.';
   if (St.blocked) return 'Blocked by a sand grain. Press ↺ reverse or pick another loop to back away.';
   if (L.hinges === 1 && St.cycles >= 2 && !won) return asym ? 'Fast one way, slow the other: still no net progress.' : 'Try fast open, slow close. Does speed help?';
   if (L.line != null && !L.maxCycles && !L.budget) { const away = (sw.x - L.start[0]) * Math.sign(L.line); if (away < -.6) return 'You are drifting away from the line. Try ↺ reverse.'; }
@@ -690,7 +691,7 @@ function frame(now) {
   if (document.hidden) { last = now; return; }
   const dt = Math.min(.05, (now - last) / 1000); last = now;
   if (L.body && playing && !won && !failed) { const k = speed / 3; for (let q = 0; q < 4; q++) (L.body === 'coli' ? coliStep : tailStep)(dt * k / 4); const n = trail.length; if (!n || Math.hypot(trail[n - 2] - sw.x, trail[n - 1] - sw.y) > .05) { trail.push(sw.x, sw.y); if (trail.length > 4000) trail.splice(0, 2); } }
-  if (!L.body && playing && !won && !failed) {
+  if (!L.body && playing && !won && !failed && (!L.waitAct || St.acted)) {
     advance(dt * 2.2 * speed);
     const n = trail.length; if (!n || Math.hypot(trail[n - 2] - sw.x, trail[n - 1] - sw.y) > .02) { trail.push(sw.x, sw.y); if (trail.length > 3000) trail.splice(0, 2); }
   }

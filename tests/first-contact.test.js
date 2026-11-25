@@ -111,6 +111,17 @@ module.exports = {
         await ctx.close();
       }
     },
+    'onboarding: tapping a symbol puts the cursor on its card, and the goal bar jumps to the reply': async ({ page, ok }) => {
+      await closeModals(page);
+      await page.locator('#feed .tx[data-tx="1"] .sentence .g').click(); await page.waitForTimeout(300);
+      ok(await page.evaluate(() => document.activeElement && document.activeElement.closest('.nbRow')?.dataset.w === 'D1'), 'card input not focused');
+      await page.keyboard.type('1'); await page.keyboard.press('Enter'); await page.waitForTimeout(200);
+      ok(await page.evaluate(() => window.__fc.S.known.D1), 'typing straight away should pencil the card');
+      await page.evaluate(() => { const fc = window.__fc; fc.S.tut = 4; fc.render(); }); await page.waitForTimeout(900);
+      ok(await page.locator('#toReply').isVisible(), 'no reply jump in the goal bar');
+      const vis = await page.evaluate(() => { const q = document.querySelector('#feed .q[data-q="0"]').getBoundingClientRect(); return q.top < innerHeight && q.bottom > 0; });
+      ok(vis, 'the reply should be scrolled into view when it becomes the goal');
+    },
     'tutorial: a wrong pencilled number is flagged, not accepted; hints point at the evidence, not the answer': async ({ page, ok, eq }) => {
       await closeModals(page);
       const r = await page.evaluate(() => { const fc = window.__fc; fc.S.tut = 1; fc.render();

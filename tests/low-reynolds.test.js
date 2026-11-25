@@ -85,7 +85,7 @@ module.exports = {
           if (L.line != null) St.reached = L.maxCycles || L.budget ? Math.abs(sw.x - L.start[0]) >= Math.abs(L.line) : (L.line > 0 ? sw.x >= L.line : sw.x <= L.line); };
         const until = (cond, step = .05, max = 40000) => { let k = 0; while (!cond() && k++ < max) { X.advance(step); tick(); } tick(); };
         X.LV.forEach((l, i) => { X.load(i); tick(); o['start' + i] = l.test(X.St()); });
-        X.load(0); until(() => X.St().cycles >= 8); o.s0 = W();
+        X.load(0); until(() => X.St().cycles >= 8); o.w0 = W(); X.load(0); X.preset('line'); until(() => X.St().cycles >= 8); o.s0 = W();
         X.load(1); until(() => X.sw().x >= 2.6, .1, 4000); o.p1 = W(); X.load(1); X.drawLoop(circ(1.1, 0, 0)); until(() => X.sw().x >= 2.6, .1, 4000); o.s1 = W();
         X.load(2); pilot([[1.8, -2.6], [5.4, -2.6, .6]]); tick(); o.s2 = W();
         X.load(3); X.asym = false; until(() => X.St().cycles >= 40, .1); o.w3 = W(); X.load(3); X.asym = true; until(() => X.St().reached || X.St().cycles >= 80, .1); o.s3 = W(); X.asym = false;
@@ -95,8 +95,14 @@ module.exports = {
         return o; });
       for (let i = 0; i < 9; i++) ok(!R['start' + i], `level ${i} solved at start`);
       for (const k of ['s0', 's1', 's2', 's3', 's4', 's5', 's6', 's7', 's8']) ok(R[k], `${k} not solved: ` + JSON.stringify(R));
-      for (const k of ['w3', 'p1']) ok(!R[k], `${k}: wrong strategy won`);
+      for (const k of ['w0', 'w3', 'p1']) ok(!R[k], `${k}: wrong strategy won`);
       for (const k of ['w4', 'w5', 'w6', 'w7', 'w8']) ok(R[k], `${k}: the naive strategy should fail`);
+    },
+    'level 1 waits for the player: idling never wins, and nothing swims until a stroke is chosen': async ({ page, eq, ok }) => {
+      await page.evaluate(() => { __lr.load(0); __lr.playing = true; }); await page.click('[data-s="8"]'); await page.waitForTimeout(4000);
+      eq(await page.evaluate(() => [__lr.won, __lr.St().strokes]), [false, 0], 'the default stroke ran by itself');
+      ok(/Your move/.test(await page.textContent('#stat')), 'prompt for the first stroke');
+      await page.click('[data-p="line"]'); await page.waitForFunction(() => __lr.won, null, { timeout: 20000 });
     },
     'goo: a reciprocal stroke swims only when it is fast one way and slow the other': async ({ page, ok, near }) => {
       await setup(page);
@@ -152,7 +158,7 @@ module.exports = {
     },
     'level change hides the previous lesson toast; locked levels are refused': async ({ page, eq, ok }) => {
       await setup(page);
-      await page.evaluate(() => { __lr.load(0); while (__lr.St().cycles < 8) __lr.advance(.1); __lr.playing = true; });
+      await page.evaluate(() => { __lr.load(0); __lr.preset('line'); while (__lr.St().cycles < 8) __lr.advance(.1); __lr.playing = true; });
       await page.waitForFunction(() => __lr.won, null, { timeout: 5000 });
       ok(await page.$eval('#toast', t => t.classList.contains('on')));
       ok(await page.evaluate(() => __lr.shutter > 0), 'photomicrograph shutter fired'); ok(/OBSERVED/.test(await page.textContent('#toast')), 'stamped');

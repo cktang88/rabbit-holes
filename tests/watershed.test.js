@@ -123,6 +123,12 @@ module.exports = {
       await p.touchscreen.tap(x, y); await p.waitForTimeout(300); eq(await p.evaluate(() => __ws.works.map(w => w.t)), ['farm'], 'a tap should place a field');
       await ctx.close();
     },
+    'pace: from year 2 the clipboard projects the harvest, and it calls a doomed layout early': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const W = __ws; W.forgetPlans(); W.buildLevel(0); W.plan([['farm', [30, 50]], ['farm', [30, 62]]]); W.runYears(1); W.measure(); W.setSpeed(0);
+        const early = !!document.querySelector('#score tr.pace'); W.runYears(2); W.setSpeed(0); const row = document.querySelector('#score tr.pace'); return { early, txt: row && row.textContent, bad: row && row.classList.contains('bad') }; });
+      ok(!r.early && r.txt && /On pace for/.test(r.txt) && r.bad, JSON.stringify(r));
+      ok(await page.locator('#speed [data-s="8"]').isVisible(), 'fastest speed button');
+    },
     'saves: corrupted and old saves load safely; progress counts medals and never exceeds 1': async ({ page, eq }) => {
       eq(await page.evaluate(() => [null, 'x', { v: 2, done: { 0: 1 }, cur: 3 }, { v: 3, medals: { 0: 2, 1: 9, 5: 1, z: 1 }, cur: 1, plans: { 0: [['farm', [62, 75], [62, 75]]], 1: [['bomb', [1, 1], [1, 1]]], 2: 'x' } }].map(__ws.cleanSave)),
         [{ v: 3, medals: {}, plans: {}, cur: 0, intro: 0 }, { v: 3, medals: {}, plans: {}, cur: 0, intro: 0 }, { v: 3, medals: {}, plans: {}, cur: 0, intro: 0 }, { v: 3, medals: { 0: 2, 1: 3 }, plans: { 0: [['farm', [62, 75], [62, 75]]] }, cur: 1, intro: 0 }]);

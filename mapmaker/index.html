@@ -121,7 +121,7 @@
 const WX=1400, WY=900, CELL=5, GW=WX/CELL, GH=WY/CELL;
 // ===================== World =====================
 let S = RH.load('mapmaker', null);
-function freshSave(seed){ return {seed:playableSeed(seed), gold:40, prov:100, hull:100, inst:{compass:1}, ship:null, ink:[], done:{}, visited:[], rep:0, worlds:(S&&S.worlds)||0, log:[], landed:{}, day:0, learned:{}, allow:false, tut:(S&&S.tut)||0, reefInk:{}, sold:{}, rivalDone:{}, routes:0}; }
+function freshSave(seed){ return {seed:playableSeed(seed), gold:40, prov:100, hull:100, inst:{compass:1}, ship:null, ink:[], done:{}, visited:[], rep:0, worlds:(S&&S.worlds)||0, log:[], landed:{}, day:0, learned:{}, allow:false, tut:(S&&S.tut)||0, tutSpot:null, reefInk:{}, sold:{}, rivalDone:{}, routes:0}; }
 // every commission needs at least five islands (home + four to chart); skip the rare seeds that make fewer
 function playableSeed(seed){ seed=Math.floor(Math.abs(+seed||0))%1e9; for (let k=0;k<50;k++){ buildWorld(seed+k); if (islands.length>=5) return seed+k; } return seed; }
 const num=(v,d,lo,hi)=> Number.isFinite(v)? Math.max(lo,Math.min(hi,v)) : d;
@@ -272,7 +272,7 @@ function estErr(){ const lc=S.learned[cellOf(ship.bx,ship.by)]; return 3 + nav.d
 const perDay=(v)=>v*6; // current: miles per second of sailing -> miles per day (a day is six seconds at sea)
 function fixAt(x,y,how){ const dx=x-ship.bx, dy=y-ship.by, off=Math.hypot(dx,dy), days=nav.t/6;
   let msg= off<3? `${how}. We were where we reckoned.` : `${how}. The current carried us ${Math.round(off)} miles ${dirOf(dx,dy)}${days>=0.5?` in ${days.toFixed(1)} days`:''}.`;
-  if (how.startsWith('Bearings')) S.tutFix=1;
+  if (how.startsWith('Bearings')){ S.tutFix=1; if (tutShown[2]) tutShown[2].fixOk=true; }
   if (off>=3 && nav.t>2) lastDrift={from:[ship.bx,ship.by], to:[x,y], off, dir:dirOf(dx,dy), days, t:performance.now()};
   if (off>=3 && nav.t>6 && !S.explained){ S.explained=1; setTimeout(()=>RH.modal(`<h2>Where we thought we were</h2><p><b>Dead reckoning</b> is where you think you are, worked out from speed, heading and time. <b>Currents</b> push the ship sideways without you feeling it, so the reckoning drifts away from the truth.</p><p>A fix tells you where you really are. On the chart the hollow ship is where you reckoned you were, the solid one is where you are, and the arrow is what the current did. Turn on <b>Allow for current</b> and the reckoning adds that current from now on.</p>`,[{label:'Understood'}]),300); }
   if (nav.t>6){ let best=-1,bt=0; for (const c in nav.cells) if (nav.cells[c]>bt){ bt=nav.cells[c]; best=+c; }
@@ -307,7 +307,8 @@ let ship;
 function newShip(){ return {x:port.x, y:port.y, bx:port.x, by:port.y, h:0, sail:0, voyageDmg:0}; }
 let target=null, fixing=0, ghost;
 function sightR(){ return (has('telescope')? 135 : 90)*(fogT>0? 0.5 : 1); }
-function step(dt){
+let simClock=0; // game seconds, for pacing the tutorial
+function step(dt){ simClock+=dt;
   // helm
   if (keys.a) ship.h-=1.4*dt; if (keys.d) ship.h+=1.4*dt;
   if (target){ const want=Math.atan2(target[1]-ship.by, target[0]-ship.bx); let d=want-ship.h; d=Math.atan2(Math.sin(d),Math.cos(d)); ship.h+=Math.max(-1.4*dt,Math.min(1.4*dt,d)); if (Math.hypot(target[0]-ship.bx,target[1]-ship.by)<10) target=null; }
@@ -485,7 +486,7 @@ function drawChart(c, s, ox, oy, exportMode){
   c.font='22px "IM Fell English",serif'; c.textAlign='center'; c.fillStyle='#2e2015'; c.fillText('⚓',port.x,port.y+7); c.font='italic 15px "IM Fell English",serif'; c.fillText('Port Haven',port.x,port.y+26);
   if (!S.done[6]){ c.strokeStyle='#9c1f1a'; c.setLineDash([5,5]); c.beginPath(); c.arc(ghost.x,ghost.y,40,0,7); c.stroke(); c.setLineDash([]); c.fillStyle='#9c1f1a'; c.font='italic 15px "IM Fell English",serif'; c.fillText(S.ghostSeen?'(no island here)':'? Isle of Mists ?', ghost.x, ghost.y+5); }
   // island names once well-charted, or once you have set foot there
-  c.font='italic 17px "IM Fell English",serif'; c.fillStyle='#2e2015'; for (const is of islands) if (acc(is.id)>=30 || S.landed[is.id]){ c.fillText(is.name+(S.landed[is.id]?' ✠':''), is.cx, is.cy); }
+  c.font='italic 17px "IM Fell English",serif'; c.fillStyle='#2e2015'; for (const is of islands) if (is.id===0 || acc(is.id)>=30 || S.landed[is.id]){ c.fillText(is.name+(S.landed[is.id]?' ✠':''), is.cx, is.cy); }
   c.font='26px "IM Fell English SC",serif'; c.textAlign='left'; c.fillStyle='#2e2015'; c.fillText('A Chart of the Lost Islands', 44, 58); c.font='italic 14px "IM Fell English",serif'; c.fillText(`surveyed aboard ${document.getElementById('shipName').textContent}, anno 1680`, 44, 78);
   if (exportMode) return;
   // ship (believed position) + uncertainty
@@ -498,6 +499,7 @@ function drawChart(c, s, ox, oy, exportMode){
   // reefs you have sighted, at the place your reckoning put them
   c.strokeStyle='#9c1f1a'; c.lineWidth=1.5; for (const k in S.reefInk){ const [x,y]=S.reefInk[k]; c.beginPath(); c.moveTo(x-4,y); c.lineTo(x+4,y); c.moveTo(x,y-4); c.lineTo(x,y+4); c.stroke(); }
   if (bearingFx && performance.now()-bearingFx.t<3500){ c.strokeStyle='rgba(156,31,26,.7)'; c.lineWidth=1.2; c.setLineDash([6,4]); for (const m of bearingFx.marks){ c.beginPath(); c.moveTo(m.x,m.y); c.lineTo(bearingFx.at[0]+(bearingFx.at[0]-m.x)*0.3,bearingFx.at[1]+(bearingFx.at[1]-m.y)*0.3); c.stroke(); c.beginPath(); c.arc(m.x,m.y,5,0,7); c.stroke(); } c.setLineDash([]); }
+  if ((S.tut||0)===0 && S.tutSpot){ const [x,y]=S.tutSpot, k=(performance.now()/600)%1; c.strokeStyle=`rgba(156,31,26,${1-k})`; c.lineWidth=2.5; c.beginPath(); c.arc(x,y,10+k*18,0,7); c.stroke(); c.fillStyle='#9c1f1a'; c.beginPath(); c.arc(x,y,4,0,7); c.fill(); c.font='italic 14px "IM Fell English",serif'; c.textAlign='center'; c.fillText('steer here', x, y-30); }
   if (lastDrift && performance.now()-lastDrift.t<12000){ const {from,to,off,dir,days}=lastDrift; const a=Math.atan2(to[1]-from[1],to[0]-from[0]);
     c.save(); c.globalAlpha=Math.min(1,(12000-(performance.now()-lastDrift.t))/1500);
     c.strokeStyle='#2e2015'; c.lineWidth=1.5; c.setLineDash([3,3]); c.beginPath(); c.arc(from[0],from[1],8,0,7); c.stroke(); c.setLineDash([]);
@@ -544,16 +546,25 @@ function frame(now){
 }
 let last=performance.now(), hudT=0, lastPort=null, saveT=0, lastVoyageOk=true;
 // The first commission walks a newcomer through the navigator's loop: sail, chart, fix, see the drift, allow for it
+// The first commission walks a newcomer through the navigator's loop, one step at a time (a step never completes before it has been shown)
+// A spot just off Home Isle's coast near port, for the first leg
+function tutSpot(){ const is=islands[0]; let best=null, bd=1e9; for (const [x,y] of is.coast){ const d=Math.abs(Math.hypot(x-port.x,y-port.y)-90); if (d<bd){ bd=d; best=[x,y]; } } const dx=best[0]-is.cx, dy=best[1]-is.cy, L=Math.hypot(dx,dy)||1; let sx=best[0]+dx/L*24, sy=best[1]+dy/L*24; for (let k=0;k<20&&isLand(sx,sy);k++){ sx+=dx/L*4; sy+=dy/L*4; } return [sx,sy]; }
+const homeInSight=()=> islands[0].coast.some(([x,y])=>Math.hypot(x-ship.x,y-ship.y)<sightR());
 const TUT=[
-  {t:'Set sail: press <b>Full sail</b>, then tap the sea near Home Isle to steer there.', done:()=>!atPort && ship.sail>0, el:'#sails [data-sail="2"]'},
-  {t:'Sail along Home Isle\'s coast. The lookout sees the shore and the quill draws it on your chart.', done:()=>acc(0)>=12},
+  {t:'Set <b>Half sail</b>, then tap the pulsing ring just off Home Isle to steer there.', done:()=>Math.hypot(ship.x-S.tutSpot[0],ship.y-S.tutSpot[1])<30, el:'#sails [data-sail="1"]', spot:true},
+  {t:'Sail along Home Isle\'s coast, keeping it inside the lookout circle. The quill draws what the lookout sees.', done:(st)=>acc(0)>=(st.acc0||0)+8 && !bearingFix().err},
   {t:'Take <b>Bearings</b> on two points of coast you have drawn. That fixes where you really are.', done:()=>S.tutFix, el:'#bearBtn'},
   {t:'The green arrow on the chart is how far the current pushed you. Turn on <b>Allow for current</b> so your reckoning adds it.', done:()=>S.allow, el:'#allowBtn'},
   {t:'Chart 60% of Home Isle (keep fixing your position) and deliver <b>Home Waters</b> at port.', done:()=>S.done[0]},
 ];
-function renderOrders(){ const box=document.getElementById('orders'); let st=S.tut||0; while (st<TUT.length && TUT[st].done()) st++; if (st!==S.tut){ S.tut=st; persist(); }
+let tutShown={};
+function renderOrders(){ const box=document.getElementById('orders'); let st=S.tut||0; if (!S.tutSpot) S.tutSpot=tutSpot();
+  if (st<TUT.length){ const info=tutShown[st]||(tutShown[st]={at:simClock, acc0:acc(0)}); if (st===2) S.tutFix=S.tutFix&&info.fixOk; // a fix only counts once this step is on screen
+    if (simClock-info.at>1.5 && TUT[st].done(info)){ st++; S.tut=st; persist(); if (st<TUT.length) tutShown[st]={at:simClock, acc0:acc(0)}; if (st===2) tutShown[2].fixOk=false; } }
   document.querySelectorAll('.nudge').forEach(e=>e.classList.remove('nudge'));
-  if (st>=TUT.length){ box.hidden=true; return; } box.hidden=false; document.getElementById('ordersTxt').innerHTML=`<b>${st+1}/${TUT.length}.</b> ${TUT[st].t}`; if (TUT[st].el) document.querySelector(TUT[st].el)?.classList.add('nudge'); }
+  if (st>=TUT.length){ box.hidden=true; return; } box.hidden=false;
+  const lost= st<=2 && !atPort && !homeInSight();
+  document.getElementById('ordersTxt').innerHTML=`<b>${st+1}/${TUT.length}.</b> ${lost? '<b style="color:#9c1f1a">Turn back:</b> keep Home Isle inside the lookout circle. ' : ''}${TUT[st].t}`; if (TUT[st].el) document.querySelector(TUT[st].el)?.classList.add('nudge'); }
 function renderStatus(){ renderOrders();
   document.getElementById('gold').textContent=S.gold+'g'; document.getElementById('prov').textContent=Math.ceil(S.prov)+' days'; document.getElementById('provBar').style.width=S.prov+'%';
   document.getElementById('hull').textContent=Math.ceil(S.hull)+'%'; document.getElementById('hullBar').style.width=S.hull+'%';
@@ -604,7 +615,7 @@ function boot(){
 window.addEventListener('resize', fit);
 S = cleanSave(S) || freshSave(Math.floor(Math.random()*1e9));
 boot(); requestAnimationFrame(frame);
-window.__map={ renderOrders, get lastDrift(){ return lastDrift; }, sound, estErr, fixAt, bearingFix, takeBearings, inkNear, cellOf, weather, merchantVoyage, sellDirections, landingFor, rivalDay, payFor, reefsMarked, get nav(){ return nav; }, set nav(v){ nav=v; }, get fogT(){ return fogT; }, set fogT(v){ fogT=v; }, get pendingFix(){ return pendingFix; }, landfallIsle, goAshore, squall, logE, pressSeal, dirOf, hashCoast, buildWorld, acc, accAll, recall, precisions, nearestCoast, near, hashInk, cleanSave, freshSave, playableSeed, boot, step, ink, doFix, damage, renderAll, renderPort, COMS, INST, TOL, PREC_W, isLand, currentAt, uncertainty,
+window.__map={ get simClock(){ return simClock; }, set simClock(v){ simClock=v; }, tutSpot, get tutShown(){ return tutShown; }, set tutShown(v){ tutShown=v; }, renderOrders, get lastDrift(){ return lastDrift; }, sound, estErr, fixAt, bearingFix, takeBearings, inkNear, cellOf, weather, merchantVoyage, sellDirections, landingFor, rivalDay, payFor, reefsMarked, get nav(){ return nav; }, set nav(v){ nav=v; }, get fogT(){ return fogT; }, set fogT(v){ fogT=v; }, get pendingFix(){ return pendingFix; }, landfallIsle, goAshore, squall, logE, pressSeal, dirOf, hashCoast, buildWorld, acc, accAll, recall, precisions, nearestCoast, near, hashInk, cleanSave, freshSave, playableSeed, boot, step, ink, doFix, damage, renderAll, renderPort, COMS, INST, TOL, PREC_W, isLand, currentAt, uncertainty,
   get S(){ return S; }, set S(v){ S=v; }, get islands(){ return islands; }, set islands(v){ islands=v; }, get port(){ return port; }, get reefs(){ return reefs; }, get ship(){ return ship; }, set ship(v){ ship=v; }, get ghost(){ return ghost; },
   get target(){ return target; }, set target(v){ target=v; }, get fixing(){ return fixing; }, get atPort(){ return atPort; }, set atPort(v){ atPort=v; }, get view(){ return view; }, setZoom, applyView, get inkOn(){ return inkOn; }, set inkOn(v){ inkOn=v; }, get currents(){ return currents; }, get squallT(){ return squallT; }, set squallT(v){ squallT=v; }, get fixing(){ return fixing; }, set fixing(v){ fixing=v; } };
 if (!S.intro){ S.intro=1; persist(); RH.modal(`<h2>The Mapmaker of Lost Islands</h2><p>1680. Nobody has charted these islands. You will, and merchants will sail by what you draw.</p><p>Your chart is drawn where you <i>reckon</i> you are. Hidden currents and a crude log make that reckoning drift, and you can't see by how much. The round lookout shows what is truly there.</p><p>Fix your position with <b>bearings</b> on two landmarks you have already charted (B). Each fix measures the current, so your reckoning gets better. Lift the quill when you're unsure: bad ink costs you. A rival, ${RIVAL}, is charting the same islands.</p>`,[{label:'Weigh anchor'}]); }
