@@ -307,8 +307,7 @@ const sun = new THREE.DirectionalLight('#ffe0b0', 2.6); sun.position.set(-4, 3.5
 // globe texture painted from the land mask and the current speed.
 // A 1-pixel-per-degree map goes up at once; the full-resolution one is built in slices.
 const TW = MOBILE ? 1024 : 1440, TH = TW / 2, TS = TW / 360;
-const quick = document.createElement('canvas'); quick.width = 360; quick.height = 180;
-{ const g = quick.getContext('2d'), im = g.createImageData(360, 180); for (let j = 0; j < 180; j++) for (let i = 0; i < 360; i++) { const o = (j * 360 + i) * 4, l = land1(i, j), lat = 90 - j - .5, ice = Math.abs(lat) > 64; im.data[o] = l ? (ice ? 240 : 222) : 58; im.data[o + 1] = l ? (ice ? 236 : 200) : 104; im.data[o + 2] = l ? (ice ? 222 : 150) : 104; im.data[o + 3] = 255; } g.putImageData(im, 0, 0); }
+const quick = document.createElement('canvas'); quick.width = MOBILE ? 512 : 720; quick.height = quick.width / 2; // painted (quickPaint) once the colour rules below are defined
 const quickTex = new THREE.CanvasTexture(quick); quickTex.colorSpace = THREE.SRGBColorSpace;
 const BS = t => { const a = Math.abs(t); return a < 1 ? (4 - 6 * a * a + 3 * a * a * a) / 6 : a < 2 ? (2 - a) ** 3 / 6 : 0; };
 function landSmooth(lat, lon) { // smooth (C²) interpolation of the 1° land mask: round coastlines instead of 1° stair steps
@@ -342,6 +341,30 @@ const mix3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a
 const LAND_RAMP = [[0, [158, 168, 112]], [.18, [186, 178, 118]], [.42, [204, 176, 120]], [.68, [160, 122, 84]], [.86, [128, 98, 74]], [1, [236, 230, 216]]];
 const SEA_RAMP = [[0, [104, 170, 156]], [.15, [62, 128, 128]], [.45, [36, 88, 104]], [1, [18, 50, 72]]];
 const ramp = (R, t) => { for (let k = 1; k < R.length; k++) if (t <= R[k][0]) return mix3(R[k - 1][1], R[k][1], (t - R[k - 1][0]) / (R[k][0] - R[k - 1][0])); return R[R.length - 1][1]; };
+// the colour of the globe at one point: lf is the smooth land fraction, f the relief there (+ height, − depth)
+function globeColour(lat, lon, lf, f, F, e1, D, o) {
+  if (lf > .5) {
+    const n = (Math.sin(lon * .37) * Math.cos(lat * .41) + Math.sin(lon * .11 + lat * .23)) * .25 + .5, dry = Math.min(1, Math.exp(-Math.pow((Math.abs(lat) - 24) / 10, 2)) * (.3 + n)), ice = Math.max(0, Math.min(1, (Math.abs(lat) - 62) / 8));
+    // hill shading from the relief's slope, lit from the north-west like an engraved map
+    const gx = (relAt(F, lat, lon + e1 * 2) - relAt(F, lat, lon - e1 * 2)) / Math.max(.3, Math.cos(lat * Math.PI / 180)), gy = relAt(F, lat + e1 * 2, lon) - relAt(F, lat - e1 * 2, lon), sh = Math.max(.62, Math.min(1.25, 1 + (-gx * .55 + gy * .55) * .22));
+    const el = Math.max(0, Math.min(1, f / 26)), c0 = ramp(LAND_RAMP, el), c1 = mix3(c0, [222, 190, 128], dry * .45 * (1 - el)), c = mix3(c1, [242, 238, 226], ice);
+    D[o] = c[0] * sh; D[o + 1] = c[1] * sh; D[o + 2] = c[2] * sh * .97; D[o + 3] = 255;
+  } else {
+    const coast = Math.max(0, 1 - Math.abs(lf - .5) * 6) * .9, dp = Math.max(0, Math.min(1, -f / 18)), iso = Math.abs(dp * 6 - Math.round(dp * 6)) < .035 && dp > .08 ? .9 : 1; // depth contours, like a sounding chart
+    const c = ramp(SEA_RAMP, dp), polar = Math.abs(lat) / 90;
+    D[o] = (c[0] + polar * 14 + coast * 60) * iso; D[o + 1] = (c[1] + polar * 12 + coast * 62) * iso; D[o + 2] = (c[2] + polar * 10 + coast * 38) * iso; D[o + 3] = 255;
+  }
+}
+// the first picture of a globe, at once: the same colours and relief at half resolution (with its graticule), so the full
+// painting that follows only sharpens it. No blocky flash.
+function quickPaint(cv, lm) {
+  const F = reliefField(lm), w = cv.width, h = cv.height, g = cv.getContext('2d'), im = g.createImageData(w, h), D = im.data, e1 = 360 / w;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const lat = 90 - (y + .5) / h * 180, lon = -180 + (x + .5) / w * 360, o = (y * w + x) * 4, f = relAt(F, lat, lon), lf = Math.max(0, Math.min(1, .5 + f * .45));
+    globeColour(lat, lon, lf, f, F, e1, D, o);
+    const dl = Math.abs(lat / 15 - Math.round(lat / 15)) * 15, dn = Math.abs(lon / 15 - Math.round(lon / 15)) * 15, wd = e1 * .8, heavy = Math.abs(lat) < wd * 1.5 || Math.abs(Math.abs(lat) - 23.44) < wd;
+    if (dl < wd || dn < wd || heavy) { const k = heavy ? .55 : .75; D[o] *= k; D[o + 1] *= k * .97; D[o + 2] *= k * .9; } }
+  g.putImageData(im, 0, 0);
+}
 let baseMaps = {}; // bump and roughness textures, per painted base
 function* paintBaseGen(tag = 'earth') {
   baseReady = false; const isLand0 = LM, F = reliefField(LM); yield;
@@ -355,16 +378,8 @@ function* paintBaseGen(tag = 'earth') {
     for (let x = 0; x < TW; x++) {
       let ls = 0; for (let a = 0; a < 4; a++) { const r = YI[a], wy = YW[a]; let row = 0; for (let b = 0; b < 4; b++) row += LM[r + XI[x * 4 + b]] * XW[x * 4 + b]; ls += row * wy; }
       const lat = 90 - (y + .5) / TS, lon = -180 + (x + .5) / TS, o = (y * TW + x) * 4, lf = Math.min(1, ls * 1.25), f = relAt(F, lat, lon);
-      if (lf > .5) {
-        const n = (Math.sin(lon * .37) * Math.cos(lat * .41) + Math.sin(lon * .11 + lat * .23)) * .25 + .5, dry = Math.min(1, Math.exp(-Math.pow((Math.abs(lat) - 24) / 10, 2)) * (.3 + n)), ice = Math.max(0, Math.min(1, (Math.abs(lat) - 62) / 8));
-        // hill shading from the relief's slope, lit from the north-west like an engraved map
-        const gx = (relAt(F, lat, lon + e1 * 2) - relAt(F, lat, lon - e1 * 2)) / Math.max(.3, Math.cos(lat * Math.PI / 180)), gy = relAt(F, lat + e1 * 2, lon) - relAt(F, lat - e1 * 2, lon), sh = Math.max(.62, Math.min(1.25, 1 + (-gx * .55 + gy * .55) * .22));
-        const el = Math.max(0, Math.min(1, f / 26)), c0 = ramp(LAND_RAMP, el), c1 = mix3(c0, [222, 190, 128], dry * .45 * (1 - el)), c = mix3(c1, [242, 238, 226], ice);
-        BASE[o] = c[0] * sh; BASE[o + 1] = c[1] * sh; BASE[o + 2] = c[2] * sh * .97; BASE[o + 3] = 255;
-      } else {
-        const coast = Math.max(0, 1 - Math.abs(lf - .5) * 6) * .9, dp = Math.max(0, Math.min(1, -f / 18)), iso = Math.abs(dp * 6 - Math.round(dp * 6)) < .035 && dp > .08 ? .9 : 1; // depth contours, like a sounding chart
-        const c = ramp(SEA_RAMP, dp), polar = Math.abs(lat) / 90;
-        BASE[o] = (c[0] + polar * 14 + coast * 60) * iso; BASE[o + 1] = (c[1] + polar * 12 + coast * 62) * iso; BASE[o + 2] = (c[2] + polar * 10 + coast * 38) * iso; BASE[o + 3] = 255;
+      globeColour(lat, lon, lf, f, F, e1, BASE, o);
+      if (lf <= .5) {
         opix[no] = o; ogrid[no] = Math.min(GH - 1, (y / TH * GH) | 0) * GW + Math.min(GW - 1, (x / TW * GW) | 0); no++;
       }
     }
@@ -388,6 +403,7 @@ function* paintBaseGen(tag = 'earth') {
   baseMaps[tag] = { bump: new THREE.CanvasTexture(bc), rough: new THREE.CanvasTexture(rc) };
   OPIX = opix.slice(0, no); OGRID = ogrid.slice(0, no); baseOf = tag; baseReady = true; useMaps(tag);
 }
+quickPaint(quick, EARTH_LM); quickTex.needsUpdate = true;
 function useMaps(tag) { const m = baseMaps[tag], M = globe.material; if (!m) return; M.bumpMap = m.bump; M.bumpScale = 1.6; M.roughnessMap = m.rough; M.roughness = 1; M.needsUpdate = true; }
 function* paintState(st) { // brighten the ocean where the current runs fast; ~10× cheaper than repainting from scratch
   const c = document.createElement('canvas'); c.width = TW; c.height = TH; const g = c.getContext('2d'), im = g.createImageData(TW, TH), d = im.data;
@@ -844,15 +860,13 @@ function seaStart(seed, rung, daily, resume) {
   seaSave(); drawOverlay(); renderGoal(); renderCtrl(); seaFocus(); if (sea.phase === 'calls') seaCallMarker();
 }
 // ---- the globe dresses for the world: its land, its texture, its currents (hidden until the end) ----
-const seaQuick = document.createElement('canvas'); seaQuick.width = 720; seaQuick.height = 360; const seaQuickTex = new THREE.CanvasTexture(seaQuick); seaQuickTex.colorSpace = THREE.SRGBColorSpace;
+const seaQuick = document.createElement('canvas'); seaQuick.width = MOBILE ? 512 : 720; seaQuick.height = seaQuick.width / 2; const seaQuickTex = new THREE.CanvasTexture(seaQuick); seaQuickTex.colorSpace = THREE.SRGBColorSpace;
 function enterWorld(nw) {
   if (!OCEAN[1]) ensureOcean(1); // the speed scale comes from the real Earth
   W = nw; swapIn(W); CU = W.st.U; CV = W.st.V; CSP = W.st.SP; rot = W.rot;
   for (let k = jobs.length - 1; k >= 0; k--) if (jobs[k].world || jobs[k].rot === 'base' || String(jobs[k].rot).startsWith('paint')) jobs.splice(k, 1); // stale paint work
-  const g = seaQuick.getContext('2d'), im = g.createImageData(720, 360); // a quick half-degree picture with soft coasts, while the full one is painted
-  for (let y = 0; y < 360; y++) for (let x = 0; x < 720; x++) { const lat = 90 - (y + .5) / 2, lon = -180 + (x + .5) / 2, f = Math.max(0, Math.min(1, (landFrac(lat, lon) - .5) * 3 + .5)), o = (y * 720 + x) * 4, gr = Math.abs(lat / 15 - Math.round(lat / 15)) < .04 || Math.abs(lon / 15 - Math.round(lon / 15)) < .04 ? .8 : 1;
-    im.data[o] = (58 + Math.abs(lat) / 5 + f * 160) * gr; im.data[o + 1] = (104 + f * 92) * gr; im.data[o + 2] = (100 + f * 46) * gr; im.data[o + 3] = 255; }
-  g.putImageData(im, 0, 0); seaQuickTex.needsUpdate = true; globe.material.map = seaQuickTex; globe.material.bumpMap = globe.material.roughnessMap = null; globe.material.roughness = .6; globe.material.needsUpdate = true;
+  quickPaint(seaQuick, W.lm);
+  seaQuickTex.needsUpdate = true; globe.material.map = seaQuickTex; globe.material.bumpMap = globe.material.roughnessMap = null; globe.material.roughness = .6; globe.material.needsUpdate = true;
   const me = W; enqueue({ rot: 'world', world: 1, it: (function* () { yield* paintBaseGen('w' + me.seed); if (W !== me || baseOf !== 'w' + me.seed) return; const c = document.createElement('canvas'); c.width = TW; c.height = TH; const cx = c.getContext('2d'), id = cx.createImageData(TW, TH); id.data.set(BASE); cx.putImageData(id, 0, 0); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MOBILE ? 2 : 8; me.tex = t; if (W === me && !me.revealed) { globe.material.map = t; globe.material.needsUpdate = true; } })() });
   tracers.visible = false; for (let i = 0; i < NT; i++) respawnTracer(i);
   seaGeoReset();
@@ -1052,10 +1066,13 @@ function seaOpen() { // a shared world link opens that world; otherwise the worl
   const h = seaHash(), sv = SAVE.sea && typeof SAVE.sea === 'object' && Number.isInteger(SAVE.sea.s) && SAVE.sea.r >= 1 && SAVE.sea.r <= 5 ? SAVE.sea : null;
   if (h && !(sv && sv.s === +h[1] && sv.r === +h[2])) seaStart(+h[1], +h[2], false); else if (sv) seaStart(sv.s, sv.r, !!sv.d, sv); else seaStart((Math.random() * 1e6) | 0, 1, false);
 }
-function renderGoal() { if (L.seas) { if (sea && W) renderSea(); return; } if (L.case && caseState) return renderCase(); const ok = SAVE.done[SAVE.cur]; $('goal').className = ok ? 'ok' : ''; $('goal').innerHTML = (ok ? '✓ ' : '» ') + L.goal + (SAVE.stars[SAVE.cur] ? ` <span class="stars">${starStr(SAVE.stars[SAVE.cur])}</span>` : ''); $('next').style.display = ok && SAVE.cur < LV.length - 1 ? 'inline-block' : 'none'; }
+function renderGoal() { if (L.seas) { if (sea && W) renderSea(); return; } if (L.case && caseState) return renderCase(); const ok = SAVE.done[SAVE.cur]; $('goal').className = ok ? 'ok' : ''; $('goal').innerHTML = (ok ? '✓ ' : '» ') + L.goal + (SAVE.stars[SAVE.cur] ? ` <span class="stars">${starStr(SAVE.stars[SAVE.cur])}</span>` : '')
+    + (SAVE.cur === 0 ? `<div style="margin-top:6px"><a href="#" id="gSeas" style="color:inherit">Skip the intro: chart an unknown world ▸</a></div>` : '');
+  if ($('gSeas')) $('gSeas').onclick = e => { e.preventDefault(); FX.sfx('click'); load(LV.findIndex(l => l.seas)); }; $('next').style.display = ok && SAVE.cur < LV.length - 1 ? 'inline-block' : 'none'; }
 function renderLevels() {
   const mo = maxOpen(), locked = (l, i) => i > mo && !SAVE.done[i] && !l.free && !l.seas && !(l.endless && SAVE.done[l.openAfter]);
-  $('levels').innerHTML = '<h4>Voyages</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${locked(l, i) ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><span>${SAVE.stars[i] ? starStr(SAVE.stars[i]) : SAVE.done[i] ? '✓' : ''}</span></div>`).join('');
+  const row = (l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${locked(l, i) ? 'lock' : ''}" data-i="${i}"><span>${l.seas ? '✦ ' + l.n : i + 1 + '. ' + l.n}</span><span>${SAVE.stars[i] ? starStr(SAVE.stars[i]) : SAVE.done[i] ? '✓' : ''}</span></div>`;
+  $('levels').innerHTML = '<h4>Expedition</h4>' + LV.map((l, i) => l.seas ? row(l, i) : '').join('') + '<h4 style="margin-top:10px">Voyages</h4>' + LV.map((l, i) => l.seas ? '' : row(l, i)).join('');
   $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { FX.sfx('click'); load(+el.dataset.i); });
   $('lvsel').innerHTML = LV.map((l, i) => `<option value="${i}" ${i === SAVE.cur ? 'selected' : ''} ${locked(l, i) ? 'disabled' : ''}>${i + 1}. ${l.n}${SAVE.done[i] ? ' ✓' : ''}</option>`).join('');
 }
@@ -1211,9 +1228,10 @@ function report(S, st) {
   const k = L.card || (L.bet ? S.first : null) || S.top || 'uk', sc = L.score ? L.score(S) : null;
   const line = S.caseLine ? S.caseLine : L.bet ? `Your bet was right: the first duck came ashore here after ${(S.firstT * 12).toFixed(0)} months.` : L.timeStars ? `A duck has gone all the way round the world in ${(S.t).toFixed(1)} years.` : sc ? `${sc[0]} ducks ${sc[2].replace(/^reached /, 'reached ').replace(/^ended up/, 'ended up')}.` : 'Measurements agree: spin makes the Gulf Stream.';
   $('report').innerHTML = `<div style="position:relative">${cardHTML(k, line, `<span class="stars">${starStr(st)}</span>`, S.t)}<span class="conf">CONFIRMED</span></div>`
-    + `<div class="chip" style="position:relative;margin-top:10px;padding:10px 14px;font-size:13px;line-height:1.5">${LESSON[SAVE.cur] || ''}${SAVE.cur < LV.length - 1 ? '<div style="margin-top:8px;display:flex;gap:8px"><button class="b on" id="tnext">Next voyage ▸</button><button class="b" id="rclose">Stay here</button></div>' : '<div style="margin-top:8px"><button class="b" id="rclose">Close</button></div>'}</div>`;
+    + `<div class="chip" style="position:relative;margin-top:10px;padding:10px 14px;font-size:13px;line-height:1.5">${LESSON[SAVE.cur] || ''}${SAVE.cur === 0 ? '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="b on" id="tseas">Chart an unknown world ▸</button><button class="b" id="tnext">Next voyage</button><button class="b" id="rclose">Stay here</button></div>' : SAVE.cur < LV.length - 1 ? '<div style="margin-top:8px;display:flex;gap:8px"><button class="b on" id="tnext">Next voyage ▸</button><button class="b" id="rclose">Stay here</button></div>' : '<div style="margin-top:8px"><button class="b" id="rclose">Close</button></div>'}</div>`;
   $('report').classList.add('on'); setTimeout(() => FX.sfx('stamp'), 880);
   if ($('tnext')) $('tnext').onclick = () => { hideReport(); goNext(); };
+  if ($('tseas')) $('tseas').onclick = () => { hideReport(); FX.sfx('click'); load(LV.findIndex(l => l.seas)); };
   $('rclose').onclick = hideReport;
 }
 function hideReport() { $('report').classList.remove('on'); }

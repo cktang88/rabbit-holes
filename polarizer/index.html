@@ -511,6 +511,17 @@ function noiseCanvas(w, h, lo, hi, seed = 1) { // grainy texture (anodising, ena
   x.putImageData(im, 0, 0); return c;
 }
 const GRAIN = noiseCanvas(256, 256, 0, 255, 7);
+// brushed anodising: every row of the plate has its own sheen, with a little sparkle along it
+const BRUSH = (() => { const w = 512, h = 128, c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'), im = x.createImageData(w, h); let a = 99;
+  const rnd = () => (a = (a * 1664525 + 1013904223) >>> 0) / 4294967296; const row = Array.from({ length: h }, () => rnd());
+  for (let y = 0; y < h; y++) for (let i = 0; i < w; i++) { const v = 90 + row[y] * 110 + (rnd() - .5) * 40 + Math.sin(i * .02 + row[y] * 9) * 12, o = (y * w + i) * 4; im.data[o] = im.data[o + 1] = v; im.data[o + 2] = v * 1.04; im.data[o + 3] = 255; }
+  x.putImageData(im, 0, 0); return c; })();
+// light: soft round sprites drawn additively (much cheaper than canvas shadows, every frame)
+const sprite = stops => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'), gr = x.createRadialGradient(64, 64, 0, 64, 64, 64); for (const [o, col] of stops) gr.addColorStop(o, col); x.fillStyle = gr; x.fillRect(0, 0, 128, 128); return c; };
+const GLOW_R = sprite([[0, 'rgba(255,236,220,1)'], [.1, 'rgba(255,120,80,.85)'], [.35, 'rgba(255,40,20,.25)'], [1, 'rgba(255,20,10,0)']]);
+const GLOW_W = sprite([[0, 'rgba(255,255,255,1)'], [.18, 'rgba(255,244,220,.75)'], [.45, 'rgba(255,190,120,.2)'], [1, 'rgba(255,150,70,0)']]);
+const GLOW_A = sprite([[0, 'rgba(255,210,140,.55)'], [.5, 'rgba(255,150,60,.12)'], [1, 'rgba(255,120,40,0)']]);
+const glow = (S, x, y, r, a = 1) => { if (a <= 0 || r <= 0) return; g.globalAlpha = Math.min(1, a); g.drawImage(S, x - r, y - r, r * 2, r * 2); g.globalAlpha = 1; };
 function bakeBench() {
   const g = bgg;
   // bench: dark green-grey linoleum under a desk lamp
@@ -521,18 +532,25 @@ function bakeBench() {
   const m = cell * .42, bx = ox - m, by = oy - m, bw = cell * GW + 2 * m, bh = cell * GH + 2 * m;
   g.save(); g.shadowColor = 'rgba(0,0,0,.75)'; g.shadowBlur = 30 * dpr; g.shadowOffsetY = 12 * dpr; g.fillStyle = '#0d0e0f'; g.beginPath(); g.roundRect(bx, by, bw, bh, 6 * dpr); g.fill(); g.restore();
   g.save(); g.beginPath(); g.roundRect(bx, by, bw, bh, 6 * dpr); g.clip();
-  const an = g.createLinearGradient(bx, by, bx + bw, by + bh); an.addColorStop(0, '#202225'); an.addColorStop(.45, '#141517'); an.addColorStop(.55, '#18191c'); an.addColorStop(1, '#0e0f10'); g.fillStyle = an; g.fillRect(bx, by, bw, bh);
-  g.globalAlpha = .09; g.globalCompositeOperation = 'screen'; g.fillStyle = g.createPattern(GRAIN, 'repeat'); g.fillRect(bx, by, bw, bh); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+  const an = g.createLinearGradient(bx, by, bx + bw, by + bh); an.addColorStop(0, '#1d2127'); an.addColorStop(.45, '#121519'); an.addColorStop(.55, '#15181d'); an.addColorStop(1, '#0a0b0d'); g.fillStyle = an; g.fillRect(bx, by, bw, bh);
+  { const pat = g.createPattern(BRUSH, 'repeat'), sc = Math.max(.6, dpr * .75); pat.setTransform(new DOMMatrix([sc * 2.2, 0, 0, sc * .5, 0, 0])); g.globalAlpha = .16; g.globalCompositeOperation = 'overlay'; g.fillStyle = pat; g.fillRect(bx, by, bw, bh); }
+  g.globalAlpha = .07; g.globalCompositeOperation = 'screen'; g.fillStyle = g.createPattern(GRAIN, 'repeat'); g.fillRect(bx, by, bw, bh); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+  // the desk lamp's pool of light on the plate, up and to the left
+  { const lp = g.createRadialGradient(bx + bw * .32, by + bh * .25, 0, bx + bw * .32, by + bh * .25, Math.max(bw, bh) * .75); lp.addColorStop(0, 'rgba(255,244,225,.10)'); lp.addColorStop(.5, 'rgba(255,240,220,.03)'); lp.addColorStop(1, 'rgba(0,0,0,.18)'); g.fillStyle = lp; g.fillRect(bx, by, bw, bh); }
   // soft lamp sheen across the anodising
   const sh = g.createLinearGradient(bx, by, bx + bw * .6, by + bh); sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(.5, 'rgba(255,255,255,.05)'); sh.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = sh; g.fillRect(bx, by, bw, bh);
   // tapped holes: a dark bore with a bright chamfer catching the lamp
   const hr = Math.max(1.5 * dpr, cell * .085);
-  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
-    const [px, py] = C(x, y);
-    g.fillStyle = 'rgba(255,255,255,.08)'; g.beginPath(); g.arc(px + hr * .25, py + hr * .3, hr * 1.25, 0, 7); g.fill();
-    g.fillStyle = '#030303'; g.beginPath(); g.arc(px, py, hr, 0, 7); g.fill();
-    g.strokeStyle = 'rgba(160,165,170,.18)'; g.lineWidth = Math.max(1, hr * .25); g.beginPath(); g.arc(px, py, hr * .62, 0, 7); g.stroke();
-  }
+  // tapped holes: a machined countersink (its far wall catches the lamp), a dark bore, a glint of thread
+  const hole = document.createElement('canvas'), hs = Math.ceil(hr * 4); hole.width = hole.height = hs * 2; { const h2 = hole.getContext('2d');
+    const cs = h2.createRadialGradient(hs - hr * .3, hs - hr * .3, hr * .5, hs, hs, hr * 1.5); cs.addColorStop(0, '#000'); cs.addColorStop(.58, '#030304'); cs.addColorStop(.74, '#3a4048'); cs.addColorStop(.88, '#9aa3ae'); cs.addColorStop(1, 'rgba(60,66,74,0)');
+    h2.fillStyle = cs; h2.beginPath(); h2.arc(hs, hs, hr * 1.55, 0, 7); h2.fill();
+    h2.strokeStyle = 'rgba(225,232,245,.5)'; h2.lineWidth = Math.max(1, hr * .2); h2.beginPath(); h2.arc(hs, hs, hr * 1.38, .1 * Math.PI, .65 * Math.PI); h2.stroke();
+    h2.strokeStyle = 'rgba(150,160,170,.16)'; h2.lineWidth = Math.max(.7, hr * .14); h2.beginPath(); h2.arc(hs, hs, hr * .6, 1.1 * Math.PI, 1.6 * Math.PI); h2.stroke(); }
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) { const [px, py] = C(x, y); g.drawImage(hole, px - hs, py - hs); }
+  // a machined bevel round the plate's edge: lit along the top and left, in shadow along the bottom and right
+  g.lineWidth = Math.max(1.5, 2 * dpr); g.strokeStyle = 'rgba(200,215,235,.22)'; g.beginPath(); g.moveTo(bx + 2 * dpr, by + bh - 6 * dpr); g.lineTo(bx + 2 * dpr, by + 2 * dpr); g.lineTo(bx + bw - 6 * dpr, by + 2 * dpr); g.stroke();
+  g.strokeStyle = 'rgba(0,0,0,.6)'; g.beginPath(); g.moveTo(bx + bw - 2 * dpr, by + 6 * dpr); g.lineTo(bx + bw - 2 * dpr, by + bh - 2 * dpr); g.lineTo(bx + 6 * dpr, by + bh - 2 * dpr); g.stroke();
   // engraved row / column marks and the maker's plate
   g.fillStyle = 'rgba(233,228,214,.45)'; g.font = `${Math.max(8, cell * .2)}px "Share Tech Mono", monospace`; g.textAlign = 'center'; g.textBaseline = 'middle';
   for (let x = 0; x < GW; x++) g.fillText(String.fromCharCode(65 + x), C(x, 0)[0], by + m * .5);
@@ -542,6 +560,8 @@ function bakeBench() {
   // corner bolts
   for (const [cx, cy] of [[bx + m * .5, by + m * .5], [bx + bw - m * .5, by + m * .5], [bx + m * .5, by + bh - m * .5], [bx + bw - m * .5, by + bh - m * .5]]) bolt(g, cx, cy, m * .26);
   g.restore();
+  // the room falls away into the dark beyond the lamp
+  const vg = g.createRadialGradient(W * .5, H * .45, Math.min(W, H) * .3, W * .5, H * .45, Math.max(W, H) * .75); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.55)'); g.fillStyle = vg; g.fillRect(0, 0, W, H);
 }
 function bolt(g, x, y, r) { // socket-head cap screw
   const gr = g.createRadialGradient(x - r * .3, y - r * .3, 0, x, y, r); gr.addColorStop(0, '#d8dadb'); gr.addColorStop(1, '#4b4e50'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
@@ -553,8 +573,12 @@ const ROT = t => t === 'pol' || t === 'hwp' || t === 'phase';
 // Everything is drawn top-down as a real kinematic mount bolted into the board
 function mountPlate(s) {
   g.shadowColor = 'rgba(0,0,0,.7)'; g.shadowBlur = 8 * dpr; g.shadowOffsetY = 3 * dpr;
-  const pg = g.createLinearGradient(-s, -s, s, s); pg.addColorStop(0, '#34373a'); pg.addColorStop(1, '#151617'); g.fillStyle = pg; g.beginPath(); g.roundRect(-s * 1.08, -s * 1.08, s * 2.16, s * 2.16, s * .18); g.fill();
-  g.shadowColor = 'transparent'; g.strokeStyle = 'rgba(255,255,255,.12)'; g.lineWidth = dpr; g.stroke();
+  const pg = g.createLinearGradient(-s, -s, s, s); pg.addColorStop(0, '#3a3e44'); pg.addColorStop(.5, '#1c1e22'); pg.addColorStop(1, '#0e0f11'); g.fillStyle = pg; g.beginPath(); g.roundRect(-s * 1.08, -s * 1.08, s * 2.16, s * 2.16, s * .18); g.fill();
+  g.shadowColor = 'transparent';
+  // machined face: a bright chamfer where the lamp catches it, and a turned ring round the bore
+  g.strokeStyle = 'rgba(220,230,245,.28)'; g.lineWidth = dpr * 1.2; g.beginPath(); g.moveTo(-s * 1.02, s * .8); g.lineTo(-s * 1.02, -s * .9); g.quadraticCurveTo(-s * 1.02, -s * 1.02, -s * .9, -s * 1.02); g.lineTo(s * .8, -s * 1.02); g.stroke();
+  g.strokeStyle = 'rgba(0,0,0,.55)'; g.beginPath(); g.moveTo(s * 1.02, -s * .8); g.lineTo(s * 1.02, s * .9); g.quadraticCurveTo(s * 1.02, s * 1.02, s * .9, s * 1.02); g.lineTo(-s * .8, s * 1.02); g.stroke();
+  if (g.createConicGradient) { const cg = g.createConicGradient(-.6, 0, 0); for (const [o, c] of [[0, 'rgba(255,255,255,.0)'], [.12, 'rgba(255,255,255,.22)'], [.25, 'rgba(255,255,255,0)'], [.62, 'rgba(255,255,255,.12)'], [.75, 'rgba(255,255,255,0)'], [1, 'rgba(255,255,255,0)']]) cg.addColorStop(o, c); g.strokeStyle = cg; g.lineWidth = s * .12; g.beginPath(); g.arc(0, 0, s * .86, 0, 7); g.stroke(); }
   // two knurled adjuster knobs (tip / tilt) and the clamp screw
   for (const [kx, ky] of [[-s * .82, -s * .82], [s * .82, s * .82]]) { const kg = g.createRadialGradient(kx - s * .05, ky - s * .05, 0, kx, ky, s * .2); kg.addColorStop(0, '#e9eaeb'); kg.addColorStop(1, '#6a6d70'); g.fillStyle = kg; g.beginPath(); g.arc(kx, ky, s * .19, 0, 7); g.fill(); g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = dpr * .8; for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; g.beginPath(); g.moveTo(kx + Math.cos(a) * s * .1, ky + Math.sin(a) * s * .1); g.lineTo(kx + Math.cos(a) * s * .19, ky + Math.sin(a) * s * .19); g.stroke(); } }
   bolt(g, s * .82, -s * .82, s * .13);
@@ -566,7 +590,8 @@ function drawPart(p, now, ghost) {
   g.save(); g.translate(x, y); g.lineCap = 'round'; if (ghost) g.globalAlpha = .75;
   if (p.t === 'mirror' || p.t === 'bs' || p.t === 'pbs') {
     mountPlate(s); g.rotate(p.m === 0 ? -Math.PI / 4 : Math.PI / 4);
-    if (p.t === 'mirror') { const mg = g.createLinearGradient(0, -s * .12, 0, s * .12); mg.addColorStop(0, '#fbfdff'); mg.addColorStop(.5, '#9fa8b3'); mg.addColorStop(1, '#40464d'); g.fillStyle = mg; g.fillRect(-s * 1.05, -s * .1, s * 2.1, s * .2); g.fillStyle = '#0b0c0d'; g.fillRect(-s * 1.05, s * .06, s * 2.1, s * .1); }
+    if (p.t === 'mirror') { const mg = g.createLinearGradient(-s, 0, s, 0); mg.addColorStop(0, '#5d646d'); mg.addColorStop(.3, '#e9eef5'); mg.addColorStop(.45, '#ffffff'); mg.addColorStop(.6, '#aab3be'); mg.addColorStop(1, '#4a5058'); g.fillStyle = mg; g.fillRect(-s * 1.05, -s * .11, s * 2.1, s * .18); g.fillStyle = '#0b0c0d'; g.fillRect(-s * 1.05, s * .07, s * 2.1, s * .1);
+      g.globalCompositeOperation = 'lighter'; const sh = ((now / 2600) % 1) * 2.6 - .8; glow(GLOW_W, sh * s, -s * .02, s * .35, .25); g.globalCompositeOperation = 'source-over'; }
     else if (p.t === 'bs') { g.fillStyle = 'rgba(170,205,230,.45)'; g.fillRect(-s * 1.05, -s * .08, s * 2.1, s * .16); g.strokeStyle = 'rgba(230,245,255,.9)'; g.lineWidth = 1.5 * dpr; g.setLineDash([4 * dpr, 3 * dpr]); g.beginPath(); g.moveTo(-s, 0); g.lineTo(s, 0); g.stroke(); g.setLineDash([]); }
     else { g.rotate(-(p.m === 0 ? -Math.PI / 4 : Math.PI / 4)); g.fillStyle = 'rgba(215,160,235,.35)'; g.strokeStyle = 'rgba(240,205,255,.85)'; g.lineWidth = 1.5 * dpr; g.fillRect(-s * .72, -s * .72, s * 1.44, s * 1.44); g.strokeRect(-s * .72, -s * .72, s * 1.44, s * 1.44); g.rotate(p.m === 0 ? -Math.PI / 4 : Math.PI / 4); g.beginPath(); g.moveTo(-s, 0); g.lineTo(s, 0); g.stroke(); }
   } else if (ROT(p.t)) {
@@ -579,11 +604,14 @@ function drawPart(p, now, ghost) {
     const r = R * .58, og = g.createRadialGradient(-r * .3, -r * .3, 0, 0, 0, r);
     if (p.t === 'pol') { og.addColorStop(0, '#6c6f78'); og.addColorStop(1, '#25262c'); } else if (p.t === 'hwp') { og.addColorStop(0, '#ffe2a0'); og.addColorStop(1, '#a3621b'); } else { og.addColorStop(0, '#c9ffe5'); og.addColorStop(1, '#2f8a64'); }
     g.fillStyle = og; g.beginPath(); g.arc(0, 0, r, 0, 7); g.fill();
+    // the glass: a window reflection up and to the left, a bright rim
+    { const sp = g.createRadialGradient(-r * .38, -r * .42, 0, -r * .38, -r * .42, r * .7); sp.addColorStop(0, 'rgba(255,255,255,.55)'); sp.addColorStop(.35, 'rgba(255,255,255,.12)'); sp.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = sp; g.beginPath(); g.arc(0, 0, r, 0, 7); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = dpr; g.beginPath(); g.arc(0, 0, r - dpr * .5, Math.PI * 1.05, Math.PI * 1.6); g.stroke(); }
     g.rotate(-p.a * Math.PI / 180 / (p.t === 'phase' ? 2 : 1));
     if (p.t === 'pol') { g.strokeStyle = 'rgba(230,232,240,.75)'; g.lineWidth = .9 * dpr; for (const k of [-.5, -.25, 0, .25, .5]) { const w = Math.sqrt(1 - (k * 1.6) ** 2) * r * .9; g.beginPath(); g.moveTo(-w, k * r * 1.2); g.lineTo(w, k * r * 1.2); g.stroke(); } }
     else { g.strokeStyle = p.t === 'hwp' ? 'rgba(90,40,0,.7)' : 'rgba(10,60,40,.7)'; g.lineWidth = 1.5 * dpr; g.beginPath(); g.moveTo(-r * .85, 0); g.lineTo(r * .85, 0); g.stroke(); }
     // the index arrow on the ring
-    g.fillStyle = '#ffb23a'; g.shadowColor = '#ffb23a'; g.shadowBlur = 6 * dpr; g.beginPath(); g.moveTo(R + s * .02, 0); g.lineTo(R - s * .24, -s * .12); g.lineTo(R - s * .24, s * .12); g.fill(); g.shadowBlur = 0;
+    g.fillStyle = '#ffb23a'; g.shadowColor = '#ffb23a'; g.shadowBlur = 6 * dpr; g.beginPath(); g.moveTo(R + s * .02, 0); g.lineTo(R - s * .24, -s * .12); g.lineTo(R - s * .24, s * .12); g.fill(); g.shadowBlur = 0; g.shadowColor = 'transparent';
     g.rotate(p.a * Math.PI / 180 / (p.t === 'phase' ? 2 : 1));
     g.fillStyle = '#ffb23a'; g.font = `${Math.max(9, s * .42)}px "Share Tech Mono", monospace`; g.textAlign = 'center'; g.fillText(p.a + '°', 0, R + s * .62);
   } else if (p.t === 'det') {
@@ -598,7 +626,7 @@ function drawPart(p, now, ghost) {
     g.fillStyle = '#1b1a16'; g.font = `700 ${Math.max(9, s * .42)}px "Share Tech Mono", monospace`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(p.id + ' ' + (L.box ? String(fires[p.id] || 0).padStart(3, '0') : Math.round(hit * 100) + '%'), 0, s * .45);
     g.fillStyle = pulse ? '#fff6d0' : hit > .01 ? `rgba(255,150,40,${.35 + hit * .6})` : '#4a3a26'; if (pulse || hit > .01) { g.shadowColor = '#ffb23a'; g.shadowBlur = (pulse ? 18 : 6 + hit * 10) * dpr; }
     g.beginPath(); g.arc(s * .78, s * .82, s * .14, 0, 7); g.fill(); g.shadowBlur = 0;
-    if (fires[p.id]) { g.fillStyle = '#ffb23a'; g.font = `${Math.max(9, s * .4)}px "Share Tech Mono", monospace`; g.fillText(String(fires[p.id]).padStart(3, '0') + ' CTS', 0, s * 1.45); }
+    if (fires[p.id] && !L.box) { g.fillStyle = '#ffb23a'; g.font = `${Math.max(9, s * .4)}px "Share Tech Mono", monospace`; g.fillText(String(fires[p.id]).padStart(3, '0') + ' CTS', 0, s * 1.45); }
   } else if (p.t === 'post') { // someone else's post clamp: a black pillar with a socket-head cap
     g.shadowColor = 'rgba(0,0,0,.7)'; g.shadowBlur = 8 * dpr; g.shadowOffsetY = 3 * dpr; const pg2 = g.createRadialGradient(-s * .2, -s * .2, 0, 0, 0, s * .7); pg2.addColorStop(0, '#5a5e62'); pg2.addColorStop(1, '#141516'); g.fillStyle = pg2; g.beginPath(); g.arc(0, 0, s * .62, 0, 7); g.fill(); g.shadowColor = 'transparent';
     bolt(g, 0, 0, s * .3); g.fillStyle = 'rgba(233,228,214,.35)'; g.font = `${Math.max(7, s * .26)}px "Share Tech Mono", monospace`; g.textAlign = 'center'; g.fillText('IN USE', 0, s * .95);
@@ -630,8 +658,15 @@ function draw(now) {
   if (!L.box) for (const sg of Rz.segs) {
     const p = sg.p; if (p < .003) continue;
     const [x0, y0] = C(sg.x0, sg.y0), [x1, y1] = C(sg.x1, sg.y1);
-    g.strokeStyle = `rgba(255,40,20,${Math.min(1, p * 1.1) * .28})`; g.lineWidth = (5 + 12 * p) * dpr; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
-    g.strokeStyle = `rgba(255,${120 + 100 * p},${90 + 80 * p},${Math.min(1, p * 1.4) * .95})`; g.lineWidth = (1 + 1.8 * p) * dpr; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+    // the glow: a band that fades smoothly away from the beam (segments meet end to end, so no seams and no rings)
+    { const len = Math.hypot(x1 - x0, y1 - y0) || 1, nx = -(y1 - y0) / len, ny = (x1 - x0) / len, wd = (11 + 20 * p) * dpr, a = Math.min(1, p * 1.1) * 1.9, mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+      const bg = g.createLinearGradient(mx - nx * wd, my - ny * wd, mx + nx * wd, my + ny * wd); bg.addColorStop(0, 'rgba(255,30,10,0)'); bg.addColorStop(.3, `rgba(255,35,15,${a * .07})`); bg.addColorStop(.43, `rgba(255,50,25,${a * .22})`); bg.addColorStop(.5, `rgba(255,70,40,${a * .38})`); bg.addColorStop(.57, `rgba(255,50,25,${a * .22})`); bg.addColorStop(.7, `rgba(255,35,15,${a * .07})`); bg.addColorStop(1, 'rgba(255,30,10,0)');
+      g.fillStyle = bg; g.beginPath(); g.moveTo(x0 + nx * wd, y0 + ny * wd); g.lineTo(x1 + nx * wd, y1 + ny * wd); g.lineTo(x1 - nx * wd, y1 - ny * wd); g.lineTo(x0 - nx * wd, y0 - ny * wd); g.fill();
+      if (occupied(sg.x1, sg.y1)) glow(GLOW_R, x1, y1, cell * .55, Math.min(.5, p * .5)); } // light scattered where the beam strikes an optic
+    g.strokeStyle = `rgba(255,${150 + 100 * p},${130 + 100 * p},${Math.min(1, p * 1.4) * .95})`; g.lineWidth = (1 + 1.6 * p) * dpr; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+    // dust in the beam: motes drift through and sparkle as they cross it
+    if (p > .02) { const len = Math.hypot(x1 - x0, y1 - y0), n = Math.min(10, Math.ceil(len / cell * 1.4)); for (let k = 0; k < n; k++) { const h = ((sg.x0 * 7 + sg.y0 * 13 + k * 31) * 0.6180339) % 1, u = (h + now * .00006 * (1 + h)) % 1, tw = .5 + .5 * Math.sin(now * .004 + k * 2.1 + h * 40);
+      glow(GLOW_R, x0 + (x1 - x0) * u, y0 + (y1 - y0) * u, (2 + 3 * tw) * dpr, p * .9 * tw); } }
     if (p > .03) { const a = polAngle(sg.h, sg.v), mx = (x0 + x1) / 2, my = (y0 + y1) / 2, l = cell * .16 * Math.sqrt(p);
       g.strokeStyle = `rgba(255,236,210,${Math.min(.85, p * 1.6)})`; g.lineWidth = 1.4 * dpr; g.beginPath(); g.moveTo(mx - Math.cos(a) * l, my + Math.sin(a) * l); g.lineTo(mx + Math.cos(a) * l, my - Math.sin(a) * l); g.stroke(); }
   }
@@ -650,15 +685,25 @@ function draw(now) {
   }
   // flying photons for the "fire" animation, travelling cell by cell along the beam path they took
   if (photons.length) {
-    g.fillStyle = '#fff'; g.shadowColor = '#ff6040'; g.shadowBlur = 16 * dpr;
+    g.globalCompositeOperation = 'lighter'; g.lineCap = g.lineJoin = 'round';
+    const at = (f, u) => { u = Math.max(0, Math.min(f.path.length - 1, u)); const i = Math.min(f.path.length - 2, u | 0), k = u - i, a = C(...f.path[i]), b = C(...f.path[i + 1]); return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k]; };
     for (const f of photons) {
-      const u = Math.max(0, Math.min(1, (now - f.t) / f.dur)) * (f.path.length - 1), i = Math.min(f.path.length - 2, u | 0), k = u - i, a = f.path[i], b = f.path[i + 1];
-      const [x0, y0] = C(a[0], a[1]), [x1, y1] = C(b[0], b[1]); g.beginPath(); g.arc(x0 + (x1 - x0) * k, y0 + (y1 - y0) * k, 3.5 * dpr, 0, 7); g.fill();
+      const el = now - f.t; if (el < 0 || f.path.length < 2) continue; const n = f.path.length - 1, u = Math.min(1, el / f.dur) * n;
+      // the path it took glows, then fades
+      const fade = el < f.dur ? .5 : .5 * Math.max(0, 1 - (el - f.dur) / 700); if (fade > .01) { g.beginPath(); const s0 = C(...f.path[0]); g.moveTo(s0[0], s0[1]); for (let q = 1; q <= Math.floor(u); q++) { const c = C(...f.path[q]); g.lineTo(c[0], c[1]); } const hp = at(f, u); g.lineTo(hp[0], hp[1]);
+        g.strokeStyle = `rgba(255,50,25,${fade * .35})`; g.lineWidth = 7 * dpr; g.stroke(); g.strokeStyle = `rgba(255,200,170,${fade * .7})`; g.lineWidth = 1.2 * dpr; g.stroke(); }
+      if (el < f.dur) { for (let q = 6; q >= 1; q--) { const [tx2, ty2] = at(f, u - q * .12); glow(GLOW_R, tx2, ty2, (9 - q) * dpr, .5 * (1 - q / 7)); } const [hx, hy] = at(f, u); glow(GLOW_W, hx, hy, 11 * dpr, 1); glow(GLOW_R, hx, hy, 22 * dpr, .6); }
     }
-    g.shadowBlur = 0;
-    let n = 0; for (const f of photons) if (now - f.t < f.dur) photons[n++] = f; photons.length = n;
+    g.globalCompositeOperation = 'source-over';
+    let n = 0; for (const f of photons) if (now - f.t < f.dur + 700) photons[n++] = f; photons.length = n;
   }
-  if (flashes.length) { let n = 0; for (const f of flashes) if (now - f.t < 260) flashes[n++] = f; flashes.length = n; }
+  if (flashes.length) { // a click: the detector's window flares and a ring of light runs out over the plate
+    g.globalCompositeOperation = 'lighter';
+    for (const f of flashes) { const d = L.fixed.find(q => q.id === f.id) || parts.find(q => q.id === f.id); if (!d) continue; const [x, y] = C(d.x, d.y), age = (now - f.t) / 450; if (age < 0 || age > 1) continue;
+      glow(GLOW_W, x, y, cell * (.35 + .5 * age), (1 - age) * .95); glow(GLOW_A, x, y, cell * (1 + 1.6 * age), (1 - age) * .8);
+      g.strokeStyle = `rgba(255,210,150,${(1 - age) * .6})`; g.lineWidth = 2 * dpr * (1 - age) + .5; g.beginPath(); g.arc(x, y, cell * (.5 + 1.4 * age), 0, 7); g.stroke(); }
+    g.globalCompositeOperation = 'source-over';
+    let n = 0; for (const f of flashes) if (now - f.t < 450) flashes[n++] = f; flashes.length = n; }
   drawBox(now); // the sealed case goes on last: photons inside it can't be seen
   particles.update(1 / 60); particles.draw(g);
 }
@@ -915,7 +960,8 @@ function frame(now) {
   const dt = Math.min(.05, (now - (lastF || now)) / 1000); lastF = now;
   // while you twist a mount the detectors chatter at a rate set by the light reaching them: tune by ear
   if (drag && drag.mode === 'rot') for (const k in Rz.hits) if (Rz.hits[k].c.t === 'det' && Math.random() < Rz.hits[k].p * 22 * dt) { FX.sfx('geiger'); flashes.push({ id: k, t: now }); }
-  if (need || celeb || drag || photons.length || flashes.length || particles.list.length) { need = false; draw(now); }
+  const shimmer = !L.box && Rz.segs.some(sg => sg.p > .02) && now - (frame.lastShim || 0) > 33; // dust motes in the beams: 30 fps is plenty
+  if (need || celeb || drag || photons.length || flashes.length || particles.list.length || shimmer) { need = false; if (shimmer) frame.lastShim = now; draw(now); }
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; } else if (!raf) { need = true; raf = requestAnimationFrame(frame); } });
 cam = PanZoom(cv, { onChange: () => { need = true; clearTimeout(bakeT); bakeT = setTimeout(() => { rebake(); need = true; }, 140); },
