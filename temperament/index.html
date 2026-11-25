@@ -492,7 +492,7 @@ async function hear(id) {
 async function sunday() {
   if (busy) return; const s = ss(); if (s.phase !== 'week') return;
   if (!s.acc.length && week(s).letters.length && !(await RH.modal('<h2>No letters accepted?</h2><p>Only the hymn will be played. Upkeep is still due.</p>', [{ label: 'Back', value: 0 }, { label: 'Ring anyway', value: 1 }]))) return;
-  busy = true; stopDrone(); const prog = program(s), W = week(s);
+  busy = true; stopDrone(); const prog = program(s), W = week(s); showDesk();
   // the performance: each piece plays in the tuning as it stands, its chords marked as they sound
   const d = $('desk'); d.innerHTML = `<h2>Sunday</h2><div class="sub">week ${s.week + 1} · tap to hurry</div>${prog.map(pc => letterHTML(pc, { noButtons: 1 })).join('')}`;
   let hurry = false; d.onclick = () => { hurry = true; hush(); };
@@ -517,7 +517,7 @@ function renderResults() {
       return `<div class="res"><span class="v ${x.e.verdict}">${LIS[x.lis].ic} ${x.e.verdict === 'wolf' ? 'Wolf!' : x.e.verdict[0].toUpperCase() + x.e.verdict.slice(1)}</span> · ƒ${x.coin} · ✠${x.rep >= 0 ? '+' : ''}${x.rep}<div class="tag">${rr.pick(rm)}</div></div>`; }).join('')}
     <div class="res">Upkeep −ƒ${P.upkeep}${s.paid ? ` · extra pegs −ƒ${s.paid * P.extra}` : ''} · week: <b>${l.coin >= 0 ? '+' : ''}ƒ${l.coin}</b>, <b>✠${l.rep >= 0 ? '+' : ''}${l.rep}</b></div>
     <div class="weeks" title="Your season so far">${shareGrid(s)}${'·'.repeat(Math.max(0, P.weeks - s.log.length))}</div>
-    ${nxt ? `<div class="sub">${nxt.dark ? 'Next week the chapel will be dark.' : drift.length ? `The weather is turning: ${drift.join(' and ')} will slip a little.` : ''}</div>` : ''}
+    ${nxt ? `<div class="sub">${nxt.dark ? 'Next week the chapel will be dark.' : drift.length ? `The weather is turning: ${drift.length > 1 ? drift.slice(0, -1).join(', ') + ' and ' + drift[drift.length - 1] : drift[0]} will slip a little.` : ''}</div>` : ''}
     <div class="bar">${s.phase === 'done' ? '<button class="primary" id="nextW">Next week ▸</button>' : '<button class="primary" id="endB">The season ends ▸</button>'}<button id="retake" title="Turn the week back and try again (it is counted)">↶ Turn back the week</button></div>`;
   if ($('nextW')) $('nextW').onclick = () => { nextWeek(s); persist(); sel = selForWeek(); renderAll(); FX.sfx('whoosh'); };
   if ($('endB')) $('endB').onclick = endSeason;
@@ -543,7 +543,7 @@ async function endSeason() {
     <p class="weeks" style="text-align:center">${shareGrid(s)}</p><p class="tag">${ear ? `${ear} dark week${ear > 1 ? 's' : ''} tuned by ear. ` : ''}${s.retakes ? `${s.retakes} week${s.retakes > 1 ? 's' : ''} turned back.` : ''}</p>`,
     [{ label: '🔗 Share', value: 'share' }, { label: 'Postings', value: 'posts' }, { label: ok && s.post < 4 ? 'Take the new post ▸' : 'Another season ▸', value: 'again' }]);
   if (v === 'share') { shareSeason(share); return endSeason(); }
-  if (v === 'posts') { view = 'posts'; return renderDesk(); }
+  if (v === 'posts') { view = 'posts'; renderDesk(); return showDesk(); }
   startSeason(ok && s.post < 3 ? s.post + 1 : s.post, s.post === 4 || ok ? rndSeed() : s.seed);
 }
 function shareSeason(text) {
@@ -552,6 +552,7 @@ function shareSeason(text) {
   RH.toast('Copied: your season and a link to play the same weeks.');
 }
 function startSeason(post, seed, daily) { stopAll(); S.ss = newSeason(post, seed, { daily }); view = 'week'; sel = selForWeek(); persist(); renderAll(); }
+const showDesk = () => { if (innerWidth <= 860) $('desk').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
 function renderPosts() {
   const d = $('desk'), t = todayStr(), dd = S.dailies[t];
   d.innerHTML = `<h2>Postings</h2><div class="sub">Each new post adds a rule. A season needs the reputation shown to earn the next.</div>
@@ -583,7 +584,7 @@ function coachCheck() {
   if (S.coach !== before) { persist(); const c = $('coach'); if (c) { if (S.coach < COACH.length) c.innerHTML = COACH[S.coach]; else c.remove(); } FX.sfx('chime', S.coach); }
 }
 
-$('menuBtn').onclick = () => { view = view === 'posts' ? 'week' : 'posts'; renderAll(); };
+$('menuBtn').onclick = () => { view = view === 'posts' ? 'week' : 'posts'; renderAll(); if (view === 'posts') showDesk(); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) stopAll(); });
 // links: #season=<post>:<seed> plays the same weeks someone else played
 { const m = location.hash.match(/season=(\d):([^&]+)/); if (m) { const p = +m[1], sd = decodeURIComponent(m[2]).slice(0, 40); if (POSTS[p] && (p <= S.open || p === 4)) { S.ss = newSeason(p, sd, { daily: /^daily:\d{4}-\d\d-\d\d$/.test(sd) ? sd.slice(6) : 0 }); persist(); } } }

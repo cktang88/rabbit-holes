@@ -38,39 +38,30 @@ function parishBot(E, seed, name, budget) {
       if (D.pins.length >= E.MAXPINS) { while (D.pins.length) { E.deskUnpin(V, D, D.pins[0][0]); acts++; } }
     }
   } else { // the adaptive reader
-    const tried = {}; let probe = null;
-    const certain = (k, P) => {
+    const tried = {}; let probe = null, ver = '', P = null, sureQ = [], order = [];
+    const certain = k => {
       const s = V.slotOf[k], c = cands(k, P).filter(x => !x.strike);
       if (!c.length) return !tr() && Math.abs(R[s.e].y - V.lost) < 50 ? undefined : null;
       if (c.length === 1 && !c[0].other && !E.mayBeAbsent(V, s, tr())) return c[0].id;
       return undefined;
     };
-    const options = (k, P) => { const c = cands(k, P).filter(x => !x.strike); const main = c.filter(x => !x.other).sort((x, y) => fit(k, x) - fit(k, y)), oth = c.filter(x => x.other).sort((x, y) => fit(k, x) - fit(k, y)); return [...main.map(x => x.id), ...oth.map(x => x.id), null].filter(a => !(tried[k] || []).includes(a)); };
-    let stall = 0;
+    const options = k => { const c = cands(k, P).filter(x => !x.strike); const main = c.filter(x => !x.other).sort((x, y) => fit(k, x) - fit(k, y)), oth = c.filter(x => x.other).sort((x, y) => fit(k, x) - fit(k, y)); return [...main.map(x => x.id), ...oth.map(x => x.id), null].filter(a => !(tried[k] || []).includes(a)); };
+    const near = () => { // the letters' entries, and what lies one or two threads from them, come first
+      const f = new Set(letterKeys()); for (let hop = 0; hop < 2; hop++) for (const k of [...f]) for (const id of V.base[k]) { for (const k2 of (R[id].sl || [])) f.add(k2); for (const k3 of (V.rev[id] || [])) f.add(k3); }
+      return [...f];
+    };
     while (acts < budget && !done()) {
-      curate();
-      if (D.pins.length >= E.MAXPINS) { const p = D.pins[0]; (tried[p[0]] ||= []).push(p[1]); E.deskUnpin(V, D, p[0]); acts++; probe = null; continue; }
-      const P = E.persons(V, D.sealed), prio = [...new Set([...letterKeys(), ...V.secrets.length ? [] : []])];
-      const focusKeys = new Set(prio);
-      // the entries the letters name, and every slot one thread away from them, come first
-      for (const k of prio) { const e = R[V.slotOf[k].e]; for (const c of cands(k, P)) { for (const k2 of (R[c.id].sl || [])) focusKeys.add(k2); for (const k3 of (V.rev[c.id] || [])) focusKeys.add(k3); } }
-      const all = [...focusKeys, ...V.slots.map(s => s.key)].filter((k, i, a) => a.indexOf(k) === i && !(k in D.sealed) && visible(V.slotOf[k]));
-      const sure = D.pins.filter(p => p[0] !== (probe && probe[0])).length;
-      // keep two sure pins waiting, so a third pin tests a doubtful thread
-      if (probe) { // the probe did not seal: it was wrong
-        if (probe[0] in D.sealed) probe = null;
-        else { (tried[probe[0]] ||= []).push(probe[1]); E.deskUnpin(V, D, probe[0]); acts++; probe = null; continue; }
-      }
-      let placed = false;
-      if (sure < 2) { for (const k of all) { if (pinned(k)) continue; const a = certain(k, P); if (a !== undefined) { const r = E.deskPin(V, D, k, a); acts++; placed = true; break; } } }
-      if (placed) continue;
-      if (sure >= 2 || !placed) { // test the most promising doubtful slot near the letters
-        let best = null;
-        for (const k of all) { if (pinned(k)) continue; if (certain(k, P) !== undefined) continue; const o = options(k, P); if (o.length) { best = [k, o[0]]; break; } }
-        if (!best) break;
-        const before = Object.keys(D.sealed).length; E.deskPin(V, D, best[0], best[1]); acts++;
-        if (Object.keys(D.sealed).length === before) { if (sure >= 2) probe = best; else if (++stall > 50) break; }
-      }
+      const v = Object.keys(D.sealed).length + ':' + D.ver;
+      if (v !== ver) { ver = v; P = E.persons(V, D.sealed); const nr = near(); order = [...new Set([...nr, ...V.slots.map(s => s.key)])].filter(k => !(k in D.sealed) && visible(V.slotOf[k])); sureQ = order.map(k => [k, certain(k)]).filter(x => x[1] !== undefined); }
+      if (probe) { if (!(probe[0] in D.sealed)) { (tried[probe[0]] ||= []).push(probe[1]); E.deskUnpin(V, D, probe[0]); acts++; } probe = null; continue; }
+      if (D.pins.length >= E.MAXPINS) { const p = D.pins[0]; (tried[p[0]] ||= []).push(p[1]); E.deskUnpin(V, D, p[0]); acts++; continue; }
+      if (D.pins.length < 2) { const nx = sureQ.find(x => !(x[0] in D.sealed) && !pinned(x[0])); if (nx) { E.deskPin(V, D, nx[0], nx[1]); acts++; continue; } }
+      // two sure threads wait on the cushion: a third pin tests a doubtful one, and the seal (or its absence) is the answer
+      let best = null;
+      for (const k of order) { if (k in D.sealed || pinned(k)) continue; if (sureQ.some(x => x[0] === k)) continue; const o = options(k); if (o.length) { best = [k, o[0]]; break; } }
+      if (!best) { const nx = sureQ.find(x => !(x[0] in D.sealed) && !pinned(x[0])); if (!nx) break; E.deskPin(V, D, nx[0], nx[1]); acts++; continue; }
+      const before = Object.keys(D.sealed).length; E.deskPin(V, D, best[0], best[1]); acts++;
+      if (Object.keys(D.sealed).length === before && D.pins.length >= 3) probe = best;
     }
   }
   return { secrets: secretsOut(), seals: Object.keys(D.sealed).length, cut: D.cut, acts, letters: V.letters.filter(L => E.letterDone(L, D.sealed)).length, slots: V.slots.length };

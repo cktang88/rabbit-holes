@@ -177,7 +177,7 @@ function simulate(lv, parts) {
     }
     q = nq;
   }
-  const out = {}; for (const k in hits) out[k] = { p: cabs2(hits[k].h) + cabs2(hits[k].v), c: hits[k].c, segs: hits[k].segs };
+  const out = {}; for (const k in hits) out[k] = { p: cabs2(hits[k].h) + cabs2(hits[k].v), c: hits[k].c, segs: hits[k].segs, h: hits[k].h, v: hits[k].v };
   return { segs, hits: out };
 }
 
@@ -372,14 +372,25 @@ function wireBoxPanel(sheetOnly) {
   $('bShare').onclick = () => { const u = location.href.split('#')[0] + '#box=' + box.seed + '-' + box.grade; try { navigator.clipboard.writeText(u); } catch (e) {} toast('Box link copied', u, 3000); };
   if (!sheetOnly) renderBoxPanel();
 }
+// what a box does to light, as completely as any experiment could know it: the amplitude (with phase) at every exit for H and for V light in
+function boxSig(els) {
+  const dets = [P('det', BOX.x0 + BOX.n + 1, BOX.y, 0, 1, { id: 'out' })]; for (let i = 0; i < BOX.n; i++) dets.push(P('det', BOX.x0 + i, 0, 0, 1, { id: 'u' + i }), P('det', BOX.x0 + i, 8, 0, 1, { id: 'd' + i }));
+  const f = v => (Math.round(v * 1e5) / 1e5 || 0).toFixed(5), sig = [];
+  for (const pol of [0, 90]) { const h = simulate({ sources: [S0(BOX.x0 - 1, BOX.y, pol)], fixed: boxParts({ els }) }, dets).hits;
+    for (const id of ['out', 'BOMB', ...dets.slice(1).map(d => d.id)]) { const e = h[id]; sig.push(e ? (id === 'BOMB' ? [f(e.p)] : [...e.h, ...e.v].map(f)).join(',') : '-'); } }
+  return sig.join('|');
+}
 // grading a card: types must match; angles within half a step (filters repeat every 180°, wave plates every 90°, delays every 360°)
 function gradeCard(answers) {
   const G = GRADES[box.grade], tol = Math.max(5, G.step / 2), lines = [];
   box.els.forEach((e, i) => { const a = answers[i] || {}, typeOk = a.k === e.k; let angOk = true;
     if (typeOk && (e.k === 'pol' || e.k === 'hwp' || e.k === 'phase')) { const per = e.k === 'pol' ? 180 : e.k === 'hwp' ? 90 : 360, d = Math.abs((((+a.a - e.a) % per) + per * 1.5) % per - per / 2); angOk = isFinite(+a.a) && a.a !== '' && d <= (e.k === 'phase' ? 22 : tol); }
     lines.push({ typeOk, angOk, pay: typeOk ? (angOk ? 40 : -10) : -30 }); });
+  const asEls = answers.map(a => a.k === 'pol' || a.k === 'hwp' || a.k === 'phase' ? { k: a.k, a: +a.a } : { k: a.k });
+  const equiv = !lines.every(l => l.typeOk && l.angOk) && answers.length === box.els.length && asEls.every(e => KINDS[e.k] && (e.a == null || (e.a !== '' && isFinite(e.a)))) && boxSig(asEls) === boxSig(box.els);
+  if (equiv) lines.forEach(l => { l.typeOk = l.angOk = true; l.pay = 40; }); // physically identical: no experiment could have told them apart
   const photons = box.budget - bx.left, pay = lines.reduce((s, l) => s + l.pay, 0) + (lines.every(l => l.typeOk && l.angOk) ? box.fee : 0) - Math.round(photons * .25);
-  return { lines, pay, perfect: lines.every(l => l.typeOk && l.angOk), photons };
+  return { lines, pay, perfect: lines.every(l => l.typeOk && l.angOk), photons, equiv };
 }
 function signCard() {
   if (!bx || bx.signed) return; if (bx.destroyed) { nextBox(false); return; }
@@ -387,10 +398,12 @@ function signCard() {
   if (ans.some(a => !a.k)) { toast('Unfinished card', 'Name every part on the label before you sign.', 2500); return; }
   const R = gradeCard(ans), S = bxSave(); bx.signed = true;
   S.cash += R.pay; S.n += R.perfect ? 1 : 0; const kept = [];
-  if (R.perfect) for (const e of box.els) { const t = e.k === 'up' || e.k === 'down' ? 'mirror' : e.k; if (SHOP[t] && S.own[t] < 9) { S.own[t]++; kept.push(NAMES[t]); } } // a certified box is yours to take apart: its optics join your drawer if (R.perfect && !box.daily) S.grade = Math.min(BGMAX, Math.max(S.grade, box.grade + 1)); S.top = Math.max(S.top, S.grade);
+  if (R.perfect) for (const e of box.els) { const t = e.k === 'up' || e.k === 'down' ? 'mirror' : e.k; if (SHOP[t] && S.own[t] < 9) { S.own[t]++; kept.push(NAMES[t]); } } // a certified box is yours to take apart: its optics join your drawer
+  if (R.perfect && !box.daily) S.grade = Math.min(BGMAX, Math.max(S.grade, box.grade + 1)); S.top = Math.max(S.top, S.grade);
   if (box.daily) { S.daily[dayNum()] = R.pay; const kd = Object.keys(S.daily).sort(); while (kd.length > 30) delete S.daily[kd.shift()]; }
   SAVE.bx = { ...S, seed: box.seed, grade: box.grade, d: box.daily ? 1 : 0 }; persist();
-  const truth = box.els.map((e, i) => `${i + 1}. ${KINDS[e.k]}${e.a != null ? ' at ' + e.a + '°' : ''} ${R.lines[i].typeOk && R.lines[i].angOk ? '✓' : R.lines[i].typeOk ? '(angle off)' : '✗'}`).join('<br>');
+  const truth = box.els.map((e, i) => `${i + 1}. ${KINDS[e.k]}${e.a != null ? ' at ' + e.a + '°' : ''} ${R.lines[i].typeOk && R.lines[i].angOk ? '✓' : R.lines[i].typeOk ? '(angle off)' : '✗'}`).join('<br>')
+    + (R.equiv ? '<br><i>Your card describes different parts, but a box built to it does exactly the same thing to every photon. No experiment could tell them apart, so the client accepts it.</i>' : '');
   if (R.perfect) { won = true; FX.sfx('win'); celeb = performance.now(); } else FX.sfx('fail');
   toast(R.perfect ? `✓ Certified <span style="color:#a8321e">+$${R.pay}</span>` : `Card returned <span style="color:#a8321e">${R.pay >= 0 ? '+' : ''}$${R.pay}</span>`, `${truth}<br>${R.photons} photons used ($${Math.round(R.photons * .25)}). Cash now $${S.cash}.` + (kept.length ? ` The client lets you keep the parts: ${kept.join(', ')} added to your drawer.` : '') + (R.perfect && box.grade < BGMAX && !box.daily ? ' The next grade of box is open.' : ''), 14000, `<div><button class="b" id="tnextbox">Next box →</button></div>`);
   $('tnextbox').onclick = e => { e.stopPropagation(); nextBox(R.perfect); };
@@ -912,7 +925,7 @@ cam = PanZoom(cv, { onChange: () => { need = true; clearTimeout(bakeT); bakeT = 
 $('storyT').before($('lvSel'));
 load(SAVE.cur == null && !Object.keys(SAVE.done).length ? BOXI : Number.isInteger(SAVE.cur) ? SAVE.cur : BOXI);
 raf = requestAnimationFrame(frame);
-window.__pz = { genBox, boxParts, openBox, boxFire, gradeCard, cosFit, evidence, bxSave, get box() { return box; }, get bx() { return bx; }, BOX, GRADES, LV, load, simulate, addPart: (t, x, y, a = 0, m = 1) => { if (occupied(x, y)) return null; const p = P(t, x, y, a, m); if (t === 'det') { let k = 1; while (parts.some(q => q.id === 'P' + k)) k++; p.id = 'P' + k; } parts.push(p); recompute(); renderTray(); check(); return p; }, setAngle: (p, a) => { p.a = a; recompute(); check(); }, hits: () => Rz.hits, fire, get fires() { return fires; }, get parts() { return parts; }, get won() { return won; }, select: p => { sel = p; showSel(); }, setAngleUI: a => setAngle(a), get holding() { return holding; }, get crate() { return crate; }, newCrate, crateFire, crateStamp, crateSeed: sd => { crateRng = RH.rng(sd); }, SAVE, screenOf: (x, y) => { const [px, py] = C(x, y), [sx, sy] = cam.toScreen(px / dpr, py / dpr); return [sx, sy, cell / dpr * cam.k]; }, get cam() { return cam; }, get tool() { return tool; }, setTool: t => { tool = t; renderTray(); }, get celeb() { return celeb; } };
+window.__pz = { genBox, boxParts, boxSig, openBox, boxFire, gradeCard, cosFit, evidence, bxSave, get box() { return box; }, get bx() { return bx; }, BOX, GRADES, LV, load, simulate, addPart: (t, x, y, a = 0, m = 1) => { if (occupied(x, y)) return null; const p = P(t, x, y, a, m); if (t === 'det') { let k = 1; while (parts.some(q => q.id === 'P' + k)) k++; p.id = 'P' + k; } parts.push(p); recompute(); renderTray(); check(); return p; }, setAngle: (p, a) => { p.a = a; recompute(); check(); }, hits: () => Rz.hits, fire, get fires() { return fires; }, get parts() { return parts; }, get won() { return won; }, select: p => { sel = p; showSel(); }, setAngleUI: a => setAngle(a), get holding() { return holding; }, get crate() { return crate; }, newCrate, crateFire, crateStamp, crateSeed: sd => { crateRng = RH.rng(sd); }, SAVE, screenOf: (x, y) => { const [px, py] = C(x, y), [sx, sy] = cam.toScreen(px / dpr, py / dpr); return [sx, sy, cell / dpr * cam.k]; }, get cam() { return cam; }, get tool() { return tool; }, setTool: t => { tool = t; renderTray(); }, get celeb() { return celeb; } };
 </script>
 </body>
 </html>

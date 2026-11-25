@@ -15,7 +15,7 @@ const CARGO={
   goose: {n:'Goose egg', limit:5.4, d:'Bigger, heavier and nearly as fragile: it squashes cushions flat.'},
   bubble:{n:'Soap bubble', limit:1.8, d:'Almost weightless, so the faintest draught carries it, and a tap bursts it.'},
   watch: {n:'Pocket watch', limit:7.5, d:'Tough, but it must come to rest face up.'},
-  jelly: {n:'Quince jelly', limit:99, stretch:1.4, d:'Soft: it wobbles, rolls like a wheel and will not sit still. Land it hard and it splits.'},
+  jelly: {n:'Quince jelly', limit:99, stretch:1.5, d:'Soft: it wobbles, rolls like a wheel and will not sit still. Land it hard and it splits.'},
 };
 const CARGO_ORDER=['egg','goose','bubble','watch','jelly'];
 // ---------- The parts box ----------
@@ -56,7 +56,7 @@ const BENCHES=[
  {id:'watch', note:"The watch was my grandfather's. Face up, so he can see where he is going. B.", n:'Face up', t:'A pocket watch. It is tough, but it must come to rest face up.', cargo:'watch', drop:[3,7], basket:[11,0], bin:{plank:4, cushion:1, block:1},
   sol:[['plank',4,6.3,-2],['plank',6.5,4.5,-2],['plank',9,2,-2]]},
  {id:'jelly', note:'The quince jelly is for you, Porter. You have earned it. B.', n:'Quince jelly', t:'It does not mind a bump. It minds being pulled apart.', cargo:'jelly', drop:[4,7], basket:[9,0], bin:{plank:4, hammock:1, cushion:2},
-  sol:[['hammock',5,3,-1]]},
+  sol:[['plank',4.5,5,-2],['cushion',7,1.5,1]]},
  {id:'grand', note:'You have guessed by now. I am Bertha, the brown hen in the loft, and the eggs were never for the shop. They hatch better somewhere soft. Look in your baskets. B.', n:'The grand delivery', t:'A goose egg from the very top corner to the very far one. Cheapest wins.', cargo:'goose', drop:[1.5,13], basket:[22,0], fixed:[[8,9,2,.12,0],[16,5,2,.12,0]], bin:{plank:6, cushion:2, hammock:1, seesaw:1, weight:2, block:2, balloon:1},
   sol:[['plank',2.5,12.5,-1],['plank',5.5,11.45,-1],['plank',8.5,10.4,-1],['plank',11.5,9.35,-1],['plank',14.5,8.3,-1],['plank',17.5,7.25,-1],['cushion',20.5,4,-1]]},
 ];

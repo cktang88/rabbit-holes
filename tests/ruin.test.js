@@ -1,136 +1,152 @@
-// Ruin: Kelly maths against closed forms, deterministic fair seasons, scoring against the Kelly bot, the real betting UI,
-// saves, and the difficulty rule (naive bettors fail, a simple sound bettor wins, three stars need near-Kelly play).
+// Underwriter (ruin/): a Lloyd's coffee-house career, 1688-1703. Tests drive the pure engine through window.__ruin
+// (headless careers played by bots that see only what a player sees), plus the real slip UI, saves, links and phone layout.
 const close = page => page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
-const play = (page, ti, pol) => page.evaluate(([ti, pol]) => { const R = __ruin, f = eval(pol); return R.score(ti, Array.from({ length: R.TABLES[ti].rounds }, (_, r) => f(R.offerAt(ti, r), R))); }, [ti, pol]);
+const BOTS = {
+  // naive play
+  random: `o => ({ sign: o.slips.filter(s => s.kind === 'voyage').map(s => ({ i: s.i, line: RND() < .3 ? 0 : o.chips[Math.floor(RND() * 4)] })).filter(x => x.line), retro: o.slips.filter(s => s.kind === 'retro' && RND() < .5).map(s => s.i) })`,
+  greedy: `o => ({ sign: o.slips.filter(s => s.kind === 'voyage').map(s => ({ i: s.i, line: o.chips[3] })), retro: o.slips.filter(s => s.kind === 'retro').map(s => s.i) })`,
+  flat10: `o => ({ sign: o.slips.filter(s => s.kind === 'voyage').map(s => ({ i: s.i, line: o.chips[2] })) })`,
+  flat5: `o => ({ sign: o.slips.filter(s => s.kind === 'voyage').map(s => ({ i: s.i, line: o.chips[1] })) })`,
+  timid: `o => ({ sign: o.slips.filter(s => s.kind === 'voyage').map(s => ({ i: s.i, line: o.chips[0] })) })`,
+  cheapOnly: `o => ({ sign: o.slips.filter(s => s.kind === 'voyage' && s.rate >= 6).map(s => ({ i: s.i, line: o.chips[2] })) })`,
+  // competent and adaptive: prices each voyage from its own ledger, the hull, the captain, letters and the £ per ton,
+  // signs only clear bargains, and keeps the £ at risk in any one sea in any one month under 30% of capital
+  adaptive: `o => {
+    const H = { 'new-built': .6, sound: .9, tired: 1.4, leaky: 2.4 };
+    const est = s => { let surv = 1; s.legs.forEach(([z, m], k) => {
+        const n = o.ledger[z][m], kk = o.ledger[z][12 + m]; let q = (kk + .3) / (n + 10);
+        q += .006 * (H[s.hull] - 1) + .004 * s.capt.k;
+        if (k === 0 && o.rumours.some(r => r.z === z && r.src !== 'bar')) q *= 2;
+        if (s.perTon > 20 && k < 2) q += .15;
+        surv *= 1 - Math.min(.9, Math.max(0, q)); }); return 1 - surv; };
+    const g = JSON.parse(JSON.stringify(o.expo)), sign = [];
+    for (const s of o.slips) { if (s.kind !== 'voyage') continue; const P = est(s); if (s.rate / 100 < P * 1.3) continue;
+      let line = 0;
+      for (const c of o.chips.slice().reverse()) { const L = Math.min(c, s.sum); if (s.legs.every(([z], k) => k > 5 || g[z][k] + L <= .3 * o.cap)) { line = L; break; } }
+      if (!line) continue; s.legs.forEach(([z], k) => { if (k < 6) g[z][k] += line; }); sign.push({ i: s.i, line }); }
+    return { sign };
+  }`,
+};
+const SEEDS = ['a1', 'b2', 'c3', 'd4', 'e5', 'f6'];
+const run = (page, bot, seeds = SEEDS) => page.evaluate(([src, seeds]) => { const RND = RH.rng('bot-dice'); return seeds.map(s => __ruin.runBot(s, eval(src), { tries: 2 })); }, [BOTS[bot], seeds]);
+const success = r => !r.gaveUp && r.done && r.ruins === 0 && r.judge >= 3;
 
 module.exports = {
   page: 'ruin/index.html',
-  ready: async page => { await page.waitForFunction(() => window.__ruin); await close(page); },
+  ready: async page => { await page.waitForFunction(() => window.__ruin); await page.waitForTimeout(300); await close(page); },
   tests: {
-    'Kelly fractions match closed forms; traps get nothing': async ({ page, near, eq, ok }) => {
-      const r = await page.evaluate(() => Object.fromEntries(Object.values(__ruin.OFFERS).map(o => [o.id, [o.kelly, __ruin.mean(o)]])));
-      near(r.coin[0], .25, 1e-6); near(r.long[0], 1 / 6 - (5 / 6) / 7, 1e-6); near(r.stock[0], .5, 1e-6); near(r.lotto[0], .01 - .99 / 149, 1e-6);
-      eq(r.fee[0], 0); eq(r.wheel[0], 0); near(r.sure[0], 1, 1e-6);
-      ok(r.fee[1] < 0 && r.wheel[1] < 0, 'traps should lose on average'); ok(r.synd[0] > .9 && r.synd[0] < 1, 'pooling should allow a much bigger stake: ' + r.synd[0]);
+    'careers are deterministic per seed: same seed, same ships and same fate; another seed differs': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(src => { const R = __ruin, b = eval(src), a1 = R.runBot('k7', b), a2 = R.runBot('k7', b), c = R.runBot('k8', b);
+        const s1 = R.newState('k7'), s2 = R.newState('k7'); return { a1, a2, c, slips: JSON.stringify(s1.slips) === JSON.stringify(s2.slips) && JSON.stringify(s1.voy) === JSON.stringify(s2.voy) }; }, BOTS.adaptive);
+      eq(r.a1, r.a2); ok(r.slips, 'opening slips differ'); ok(r.c.cap !== r.a1.cap, 'different seeds gave the same career');
+      ok(r.a1.done && r.a1.years === 16, 'career should run 1688-1703: ' + JSON.stringify(r.a1));
     },
-    'growth(): expected log-growth, peaking at the Kelly stake; all-in on the coin shrinks the typical player': async ({ page, near, ok }) => {
-      const r = await page.evaluate(() => { const o = __ruin.OFFERS.coin; return { all: __ruin.growth(o, 1), k: __ruin.growth(o, .25), a: __ruin.growth(o, .2), b: __ruin.growth(o, .3) }; });
-      near(r.all, .5 * Math.log(.9), 1e-12); near(r.k, .5 * Math.log(1.125) + .5 * Math.log(.9), 1e-12); ok(r.k > r.a && r.k > r.b);
+    'difficulty: naive play fails, the adaptive underwriter succeeds': async ({ ok }) => {
+      const naive = [];
+      for (const b of ['random', 'greedy', 'flat10', 'timid']) naive.push(...(await run(globalThis.__page, b)).map(r => [b, success(r), r]));
+      const passRate = naive.filter(x => x[1]).length / naive.length;
+      ok(passRate <= .15, 'naive bots succeed too often: ' + naive.filter(x => x[1]).map(x => x[0] + ' j' + x[2].judge).join(', '));
+      ok(naive.filter(x => x[0] === 'greedy').every(x => x[2].ruins > 0), 'over-writing every slip should be ruined at least once');
+      const comp = await run(globalThis.__page, 'adaptive');
+      ok(comp.filter(success).length >= 5, 'adaptive should succeed on 5+ of 6 seeds: ' + comp.map(r => `j${r.judge}/${r.ruins}r`).join(' '));
     },
-    'seasons are deterministic and fair: the same stakes give the same result, and you face the same cards as the regulars': async ({ page, eq, ok }) => {
-      const r = await page.evaluate(() => { const R = __ruin, k = R.botFracs(3, 'kate'), a = R.simulate(3, k), b = R.simulate(3, k.slice()), deck = Array.from({ length: 24 }, (_, i) => R.offerAt(3, i).id);
-        return { same: a.final === b.final, kinds: new Set(deck).size, kateIsYou: R.score(3, k).share }; });
-      ok(r.same); ok(r.kinds >= 3, 'table 4 should deal a mix of games'); eq(Math.round(r.kateIsYou * 1000) / 1000, 1);
+    'no single fixed strategy wins every seed': async ({ ok }) => {
+      const names = ['greedy', 'flat10', 'flat5', 'timid', 'cheapOnly'], seeds = ['a1', 'b2', 'c3', 'd4', 'e5', 'f6', 'g7', 'h8'], res = {};
+      for (const n of names) res[n] = await run(globalThis.__page, n, seeds);
+      const winners = seeds.map((_, i) => names.slice().sort((a, b) => (res[b][i].gaveUp ? -1e9 : res[b][i].cap) - (res[a][i].gaveUp ? -1e9 : res[a][i].cap))[0]);
+      ok(new Set(winners).size >= 2, 'one fixed strategy won every seed: ' + winners);
     },
-    'the Kelly stake earns three stars on every table': async ({ page, eq }) => {
-      for (let i = 0; i < 7; i++) eq((await play(page, i, 'o => o.kelly')).stars, 3, 'table ' + (i + 1));
+    'correlation: the same £ at risk is far more dangerous in one sea in one month than spread out': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const R = __ruin;
+        const mk = (routes) => { const S = R.newState('corr'); S.t = 7; S.cap = 3000; S.pol = []; S.voy = {}; let id = 900;
+          for (const rt of routes) { const v = { id: ++id, r: rt, s: 7, h: 'sound', c: 0, tn: 200, b: 1680, cv: 0, fr: 0, nm: 'x', sum: 9999, st: 0, rate: 10, res: 10 }; S.voy[id] = v; S.pol.push({ v: id, line: 1200, prem: 0 }); } return R.halley(S); };
+        return { together: mk(['jamaica', 'jamaica', 'jamaica', 'jamaica']), apart: mk(['jamaica', 'baltic', 'lisbon', 'virginia']) }; });
+      ok(r.together > r.apart * 3 && r.together > .08, `concentrated ${r.together} vs spread ${r.apart}`);
     },
-    'difficulty: naive play fails': async ({ page, ok }) => {
-      const naive = { idle: 'o => 0', allIn: 'o => 1', timid: '(o, R) => R.mean(o) > 0 ? .02 : 0', flat10: 'o => .1', random: '(o) => [0,.01,.02,.05,.1,.25,.5,1][Math.floor(Math.random() * 8)]', biggestMean: '(o, R) => R.mean(o) > 0 ? 1 : 0' };
-      const late = [4, 5, 6], res = [];
-      for (const ti of late) for (const [k, pol] of Object.entries(naive)) for (let s = 0; s < (k === 'random' ? 5 : 1); s++) res.push((await play(page, ti, pol)).stars);
-      const lowRate = res.filter(x => x <= 1).length / res.length;
-      ok(lowRate >= .8, 'naive bettors scored above one star too often: ' + res);
-      // competent but simple: half of the mean/variance rule on games that pay on average
-      const comp = []; for (let ti = 0; ti < 7; ti++) comp.push((await play(page, ti, '(o, R) => { const m = R.mean(o), v = o.out.reduce((a, [p, r]) => a + p * r * r, 0) - m * m; return m > 0 ? Math.min(1, v ? m / v / 2 : 1) : 0; }')).stars);
-      ok(comp.every(s => s >= 1), 'a sound simple bettor should win every table: ' + comp);
-      ok(comp.filter(s => s === 3).length <= 1, 'three stars should need near-Kelly stakes: ' + comp);
+    'haggling carries adverse selection: brokers accept a high ask mostly on ships that were underpriced': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const R = __ruin, acc = [], ref = [];
+        for (const seed of ['h1', 'h2', 'h3', 'h4']) { const S = R.newState(seed); S.t = 24;
+          for (let k = 0; k < 30; k++) { R.openSitting(S); S.slips.forEach((sl, i) => { if (sl.k !== 'v') return; const v = S.voy[sl.vid], P = R.fairP(S, v, true, 0, true), cap = S.cap;
+              const res = R.sign(S, i, 100, 2); (res === 'signed' ? acc : ref).push(v.rate / 100 / P); if (res === 'signed') R.strike(S, i); }); S.t++; } }
+        const avg = a => a.reduce((x, y) => x + y, 0) / a.length; return { acc: avg(acc), ref: avg(ref), n: [acc.length, ref.length] }; });
+      ok(r.n[0] > 10 && r.n[1] > 10, 'both outcomes should occur: ' + r.n); ok(r.acc < r.ref, `offered/true price: accepted ${r.acc.toFixed(2)} vs refused ${r.ref.toFixed(2)}`); ok(r.acc < 1.05, 'accepted asks should mark underpriced ships');
     },
-    'the real UI: chips, the fine slider and Place the bet advance the season; finishing unlocks the next table': async ({ page, ok, eq }) => {
-      await page.click('.chip[data-v="0.25"]');
-      eq(await page.evaluate(() => document.getElementById('betV').textContent), '25%');
-      for (let r = 0; r < 20; r++) { const k = await page.evaluate(() => { const R = __ruin; return R.offerAt(0, R.SAVE.play[0]?.length || 0).kelly; }); await page.evaluate(k => { __ruin.bet = k; }, k); await page.click('#betBtn'); }
-      await page.waitForTimeout(200);
-      ok(await page.locator('.modal .stars').count() === 1, 'no end-of-season verdict');
-      ok((await page.textContent('.modal')).includes('Kelly'), 'Kate\'s secret not revealed');
-      await close(page);
-      eq(await page.evaluate(() => __ruin.SAVE.done[0]), 3);
-      ok(!(await page.isDisabled('.tb[data-i="1"]')), 'next table still locked');
-      ok(await page.isDisabled('.tb[data-i="2"]'), 'table 3 open too early');
+    'reinsurance: a rival who breaks pays you only what he has left, goes to the Fleet, and your other cover with him lapses': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const R = __ruin;
+        for (let k = 0; k < 60; k++) { const S = R.newState('re' + k); S.t = 40; R.openSitting(S); S.voy = {}; S.slips = []; S.pol = []; S.ys.pols = [];
+          const mkv = (id, rt, c) => (S.voy[id] = { id, r: rt, s: 40, h: 'leaky', c, tn: 200, b: 1680, cv: 0, fr: 0, nm: 'v' + id, sum: 5000, st: 0, rate: 10, res: 10 });
+          mkv(1, 'lisbon', 0); mkv(2, 'virginia', 1); S.caps[0].sk = 1e4; S.caps[1].sk = .5;
+          S.pol.push({ v: 1, line: 1000, prem: 0, yi: 0 }, { v: 2, line: 1000, prem: 0, yi: 1 }); S.ys.pols.push({}, {});
+          const q = R.cedeQuote(S, 0, 0); R.cede(S, 0, 0); R.cede(S, 1, 0);
+          S.riv[0].cap = 100; S.riv[0].lines = {}; const cap0 = S.cap;
+          const ev = R.advance(S);
+          if (ev.lost.includes(1) && !ev.lost.includes(2)) return { q, lost: ev.lost, defaults: ev.defaults, out: S.riv[0].out, capDelta: S.cap - cap0, ced2: S.pol.find(p => p.v === 2).ced }; }
+        return null; });
+      ok(r, 'no seed lost ship 1 alone');
+      ok(r.q > 0, 'Sir Josiah should quote'); ok(r.lost.includes(1), 'forced loss'); eq(r.defaults[0], [0, 100, 500]);
+      ok(r.out, 'the broken rival should be out'); ok(Math.abs(r.capDelta - (-1000 + 100)) < 1, 'you pay the line and recover only his last £100: ' + r.capDelta);
+      eq(r.ced2, null, 'cover with a broken rival should lapse');
     },
-    'keyboard: digits pick chips, Enter bets; locked tables cannot be opened': async ({ page, eq }) => {
-      await page.keyboard.press('5'); eq(await page.evaluate(() => document.getElementById('betV').textContent), '10%');
-      await page.keyboard.press('Enter'); eq(await page.evaluate(() => __ruin.SAVE.play[0].length), 1);
-      await page.evaluate(() => __ruin.open(4)); eq(await page.evaluate(() => __ruin.cur), 0);
+    'ruin sends you back to the start of the year with the same ships but fresh weather': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const R = __ruin, S = R.newState('ruin1'); let guard = 0;
+        while (!S.ruined && guard++ < 200) { R.applyDecisions(S, { sign: S.slips.map((s, i) => ({ i, line: s.k === 'v' ? S.voy[s.vid].sum : 0 })) }); R.closeSitting(S); }
+        const y = R.yr(S.snap.t), capAt = S.snap.cap, slips0 = JSON.stringify(S.snap.voy); R.restartYear(S);
+        return { ruined: guard < 200, att: S.att[y], back: S.cap === capAt, month: S.t % 12, voyKept: Object.keys(JSON.parse(slips0)).every(k => S.voy[k]), ruins: S.ruins }; });
+      ok(r.ruined, 'writing whole ships should ruin you'); eq([r.att, r.back, r.month, r.ruins], [1, true, 0, 1]); ok(r.voyKept);
     },
-    'reloading mid-season resumes the same round; saves are sanitised; progress stays within 1': async ({ page, eq }) => {
-      const c = await page.evaluate(() => [null, 3, { v: 2, done: { 0: 9, 1: 'x', 99: 2 }, play: { 0: [.1, 2], 1: [.1, .2] }, cur: 50 }, { done: { 0: 1, 5: 1 }, cur: 5 }].map(__ruin.cleanSave));
-      eq(c[2].done, { 0: 3 }); eq(c[2].play, { 1: [.1, .2] }); eq(c[2].cur, 0); eq(c[3].done, {});
-      await page.evaluate(() => { __ruin.bet = .25; __ruin.placeBet(); __ruin.placeBet(); });
-      await page.reload(); await page.waitForTimeout(400); await close(page);
-      eq(await page.evaluate(() => __ruin.SAVE.play[0].length), 2);
-      eq(await page.evaluate(() => document.querySelector('.lbl').textContent.includes('round 3 of 20')), true);
-      await page.evaluate(() => { const R = __ruin; for (let i = 0; i < 7; i++) R.SAVE.done[i] = 3; R.render(); R.placeBet(); });
-      eq(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).ruin), 1);
+    'every December is reckoned: 100 replays of your own book, three seals and a luck-free judgement': async ({ page, ok }) => {
+      const r = await page.evaluate(src => { const R = __ruin, S = R.newState('yr'); const b = eval(src); while (S.t < 12) { R.applyDecisions(S, b(R.observe(S))); R.closeSitting(S); if (S.ruined) R.restartYear(S); } return S.yrs[1688]; }, BOTS.adaptive);
+      ok(r && r.caps.length === 100, 'replays'); ok([r.f, r.s, r.st].every(x => x === 0 || x === 1)); ok(r.med > 0 && r.ruin >= 0 && r.ruin <= 100);
     },
-    'touch (portrait): the chart and the betting controls are on screen together; a tapped bet moves the chart without scrolling': async ({ page, ok, eq }) => {
-      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
-      const vis = sel => page.evaluate(sel => { const r = document.querySelector(sel).getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight && r.height > 0; }, sel);
-      ok(await vis('#chart'), 'chart off screen'); ok(await vis('#betBtn'), 'Place the bet off screen'); ok(await vis('.chip[data-v="1"]'), 'chips off screen');
-      await page.dispatchEvent('.chip[data-v="0.25"]', 'click'); await page.dispatchEvent('#betBtn', 'click');
-      eq(await page.evaluate(() => [scrollY, __ruin.SAVE.play[0].length]), [0, 1]);
-      ok(await vis('#chart') && await vis('#betBtn'), 'layout moved after betting');
+    'the real slip: a chip signs (premium paid), the signature strikes it out, Close the sitting moves a month': async ({ page, ok, eq }) => {
+      const cap0 = await page.evaluate(() => __ruin.S.cap);
+      await page.click('.slip[data-i="0"] .chips button[data-act="sign"]');
+      const a = await page.evaluate(() => ({ cap: __ruin.S.cap, st: __ruin.S.slips[0].st, sig: !!document.querySelector('.slip[data-i="0"] .sig') }));
+      ok(a.cap > cap0 && a.st === 'signed' && a.sig, 'sign failed ' + JSON.stringify(a));
+      await page.click('.slip[data-i="0"] .sig'); eq(await page.evaluate(() => [__ruin.S.cap, __ruin.S.slips[0].st]), [cap0, 'open']);
+      await page.click('.slip[data-i="0"] .chips button[data-act="sign"]');
+      await page.click('#closeBtn'); await page.waitForFunction(() => !__ruin.busy && __ruin.S.t === 1, null, { timeout: 5000 }); await close(page);
+      ok(await page.evaluate(() => __ruin.S.pol.length >= 0 && document.getElementById('when').textContent.startsWith('February')), 'month did not advance');
+      await page.keyboard.press('Enter'); await page.waitForFunction(() => !__ruin.busy && __ruin.S.t === 2, null, { timeout: 5000 });
     },
-    'phone: the chart is the main surface; tables open from a drawer': async ({ page, ok }) => {
-      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
-      const h = await page.evaluate(() => document.getElementById('chart').getBoundingClientRect().height); ok(h > 380, 'chart too small ' + h);
-      await page.click('#lvlBtn'); await page.waitForTimeout(300);
-      ok(await page.evaluate(() => document.getElementById('tables').getBoundingClientRect().left >= 0), 'drawer did not open');
-      ok(await page.evaluate(() => document.documentElement.scrollWidth <= 392), 'sideways scroll');
+    'tabs: the Book shows £ at risk by sea and month; the Ledger counts losses': async ({ page, ok }) => {
+      await page.click('.slip[data-i="0"] .chips button[data-act="sign"]');
+      await page.click('.tabs button[data-tab="book"]'); ok(await page.locator('#pane table.grid td').count() > 6, 'no exposure grid');
+      await page.click('.tabs button[data-tab="ledger"]'); ok((await page.textContent('#pane')).includes('ledger'), 'no ledger');
     },
-    'night: a seed always deals the same rooms, tables and favours; a night resumes after reload; a #night= link opens it': async ({ page, eq, ok }) => {
-      const r = await page.evaluate(() => { const R = __ruin, a = JSON.stringify(R.makeNight('k7')), b = JSON.stringify(R.makeNight('k7')), c = JSON.stringify(R.makeNight('k8'));
-        const N = R.makeNight('k7'), kinds = N.rooms.map(r => r.doors.map(d => Math.sign(d.e > .1 ? 1 : d.e < -.07 ? -1 : 0)).sort().join());
-        return { same: a === b, differ: a !== c, kinds, today: R.todaySeed() }; });
-      ok(r.same && r.differ, 'seeded'); ok(r.kinds.every(k => k === '-1,0,1'), 'each room hides one edge, one trap, one coin-flip: ' + r.kinds); ok(/^d\d{8}$/.test(r.today));
-      await page.evaluate(() => { const R = __ruin; R.SAVE.done[0] = 3; R.startNight('k7'); R.nmove('door', 2); R.nmove('bet', .03); R.nmove('bet', 0); });
-      const before = await page.evaluate(() => [__ruin.ns.bank, __ruin.ns.hand, location.hash]);
+    'saves: reload resumes the sitting; corrupted saves never break the page': async ({ page, ok, eq }) => {
+      await page.click('.slip[data-i="0"] .chips button[data-act="sign"]');
+      const before = await page.evaluate(() => [__ruin.S.seed, __ruin.S.cap, __ruin.S.pol.length]);
       await page.reload(); await page.waitForFunction(() => window.__ruin); await close(page);
-      eq(await page.evaluate(() => [__ruin.mode, __ruin.ns.bank, __ruin.ns.hand, __ruin.night.seed]), ['night', before[0], 2, 'k7'], 'resumed');
-      eq(before[2], '#night=k7');
+      eq(await page.evaluate(() => [__ruin.S.seed, __ruin.S.cap, __ruin.S.pol.length]), before);
+      const c = await page.evaluate(() => { const R = __ruin, good = JSON.parse(JSON.stringify(R.S));
+        const bads = ['{', 'null', '3', '[]', JSON.stringify({ v: 2 }), JSON.stringify({ ...good, cap: 'NaN' }), JSON.stringify({ ...good, t: 9999 }), JSON.stringify({ ...good, pol: [{ v: 12345, line: 1 }] }), JSON.stringify({ ...good, riv: [] })];
+        return { bad: bads.map(b => R.cleanSave(b)), snapOnly: !!R.cleanSave({ ...good, cap: null }), good: !!R.cleanSave(good) }; });
+      ok(c.good, 'a good save should load'); ok(c.snapOnly, 'a damaged save should fall back to its January snapshot');
+      ok(c.bad.slice(0, 5).every(x => x === null), 'garbage should be refused');
+      for (const junk of ['{"v":2,"seed":"x"', '{"v":2,"seed":"x","mode":"career","t":5,"t0":0,"cap":1e400}', '"hello"']) {
+        await page.evaluate(j => localStorage.setItem('rh:ruin', j), junk); await page.reload(); await page.waitForFunction(() => window.__ruin); await close(page);
+        ok(await page.evaluate(() => __ruin.validState(__ruin.S) && document.querySelectorAll('.slip').length > 0), 'page broken by ' + junk);
+      }
     },
-    'night difficulty: naive bettors go broke or stay poor; a Kelly-aware reader of the boards clears the marker most nights, and half-Kelly beats full Kelly on estimates': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const R = __ruin, out = {};
-        const est = (N, S, d) => { const Ru = R.rules(S.fav), D = N.rooms[S.room].doors[d], bd = R.board(N, S.room, d, S.door === d ? S.hand : 0, Ru), p = Ru.whisper && N.rooms[S.room].whisper === d ? D.p : R.estP(bd); return R.outTable(D.b, p, Ru); };
-        const G = (o, f) => o.reduce((a, [p, x]) => a + p * Math.log(Math.max(1e-300, 1 + f * x)), 0);
-        const kellyBot = k => ({ door: (N, S) => [0, 1, 2].reduce((a, d) => { const o = est(N, S, d), g = G(o, R.kellyOf(o) * k); return g > a[1] ? [d, g] : a; }, [0, -1])[0], bet: (N, S) => R.kellyOf(est(N, S, S.door)) * k, fav: () => 0 });
-        let x = 9; const rnd = () => (x = x * 16807 % 2147483647) / 2147483647;
-        const P = { idle: { door: () => 0, bet: () => 0, fav: () => 0 }, allIn: { door: () => 0, bet: () => 1, fav: () => 0 }, flat25: { door: () => 0, bet: () => .25, fav: () => 0 },
-          bigPayout: { door: N => 0, bet: () => .2, fav: () => 0 }, random: { door: () => rnd() * 3 | 0, bet: () => [0, .05, .1, .25, .5, 1][rnd() * 6 | 0], fav: () => rnd() * 2 | 0 }, full: kellyBot(1), half: kellyBot(.5) };
-        P.bigPayout.door = (N, S) => { const d = N.rooms[S.room].doors; return d.indexOf(d.reduce((a, b) => b.b > a.b ? b : a)); };
-        for (const [k, pol] of Object.entries(P)) { const T = []; let ruin = 0, marker = 0;
-          for (let i = 0; i < 40; i++) { const N = R.makeNight('t' + i), M = []; let S = R.replay(N, M);
-            while (!S.done) { M.push(S.phase === 'door' ? ['door', pol.door(N, S)] : S.phase === 'bet' ? ['bet', pol.bet(N, S)] : ['fav', pol.fav(N, S)]); S = R.replay(N, M); }
-            const t = R.typical(N, S).final; T.push(t); if (S.ruined) ruin++; if (R.nightStars(t) >= 2) marker++; }
-          T.sort((a, b) => a - b); out[k] = { med: Math.round(T[20]), ruin, marker }; }
-        return out; });
-      for (const k of ['allIn', 'flat25', 'bigPayout', 'random']) ok(r[k].med < 1000 && r[k].marker <= 6, k + ' did too well: ' + JSON.stringify(r[k]));
-      ok(r.allIn.ruin >= 36 && r.random.ruin >= 25, 'all-in and random should mostly go broke: ' + JSON.stringify(r));
-      ok(r.idle.marker === 0, 'idling never clears the marker');
-      ok(r.half.med >= 2000 && r.half.marker >= 24 && r.half.ruin === 0, 'half-Kelly should thrive: ' + JSON.stringify(r.half));
-      ok(r.half.med > r.full.med * 1.3, 'overbetting estimated edges should cost: ' + JSON.stringify([r.half, r.full]));
+    'links: #daily opens the seeded daily sitting; #seed= starts that career; share text names the seed': async ({ page, ok, eq }) => {
+      await page.goto(page.url().split('#')[0] + '#daily=2026-03-04'); await page.reload(); await page.waitForFunction(() => window.__ruin); await close(page);
+      const d = await page.evaluate(() => { const R = __ruin, ref = R.dailyState('2026-03-04'); return { mode: R.S.mode, same: JSON.stringify(R.S.slips) === JSON.stringify(ref.slips), t0: R.S.t0, text: R.shareText(), link: R.shareLink() }; });
+      eq(d.mode, 'daily'); ok(d.same, 'daily slips differ from the seeded daily'); ok(d.t0 >= 12 && d.t0 % 12 === 0); ok(d.link.endsWith('#daily=2026-03-04') && d.text.includes('2026-03-04'));
+      await page.goto(page.url().split('#')[0] + '#seed=zebra'); await page.reload(); await page.waitForFunction(() => window.__ruin); await close(page);
+      const s = await page.evaluate(() => [__ruin.S.seed, __ruin.S.mode, __ruin.shareLink(), __ruin.shareText()]);
+      eq(s.slice(0, 2), ['zebra', 'career']); ok(s[2].endsWith('#seed=zebra') && s[3].includes('zebra'));
     },
-    'night UI: tap a table, stake with the slider, watch a hand, take a favour; dawn shows the lived and the typical result and saves the best': async ({ page, eq, ok }) => {
-      await page.evaluate(() => { __ruin.SAVE.done[0] = 3; __ruin.render(); }); await page.click('#nightTb');
-      eq(await page.evaluate(() => [__ruin.mode, __ruin.ns.phase, document.querySelectorAll('.door[data-d]').length]), ['night', 'door', 3]);
-      await page.click('.door[data-d="1"]'); eq(await page.evaluate(() => __ruin.ns.phase), 'bet');
-      ok(/Watch a hand/.test(await page.textContent('#betBtn')), 'zero stake watches'); await page.click('#betBtn');
-      await page.locator('#nfine').fill('40'); ok(/Stake \$/.test(await page.textContent('#betBtn'))); await page.click('#betBtn');
-      eq(await page.evaluate(() => [__ruin.ns.hand, __ruin.ns.stakes.map(s => s[3])]), [2, [0, .04]]);
-      await page.evaluate(() => { for (let i = 0; i < 8; i++) __ruin.nmove('bet', 0); }); eq(await page.evaluate(() => [__ruin.ns.phase, document.querySelectorAll('.door[data-f]').length]), ['fav', 2]);
-      await page.click('.door[data-f="0"]'); eq(await page.evaluate(() => __ruin.ns.fav.length), 1);
-      await page.evaluate(() => { const R = __ruin; let g = 0; while (!R.ns.done && g++ < 200) R.ns.phase === 'door' ? R.nmove('door', 0) : R.ns.phase === 'fav' ? R.nmove('fav', 0) : R.nmove('bet', .01); });
-      await page.waitForTimeout(200); const txt = await page.textContent('.modal'); ok(/1,000 lives/.test(txt) && /real edge/.test(txt), txt.slice(0, 200));
-      await close(page); const s = await page.evaluate(() => [__ruin.SAVE.nights[__ruin.night.seed], Math.round(__ruin.nt.final), localStorage.getItem('rh:ruin').length]);
-      eq(s[0], s[1]); ok(s[2] < 2000, 'compact save ' + s[2]);
-      eq(await page.evaluate(() => [...document.querySelectorAll('.row3 button')].map(b => b.id)), ['nNew', 'nToday', 'nShare']);
-    },
-    'chart: the wheel zooms it, a drag pans it, ⤢ fits it again': async ({ page, ok }) => {
-      const box = await page.locator('#chart').boundingBox(); await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-      await page.mouse.wheel(0, -500); await page.waitForTimeout(100); const k1 = await page.evaluate(() => __ruin.pz.k);
-      await page.mouse.down(); await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2 + 20); await page.mouse.up(); const x1 = await page.evaluate(() => __ruin.pz.x);
-      await page.click('.pz-fit'); await page.waitForTimeout(400); const k2 = await page.evaluate(() => [__ruin.pz.k, __ruin.pz.x]);
-      ok(k1 > 1.3 && Math.abs(k2[0] - 1) < .01 && Math.abs(k2[1]) < 1, JSON.stringify([k1, x1, k2]));
+    'phone (390x844): chart, a whole slip with its chips, and Close the sitting are on screen together; a tap signs': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(400);
+      const vis = sel => page.evaluate(sel => { const e = document.querySelector(sel); if (!e) return false; const r = e.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight && r.height > 0 && r.left >= 0 && r.right <= innerWidth; }, sel);
+      ok(await vis('#chart'), 'chart'); ok(await vis('.slip[data-i="0"] .chips'), 'chips'); ok(await vis('#closeBtn'), 'close button');
+      ok(await page.evaluate(() => document.documentElement.scrollWidth <= 391), 'sideways scroll');
+      await page.tap('.slip[data-i="0"] .chips button[data-act="sign"]').catch(() => page.click('.slip[data-i="0"] .chips button[data-act="sign"]'));
+      ok(await page.evaluate(() => __ruin.S.slips[0].st === 'signed'), 'tap did not sign');
     },
   },
 };
+// tests that loop over bots use the page through a global (set by the runner's page for each test)
+const wrap = fn => async ctx => { globalThis.__page = ctx.page; return fn(ctx); };
+for (const k of Object.keys(module.exports.tests)) module.exports.tests[k] = wrap(module.exports.tests[k]);

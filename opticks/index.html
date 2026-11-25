@@ -520,9 +520,11 @@ const MAT = p => p.t === 'mirror' || p.t === 'arc' || p.t === 'splitter' ? 'spec
 const CATALOG = rank => [
   ...[2, 3, 4, 6, 8, 9, 12].map(f => LENS(f)), ...[-2, -3, -4, -6].map(f => LENS(f)),
   { t: 'mirror' }, { t: 'mirror' }, { t: 'arc', f: 6, L: 5 }, { t: 'prism', s: 3 }, { t: 'rprism', s: 3 }, { t: 'rprism', s: 3 }, { t: 'block', w: 4, h: 3 },
-  ...(rank >= 1 ? [LENS(-6, 'flint'), LENS(-8, 'flint'), LENS(-12, 'flint'), { t: 'prism', s: 3, g: 'flint' }, { t: 'prism', s: 3, g: 'flint' }] : []),
+  ...(rank >= 1 ? [LENS(-5.4, 'flint'), LENS(-7.4, 'flint'), LENS(-11.5, 'flint'), { t: 'prism', s: 3, g: 'flint' }, { t: 'prism', s: 3, g: 'flint' }] : []),
   ...(rank >= 3 ? [LENS(3, 'fluor'), LENS(4, 'fluor'), LENS(6, 'fluor'), LENS(8, 'fluor')] : []),
 ];
+// the flint partner that makes a crown lens achromatic when the two stand 0.25 apart (Hall and Dollond's doublet)
+const ACHRO = { 3: -5.4, 4: -7.4, 6: -11.5 };
 const LAMPS = [{ n: 'mercury', l: [436, 546, 577] }, { n: 'hydrogen', l: [656, 486, 434] }, { n: 'helium', l: [668, 588, 502, 447] }];
 const CLIENTS = ['Mr Hooke, Gresham College', 'the Admiralty', 'Mr Flamsteed, Greenwich', 'a Dutch spectacle-maker', 'the Royal Society', 'Mr Halley', 'a glassworks at Southwark', 'the Lord Mayor', 'Mr Boyle', 'an apothecary in Cheapside', 'Mr Wren', 'a ship\'s master at Deptford'];
 const P2 = v => +(+v).toFixed(2);
@@ -548,7 +550,7 @@ function measureComm(c, R, ps) {
   } else if (c.kind === 'burn') {
     const hs = R.hits[0] || []; m.light = hs.reduce((a, h) => a + h.I, 0) / n; m.main = m.light >= c.need - 1e-9;
     if (c.cs) { // white light: where does each colour come to its own focus? (the rays the crucible caught, extended)
-      const fo = lams.map(l => { const q = hs.filter(h => h.l === l); return q.length >= 3 ? lineSpread(q) : null; });
+      const fo = lams.filter(l => l >= 450).map(l => { const q = hs.filter(h => h.l === l); return q.length >= 3 ? lineSpread(q) : null; });
       m.cspread = fo.some(f => !f || f.rms > 1e8) ? 99 : Math.max(...fo.map(a => Math.max(...fo.map(b => Math.hypot(a.x - b.x, a.y - b.y)))));
       m.main = m.main && m.cspread <= c.cs; }
   } else if (c.kind === 'spectro') {
@@ -585,7 +587,7 @@ const MAKE = {
     const white = !first && rank >= 2 && r() < .5, y0 = first ? 10 : r.range(6, 14);
     const v = first ? 'axis' : r.pick(rank >= 1 ? ['axis', 'fold', 'fold', 'arc'] : ['axis', 'fold']);
     const f = white ? r.pick([3, 4, 6]) : first ? 6 : r.pick([4, 6, 8, 9, 12]), F = white ? 2 * f : f, x1 = first ? 8 : r.range(4, 12);
-    const set = x => white ? [atLens(f, x, y0), atLens(-2 * f, x + .25, y0, 'flint')] : [atLens(f, x, y0)];
+    const set = x => white ? [atLens(f, x, y0), atLens(ACHRO[f], x + .25, y0, 'flint')] : [atLens(f, x, y0)];
     let ref;
     if (v === 'axis') { if (x1 + F > 29) return null; ref = set(x1); }
     else if (v === 'fold') { if (F < 5) return null; ref = [...set(x1), { t: 'mirror', x: P2(x1 + .5 + r.range(1.5, F - 2.5)), y: P2(y0), a: r() < .5 ? 45 : -45 }]; }
@@ -593,7 +595,7 @@ const MAKE = {
     const src = beamSrc(y0, 9, 4, white ? 'white' : 650), fp = lineSpread(trace({ sources: [src], fixed: [], targets: [], loss: 1 }, ref).finals.filter(q => q.I > .01));
     if (!(fp.x > 2 && fp.x < 30 && fp.y > 1.5 && fp.y < 18.5) || fp.rms > .12) return null;
     if (v !== 'axis' && Math.abs(fp.y - y0) < 3) return null;
-    return { kind: 'burn', white, need: .5, cs: white ? .02 : 0, sources: [src], targets: [{ k: 'spot', x: P2(fp.x), y: P2(fp.y), r: white ? .1 : .3 }], ref, spec: white ? 'Burn white sunlight to a point' : 'Burning glass for the crucible',
+    return { kind: 'burn', white, need: .5, cs: white ? .03 : 0, sources: [src], targets: [{ k: 'spot', x: P2(fp.x), y: P2(fp.y), r: white ? .1 : .3 }], ref, spec: white ? 'Burn white sunlight to a point' : 'Burning glass for the crucible',
       alt: white ? [{ t: 'arc', f: 6, L: 5 }, { t: 'mirror' }] : [{ t: 'mirror' }, { t: 'arc', f: 6, L: 5 }] };
   },
   periscope(r, rank) {
@@ -636,7 +638,7 @@ const MAKE = {
     let f = r.pick(fs), ref = [atLens(f, 1.5 + f, y0)], par = .6;
     if (white) { // an achromatic doublet (crown f with flint -2f, focal length about 2f), slid until every colour leaves parallel
       const fw = [3, 4, 6].filter(f => 4 * f * Math.tan(rad(S / 2)) <= APER(f) * .9); if (!fw.length) return null; f = r.pick(fw);
-      let best = null; for (let x = 1.5 + 2 * f - .8; x <= 1.5 + 2 * f + .8; x += .01) { const q = [atLens(f, x, y0), atLens(-2 * f, x + .25, y0, 'flint')], m = measureComm(c, trace(c, q), q); if (m.rays >= m.need && (!best || m.spread < best.sp)) best = { sp: m.spread, q }; }
+      let best = null; for (let x = 1.5 + 2 * f - .8; x <= 1.5 + 2 * f + .8; x += .01) { const q = [atLens(f, x, y0), atLens(ACHRO[f], x + .25, y0, 'flint')], m = measureComm(c, trace(c, q), q); if (m.rays >= m.need && (!best || m.spread < best.sp)) best = { sp: m.spread, q }; }
       if (!best || best.sp > .15) return null; ref = best.q; par = .2; }
     return { ...c, white, par, ref, spec: white ? 'A white searchlight' : 'Searchlight for a lighthouse', alt: [{ t: 'arc', f: 6, L: 5 }, LENS(f > 3 ? f - 1 : 4)] };
   },
@@ -719,7 +721,7 @@ function commWin(sealed) {
 function commStatus() {
   const lv = wsLv, m = R.m, dark = lv.sealedOn && !revealed;
   const main = { reduce: () => `width ×${(m.ratio || 0).toFixed(2)} of ×${lv.M < 1 ? '1/' + Math.round(1 / lv.M) : lv.M} · spread ${m.spread.toFixed(2)}°`, search: () => `${m.rays}/${m.need} rays out · spread ${m.spread.toFixed(2)}°`,
-    periscope: () => `${m.rays}/3 rays at the window${m.upright === false ? ' · inverted' : ''}`, burn: () => `${Math.round(m.light * 100)}% in the crucible (need 50)${lv.cs ? ` · colours focus ${m.cspread > 50 ? '–' : m.cspread.toFixed(2)} apart (≤ ${lv.cs})` : ''}`, spectro: () => `lines ${m.sep.toFixed(2)} apart (need ${lv.D})` }[lv.kind]();
+    periscope: () => `${m.rays}/3 rays at the window${m.upright === false ? ' · inverted' : ''}`, burn: () => `${Math.round(m.light * 100)}% in the crucible (need 50)${lv.cs ? ` · red-to-blue focus ${m.cspread > 50 ? '–' : m.cspread.toFixed(2)} apart (≤ ${lv.cs})` : ''}`, spectro: () => `lines ${m.sep.toFixed(2)} apart (need ${lv.D})` }[lv.kind]();
   const spec = `<span class="${!dark && m.main ? 'ok' : ''}">${!dark && m.main ? '✓' : '○'} ${dark ? 'sealed: the lamp is dark' : main}</span>`;
   const cls = lv.clauses.map((q, i) => `<span class="cl ${!dark && m.cl[i].ok ? 'ok' : ''}" title="${CL_HELP[q.id]}"><b>${CL_ICON[q.id]}</b> ${CL_TXT(q)}${dark ? '' : ': ' + m.cl[i].val}</span>`).join('');
   const bill = `<span class="cost">£ ${m.cost}s · case ${m.len.toFixed(1)} · Guild ${lv.guild.cost}s / ${lv.guild.len.toFixed(1)} / ${Math.round(lv.guild.light * 100)}%</span>`;

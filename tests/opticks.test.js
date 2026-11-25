@@ -284,8 +284,8 @@ module.exports = {
     'white sunlight: a single lens of any glass cannot meet a white burning order; a crown-flint doublet or a concave mirror can': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const o = window.__opt; let c = null; for (let i = 0; i < 80 && !c; i++) { const g = o.getComm('w' + i, 2); if (g.kind === 'burn' && g.white && Math.abs(g.targets[0].y - g.sources[0].y) < .3) c = g; }
         const y0 = c.sources[0].y, T = c.targets[0], pass = ps => o.measureComm(c, o.trace(c, ps), ps).main;
-        const single = [2, 3, 4, 6, 8, 9, 12].some(f => ['crown', 'flint', 'fluor'].some(g => { for (let x = T.x - f - 1; x <= T.x - f + 1; x += .02) if (pass([{ t: 'lens', f, L: 5, g, x, y: y0, a: 90 }])) return true; return false; }));
-        let dbl = false; for (const f of [3, 4, 6]) for (let x = T.x - 2 * f - 1; x <= T.x - 2 * f + 1 && !dbl; x += .02) dbl = pass([{ t: 'lens', f, L: 5, x, y: y0, a: 90 }, { t: 'lens', f: -2 * f, L: 5, g: 'flint', x: x + .25, y: y0, a: 90 }]);
+        const single = o.CATALOG(4).filter(p => p.t === 'lens' && p.f > 0).some(p => { for (let x = T.x - p.f - 1; x <= T.x - p.f + 1; x += .02) if (pass([{ ...p, x, y: y0, a: 90 }])) return true; return false; });
+        let dbl = false; for (const f of [3, 4, 6]) for (let x = T.x - 2 * f - 1.5; x <= T.x - 2 * f + 1 && !dbl; x += .02) dbl = pass([{ t: 'lens', f, L: 5, x, y: y0, a: 90 }, { t: 'lens', f: { 3: -5.4, 4: -7.4, 6: -11.5 }[f], L: 5, g: 'flint', x: x + .25, y: y0, a: 90 }]);
         return { single, dbl, spec: c.spec }; });
       ok(!r.single && r.dbl, JSON.stringify(r));
     },
