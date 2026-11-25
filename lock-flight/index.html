@@ -181,9 +181,9 @@ const K = window.CANAL, { W, H, N, C: CC, xy, idx, ekey } = K;
 // ================= commissions =================
 // Each is a country (seeded heightmap + ridges + towns + the weather to come) and a brief from the company.
 const COMS = [
-  { id: 'first', n: 'The First Cut', spec: { seed: 11, relief: 2.2, ridges: [], hills: [[15, 4, 3, 3]], towns: [[4, 11, 3], [26, 11, 3]], names: ['Ashby', 'Wexford'], drought: [[66, 3]] },
-    story: 'The company has its Act of Parliament. <b>Drag from Ashby to Wexford</b> to dig a canal. Where the ground rises the canal steps up with <b>locks</b>. Then press <b>Open</b> and watch ten years of boats pay their tolls.' },
-  { id: 'ridge', n: 'Over the Top', spec: { seed: 23, relief: 2.4, ridges: [{ a: [15, -2], b: [15, 24], amp: 6.5, w: 3, saddles: [[.32, .5, .12]] }], hills: [[19, 3, 3, 3]], towns: [[3, 14, 3], [27, 13, 3]], names: ['Hartley', 'Brinford'], drought: [[29, 4], [65, 5]] },
+  { id: 'first', n: 'The First Cut', spec: { seed: 11, relief: 1.2, ridges: [], hills: [[15, 3, 3.5, 3]], towns: [[4, 11, 3], [26, 11, 3]], names: ['Ashby', 'Wexford'], drought: [[66, 3]] },
+    story: 'The company has its Act of Parliament. <b>Drag from Ashby to Wexford</b> to dig a canal. The flat valley keeps it level, and every furlong costs. Then press <b>Open</b> and watch ten years of boats pay their tolls.' },
+  { id: 'ridge', n: 'Over the Top', spec: { seed: 23, relief: 2.4, ridges: [{ a: [15, -2], b: [15, 24], amp: 6.5, w: 3, saddles: [[.32, .3, .12]] }], hills: [[19, 3, 3, 3]], towns: [[3, 14, 3], [27, 13, 3]], names: ['Hartley', 'Brinford'], drought: [[29, 4], [65, 5]] },
     story: 'A ridge stands between the towns. A canal over it has a <b>summit pound</b>, and every boat that crosses lets a lockful down each side. Nothing refills it but the streams: dam one above the summit with a <b>⛲ Reservoir</b>.' },
   { id: 'tunnel', n: 'Through the Hill', spec: { seed: 37, relief: 1.8, ridges: [{ a: [14, -2], b: [16, 24], amp: 8.5, w: 2.1, saddles: [] }], towns: [[4, 10, 4], [26, 11, 4]], names: ['Kelbury', 'Stoham'], drought: [[30, 5], [78, 4]] },
     story: 'A steep, narrow ridge and no streams on its crest. Climbing means a high dry summit. Hold the level and the canal goes <b>underground</b>: drag sideways in the section below to flatten a pound into a cutting or a tunnel.' },
@@ -197,7 +197,7 @@ const COMS = [
   { id: 'sandbox', n: 'Free Survey', free: 1, story: 'Any country you like (⟳ New country). Join the towns, share the map and design.' },
 ];
 const dailySeed = () => { const d = new Date(); return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); };
-function mapFor(c, seed) { if (c.daily) return K.genMap(K.randomSpec(dailySeed())); if (c.free) return K.genMap(K.randomSpec(seed || 1)); return K.genMap(c.spec); }
+function mapFor(c, seed) { if (c.daily) return K.genMap(K.goodSpec(dailySeed())); if (c.free) return K.genMap(K.goodSpec(seed || 1)); return K.genMap(c.spec); }
 
 // ================= state =================
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -399,7 +399,7 @@ function hud() {
     setWater(lastRec ? Math.min(1, ...lastRec.fill) : 1, lastRec && lastRec.dry.length ? 'boats stopped' : '');
   }
   const req = Cm.free || Cm.daily ? 'Join the towns.' : `Join ${M.towns.map(t => t.name).join(', ')}.`;
-  $('goals').innerHTML = `${req} ${par() != null ? `Par <i>${fmtK(par())}</i>` : ''}${SAVE.best[Cm.id] != null ? ` · best <i>${fmtK(SAVE.best[Cm.id])}</i>` : ''}`;
+  $('goals').innerHTML = `${req} ${par() != null && par() > 0 ? `Par <i>${fmtK(par())}</i>` : ''}${SAVE.best[Cm.id] != null ? ` · best <i>${fmtK(SAVE.best[Cm.id])}</i>` : ''}`;
 }
 function setWater(f, txt) { $('wFill').style.width = Math.round(Math.max(0, f) * 100) + '%'; $('wbar').className = 'wbar' + (f < .3 ? ' warn' : ''); setText('wTxt', txt + (txt ? ' · ' : '') + Math.round(Math.max(0, f) * 100) + '%'); }
 
@@ -427,7 +427,7 @@ cv.addEventListener('pointermove', e => {
   dig.moved = true; kick();
 });
 const endPtr = e => {
-  if (dig && !dig.fill) { if (!cam.gesturing && dig.path.length >= 2) { snapshot(); K.addPath(M, D, dig.path); sel = D.paths.length - 1; openProf(true); FX.sfx('place'); reanalyse(); checkJoin(); } else if (!dig.moved) tapCell(dig.path[0]); }
+  if (dig && !dig.fill) { if (!cam.gesturing && dig.path.length >= 2) { snapshot(); K.addPath(M, D, dig.path); sel = D.paths.length - 1; if (innerWidth < 760) setMini(true); openProf(true); FX.sfx('place'); reanalyse(); checkJoin(); } else if (!dig.moved) tapCell(dig.path[0]); }
   else if (dig && dig.fill) { K.prune(D); if (sel >= D.paths.length) sel = D.paths.length - 1; reanalyse(); }
   else if (downAt && !cam.gesturing && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 8) { if (downAt.site) openInsp(downAt.site); else { const c = cellAt(e.clientX, e.clientY); if (tool === 'res') toggleRes(c); else tapCell(c); } }
   dig = null; downAt = null; kick();
@@ -525,7 +525,7 @@ function stepBoats(dt) {
 function finish() {
   mode = 'done'; const div = st.rev - st.spent - st.run, ok = K.connected(runAn);
   const fl = fieldFor(); let stars = 0, pct = null;
-  if (ok && div > 0) { stars = 1; if (fl && fl.length) { pct = Math.round(fl.filter(v => v < div).length / fl.length * 100); if (pct >= 50) stars = 2; if (pct >= 85) stars = 3; } }
+  if (ok && div > 0) { stars = 1; if (fl && fl.length) { pct = Math.round(fl.filter(v => v <= div + .5).length / fl.length * 100); if (pct >= 50) stars = 2; if (pct >= 85) stars = 3; } }
   if (stars) { SAVE.done[Cm.id] = Math.max(SAVE.done[Cm.id] || 0, stars); if (SAVE.best[Cm.id] == null || div > SAVE.best[Cm.id]) SAVE.best[Cm.id] = Math.round(div); if (Cm.daily) SAVE.dailyKey = dailySeed(); persist(); FX.sfx('win'); hangSign('Dividend Paid!', `${Cm.n} · ${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}`); }
   else FX.sfx('fail');
   renderTools(); hud(); renderLevels();
@@ -544,7 +544,7 @@ function finish() {
 }
 function histHtml(fl, you) {
   const lo = Math.min(...fl, you), hi = Math.max(...fl, you) + 1e-6, nb = 14, bins = new Array(nb).fill(0); for (const v of fl) bins[Math.min(nb - 1, Math.floor((v - lo) / (hi - lo) * nb))]++;
-  const yb = Math.min(nb - 1, Math.floor((you - lo) / (hi - lo) * nb)), mx = Math.max(1, ...bins), better = fl.filter(v => v < you).length;
+  const yb = Math.min(nb - 1, Math.floor((you - lo) / (hi - lo) * nb)), mx = Math.max(1, ...bins), better = fl.filter(v => v <= you + .5).length;
   return `<div class="hist"><h5>Dividend against ${fl.length} other engineers' canals</h5><div class="cols">${bins.map((b, i) => `<i class="${i === yb ? 'you' : ''}" style="height:${Math.max(i === yb ? 30 : 2, b / mx * 100)}%"></i>`).join('')}</div><div class="ax"><span>${fmtK(lo)}</span><span>you beat ${Math.round(better / fl.length * 100)}%</span><span>${fmtK(hi)}</span></div></div>`;
 }
 function toSurvey() { mode = 'survey'; st = null; runAn = null; lastRec = null; boats = []; siteAnim.clear(); reanalyse(); }
@@ -578,7 +578,7 @@ function renderLevels() {
   $('lvBox').querySelectorAll('[data-i]').forEach(e => e.onclick = () => { $('lvBox').classList.remove('open'); loadCom(+e.dataset.i); });
   if ($('lvNew')) $('lvNew').onclick = () => { $('lvBox').classList.remove('open'); loadCom(COMS.indexOf(Cm), null, (Math.random() * 1e6) | 0); };
 }
-function setMini(on) { $('hud').classList.toggle('mini', on); }
+function setMini(on) { const was = $('hud').classList.contains('mini'); $('hud').classList.toggle('mini', on); if (was !== on) requestAnimationFrame(() => { if (!cam.touched) fitMap(); kick(); }); }
 $('title').onclick = () => setMini(!$('hud').classList.contains('mini'));
 function loadCom(i, shared, sd) {
   Cm = COMS[i]; seed = sd || (Cm.free ? (SAVE.seed || 1) : 1); if (Cm.free) SAVE.seed = seed; M = mapFor(Cm, seed); bake();

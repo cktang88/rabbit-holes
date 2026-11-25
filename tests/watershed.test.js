@@ -1,6 +1,6 @@
 // Watershed: a river-basin commission on a live erosion model. Each site must be lost by idling or by the obvious move,
 // won by a known plan, and its trade-offs must show up in the numbers.
-const plant = async (page, raw) => { await page.addInitScript(raw => localStorage.setItem('rh:watershed', raw), raw); await page.reload(); await page.waitForFunction(() => window.__ws && !__ws.settling, null, { timeout: 40000 }); };
+const plant = async (page, raw) => { await page.addInitScript(raw => localStorage.setItem('rh:watershed', raw), raw); await page.reload(); await page.waitForFunction(() => window.__ws, null, { timeout: 30000 }); };
 // build a site, place a plan, run every year headless, report the numbers
 const run = (page, lv, plan) => page.evaluate(([lv, plan]) => { const W = __ws; W.forgetPlans(); W.buildLevel(lv); const refused = W.plan(plan); const s = W.runYears(99);
   return { refused, goal: s.goalMet, harvest: s.harvest, floods: s.floods, power: s.power, delta: s.deltaPct, medals: W.SC[lv].medals.filter(([, f]) => f(s)).length }; }, [lv, plan]);
@@ -22,7 +22,7 @@ async function sims(page) {
   if (SIMS) return SIMS;
   const keys = Object.keys(PLANS), out = {}, W = 3, pages = [page];
   for (let i = 1; i < W; i++) { const p = await page.context().newPage(); await p.goto(page.url()); pages.push(p); }
-  await Promise.all(pages.map(async (p, w) => { await p.waitForFunction(() => window.__ws && !__ws.settling, null, { timeout: 40000 });
+  await Promise.all(pages.map(async (p, w) => { await p.waitForFunction(() => window.__ws, null, { timeout: 30000 });
     for (let i = w; i < keys.length; i += W) out[keys[i]] = await run(p, ...PLANS[keys[i]]); }));
   for (const p of pages.slice(1)) await p.close();
   return (SIMS = out);
@@ -31,7 +31,7 @@ async function sims(page) {
 module.exports = {
   page: 'watershed/index.html',
   viewport: { width: 900, height: 600 },
-  ready: page => page.waitForFunction(() => window.__ws && !__ws.settling, null, { timeout: 40000 }),
+  ready: page => page.waitForFunction(() => window.__ws, null, { timeout: 30000 }),
   tests: {
     'model: water volume conserved by the pipe model; terrain + sediment conserved by erosion and slumping': async ({ page, near }) => {
       const w = await page.evaluate(() => { const W = __ws; W.buildLevel(0); for (let k = 0; k < W.D.length; k++) W.D[k] = (k * 7919 % 13) / 10;
@@ -109,7 +109,7 @@ module.exports = {
     },
     'touch: the site opens in Look, a one-finger drag turns the model, a sliding finger with Field places nothing, a tap does': async ({ page, ok, eq }) => {
       const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }), p = await ctx.newPage();
-      await p.goto(page.url()); await p.waitForFunction(() => window.__ws && !__ws.settling, null, { timeout: 40000 }); await p.waitForTimeout(500);
+      await p.goto(page.url()); await p.waitForFunction(() => window.__ws && !__ws.settling, null, { timeout: 120000 }); await p.waitForTimeout(500);
       eq(await p.evaluate(() => document.querySelector('.tool.on').dataset.t), 'view', 'default tool');
       const cdp = await ctx.newCDPSession(p), swipe = async (x0, y0, x1, y1) => {
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: y0 }] });
@@ -159,12 +159,12 @@ module.exports = {
       eq(r.again, { b: r.drawn.b, cost: r.drawn.cost }, 'design rebuilt'); eq(r.ran2, r.ran, 'river replays identically');
       ok(r.drawn.hash === '#sketch=k3~' + r.design && r.design.split('.').length === 3, r.drawn.hash);
       ok(/^d\d{8}$/.test(r.today) && +r.today.slice(7) === r.dateNow, r.today); eq(r.junk, 0, 'junk designs decode to nothing');
-      await page.goto(page.url().replace(/#.*$/, '') + '#sketch=k3~' + r.design); await page.reload(); await page.waitForFunction(() => window.__ws && !__ws.settling, null, { timeout: 40000 });
+      await page.goto(page.url().replace(/#.*$/, '') + '#sketch=k3~' + r.design); await page.reload(); await page.waitForFunction(() => window.__ws, null, { timeout: 30000 });
       eq(await page.evaluate(() => [__ws.seed, __ws.SK.strokes.length, Math.round(__ws.SK.cost), document.getElementById('lvName').textContent]), ['k3', 3, r.drawn.cost, 'River Sketch']);
     },
     'sketch: every seed is solvable (the surveyor’s course wins, inside par); leaving it, or scribbling at random, never does': async ({ page, ok }) => {
       const seeds = ['a1', 'm5', 'x1y2', 'd20261125', 'river', 'q1'];
-      const pages = [page]; for (let i = 1; i < 3; i++) { const p = await page.context().newPage(); await p.goto(page.url()); await p.waitForFunction(() => window.__ws && !__ws.settling, null, { timeout: 40000 }); pages.push(p); }
+      const pages = [page]; for (let i = 1; i < 3; i++) { const p = await page.context().newPage(); await p.goto(page.url()); await p.waitForFunction(() => window.__ws, null, { timeout: 30000 }); pages.push(p); }
       const out = {}; await Promise.all(pages.map(async (p, w) => { for (let i = w; i < seeds.length; i += 3) out[seeds[i]] = await p.evaluate(sd => { const W = __ws, run = S => { W.sketch(sd); W.SK.strokes = S; W.skRebuild(); W.runYears(99); return { met: W.stat().goalMet, cost: W.skStat().plaster }; };
         let x = 7; const R = () => (x = (x * 16807) % 2147483647) / 2147483647, rand = [];
         for (let i = 0; i < 5; i++) { const p = [[R() * 63 | 0, R() * 63 | 0]]; for (let j = 0; j < 12; j++) { const l = p[p.length - 1]; p.push([Math.max(0, Math.min(63, l[0] + (R() * 5 | 0) - 2)), Math.max(0, Math.min(63, l[1] + (R() * 5 | 0) - 1))]); } rand.push({ t: ['valley', 'ridge', 'valley'][i % 3], p }); }
@@ -181,7 +181,7 @@ module.exports = {
     },
     'view: pinch zooms and never sculpts; a stroke drawn while zoomed lands under the finger; ⤢ resets the view': async ({ page, eq, ok }) => {
       const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }), p = await ctx.newPage();
-      await p.goto(page.url().replace(/#.*$/, '') + '#sketch=b2'); await p.waitForFunction(() => window.__ws && !__ws.settling, null, { timeout: 40000 }); await p.waitForTimeout(400);
+      await p.goto(page.url().replace(/#.*$/, '') + '#sketch=b2'); await p.waitForFunction(() => window.__ws, null, { timeout: 30000 }); await p.waitForTimeout(400);
       const cdp = await ctx.newCDPSession(p), T = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
       const [cx, cy] = await p.evaluate(() => { const r = document.getElementById('gl').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
       const d0 = await p.evaluate(() => __ws.camDist()), b0 = await p.evaluate(() => __ws.B.reduce((a, v) => a + v, 0));

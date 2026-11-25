@@ -243,6 +243,117 @@ module.exports = {
         const n = await page.evaluate(() => [...document.querySelectorAll('button, input, a, select, summary')].filter(e => { const r = e.getBoundingClientRect(), cs = getComputedStyle(e); if (!r.width || !r.height || cs.visibility === 'hidden') return false; const x = r.left + r.width / 2, y = r.top + r.height / 2; return x > 0 && x < innerWidth && y > 0 && y < innerHeight && !e.closest('#predict'); }).length);
         ok(n <= 11, `${vp.width}px: ${n} visible controls`); }
     },
+    'performance: 60fps on a phone screen, with the frame work fitting the budget on a 4x slower CPU': async ({ page, ok }) => {
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true }); await page.waitForTimeout(300); await dismiss(page);
+      await page.evaluate(() => { const R = __rh; R.S.noPredict = 1; R.setRule(R.parseRule('B3678/S34678')); R.soup(); R.running = true; });
+      await page.waitForTimeout(2200); const fps = await page.evaluate(() => __rh.fps(2000));
+      // a phone CPU is roughly 4x slower than this one: everything the page does per frame (step, paint, composite onto the canvas) must fit in 16.7ms
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+      const ms = await page.evaluate(() => { const R = __rh, cx = document.getElementById('world').getContext('2d'); R.running = false; const t = performance.now(); for (let i = 0; i < 30; i++) { R.tick(4); R.refreshImage(); R.render(); cx.getImageData(0, 0, 1, 1); } return (performance.now() - t) / 30; });
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+      ok(fps >= 55, 'frames per second on a 390x844 @3x screen with a busy soup: ' + fps.toFixed(1)); ok(ms < 14, 'work per frame on a 4x slower CPU: ' + ms.toFixed(1) + 'ms of the 16.7ms budget');
+    },
+    'species are patterns, not pattern-per-rule: a glider found in two rules is one species living in both': async ({ page, eq }) => {
+      await dismiss(page);
+      const r = await page.evaluate((PAT) => { const R = __rh; R.S.noPredict = 1; for (const rs of ['B3/S23', 'B36/S23']) { R.setRule(R.parseRule(rs)); R.place(PAT.glider, 40, 40); R.examineAt(41, 41); }
+        const sp = Object.values(R.S.species); return { n: sp.length, rules: sp[0].rules, log: document.getElementById('log').textContent }; }, PAT);
+      eq(r.n, 1); eq(r.rules, ['B3/S23', 'B36/S23']); eq(/also lives in this rule/.test(r.log), true);
+    },
+    'old saves with per-rule species are merged on load': async ({ page, eq }) => {
+      const old = { rule: { b: 8, s: 12 }, species: {}, rules: {}, bounties: {}, scans: 3 };
+      const g = { type: 'diag', p: 4, dx: 1, dy: 1, cells: 5, phases: ['1,0;2,1;0,2;1,2;2,2'], name: 'x', t: 1 };
+      old.species['B3/S23|0,0;1,0'] = { ...g, rule: 'B3/S23' }; old.species['B36/S23|0,0;1,0'] = { ...g, rule: 'B36/S23' }; old.species['B3/S23|0,0;0,1'] = { ...g, type: 'still', p: 1, dx: 0, dy: 0, rule: 'B3/S23' };
+      await page.evaluate((o) => localStorage.setItem('rh:rh', JSON.stringify(o)), old); const p2 = await reopen(page);
+      eq(await p2.evaluate(() => Object.values(__rh.S.species).map(s => [s.type, s.rules.length]).sort()), [['diag', 2], ['still', 1]]); eq(p2.errs, []); await p2.close();
+    },
+    'predict, then run: an uncharted rule waits for a bet, scores it, and earns a field note': async ({ page, eq, ok }) => {
+      await dismiss(page);
+      await page.evaluate(() => { const R = __rh; R.setRule(R.parseRule('B1/S1')); R.soup(); });
+      ok(await page.isVisible('#predict'), 'prediction card shown'); eq(await page.evaluate(() => __rh.running), false, 'soup waits for the bet');
+      await page.click('#predict [data-p="explodes"]');
+      const r = await page.evaluate(() => ({ pred: __rh.S.pred, beh: __rh.S.rules[__rh.parseRule('B1/S1').b + ':' + __rh.parseRule('B1/S1').s].beh, note: !!__rh.S.notes.B1, run: __rh.running, txt: document.getElementById('predict').textContent }));
+      const hit = r.beh === 'explodes' ? 1 : 0; eq([r.pred.n, r.pred.right, r.pred.streak], [1, hit, hit]); ok(r.note); ok(r.run); ok(/B1 rules almost always explode/.test(r.txt), r.txt);
+      await page.evaluate(() => { const R = __rh; R.setRule(R.parseRule('B3/S')); R.soup(); }); await page.click('#predict [data-p="explodes"]');
+      eq(await page.evaluate(() => [__rh.S.pred.n, __rh.S.pred.streak, !!__rh.S.notes.noS]), [2, 0, true]);
+      await page.evaluate(() => __rh.soup()); eq(await page.isVisible('#predict [data-p]'), false, 'charted rules are not asked again');
+    },
+    'draw mode: draw a glider by clicking cells, test it, and earn the design prize': async ({ page, eq, ok }) => {
+      await dismiss(page); await page.evaluate(() => { __rh.S.noPredict = 1; __rh.setRule(__rh.parseRule('B3/S23')); });
+      await page.click('#ruleChip'); await page.waitForTimeout(300); await page.click('#drawBtn'); await page.evaluate(() => __rh.setView(62, 62, 12));
+      const pts = await page.evaluate((PAT) => PAT.glider.map(([x, y]) => __rh.cellToClient(60 + x, 60 + y)), PAT);
+      for (const p of pts) await page.mouse.click(...p);
+      eq(await page.evaluate(() => __rh.grid.reduce((a, b) => a + b, 0)), 5);
+      await page.click('#testDrawBtn');
+      const r = await page.evaluate(() => ({ sp: Object.values(__rh.S.species).map(s => [s.type, !!s.drawn]), prize: Object.keys(__rh.S.bounties).some(k => /6 cells or fewer/.test(k)) }));
+      eq(r.sp, [['diag', true]]); ok(r.prize, 'design prize');
+    },
+    'rule map compass: clicking a neighbour flips exactly that switch': async ({ page, eq }) => {
+      await dismiss(page); await page.evaluate(() => { __rh.S.noPredict = 1; __rh.setRule(__rh.parseRule('B3/S23')); });
+      await page.click('#moreBtn'); await page.click('.tabs button[data-t="map"]'); await page.waitForTimeout(300); const box = await page.locator('#mapCv').boundingBox();
+      // S row, switch 8: last cell of the second row
+      await page.mouse.click(box.x + box.width * (8.5 / 9.5 + .02), box.y + box.height * ((24 + 320 / 9.5 + 18 + 15) / 330));
+      eq(await page.evaluate(() => __rh.ruleStr(__rh.S.rule)), 'B3/S238');
+    },
+    'difficulty: naive play fails': async ({ page, ok }) => {
+      await dismiss(page);
+      const r = await page.evaluate((PAT) => { const R = __rh; R.running = false; const late = R.BOUNTIES.filter(b => b.tier >= 4 && !/^Find a rule that/.test(b.text));
+        const lateGot = () => late.filter(b => b.test()).length / late.length;
+        const reset = () => { for (const k of Object.keys(R.S.species)) delete R.S.species[k]; for (const k of Object.keys(R.S.rules)) delete R.S.rules[k]; R.S.pred = { n: 0, right: 0, streak: 0, best: 0 }; R.S.notes = {}; };
+        let seed = 5; const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) / 32768; };
+        const out = {};
+        // random bot: random rules, a soup each, scan; never predicts
+        const runs = []; for (let k = 0; k < 3; k++) { reset(); R.S.noPredict = 1; for (let i = 0; i < 10; i++) { let b = 0, s = 0; for (let j = 1; j < 9; j++) if (rnd() < .3) b |= 1 << j; for (let j = 0; j < 9; j++) if (rnd() < .35) s |= 1 << j; if (!b) b = 8; R.setRule({ b, s }); R.soup(); R.tick(260); R.scan(true); } runs.push(lateGot()); }
+        out.random = runs;
+        // idle bot: Life forever
+        reset(); R.setRule(R.parseRule('B3/S23')); for (let i = 0; i < 10; i++) { R.soup(); R.tick(260); R.scan(true); } out.idle = lateGot();
+        // competent: knows the field notes, predicts, and designs on purpose
+        reset(); R.S.noPredict = 0; let right = 0;
+        for (const rs of ['B1/S1', 'B12/S0', 'B3/S', 'B4/S4', 'B2/S', 'B1/S0123']) { R.setRule(R.parseRule(rs)); R.soup(); const r = R.parseRule(rs); const g = (r.b >> 1) & 1 ? 'explodes' : (r.b >> 2) & 1 ? 'explodes' : !((r.s >> 2) & 1) && !((r.s >> 3) & 1) ? 'dies' : 'complex'; const res = R.predict(g); if (res && res.right) right++; }
+        R.S.noPredict = 1;
+        for (const rs of ['B3/S23', 'B36/S23', 'B38/S23']) { R.setRule(R.parseRule(rs)); R.setDrawing(true); for (const [x, y] of PAT.glider) R.grid[(60 + y) * R.W + 60 + x] = 1; R.testDrawing(); }
+        out.competent = lateGot(); out.right = right; out.design = R.BOUNTIES.filter(b => /6 cells or fewer|ship in 3 different/.test(b.text)).every(b => b.test());
+        out.master = R.BOUNTIES.find(b => /^Master/.test(b.text)).test();
+        return out; }, PAT);
+      ok(r.random.filter(x => x > .2).length === 0, 'random bot late-prize rates ' + r.random); ok(r.idle <= .2, 'idle ' + r.idle);
+      ok(r.design && r.competent > Math.max(...r.random), 'competent policy beats naive: ' + r.competent); ok(r.right >= 4, 'note-based predictions ' + r.right); ok(!r.master, 'master prize needs more than the simple policy');
+    },
+    'touch (phone): big cells, one-finger pan, pinch zoom, tap examines, drag-paint in draw mode': async ({ page, ok, eq, near }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.goto(page.url()); await page.waitForTimeout(600); await dismiss(page); await noBet(page);
+      const cdp = await touchSession(page);
+      const v = await page.evaluate(() => ({ k: __rh.cam.k, sw: document.scrollingElement.scrollHeight, h: innerHeight, dock: !!document.getElementById('scanBtn').getBoundingClientRect().width }));
+      ok(v.k >= 8 && v.k <= 14, 'cells are 8-14 CSS px on a phone: ' + v.k); ok(v.sw <= v.h + 1, 'no page scroll'); ok(v.dock);
+      const c = await page.evaluate(() => { const r = document.getElementById('world').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+      const vx0 = await page.evaluate(() => __rh.view.vx); await touchDrag(cdp, [c[0] + 60, c[1]], [c[0] - 60, c[1]], 8);
+      near(await page.evaluate(() => __rh.view.vx) - vx0, 120 / v.k, 1.5, 'one finger pans the dish');
+      await touchPinch(cdp, c, 40, 80); const k2 = await page.evaluate(() => __rh.cam.k); ok(k2 > v.k * 1.6, 'pinch zooms in: ' + k2);
+      await page.evaluate(() => { __rh.S.noPredict = 1; __rh.setRule(__rh.parseRule('B3/S23')); __rh.place([[0, 0], [1, 0], [0, 1], [1, 1]], 80, 80); __rh.setView(81, 81, 12); });
+      const t = await page.evaluate(() => __rh.cellToClient(80, 80));
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: t[0], y: t[1], id: 1 }] }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await page.waitForTimeout(100);
+      eq(await page.evaluate(() => Object.values(__rh.S.species).map(s => s.type)), ['still'], 'a tap examines the colony');
+      await page.evaluate(() => { __rh.setDrawing(true); __rh.setView(73, 80, 12); });
+      const pts = await page.evaluate(() => [__rh.cellToClient(70, 80), __rh.cellToClient(76, 80)]);
+      await touchDrag(cdp, pts[0], pts[1], 12); eq(await page.evaluate(() => { let n = 0; for (let x = 70; x <= 76; x++) n += __rh.grid[80 * __rh.W + x]; return n; }), 7);
+    },
+    'view: pan wraps around the torus, wheel zooms about the cursor, fit frames the colonies': async ({ page, ok, near, eq }) => {
+      await dismiss(page);
+      const r = await page.evaluate(() => { const R = __rh; R.setView(5, 5, 10); const a = R.dishToCell(...(() => { const p = R.cellToClient(158, 3); const q = document.getElementById('world').getBoundingClientRect(); return [p[0] - q.left, p[1] - q.top]; })());
+        R.cam.panBy(-1000 * 10, 0); const vx = R.view.vx; R.grid.fill(0); for (const [x, y] of [[150, 10], [151, 10], [152, 10], [5, 10]]) R.grid[y * R.W + x] = 1; R.fitColonies();
+        return { a, vx, fit: [R.view.vx, R.view.vy, R.cam.k] }; });
+      eq(r.a, [158, 3], 'the cell across the seam is reachable'); ok(r.vx >= 0 && r.vx < 160, 'centre stays on the torus: ' + r.vx);
+      ok(r.fit[0] > 150 || r.fit[0] < 6, 'fit frames across the seam: ' + r.fit[0]); near(r.fit[1], 10.5, 1.5);
+      const box = await page.locator('#world').boundingBox(); await page.mouse.move(box.x + 100, box.y + 100);
+      const before = await page.evaluate(() => { const q = document.getElementById('world').getBoundingClientRect(); return __rh.cam.toWorld(q.left + 100, q.top + 100); });
+      await page.mouse.wheel(0, -300); await page.waitForTimeout(80);
+      const after = await page.evaluate(() => { const q = document.getElementById('world').getBoundingClientRect(); return __rh.cam.toWorld(q.left + 100, q.top + 100); });
+      near(after[0], before[0], .05); near(after[1], before[1], .05);
+      await page.click('.pz-fit'); await page.waitForTimeout(400); ok(await page.evaluate(() => __rh.cam.k > 0));
+    },
+    'UI: the default screen shows a handful of controls; everything else is one tap away in the journal': async ({ page, ok }) => {
+      await dismiss(page); for (const vp of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) { await page.setViewportSize(vp); await page.waitForTimeout(300);
+        const n = await page.evaluate(() => [...document.querySelectorAll('button, input, a, select, summary')].filter(e => { const r = e.getBoundingClientRect(), cs = getComputedStyle(e); if (!r.width || !r.height || cs.visibility === 'hidden') return false; const x = r.left + r.width / 2, y = r.top + r.height / 2; return x > 0 && x < innerWidth && y > 0 && y < innerHeight && !e.closest('#predict'); }).length);
+        ok(n <= 11, `${vp.width}px: ${n} visible controls`); }
+    },
     'performance: 60fps on a throttled phone (4x slower CPU, retina screen, busy soup)': async ({ page, ok }) => {
       const cdp = await page.context().newCDPSession(page);
       await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true }); await page.waitForTimeout(300); await dismiss(page);

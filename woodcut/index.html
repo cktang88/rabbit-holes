@@ -39,6 +39,11 @@
     background:repeating-linear-gradient(88deg,rgba(0,0,0,.12) 0 2px,transparent 2px 9px,rgba(255,220,170,.05) 9px 11px,transparent 11px 17px),linear-gradient(#7a4e2c,#4a2c16);box-shadow:inset 0 1px 0 rgba(255,220,170,.25),0 14px 28px -12px #000}
   .grp{display:flex;gap:5px;align-items:center;flex-wrap:wrap;justify-content:center}
   .sep{width:2px;align-self:stretch;background:linear-gradient(#2b190c,#5c3a20)}
+  /* zoom buttons: small washi tiles with a vermilion seal border */
+  .pz-bar{position:fixed!important;right:12px!important;top:12px!important;bottom:auto!important;z-index:6!important}
+  .pz-bar button{min-width:36px!important;min-height:36px!important;border:0;border-radius:2px;color:var(--sumi);font:600 18px Fraunces,Georgia,serif!important;opacity:.95!important;cursor:pointer;
+    background:linear-gradient(var(--washi),var(--washi2));box-shadow:inset 0 0 0 1.5px var(--ver),0 3px 8px -3px rgba(0,0,0,.7)}
+  .pz-bar button:hover{opacity:1!important}
   .tb{border:0;color:var(--ink);font:600 13px Spectral,Georgia,serif;border-radius:2px;padding:6px 10px;cursor:pointer;display:flex;gap:6px;align-items:center;white-space:nowrap;
     background:linear-gradient(#f4ecda,#e2d3b4);box-shadow:0 2px 0 #2b190c,inset 0 0 0 1px rgba(42,29,18,.25)}
   .tb:hover{background:linear-gradient(#fbf5e6,#ebdfc4)}
@@ -146,6 +151,7 @@
 <g stroke="#f1e7d2" stroke-width="7" stroke-linecap="square" fill="none"><path d="M22 40 H78 M50 20 V84 M50 44 L24 74 M50 44 L76 74"/></g></svg></div>
 <script src="../shared/common.js"></script>
 <script src="../shared/fx.js"></script>
+<script src="../shared/panzoom.js"></script>
 <script>
 'use strict';
 // ======================================================================
@@ -458,7 +464,7 @@ function load(i, opts = {}) {
     // from the teapot on, the palette is shuffled: the player has to work out the order themselves
     if (i >= 8) { const r = RH.rng(i * 13 + 7), lt = L.show.join(); let g = 0; do r.shuffle(L.show); while (g++ < 20 && (L.show.join() === lt || L.show.every((k, j) => k === j))); } }
   $('title').textContent = L.n; $('story').innerHTML = L.story;
-  renderPrint(); blockDirty = true; pvDirty = true; hlComp = -2; renderLevels(); renderTray(); updateHUD(); layout();
+  renderPrint(); blockDirty = true; pvDirty = true; hlComp = -2; renderLevels(); renderTray(); updateHUD(); layout(); cam.fit();
   // phones: the story sits in the slip's step line until the first cut (no card covering the level picker)
   if (!opts.fresh) restoreWip();
 }
@@ -643,7 +649,10 @@ function showResult() {
 }
 
 // ---------------- layout ----------------
-const cv = $('cv'), g = cv.getContext('2d'); let W = 1, H = 1, dpr = 1, B = { x: 0, y: 0, s: 100 }, PR = { x: 0, y: 0, s: 100 }, TC = { x: 0, y: 0, s: 80 }, mobile = false;
+const cv = $('cv'), g = cv.getContext('2d');
+// pan and zoom over the whole workbench (world = the layout in CSS px); one finger carves, so panning is two fingers, the middle mouse button or the buttons
+const cam = PanZoom(cv, { world: () => ({ x: 0, y: 0, w: innerWidth, h: innerHeight }), onChange: () => kick(), canPanFrom: e => e.pointerType === 'mouse' && e.button === 1, min: 1, max: 6, pad: 0 });
+let W = 1, H = 1, dpr = 1, B = { x: 0, y: 0, s: 100 }, PR = { x: 0, y: 0, s: 100 }, TC = { x: 0, y: 0, s: 80 }, mobile = false;
 const bgCv = mk(1, 1), paperCv = mk(1, 1);
 const paperRect = () => PR;
 function layout() {
@@ -773,7 +782,7 @@ function draw(now) {
   if (anim && !FX.frozen()) stepAnim(now);
   if (blockDirty) renderBlock(); else if (partDirty && sHi >= 0) renderBlock(sLo, Math.min(R - 1, sHi + 3)); else partDirty = false;
   const [sx, sy] = FX.shakeOffset(10 * dpr);
-  g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(bgCv, 0, 0); g.translate(sx, sy);
+  g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(bgCv, 0, 0); g.setTransform(cam.k, 0, 0, cam.k, cam.x * dpr + sx, cam.y * dpr + sy);
   drawTarget(); drawBoard(now); drawAnim(now); drawPrint(now);
   if (drag && drag.tool === 'lasso' && drag.pts.length > 1) { g.strokeStyle = '#ffd08a'; g.setLineDash([5 * dpr, 4 * dpr]); g.lineWidth = 2 * dpr; g.beginPath(); drag.pts.forEach((p, k) => { const [x, y] = b2s(p[0], p[1]); k ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); g.stroke(); g.setLineDash([]); }
   if (anchor && !finished) { const [x, y] = b2s(anchor.p[0], anchor.p[1]), k = .5 + .5 * Math.sin(now / 160); g.strokeStyle = `rgba(179,38,30,${.6 + .4 * k})`; g.lineWidth = 2.5 * dpr; g.beginPath(); g.arc(x, y, (6 + 4 * k) * dpr, 0, 7); g.stroke(); g.fillStyle = '#b3261e'; g.beginPath(); g.arc(x, y, 2.5 * dpr, 0, 7); g.fill(); }
@@ -781,7 +790,10 @@ function draw(now) {
 }
 
 // ---------------- input ----------------
-function toBlock(e) { const x = ((e.clientX * dpr) - B.x) / B.s * R, y = ((e.clientY * dpr) - B.y) / B.s * R; return [x, y]; }
+function toBlock(e) { const [wx, wy] = cam.toWorld(e.clientX, e.clientY), x = ((wx * dpr) - B.x) / B.s * R, y = ((wy * dpr) - B.y) / B.s * R; return [x, y]; }
+// a second finger means pinch or pan, never a cut: put back whatever the first finger started
+function cancelGesture() { if (drag) { uncut.set(drag.base); drag = null; blockDirty = pvDirty = true; kick(); } pendingRegion = null; }
+let pendingRegion = null;
 const inBlock = p => p[0] >= -4 && p[1] >= -4 && p[0] < R + 4 && p[1] < R + 4;
 const snap = p => [Math.round(p[0] / 3) * 3, Math.round(p[1] / 3) * 3];
 const RAD = { v: 2.4, u: 8 };
@@ -793,16 +805,18 @@ function setHover(p) {
   kick();
 }
 cv.addEventListener('pointerdown', e => {
+  if (cam.gesturing) { cancelGesture(); return; }
   if (anim) { skipAnim(); return; }
   const p = toBlock(e); if (!inBlock(p) || finished) return;
   const q = [clamp(p[0], 0, R - 1), clamp(p[1], 0, R - 1)];
-  if (tool === 'region') { pendingUndo = uncut.slice(); regionAt(q[0] | 0, q[1] | 0); pendingUndo = null; setHover(p); return; }
+  if (tool === 'region') { pendingRegion = { q, x: e.clientX, y: e.clientY }; return; } // clears on release, so a pinch that starts here clears nothing
   cv.setPointerCapture(e.pointerId); touched = true;
   drag = { tool, start: snap(q), last: q, sm: q, pts: [snap(q)], base: uncut.slice(), n: 0, t0: performance.now(), q0: q, far: 0 };
   if (tool !== 'lasso') { drag.n += stamp(q[0], q[1], RAD[tool]); scratch(); partDirty = pvDirty = true; }
   else FX.sfx('tick');
 });
 cv.addEventListener('pointermove', e => {
+  if (cam.gesturing) { cancelGesture(); return; }
   const p = toBlock(e); if (!drag) { setHover(p); return; }
   const q = [clamp(p[0], 0, R - 1), clamp(p[1], 0, R - 1)];
   drag.far = Math.max(drag.far, Math.hypot(q[0] - drag.q0[0], q[1] - drag.q0[1]));
@@ -813,8 +827,9 @@ cv.addEventListener('pointermove', e => {
 });
 // straight cuts without a keyboard: tap where the cut starts, then tap where it ends (tap the same spot again for a single nick)
 let anchor = null;
-const endDrag = () => {
-  if (!drag) return; const d = drag; drag = null;
+const endDrag = e => {
+  if (pendingRegion) { const pr = pendingRegion; pendingRegion = null; if (!cam.gesturing && e && Math.hypot(e.clientX - pr.x, e.clientY - pr.y) < 10) { pendingUndo = uncut.slice(); regionAt(pr.q[0] | 0, pr.q[1] | 0); pendingUndo = null; setHover(toBlock(e)); } return; }
+  if (!drag) return; if (cam.gesturing) { cancelGesture(); return; } const d = drag; drag = null;
   if (d.tool !== 'lasso' && d.far < 4 && performance.now() - d.t0 < 400) {
     uncut.set(d.base); d.n = 0;
     if (!anchor) { anchor = { p: d.q0, tool: d.tool }; FX.sfx('tick'); toast('Straight cut', 'Tap where the cut should end. Tap the same spot again for a single nick.', 2600); }
@@ -974,7 +989,7 @@ window.__wc = {
   lightOrder: () => L.inks.map((_, k) => k).sort((a, b) => lightness(L.inks[b]) - lightness(L.inks[a])),
   get anchor() { return anchor; },
   over, cover, lin, I, ftT, rleEnc, rleDec, wipSave, rLeft, PASS, NLV, SAVE, get GAL() { return GAL; }, get undoN() { return undo.length; }, pullBtn, applyPull,
-  get anim() { return anim; }, get draws() { return draws; }, _tgt: () => targetCv.toDataURL(), layout, get boxes() { return { B, PR, TC, dpr }; },
+  get anim() { return anim; }, get draws() { return draws; }, cam, blockToScreen: (x, y) => { const [dx, dy] = b2s(x, y); return cam.toScreen(dx / dpr, dy / dpr); }, get uncutAt() { return (x, y) => uncut[(y | 0) * R + (x | 0)]; }, _tgt: () => targetCv.toDataURL(), layout, get boxes() { return { B, PR, TC, dpr }; },
 };
 </script>
 </body>

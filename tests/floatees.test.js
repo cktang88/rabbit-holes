@@ -191,14 +191,14 @@ module.exports = {
     'globe view: + and − dolly, drag turns the globe, wheel zooms, reset returns to the voyage view': async ({ page, ok, near }) => {
       await page.evaluate(() => __fl.load(0)); await page.waitForTimeout(200);
       const home = await page.evaluate(() => __fl.camPos), d0 = await page.evaluate(() => __fl.camDist);
-      await page.click('#vIn'); await page.waitForTimeout(900); const d1 = await page.evaluate(() => __fl.camDist); ok(d1 < d0 * .85, `zoomed in ${d0} → ${d1}`);
-      await page.click('#vOut'); await page.click('#vOut'); await page.waitForTimeout(900); ok(await page.evaluate(() => __fl.camDist) > d1 * 1.4, 'zoomed out');
+      await page.click('#vIn'); await page.waitForFunction(() => !__fl.viewTo, null, { timeout: 15000 }); const d1 = await page.evaluate(() => __fl.camDist); ok(d1 < d0 * .85, `zoomed in ${d0} → ${d1}`);
+      await page.click('#vOut'); await page.waitForFunction(() => !__fl.viewTo, null, { timeout: 15000 }); await page.click('#vOut'); await page.waitForFunction(() => !__fl.viewTo, null, { timeout: 15000 }); ok(await page.evaluate(() => __fl.camDist) > d1 * 1.4, 'zoomed out');
       const vp = page.viewportSize(); await page.mouse.move(vp.width / 2, vp.height / 2); await page.mouse.wheel(0, -400); await page.waitForTimeout(600);
       ok(await page.evaluate(() => __fl.camDist) < await page.evaluate(() => 9), 'wheel zoom stays in range');
       const before = await page.evaluate(() => __fl.camPos);
       await page.mouse.move(vp.width / 2, vp.height / 2); await page.mouse.down(); await page.mouse.move(vp.width / 2 + 160, vp.height / 2, { steps: 8 }); await page.mouse.up(); await page.waitForTimeout(500);
       const after = await page.evaluate(() => __fl.camPos); ok(Math.hypot(after[0] - before[0], after[2] - before[2]) > .3, 'drag turned the view');
-      await page.click('#vReset'); await page.waitForTimeout(1500);
+      await page.click('#vReset'); await page.waitForFunction(() => !__fl.viewTo, null, { timeout: 15000 }); await page.waitForTimeout(100); // eased by frames, so wait for the move itself, not a fixed time
       const back = await page.evaluate(() => __fl.camPos); for (let i = 0; i < 3; i++) near(back[i], home[i], .1, 'reset axis ' + i);
       ok((await page.evaluate(() => __fl.ducks.length)) === 0, 'view controls drop nothing');
     },

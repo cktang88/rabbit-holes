@@ -61,14 +61,16 @@ module.exports = {
         await ctx.close();
       }
     },
-    'first career: a first job names a city that wants silk; "max" keeps a fifth of the gold; selling there completes it': async ({ page, ok, eq }) => {
+    'first career: a first job names a city that wants silk; the market opens on silk with a suggested amount that keeps gold for the road; selling there completes it': async ({ page, ok, eq }) => {
       await closeModals(page);
       ok(await page.locator('#p-market .job').isVisible(), 'no first-job banner');
-      const r = await page.evaluate(() => { const K = window.__caravan, C = K.C, fj = C.firstJob, g0 = C.gold;
-        document.querySelector('[data-b="8:999"]').click(); const spent = g0 - C.gold;
+      ok(await page.locator('#p-market tr.sel[data-g="8"]').isVisible() && await page.locator('#dealBtn').isVisible(), 'silk not picked for the first job');
+      ok((await page.textContent('#dealBtn')).startsWith('Buy '), 'the suggestion should be to buy');
+      const g0 = await page.evaluate(() => window.__caravan.C.gold); await page.click('#dealBtn');
+      const r = await page.evaluate(g0 => { const K = window.__caravan, C = K.C, fj = C.firstJob; const spent = g0 - C.gold;
         K.encountersOn = false; K.travelNow(fj.to); K.trade(8, -999);
-        return { wants: K.cities[fj.to].dem.includes(8), spentFrac: spent / g0, bought: C.cargo[8] === 0, done: !!C.firstJob.done }; });
-      ok(r.wants, 'target city should want silk'); ok(r.spentFrac > .5 && r.spentFrac <= .8 + 1e-9, 'max spent ' + r.spentFrac); ok(r.done, 'selling silk there should finish the first job');
+        return { wants: K.cities[fj.to].dem.includes(8), spentFrac: spent / g0, bought: C.cargo[8] === 0, done: !!C.firstJob.done }; }, g0);
+      ok(r.wants, 'target city should want silk'); ok(r.spentFrac > .5 && r.spentFrac <= .9 + 1e-9, 'suggested buy spent ' + r.spentFrac); ok(r.done, 'selling silk there should finish the first job');
       await page.evaluate(() => window.__caravan.buildAndRender()); eq(await page.locator('#p-market .job').count(), 0, 'banner should go');
     },
     'difficulty: naive play fails; a greedy trader wins; 3 stars needs better information; information pays': async ({ page, ok }) => {
@@ -138,17 +140,41 @@ module.exports = {
       const r = await page.evaluate(() => { const K = window.__caravan, C = K.C; C.gold = 0.01; const cam = C.camels; K.tick(); return [cam - C.camels, C.gold >= 0, C.day]; });
       eq(r[0], 1); ok(r[1]); eq(r[2], 1);
     },
-    'guards reduce bandit risk; safe roads stay safe': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const K = window.__caravan, C = K.C, rt = { danger: .1 }; C.camels = 4; C.guards = 0; const a = K.banditChance(rt); C.guards = 2; const b = K.banditChance(rt); return [a, b]; });
-      ok(r[0] === .1 && r[1] < r[0] / 2, JSON.stringify(r));
+    'roads: where bandits roam, the map offers a fast road and a longer safe road; the safe road avoids bandit country': async ({ page, ok }) => {
+      await closeModals(page);
+      const r = await page.evaluate(() => { const K = window.__caravan, C = K.C; let found = null;
+        for (let a = 0; a < K.cities.length && !found; a++) for (let b = 0; b < K.cities.length && !found; b++) { if (a === b) continue; const f = K.shortest(a, b), s = K.shortest(a, b, true);
+          if (f && s && f.legs.some(l => l.r.danger > .03) && s.days > f.days) found = { a, b, f: f.days, s: s.days, safeClean: s.legs.every(l => l.r.danger <= .03) }; }
+        if (!found) return null; C.at = found.a; K.planTo(found.b); return found; });
+      ok(r && r.safeClean, 'no fast/safe pair: ' + JSON.stringify(r));
+      ok(await page.locator('#goFast').isVisible() && await page.locator('#goSafe').isVisible(), 'two road buttons');
+      ok((await page.textContent('#goFast')).includes('bandits') && (await page.textContent('#goSafe')).includes(r.s + ' days'), await page.textContent('#travelBox'));
+      await page.click('#goSafe'); ok(await page.evaluate(() => window.__caravan.traveling.legs.every(l => l.r.danger <= .03)), 'the safe road was not taken');
+    },
+    'camels come with the cargo: buying more than they carry buys camels, and the button says so': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(() => { const K = window.__caravan, C = K.C; C.gold = 5000; const c0 = C.camels, cap0 = K.cap(), g = 0, k = K.buyCost(g, cap0 + 25); K.trade(g, cap0 + 25); return { c0, c1: C.camels, need: k.camels, held: C.cargo[g], want: cap0 + 25 }; });
+      eq(r.c1 - r.c0, 3); eq(r.need, 3); eq(r.held, r.want);
+      await page.evaluate(() => { const K = window.__caravan; K.C.gold = 5000; K.renderMarket(); }); await page.click('#p-market tr[data-g="1"]');
+      await page.evaluate(() => { const q = document.getElementById('qty'); q.value = q.max; q.dispatchEvent(new Event('input')); });
+      ok(/\+\d+ camels?/.test(await page.textContent('#dealBtn')), await page.textContent('#dealBtn'));
+    },
+    'roads are seeded: the same road is the same world, the URL carries it, and today\'s road is shared': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(() => { const K = window.__caravan, sig = () => JSON.stringify([K.cities.map(c => [c.x.toFixed(4), c.y.toFixed(4)]), K.routes.map(r => [r.a, r.b, r.days]), K.C.events.map(e => [e.k, e.city, e.start])]);
+        K.startRoad(4242); const a = sig(), hash = location.hash; K.startRoad(777); const b = sig(); K.startRoad(4242); const c = sig(); const d = K.dailySeed(); K.startRoad(d);
+        return { same: a === c, differ: a !== b, hash, daily: K.C.daily, d2: K.dailySeed() === d }; });
+      ok(r.same && r.differ, 'seeded worlds'); eq(r.hash, '#road=4242'); eq(r.daily, 1); ok(r.d2);
+      const ctx = await page.context().browser().newContext(); const p2 = await ctx.newPage(); await p2.goto(page.url().split('#')[0] + '#road=31337'); await p2.waitForTimeout(700);
+      eq(await p2.evaluate(() => window.__caravan.C.seed), 31337); await ctx.close();
     },
     'tapping a city (no hover first) plans a journey, travel moves the caravan and passes days': async ({ page, ok, eq }) => {
       await closeModals(page);
       const target = await page.evaluate(() => { const K = window.__caravan; K.encountersOn = false; return K.neighbors(K.C.at).sort((a, b) => a.r.days - b.r.days)[0].to; });
       await page.evaluate(ci => { const K = window.__caravan, cv = document.getElementById('map'), r = cv.getBoundingClientRect(), c = K.cities[ci]; const [px, py] = K.P(c); cv.dispatchEvent(new MouseEvent('click', { clientX: r.left + px, clientY: r.top + py, bubbles: true })); }, target);
-      ok(await page.locator('#goBtn').isVisible(), 'no plan from a tap');
+      ok(await page.locator('#goFast').isVisible(), 'no plan from a tap');
       const d0 = await page.evaluate(() => window.__caravan.C.day);
-      await page.click('#goBtn');
+      await page.click('#goFast');
       await page.waitForFunction(() => !window.__caravan.traveling, null, { timeout: 8000 });
       const r = await page.evaluate(() => [window.__caravan.C.at, window.__caravan.C.day]);
       eq(r[0], target); ok(r[1] > d0, 'no days passed');
@@ -184,8 +210,8 @@ module.exports = {
         K.traveling.enc = { k: 'storm' }; const d0 = C.day; K.resolveEncounter(0); out.shelter = C.day - d0;
         // news: pay 4g, the price book gains that city
         K.traveling.enc = { k: 'caravan', city: 20 }; delete C.book[20]; const g1 = C.gold; K.resolveEncounter(0); out.news = !!C.book[20] && g1 - C.gold === 4;
-        // a camel at the well, refused when too poor
-        C.gold = 1; K.traveling.enc = { k: 'well', price: 30 }; out.poor = K.resolveEncounter(0); out.still = !!K.traveling.enc; K.resolveEncounter(1);
+        // a trader, refused when too poor
+        C.gold = 0; K.traveling.enc = { k: 'trader', g: 2, qty: 10, price: 5 }; out.poor = K.resolveEncounter(0); out.still = !!K.traveling.enc; K.resolveEncounter(1);
         return out;
       });
       ok(r.bought > 0, 'trader sold nothing'); ok(r.spent > 0); ok(r.cleared);
@@ -218,11 +244,11 @@ module.exports = {
     },
     'corrupted saves load safely': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => { const K = window.__caravan; return [K.cleanCareer({ seed: 1, day: 'x' }), K.cleanCareer(null), K.cleanMeta('junk'), K.cleanCareer({ seed: 5, day: 3, gold: 10, at: 2, cargo: [1], contracts: [{ to: 99 }], prices: [[1]] })]; });
-      eq(r[0], null); eq(r[1], null); eq(r[2], { legacy: 0, best: 0, careers: 0, perks: {} });
+      eq(r[0], null); eq(r[1], null); eq(r[2], { best: 0, careers: 0, roads: {} });
       eq(r[3].cargo.length, 12); eq(r[3].contracts, []); eq(r[3].prices, undefined); eq(r[3].camels, 1);
       await page.addInitScript(() => { localStorage.setItem('rh:caravan', '{"seed":7,"day":5,"gold":50,"at":3,"trav":{"legs":[999],"leg":0}}'); localStorage.setItem('rh:caravan-meta', '{"legacy":"lots","perks":[1]}'); });
       await page.reload(); await page.waitForTimeout(500);
-      ok(await page.evaluate(() => window.__caravan.C.at === 3 && !window.__caravan.traveling && window.__caravan.M.legacy === 0));
+      ok(await page.evaluate(() => window.__caravan.C.at === 3 && !window.__caravan.traveling && window.__caravan.M.best === 0));
       await page.addInitScript(() => localStorage.setItem('rh:caravan', '{oops'));
       await page.reload(); await page.waitForTimeout(500);
       ok(await page.evaluate(() => window.__caravan.C.day === 0));

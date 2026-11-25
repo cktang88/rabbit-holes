@@ -12,7 +12,7 @@ const C = {
   FLIGHT: 6, STAIR: 4, PLANE: 22, PLANE_N: 1.5, PONDS: 1.4, DBL: 1.8, PUMP: 12,
   RCOST: 18, FEEDER: 1, RCAP: 500, RREL: 150, RFEED: 6, RREACH: 9,
   K: .8, GROW: 1.012, R: .0045, MONTHS: 120,
-  STORE: 5, LEAK: .14, FEED: .8,
+  STORE: 5, LEAK: .14, FEED: 2.5,
   CAP: 60, PLANECAP: 90, PUMPCAP: 70,
   RUN_LOCK: .025, RUN_PLANE: .35, RUN_PLANE_BOAT: .008, RUN_PUMP: .006, RUN_TUN: .02, RUN_CELL: .006,
   TONS: 25,
@@ -105,7 +105,7 @@ function genMap(spec) {
       const x = 2 + tr.int(W - 4), y = 2 + tr.int(H - 4), c = idx(x, y);
       if (h[c] > 2.6 + k / 300) continue;
       if (towns.some(t => eucl(t.c, c) < 11 - k / 600)) continue;
-      towns.push({ c, p: 2 + tr.int(3), from: towns.length === 3 ? 30 + tr.int(30) : 0 });
+      towns.push({ c, p: 3 + tr.int(2), from: towns.length === 3 ? 30 + tr.int(30) : 0 });
     }
   }
   const nr = rng((spec.seed || 1) * 97 + 3), used = new Set();
@@ -474,7 +474,12 @@ function dec(s) {
   return D;
 }
 
-const API = { W, H, N, C, DIRS, xy, idx, inb, adj, ekey, eucl, cheb, rng, hashStr, randomSpec, genMap, isStream, rainAt, inDrought, newDesign, clone, cellInfo, LOCKT, analyse, newState, stepMonth, simulate, score, connected,
+// a random country that is known to pay: try a few variations of the seed until a quick survey finds a canal with a dividend
+function goodSpec(seed) {
+  for (let k = 0; k < 8; k++) { const sp = randomSpec(seed * 8 + k); sp.seed = seed * 8 + k; const M = genMap(sp), P = plan(M, { variants: VARIANTS.filter((v, i) => i % 3 === 0), improve: false }); if (P.best && P.best.dividend > 20) return sp; }
+  return randomSpec(seed);
+}
+const API = { goodSpec, W, H, N, C, DIRS, xy, idx, inb, adj, ekey, eucl, cheb, rng, hashStr, randomSpec, genMap, isStream, rainAt, inDrought, newDesign, clone, cellInfo, LOCKT, analyse, newState, stepMonth, simulate, score, connected,
   lineCells, autoLevel, addPath, prune, routeGrid, levelDP, planDesign, improve, plan, naiveDesign, townTree, bestReservoir, enc, dec, VARIANTS, stepLen };
 if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.CANAL = API;
 })(typeof window !== 'undefined' ? window : globalThis);

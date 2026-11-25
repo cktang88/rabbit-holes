@@ -62,6 +62,15 @@
   .tb .st{color:#f2c14e;font-family:VT323,monospace;font-size:18px}
   .tb.cur .st{color:#5a2a08}
   .note{font-size:13px;color:#bfb79f;line-height:1.4}
+  /* the night: a bankroll plaque, table cards with result boards, favours */
+  .bank{display:flex;align-items:baseline;gap:8px;font-family:VT323,monospace;font-size:34px;color:#f7e19a;line-height:1}.bank small{font-family:"Josefin Sans";font-size:12px;color:#bfb79f}
+  .doors{display:flex;flex-direction:column;gap:6px}
+  button.card.door{display:block;width:100%;text-align:left;font-weight:400;cursor:pointer;margin:0;letter-spacing:0}button.card.door:hover{filter:brightness(1.05)}button.card.door.sel{cursor:default}
+  .dots{display:flex;flex-wrap:wrap;gap:2px;margin-top:6px}.dots i{width:9px;height:9px;border-radius:50%;background:#2a2010;opacity:.75}.dots i.w{background:#c8993a;opacity:1;box-shadow:inset 0 0 0 1px #8a6420}
+  .row3{display:flex;gap:6px;margin-top:6px}.row3 button{flex:1}
+  .tb.night{border-color:#c8993a}
+  #chart{cursor:grab}
+  .pz-bar .pz-in,.pz-bar .pz-out{display:none}.pz-bar{grid-area:chart;position:relative!important;right:auto!important;bottom:auto!important;justify-self:end;align-self:end;margin:0 10px 10px 0}.pz-bar button{font-size:16px}
   .modal-bg{background:#030a07cc}
   .modal{background:var(--noise),radial-gradient(ellipse at 50% 0,#1a6a46,#0b3324 80%);color:var(--ivory);border:0;border-radius:2px;box-shadow:0 0 0 3px #8a6420,0 0 0 8px #120c05,0 0 0 10px #c8993a,0 20px 60px #000;overflow:hidden}
   .modal h2{text-align:center}
@@ -107,6 +116,7 @@
 <div id="tape"><span id="tapeT">THE HOUSE IS OPEN · PLACE YOUR BETS · </span></div>
 <script src="../shared/common.js"></script>
 <script src="../shared/fx.js"></script>
+<script src="../shared/panzoom.js"></script>
 <script>
 'use strict';
 // ================= offers =================
@@ -170,7 +180,9 @@ function cleanSave(raw) {
   if (s.v === 2 && s.done && typeof s.done === 'object') for (const k in s.done) if (/^\d+$/.test(k) && +k < TABLES.length && s.done[k] >= 1) done[k] = Math.min(3, s.done[k] | 0);
   if (s.v === 2 && s.play && typeof s.play === 'object') for (const k in s.play) { const a = s.play[k]; if (/^\d+$/.test(k) && +k < TABLES.length && Array.isArray(a) && a.length <= TABLES[k].rounds && a.every(x => Number.isFinite(x) && x >= 0 && x <= 1)) play[k] = a; }
   const cur = Number.isInteger(s.cur) && s.cur >= 0 && s.cur < TABLES.length ? s.cur : 0;
-  return { v: 2, done, play, cur, intro: s.v === 2 && s.intro ? 1 : 0 };
+  const nights = {}; if (s.nights && typeof s.nights === 'object') for (const k of Object.keys(s.nights).slice(-30)) if (/^[a-z0-9]{1,12}$/.test(k) && Number.isFinite(s.nights[k]) && s.nights[k] >= 0 && s.nights[k] < 1e12) nights[k] = Math.round(s.nights[k]);
+  const run = s.run && typeof s.run === 'object' && /^[a-z0-9]{1,12}$/.test(s.run.seed) && typeof s.run.m === 'string' && s.run.m.length <= 900 && /^[dbf0-9,]*$/.test(s.run.m) ? { seed: s.run.seed, m: s.run.m } : null;
+  return { v: 2, done, play, cur, intro: s.v === 2 && s.intro ? 1 : 0, nights, ...(run ? { run } : {}) };
 }
 const SAVE = cleanSave(RH.load('ruin', null));
 const persist = () => { RH.save('ruin', SAVE); RH.progress('ruin', Object.keys(SAVE.done).length / TABLES.length); };
@@ -186,9 +198,18 @@ function recompute() {
   for (const b in BOTS) sims[b] = simulate(cur, botFracs(cur, b, f.length));
   sims.full = { kate: simulate(cur, botFracs(cur, 'kate')).med };
 }
+function tabsHtml() {
+  return `<button class="tb night ${mode === 'night' ? 'cur' : ''} ${nightOpen() ? '' : 'lock'}" id="nightTb" ${nightOpen() ? '' : 'disabled'}><span>☾ The Long Night</span><span class="st">${nightOpen() ? (SAVE.nights[todaySeed()] ? '★'.repeat(nightStars(SAVE.nights[todaySeed()])) || 'tonight' : 'tonight') : '🔒 after table 1'}</span></button>`
+    + TABLES.map((t, i) => `<button class="tb ${i === cur && mode === 'tables' ? 'cur' : ''} ${isOpen(i) ? '' : 'lock'}" data-i="${i}" ${isOpen(i) ? '' : 'disabled'}><span>${i + 1}. ${t.n}</span><span class="st">${SAVE.done[i] ? '★'.repeat(SAVE.done[i]) : isOpen(i) ? '' : '🔒'}</span></button>`).join('');
+}
+function wireTabs() {
+  $('side').querySelectorAll('.tb[data-i]').forEach(b => b.onclick = () => { if (b.disabled) return; mode = 'tables'; cur = +b.dataset.i; SAVE.cur = cur; persist(); document.body.classList.remove('drawer'); try { window.history.replaceState(null, '', location.pathname); } catch (e) {} recompute(); render(); });
+  $('nightTb').onclick = () => { if (nightOpen()) startNight(SAVE.run ? SAVE.run.seed : todaySeed(), true); };
+}
 function render() {
+  if (mode === 'night') return renderNight();
   const T = TABLES[cur], f = fracsOf(cur), r = f.length, done = r >= T.rounds, o = done ? null : offerAt(cur, r);
-  const tabs = TABLES.map((t, i) => `<button class="tb ${i === cur ? 'cur' : ''} ${isOpen(i) ? '' : 'lock'}" data-i="${i}" ${isOpen(i) ? '' : 'disabled'}><span>${i + 1}. ${t.n}</span><span class="st">${SAVE.done[i] ? '★'.repeat(SAVE.done[i]) : isOpen(i) ? '' : '🔒'}</span></button>`).join('');
+  const tabs = tabsHtml();
   const board = ['you', 'kate', 'al', 'tim'].map(k => `<div class="${k === 'you' ? 'y' : BOTS[k].c}"><span>${k === 'you' ? 'You (typical)' : BOTS[k].n}</span><span>${fmt$(sims[k].med[r])}</span></div>`).join('');
   $('side').innerHTML = `
     <div class="lbl">Table ${cur + 1} · round ${Math.min(r + 1, T.rounds)} of ${T.rounds}</div><h2>${T.n}</h2>
@@ -203,7 +224,7 @@ function render() {
     <div class="note" style="margin-top:6px">Lines on the chart: the typical bankroll (geometric average over 1,000 worlds) of each player. The pale band is the middle 80% of your worlds.</div>
     <div class="lbl">Tables</div><div class="tables drawer" id="tables">${tabs}</div>`;
   $('tot').textContent = `${Object.keys(SAVE.done).length}/${TABLES.length} tables · ${Object.values(SAVE.done).reduce((a, b) => a + b, 0)}★`;
-  $('side').querySelectorAll('.tb').forEach(b => b.onclick = () => { if (b.disabled) return; cur = +b.dataset.i; SAVE.cur = cur; persist(); document.body.classList.remove('drawer'); recompute(); render(); });
+  wireTabs();
   $('side').querySelectorAll('.chip').forEach(b => b.onclick = () => { bet = +b.dataset.v; FX.sfx('click'); render(); });
   if ($('fine')) $('fine').oninput = () => { bet = $('fine').value / 100; $('betV').textContent = $('fine').value + '%'; $('side').querySelectorAll('.chip').forEach(c => c.classList.toggle('on', Math.abs(+c.dataset.v - bet) < 1e-9)); };
   if ($('betBtn')) $('betBtn').onclick = placeBet;
@@ -231,14 +252,171 @@ async function finish() {
     <p class="note">Kate's secret, now revealed: she staked ${k.map(o => `<b>${Math.round(o.kelly * 1000) / 10}%</b> on ${o.n}`).join(', ')}. That is the <b>Kelly</b> fraction: the stake that makes the <i>typical</i> bankroll grow fastest. Bet more and the average rises while the typical player sinks.</p>`,
     [{ label: 'Stay', value: 0 }]);
 }
+// ================= The Long Night: a seeded run of rooms =================
+// Each room has three tables. Every table pays fixed odds (shown) but its true chance of winning is hidden: you read
+// it off the board of past results, which grows as you play or watch. One room in three hides a real edge, one a trap.
+// Between rooms the house offers a favour, a new rule that changes how much you should stake. You live one life
+// (one bankroll; ruin ends the night) and the night is scored on the typical you across 1,000 worlds making your stakes.
+const NROOMS = 6, NHANDS = 10, HIST0 = 16, MARKER = 2000;
+const srng = str => { let h = 1779033703 ^ str.length; for (let i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = h << 13 | h >>> 19; }
+  return () => { h = Math.imul(h ^ h >>> 16, 2246822507); h = Math.imul(h ^ h >>> 13, 3266489909); h ^= h >>> 16; return (h >>> 0) / 4294967296; }; };
+const sid = str => { let h = 2166136261; for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619); return h >>> 0; };
+const todaySeed = () => { const d = new Date(); return 'd' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0'); };
+const GAMES = [['Red or Black', 1], ['Chuck-a-Luck', 1.5], ['Red Dog', 2], ['Dozens', 2.5], ['Big Six', 4], ['Keno Ten', 6], ['Single Number', 9]];
+const ROOMS = ['The Gold Room', 'Salon Privé', 'The Mirror Bar', 'The Blue Lounge', 'The Cellar', 'The Penthouse'];
+const FAVOURS = {
+  count: { n: 'A Card Counter', d: 'Every board shows 24 more past results. Edges are easier to read.' },
+  synd: { n: 'The Syndicate', d: 'Each bet is split across four tables of the same game and pays the average. Same edge, far less swing.' },
+  rebate: { n: 'A Loss Rebate', d: 'The house returns a quarter of every losing stake.' },
+  whisper: { n: 'The Croupier', d: 'Before each room she whispers the true odds of one table.' },
+};
+function makeNight(seed) {
+  const R = srng('night:' + seed), rooms = [];
+  for (let i = 0; i < NROOMS; i++) {
+    // one honest edge, one trap, one coin-flip, in random order
+    const kinds = [.15 + R() * .25, -(.08 + R() * .22), -.06 + R() * .12], doors = [];
+    for (let j = 2; j > 0; j--) { const k = Math.floor(R() * (j + 1)); [kinds[j], kinds[k]] = [kinds[k], kinds[j]]; }
+    const used = new Set();
+    for (let d = 0; d < 3; d++) { let g; do g = Math.floor(R() * GAMES.length); while (used.has(g)); used.add(g);
+      const [n, b] = GAMES[g], e = kinds[d], p = Math.min(.95, (1 + e) / (1 + b)); doors.push({ n, b, e, p }); }
+    rooms.push({ n: ROOMS[i], doors, whisper: Math.floor(R() * 3) });
+  }
+  const favours = []; const pool = Object.keys(FAVOURS);
+  for (let i = 0; i < NROOMS - 1; i++) { const a = Math.floor(R() * 4); let b = Math.floor(R() * 3); if (b >= a) b++; favours.push([pool[a], pool[b]]); }
+  return { seed, sid: sid(seed), rooms, favours };
+}
+// outcome of hand h at a table in world w (w = 0 is the life you live); negative h is the table's past
+const u01 = (...a) => { let h = 2166136261; for (const x of a) { h ^= x; h = Math.imul(h, 16777619); h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15; } return (h >>> 0) / 4294967296; };
+const won = (N, room, door, h, w, sub = 0) => u01(N.sid, room, door, h + 1000, w, sub) < N.rooms[room].doors[door].p;
+// the rules in force: favours taken so far
+function rules(fav) { return { count: fav.includes('count'), synd: fav.includes('synd'), rebate: fav.includes('rebate'), whisper: fav.includes('whisper') }; }
+// return on the stake for one hand, under the rules
+function handReturn(N, room, door, h, w, R) {
+  const D = N.rooms[room].doors[door], lose = R.rebate ? -.75 : -1;
+  if (!R.synd) return won(N, room, door, h, w) ? D.b : lose;
+  let k = 0; for (let s = 0; s < 4; s++) k += won(N, room, door, h, w, s + 1); return (k * D.b + (4 - k) * lose) / 4;
+}
+// the outcome table of a game at win chance p, under the rules: [[prob, return], ...] (for Kelly sums)
+function outTable(b, p, R) {
+  const lose = R.rebate ? -.75 : -1; if (!R.synd) return [[p, b], [1 - p, lose]];
+  const C = [1, 4, 6, 4, 1]; return C.map((c, k) => [c * p ** k * (1 - p) ** (4 - k), (k * b + (4 - k) * lose) / 4]);
+}
+function kellyOf(out) { const m = out.reduce((a, [p, r]) => a + p * r, 0); if (m <= 0) return 0;
+  const g = f => out.reduce((a, [p, r]) => a + p * Math.log(Math.max(1e-300, 1 + f * r)), 0); let a = 0, b = 1; for (let i = 0; i < 80; i++) { const m1 = a + (b - a) * .382, m2 = a + (b - a) * .618; if (g(m1) < g(m2)) a = m1; else b = m2; } return (a + b) / 2; }
+// a table's board: the results you can see (its past, plus every hand played since you sat down)
+function board(N, room, door, played, R) { const n = HIST0 + (R.count ? 24 : 0), out = []; for (let h = -n; h < played; h++) out.push(won(N, room, door, h, 0)); return out; }
+// a run is a list of moves: ['door', d] then hands ['bet', f] × NHANDS, then ['fav', k] … ; replaying it gives the state
+function replay(N, moves) {
+  const S = { room: 0, door: null, hand: 0, fav: [], bank: 1000, path: [Math.log10(1000)], ruined: false, done: false, stakes: [], phase: 'door' };
+  for (const [t, v] of moves) {
+    if (S.done) break;
+    if (t === 'door' && S.phase === 'door') { S.door = v; S.hand = 0; S.phase = 'bet'; }
+    else if (t === 'bet' && S.phase === 'bet') { const R = rules(S.fav), f = Math.max(0, Math.min(1, v)), r = handReturn(N, S.room, S.door, S.hand, 0, R);
+      S.stakes.push([S.room, S.door, S.hand, f, S.fav.length]); S.bank = Math.max(0, S.bank * (1 + f * r)); S.hand++; S.path.push(Math.log10(Math.max(1e-3, S.bank)));
+      if (S.bank < 10) { S.ruined = true; S.done = true; }
+      else if (S.hand >= NHANDS) { S.room++; S.door = null; if (S.room >= NROOMS) S.done = true; else S.phase = 'fav'; } }
+    else if (t === 'fav' && S.phase === 'fav') { S.fav.push(N.favours[S.room - 1][v]); S.phase = 'door'; }
+  }
+  return S;
+}
+// the typical you: the same stakes at the same tables in 1,000 worlds; the geometric mean of the bankrolls (a ruined world stays ruined)
+const WORLDS_N = 1000;
+function typical(N, S) {
+  const L = new Float64Array(WORLDS_N).fill(Math.log(1000)), floor = Math.log(1e-3), path = [Math.log10(1000)];
+  for (const [room, door, hand, f, nf] of S.stakes) { const R = rules(S.fav.slice(0, nf));
+    if (f > 0) for (let w = 0; w < WORLDS_N; w++) if (L[w] > floor) L[w] = Math.max(floor, L[w] + Math.log(Math.max(1e-300, 1 + f * handReturn(N, room, door, hand, w, R))));
+    let a = 0; for (let w = 0; w < WORLDS_N; w++) a += L[w]; path.push(a / WORLDS_N / Math.LN10); }
+  let ruined = 0; for (let w = 0; w < WORLDS_N; w++) if (L[w] < Math.log(10)) ruined++;
+  return { path, final: Math.pow(10, path[path.length - 1]), ruined: ruined / WORLDS_N };
+}
+// stars for a night: the typical you grew, cleared the marker ($2,000), doubled it
+const nightStars = t => t >= 4000 ? 3 : t >= MARKER ? 2 : t > 1000 ? 1 : 0;
+// what a careful reader of the boards would estimate: Beta(1,1) posterior mean of the win chance
+const estP = bd => (bd.filter(Boolean).length + 1) / (bd.length + 2);
+
+// ================= The Long Night: the side panel =================
+let mode = 'tables', NIGHT = null, NM = [], NS = null, NT = null, nbet = 0;
+const encMoves = M => M.map(([t, v]) => t[0] + (t === 'bet' ? Math.round(v * 1000) : v)).join(',');
+const decMoves = s => String(s || '').split(',').filter(Boolean).map(x => { const t = { d: 'door', b: 'bet', f: 'fav' }[x[0]], v = +x.slice(1); return t && Number.isFinite(v) ? [t, t === 'bet' ? Math.max(0, Math.min(1, v / 1000)) : Math.max(0, Math.min(2, v | 0))] : null; }).filter(Boolean).slice(0, 200);
+const nightOpen = () => !!SAVE.done[0];
+function startNight(seed, keep) {
+  mode = 'night'; NIGHT = makeNight(seed); NM = keep && SAVE.run && SAVE.run.seed === seed ? decMoves(SAVE.run.m) : [];
+  SAVE.run = { seed, m: encMoves(NM) }; persist(); nstate(); try { window.history.replaceState(null, '', '#night=' + seed); } catch (e) {}
+  document.body.classList.remove('drawer'); render();
+}
+function nstate() { NS = replay(NIGHT, NM); NT = typical(NIGHT, NS); }
+function nmove(t, v) {
+  NM.push([t, v]); SAVE.run.m = encMoves(NM); const was = NS; nstate();
+  if (t === 'bet') { const up = NS.bank >= was.bank; FX.tone({ noise: 1, f: 3000, q: 2, dur: .05, vol: .2 }); if (v > 0) FX.tone({ f: up ? 1046 : 220, type: up ? 'sine' : 'sawtooth', dur: up ? .3 : .2, vol: .08, delay: .08 });
+    const D = NIGHT.rooms[was.room].doors[was.door]; tape(`${D.n.toUpperCase()} · ${v > 0 ? 'YOU STAKE ' + (v * 100).toFixed(1) + '%' : 'YOU WATCH'} · ${NS.bank >= was.bank && v > 0 ? 'WIN' : v > 0 ? 'LOSS' : won(NIGHT, was.room, was.door, was.hand, 0) ? 'THE TABLE PAID' : 'THE HOUSE TOOK IT'} · BANK ${fmt$(Math.log10(Math.max(1e-3, NS.bank)))}`); }
+  else FX.sfx('click');
+  if (NS.done) endNight(); persist(); render();
+}
+const dots = bd => `<div class="dots">${bd.slice(-48).map(w => `<i class="${w ? 'w' : ''}"></i>`).join('')}</div>`;
+function doorCard(room, d, played, sel) {
+  const R = rules(NS.fav), D = NIGHT.rooms[room].doors[d], bd = board(NIGHT, room, d, played, R), n = bd.filter(Boolean).length, wh = R.whisper && NIGHT.rooms[room].whisper === d;
+  return `<button class="card door ${sel ? 'sel' : ''}" data-d="${d}" ${sel ? 'tabindex="-1"' : ''}><h3>${D.n}</h3><div>Pays <b>${D.b} to 1</b>${R.rebate ? ' · a quarter of a loss back' : ''}${R.synd ? ' · four tables, averaged' : ''}</div>
+    ${dots(bd)}<div class="odds"><span>won ${n} of ${bd.length}</span>${wh ? `<span>whispered: ${Math.round(D.p * 1000) / 10}% to win</span>` : ''}</div></button>`;
+}
+function renderNight() {
+  const S = NS, room = NIGHT.rooms[Math.min(S.room, NROOMS - 1)], best = SAVE.nights[NIGHT.seed];
+  const head = `<div class="lbl">${/^d\d{8}$/.test(NIGHT.seed) ? 'Tonight · ' + NIGHT.seed.slice(1, 5) + '-' + NIGHT.seed.slice(5, 7) + '-' + NIGHT.seed.slice(7) : 'Night ' + NIGHT.seed}${S.done ? '' : ` · room ${S.room + 1} of ${NROOMS}${S.phase === 'bet' ? ` · hand ${S.hand + 1} of ${NHANDS}` : ''}`}</div>
+    <h2>${S.done ? 'Dawn' : room.n}</h2><div class="bank"><span>${fmt$(Math.log10(Math.max(1e-3, S.bank)))}</span><small>your bankroll · the marker is $2,000</small></div>`;
+  let body = '';
+  if (S.done) body = `<div class="card"><h3>${S.ruined ? 'Ruined' : 'The night is over'}</h3><div>You lived it to <b>${fmt$(Math.log10(Math.max(1e-3, S.bank)))}</b>. With your stakes, the typical you of 1,000 lives ended at <b>${fmt$(Math.log10(NT.final))}</b>${NT.ruined ? `, and ${Math.round(NT.ruined * 100)}% of them were ruined` : ''}.</div><div class="odds"><span>${'★'.repeat(nightStars(NT.final)) || 'no stars'}</span>${best ? `<span>best tonight ${fmt$(Math.log10(best))}</span>` : ''}</div></div>
+    <div class="row3"><button id="nNew">New night</button><button id="nToday">Tonight's</button><button id="nShare">Share</button></div>`;
+  else if (S.phase === 'door') body = `<div class="lbl">Choose a table</div><div class="doors">${[0, 1, 2].map(d => doorCard(S.room, d, 0)).join('')}</div>`;
+  else if (S.phase === 'fav') body = `<div class="lbl">The house offers you a favour</div><div class="doors">${NIGHT.favours[S.room - 1].map((k, i) => `<button class="card door" data-f="${i}"><h3>${FAVOURS[k].n}</h3><div>${FAVOURS[k].d}</div></button>`).join('')}</div>`;
+  else body = doorCard(S.room, S.door, S.hand, true) + `<div class="betrow"><input type="range" id="nfine" min="0" max="1000" step="5" value="${Math.round(nbet * 1000)}" aria-label="Stake"><span class="bigbet" id="nbetV">${(nbet * 100).toFixed(1)}%</span></div><button id="betBtn">${nbet > 0 ? 'Stake ' + fmt$(Math.log10(Math.max(1e-3, S.bank * nbet))) : 'Watch a hand'}</button>`;
+  const favs = S.fav.length ? `<div class="note">Favours: ${S.fav.map(k => FAVOURS[k].n).join(' · ')}</div>` : '';
+  $('side').innerHTML = head + body + favs + `<div class="note" style="margin-top:6px">The chart: your one life (ivory) and the typical you across 1,000 lives making the same stakes (gold). Pinch or scroll to zoom.</div><div class="lbl">Tables</div><div class="tables drawer" id="tables">${tabsHtml()}</div>`;
+  wireTabs();
+  $('side').querySelectorAll('[data-d]').forEach(b => b.onclick = () => { if (NS.phase === 'door') nmove('door', +b.dataset.d); });
+  $('side').querySelectorAll('[data-f]').forEach(b => b.onclick = () => nmove('fav', +b.dataset.f));
+  if ($('nfine')) $('nfine').oninput = () => { nbet = $('nfine').value / 1000; $('nbetV').textContent = (nbet * 100).toFixed(1) + '%'; $('betBtn').textContent = nbet > 0 ? 'Stake ' + fmt$(Math.log10(Math.max(1e-3, NS.bank * nbet))) : 'Watch a hand'; };
+  if ($('betBtn')) $('betBtn').onclick = () => nmove('bet', nbet);
+  if ($('nNew')) { $('nNew').onclick = () => startNight(Math.random().toString(36).slice(2, 7)); $('nToday').onclick = () => startNight(todaySeed(), true); $('nShare').onclick = shareNight; }
+  draw();
+}
+function shareNight() { const u = location.href.replace(/#.*$/, '') + '#night=' + NIGHT.seed;
+  (navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(u) : Promise.reject()).then(() => RH.toast ? RH.toast('Link copied: the same night, the same tables') : 0, () => RH.modal(`<p>${u}</p>`, [{ label: 'OK' }])); }
+async function endNight() {
+  const t = NT.final, st = nightStars(t), b = SAVE.nights[NIGHT.seed]; if (!b || t > b) { SAVE.nights[NIGHT.seed] = Math.round(t); const ks = Object.keys(SAVE.nights); if (ks.length > 30) delete SAVE.nights[ks[0]]; }
+  persist(); if (st) [523, 659, 784, 1046, 1318].slice(0, st + 2).forEach((f, i) => FX.tone({ f, type: 'triangle', dur: .5, vol: .09, delay: i * .09 })); else FX.tone({ f: 160, f2: 60, type: 'sawtooth', dur: .6, vol: .1 });
+  const tbl = NIGHT.rooms.map((r, i) => { const d = r.doors, pick = NS.stakes.find(s => s[0] === i); return `<b>${r.n}</b>: ${d.map((D, j) => `${D.n} ${D.e > 0 ? '+' : ''}${Math.round(D.e * 100)}%${pick && pick[1] === j ? ' (yours)' : ''}`).join(', ')}`; }).join('<br>');
+  await RH.modal(`${st >= 2 ? '<div class="fan"></div>' : ''}<h2>${NS.ruined ? 'Ruined before dawn' : st >= 2 ? 'You cleared the marker' : 'Dawn, and the marker unpaid'}</h2><div class="stars">${'★'.repeat(st)}${'☆'.repeat(3 - st)}</div>
+    <p>You lived one night and ended with <b>${fmt$(Math.log10(Math.max(1e-3, NS.bank)))}</b>. But luck is not skill: the same stakes in 1,000 lives give a typical <b>${fmt$(Math.log10(t))}</b>${NT.ruined ? `, with ${Math.round(NT.ruined * 100)}% of those lives ruined` : ''}. Stars go to the typical you: above $1,000, the $2,000 marker, $4,000.</p>
+    <p class="note">The real edge of every table, now revealed:<br>${tbl}</p>`, [{ label: 'Stay' }]);
+}
+// the night chart: one life and the typical life, room by room
+function drawNight(g, W, H, dpr) {
+  const n = NROOMS * NHANDS, pad = { l: 74 * dpr, r: 20 * dpr, t: 20 * dpr, b: 34 * dpr }, P = NS.path, T = NT.path;
+  const all = [...P, ...T].filter(Number.isFinite); let lo = Math.min(2.5, ...all), hi = Math.max(3.8, ...all); lo = Math.max(lo, -1);
+  const X = r => pad.l + (W - pad.l - pad.r) * r / n, Y = l => pad.t + (H - pad.t - pad.b) * (1 - (Math.max(lo, Math.min(hi, l)) - lo) / (hi - lo));
+  g.strokeStyle = '#c8993a'; g.lineWidth = 3 * dpr; g.strokeRect(pad.l - 8 * dpr, pad.t - 8 * dpr, W - pad.l - pad.r + 16 * dpr, H - pad.t - pad.b + 16 * dpr);
+  g.font = `${16 * dpr}px VT323, monospace`; g.textAlign = 'right'; g.textBaseline = 'middle';
+  for (let p = Math.ceil(lo * 2) / 2; p <= hi; p += .5) { const y = Y(p); g.strokeStyle = '#f7e19a22'; g.lineWidth = dpr; g.beginPath(); g.moveTo(pad.l, y); g.lineTo(W - pad.r, y); g.stroke(); g.fillStyle = '#d9c48a'; g.fillText(fmt$(p), pad.l - 12 * dpr, y); }
+  // the marker, and the doors between rooms
+  g.setLineDash([8 * dpr, 6 * dpr]); g.strokeStyle = '#ff8a72aa'; g.beginPath(); g.moveTo(pad.l, Y(Math.log10(MARKER))); g.lineTo(W - pad.r, Y(Math.log10(MARKER))); g.stroke(); g.setLineDash([]);
+  g.textAlign = 'center'; g.font = `${13 * dpr}px "Josefin Sans", sans-serif`;
+  for (let i = 0; i < NROOMS; i++) { const x = X(i * NHANDS); g.strokeStyle = '#f7e19a33'; g.beginPath(); g.moveTo(x, pad.t); g.lineTo(x, H - pad.b); g.stroke(); g.fillStyle = i === NS.room ? '#f7e19a' : '#d9c48a88'; g.fillText(W / dpr < 640 ? ['I', 'II', 'III', 'IV', 'V', 'VI'][i] : NIGHT.rooms[i].n.replace('The ', ''), X(i * NHANDS + NHANDS / 2), H - 14 * dpr); }
+  g.textAlign = 'right'; g.fillStyle = '#ff8a72'; g.fillText('the marker', W - pad.r - 6 * dpr, Y(Math.log10(MARKER)) - 9 * dpr);
+  const line = (arr, col, w) => { g.beginPath(); arr.forEach((l, i) => i ? g.lineTo(X(i), Y(l)) : g.moveTo(X(i), Y(l))); g.strokeStyle = col; g.lineWidth = w * dpr; g.stroke(); };
+  line(T, '#f2c14e', 2.5); line(P, '#f5ecd6', 3.5);
+  g.font = `${16 * dpr}px VT323, monospace`; g.textAlign = 'left';
+  if (P.length > 1) { g.fillStyle = '#f5ecd6'; g.fillText('You', Math.min(X(P.length - 1) + 6 * dpr, W - 70 * dpr), Y(P.at(-1)) - 10 * dpr); g.fillStyle = '#f2c14e'; g.fillText('Typical you', Math.min(X(T.length - 1) + 6 * dpr, W - 90 * dpr), Y(T.at(-1)) + 12 * dpr); }
+}
+
 // ================= chart =================
 const cv = $('chart'), g = cv.getContext('2d');
 function draw() {
   const dpr = FX.fit(cv, 2), W = cv.width, H = cv.height; if (!sims || W < 10) return;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H);
+  if (pz) g.setTransform(pz.k, 0, 0, pz.k, pz.x * dpr, pz.y * dpr); // the view: pinch or scroll to zoom, drag to pan
+  if (mode === 'night' && NS) { drawNight(g, W, H, dpr); return; }
   const T = TABLES[cur], n = T.rounds, pad = { l: 74 * dpr, r: 20 * dpr, t: 20 * dpr, b: 34 * dpr };
   const all = [...sims.you.lo, ...sims.you.hi, ...sims.kate.med, ...sims.al.med, ...sims.tim.med, ...sims.full.kate].filter(Number.isFinite);
   let lo = Math.min(2, ...all), hi = Math.max(4, ...all); lo = Math.max(lo, -1); const X = r => pad.l + (W - pad.l - pad.r) * r / n, Y = l => pad.t + (H - pad.t - pad.b) * (1 - (Math.max(lo, Math.min(hi, l)) - lo) / (hi - lo));
-  g.clearRect(0, 0, W, H);
   // brass picture frame and deco sunburst behind the chart
   const cx = W * .5, cy = H; g.save(); g.globalAlpha = .07; for (let a = 0; a < 36; a++) { g.fillStyle = a % 2 ? '#f7e19a' : '#0000'; g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, Math.max(W, H), Math.PI + a * Math.PI / 36, Math.PI + (a + 1) * Math.PI / 36); g.fill(); } g.restore();
   g.strokeStyle = '#c8993a'; g.lineWidth = 3 * dpr; g.strokeRect(pad.l - 8 * dpr, pad.t - 8 * dpr, W - pad.l - pad.r + 16 * dpr, H - pad.t - pad.b + 16 * dpr);
@@ -256,9 +434,12 @@ function draw() {
   if (r > 0) { lab(sims.al.med, '#e0503c', 'Al'); lab(sims.tim.med, '#8fa3b8', 'Tim'); lab(sims.kate.med, '#f2c14e', 'Kate'); lab(sims.you.med, '#f5ecd6', 'You'); }
 }
 addEventListener('resize', draw);
+let pz = null; const chartWorld = () => ({ x: 0, y: 0, w: cv.clientWidth || 1, h: cv.clientHeight || 1 });
+pz = PanZoom(cv, { world: chartWorld, onChange: () => draw(), canPanFrom: () => true, min: 1, max: 8, pad: 0 });
 // ================= keyboard and drawer =================
 addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
+  if (mode === 'night') { if (e.key === 'Enter' && NS && NS.phase === 'bet' && document.activeElement?.tagName !== 'BUTTON') { e.preventDefault(); nmove('bet', nbet); } return; }
   if (/^[1-8]$/.test(e.key)) { bet = CHIPS[+e.key - 1][0]; render(); }
   else if (e.key === 'Enter' && $('betBtn') && document.activeElement?.tagName !== 'BUTTON') { e.preventDefault(); placeBet(); }
 });
@@ -266,11 +447,14 @@ $('lvlBtn').onclick = e => { e.stopPropagation(); document.body.classList.toggle
 document.addEventListener('click', e => { if (document.body.classList.contains('drawer') && !e.target.closest('#tables') && e.target !== $('lvlBtn')) document.body.classList.remove('drawer'); });
 const help = () => RH.modal(`<h2>Ruin</h2><p>A casino season. Each round the dealer offers a game, and you choose how much of your bankroll to stake on it, from nothing to everything.</p>
   <p>You play a thousand parallel lives at once; your score is the <b>typical</b> one (the geometric average of all of them), so luck cannot carry you. Three regulars play the same cards: <span class="a">Al</span> bets everything on any game that pays on average, <span class="t">Tim</span> bets 2%, and <span class="k">Kate</span> never seems to lose.</p>
+  <p>After the first table, <b>☾ The Long Night</b> opens: six rooms, hidden odds you read off each table's board of past results, one life to live, and a new night every day.</p>
   <p>Stars measure how much of Kate's typical growth you capture. Keys: <kbd>1</kbd>–<kbd>8</kbd> pick a chip, <kbd>Enter</kbd> bets.</p>`, [{ label: 'Take a seat' }]);
 $('helpBtn').onclick = help;
 if (!SAVE.intro) { SAVE.intro = 1; persist(); help(); }
-recompute(); render();
-window.__ruin = { OFFERS, TABLES, BOTS, kelly, growth, mean, simulate, score, botFracs, offerAt, cleanSave, SAVE, get cur() { return cur; }, set bet(v) { bet = v; }, placeBet, render, open: i => { if (isOpen(i)) { cur = i; recompute(); render(); } } };
+recompute();
+{ const m = /^#night=([a-z0-9]{1,12})$/.exec(location.hash); if (m && nightOpen()) startNight(m[1], true); else render(); }
+window.__ruin = { OFFERS, TABLES, BOTS, kelly, growth, mean, simulate, score, botFracs, offerAt, cleanSave, SAVE, get cur() { return cur; }, set bet(v) { bet = v; }, placeBet, render, open: i => { if (isOpen(i)) { mode = 'tables'; cur = i; recompute(); render(); } },
+  makeNight, replay, typical, rules, board, estP, outTable, kellyOf, nightStars, startNight, nmove, todaySeed, NROOMS, NHANDS, FAVOURS, get night() { return NIGHT; }, get ns() { return NS; }, get nt() { return NT; }, get mode() { return mode; }, set nbet(v) { nbet = v; }, get pz() { return pz; } };
 </script>
 </body>
 </html>

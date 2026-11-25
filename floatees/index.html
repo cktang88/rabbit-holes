@@ -238,7 +238,7 @@ const LV = [
     goal: 'Drop ducks off the American coast (west of 60°W) so that <b>at least 15</b> of 100 reach Britain & Ireland within 3 years. ★★ 30, ★★★ 45.', win: S => S.regions.uk >= 15, score: S => [S.regions.uk, 15, 'reached Britain & Ireland'], stars: [15, 30, 45], card: 'uk' },
   { n: 'Garbage Patch', years: 6, focus: [25, -175], patch: 1, need: 30, outsidePatch: 1,
     story: 'Some ducks never reach shore. The currents circle round each ocean basin and collect drifting things in the middle. That\'s why there\'s a <b>Great Pacific Garbage Patch</b>.',
-    goal: 'Drop ducks <b>outside</b> the dashed ring and let the currents herd them in: get <b>30</b> trapped, still floating, in the garbage patch after 6 years. ★★ 38, ★★★ 45.', win: S => S.t >= 6 && S.patch >= 30, score: S => [S.patch, 30, 'ended up in the patch'], stars: [30, 38, 45], card: 'patch', instant: 1 },
+    goal: 'Drop ducks <b>outside</b> the dotted line and let the currents herd them in: get <b>30</b> trapped, still floating, inside the red ring after 6 years. ★★ 38, ★★★ 45.', win: S => S.t >= 6 && S.patch >= 30, score: S => [S.patch, 30, 'ended up in the patch'], stars: [30, 38, 45], card: 'patch', instant: 1 },
   { n: 'Why the West?', years: 1, focus: [35, -60], physics: 1, measure: 1,
     story: 'Every ocean\'s fastest current hugs its <b>western</b> side (the Gulf Stream, the Kuroshio, the Brazil Current). Is that Earth\'s spin? Do the experiment: measure the current with the spin on, then <b>stop the Earth</b> and measure again.',
     goal: 'Drop ducks just off the US East Coast with Earth\'s spin <b>normal</b>, then again with it <b>off</b>. The tally records the fastest current your ducks ride in the western Atlantic.', win: S => S.meas[1] > 0 && S.meas[0] > 0 && S.meas[1] >= 1.25 * S.meas[0], instant: 1, card: 'useast' },
@@ -415,7 +415,10 @@ function moveTracers(dt) {
 }
 // the garbage-patch ring (shown on that level)
 const PATCH = [21, 165]; // where this model's North Pacific gyre gathers floating debris
-const patchRing = (() => { const pts = []; for (let a = 0; a <= 64; a++) { const t = a / 64 * Math.PI * 2, la = PATCH[0] + 12 * Math.sin(t), lo = PATCH[1] + 12 * Math.cos(t) / Math.cos(PATCH[0] * Math.PI / 180); pts.push(new THREE.Vector3(...toXYZ(la, lo, 1.006))); } const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: '#b3261e', dashSize: .02, gapSize: .015, transparent: true, opacity: .8 })); l.computeLineDistances(); return l; })();
+const PATCH_R = 12, KEEP_OUT = 14; // ducks inside PATCH_R count as in the patch; drops must be outside KEEP_OUT (the drawn dotted ring)
+const ringAt = (R, mat) => { const pts = []; for (let a = 0; a <= 96; a++) { const t = a / 96 * Math.PI * 2, la = PATCH[0] + R * Math.sin(t), lo = PATCH[1] + R * Math.cos(t) / Math.cos(PATCH[0] * Math.PI / 180); pts.push(new THREE.Vector3(...toXYZ(la, lo, 1.006))); } const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat); l.computeLineDistances(); return l; };
+const patchRing = ringAt(PATCH_R, new THREE.LineDashedMaterial({ color: '#b3261e', dashSize: .02, gapSize: .015, transparent: true, opacity: .8 }));
+patchRing.add(ringAt(KEEP_OUT, new THREE.LineDashedMaterial({ color: '#3a2a14', dashSize: .004, gapSize: .012, transparent: true, opacity: .75 }))); // the keep-out line for drops
 globe.add(patchRing); patchRing.visible = false;
 // ducks: a bright core and a soft halo, so they stand out from the current tracers
 const MAXD = 600, dGeo = new THREE.BufferGeometry(), dPos = new Float32Array(MAXD * 3), dCol = new Float32Array(MAXD * 3);
@@ -459,25 +462,32 @@ let caseState = null; // { log, left, month, results: [] }
 let run = null; // { seed, rung, n, score, daily }
 const sharedCase = /case=\d+-\d/.test(location.hash);
 const todaySeed = () => { const d = new Date(); return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate(); };
+// three basins with their own gyres and coasts; areas may run past 180° (east of the date line) and are unwrapped
+const BASINS = {
+  natl: { n: 'North Atlantic', lat: [12, 46], lon: [-80, -30], area: [5, 50, -98, -10], focus: [30, -50] },
+  npac: { n: 'North Pacific', lat: [16, 44], lon: [150, 228], area: [5, 55, 125, 255], focus: [32, -175], years: 8, minLog: 2 }, // the Pacific gyre holds its toys longer and beaches them on fewer coasts
+  satl: { n: 'South Atlantic', lat: [-38, -8], lon: [-34, 4], area: [-50, 5, -62, 22], focus: [-22, -18] },
+};
+const wrapLon = l => ((l + 540) % 360) - 180;
 function genCase(seed, rung) {
-  const r = RH.rng(seed * 31 + rung * 7919);
+  const r = RH.rng(seed * 31 + rung * 7919), bk = ['natl', 'npac', 'satl'][Math.floor(r() * 3)], B = BASINS[bk];
   for (let tries = 0; tries < 40; tries++) {
-    const lat = 12 + r() * 34, lon = -80 + r() * 50, shoes = rung >= 3 && r() < .5, month = rung >= 2 ? Math.floor(r() * 12) : 0;
+    const lat = B.lat[0] + r() * (B.lat[1] - B.lat[0]), lon = wrapLon(B.lon[0] + r() * (B.lon[1] - B.lon[0])), shoes = rung >= 3 && r() < .5, month = rung >= 2 ? Math.floor(r() * 12) : 0;
     if (isLand(lat, lon) || isLand(lat + 1.5, lon) || isLand(lat, lon + 1.5)) continue;
-    const C = { truth: [+lat.toFixed(1), +lon.toFixed(1)], truthMonth: month, windage: shoes ? 6 : 22, unknownDate: rung >= 2 ? 1 : 0, unknownWindage: rung >= 3 ? 1 : 0, budget: rung >= 4 ? 10 : 12, start: [1990 + seed % 20, 0], area: [5, 50, -98, -10], seed, rung };
-    const log = caseLogFor(C); if (log.length < 3) continue;
+    const C = { truth: [+lat.toFixed(1), +lon.toFixed(1)], truthMonth: month, windage: shoes ? 6 : 22, unknownDate: rung >= 2 ? 1 : 0, unknownWindage: rung >= 3 ? 1 : 0, budget: rung >= 4 ? 10 : 12, start: [1990 + seed % 20, 0], area: B.area, basin: bk, years: B.years || 5, focus: B.focus, seed, rung };
+    const log = caseLogFor(C); if (log.length < (B.minLog || 3)) continue;
     if (!detective(C).solved) continue; // only cases a careful detective can crack get filed
     C.log = log; return C;
   }
-  return { truth: [36, -66], truthMonth: 0, windage: 22, unknownDate: 0, unknownWindage: 0, budget: 12, start: [1994, 0], area: [5, 50, -98, -10], seed, rung: 1 }; // the classic, if the dice are cruel
+  return { truth: [36, -66], truthMonth: 0, windage: 22, unknownDate: 0, unknownWindage: 0, budget: 12, start: [1994, 0], area: BASINS.natl.area, basin: 'natl', focus: BASINS.natl.focus, seed, rung: 1 }; // the classic, if the dice are cruel
 }
-function caseLogFor(C) { return sightingsOf(hindcast(C.truth[0], C.truth[1], 5, C.windage, 400, 7)).slice(0, 4).map(q => ({ ...q, t: q.t + (C.truthMonth || 0) / 12 })); }
+function caseLogFor(C) { return sightingsOf(hindcast(C.truth[0], C.truth[1], C.years || 5, C.windage, 400, 7)).slice(0, 4).map(q => ({ ...q, t: q.t + (C.truthMonth || 0) / 12 })); }
 // the scripted detective: survey the basin, refit the date from the residuals, try both cargoes, then refine around the best hit
-function trial(C, log, lat, lon, month, wnd) { const sim = sightingsOf(hindcast(lat, lon, 5, wnd, 400, 7)).map(q => ({ ...q, t: q.t + month / 12 })); const m = {}; for (const q of sim) m[q.r] = q;
+function trial(C, log, lat, lon, month, wnd) { const sim = sightingsOf(hindcast(lat, lon, C.years || 5, wnd, 400, 7)).map(q => ({ ...q, t: q.t + month / 12 })); const m = {}; for (const q of sim) m[q.r] = q;
   return { mis: misfit(log, sim), dts: log.map(q => m[q.r] ? Math.round((m[q.r].t - q.t) * 12) : null) }; }
 function detective(C, budget = C.budget) {
   const log = C.log || caseLogFor(C), A = C.area; let n = 0, best = { mis: 99 };
-  const go = (lat, lon, month, wnd) => { if (n >= budget) return null; n++; const r = trial(C, log, lat, lon, month, wnd); if (r.mis < best.mis) best = { ...r, lat, lon, month, wnd }; return r; };
+  const go = (lat, lon, month, wnd) => { if (n >= budget) return null; n++; lon = wrapLon(lon); const r = trial(C, log, lat, lon, month, wnd); if (r.mis < best.mis) best = { ...r, lat, lon, month, wnd }; return r; };
   const refit = (r, m) => { const d = r.dts.filter(x => x != null).sort((a, b) => a - b); return d.length ? Math.max(0, Math.min(11, m - d[d.length >> 1])) : m; };
   const wnds = C.unknownWindage ? [22, 6] : [C.windage];
   for (const w of wnds) for (const fy of [.3, .7]) for (const fx of [.15, .45, .75]) { const la = A[0] + (A[1] - A[0]) * fy, lo = A[2] + (A[3] - A[2]) * fx; let m = 0; const r = go(la, lo, m, w); if (r && C.unknownDate) { const m2 = refit(r, m); if (m2 !== m) go(la, lo, m2, w); } if (C.unknownWindage && n >= budget / 2 && w === 22) break; }
@@ -492,7 +502,7 @@ function startCaseFile(seed, rung, daily) {
   if (seed == null) { seed = (Math.random() * 1e6) | 0; rung = 1; }
   run = res ? { seed, rung, n: Math.max(0, cf.n | 0), score: Math.max(0, cf.sc | 0), daily: !!daily } : run && run.seed !== undefined && !daily && seed === run.nextSeed ? { ...run, seed, rung } : { seed, rung, n: 0, score: 0, daily: !!daily };
   resumeCF = res;
-  L.case = genCase(seed, rung); L.years = 5; try { history.replaceState(null, '', '#case=' + seed + '-' + rung); } catch (e) {}
+  L.case = genCase(seed, rung); L.years = L.case.years || 5; L.focus = L.case.focus || BASINS.natl.focus; try { history.replaceState(null, '', '#case=' + seed + '-' + rung); } catch (e) {}
 }
 function caseLog(C) { return C.log ||= sightingsOf(hindcast(C.truth[0], C.truth[1], L.years, C.windage, 400, 7)).slice(0, 4).map(q => ({ ...q, t: q.t + (C.truthMonth || 0) / 12 })); }
 const caseMonth = () => (L.case.unknownDate ? caseState.month : 0) / 12;
@@ -520,7 +530,7 @@ function resumeCase() {
   else if (caseState.left <= 0) resolved = true;
   saveCase();
 }
-function reloadCase() { ducks = []; simT = 0; running = false; won = false; resolved = false; attempts = []; pinGeo.setDrawRange(0, 0); truthPin.visible = false; caseState = { left: L.case.budget, month: 0, wnd: 22, results: [] }; saveCase(); hideReport(); renderGoal(); renderCtrl(); FX.sfx('whoosh'); }
+function reloadCase() { ducks = []; simT = 0; running = false; won = false; resolved = false; attempts = []; pinGeo.setDrawRange(0, 0); truthPin.visible = false; caseState = { left: L.case.budget, month: 0, wnd: 22, results: [] }; saveCase(); homeView(true); hideReport(); renderGoal(); renderCtrl(); FX.sfx('whoosh'); }
 // endless: a solved case scores and the next one is harder; running out of hindcasts ends the run
 function caseFileSolved(res) {
   const pts = Math.round(100 * Math.max(0, 1 - res.mis / 3)) + 10 * caseState.left + 25 * (L.case.rung - 1);
@@ -528,7 +538,7 @@ function caseFileSolved(res) {
   const ks = Object.keys(SAVE.daily).sort(); while (ks.length > 30) delete SAVE.daily[ks.shift()]; // keep saves small
   SAVE.done[SAVE.cur] = 1; won = true; resolved = true; saveCase(); if (!run.daily) SAVE.cf = { s: L.case.seed + 1, r: Math.min(4, run.n + 1), d: 0, n: run.n, sc: run.score, tr: [] }; persist(); FX.sfx('win'); FX.shake(.2); // a reload after a win opens the next file
   const C = L.case; toXYZ(C.truth[0], C.truth[1], 1.012, XYZ); truthGeo.attributes.position.array.set(XYZ); truthGeo.attributes.position.needsUpdate = true; truthPin.visible = true;
-  $('report').innerHTML = `<div style="position:relative">${cardHTML('useast', `Case closed: ${C.unknownWindage ? (C.windage === 6 ? 'sneakers' : 'bath toys') + ', ' : ''}${fmtLL(C.truth)}${C.unknownDate ? ', ' + calOf(C, C.truthMonth) : ''}. +${pts} points.`, `Run score ${run.score}`, 0)}<span class="conf">CONFIRMED</span></div>`
+  $('report').innerHTML = `<div style="position:relative">${cardHTML((caseLog(C)[0] || {}).r || 'useast', `Case closed: ${C.unknownWindage ? (C.windage === 6 ? 'sneakers' : 'bath toys') + ', ' : ''}${fmtLL(C.truth)}${C.unknownDate ? ', ' + calOf(C, C.truthMonth) : ''}. +${pts} points.`, `Run score ${run.score}`, 0)}<span class="conf">CONFIRMED</span></div>`
     + `<div class="chip" style="position:relative;margin-top:10px;padding:10px 14px;font-size:13px">${run.daily ? 'That was today\'s case. Come back tomorrow, or start an endless run.' : 'The next file is waiting.'}<div style="margin-top:8px;display:flex;gap:8px">${run.daily ? '<button class="b on" id="rclose">Close</button>' : '<button class="b on" id="tnext">Next case ▸</button>'}</div></div>`;
   $('report').classList.add('on'); setTimeout(() => FX.sfx('stamp'), 880);
   if ($('tnext')) $('tnext').onclick = () => { const nx = { ...run }; run = { ...nx, nextSeed: nx.seed + 1 }; startCaseFile(nx.seed + 1, Math.min(4, nx.n + 1)); reloadCase(); };
@@ -541,7 +551,7 @@ function renderCase() {
     + `<table class="logb"><tr><th>Sighted</th><th>Coast</th><th>${last ? 'Your hindcast' : ''}</th></tr>${rows}</table>`
     + (C.unknownDate ? `<label class="dial">Spill month: <select id="cmonth">${Array.from({ length: 12 }, (_, k) => `<option value="${k}" ${k === caseState.month ? 'selected' : ''}>${calOf(C, k)}</option>`).join('')}</select></label>` : '')
     + (C.unknownWindage ? `<label class="dial">Spilled: <select id="cwnd"><option value="22" ${caseState.wnd === 22 ? 'selected' : ''}>bath toys (ride the wind)</option><option value="6" ${caseState.wnd === 6 ? 'selected' : ''}>sneakers (ride the current)</option></select></label>` : '')
-    + `<div class="cleft">Hindcasts left: <b>${caseState.left}</b>${last ? ` · last misfit <b>${last.mis.toFixed(1)} mo</b>` : ''}</div>`
+    + `<div class="cleft">${(BASINS[C.basin] || BASINS.natl).n} · hindcasts left: <b>${caseState.left}</b>${last ? ` · last misfit <b>${last.mis.toFixed(1)} mo</b>` : ''}</div>`
     + (L.endless && run ? `<div class="cleft">${run.daily ? `<b>Daily case</b> ${C.seed}` : `Case file <b>${run.n + 1}</b> · difficulty ${C.rung}/4`} · run score <b>${run.score}</b> · best run ${SAVE.runBest}${run.daily && SAVE.daily[C.seed] ? ` · today's best ${SAVE.daily[C.seed]}` : ''}</div><div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="b" id="cDaily">Daily case</button><button class="b" id="cNew">New run</button><button class="b" id="cShare">Share case</button></div>` : '');
   if ($('cmonth')) $('cmonth').onchange = e => { caseState.month = +e.target.value; saveCase(); FX.sfx('click'); };
   if ($('cwnd')) $('cwnd').onchange = e => { caseState.wnd = +e.target.value; saveCase(); FX.sfx('click'); };
@@ -623,11 +633,11 @@ function dropAt(lat, lon) {
   if (isLand(lat, lon)) { FX.sfx('fail'); toast('That\'s land', 'Ducks need water.', 1500); return false; }
   if (L.westOf != null && (lon > L.westOf || lon < -100)) { FX.sfx('fail'); toast('Too far out', 'The sailor is on the American coast: drop west of 60°W.', 2200); return false; }
   if (L.dropBox && !(lat >= L.dropBox[0] && lat <= L.dropBox[1] && lon >= L.dropBox[2] && lon <= L.dropBox[3])) { FX.sfx('fail'); toast('Not in the western Atlantic', 'Drop between the Americas and 45°W: dropping next to Europe proves nothing.', 2400); return false; }
-  if (L.outsidePatch && patchDist(lat, lon) < 14) { FX.sfx('fail'); toast('Inside the patch already', 'Drop them outside the ring and let the gyre do the herding.', 2200); return false; }
+  if (L.outsidePatch && patchDist(lat, lon) < KEEP_OUT) { FX.sfx('fail'); toast('Too close to the patch', 'Drop them outside the dotted line and let the gyre do the herding.', 2200); return false; }
   if (!CU) { toast('Still charting the oceans…', '', 1200); return false; }
   if (L.case) {
-    const A = L.case.area, inA = lat >= A[0] && lat <= A[1] && (A[2] < A[3] ? lon >= A[2] && lon <= A[3] : lon >= A[2] || lon <= A[3]);
-    if (!inA) { FX.sfx('fail'); toast('Wrong ocean', 'The sightings are all in this basin: the spill was too.', 2000); return false; }
+    const A = L.case.area, lw = lon < A[2] ? lon + 360 : lon, inA = lat >= A[0] && lat <= A[1] && lw <= A[3];
+    if (!inA) { FX.sfx('fail'); toast('Wrong ocean', `The sightings are all in the ${(BASINS[L.case.basin] || BASINS.natl).n}: the spill was too.`, 2000); return false; }
     if (resolved && won) return false;
     if (caseState.left <= 0) { toast('No computer time left', L.endless ? 'This run is over: start a new run or try the daily case.' : 'Reopen the case (pick it again) to start over.', 2500); return false; }
     if (ducks.length && !resolved && simT < L.years) { toast('Hindcast still running', 'Wait for it to finish.', 1500); return false; }
@@ -717,7 +727,7 @@ function stats() {
   let patch = 0, maxLap = 0, first = null, firstT = 1e9, afloat = 0;
   for (const d of ducks) {
     if (d.beached) { regions[d.beached]++; if (d.bt < firstT && d.beached !== 'other') { firstT = d.bt; first = d.beached; } }
-    else { afloat++; if (patchDist(d.lat, d.lon) < 12) patch++; }
+    else { afloat++; if (patchDist(d.lat, d.lon) < PATCH_R) patch++; }
     maxLap = Math.max(maxLap, Math.abs(d.lap));
   }
   let top = null; for (const k in REG) if (regions[k] > 0 && (!top || regions[k] > regions[top])) top = k;
@@ -876,7 +886,7 @@ canvas.addEventListener('pointerdown', () => { viewTo = null; }); // grabbing th
 load(sharedCase ? LV.findIndex(l => l.endless) : +SAVE.cur || 0); // a shared case link opens that case
 requestAnimationFrame(frame);
 const proj = new THREE.Vector3();
-window.__fl = { dateOf, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
+window.__fl = { dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
   screenOf: (lat, lon) => { proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>
