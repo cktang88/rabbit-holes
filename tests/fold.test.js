@@ -228,6 +228,25 @@ module.exports = {
       const r = await page.evaluate(() => ({ pos: __fold.pos, v: __fold.valid(__fold.pos) }));
       ok(r.v); eq(r.pos.slice(0, path.length), path.map(([dx, dy]) => [P0[0] + dx, P0[1] + dy]));
     },
+    'touch (phone): Pull and Draw work with a finger': async ({ page, ok, eq }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.goto(page.url()); await page.waitForTimeout(600); await dismiss(page);
+      const cdp = await touchSession(page);
+      // Pull: drag the middle ball of warm-up 6 three cells up
+      await page.evaluate(() => { const F = __fold; F.open(5); F.setMode('pull'); });
+      const cs = await page.evaluate(() => __fold.cellSize); const m = await page.evaluate(() => __fold.screen(5)); const p0 = await page.evaluate(() => __fold.pos[5].slice());
+      await touchDrag(cdp, m, [m[0], m[1] - 3 * cs], 12);
+      const r = await page.evaluate(() => ({ p: __fold.pos[5], v: __fold.valid(__fold.pos), h: __fold.hist.length }));
+      ok(r.v, 'valid chain'); eq(r.p, [p0[0], p0[1] - 3]); eq(r.h, 1, 'one gesture, one undo');
+      // Draw: unfold, then trace an S from the N end
+      await page.evaluate(() => { const F = __fold; F.commit(F.pos.map((_, k) => [k, 0])); F.setMode('draw'); });
+      const o = await page.evaluate(() => __fold.screen(0)); const P0 = await page.evaluate(() => __fold.pos[0].slice());
+      const path = [[0, 0], [0, 1], [1, 1], [2, 1], [2, 2], [1, 2], [0, 2]];
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: o[0], y: o[1], id: 1 }] });
+      for (let k = 1; k < path.length; k++) { const [ax, ay] = path[k - 1], [bx, by] = path[k]; for (const f of [.5, 1]) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: o[0] + (ax + (bx - ax) * f) * cs, y: o[1] + (ay + (by - ay) * f) * cs, id: 1 }] }); }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      const d = await page.evaluate(() => ({ pos: __fold.pos, v: __fold.valid(__fold.pos) }));
+      ok(d.v); eq(d.pos.slice(0, path.length), path.map(([dx, dy]) => [P0[0] + dx, P0[1] + dy]));
+    },
     'phone layout: no horizontal scroll, canvas is large enough': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect() }));
