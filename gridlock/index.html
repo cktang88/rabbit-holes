@@ -41,6 +41,7 @@
   #fc button{border:2px solid var(--ink);background:var(--ink);color:#fbf7ec;font-size:14px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 10px;cursor:pointer;min-height:32px}
   #fc #fcSkip{background:transparent;color:var(--ink)}
   #fcRes{font:600 13px "Barlow Condensed";letter-spacing:.04em;color:var(--navy);margin-top:4px}#fcRes:empty{display:none}
+  .gbtn{border:1.5px solid var(--ink);background:#fbf7ec;color:var(--ink);font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;cursor:pointer;margin:2px 0;min-height:30px}
   #grade{font:600 13px "Barlow Condensed";letter-spacing:.06em;text-transform:uppercase;color:var(--navy);margin-top:6px}#grade:empty{display:none}
   #next{display:none;margin-top:14px;border:2px solid var(--ink);background:var(--ink);color:#fbf7ec;font-size:16px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 14px;cursor:pointer;box-shadow:3px 3px 0 var(--orange)}
   #next:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--orange)}
@@ -166,6 +167,8 @@ const LV = [
     // the commission's grades (minutes): any sound plan, the right pair of roads, and roads plus a well-priced toll
     grades: [[30, 'Approved'], [26.2, 'Commended'], [24, 'Masterplan']],
     lesson: 'The commission\'s dispatcher, routing every car by hand, could reach about 23.5 min. Selfish drivers plus a good plan get within a few percent.' },
+  { n: 'Growing City', grow: 1, story: 'An endless city. Every month a new suburb appears (the dashed ring) and must be connected; jobs move; money trickles in. Drag from a place to build a road. If the average commute stays over <b>40 min</b> for three months, it is gridlock.',
+    nodes: {}, roads: [], demand: [], target: 40, tools: { road: 1, toll: 2 } },
 ];
 
 // ================= the office's sounds =================
@@ -202,8 +205,10 @@ function cleanSave(raw) {
   const grade = {}; if (s.grade && typeof s.grade === 'object') for (const k in s.grade) if (/^\d+$/.test(k) && +k < LV.length && LV[+k].grades && Number.isInteger(s.grade[k]) && s.grade[k] >= 0) grade[k] = Math.min(LV[+k].grades.length - 1, s.grade[k]);
   for (const k in best) if (!(k in grade) && LV[+k].grades && done[k]) grade[k] = gradeIdx(+k, best[k]); // older saves kept only the average
   const fcs = {}; if (s.fc && typeof s.fc === 'object') for (const k in s.fc) if (/^\d+$/.test(k) && +k < LV.length && s.fc[k]) fcs[k] = 1;
-  return { v: 2, done, cur, best, grade, fc: fcs };
+  const growBest = {}; if (s.growBest && typeof s.growBest === 'object') Object.keys(s.growBest).slice(-40).forEach(k => { if (k.length <= 32 && Number.isInteger(s.growBest[k]) && s.growBest[k] >= 0 && s.growBest[k] < 10000) growBest[k] = s.growBest[k]; });
+  return { v: 2, done, cur, best, grade, fc: fcs, growBest };
 }
+const GI = LV.length - 1; // the endless Growing City
 const SAVE = cleanSave(RH.load('gridlock', null));
 const persist = () => { RH.save('gridlock', SAVE); RH.progress('gridlock', Object.keys(SAVE.done).length / LV.length); };
 let L, roads, P, tool = 'look', sel = -1, settleT = 0, won = false, shown = { avg: 0 }, homes = [];
@@ -225,6 +230,7 @@ function load(i) {
   shown.eq = NaN;
   document.body.classList.remove('playing', 'brief');
   SAVE.cur = i; persist(); L = LV[i]; won = false; settleT = 0; sel = -1; shown.avg = 0;
+  if (L.grow) { const h = /^#grow=(.+)$/.exec(location.hash); initGrow(GROW.pendingSeed || (h ? decodeURIComponent(h[1]).slice(0, 32) : todaySeed())); GROW.pendingSeed = null; } else GROW.on = false;
   roads = [...L.roads.map(r => ({ ...r })), ...(L.ghosts || []).map(r => ({ ...r, ghost: 1, built: 0 }))];
   roads.forEach(r => { r.toll = 0; r.cars = 0; r.G = roadGeom(r); r.path = roadPath(r.G); r.lt = null; });
   homes = Object.keys(L.nodes).filter(k => L.nodes[k][2] === 'home');
@@ -242,8 +248,11 @@ function rebuildPaths(reset) {
   const old = P && !reset ? new Map(P.flat().map(p => [p.key, p.f])) : null;
   P = L.demand.map(dm => {
     const out = [], adj = {}; roads.forEach((r, i) => { if (usable(r)) (adj[r.a] ||= []).push(i); });
-    const dfs = (n, seen, p) => { if (out.length > 60) return; if (n === dm.d) { out.push({ e: p.slice(), key: p.join(','), f: 0, c: 0 }); return; } for (const i of adj[n] || []) { const m = roads[i].b; if (seen.has(m)) continue; seen.add(m); p.push(i); dfs(m, seen, p); p.pop(); seen.delete(m); } };
-    dfs(dm.o, new Set([dm.o]), []);
+    // in the growing city, routes much slower than the fastest empty-road route are never taken, so skip them
+    let dist = null, cap = 1e9;
+    if (L.grow) { dist = {}; for (const k in L.nodes) dist[k] = 1e9; dist[dm.d] = 0; for (let it = 0; it < 30; it++) { let ch = false; roads.forEach(r => { if (usable(r) && dist[r.b] + r.t0 < dist[r.a]) { dist[r.a] = dist[r.b] + r.t0; ch = true; } }); if (!ch) break; } cap = dist[dm.o] * 1.7 + 10; }
+    const dfs = (n, seen, p, acc) => { if (out.length > (L.grow ? 24 : 60)) return; if (dist && acc + dist[n] > cap) return; if (n === dm.d) { out.push({ e: p.slice(), key: p.join(','), f: 0, c: 0 }); return; } for (const i of adj[n] || []) { const m = roads[i].b; if (seen.has(m)) continue; seen.add(m); p.push(i); dfs(m, seen, p, acc + roads[i].t0); p.pop(); seen.delete(m); } };
+    dfs(dm.o, new Set([dm.o]), [], 0);
     // keep drivers on routes they already use; new routes start empty so the switch is visible
     let tot = 0; out.forEach(p => { p.f = old?.get(p.key) ?? 0; tot += p.f; });
     if (tot < dm.n - 1) { const miss = dm.n - tot; if (!old || tot === 0) out.forEach(p => p.f += miss / out.length); else { flows(); let b = 0; out.forEach((p, q) => { p.c = cost(p); if (p.c < out[b].c) b = q; }); out[b].f += miss; } }
@@ -338,7 +347,8 @@ const bez = (G, t) => { const u = 1 - t; return [u * u * G.x1 + 2 * u * t * G.cx
 const bezD = (G, t) => { const u = 1 - t; return [2 * u * (G.cx - G.x1) + 2 * t * (G.x2 - G.cx), 2 * u * (G.cy - G.y1) + 2 * t * (G.y2 - G.cy)]; };
 const JAM = []; { const c1 = [43, 154, 107], c2 = [240, 160, 32], c3 = [214, 58, 42]; for (let i = 0; i <= 64; i++) { const x = i / 64, m = x < .5 ? c1.map((v, j) => v + (c2[j] - v) * x * 2) : c2.map((v, j) => v + (c3[j] - v) * (x - .5) * 2); JAM.push(`rgb(${m.map(v => v | 0)})`); } }
 function jamColor(r) { const x = r.k ? Math.min(1, (time(r) - r.t0) / Math.max(8, r.t0 + 10)) : 0; return JAM[(x * 64) | 0]; }
-const ORIG = ['#24466e', '#9b2f7d', '#2f9e74', '#d98b2b'];
+const ORIG = ['#24466e', '#9b2f7d', '#2f9e74', '#d98b2b', '#5b8fd1', '#c2453c', '#6d6a2a', '#7a4fb3'];
+const oc = j => ORIG[((j % ORIG.length) + ORIG.length) % ORIG.length];
 
 const nsc = () => Math.min(fs, 1.7); // node scale on small screens
 // a road's cost law: base minutes plus minutes per thousand cars ("10+5/k"); highways never jam ("15 flat")
@@ -420,7 +430,7 @@ function draw(now) {
   for (const c of cars) {
     const r = roads[c.p.e[c.seg]]; if (!r) continue; const G = r.G, [x, y] = bez(G, c.t), [dx, dy] = bezD(G, c.t), l = Math.hypot(dx, dy), ca = dx / l, sa = dy / l;
     g.setTransform(view.s * ca, view.s * sa, -view.s * sa, view.s * ca, view.ox + sx + view.s * (x - sa * c.lane), view.oy + sy + view.s * (y + ca * c.lane));
-    g.fillStyle = ORIG[c.j]; g.fillRect(-5, -2.6, 10, 5.2);
+    g.fillStyle = oc(c.j); g.fillRect(-5, -2.6, 10, 5.2);
   }
   g.setTransform(view.s, 0, 0, view.s, view.ox + sx, view.oy + sy);
   // labels: travel time (plus toll) for each road, at precomputed collision-free spots
@@ -428,6 +438,7 @@ function draw(now) {
   const F = `700 ${15 * fs}px "Barlow Condensed"`; g.font = F;
   for (let i = 0; i < roads.length; i++) {
     const r = roads[i];
+    if (L.grow && i !== hover && i !== sel && !(r.toll > 0) && !(time(r) > r.t0 * 1.6 + 2)) continue;
     let label;
     if (r.ghost && !r.built) label = r.gl || (r.gl = ghostLabel(r));
     else if (r.closed) label = 'CLOSED';
@@ -451,10 +462,12 @@ function draw(now) {
     else if (kind === 'home') {
       const j = L.demand.findIndex(d => d.o === k), r = 30 + 3 * Math.sin(now / 400 + j);
       g.fillStyle = '#fbf7ec'; g.beginPath(); g.arc(x, y, r + 5, 0, 7); g.fill(); g.strokeStyle = '#1d2733'; g.lineWidth = 2.5; g.stroke();
-      g.fillStyle = ORIG[Math.max(0, j)]; g.beginPath(); g.arc(x, y, r - 1, 0, 7); g.fill();
+      g.fillStyle = oc(Math.max(0, j)); g.beginPath(); g.arc(x, y, r - 1, 0, 7); g.fill();
+      if (L.grow && P[j] && !P[j].length) { g.strokeStyle = `rgba(200,49,43,${.5 + .5 * Math.sin(now / 150)})`; g.lineWidth = 5; g.beginPath(); g.arc(x, y, r + 11, 0, 7); g.stroke(); } // cut off: connect me
       g.fillStyle = '#fff'; g.font = '700 14px "Barlow Condensed"'; g.fillText(homes.length > 1 ? 'HOME ' + k : 'HOME', x, y - 6); g.font = '600 12px "Barlow Condensed"'; g.fillText(((L.demand[j]?.n || 0) / 1000) + 'K CARS', x, y + 9);
     } else { g.fillStyle = '#fbf7ec'; g.strokeStyle = '#1d2733'; g.lineWidth = 3.5; g.beginPath(); g.arc(x, y, 13, 0, 7); g.fill(); g.stroke(); g.fillStyle = '#1d2733'; g.font = '700 15px "Barlow Condensed"'; g.fillText(k, x, y + 1); }
   }
+  if (L.grow) { g.setTransform(view.s, 0, 0, view.s, view.ox + sx, view.oy + sy); drawGrowExtras(now); }
 }
 // an orange-and-white barrier across a closed road
 function barrier(r) {
@@ -483,10 +496,13 @@ function roadAt(x, y) {
     if (Math.abs(r.lx - x) < 40 * fs && Math.abs(r.ly - y) < 14 * fs) { best = i; bd = 0; } }); // labels are click targets too
   return best;
 }
+cv.addEventListener('pointermove', e => { if (L.grow) growMove(e); });
+cv.addEventListener('pointerup', e => { if (L.grow) growUp(e); });
 cv.addEventListener('pointermove', e => { const [x, y] = toWorld(e); hover = roadAt(x, y); cv.style.cursor = hover >= 0 && (roads[hover].ghost ? L.tools.build : tool !== 'look') ? 'pointer' : 'default'; });
 cv.addEventListener('pointerdown', e => {
   $('lvBox').classList.remove('open');
   if (!document.body.classList.contains('playing') || document.body.classList.contains('brief')) { document.body.classList.add('playing'); document.body.classList.remove('brief'); $('briefBtn').setAttribute('aria-expanded', false); requestAnimationFrame(fit); }
+  if (L.grow) { growDown(e); return; }
   const [x, y] = toWorld(e), i = roadAt(x, y); if (i < 0) return;
   const r = roads[i];
   if (r.ghost) {
@@ -515,6 +531,7 @@ $('tollR').oninput = () => { const r = roads[sel]; if (!r) return; r.toll = +$('
 $('tollR').addEventListener('change', () => { const r = roads[sel]; if (r && r.toll) snd.till(); });
 
 function renderTools() {
+  if (L.grow) return growTools();
   const t = [];
   if (L.tools.build) t.push(['build', ICON.build + 'Build', `<i>${L.budget ? '$' + budgetLeft() + 'M' : L.tools.build - roads.filter(q => q.ghost && q.built).length}</i>`]);
   if (L.tools.close) t.push(['close', ICON.close + 'Close', `<i>${L.tools.close - roads.filter(q => q.closed).length}</i>`]);
@@ -529,12 +546,13 @@ function renderUI() {
   renderTools();
   if (tool !== 'toll') $('toll').style.display = 'none';
   const maxOpen = (() => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; })();
-  $('levels').innerHTML = '<h4>Case files</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${i > maxOpen && !SAVE.done[i] ? 'lock' : ''}" data-i="${i}"><span>${String(i + 1).padStart(2, '0')} · ${l.n}</span><span class="ok">${SAVE.fc[i] ? '✎ ' : ''}${SAVE.done[i] ? savedGrade(i).toUpperCase() : ''}</span></div>`).join('');
+  $('levels').innerHTML = '<h4>Case files</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${(i === GI ? !SAVE.done[2] && !SAVE.done[GI] : i > maxOpen && !SAVE.done[i]) ? 'lock' : ''}" data-i="${i}"><span>${String(i + 1).padStart(2, '0')} · ${l.n}${l.grow ? ' ∞' : ''}</span><span class="ok">${SAVE.fc[i] ? '✎ ' : ''}${SAVE.done[i] ? savedGrade(i).toUpperCase() : ''}</span></div>`).join('');
   $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { if (el.classList.contains('lock')) return; snd.drawer(); load(+el.dataset.i); });
   $('lvBtn').textContent = `FILE ${SAVE.cur + 1}/${LV.length}`;
   $('fileNo').textContent = `Study no. ${String(SAVE.cur + 1).padStart(2, '0')} / ${LV.length}`;
   $('grade').innerHTML = L.grades ? 'Grades: ' + L.grades.map(([m, n, w], k) => `<span style="opacity:${SAVE.done[SAVE.cur] && (SAVE.grade[SAVE.cur] || 0) >= k ? 1 : .5}">${n} ≤ ${m}${w ? `, worst suburb ≤ ${w}` : ''}</span>`).join(' · ') + (SAVE.best[SAVE.cur] ? ` · best avg ${SAVE.best[SAVE.cur].toFixed(1)}` : '') : '';
   const st = $('stamp'); st.className = SAVE.done[SAVE.cur] ? 'on ' + gradeCls(SAVE.cur) : ''; st.textContent = SAVE.done[SAVE.cur] ? savedGrade(SAVE.cur) : '';
+  if (L.grow) { growHud(); st.className = GROW.over ? 'on' : ''; st.textContent = GROW.over ? `${GROW.month} months` : ''; }
   document.body.classList.toggle('canNext', !!SAVE.done[SAVE.cur] && SAVE.cur < LV.length - 1);
 }
 $('next').onclick = () => { if (SAVE.cur < LV.length - 1 && SAVE.done[SAVE.cur]) { snd.drawer(); load(SAVE.cur + 1); } };
@@ -545,6 +563,156 @@ $('briefBtn').onclick = e => { e.stopPropagation(); const on = document.body.cla
 $('lvBtn').onclick = e => { e.stopPropagation(); snd.drawer(); $('lvBox').classList.toggle('open'); };
 function toast(big, small, ms = 2400) { const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : ''); t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms); }
 
+// ================= Growing City: the endless mode =================
+// The same selfish-routing model, but the city keeps growing. Every month a new suburb appears and has to be
+// connected, existing suburbs grow, and now and then a new job centre opens. You get a little money each month
+// (plus whatever your toll booths take). If the average commute stays over the limit for three months, the city
+// gridlocks and the run ends. Score: months held. Seeded: the same seed always grows the same city.
+const GROW = { on: false, seed: '', rng: null, month: 0, t: 0, money: 0, meter: 0, over: false, type: 'street', drag: null, next: null, speed: 1, daily: false, jn: 0, hn: 0, wn: 0, best: 0, log: [] };
+const MONTH_S = 9, GLIMIT = 40, UNREACHED = 90;
+const RTYPE = { street: { n: 'Street', pace: 40, k: 9, cost: 1 }, avenue: { n: 'Avenue', pace: 46, k: 4, cost: 2 }, highway: { n: 'Highway', pace: 60, k: 1.2, cost: 4 } };
+const todaySeed = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const LETTERS = 'ABCDEFGHKLMNPRSTUVXYZ';
+const roadCost = (a, b, type) => { const [x1, y1] = L.nodes[a], [x2, y2] = L.nodes[b]; return Math.max(1, Math.round(Math.hypot(x2 - x1, y2 - y1) / 110 * RTYPE[type].cost)); };
+function initGrow(seed) {
+  GROW.seed = String(seed); GROW.rng = RH.rng('grow:' + GROW.seed); GROW.daily = GROW.seed === todaySeed();
+  Object.assign(GROW, { on: true, month: 0, t: 0, money: 6, meter: 0, over: false, drag: null, jn: 0, hn: 0, wn: 0, log: [] });
+  const r = GROW.rng, a = r() * Math.PI * 2;
+  L.nodes = { W1: [500, 350, 'work'] }; GROW.wn = 1;
+  L.roads = []; L.demand = [];
+  addSuburb([500 + Math.cos(a) * 250, 350 + Math.sin(a) * 200]); addSuburb([500 - Math.cos(a) * 250, 350 - Math.sin(a) * 200]);
+  for (const d of L.demand) L.roads.push(mkRoad(d.o, d.d, 'street'));
+  GROW.next = pickSpot(); GROW.best = (SAVE.growBest || {})[GROW.seed] || 0;
+  history.replaceState(null, '', '#grow=' + encodeURIComponent(GROW.seed));
+}
+function mkRoad(a, b, type) {
+  const [x1, y1] = L.nodes[a], [x2, y2] = L.nodes[b], len = Math.hypot(x2 - x1, y2 - y1), T = RTYPE[type];
+  const twin = L.roads.some(q => (q.a === a && q.b === b) || (q.a === b && q.b === a));
+  return { a, b, t0: Math.max(1, Math.round(len / T.pace)), k: T.k, hw: type === 'highway' ? 1 : 0, type, bend: twin ? (L.roads.filter(q => (q.a === a && q.b === b) || (q.a === b && q.b === a)).length % 2 ? .18 : -.18) : 0, cost: roadCost(a, b, type), mine: 1 };
+}
+// a spot for the next suburb: further out as the city grows, never on top of anything
+function pickSpot() {
+  const r = GROW.rng;
+  for (let tries = 0; tries < 60; tries++) {
+    const a = r() * Math.PI * 2, rad = 210 + GROW.month * 14 + r() * 90, p = [500 + Math.cos(a) * rad * 1.25, 350 + Math.sin(a) * rad * .85];
+    if (Object.values(L.nodes).every(([x, y]) => Math.hypot(x - p[0], y - p[1]) > 95)) return p.map(Math.round);
+  }
+  return [500 + (r() - .5) * 900, 350 + (r() - .5) * 700];
+}
+function addSuburb(p) {
+  const k = LETTERS[GROW.hn % LETTERS.length] + (GROW.hn >= LETTERS.length ? (GROW.hn / LETTERS.length | 0) : ''); GROW.hn++;
+  L.nodes[k] = [p[0], p[1], 'home'];
+  // its commuters work at the nearest job centre
+  let best = null, bd = 1e9; for (const [n, [x, y, kind]] of Object.entries(L.nodes)) if (kind === 'work') { const d = Math.hypot(x - p[0], y - p[1]); if (d < bd) { bd = d; best = n; } }
+  L.demand.push({ o: k, d: best, n: 700 });
+  return k;
+}
+function addJobs() {
+  const r = GROW.rng; let p;
+  for (let tries = 0; tries < 40; tries++) { const a = r() * Math.PI * 2, rad = 140 + r() * 120; p = [Math.round(500 + Math.cos(a) * rad * 1.3), Math.round(350 + Math.sin(a) * rad * .9)]; if (Object.values(L.nodes).every(([x, y]) => Math.hypot(x - p[0], y - p[1]) > 95)) break; }
+  const k = 'W' + (++GROW.wn); L.nodes[k] = [p[0], p[1], 'work'];
+  // the suburbs nearer the new centre switch their jobs to it
+  for (const d of L.demand) { const [hx, hy] = L.nodes[d.o], [ox, oy] = L.nodes[d.d]; if (Math.hypot(hx - p[0], hy - p[1]) < Math.hypot(hx - ox, hy - oy) * .8) d.d = k; }
+  return k;
+}
+// the commute everyone feels: drivers with no road at all count as a 90-minute ordeal
+function avgGrow() { let t = 0, n = 0; P.forEach((ps, j) => { const dm = L.demand[j]; if (!ps.length) { t += UNREACHED * dm.n; n += dm.n; return; } for (const p of ps) { t += p.f * ttime(p); n += p.f; } }); return n ? t / n : 0; }
+const population = () => L.demand.reduce((a, d) => a + d.n, 0);
+function monthTick() {
+  GROW.month++;
+  const toll = roads.reduce((a, r) => a + (r.toll || 0) * r.cars / 1000, 0) * .5;
+  GROW.money += 2 + Math.floor(population() / 9000) + Math.round(toll);
+  for (const d of L.demand) d.n = Math.min(5000, Math.round(d.n * 1.13));
+  const avg = avgGrow();
+  GROW.meter = avg > GLIMIT ? GROW.meter + 1 : Math.max(0, GROW.meter - 1);
+  if (GROW.meter >= 3) return endGrow();
+  const k = addSuburb(GROW.next); let msg = `New suburb ${k}: connect it.`;
+  if (GROW.month % 5 === 0) { const w = addJobs(); msg += ` A job centre opened (${w}).`; }
+  GROW.next = pickSpot(); GROW.log.unshift(`Month ${GROW.month}: ${msg}`);
+  growRebuild(); snd.drawer(); if (!growHeadless) toast(`Month ${GROW.month}`, msg + (toll ? ` Tolls took $${Math.round(toll)}M.` : ''), 1800);
+}
+function endGrow() {
+  GROW.over = true; const m = GROW.month;
+  SAVE.growBest = SAVE.growBest || {}; if (!(SAVE.growBest[GROW.seed] >= m)) SAVE.growBest[GROW.seed] = m;
+  const keys = Object.keys(SAVE.growBest); if (keys.length > 40) delete SAVE.growBest[keys[0]]; // saves stay small
+  if (m >= 12) SAVE.done[GI] = 1; persist();
+  GROW.best = SAVE.growBest[GROW.seed];
+  if (!growHeadless) { snd.fail(); setTimeout(() => { stampIt(); toast('Gridlock', `The city held ${m} months with ${population().toLocaleString('en')} commuters. Best on this seed: ${GROW.best}.`, 6000); }, 200); renderUI(); }
+}
+let growHeadless = false;
+function growRebuild() {
+  roads = L.roads.map(r => { const o = roads.find(q => q.a === r.a && q.b === r.b && q.type === r.type && q.bend === r.bend); return o || Object.assign({ ...r }, { toll: 0, cars: 0 }); });
+  roads.forEach(r => { r.G = roadGeom(r); r.path = roadPath(r.G); r.lt = null; });
+  homes = Object.keys(L.nodes).filter(k => L.nodes[k][2] === 'home');
+  rebuildPaths(); if (!growHeadless) { fit(); renderTools(); }
+}
+// building: drag from a node to another node (or to open ground, which makes a junction there)
+function buildRoad(a, b, type) {
+  if (a === b || !L.nodes[a] || !L.nodes[b]) return 'Drag from one place to another.';
+  if (L.nodes[b][2] === 'home') return 'Roads lead away from suburbs, not into them.';
+  const c = roadCost(a, b, type); if (c > GROW.money) return `That ${RTYPE[type].n.toLowerCase()} costs $${c}M; you have $${GROW.money}M.`;
+  if (L.roads.filter(q => q.a === a && q.b === b).length >= 2) return 'Two roads there already.';
+  GROW.money -= c; L.roads.push(mkRoad(a, b, type)); growRebuild(); return null;
+}
+function addJunction(p) { const k = 'J' + (++GROW.jn); L.nodes[k] = [Math.round(p[0]), Math.round(p[1])]; return k; }
+function bulldoze(i) { const r = roads[i]; if (!r) return; const j = L.roads.findIndex(q => q.a === r.a && q.b === r.b && q.type === r.type && q.bend === r.bend); if (j < 0) return; GROW.money += Math.floor(L.roads[j].cost / 2); L.roads.splice(j, 1); growRebuild(); }
+const nodeAt = (x, y) => { let best = null, bd = 40 * Math.max(1, fs); for (const [k, [nx, ny]] of Object.entries(L.nodes)) { const d = Math.hypot(nx - x, ny - y); if (d < bd) { bd = d; best = k; } } return best; };
+function growDown(e) {
+  if (GROW.over) return;
+  const [x, y] = toWorld(e);
+  if (tool === 'road') { const n = nodeAt(x, y); if (n) { GROW.drag = { a: n, x, y }; cv.setPointerCapture(e.pointerId); } return; }
+  const i = roadAt(x, y); if (i < 0) return;
+  if (tool === 'bulldoze') { bulldoze(i); snd.erase(); return; }
+  if (tool === 'toll') { const tolled = roads.filter(q => q.toll > 0 && q !== roads[i]).length; if (tolled >= 2 && !(roads[i].toll > 0)) { snd.fail(); toast('Two booths', 'Set another toll to $0 first.', 1400); return; } sel = i; snd.key(); showToll(); }
+}
+function growMove(e) { if (GROW.drag) { const [x, y] = toWorld(e); GROW.drag.x = x; GROW.drag.y = y; } }
+function growUp(e) {
+  const d = GROW.drag; GROW.drag = null; if (!d) return;
+  const [x, y] = toWorld(e), n = nodeAt(x, y);
+  let b = n, err = null;
+  if (!b) { if (Math.hypot(x - L.nodes[d.a][0], y - L.nodes[d.a][1]) < 70) return; const c = roadCost(d.a, d.a, GROW.type); b = addJunction([x, y]); err = buildRoad(d.a, b, GROW.type); if (err) { delete L.nodes[b]; GROW.jn--; } }
+  else err = buildRoad(d.a, b, GROW.type);
+  if (err) { snd.fail(); toast('Not built', err, 1600); } else { snd.pencil(); FX.shake(.1); }
+}
+function growTools() {
+  const t = Object.entries(RTYPE).map(([k, T]) => `<button class="tool ${tool === 'road' && GROW.type === k ? 'on' : ''}" data-rt="${k}" title="${T.n}: ${k === 'highway' ? 'fast, barely jams, dear' : k === 'avenue' ? 'jams half as fast' : 'cheap, jams quickly'}">${ICON.build}${T.n}</button>`).join('')
+    + `<button class="tool ${tool === 'toll' ? 'on' : ''}" data-gt="toll">${ICON.toll}Toll</button><button class="tool ${tool === 'bulldoze' ? 'on' : ''}" data-gt="bulldoze">${ICON.reset}Raze</button>`
+    + `<button class="tool ${GROW.speed === 0 ? 'on' : ''}" data-sp="${GROW.speed === 0 ? 1 : 0}" title="Pause the calendar to plan">${GROW.speed === 0 ? '▶' : '❚❚'}</button><button class="tool ${GROW.speed === 3 ? 'on' : ''}" data-sp="${GROW.speed === 3 ? 1 : 3}" title="Fast">▶▶</button>`;
+  if ($('tools').innerHTML === t) return; $('tools').innerHTML = t;
+  $('tools').querySelectorAll('[data-rt]').forEach(b => b.onclick = () => { tool = 'road'; GROW.type = b.dataset.rt; snd.key(); $('toll').style.display = 'none'; renderTools(); });
+  $('tools').querySelectorAll('[data-gt]').forEach(b => b.onclick = () => { tool = b.dataset.gt; snd.key(); if (tool !== 'toll') $('toll').style.display = 'none'; renderTools(); });
+  $('tools').querySelectorAll('[data-sp]').forEach(b => b.onclick = () => { GROW.speed = +b.dataset.sp; snd.key(); renderTools(); });
+}
+// the month clock and the HUD
+function growLoop(dt) {
+  if (!GROW.over && GROW.speed && !growHeadless) { GROW.t += dt * GROW.speed; if (GROW.t >= MONTH_S) { GROW.t = 0; monthTick(); } }
+  const avg = avgGrow();
+  shown.avg = FX.damp(shown.avg || avg, avg, 4, dt);
+  setText('avg', shown.avg.toFixed(1));
+  const bad = avg > GLIMIT, cls = 'target' + (bad ? '' : ' ok'); if (ui.cls !== cls) { ui.cls = cls; $('tgt').className = cls; }
+  const unreached = P.filter(ps => !ps.length).length;
+  setText('tgt', GROW.over ? `Gridlock after ${GROW.month} months` : `Limit ${GLIMIT} min · gridlock meter ${'●'.repeat(GROW.meter)}${'○'.repeat(3 - GROW.meter)}${unreached ? ` · ${unreached} suburb${unreached > 1 ? 's' : ''} cut off` : ''}`);
+  setText('per', `Month ${GROW.month} · ${population().toLocaleString('en')} commuters · $${GROW.money}M · next month ${Math.max(0, Math.ceil(MONTH_S - GROW.t))} s${GROW.best ? ` · best ${GROW.best} mo` : ''}`);
+  const span = GLIMIT * 1.6;
+  setStyle('bar', 'width', Math.min(100, avg / span * 100).toFixed(1) + '%'); setStyle('bar', 'background', bad ? '#e0663a' : '#2c8a56'); setStyle('tick', 'left', (GLIMIT / span * 100).toFixed(1) + '%');
+}
+function growHud() {
+  $('grade').innerHTML = `Seed <b>${GROW.seed}</b>${GROW.daily ? ' (today’s city)' : ''} · <button class="gbtn" id="gNew">New city</button> <button class="gbtn" id="gDay">Today’s city</button> <button class="gbtn" id="gAgain">Again</button>`;
+  $('gNew').onclick = () => { snd.drawer(); startGrow(Math.random().toString(36).slice(2, 8)); };
+  $('gDay').onclick = () => { snd.drawer(); startGrow(todaySeed()); };
+  $('gAgain').onclick = () => { snd.drawer(); startGrow(GROW.seed); };
+}
+function startGrow(seed) { GROW.pendingSeed = seed; load(GI); }
+// growth-mode drawing extras: the next suburb's site, and the road being dragged
+function drawGrowExtras(now) {
+  if (!GROW.next || GROW.over) return;
+  const [x, y] = GROW.next, k = .5 + .5 * Math.sin(now / 250);
+  g.setLineDash([6, 6]); g.strokeStyle = `rgba(36,70,110,${.35 + .35 * k})`; g.lineWidth = 3; g.beginPath(); g.arc(x, y, 30, 0, 7); g.stroke(); g.setLineDash([]);
+  g.fillStyle = 'rgba(36,70,110,.75)'; g.font = `700 ${13 * fs}px "Barlow Condensed"`; g.textAlign = 'center'; g.fillText('NEXT MONTH', x, y + 4);
+  const d = GROW.drag; if (d) { const [ax, ay] = L.nodes[d.a]; g.strokeStyle = '#1d2733'; g.lineWidth = 5; g.setLineDash([10, 8]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(d.x, d.y); g.stroke(); g.setLineDash([]);
+    const n = nodeAt(d.x, d.y); const c = n && n !== d.a && L.nodes[n][2] !== 'home' ? roadCost(d.a, n, GROW.type) : null; g.fillStyle = '#c8312b'; g.font = `700 ${15 * fs}px "Barlow Condensed"`; g.fillText(c ? `$${c}M` : 'new junction', d.x, d.y - 22 * fs); }
+}
+
 // ================= loop =================
 let last = performance.now(), raf = 0;
 const ui = {};
@@ -554,6 +722,7 @@ function loop(now) {
   raf = requestAnimationFrame(loop);
   const dt = Math.min(.05, (now - last) / 1000); last = now;
   let gap = 0; if (!fc.pending) for (let i = 0; i < 3; i++) gap = adjust(.004); else { flows(); gap = 1; } // drivers wait for your forecast
+  if (L.grow) { growLoop(dt); spawnCars(dt); moveCars(dt); draw(now); return; }
   const avg = average();
   if (!isFinite(shown.eq) || Math.abs(avg - shown.eq) > .08 || gap < .02) shown.eq = avg; // ignore the drivers' last little wobbles
   shown.avg = FX.damp(shown.avg || shown.eq, shown.eq, 6, dt);
@@ -591,10 +760,12 @@ function improve(avg) {
   if (!(SAVE.best[SAVE.cur] <= avg)) SAVE.best[SAVE.cur] = +avg.toFixed(2); SAVE.grade[SAVE.cur] = Math.max(before, now); persist(); renderUI();
   if (SAVE.grade[SAVE.cur] > before) { stampIt(); toast(savedGrade(SAVE.cur), `Average commute ${avg.toFixed(1)} min.`, 2600); }
 }
+if (/^#grow=/.test(location.hash)) SAVE.cur = GI;
 load(Math.min(SAVE.cur || 0, LV.length - 1));
 if (document.fonts) document.fonts.ready.then(() => { roads.forEach(r => r.lt = null); fit(); });
 raf = requestAnimationFrame(loop);
-window.__gl = { LV, load, get fc() { return fc; }, askForecast, get forecasts() { return SAVE.fc; }, cleanSave, gradeOf, gradeIdx, savedGrade, worstHome: () => worstHome(), get best() { return SAVE.best; }, get grade() { return SAVE.grade; }, budgetLeft: () => budgetLeft(), get won() { return won; }, get tool() { return tool; }, get sel() { return sel; }, roads: () => roads, average, adjust, P: () => P, rebuild: () => rebuildPaths(), view: () => ({ ...view, dpr }), labels: () => roads.map(r => [r.a + r.b, r.lx, r.ly]) };
+window.__gl = { LV, load, GI, grow: { GROW, init: seed => { GROW.pendingSeed = seed; load(GI); }, month: () => monthTick(), avg: () => avgGrow(), build: (a, b, t) => buildRoad(a, b, t), junction: p => addJunction(p), bulldoze, population,
+  settle: () => { growHeadless = true; for (let i = 0; i < 4000; i++) { if (adjust(.004) < 1e-3 && i > 150) break; } growHeadless = false; return avgGrow(); }, set headless(v) { growHeadless = v; } }, get fc() { return fc; }, askForecast, get forecasts() { return SAVE.fc; }, cleanSave, gradeOf, gradeIdx, savedGrade, worstHome: () => worstHome(), get best() { return SAVE.best; }, get grade() { return SAVE.grade; }, budgetLeft: () => budgetLeft(), get won() { return won; }, get tool() { return tool; }, get sel() { return sel; }, roads: () => roads, average, adjust, P: () => P, rebuild: () => rebuildPaths(), view: () => ({ ...view, dpr }), labels: () => roads.map(r => [r.a + r.b, r.lx, r.ly]) };
 </script>
 </body>
 </html>

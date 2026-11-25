@@ -105,7 +105,7 @@ module.exports = {
       const p = await reopen(page, page.url().split('#')[0] + '#seq=' + code); await p.waitForTimeout(1200);
       await p.evaluate(() => __belt.flush());
       const r = await p.evaluate(s => ({ q: __belt.q(), want: __belt.seqQ(s), lv: __belt.level_ }), seq);
-      eq(r.lv, 18); ok(Math.abs(r.q.reduce((a, v, i) => a + v * r.want[i], 0)) > .999, 'shared sequence was truncated'); ok(!p.errs.length, p.errs[0]); await p.close();
+      eq(r.lv, 19); ok(Math.abs(r.q.reduce((a, v, i) => a + v * r.want[i], 0)) > .999, 'shared sequence was truncated'); ok(!p.errs.length, p.errs[0]); await p.close();
     },
     'level 1 by hand: four taps on +90°, then swinging the cable loop round the box shows it stuck (and that wins the lesson)': async ({ page, eq, ok }) => {
       await page.evaluate(() => __belt.level(0)); await page.waitForTimeout(200);
@@ -165,6 +165,28 @@ module.exports = {
       eq(r.fwd, { won: false, flat: false, swings: 1 }, 'four turns forward: one swing is not enough'); eq(r.second, false, 'no second swing on this rig');
       eq(r.back, { won: true, stars: 3 }); ok(r.extra < 3, 'a wasted extra swing costs a star: ' + r.extra);
     },
+    'the course: generation is deterministic per seed, every hole is solvable, and pars rise with the round': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const B = __belt, out = { det: true, bad: 0, avg: [] };
+        for (let round = 1; round <= 10; round++) { const a = B.genCourse(B.courseSeed(round), round), b = B.genCourse(B.courseSeed(round), round); if (JSON.stringify(a) !== JSON.stringify(b)) out.det = false;
+          a.holes.forEach((h, k) => { const m = a.moves[k], gens = []; for (const x of m.ax) for (const d of m.ang) gens.push(x + (d > 0 ? '+' : '') + d); if (B.bfsPar([1, 0, 0, 0], gens, B.seqQ(h)) !== a.pars[k] || a.pars[k] < 2) out.bad++; });
+          out.avg.push(a.pars.reduce((x, y) => x + y, 0) / 9); }
+        out.diff = JSON.stringify(B.genCourse(1, 3)) !== JSON.stringify(B.genCourse(2, 3)); return out; });
+      ok(r.det, 'same seed, same course'); ok(r.diff, 'different seeds differ'); eq(r.bad, 0, 'unsolvable or trivial holes');
+      ok(r.avg[9] > r.avg[0] + 1.5, 'later rounds should be harder: ' + r.avg.map(x => x.toFixed(1)));
+    },
+    'the course: a solver round wins gold and opens the next round; random play is far over par': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(async () => { const B = __belt, sl = ms => new Promise(r => setTimeout(r, ms)); B.SAVE.done[3] = 3; B.level(B.COURSE());
+        const c = B.course; let rnd = RH.rng(5), randomOver = 0;
+        // naive: random allowed motors, capped at 40 strokes a hole (as quaternion maths, the game's own rule)
+        const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+        c.holes.forEach((h, k) => { const tg = B.seqQ(h), g = []; const m = B.genCourse(c.seed, c.diff).moves[k]; for (const x of m.ax) for (const d of m.ang) g.push(x + (d > 0 ? '+' : '') + d);
+          let seq = [], n = 0; while (dot(B.seqQ(seq), tg) < Math.cos(.07) && n < 40) { seq.push(g[rnd() * g.length | 0]); n++; } randomOver += n - c.pars[k]; });
+        // competent: the solver's path, played through the real buttons logic
+        for (let k = 0; k < 9; k++) { const m = B.genCourse(c.seed, c.diff).moves[k], g = []; for (const x of m.ax) for (const d of m.ang) g.push(x + (d > 0 ? '+' : '') + d);
+          B.solve(B.q(), g, B.seqQ(c.holes[k])).forEach(t => B.move(t)); await sl(1250); }
+        await sl(900); return { randomOver, round: B.SAVE.course.round, best: B.SAVE.course.best[String(c.seed)] }; });
+      eq(r.best, 0, 'solver round should be exactly par'); eq(r.round, 2, 'next round opened'); ok(r.randomOver > 40, 'random play only ' + r.randomOver + ' over par');
+    },
     'keyboard: X turns the cube, Shift+X turns it back; RELAX is disabled while betting': async ({ page, near, ok }) => {
       await page.evaluate(() => __belt.level(10)); await page.waitForTimeout(100);
       const q0 = await page.evaluate(() => { __belt.flush(); return __belt.q(); });
@@ -177,7 +199,7 @@ module.exports = {
       for (const v of ['null', '[]', '{"done":null,"best":3,"cur":"x"}', '{"done":{"0":3,"77":3},"cur":9}', '{"rec":{"moves":7},"recSteps":"zz","cur":17}']) {
         await page.evaluate(v => { localStorage.clear(); localStorage.setItem('rh:belt-trick', v); }, v);
         const p = await reopen(page); const lv = await p.evaluate(() => __belt.level_);
-        ok(!p.errs.length, `save ${v}: ${p.errs[0]}`); ok(lv <= 1 || lv === 18, `resumed into locked level ${lv} from ${v}`); await p.close();
+        ok(!p.errs.length, `save ${v}: ${p.errs[0]}`); ok(lv <= 1 || lv === 19, `resumed into locked level ${lv} from ${v}`); await p.close();
       }
       const hub = await page.evaluate(() => { const B = __belt; for (let i = 0; i < B.LV.length - 1; i++) B.SAVE.done[i] = 3; B.level(0); return JSON.parse(localStorage.getItem('rh:hub'))['belt-trick']; });
       eq(hub, 1);

@@ -28,7 +28,7 @@ module.exports = {
   ready: async page => { await page.waitForFunction(() => window.__vault); await closeModals(page); await page.evaluate(solveFn); },
   tests: {
     'there are 24 vaults, 4 per era, with unique original ids': async ({ page, eq, ok }) => {
-      const r = await page.evaluate(() => { const V = window.__vault.V; return { n: V.length, per: [0, 1, 2, 3, 4, 5].map(e => V.filter(v => v.e === e).length), ids: new Set(V.map(v => v.id)).size }; });
+      const r = await page.evaluate(() => { const V = window.__vault.V.slice(0, window.__vault.CAMPAIGN); return { n: V.length, per: [0, 1, 2, 3, 4, 5].map(e => V.filter(v => v.e === e).length), ids: new Set(V.map(v => v.id)).size }; });
       eq(r.n, 24); eq(r.per, [4, 4, 4, 4, 4, 4]); eq(r.ids, 24);
     },
     'every vault: closed at start, opened by its real key, not by a near miss': async ({ page, ok }) => {
@@ -316,6 +316,44 @@ module.exports = {
       await page.click(`[data-kwres] button:has-text("shift ${k}")`);
       await page.click('#pullBtn');
       ok(await page.evaluate(i => !!window.__vault.S.solved[i], i), 'did not open');
+    },
+    'Wire Room: generation is deterministic per seed, every intercept up to level 20 is solvable and closed at its start': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const X = window.__vault, out = [];
+        const a = JSON.stringify(X.wireDef('abc', 7)), b = JSON.stringify(X.wireDef('abc', 7)), c = JSON.stringify(X.wireDef('abd', 7));
+        X.S.solved = {}; for (let i = 0; i < 4; i++) X.S.solved[i] = { stars: 3, time: 0 };
+        for (const seed of ['abc', 'daily:2026-01-01']) { X.wireStart(seed); for (let L = 1; L <= 20; L++) { X.S.wire.run.level = L; X.applyWire(); X.openVault(X.WIRE);
+          if (X.isOpenNow(X.WIRE)) out.push(seed + ' L' + L + ' open at start');
+          const w = X.workOf(X.WIRE); w.stages = window.__solution(X.WIRE).stages; if (!X.isOpenNow(X.WIRE)) out.push(seed + ' L' + L + ' unsolvable'); } }
+        const msgs = new Set([1, 2, 3].map(L => { X.S.wire.run.level = L; X.applyWire(); return X.build(X.WIRE).cipher; }));
+        return { same: a === b, differ: a !== c, out, distinct: msgs.size, steps: [1, 6, 12, 15].map(L => X.wireDef('abc', L).steps.length), alarm: [1, 12, 30].map(L => X.wireDef('abc', L).alarm) };
+      });
+      ok(r.same && r.differ, 'not deterministic per seed'); ok(!r.out.length, r.out.join('; ')); eq(r.distinct, 3);
+      ok(r.steps[0] === 1 && r.steps[2] === 2 && r.steps[3] === 2, 'difficulty should climb to stacked layers'); ok(r.alarm[2] < r.alarm[1], 'late levels should get less time');
+    },
+    'Wire Room runs: breaking intercepts scores, missed alarms cost agents, three misses end the run; naive play scores 0': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(async () => { const X = window.__vault; X.S.solved = {}; for (let i = 0; i < 4; i++) X.S.solved[i] = { stars: 3, time: 0 };
+        // competent: read the key (a capable analyst), break five intercepts
+        X.wireStart('runtest'); for (let n = 0; n < 5; n++) { X.workOf(X.WIRE).stages = window.__solution(X.WIRE).stages; if (X.isOpenNow(X.WIRE)) X.wireAdvance(true); }
+        const comp = { ...X.S.wire.run };
+        // naive: tries random single tools until the alarm, every intercept
+        X.wireStart('runtest'); let naiveWins = 0; let sd = 5; const Rn = () => (sd = (sd * 1103515245 + 12345) % 2147483648) / 2147483648;
+        while (X.S.wire.run) { let won = false; for (let t = 0; t < 60 && !won; t++) { X.workOf(X.WIRE).stages = [{ t: 'shift', s: { k: Math.floor(Rn() * 26) } }, { t: 'rev', s: {} }].slice(0, 1 + Math.floor(Rn() * 2)); won = X.isOpenNow(X.WIRE); }
+          if (won) naiveWins++; const before = X.S.wire.run; X.wireAdvance(won); if (!X.S.wire.run) break; }
+        await new Promise(r => setTimeout(r, 50)); document.querySelectorAll('.modal-bg').forEach(m => m.remove());
+        return { comp, naiveWins, best: X.S.wire.best, ended: !X.S.wire.run };
+      });
+      eq([r.comp.score, r.comp.level, r.comp.agents, r.comp.tokens], [5, 6, 3, 4]);
+      ok(r.ended && r.naiveWins <= 1, 'naive play should fail almost every intercept: ' + r.naiveWins);
+      ok(r.best >= 5, 'best run not recorded');
+    },
+    'Wire Room: hints spend run tokens, saves stay small, and the lobby offers a daily seed': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const X = window.__vault; X.S.solved = {}; for (let i = 0; i < 4; i++) X.S.solved[i] = { stars: 3, time: 0 }; X.S.wire.run = null; X.openVault(X.WIRE);
+        const lobby = document.getElementById('wDaily').textContent.includes(X.today());
+        X.wireStart('tok'); return { lobby }; });
+      ok(r.lobby, 'no daily seed in the lobby');
+      await page.click('#hintBtn'); await page.waitForTimeout(100);
+      eq(await page.evaluate(() => [window.__vault.S.wire.run.tokens, window.__vault.S.hints[window.__vault.WIRE]]), [2, 1]);
+      ok(await page.evaluate(() => (localStorage.getItem('rh:vault') || '').length < 50000), 'save too big');
     },
     'phone: level list is a drawer behind a labelled button; picking a level closes it': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(500);

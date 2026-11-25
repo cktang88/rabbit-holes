@@ -168,6 +168,26 @@ module.exports = {
       if (vis) { await touch('touchStart', x, y); await touch('touchMove', x + 9, y + 3); await touch('touchEnd'); await p2.waitForTimeout(100); ok(await p2.evaluate(() => __fl.ducks.length === 100), 'a 9 px finger jitter should still drop'); }
       await ctx.close();
     },
+    'case files: generated per seed, crackable by the scripted detective, not by random hindcasts; runs score and climb': async ({ page, eq, ok }) => {
+      await unlock(page);
+      const r = await page.evaluate(() => { const X = __fl, o = {}; X.load(9);
+        const a = X.genCase(77, 3), b = X.genCase(77, 3), c = X.genCase(78, 3); o.det = JSON.stringify([a.truth, a.windage, a.truthMonth]) === JSON.stringify([b.truth, b.windage, b.truthMonth]); o.differ = JSON.stringify(a.truth) !== JSON.stringify(c.truth);
+        o.solved = [X.detective(a).solved, X.detective(c).solved];
+        // random detectives: twelve hindcasts anywhere, random month and cargo
+        let rs = 5, wins = 0; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647;
+        for (const C of [a, c]) for (let k = 0; k < 4; k++) { let best = 99; for (let j = 0; j < C.budget; j++) { const sim = X.sightingsOf(X.hindcast(5 + rnd() * 45, -98 + rnd() * 88, 5, rnd() < .5 ? 6 : 22, 400, 7)).map(q => ({ ...q, t: q.t + Math.floor(rnd() * 12) / 12 })); best = Math.min(best, X.misfit(C.log, sim)); } if (best <= 3) wins++; }
+        o.naive = wins;
+        // play a run: the true answer solves case 1, scores, and the next file is harder
+        X.load(10); X.startCaseFile(501, 1); const C1 = X.level.case; X.caseState.left = C1.budget; X.caseState.month = C1.truthMonth; X.caseState.wnd = C1.windage;
+        X.dropAt(...C1.truth); for (let t = 0; t < 5; t += .05) X.step(.05); X.simT = 5; X.check();
+        o.run = [X.run.n, X.run.score > 0, X.SAVE.runBest > 0, X.reportOn];
+        document.getElementById('tnext').click(); o.next = [X.level.case.rung, X.level.case.seed, location.hash];
+        return o; });
+      ok(r.det && r.differ, 'deterministic per seed, different across seeds');
+      eq(r.solved, [true, true]);
+      ok(r.naive <= 1, 'random hindcasting cracked ' + r.naive + '/8');
+      eq(r.run, [1, true, true, true]); eq(r.next, [2, 502, '#case=502-2']);
+    },
     'corrupted / odd saves load without errors': async ({ page, eq }) => {
       const u = page.url(); await page.goto('about:blank'); // stop the first globe rendering while the others load
       for (const [save, cur] of [['null', 0], ['{"done":{"0":1,"9":1,"x":1},"stars":"q","cards":7,"cur":3}', 1]]) {

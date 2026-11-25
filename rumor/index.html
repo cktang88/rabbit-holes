@@ -56,6 +56,8 @@
   #gazette .lie{color:var(--red)}
   @keyframes press{from{transform:scaleY(.2);opacity:0}}
   #person h3{margin:0 0 2px;font-size:20px}
+  .runbar{border:1.5px solid var(--ink);padding:6px 8px;margin-bottom:8px;background:#f4eedf} .perkbtn{margin:6px 6px 0 0}
+  .perks{display:flex;flex-direction:column;gap:8px} .perks button{text-align:left}
   .vers{margin-top:8px;font-size:13px;border-top:1px solid var(--rule);padding-top:4px} .vers summary{cursor:pointer;font-weight:700} .vers b{color:var(--red)} .vers .how{color:var(--ink2)}
   .trait{display:inline-block;font-size:12px;border:1px solid var(--ink);padding:0 6px;margin:2px 3px 0 0;font-style:italic}
   /* what they heard: a torn note */
@@ -174,10 +176,22 @@ const SC=[
   {act:5,n:'Peace and Pitchforks',d:'Reconcile <b>{A}</b> and <b>{B}</b>, and get 20% believing something bad about <b>{T}</b>.',N:80,days:11,w:3,feud:1,goal:{type:'reconcile+',pct:20}},
   {act:5,n:'The Long Con',d:'Exactly what you whisper, to 35% of the biggest town yet.',N:110,days:12,w:2,skeptics:2,goal:{type:'exact',pct:35}},
 ];
+const PERKS={
+  broadsheet:{n:'The broadsheet', d:'Once per town, print your story in the gazette. Every reader in town hears it, though few trust print.'},
+  market:{n:'Market day', d:'Once per town, call a market: that day everyone who believes something also tells a stranger.'},
+  informant:{n:'An informant', d:'See exactly how gullible and how chatty each villager is.'},
+  careful:{n:'Careful tellers', d:'People you whisper to repeat your story word for word.'},
+  priest:{n:'The priest owes you', d:'Skeptics believe what you tell them yourself, instead of denying it.'},
+  innkeeper:{n:'A friend at the inn', d:'The innkeeper passes on what she believes to three friends every day.'},
+  early:{n:'An early start', d:'Two extra whispers on the first day in each town.'},
+  patience:{n:'Patience', d:'Two more days in every town.'},
+};
 function cleanSave(s){
   if (!s || typeof s!=='object' || Array.isArray(s)) s={};
   const done={}; if (s.done && typeof s.done==='object') for (const k in s.done){ const n=+k; if (Number.isInteger(n) && n>=0 && n<SC.length && s.done[k]) done[n]=[1,2,3].includes(s.done[k])? s.done[k] : 1; }
-  return {...s, done, cur: Number.isInteger(s.cur) && s.cur>=0 && s.cur<SC.length ? s.cur : 0, endless: Number.isFinite(s.endless) && s.endless>0 ? Math.floor(s.endless) : 0};
+  const run= s.run && typeof s.run==='object' && typeof s.run.seed==='string' && Number.isInteger(s.run.n) && s.run.n>=0 && Number.isInteger(s.run.rep) && s.run.rep>0 ? {seed:s.run.seed.slice(0,40), n:Math.min(500,s.run.n), rep:Math.min(3,s.run.rep), perks:Array.isArray(s.run.perks)? s.run.perks.filter(k=>k in PERKS) : [], score:Number.isInteger(s.run.score)&&s.run.score>=0? s.run.score : 0} : null;
+  const dailyBest={}; if (s.dailyBest && typeof s.dailyBest==='object') for (const k of Object.keys(s.dailyBest).slice(-30)) if (/^daily-\d{4}-\d\d-\d\d$/.test(k) && Number.isInteger(s.dailyBest[k])) dailyBest[k]=s.dailyBest[k];
+  return {...s, run, dailyBest, runBest:Number.isInteger(s.runBest)&&s.runBest>=0? s.runBest : 0, done, cur: Number.isInteger(s.cur) && s.cur>=0 && s.cur<SC.length ? s.cur : 0, endless: Number.isFinite(s.endless) && s.endless>0 ? Math.floor(s.endless) : 0};
 }
 const esc=(t)=>String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const scenOpen=(i)=> i===0 || !!SAVE.done[i-1] || !!SAVE.done[i] || (i%5===0 && SAVE.done[i-5]!=null && Object.keys(SAVE.done).length>=i-2);
@@ -195,6 +209,37 @@ const VOICE={
   presses:()=>{ for (let i=0;i<10;i++) T_({noise:1,f:600+(i%3)*500,q:2,dur:.04,vol:.08,delay:i*.09}); setTimeout(()=>VOICE.bell(),1000); },
   fail:()=>T_({f:196,f2:130,type:'sine',dur:.6,vol:.08}),
 };
+
+// ===================== The Long Campaign (a run of towns) =====================
+// A run is a chain of generated towns. Win one and you choose a new trick (a new rule, never a bigger number);
+// fail one and you lose a mark of reputation; three failures end the run. Score: towns won. Seeded, shareable, with a daily seed.
+const RUN_POOL=[0,2,4,6,7,9,10,11,15,16,17,12,21,22,24,20,13,19,23]; // scenario shapes the campaign draws on, roughly easy to hard
+function runTown(seed, n){ const r=RH.rng(`${seed}:${n}`); const tier=Math.min(RUN_POOL.length-1, n+r.int(3)); const base=SC[RUN_POOL[Math.min(RUN_POOL.length-1, Math.floor(tier*(0.75+r()*0.5)))]];
+  const g={...base.goal}; const k=Math.min(1.5, 0.8+0.07*n); // the bar rises town by town until the run breaks if (g.pct) g.pct=Math.min(85,Math.round(g.pct*k)); if (g.max) g.max=Math.round(g.max/k);
+  const spec={...base, goal:g, n:`Town ${n+1}: ${base.n}`, N:Math.min(110, base.N+r.int(10)+n*3), d:base.d.replace(/\d+%/g, (m)=>{ const v=+m.slice(0,-1); return (g.pct&&v===base.goal.pct? g.pct : g.max&&v===base.goal.max? g.max : v)+'%'; })};
+  return {spec, townSeed: RH.hashStr(`${seed}:${n}:town`)}; }
+const todaySeed=()=>{ const d=new Date(); return `daily-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+function newRun(seed){ SAVE.run={seed:String(seed).slice(0,40), n:0, rep:3, perks:[], score:0}; persist(); startRunTown(); }
+function startRunTown(){ const R=SAVE.run; const t=runTown(R.seed,R.n); const spec={...t.spec}; if (R.perks.includes('patience')) spec.days+=2; start(0,null,null,{spec, townSeed:t.townSeed}); if (R.perks.includes('early')) wLeft+=2; usedPerk={}; renderAll(); }
+function perkOffer(){ const R=SAVE.run, r=RH.rng(`${R.seed}:perks:${R.n}`); const left=Object.keys(PERKS).filter(k=>!R.perks.includes(k)); r.shuffle(left); return left.slice(0,3); }
+function runResult(won){ const R=SAVE.run; if (!R) return;
+  if (won){ R.score++; R.n++; } else { R.rep--; R.n++; }
+  const over=R.rep<=0; let html='';
+  if (over){ const best=SAVE.runBest||0; SAVE.runBest=Math.max(best,R.score); if (R.seed.startsWith('daily-')) SAVE.dailyBest={...(SAVE.dailyBest||{}), [R.seed]:Math.max(R.score,(SAVE.dailyBest||{})[R.seed]||0)};
+    html=`<h2>The campaign is over</h2><p>You won <b>${R.score}</b> town${R.score===1?'':'s'} before your name was mud.${R.score>best?' A new best.':` Your best is ${best}.`}</p><p class="small">Seed <code>${esc(R.seed)}</code>: share <a href="#run=${encodeURIComponent(R.seed)}">this link</a> to let a friend try the same towns.</p>`;
+    SAVE.run=null; persist(); RH.modal(html,[{label:'OK'}]).then(renderAll); return; }
+  persist();
+  if (won){ const offer=perkOffer(); if (!offer.length){ startRunTown(); return; }
+    RH.modal(`<h2>On to the next town</h2><p>Word of your work travels. Choose one trick to take with you:</p><div class="perks">${offer.map(k=>`<button data-perk="${k}"><b>${PERKS[k].n}</b><br><span class="small">${PERKS[k].d}</span></button>`).join('')}</div>`,[]);
+    setTimeout(()=>document.querySelectorAll('[data-perk]').forEach(b=>b.onclick=()=>{ R.perks.push(b.dataset.perk); persist(); document.querySelector('.modal-bg')?.remove(); startRunTown(); }),30); }
+  else RH.modal(`<h2>The town shrugged</h2><p>You lose a mark of reputation (${'♥'.repeat(R.rep)}${'♡'.repeat(3-R.rep)} left).</p>`,[{label:'Next town'}]).then(startRunTown); }
+let usedPerk={}, marketToday=false;
+const hasPerk=(k)=> scKey==='run' && SAVE.run && SAVE.run.perks.includes(k);
+function usePerk(k){ if (!hasPerk(k) || usedPerk[k] || day>sc.days) return false; usedPerk[k]=true;
+  if (k==='broadsheet'){ const v=lastComposed||firstWhisper; if (!v){ usedPerk[k]=false; RH.toast('Whisper a story first: that is what gets printed.'); return false; }
+    reseed('print'); let n=0; for (const p of T.people){ if (RH.hashStr(p.name)%100<35 && hear(p, {...v}, 0.5, null)) n++; } addLog(`<b>The gazette prints it:</b> ${rText(v)} ${n} reader${n===1?'':'s'} believe it.`); VOICE.presses(); }
+  if (k==='market'){ marketToday=true; addLog('<b>Market day is called.</b> Today everyone talks to strangers.'); }
+  renderAll(); return true; }
 
 // ===================== Town =====================
 let T, sc, day, wLeft, sel=-1, log=[], firstWhisper=null, enemy=null, history=[], lastComposed=null;
@@ -289,7 +334,7 @@ function hear(p, v, strength, from){
   if (!v.neg && VERBS[v.verb][1]<0 && p.friends.some(f=>f[0]===v.who && f[1]>0.7)) s*=0.35;
   if (!v.neg && VERBS[v.verb][1]<0 && p.rivals.includes(v.who)) s*=1.8;
   if (!v.neg && VERBS[v.verb][1]>0 && p.rivals.includes(v.who)) s*=0.4;
-  if (p.skeptic && !v.neg){ // skeptics see through lies and start denying them
+  if (p.skeptic && !v.neg && !(hasPerk('priest') && !from)){ // skeptics see through lies and start denying them
     p.belief={...v, neg:true, verb:v.verb}; p.str=0.95; p.heardFrom=from?from.name:'?'; p.via=from?from.id:-1; p.changedAt=null; return true; }
   const cur=p.belief;
   if (cur && sameV(cur,v)){ p.str=Math.min(1,p.str+s*0.3); p.again=true; return false; }
@@ -306,16 +351,18 @@ function simDay(){
   const snapshot=P.map(p=>p.belief? {v:p.belief,s:p.str}:null);
   for (const p of P){ const b=snapshot[p.id]; if (!b || b.s<0.2) continue;
     const pol = b.v.neg? 0.95 : VERBS[b.v.verb][1]<0? 1 : 0.75;
-    const tells = r()<Math.min(1,p.chat*pol*1.3) ? (p.chat>0.8?2:1) : 0;
+    let tells = r()<Math.min(1,p.chat*pol*1.3) ? (p.chat>0.8?2:1) : 0; if (hasPerk('innkeeper') && p.role==='innkeeper') tells=3;
     for (let k=0;k<tells;k++){ if (!p.friends.length) break;
       const tot=p.friends.reduce((s,f)=>s+f[1],0); let x=r()*tot, f=p.friends[0]; for (const g of p.friends){ x-=g[1]; if (x<=0){ f=g; break; } }
       const q=P[f[0]]; let v=b.v; let mutated=false;
-      if (r()<0.14*(1.2-p.gull*0.4)){ const m=mutate(v,p,r); if(!sameV(m,v)){ v=m; mutated=true; } }
+      if (!(hasPerk('careful') && p.via===-1) && r()<0.14*(1.2-p.gull*0.4)){ const m=mutate(v,p,r); if(!sameV(m,v)){ v=m; mutated=true; } }
       if (mutated) noteVersion(v, b.v); hear.changedBy= mutated? p.id : null; const ok=hear(q, v, b.s*f[1]*(p.skeptic?1.2:1)*0.95, p); hear.changedBy=null; tellings++; if (ok) newBelievers++; if (ok && mutated) changes++;
       flashes.push({a:p.id,b:q.id,t:0,ok,neg:!!v.neg,lie:!v.neg&&VERBS[v.verb][1]<0});
       if (ok && (q.role||q.skeptic||sel===q.id||mutated&&r()<0.25)) events.push(`<b>${p.name}</b> told <b>${q.name}</b>${q.role?` (${q.role})`:''}: ${rText(v)}${mutated?' <span style="color:#e8a050">(changed in the telling)</span>':''}`);
     }
   }
+  // market day: every believer also tells one stranger
+  if (marketToday){ marketToday=false; for (const p of P){ const b=snapshot[p.id]; if (!b || b.s<0.2) continue; const q=P[r.int(P.length)]; if (q===p) continue; if (hear(q, b.v, b.s*0.6, p)) newBelievers++; tellings++; } events.push('<b>Market day.</b> The square was full of talk.'); }
   // decay: old rumors cool
   for (const p of P) if (p.belief){ p.str*=0.965; if (p.str<0.08) { p.belief=null; } }
   // enemy gossip
@@ -363,11 +410,11 @@ function goalStatus(){
 
 // ===================== Flow =====================
 let scKey;
-function start(i, endlessSeed, variant){
-  scKey = endlessSeed? 'endless' : i;
-  sc = endlessSeed? endlessSpec(endlessSeed) : SC[i];
-  T = buildTown(sc, endlessSeed? RH.hashStr(endlessSeed) : 1000+i*17);
-  day=1; wLeft=sc.w; sel=-1; log=[]; firstWhisper=null; flashes=[]; actionLog=[]; family=new Map(); baseSeed=String(scKey)+':'+(endlessSeed||'')+(variant?':v'+variant:''); reseed('setup');
+function start(i, endlessSeed, variant, gen){
+  scKey = gen? 'run' : endlessSeed? 'endless' : i;
+  sc = gen? gen.spec : endlessSeed? endlessSpec(endlessSeed) : SC[i];
+  T = buildTown(sc, gen? gen.townSeed : endlessSeed? RH.hashStr(endlessSeed) : 1000+i*17); marketToday=false;
+  day=1; wLeft=sc.w; sel=-1; log=[]; firstWhisper=null; flashes=[]; actionLog=[]; family=new Map(); baseSeed=String(scKey)+':'+(endlessSeed||'')+(gen? gen.townSeed : '')+(variant?':v'+variant:''); reseed('setup');
   enemy=null;
   if (sc.enemy){ const tgt = sc.enemy.about==='V'? T.cast.V : T.cast.T; enemy={target:tgt.id, src:T.cast.E.id, start:sc.enemy.start};
     if (sc.enemy.seed){ for (const p of T.people) if (p!==tgt && rand()<sc.enemy.seed){ p.belief={who:tgt.id, verb:4, whom:T.people[(p.id+3)%T.people.length].id, place:Math.floor(rand()*PLACES.length)}; p.str=0.7; p.heardFrom='someone'; } }
@@ -389,7 +436,7 @@ document.getElementById('nextDay').onclick=()=>{
   else if (st.fail) finish(st);
   renderAll();
 };
-document.getElementById('restart').onclick=()=> scKey==='endless'? start(0, endlessSeedCur) : start(scKey);
+document.getElementById('restart').onclick=()=> scKey==='run'? (RH.toast('No restarts in a campaign: the town remembers.')) : scKey==='endless'? start(0, endlessSeedCur) : start(scKey);
 let endlessSeedCur='';
 // ★ a win · ★★ a clear win · ★★★ near the best a strong player manages (fast for spreading goals, a wide margin for defensive ones)
 let lastStars=0;
@@ -399,6 +446,7 @@ function starsFor(st){ const g=sc.goal; const used=Math.min(day-1,sc.days); if (
 function stMargin(st){ const g=sc.goal; return Math.max(0,(st.v-g.pct)/Math.max(1,100-g.pct)); }
 function finish(st){
   day=sc.days+1;
+  if (scKey==='run'){ lastStars=st.ok? starsFor(st) : 0; if (st.ok) VOICE.presses(); else VOICE.fail(); runResult(st.ok); renderAll(); return; }
   if (st.ok){ const stars=starsFor(st); lastStars=stars; if (scKey!=='endless'){ SAVE.done[scKey]=Math.max(SAVE.done[scKey]||0, stars); persist(); } else { SAVE.endless++; persist(); }
     VOICE.presses(); const t=topStory(); const head=t.v? esc(rText(t.v).replace(/[“”]/g,'')) : esc(st.label.replace(/<[^>]+>/g,''));
     RH.modal(`<div class="front"><div class="fm">The Village Gazette</div><div class="dl"><span>Vol. ${Object.keys(SAVE.done).length+1}</span><span>Day ${sc.days} · one penny</span><span>Extra!</span></div>
@@ -500,8 +548,10 @@ cv.addEventListener('click', e=>{ setScen(false); const r=cv.getBoundingClientRe
 
 function renderPerson(){
   const el=document.getElementById('person'); if (sel<0){ el.innerHTML='<div class="dim small">Tap a person to see who they are and what they\'ve heard.</div>'; return; }
+  if (!T.people[sel]){ sel=-1; el.innerHTML='<div class="dim small">Tap a villager to see who they are and what they\'ve heard.</div>'; return; }
   const p=T.people[sel]; const P=T.people;
   const tr=[p.gull>0.6?'gullible':p.gull<0.3?'hard to fool':'', p.chat>0.65?'chatty':p.chat<0.3?'quiet':'', p.skeptic?'checks every story':'', p.friends.length>=6?'knows everyone':p.friends.length<=2?'keeps to themselves':''].filter(Boolean);
+  if (hasPerk('informant')) tr.push(`gullible ${Math.round(p.gull*100)}%`, `chatty ${Math.round(p.chat*100)}%`, `${p.friends.length} friends`);
   let h=`<h3>${p.name} ${p.fam}</h3><div class="dim small">${p.role||p.job}</div><div>${tr.map(t=>`<span class="trait">${t}</span>`).join('')}</div>`;
   h+=`<div class="small" style="margin-top:6px">Friends: ${p.friends.sort((a,b)=>b[1]-a[1]).map(f=>`<a href="#" data-p="${f[0]}">${P[f[0]].name}</a>`).join(', ')||'none'}${p.rivals.length?`<br>Can't stand: ${p.rivals.map(i=>`<a href="#" data-p="${i}" style="color:#b3241b">${P[i].name}</a>`).join(', ')}`:''}</div>`;
   const ch=chainOf(p);
@@ -544,6 +594,8 @@ function targetLine(){ const g=sc.goal, D=sc.days, by=`by the end of day ${D}`;
 function renderGoal(){
   const st=goalStatus(); const pct=Math.min(100,st.v);
   document.getElementById('goal').innerHTML=`<b class="t">${sc.n}</b><p style="margin:6px 0">${desc()}</p><p class="target">${targetLine()}</p><div class="bar"><div style="width:${pct}%;background:${st.ok?'#2f5d2f':st.inverse?'#b3241b':'#1b1712'}"></div><span style="left:${st.target}%"></span><em class="tick" style="left:${st.target}%">${st.inverse?'at most ':''}${Math.round(st.target)}%</em></div><div class="small dim" style="margin-top:18px">${st.label}</div>`;
+  if (scKey==='run' && SAVE.run){ const R=SAVE.run; document.getElementById('goal').insertAdjacentHTML('afterbegin', `<div class="runbar"><b>The Long Campaign</b> · town ${R.n+1} · won ${R.score} · reputation ${'♥'.repeat(R.rep)}${'♡'.repeat(3-R.rep)}${R.perks.length?`<br><span class="small">${R.perks.map(k=>PERKS[k].n).join(' · ')}</span>`:''}${R.perks.filter(k=>k==='broadsheet'||k==='market').map(k=>`<button class="perkbtn" data-use="${k}" ${usedPerk[k]?'disabled':''}>${k==='broadsheet'?'Print it':'Call a market day'}</button>`).join('')}</div>`);
+    document.querySelectorAll('[data-use]').forEach(b=>b.onclick=()=>usePerk(b.dataset.use)); }
   const tree=versionTree(); if (tree.length) document.getElementById('goal').insertAdjacentHTML('beforeend', `<details class="vers" ${tree.length>1?'open':''}><summary>The story's family tree</summary>${tree.map(r=>`<div style="padding-left:${r.depth*14}px">${r.depth?'└ ':''}${r.how?`<i class="how">${r.how}:</i> `:''}${textOfKey(r.k)} <b>${r.n}</b></div>`).join('')}</details>`);
   document.getElementById('dayP').textContent= day>sc.days? 'Finished' : `Day ${day} of ${sc.days}`;
   document.getElementById('wP').textContent=`${wLeft} whisper${wLeft===1?'':'s'} left today`; document.getElementById('wP').title='You get fresh whispers every morning. Unused ones do not carry over.';
@@ -555,16 +607,23 @@ function renderScen(){
   SC.forEach((s,i)=>{ if (s.act!==last){ h+=`<div class="act">${acts[s.act]}</div>`; last=s.act; }
     const open = scenOpen(i);
     h+=`<div class="sc ${scKey===i?'cur':''} ${open?'':'lock'}" data-i="${i}"><span>${i+1}. ${s.n}</span><span class="ok">${SAVE.done[i]?'★'.repeat(Math.min(3,SAVE.done[i])):''}</span></div>`; });
+  const R=SAVE.run, ds=todaySeed();
+  h+=`<div class="act">The Long Campaign</div><div class="small" style="margin-bottom:4px">One town after another, three marks of reputation, a new trick after every win. Best: ${SAVE.runBest||0} towns.</div>
+    ${R? `<button id="runGo" class="primary" style="width:100%">Continue: town ${R.n+1} (${R.score} won)</button>` : ''}
+    <div class="row" style="margin-top:4px"><button id="runNew">New campaign</button><button id="runDaily">Today's campaign</button></div>${SAVE.dailyBest&&SAVE.dailyBest[ds]!=null?`<div class="small dim">Today's best: ${SAVE.dailyBest[ds]} towns</div>`:''}`;
   h+=`<div class="act">Endless</div><div class="row"><input id="eSeed" placeholder="town name" maxlength="32" style="width:120px"><button id="eGo">Go</button></div><div class="small dim" style="margin-top:4px">${SAVE.endless} endless towns fooled</div>`;
   const el=document.getElementById('scen'); el.innerHTML=h;
   el.querySelectorAll('.sc').forEach(d=>d.onclick=()=>{ if (!scenOpen(+d.dataset.i)) return; SAVE.cur=+d.dataset.i; persist(); start(+d.dataset.i); setScen(false); });
+  document.getElementById('runGo')?.addEventListener('click',()=>{ startRunTown(); setScen(false); });
+  document.getElementById('runNew').onclick=async()=>{ if (SAVE.run && !(await RH.modal('<h2>Abandon this campaign?</h2>',[{label:'Keep it',value:0},{label:'Start afresh',value:1}]))) return; newRun('c'+Math.floor(Math.random()*1e6)); setScen(false); };
+  document.getElementById('runDaily').onclick=async()=>{ if (SAVE.run && !(await RH.modal('<h2>Abandon this campaign?</h2>',[{label:'Keep it',value:0},{label:'Start today\'s',value:1}]))) return; newRun(todaySeed()); setScen(false); };
   document.getElementById('eGo').onclick=()=>{ endlessSeedCur=document.getElementById('eSeed').value.trim().slice(0,32)||('town'+Date.now()%10000); start(0, endlessSeedCur); };
   document.getElementById('total').textContent=`${Object.keys(SAVE.done).length}/${SC.length} scenarios`;
 }
 function renderAll(){ renderGoal(); renderPerson(); renderScen(); }
 window.addEventListener('resize', fitView);
-start(SAVE.cur||0); requestAnimationFrame(draw);
-window.__rumor={ versionTree, noteVersion, textOfKey, get family(){ return family; }, chainOf, lesson, starsFor, reseed, get actionLog(){ return actionLog; }, get lastStars(){ return lastStars; }, topStory, printGazette, SC, VERBS, buildTown, hear, mutate, simDay, goalStatus, goalFor, sameV, rText, pctOf, believesBad, believesGood, start, finish, endlessSpec, cleanSave, scenOpen, bestEar, esc, renderAll,
+{ const m=location.hash.match(/run=([^&]+)/); if (m){ newRun(decodeURIComponent(m[1])); } else if (SAVE.run && SAVE.cur==='run') startRunTown(); else start(SAVE.cur||0); } requestAnimationFrame(draw);
+window.__rumor={ runTown, newRun, startRunTown, runResult, perkOffer, usePerk, hasPerk, PERKS, todaySeed, get scKey(){ return scKey; }, versionTree, noteVersion, textOfKey, get family(){ return family; }, chainOf, lesson, starsFor, reseed, get actionLog(){ return actionLog; }, get lastStars(){ return lastStars; }, topStory, printGazette, SC, VERBS, buildTown, hear, mutate, simDay, goalStatus, goalFor, sameV, rText, pctOf, believesBad, believesGood, start, finish, endlessSpec, cleanSave, scenOpen, bestEar, esc, renderAll,
   get T(){ return T; }, get sc(){ return sc; }, get day(){ return day; }, set day(v){ day=v; }, get wLeft(){ return wLeft; }, get firstWhisper(){ return firstWhisper; }, get SAVE(){ return SAVE; }, get log(){ return log; }, get sel(){ return sel; }, set sel(v){ sel=v; }, get view(){ return view; } };
 if (!SAVE.intro){ SAVE.intro=1; persist(); RH.modal(`<h2>The Rumor</h2><p>Every person in this town has friends, rivals, a loose tongue or a careful one, and a sense of who to trust.</p><p>Tap someone and <b>whisper</b> a story. You get fresh whispers every morning, so use them every day. Then let the days pass. They'll tell their friends, who tell theirs, and the story changes on the way. Gossips make crimes worse, details drop out, and people pin the blame on whoever they already dislike.</p><p>Watch who carries it. Pick your first ear well.</p>`,[{label:'Lean in'}]); }
 </script>

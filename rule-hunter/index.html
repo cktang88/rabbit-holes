@@ -39,6 +39,11 @@
   .filter button.on{border-color:var(--accent);color:var(--accent)}
   .tip{font-size:12px;color:var(--dim);margin:0 0 4px;line-height:1.4}
   .tip a{cursor:pointer}
+  .shelf{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .rc{display:flex;flex-direction:column;align-items:flex-start;min-width:96px;padding:4px 8px;text-transform:none}
+  .rc b{font-family:"Pinyon Script",cursive;font-size:18px;font-weight:400} .rc span{font-size:11px;font-family:"IM Fell English",serif}
+  .rc.on{outline:2px solid #8b1e1e} .rc.complex{border-color:#2f6a2a} .rc.explodes{border-color:#a3231b} .rc.chaotic{border-color:#6a2a6e} .rc.dies{opacity:.7} .rc.freezes{border-color:#24557a}
+  #ops button.on{background:#3b2a1a;color:#f6eed8}
   @media (max-width:760px){
     body{height:auto;min-height:100vh;overflow:auto}
     main{flex-direction:column}
@@ -160,9 +165,10 @@
   </div>
   <div id="center"><div id="behav"></div><canvas id="world"></canvas><div id="log"></div><div id="predict"></div><div class="edge"><button id="playBtn2" aria-label="Play or pause">⏸</button><button id="mutBtn2">Mutate</button><button class="primary" id="soupBtn2">New soup</button><button id="scanBtn2">Scan</button></div></div>
   <div id="right">
-    <div class="tabs"><button data-t="guide" class="on">Field guide</button><button data-t="bounty">Bounties</button><button data-t="map">Rule map</button></div>
+    <div class="tabs"><button data-t="guide" class="on">Field guide</button><button data-t="bounty">Bounties</button><button data-t="map">Rule map</button><button data-t="lab">Breeding</button></div>
     <div class="pane on" id="p-guide"><div class="filter" id="filt"></div><div id="guide"></div></div>
     <div class="pane" id="p-bounty"></div>
+    <div class="pane" id="p-lab"></div>
     <div class="pane" id="p-map"><div class="dim small" style="margin-bottom:6px">Top: the rules one switch away from yours (click one to go there). Bottom: every rule you have charted, by how many switches are on.</div><canvas id="mapCv" width="320" height="330"></canvas>
       <div class="small" style="margin-top:8px;line-height:1.8"><span style="color:#2f6a2a">■</span> complex · <span style="color:#a3231b">■</span> explodes · <span style="color:#24557a">■</span> freezes · <span style="color:#9c8462">■</span> dies · <span style="color:#6a2a6e">■</span> chaotic</div><div id="mapInfo" class="small dim"></div></div>
   </div>
@@ -186,6 +192,8 @@ const spKey=(type,p,dx,dy,ck)=> type==='grower'? 'G|'+ck : `${type}|${p}|${dx}|$
   S.species=out; }
 if (!isObj(S.pred)) S.pred={n:0,right:0,streak:0,best:0}; for (const k of ['n','right','streak','best']) if (!Number.isInteger(S.pred[k])||S.pred[k]<0) S.pred[k]=0;
 if (!isObj(S.notes)) S.notes={};
+if (!Array.isArray(S.shelf)) S.shelf=[]; S.shelf=S.shelf.filter(x=>isObj(x)&&typeof x.r==='string'&&parseRule(x.r)).slice(0,400);
+if (!isObj(S.daily)) S.daily={};
 if (!Number.isFinite(S.scans) || S.scans<0) S.scans=0;
 // Only bounties that still exist count (ids are their text, so an edited bounty must not push the total past 100%)
 const claimed=()=>BOUNTIES.filter(b=>S.bounties[b.id]).length;
@@ -204,11 +212,11 @@ function stepGrid(src, dst, w, h, r){
       const n = src[ym+xm]+src[ym+x]+src[ym+xp]+src[y0+xm]+src[y0+xp]+src[yp+xm]+src[yp+x]+src[yp+xp];
       dst[y0+x] = src[y0+x] ? (Sv>>n)&1 : (B>>n)&1; } }
 }
-function soup(){
-  grid.fill(0); gen=0; const d=+document.getElementById('dens').value/100; const R=RH.rng(Math.random()*1e9|0);
+function soup(seedStr, noBet){
+  grid.fill(0); gen=0; const d= seedStr!=null? .38 : +document.getElementById('dens').value/100; const R=RH.rng(seedStr!=null? String(seedStr) : Math.random()*1e9|0);
   const s=48, ox=(W-s)>>1, oy=(H-s)>>1; seedBox=[ox,oy,s];
   for (let y=0;y<s;y++) for (let x=0;x<s;x++) grid[(oy+y)*W+ox+x] = R()<d?1:0;
-  draw(); maybePredict();
+  draw(); if (!noBet) maybePredict();
 }
 // ===================== Predict, then run =====================
 // Before a rule you have never charted runs, you say what you expect. The soup waits for your bet.
@@ -525,7 +533,7 @@ bty(6,'A ship in a rule with B2', ()=>occ().some(s=>['ship','diag','knight'].inc
 bty(6,'Design: draw a pattern of 6 cells or fewer that turns out to be a ship', ()=>sps().some(s=>s.drawn && s.cells<=6 && ['ship','diag','knight'].includes(s.type)));
 bty(6,'Design: draw an oscillator of period 3 or more', ()=>sps().some(s=>s.drawn && s.type==='osc' && s.p>=3));
 bty(6,'Master: a knightship you drew yourself', ()=>sps().some(s=>s.drawn && s.type==='knight'));
-function checkBounties(){ let n=0; const got=[]; for (const b of BOUNTIES) if(!S.bounties[b.id] && b.test()){ S.bounties[b.id]=Date.now(); n++; got.push(b.text); }
+function checkBounties(){ if (typeof checkDaily==='function') try{ checkDaily(); }catch(e){} let n=0; const got=[]; for (const b of BOUNTIES) if(!S.bounties[b.id] && b.test()){ S.bounties[b.id]=Date.now(); n++; got.push(b.text); }
   if (got.length){ SND.seal(); RH.toast(got.length===1? `Prize of the Society awarded: ${got[0]}` : `${got.length} prizes awarded, including: ${got[0]}`, 3500); } if(n){ persist(); renderBounties(); } }
 function renderBounties(){
   const tiers=['','Still lifes','Oscillators','Orthogonal ships','Diagonal & knight ships','Growth','Experiments & design'];
@@ -600,6 +608,48 @@ function renderBits(){
 }
 function renderRuleInfo(){ const v=S.rules[rkey(S.rule)]; const here=sps().filter(s=>s.rules.includes(ruleStr(S.rule)));
   document.getElementById('ruleInfo').innerHTML = `<b>${ruleStr(S.rule)}</b>${ruleStr(S.rule)==='B3/S23'?' (Conway\'s Life)':''}<br>${v?`Behaviour: <b style="color:${BEHC[v.beh]}">${v.beh}</b> · ${v.scans} scan${v.scans>1?'s':''}`:'<span class="dim">Unexplored. Scan to chart it.</span>'}<br>Species here: ${here.length}${here.length?` (${['still','osc','ship','diag','knight','grower'].map(t=>[t,here.filter(s=>s.type===t).length]).filter(x=>x[1]).map(x=>x[1]+' '+TYPEN[x[0]]+(x[1]>1?'s':'')).join(', ')})`:''}`; }
+// ===================== Breeding: rules combined into rules =====================
+// Every shelf card is a rule. Pick two and cross them (births of the first, survival of the second), merge them
+// (every switch either has), or overlap them (only switches both share). The child is run in the dish for real:
+// what it does and what lives in it is found by simulation, not looked up. New rules join the shelf.
+const STARTERS=[['Life','B3/S23'],['Seeds','B2/S'],['HighLife','B36/S23'],['Day & Night','B3678/S34678'],['Maze','B3/S12345'],['Replicator','B1357/S1357']];
+const OPS={cross:{n:'Cross', f:(a,b)=>({b:a.b, s:b.s})}, merge:{n:'Merge', f:(a,b)=>({b:a.b|b.b, s:a.s|b.s})}, overlap:{n:'Overlap', f:(a,b)=>({b:a.b&b.b, s:a.s&b.s})}};
+const SYL=['ba','ce','di','fo','gu','ha','ji','ka','lo','mu','na','pe','qui','ra','so','ti','vu','xe','yo','za'];
+function ruleName(rs){ const r=RH.rng('name:'+rs); let n=''; const k=2+r.int(2); for (let i=0;i<k;i++) n+=SYL[r.int(SYL.length)]; return n[0].toUpperCase()+n.slice(1); }
+function shelf(){ const out=STARTERS.map(([n,r])=>({n, r, starter:true})); for (const x of S.shelf) if (!out.some(y=>y.r===x.r)) out.push(x); return out; }
+let pick=[]; let breedOp='cross';
+function breed(ra, rb, op){ const a=parseRule(ra), b=parseRule(rb); const c=OPS[op].f(a,b); c.b&=~1; if (!c.b) return {err:'The child has no birth switches at all: nothing can ever be born. Try another pair.'};
+  const rs=ruleStr(c); const known=shelf().find(x=>x.r===rs); const first=!known && !S.rules[rkey(c)];
+  // run the child: a seeded soup, let it settle, then scan it
+  setRule(c); const before=sps().length; soup('breed:'+rs, true); tick(220); const found=scan(true); const beh=S.rules[rkey(c)].beh;
+  let card=known; if (!card){ card={n:ruleName(rs), r:rs, from:`${shelf().find(x=>x.r===ra)?.n||ra} ${OPS[op].n.toLowerCase()} ${shelf().find(x=>x.r===rb)?.n||rb}`, t:Date.now(), first}; S.shelf.push(card); }
+  running=true; persist(); checkBounties(); renderLab(card); drawMap();
+  if (!known) { if (first) SND.bell(2); RH.toast(`${first? 'New rule' : 'Rule'}: <b>${card.n}</b> (${rs}) ${beh==='complex'?'stays complex':beh==='chaotic'?'boils':beh==='dies'?'dies out':beh}${found? `, with ${found} new species` : ''}`); }
+  return {card, beh, found, first}; }
+function renderLab(last){
+  const el=document.getElementById('p-lab'); if (!el) return; const sh=shelf(); const today=todayGoal();
+  const done=(x)=> S.rules[rkey(parseRule(x.r))];
+  el.innerHTML=`<p class="small">Pick two rules, choose how to combine them, and see what the child does in the dish. Every new rule is yours: <b>${S.shelf.filter(x=>x.first).length}</b> first found by you.</p>
+    <div class="tierH">Today's commission</div><p class="small">${today.text} ${S.daily[todayKey()]? '<b>✓ done</b>' : ''}</p>
+    <div class="row" id="ops">${Object.entries(OPS).map(([k,o])=>`<button data-op="${k}" class="${breedOp===k?'on':''}">${o.n}</button>`).join('')}</div>
+    <p class="small dim" id="pickInfo">${pick.length? `${sh.find(x=>x.r===pick[0]).n} ${OPS[breedOp].n.toLowerCase()} …choose a second rule` : 'Choose a first rule.'}</p>
+    ${last? `<div class="card"><div><div class="nm">${last.n}</div><div class="meta">${last.r} · ${last.from||'starting rule'}${last.first?' · <b>first found by you</b>':''}<br>${(()=>{ const v=S.rules[rkey(parseRule(last.r))]; const here=sps().filter(s=>s.rules.includes(last.r)); return v? `${v.beh} · ${here.length} species live here` : ''; })()}</div></div></div>` : ''}
+    <div class="shelf">${sh.map(x=>{ const v=done(x); return `<button class="rc ${pick.includes(x.r)?'on':''} ${v?v.beh:''}" data-r="${x.r}" title="${x.r}"><b>${x.n}</b><span>${x.r}</span></button>`; }).join('')}</div>`;
+  el.querySelectorAll('[data-op]').forEach(b=>b.onclick=()=>{ breedOp=b.dataset.op; renderLab(last); });
+  el.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{ if (!pick.length){ pick=[b.dataset.r]; renderLab(last); return; } const a=pick[0]; pick=[]; const res=breed(a, b.dataset.r, breedOp); if (res.err){ RH.toast(res.err); renderLab(last); } });
+}
+// A daily commission: a property a rule must have, checked against the real simulation
+const todayKey=()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const GOALS=[
+  {text:'Breed a rule whose soups stay complex and that is not on the starting shelf.', t:()=>S.shelf.some(x=>behOf(x.r)==='complex')},
+  {text:'Breed a rule in which a spaceship lives (any direction).', t:()=>S.shelf.some(x=>occ().some(s=>s.rule===x.r && ['ship','diag','knight'].includes(s.type)))},
+  {text:'Breed a rule with an oscillator of period 3 or more.', t:()=>S.shelf.some(x=>occ().some(s=>s.rule===x.r && s.type==='osc' && s.p>=3))},
+  {text:'Breed a rule that freezes solid.', t:()=>S.shelf.some(x=>behOf(x.r)==='freezes')},
+  {text:'Breed a rule with at least four species living in it.', t:()=>S.shelf.some(x=>occ().filter(s=>s.rule===x.r).length>=4)},
+  {text:'Breed a rule that boils with chaos.', t:()=>S.shelf.some(x=>behOf(x.r)==='chaotic')},
+];
+function todayGoal(day=todayKey()){ return GOALS[RH.rng('goal:'+day).int(GOALS.length)]; }
+function checkDaily(){ const g=todayGoal(); if (!S.daily[todayKey()] && g.t()){ S.daily[todayKey()]=1; persist(); RH.toast('Commission complete: '+g.text); } }
 function renderTotals(){ document.getElementById('totals').textContent = `${sps().length} species · ${Object.keys(S.rules).length} rules explored · ${claimed()}/${BOUNTIES.length} bounties`; }
 function log(t){ document.getElementById('log').textContent=t; }
 document.getElementById('ruleStr').onchange=(e)=>{ const r=parseRule(e.target.value); if(r){ setRule(r); soup(); } else RH.toast('Use the form B3/S23'); };
@@ -635,15 +685,15 @@ function autoStep(){
   }
 }
 
-window.__rh={ predict, maybePredict, NOTES, noteFor, bitsOf, testDrawing, setDrawing, get pending(){ return pending; }, examineAt, catalog, autoUnlocked, dishToCell, get dish(){ return dish; }, stepGrid, components, normalize, canon, unwrap, analyzeObject, growthCheck, classifyRule, parseRule, ruleStr, speedStr, nameFor, scan, setRule, soup, tick, checkBounties, renderBounties, BOUNTIES, claimed, W, H,
+window.__rh={ breed, shelf, todayGoal, GOALS, OPS, ruleName, renderLab, predict, maybePredict, NOTES, noteFor, bitsOf, testDrawing, setDrawing, get pending(){ return pending; }, examineAt, catalog, autoUnlocked, dishToCell, get dish(){ return dish; }, stepGrid, components, normalize, canon, unwrap, analyzeObject, growthCheck, classifyRule, parseRule, ruleStr, speedStr, nameFor, scan, setRule, soup, tick, checkBounties, renderBounties, BOUNTIES, claimed, W, H,
   get S(){ return S; }, get grid(){ return grid; }, get gen(){ return gen; }, setBudget(n){ growthBudget=n; }, get running(){ return running; }, set running(v){ running=v; }, get auto(){ return auto; },
   place(pts, ox=70, oy=70){ grid.fill(0); gen=0; for (const [x,y] of pts) grid[(oy+y)*W+ox+x]=1; draw(); } };
 // Main loop
 function loop(){ if (running){ const sp=+document.getElementById('speed').value; tick(auto? Math.max(sp,10) : sp); draw(); autoStep(); } requestAnimationFrame(loop); }
-renderBits(); renderRuleInfo(); renderGuide(); renderBounties(); renderTotals(); renderAuto(); soup(); loop();
+renderBits(); renderRuleInfo(); renderGuide(); renderBounties(); renderTotals(); renderAuto(); renderLab(); soup(); loop();
 window.addEventListener('resize', draw);
 setInterval(()=>{ if (lensMark && !running) draw(); }, 50);
-if (!S.intro){ S.intro=1; persist(); RH.modal(`<h2>Rule Hunter</h2><p>Conway's Game of Life is one rule: a dead cell is <b>B</b>orn with exactly 3 neighbours, and a live cell <b>S</b>urvives with 2 or 3. Change those numbers and you get a different universe. There are 262,144 of them.</p><p>Most are empty. Some explode. Some hold creatures that crawl, blink and grow, and nobody has ever named them.</p><p>Make a soup, let it settle, then <b>click a colony</b> to examine it under the lens, or <b>scan</b> the whole dish. Everything new goes into your field guide. Bounties tell you what's still out there.</p>`,[{label:'Go hunting'}]); }
+if (!S.intro){ S.intro=1; persist(); RH.modal(`<h2>Rule Hunter</h2><p>Conway's Game of Life is one rule: a dead cell is <b>B</b>orn with exactly 3 neighbours, and a live cell <b>S</b>urvives with 2 or 3. Change those numbers and you get a different universe. There are 262,144 of them.</p><p>Most are empty. Some explode. Some hold creatures that crawl, blink and grow, and nobody has ever named them.</p><p>Make a soup, let it settle, then <b>click a colony</b> to examine it under the lens, or <b>scan</b> the whole dish. Everything new goes into your field guide. Bounties tell you what's still out there.</p><p>In the <b>Breeding</b> tab, cross famous rules into new ones and see what the children do.</p>`,[{label:'Go hunting'}]); }
 </script>
 </body>
 </html>

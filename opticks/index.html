@@ -58,6 +58,13 @@
   .tg span.dim{color:#6b5636}
   .tg span.cost{font-style:normal;color:#6b2a10;border-color:#6b2a1066}
   .piece .price{font-size:11px;color:#f6dc8a;font-family:"IM Fell English SC",serif}
+  .ws-h{font-family:"IM Fell English SC",serif;font-size:15px;color:#6b2a10;margin:18px 2px 4px;border-bottom:1px solid #6b2a1055;display:flex;justify-content:space-between}
+  .lv.ws{font-style:italic}
+  .codex{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+  .codex .ci{border:1px solid #6b563666;padding:6px 8px;font-size:14px;background:#f3e9cf}
+  .codex .ci.no{color:#8a7a5a;font-style:italic}
+  .codex .ci b{font-family:"IM Fell English SC",serif;display:block}
+  .wsScore{font-style:normal;color:#6b2a10}
   .qed .stars{color:#6b2a10;font-size:18px}
   .qed{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:6px;animation:ink 1s ease-out both}
   .qedMark{font-family:"IM Fell English SC",serif;font-size:30px;color:#6b2a10;transform:rotate(-4deg);animation:write 1.1s steps(6,end) both}
@@ -189,7 +196,7 @@ function trace(level, pieces) {
   }
   level.targets.forEach((tg, i) => { if (tg.k === 'spot') spots.push({ i, ...tg }); else segs.push({ p: { t: 'screen', ti: i }, s: [tg.x1, tg.y1, tg.x2, tg.y2] }); });
   const walls = [[0, 0, BW, 0], [BW, 0, BW, BH], [BW, BH, 0, BH], [0, BH, 0, 0]];
-  const paths = [], hits = level.targets.map(() => []);
+  const paths = [], hits = level.targets.map(() => []), finals = [];
   const rays = [];
   level.sources.forEach((s, si) => {
     const lams = s.l === 'white' ? WL : [s.l];
@@ -198,7 +205,7 @@ function trace(level, pieces) {
       let ox = s.x, oy = s.y, a = rad(s.a);
       if (s.k === 'beam' && n > 1) { const off = -s.w / 2 + s.w * k / (n - 1), [px, py] = rot(0, off, a); ox += px; oy += py; }
       if (s.k === 'fan' && n > 1) a += rad(-s.spread / 2 + s.spread * k / (n - 1));
-      for (const l of lams) rays.push({ x: ox, y: oy, dx: Math.cos(a), dy: Math.sin(a), l, I: 1 / lams.length, si, k, depth: 0 });
+      for (const l of lams) rays.push({ x: ox, y: oy, dx: Math.cos(a), dy: Math.sin(a), l, I: 1 / lams.length, si, k, depth: 0, refl: 0, tir: 0, refr: 0 });
     }
   });
   let budget = 6000;
@@ -212,17 +219,17 @@ function trace(level, pieces) {
     for (const w of walls) { const h = segHit(r.x, r.y, r.dx, r.dy, ...w); if (h && h.t < best.t) best = { t: h.t, edge: 1 }; }
     const hx = r.x + r.dx * best.t, hy = r.y + r.dy * best.t;
     paths.push({ x1: r.x, y1: r.y, x2: hx, y2: hy, l: r.l, I: r.I });
-    const nr = (dx, dy, I = r.I) => rays.push({ ...r, x: hx, y: hy, dx, dy, I, depth: r.depth + 1 });
-    if (best.edge) continue;
+    const nr = (dx, dy, I = r.I, ev) => rays.push({ ...r, x: hx, y: hy, dx, dy, I, depth: r.depth + 1, refl: r.refl + (ev === 'r'), tir: r.tir + (ev === 't'), refr: r.refr + (ev === 'n') });
+    if (best.edge) { finals.push({ x: hx, y: hy, x0: r.x, y0: r.y, dx: r.dx, dy: r.dy, l: r.l, I: r.I, si: r.si, k: r.k, refl: r.refl, tir: r.tir, refr: r.refr }); continue; }
     if (best.spot) { for (const sp of spots) if (Math.hypot(hx - sp.x, hy - sp.y) <= sp.r + 1e-6) hits[sp.i].push({ si: r.si, k: r.k, l: r.l, I: r.I, x: hx, y: hy, dx: r.dx, dy: r.dy }); continue; }
-    if (best.arc) { const ac = best.arc, nx = (hx - ac.cx) / ac.R, ny = (hy - ac.cy) / ac.R, d = r.dx * nx + r.dy * ny; nr(r.dx - 2 * d * nx, r.dy - 2 * d * ny); continue; }
+    if (best.arc) { const ac = best.arc, nx = (hx - ac.cx) / ac.R, ny = (hy - ac.cy) / ac.R, d = r.dx * nx + r.dy * ny; nr(r.dx - 2 * d * nx, r.dy - 2 * d * ny, r.I, 'r'); continue; }
     if (best.seg) {
       const { p, s } = best.seg, ex = s[2] - s[0], ey = s[3] - s[1], L = Math.hypot(ex, ey), tx = ex / L, ty = ey / L, nx = -ty, ny = tx;
       if (p.t === 'wall') continue;
       if (p.t === 'screen') { hits[p.ti].push({ si: r.si, k: r.k, l: r.l, I: r.I, x: hx, y: hy, dx: r.dx, dy: r.dy, u: best.u }); continue; }
       const dn = r.dx * nx + r.dy * ny;
-      if (p.t === 'mirror') { nr(r.dx - 2 * dn * nx, r.dy - 2 * dn * ny); continue; }
-      if (p.t === 'splitter') { nr(r.dx - 2 * dn * nx, r.dy - 2 * dn * ny, r.I / 2); nr(r.dx, r.dy, r.I / 2); continue; }
+      if (p.t === 'mirror') { nr(r.dx - 2 * dn * nx, r.dy - 2 * dn * ny, r.I, 'r'); continue; }
+      if (p.t === 'splitter') { nr(r.dx - 2 * dn * nx, r.dy - 2 * dn * ny, r.I / 2, 'r'); nr(r.dx, r.dy, r.I / 2); continue; }
       if (p.t === 'lens') {
         const sgn = dn >= 0 ? 1 : -1, an = Math.abs(dn), u = (r.dx * tx + r.dy * ty) / an, y = (best.u - .5) * L;
         const f = (p.f ?? 6) * (GLASS[p.g || 'crown'][0] + GLASS[p.g || 'crown'][1] / 589 ** 2 - 1) / (nOf(p.g || 'crown', r.l) - 1);
@@ -239,12 +246,12 @@ function trace(level, pieces) {
       const cosi = -(r.dx * nx + r.dy * ny), entering = cosi > 0, n = nOf(pg.g, r.l);
       const eta = entering ? 1 / n : n, N = entering ? [nx, ny] : [-nx, -ny], ci = Math.abs(cosi);
       const k = 1 - eta * eta * (1 - ci * ci);
-      if (k < 0) { nr(r.dx + 2 * ci * N[0], r.dy + 2 * ci * N[1]); continue; } // total internal reflection
-      const ct = Math.sqrt(k); nr(eta * r.dx + (eta * ci - ct) * N[0], eta * r.dy + (eta * ci - ct) * N[1]);
+      if (k < 0) { nr(r.dx + 2 * ci * N[0], r.dy + 2 * ci * N[1], r.I, 't'); continue; } // total internal reflection
+      const ct = Math.sqrt(k); nr(eta * r.dx + (eta * ci - ct) * N[0], eta * r.dy + (eta * ci - ct) * N[1], r.I, 'n');
       continue;
     }
   }
-  return { paths, hits };
+  return { paths, hits, finals };
 }
 
 // ================= target checks =================
@@ -387,7 +394,7 @@ const BOX = c => [
   ...(c >= 3 ? [{ t: 'lens', f: -12, L: 6, g: 'flint' }, { t: 'prism', s: 3, g: 'flint' }, { t: 'prism', s: 3 }] : []),
   ...(c >= 4 ? [{ t: 'mirror' }, { t: 'mirror' }, { t: 'arc', f: 6, L: 5 }, { t: 'block', w: 4, h: 3 }] : []),
 ];
-const COST = p => ({ marker: 0, mirror: 2, splitter: 4, rprism: 4, block: 3, arc: 6, prism: p.g === 'flint' ? 6 : 4, lens: 2 + Math.round(12 / Math.abs(p.f || 6)) + (p.g === 'flint' ? 2 : 0) })[p.t] ?? 3;
+const COST = p => ({ src: 0, marker: 0, mirror: 2, splitter: 4, rprism: 4, block: 3, arc: 6, prism: p.g === 'flint' ? 6 : 4, lens: 2 + Math.round(12 / Math.abs(p.f || 6)) + (p.g === 'flint' ? 2 : 0) })[p.t] ?? 3;
 const pieceKey = p => [p.t, p.f, p.g || 'crown', p.s].join(':');
 function trayOf(lv) {
   const own = [...lv.sol, ...(lv.extra || [])].map(p => { const q = { ...p }; delete q.x; delete q.y; delete q.a; return { ...p, ...q }; });
@@ -426,20 +433,23 @@ function cleanSave(raw) {
     S.layouts[k] = out;
   }
   if (Number.isInteger(raw.cur) && raw.cur >= 0 && raw.cur < L.length) S.cur = raw.cur;
+  if (raw.codex && typeof raw.codex === 'object') { S.codex = {}; for (const k of Object.keys(raw.codex)) if (/^[a-z]+$/.test(k) && typeof raw.codex[k] === 'string') S.codex[k] = raw.codex[k].slice(0, 8); }
+  if (raw.ws && typeof raw.ws === 'object') { S.ws = { n: Number.isInteger(raw.ws.n) && raw.ws.n > 0 ? raw.ws.n : 1, best: {}, bench: typeof raw.ws.bench === 'string' ? raw.ws.bench.slice(0, 2000) : '' };
+    if (raw.ws.best && typeof raw.ws.best === 'object') for (const k of Object.keys(raw.ws.best).slice(-60)) { const b = raw.ws.best[k]; if (b && [b.cost, b.pieces, b.path].every(Number.isFinite)) S.ws.best[k] = { cost: b.cost, pieces: b.pieces, path: b.path }; } }
   S.intro = raw.intro ? 1 : 0;
   return S;
 }
 const S = cleanSave(RH.load('opticks', null));
 const persist = () => { RH.save('opticks', S); RH.progress('opticks', Object.keys(S.done).length / L.length); };
 const chOpen = c => c === 0 || L.filter((l, i) => l.c === c - 1 && S.done[i]).length >= Math.ceil(L.filter(l => l.c === c - 1).length * 2 / 3);
-let cur = S.cur; if (!L[cur] || !chOpen(L[cur].c)) cur = 0;
+let cur = S.cur; if (!LV() || !chOpen(LV().c)) cur = 0;
 const $ = id => document.getElementById(id);
 const cv = $('cv'), g = cv.getContext('2d');
 let placed = [], sel = -1, drag = null, R = null, winT = 0, revealed = false, view = { s: 30, ox: 0, oy: 0 };
 
 function loadLevel(i) {
-  cur = i; S.cur = i; persist();
-  const lv = L[i], saved = S.layouts[i];
+  cur = i; if (i !== WS) S.cur = i; persist();
+  const lv = LV(i), saved = i === WS ? wsSaved() : S.layouts[i];
   placed = saved ? saved.map(p => ({ ...p })) : [];
   // R holds the previous level's trace (its checks match the old target list): drop it before anything draws
   R = null; sel = -1; drag = null; revealed = false; clearTimeout(winT); render(); recompute();
@@ -449,7 +459,7 @@ const markerOf = () => placed.find(p => p.t === 'marker');
 const predictHit = (lv, m) => !!m && Math.hypot(m.x - lv.targets[0].x, m.y - lv.targets[0].y) <= (lv.tol ?? .5);
 const predictStars = n => n <= 1 ? 3 : n === 2 ? 2 : 1;
 function lightLamp() {
-  const lv = L[cur], m = markerOf(); if (!lv.predict || !m || revealed) return null;
+  const lv = LV(), m = markerOf(); if (!lv.predict || !m || revealed) return null;
   S.tries ||= {}; S.tries[cur] = (S.tries[cur] || 0) + 1; persist();
   revealed = true; sfx('glass'); draw();
   const hit = predictHit(lv, m), off = Math.hypot(m.x - lv.targets[0].x, m.y - lv.targets[0].y);
@@ -457,22 +467,210 @@ function lightLamp() {
   else RH.toast(`The light gathers ${off.toFixed(1)} units from your screen. Move it and light the lamp again.`, 3600);
   updateStatus(); return hit;
 }
-const unplaced = () => trayOf(L[cur]).filter(p => !placed.some(q => q.id === p.id));
+// ================= the workshop: a free bench, generated optical problems, and a codex of instruments =================
+const WS = 1000; // the level slot the workshop uses (never saved as the current campaign level)
+let wsLv = null;
+function LV(i = cur) { return i === WS ? wsLv : L[i]; }
+// light sources the player can place on the free bench
+const SRC_KINDS = {
+  laser: { name: 'Red laser', k: 'beam', l: 650, n: 1 }, green: { name: 'Green laser', k: 'beam', l: 530, n: 1 }, blue: { name: 'Blue laser', k: 'beam', l: 470, n: 1 },
+  sun: { name: 'Sunbeam (white)', k: 'beam', l: 'white', n: 7, w: 3 }, ruby: { name: 'Red sunbeam', k: 'beam', l: 650, n: 9, w: 3 }, lamp: { name: 'Lamp (white)', k: 'fan', l: 'white', n: 9, spread: 40 },
+};
+function withSrc(lv) {
+  const ps = placed.filter(p => p.t === 'src'); if (!ps.length) return lv;
+  return { ...lv, sources: [...lv.sources, ...ps.map(p => { const K = SRC_KINDS[p.kind]; return { k: K.k, x: p.x, y: p.y, a: p.a, l: K.l, n: K.n, w: K.w || 0, spread: K.spread }; })] };
+}
+const today = () => { const d = new Date(); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`; };
+const segInter = (a, b) => { const d = (a[2] - a[0]) * (b[3] - b[1]) - (a[3] - a[1]) * (b[2] - b[0]); if (Math.abs(d) < 1e-9) return false; const t = ((b[0] - a[0]) * (b[3] - b[1]) - (b[1] - a[1]) * (b[2] - b[0])) / d, u = ((b[0] - a[0]) * (a[3] - a[1]) - (b[1] - a[1]) * (a[2] - a[0])) / d; return t > 0 && t < 1 && u > 0 && u < 1; };
+const distSeg = (x, y, w) => segDist(x, y, { x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 });
+
+// ---- generated problems: a random light path is built first (so every problem is solvable), then walls block the easy lines.
+// Any design that lights every target passes; designs are scored like an instrument-maker's bill: price, pieces and light path.
+function genBench(seed, d) {
+  const r = RH.rng('bench:' + seed);
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const nP = Math.min(5, 1 + Math.floor(d / 2) + r.int(2)), col = r.pick([650, 590, 530, 470]);
+    const src = { k: 'beam', x: 1.6, y: +(3 + r() * 14).toFixed(2), a: 0, l: col, n: 1 };
+    let x = src.x, y = src.y, th = 0, ok = true; const sol = [], path = [], targets = [];
+    const split = d >= 3 && r() < .5;
+    for (let k = 0; k < nP && ok; k++) {
+      const dist = 3 + r() * 7, nx = x + Math.cos(th) * dist, ny = y + Math.sin(th) * dist;
+      if (nx < 2.5 || nx > 29.5 || ny < 2.5 || ny > 17.5) { ok = false; break; }
+      const nth = th + (r() < .5 ? -1 : 1) * (45 + 15 * r.int(7)) * Math.PI / 180;
+      let a = ((th + nth) / 2) * 180 / Math.PI; a = Math.round((((a % 180) + 180) % 180) * 2) / 2;
+      const piece = { t: k === 0 && split ? 'splitter' : 'mirror', x: +nx.toFixed(2), y: +ny.toFixed(2), a };
+      sol.push(piece); path.push([x, y, nx, ny]);
+      if (piece.t === 'splitter') { const td = 3 + r() * 6, sx = nx + Math.cos(th) * td, sy = ny + Math.sin(th) * td; if (sx < 1.5 || sx > 30.5 || sy < 1.5 || sy > 18.5) { ok = false; break; } targets.push({ k: 'spot', x: +sx.toFixed(2), y: +sy.toFixed(2), r: .5 }); path.push([nx, ny, sx, sy]); }
+      x = nx; y = ny; th = nth;
+    }
+    if (!ok) continue;
+    const td = 3 + r() * 6, tx = x + Math.cos(th) * td, ty = y + Math.sin(th) * td;
+    if (tx < 1.5 || tx > 30.5 || ty < 1.5 || ty > 18.5) continue;
+    targets.push({ k: 'spot', x: +tx.toFixed(2), y: +ty.toFixed(2), r: .5 }); path.push([x, y, tx, ty]);
+    const fixed = [], nW = Math.min(4, Math.floor(d / 2) + 1);
+    for (let w = 0, tries = 0; w < nW && tries < 80; tries++) {
+      const cx = 3 + r() * 26, cy = 2 + r() * 16, len = 3 + r() * 5, vert = r() < .5, wl = vert ? W(cx, cy - len / 2, cx, cy + len / 2) : W(cx - len / 2, cy, cx + len / 2, cy);
+      if (path.some(sg => segInter(sg, [wl.x1, wl.y1, wl.x2, wl.y2]))) continue;
+      if (targets.some(t => distSeg(t.x, t.y, wl) < 1.2) || sol.some(q => distSeg(q.x, q.y, wl) < 2) || distSeg(src.x, src.y, wl) < 1.5) continue;
+      fixed.push(wl); w++;
+    }
+    const lv = { c: 1, gen: true, seed, d, sources: [src], fixed, targets, sol };
+    const solvedBy = ps => { const R = trace(lv, ps); return targets.every((t, i) => checkTarget(t, R.hits[i], lv).ok); };
+    if (!solvedBy(sol) || solvedBy([])) continue;
+    if (sol.length > 1 && sol.some((q, i) => solvedBy(sol.filter((_, j) => j !== i)))) continue; // every piece is needed
+    const decoys = [{ t: 'mirror' }, { t: 'splitter' }, { t: 'prism', s: 3 }, { t: 'lens', f: 6, L: 5 }, { t: 'rprism', s: 3 }];
+    lv.extra = [decoys[r.int(decoys.length)], decoys[r.int(decoys.length)], { t: 'mirror' }];
+    return lv;
+  }
+  return null;
+}
+// scores, each lower-is-better: the bill (shillings), the number of pieces, and the length of light on the bench
+function wsScore(lv, ps) { const R = trace(withSrc(lv), ps); return { cost: costOf(ps.filter(p => p.t !== 'src')), pieces: ps.filter(p => p.t !== 'src').length, path: Math.round(R.paths.reduce((a, q) => a + Math.hypot(q.x2 - q.x1, q.y2 - q.y1), 0) * 10) / 10 }; }
+const FREE_TRAY = [...Object.keys(SRC_KINDS).map(kind => ({ t: 'src', kind })), ...Array(6).fill({ t: 'mirror' }), { t: 'splitter' }, { t: 'splitter' },
+  ...[3, 4, 6, 8, 12, -3, -6].map(f => ({ t: 'lens', f, L: 5 })), { t: 'lens', f: -12, L: 6, g: 'flint' }, { t: 'lens', f: 6.1, L: 6 },
+  { t: 'prism', s: 3 }, { t: 'prism', s: 3, g: 'flint' }, { t: 'prism', s: 3, g: 'flint' }, { t: 'rprism', s: 3 }, { t: 'rprism', s: 3 }, { t: 'block', w: 4, h: 3 }, { t: 'block', w: 20, h: 1.6 }, { t: 'arc', f: 6, L: 5 }, { t: 'arc', f: 4, L: 4 }];
+function openWorkshop(kind, arg) {
+  if (kind === 'codex') return showCodex();
+  S.ws ||= { n: 1, best: {}, bench: '' };
+  if (kind === 'free') {
+    wsLv = { c: 1, sandbox: true, n: 'Free bench', s: 'Everything in the instrument-maker\'s box, and lamps to light it. Build anything. When your bench does something an instrument does (a periscope, a telescope, a spectroscope…), it goes in your <b>codex</b>. <i>Share</i> copies a link to your bench.', sources: [], fixed: [], targets: [], sol: [], extra: FREE_TRAY };
+  } else {
+    const seed = kind === 'daily' ? 'd' + today() : kind === 'seed' ? String(arg) : 'L' + S.ws.n, d = kind === 'daily' ? 5 : kind === 'seed' ? (+String(arg).split(':')[1] || 5) : Math.min(9, 1 + Math.floor(S.ws.n / 2));
+    const g = genBench(seed.split(':')[0], d); if (!g) return RH.toast('That problem would not come out solvable. Try another.');
+    const par = wsScore(g, g.sol), best = S.ws.best[seed];
+    wsLv = { ...g, daily: kind === 'daily', ladder: kind === 'ladder', key: seed, par,
+      n: kind === 'daily' ? `Problem of the day` : kind === 'ladder' ? `Workshop problem ${S.ws.n}` : `Problem ${seed}`,
+      s: `Light every target. Any design that works passes; the instrument-maker scores it on <b>price</b>, <b>pieces</b> and <b>length of light</b> (all lower is better). Newton's design: ${par.cost}s · ${par.pieces} pieces · ${par.path} of light.${best ? ` <span class="wsScore">Your best: ${best.cost}s · ${best.pieces} · ${best.path}.</span>` : ''}` };
+  }
+  loadLevel(WS); history.replaceState(null, '', kind === 'free' ? location.pathname : '#ws=' + wsLv.key + ':' + wsLv.d);
+}
+function wsSaved() { if (!wsLv || !wsLv.sandbox || !S.ws || !S.ws.bench) return null; return decodeBench(S.ws.bench); }
+function wsSave() { if (wsLv && wsLv.sandbox) { S.ws.bench = encodeBench(placed); persist(); } }
+function wsWin() {
+  const lv = wsLv, sc = wsScore(lv, placed), b = S.ws.best[lv.key] || {}, first = !S.ws.best[lv.key];
+  const nb = { cost: Math.min(b.cost ?? 1e9, sc.cost), pieces: Math.min(b.pieces ?? 1e9, sc.pieces), path: Math.min(b.path ?? 1e9, sc.path) };
+  const improved = first || nb.cost < b.cost || nb.pieces < b.pieces || nb.path < b.path; if (!improved) return;
+  S.ws.best[lv.key] = nb; const ks = Object.keys(S.ws.best); if (ks.length > 60) delete S.ws.best[ks[0]]; // keep the save small
+  if (lv.ladder && first) S.ws.n++;
+  persist(); sfx('glass'); bloom = { t0: performance.now(), lv: cur, at: lv.targets.map(t => [t.x, t.y]) };
+  const beat = k => sc[k] < lv.par[k] ? ' (beats Newton!)' : sc[k] === lv.par[k] ? ' (= Newton)' : '';
+  setTimeout(() => { const d = document.createElement('div'); d.className = 'qed'; d.innerHTML = `<span class="qedMark">Q.E.D.</span><span class="qedTxt">Price ${sc.cost}s${beat('cost')} · ${sc.pieces} pieces${beat('pieces')} · light ${sc.path}${beat('path')}. Try a cheaper, smaller or tighter design, or move on.</span><button class="primary" id="wsNext">${lv.ladder ? 'Next problem' : 'Workshop ladder'}</button>`; $('info').appendChild(d); $('wsNext').onclick = () => openWorkshop('ladder'); }, 900);
+}
+// share a free bench (or a problem) as a link
+function encodeBench(ps) { return ps.map(p => [p.id, +p.x.toFixed(2), +p.y.toFixed(2), +(+p.a).toFixed(1)].join(',')).join(';'); }
+function decodeBench(str) { const tray = trayOf(LV(WS) || { sol: [], extra: FREE_TRAY, c: 1 }), seen = new Set(), out = [];
+  for (const part of String(str).split(';')) { const [id, x, y, a] = part.split(',').map(Number); const t = tray.find(q => q.id === id); if (!t || seen.has(id) || ![x, y, a].every(Number.isFinite)) continue; seen.add(id); out.push({ ...t, x: Math.min(BW, Math.max(0, x)), y: Math.min(BH, Math.max(0, y)), a }); }
+  return out; }
+function shareWs() {
+  const url = location.origin + location.pathname + (wsLv.sandbox ? '#bench=' + encodeBench(placed) : '#ws=' + wsLv.key + ':' + wsLv.d);
+  history.replaceState(null, '', url.slice(url.indexOf('#')));
+  try { navigator.clipboard.writeText(url).then(() => RH.toast('Link copied: anyone who opens it gets this bench.'), () => RH.toast('Copy this link: ' + url, 8000)); } catch (e) { RH.toast('Copy this link: ' + url, 8000); }
+}
+function fromHash() {
+  const h = decodeURIComponent(location.hash || '');
+  if (h.startsWith('#bench=')) { S.ws ||= { n: 1, best: {}, bench: '' }; S.ws.bench = h.slice(7); openWorkshop('free'); return true; }
+  if (h.startsWith('#ws=')) { openWorkshop('seed', h.slice(4)); return true; }
+  return false;
+}
+function workshopMenu() {
+  const found = Object.keys(S.codex || {}).length, open = Object.keys(S.done).length >= 3;
+  return `<div class="ws-h"><span>Workshop</span><span>${found}/${INSTR.length} instruments</span></div>` + (open ?
+    `<div class="lv ws" data-ws="free" role="button" tabindex="0"><span>The free bench</span><span class="st">build anything</span></div>
+     <div class="lv ws" data-ws="daily" role="button" tabindex="0"><span>Problem of the day</span><span class="st">${S.ws && S.ws.best['d' + today()] ? '✓' : today().slice(4, 6) + '/' + today().slice(6)}</span></div>
+     <div class="lv ws" data-ws="ladder" role="button" tabindex="0"><span>Workshop ladder</span><span class="st">no. ${(S.ws && S.ws.n) || 1}</span></div>` :
+    `<div class="note" style="margin:4px 6px;font-size:12px">Confirm three experiments to open the workshop.</div>`) +
+    `<div class="lv ws" data-ws="codex" role="button" tabindex="0"><span>Codex of instruments</span><span class="st">${found}/${INSTR.length}</span></div>`;
+}
+// ---- the codex: what your bench does is read off the light itself, not off which pieces you used
+const dAng = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
+const fAng = f => Math.atan2(f.dy, f.dx) * 180 / Math.PI;
+function lineSpread(fs) { // least-squares point closest to all these rays' lines, and how far they miss it
+  let a = 0, b = 0, c = 0, d = 0, e = 0; for (const p of fs) { const nx = -p.dy, ny = p.dx, k = nx * p.x + ny * p.y; a += nx * nx; b += nx * ny; c += ny * ny; d += nx * k; e += ny * k; }
+  const det = a * c - b * b; if (Math.abs(det) < 1e-9) return { rms: 1e9 }; const x = (d * c - b * e) / det, y = (a * e - b * d) / det;
+  return { x, y, rms: Math.sqrt(fs.reduce((s2, p) => s2 + ((-p.dy) * (x - p.x) + p.dx * (y - p.y)) ** 2, 0) / fs.length) };
+}
+const INSTR = [
+  { id: 'periscope', name: 'Periscope', clue: 'One beam, the same direction, a step to the side.' },
+  { id: 'retro', name: 'Corner reflector', clue: 'Send a laser straight back the way it came.' },
+  { id: 'split', name: 'Beam splitter', clue: 'One laser, two beams leaving the bench.' },
+  { id: 'hall', name: 'Hall of mirrors', clue: 'One ray, six reflections or more.' },
+  { id: 'pipe', name: 'Light pipe', clue: 'Trap a ray inside glass: three internal reflections.' },
+  { id: 'spectro', name: 'Spectroscope', clue: 'White light in, colours fanned out wide.' },
+  { id: 'crucis', name: 'Rainbow undone', clue: 'Split white light, then put it back together, parallel.' },
+  { id: 'burning', name: 'Burning glass', clue: 'Bring a whole sunbeam to one point with glass.' },
+  { id: 'furnace', name: 'Solar furnace', clue: 'Bring a sunbeam to a point with a curved mirror.' },
+  { id: 'achromat', name: 'Achromat', clue: 'Focus white light so every colour meets at once.' },
+  { id: 'search', name: 'Searchlight', clue: 'A lamp\'s spreading light, made parallel.' },
+  { id: 'kepler', name: 'Keplerian telescope', clue: 'A sunbeam made narrower, still parallel, upside down.' },
+  { id: 'galileo', name: 'Galilean telescope', clue: 'A sunbeam made narrower, still parallel, the right way up.' },
+  { id: 'expander', name: 'Beam expander', clue: 'A sunbeam made wider, still parallel.' },
+];
+function classify(lvS, R, ps) {
+  const out = new Set(), has = t => ps.some(p => p.t === t) || (lvS.fixed || []).some(p => p.t === t);
+  lvS.sources.forEach((s, si) => {
+    const fs = R.finals.filter(f => f.si === si && f.I > .02); if (!fs.length) return;
+    if (fs.some(f => f.refl >= 6)) out.add('hall');
+    if (fs.some(f => f.tir >= 3)) out.add('pipe');
+    if ((s.n ?? 1) === 1 && s.l !== 'white') {
+      if (fs.length === 1) { const f = fs[0], dir = [Math.cos(rad(s.a)), Math.sin(rad(s.a))], off = Math.abs((f.x - s.x) * dir[1] - (f.y - s.y) * dir[0]);
+        if (dAng(fAng(f), s.a) < 1.5 && off >= 2 && f.refl + f.tir >= 2) out.add('periscope'); }
+      if (fs.some(f => dAng(fAng(f), s.a) >= 178 && f.refl + f.tir >= 2)) out.add('retro');
+      if (fs.length >= 2 && fs.some(f => fs.some(g2 => dAng(fAng(f), fAng(g2)) >= 20))) out.add('split');
+    }
+    if (s.l === 'white') {
+      const ls = new Set(fs.map(f => f.l)), angs = fs.map(fAng), spread = Math.max(...angs.map(a => Math.max(...angs.map(b => dAng(a, b)))));
+      if (ls.size >= 5 && spread >= 4) out.add('spectro');
+      if ((s.n ?? 1) === 1 && ls.size === WL.length && spread <= .3 && fs.every(f => f.refr >= 4)) out.add('crucis');
+    }
+    if (s.k === 'fan' && fs.length >= (s.n * (s.l === 'white' ? WL.length : 1)) * .8) { const angs = fs.map(fAng); if (Math.max(...angs.map(a => Math.max(...angs.map(b => dAng(a, b))))) <= 1) out.add('search'); }
+    if (s.k === 'beam' && (s.n ?? 1) >= 5) {
+      const fp = lineSpread(fs), inside = fp.x > 0 && fp.x < BW && fp.y > 0 && fp.y < BH;
+      if (inside && fp.rms < .15 && fs.some(f => f.refl > 0) && has('arc')) out.add('furnace');
+      else if (inside && fp.rms < .15 && has('lens')) out.add(s.l === 'white' && fp.rms < .08 ? 'achromat' : 'burning');
+      const angs = fs.map(fAng), par = Math.max(...angs.map(a => Math.max(...angs.map(b => dAng(a, b))))) <= .6;
+      if (par && has('lens') && fs.length >= s.n * .8 && s.w) {
+        const dir = [Math.cos(rad(angs[0])), Math.sin(rad(angs[0]))], prj = fs.map(f => ({ k: f.k, u: -f.x * dir[1] + f.y * dir[0] })), us = prj.map(q => q.u), ratio = (Math.max(...us) - Math.min(...us)) / s.w;
+        const a0 = prj.find(q => q.k === 0), a1 = prj.find(q => q.k === s.n - 1), turned = dAng(angs[0], s.a) > 90;
+        const flipped = a0 && a1 ? ((a1.u - a0.u) * (turned ? -1 : 1) < 0) : false;
+        if (ratio < .8) out.add(flipped ? 'kepler' : 'galileo'); else if (ratio > 1.25) out.add('expander');
+      }
+    }
+  });
+  return [...out];
+}
+let codexBusy = false;
+function codexCheck(lv) {
+  if (!R || codexBusy) return; const found = classify(withSrc(lv), R, placed).filter(id => !(S.codex && S.codex[id])); if (!found.length) return;
+  S.codex ||= {}; for (const id of found) S.codex[id] = today(); persist();
+  const names = found.map(id => INSTR.find(x => x.id === id).name);
+  RH.toast(`New in your codex: <b>${names.join(', ')}</b>. First found by you, ${new Date().toLocaleDateString()}.`, 5000); sfx('glass');
+  const m = document.querySelector('.ws-h span:last-child'); if (m) m.textContent = `${Object.keys(S.codex).length}/${INSTR.length} instruments`;
+}
+function showCodex() {
+  const c = S.codex || {};
+  RH.modal(`<h2>Codex of instruments</h2><p class="dim">Your bench is judged by what the light does. ${Object.keys(c).length} of ${INSTR.length} found.</p><div class="codex">${INSTR.map(x => c[x.id] ? `<div class="ci"><b>${x.name}</b>${x.clue}<br><i>found ${c[x.id].slice(6)}/${c[x.id].slice(4, 6)}/${c[x.id].slice(0, 4)}</i></div>` : `<div class="ci no"><b>???</b>${x.clue}</div>`).join('')}</div>`, [{ label: 'Close' }]);
+}
+
+const unplaced = () => trayOf(LV()).filter(p => !placed.some(q => q.id === p.id));
 function pieceName(p) {
   const gl = p.g && p.g !== 'crown' ? ` (${p.g})` : '';
+  if (p.t === 'src') return SRC_KINDS[p.kind].name;
   return { marker: 'Paper screen', mirror: 'Mirror', splitter: 'Splitter', lens: (p.f > 0 ? 'Converging lens' : 'Diverging lens') + ` f=${Math.abs(p.f)}` + gl, prism: 'Prism' + gl, rprism: 'Right-angle prism', block: 'Glass slab', arc: `Concave mirror f=${p.f}` }[p.t];
 }
 function render() {
-  const lv = L[cur];
+  const lv = LV();
   let h = '', last = -1;
   L.forEach((l, i) => {
+    if (l.hidden) return;
     if (l.c !== last) { last = l.c; h += `<div class="ch ${chOpen(l.c) ? '' : 'locked'}"><span>${l.c + 1}. ${CHS[l.c]}</span><span>${chOpen(l.c) ? L.filter((x, j) => x.c === l.c && S.done[j]).length + '/' + L.filter(x => x.c === l.c).length : '🔒'}</span></div>`; }
     h += `<div class="lv ${i === cur ? 'cur' : ''} ${chOpen(l.c) ? '' : 'locked'}" data-i="${i}"><span><i class="no">${ROMAN(i + 1)}.</i> ${l.n}</span><span class="st">${S.done[i] ? '★'.repeat(S.done[i]) + '☆'.repeat(3 - S.done[i]) : ''}</span></div>`;
   });
-  $('side').innerHTML = h + '<div class="note" style="margin:14px 6px;font-size:12px;color:var(--dim)">Finish two-thirds of a chapter to open the next.</div>';
-  $('side').querySelectorAll('.lv').forEach(el => el.onclick = () => { const i = +el.dataset.i; if (chOpen(L[i].c)) { document.body.classList.remove('drawer'); loadLevel(i); } });
+  $('side').innerHTML = h + '<div class="note" style="margin:14px 6px;font-size:12px;color:var(--dim)">Finish two-thirds of a chapter to open the next.</div>' + workshopMenu();
+  $('side').querySelectorAll('[data-ws]').forEach(el => el.onclick = () => { document.body.classList.remove('drawer'); openWorkshop(el.dataset.ws); });
+  $('side').querySelectorAll('.lv[data-i]').forEach(el => el.onclick = () => { const i = +el.dataset.i; if (chOpen(L[i].c)) { document.body.classList.remove('drawer'); loadLevel(i); } });
   $('totals').textContent = `${Object.keys(S.done).length} of ${L.length} experiments confirmed`;
-  $('info').innerHTML = `<div class="row" style="justify-content:space-between"><h2>${lv.n}</h2><div class="row"><button id="libBtn" aria-label="Open the notebook of experiments">Experiments</button><button id="clearBtn">Clear bench</button></div></div><div class="story" title="Tap to read">${lv.s}</div><div class="tg" id="tg"></div>`;
+  $('info').innerHTML = `<div class="row" style="justify-content:space-between"><h2>${lv.n}</h2><div class="row"><button id="libBtn" aria-label="Open the notebook of experiments">Experiments</button>${cur === WS ? `<button id="shareBtn">Share</button>` : ''}${cur === WS && !lv.sandbox ? `<button id="newWsBtn">${lv.daily ? 'Workshop ladder' : 'Next problem'}</button>` : ''}<button id="clearBtn">Clear bench</button></div></div><div class="story" title="Tap to read">${lv.s}</div><div class="tg" id="tg"></div>`;
+  if (cur === WS) { $('shareBtn').onclick = shareWs; const nb = $('newWsBtn'); if (nb) nb.onclick = () => openWorkshop('ladder'); }
   $('clearBtn').onclick = () => { placed = []; sel = -1; save(); renderTray(); recompute(); };
   $('libBtn').onclick = () => document.body.classList.add('drawer');
   document.querySelector('#info .story').onclick = e => e.currentTarget.classList.toggle('open');
@@ -482,7 +680,7 @@ function renderTray() {
   const un = unplaced();
   const ORD = { mirror: 0, splitter: 1, lens: 2, prism: 3, rprism: 4, block: 5, arc: 6 };
   un.sort((a, b) => ORD[a.t] - ORD[b.t] || (a.g === 'flint') - (b.g === 'flint') || (b.f || 0) - (a.f || 0) || a.id - b.id);
-  $('tray').innerHTML = (un.length ? un.map(p => `<div class="piece" data-id="${p.id}"><canvas width="88" height="56"></canvas>${pieceName(p)}${L[cur].c >= 2 && !L[cur].predict ? `<span class="price">${COST(p)}s</span>` : ''}</div>`).join('') : '<span class="dim small">All pieces are on the bench.</span>') + '<span id="status"></span>';
+  $('tray').innerHTML = (un.length ? un.map(p => `<div class="piece" data-id="${p.id}"><canvas width="88" height="56"></canvas>${pieceName(p)}${LV().c >= 2 && !LV().predict ? `<span class="price">${COST(p)}s</span>` : ''}</div>`).join('') : '<span class="dim small">All pieces are on the bench.</span>') + '<span id="status"></span>';
   $('tray').querySelectorAll('.piece').forEach(el => {
     const p = un.find(q => q.id === +el.dataset.id), c = el.querySelector('canvas'), gg = c.getContext('2d');
     gg.translate(44, 28); gg.scale(9, 9); drawPiece(gg, { ...p, x: 0, y: 0, a: p.t === 'lens' ? 90 : p.t === 'arc' ? 0 : p.t === 'prism' ? 0 : 0 }, false, 1 / 9);
@@ -496,7 +694,7 @@ function renderTray() {
   });
   updateStatus();
 }
-function save() { S.layouts[cur] = placed.map(p => ({ ...p })); persist(); }
+function save() { if (cur === WS) { wsSave(); return; } S.layouts[cur] = placed.map(p => ({ ...p })); persist(); }
 function resize() {
   const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1; cv.width = r.width * dpr; cv.height = r.height * dpr;
   const rot = cv.height > cv.width * 1.15, w = rot ? BH : BW, h = rot ? BW : BH, s = Math.min(cv.width / w, cv.height / h);
@@ -563,7 +761,9 @@ addEventListener('keydown', e => {
 const SETTLE = 800;
 const solvedNow = () => !!(R && R.lv === cur && R.checks.every(c => c.ok));
 function recompute() {
-  const lv = L[cur]; R = trace(lv, placed); R.lv = cur;
+  const lv = LV(); R = trace(withSrc(lv), placed); R.lv = cur; codexCheck(lv);
+  if (cur === WS) { R.checks = lv.targets.map((t, i) => checkTarget(t, R.hits[i], lv)); draw(); updateStatus(); clearTimeout(winT); winT = 0;
+    if (!lv.sandbox && solvedNow() && !drag) { winT = setTimeout(() => { winT = 0; if (solvedNow() && !drag) wsWin(); }, SETTLE); updateStatus(); } return; }
   if (lv.predict) { revealed = false; R.checks = lv.targets.map(() => ({ ok: false, msg: '' })); draw(); updateStatus(); return; } // moving the screen puts the lamp out again
   R.checks = lv.targets.map((t, i) => checkTarget(t, R.hits[i], lv));
   draw(); updateStatus();
@@ -577,25 +777,25 @@ function updateRotBar() {
 function updateStatus() {
   updateRotBar();
   if (!R || R.lv !== cur || !$('tg')) return;
-  if (L[cur].predict) { const n = (S.tries || {})[cur] || 0; $('tg').innerHTML = `<span>${markerOf() ? 'Screen placed' : 'Place the paper screen'}</span><span class="cost">Lamp lit ${n} time${n === 1 ? '' : 's'}</span><button id="lampBtn" class="primary" ${markerOf() && !revealed ? '' : 'disabled'}>Light the lamp</button>`; $('lampBtn').onclick = lightLamp; return; }
-  $('tg').innerHTML = L[cur].targets.map((t, i) => `<span class="${R.checks[i].ok ? 'ok' : ''}">${R.checks[i].ok ? '✓' : '○'} Target ${i + 1}${t.l ? ' (' + (Array.isArray(t.l) ? 'colours' : colourName(t.l)) + (t.only ? ' only' : '') + ')' : ''}${t.par != null ? ' · parallel' : ''}${t.width ? ` · width ${t.width[0]}–${t.width[1]}` : ''}${placed.length ? ': ' + R.checks[i].msg : ''}</span>`).join('') + (L[cur].c >= 2 ? `<span class="cost">Cost ${costOf(placed)}s · par ${parOf(L[cur])}s</span>` : '') + (winT ? '<span class="ok"> · Hold it there…</span>' : '') + (placed[sel] ? `<span class="dim"> · ${pieceName(placed[sel])} at ${placed[sel].a}°</span>` : '');
+  if (LV().predict) { const n = (S.tries || {})[cur] || 0; $('tg').innerHTML = `<span>${markerOf() ? 'Screen placed' : 'Place the paper screen'}</span><span class="cost">Lamp lit ${n} time${n === 1 ? '' : 's'}</span><button id="lampBtn" class="primary" ${markerOf() && !revealed ? '' : 'disabled'}>Light the lamp</button>`; $('lampBtn').onclick = lightLamp; return; }
+  $('tg').innerHTML = LV().targets.map((t, i) => `<span class="${R.checks[i].ok ? 'ok' : ''}">${R.checks[i].ok ? '✓' : '○'} Target ${i + 1}${t.l ? ' (' + (Array.isArray(t.l) ? 'colours' : colourName(t.l)) + (t.only ? ' only' : '') + ')' : ''}${t.par != null ? ' · parallel' : ''}${t.width ? ` · width ${t.width[0]}–${t.width[1]}` : ''}${placed.length ? ': ' + R.checks[i].msg : ''}</span>`).join('') + (LV().c >= 2 ? `<span class="cost">Cost ${costOf(placed)}s · par ${parOf(LV())}s</span>` : '') + (winT ? '<span class="ok"> · Hold it there…</span>' : '') + (placed[sel] ? `<span class="dim"> · ${pieceName(placed[sel])} at ${placed[sel].a}°</span>` : '');
 }
 const colourName = l => ({ 650: 'red', 600: 'orange', 570: 'yellow', 530: 'green', 470: 'blue', 420: 'violet', 590: 'amber' })[l] || l + 'nm';
 // Signature moment: the paper targets catch the light, a spectrum rings out of each one, and the notebook writes Q.E.D.
 let bloom = null;
 function ROMAN(n) { const t = [[10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]; let s = ''; for (const [v, r] of t) while (n >= v) { s += r; n -= v; } return s; }
-const starsNow = () => starsFor(costOf(placed), parOf(L[cur]));
+const starsNow = () => starsFor(costOf(placed), parOf(LV()));
 function win() {
   const st = starsNow(); if ((S.done[cur] || 0) >= st) return;
   S.done[cur] = st; persist(); render(); sfx('glass');
-  const lv = L[cur]; bloom = { t0: performance.now(), lv: cur, at: lv.targets.map(t => t.k === 'spot' ? [t.x, t.y] : [(t.x1 + t.x2) / 2, (t.y1 + t.y2) / 2]) };
+  const lv = LV(); bloom = { t0: performance.now(), lv: cur, at: lv.targets.map(t => t.k === 'spot' ? [t.x, t.y] : [(t.x1 + t.x2) / 2, (t.y1 + t.y2) / 2]) };
   const at = cur; setTimeout(() => { if (cur === at) showQed(); }, 900);
 }
 function showQed() {
   const nxt = L.findIndex((l, j) => j > cur && !S.done[j] && chOpen(l.c));
   const d = document.createElement('div'); d.className = 'qed'; d.setAttribute('role', 'status');
-  const cost = costOf(placed), par = parOf(L[cur]), st = S.done[cur];
-  d.innerHTML = `<span class="qedMark">Q.E.D.</span><span class="qedTxt">Experimentum ${ROMAN(cur + 1)} confirmatum. <b class="stars">${'★'.repeat(st)}${'☆'.repeat(3 - st)}</b> ${L[cur].predict ? `Predicted on lighting ${(S.tries || {})[cur] || 1}.` : L[cur].c >= 2 ? `Cost ${cost}s against Newton's ${par}s${st < 3 ? ': a cheaper design exists.' : '.'}` : 'The light goes where you sent it.'}</span>`;
+  const cost = costOf(placed), par = parOf(LV()), st = S.done[cur];
+  d.innerHTML = `<span class="qedMark">Q.E.D.</span><span class="qedTxt">Experimentum ${ROMAN(cur + 1)} confirmatum. <b class="stars">${'★'.repeat(st)}${'☆'.repeat(3 - st)}</b> ${LV().predict ? `Predicted on lighting ${(S.tries || {})[cur] || 1}.` : LV().c >= 2 ? `Cost ${cost}s against Newton's ${par}s${st < 3 ? ': a cheaper design exists.' : '.'}` : 'The light goes where you sent it.'}</span>`;
   d.innerHTML += `${nxt >= 0 ? `<button class="primary" id="nextLv">Next: ${L[nxt].n}</button>` : ''}`;
   $('info').appendChild(d);
   if (nxt >= 0) $('nextLv').onclick = () => loadLevel(nxt);
@@ -622,7 +822,7 @@ function drawPiece(c, p, selected, lw = 1 / view.s) {
       c.quadraticCurveTo(p.x + nx * (bul + th), p.y + ny * (bul + th), p.x + dx, p.y + dy);
       c.quadraticCurveTo(p.x - nx * (bul + th), p.y - ny * (bul + th), p.x - dx, p.y - dy);
       c.fillStyle = p.g === 'flint' ? 'rgba(200,170,255,.35)' : 'rgba(150,210,255,.3)'; c.fill(); c.strokeStyle = selected ? '#ffb547' : 'rgba(180,220,255,.9)'; c.lineWidth = 2 * lw; c.stroke();
-      if (lw < .5 && !L[cur].predict) focalMarks(c, p, [[p.x + nx * p.f, p.y + ny * p.f], [p.x - nx * p.f, p.y - ny * p.f]], selected, lw);
+      if (lw < .5 && !LV().predict) focalMarks(c, p, [[p.x + nx * p.f, p.y + ny * p.f], [p.x - nx * p.f, p.y - ny * p.f]], selected, lw);
     } else {
       c.beginPath(); c.moveTo(p.x - dx, p.y - dy); c.lineTo(p.x + dx, p.y + dy);
       if (p.t === 'mirror') { c.strokeStyle = '#2a1a0c'; c.lineWidth = 7 * lw; c.stroke(); } // the wooden back
@@ -631,7 +831,12 @@ function drawPiece(c, p, selected, lw = 1 / view.s) {
     }
   } else if (p.t === 'arc') {
     const a = arcOf(p); c.beginPath(); c.arc(a.cx, a.cy, a.R, a.a0, a.a1); c.strokeStyle = selected ? '#ffb547' : '#dfe6ee'; c.lineWidth = 4 * lw; c.stroke();
-    if (lw < .5 && !L[cur].predict) { const [fx, fy] = rot(0, -(p.f ?? 6), rad(p.a)); focalMarks(c, p, [[p.x + fx, p.y + fy]], selected, lw); }
+    if (lw < .5 && !LV().predict) { const [fx, fy] = rot(0, -(p.f ?? 6), rad(p.a)); focalMarks(c, p, [[p.x + fx, p.y + fy]], selected, lw); }
+  }
+  else if (p.t === 'src') { // a lantern the player placed
+    c.save(); c.translate(p.x, p.y); c.rotate(rad(p.a)); const w = p.kind === 'sun' ? 3.4 : p.kind === 'lamp' ? 1.2 : .8, br = c.createLinearGradient(0, -w / 2, 0, w / 2); br.addColorStop(0, '#d9b36a'); br.addColorStop(.5, '#8a6326'); br.addColorStop(1, '#4a3212');
+    c.fillStyle = br; c.fillRect(-1.3, -w / 2, 1.3, w); c.strokeStyle = selected ? '#ffcf6a' : '#2a1a08'; c.lineWidth = 1.5 * lw; c.strokeRect(-1.3, -w / 2, 1.3, w);
+    c.fillStyle = SRC_KINDS[p.kind].l === 'white' ? '#fff6dc' : wlColor(SRC_KINDS[p.kind].l); c.fillRect(-.14, -w / 2 + .1, .14, w - .2); c.restore();
   }
   else if (p.t === 'marker') { // a paper screen on a little wooden foot
     const [dx, dy] = rot(.8, 0, rad(p.a)); c.lineCap = 'round';
@@ -695,7 +900,7 @@ function anim(now) {
 requestAnimationFrame(anim);
 function draw() {
   if (!R || R.lv !== cur) return;
-  const lv = L[cur];
+  const lv = LV();
   g.setTransform(1, 0, 0, 1, 0, 0);
   if (!benchCv || benchCv.width !== cv.width || benchCv.height !== cv.height || benchCv.s !== view.s || benchCv.rot !== view.rot) { buildBench(); benchCv.s = view.s; benchCv.rot = view.rot; }
   g.drawImage(benchCv, 0, 0);
@@ -764,9 +969,9 @@ const help = () => RH.modal(`<h2>Opticks</h2>
   <p>From the Lenses chapter on you pick from an instrument-maker's box, and every piece has a price. Any design that works confirms the experiment; matching Newton's price earns three stars. Lenses show their focal points (F): use them to plan.</p>
   <p class="dim">Drag from the tray · drag to move · scroll or Q/E to rotate (Shift for fine) · arrows to nudge · double-click to remove.</p>`, [{ label: 'Light the lamp' }]);
 $('helpBtn').onclick = help;
-render(); loadLevel(cur);
+render(); if (!fromHash()) loadLevel(cur);
 if (!S.intro) { S.intro = 1; persist(); help(); }
-window.__opt = { handlesOf, snapAngle,  lightLamp, predictHit, predictStars, migrate, get revealed() { return revealed; },  BOX, COST, parOf, costOf, starsFor, starsNow,  get view() { return view; }, toW, VT, turnSel, L, trace, checkTarget, loadLevel, cleanSave, trayOf, chOpen, SETTLE, get R() { return R; }, get cur() { return cur; }, get sel() { return sel; }, set sel(v) { sel = v; }, get placed() { return placed; }, set placed(v) { placed = v; }, recompute, S };
+window.__opt = { WS, genBench, openWorkshop, classify, INSTR, withSrc, wsScore, get wsLv() { return wsLv; }, encodeBench, decodeBench,  handlesOf, snapAngle,  lightLamp, predictHit, predictStars, migrate, get revealed() { return revealed; },  BOX, COST, parOf, costOf, starsFor, starsNow,  get view() { return view; }, toW, VT, turnSel, L, trace, checkTarget, loadLevel, cleanSave, trayOf, chOpen, SETTLE, get R() { return R; }, get cur() { return cur; }, get sel() { return sel; }, set sel(v) { sel = v; }, get placed() { return placed; }, set placed(v) { placed = v; }, recompute, S };
 </script>
 </body>
 </html>

@@ -91,6 +91,34 @@ module.exports = {
       ok(r.random <= 0.2, 'random bot ≥2★ rate ' + r.random); ok(r.idle <= 0.2, 'idle ' + r.idle); ok(r.obvious <= 0.2, 'obvious ' + r.obvious);
       ok(r.competent === 1, 'competent policy wins all late challenges'); ok(r.walker3 < 1, 'simple walker does not 3★ everything: ' + r.walker3);
     },
+    'mystery: deterministic per seed, always solvable, and arrows point the right way': async ({ eq, ok, page }) => {
+      const r = await page.evaluate(() => { const X = __us; const a = JSON.stringify(X.genMystery('abc')), b = JSON.stringify(X.genMystery('abc')), c = JSON.stringify(X.genMystery('abd'));
+        let solvable = 0, interesting = 0; for (let i = 0; i < 40; i++) { const t = X.genMystery('s' + i); if (X.compareObs(X.observe(t), X.observe(t)).win) solvable++; if (X.simulate(t).reached >= 4) interesting++; }
+        const t = X.genMystery('s1'); const g = { ...t }; g.G = 2; const cmp = X.compareObs(X.observe(g), X.observe(t));
+        return { same: a === b, differ: a !== c, solvable, interesting, rows: cmp.rows.length }; });
+      ok(r.same && r.differ); eq(r.solvable, 40); eq(r.interesting, 40); eq(r.rows, 5);
+    },
+    'mystery by real clicks: set laws, test, see the comparison; the daily record and streak update': async ({ page, ok, eq }) => {
+      await dismiss(page);
+      await page.click('.tabs button[data-t="myst"]'); await page.click('#mDaily');
+      const day = await page.evaluate(() => __us.todayKey()); eq(await page.evaluate(() => __us.M.myst.seed), day);
+      await page.click('#mGuess'); ok(/Test 1/.test(await page.textContent('#p-myst')));
+      const t = await page.evaluate(() => __us.genMystery(__us.todayKey()));
+      await page.evaluate((t) => { __us.M.consts = { ...t }; }, t); await page.click('#mGuess');
+      ok(await page.evaluate(() => __us.M.myst.won)); ok(/Found in 2/.test(await page.textContent('#p-myst')));
+      eq(await page.evaluate(() => [__us.M.mystHist[2], __us.M.streak]), [1, 1]);
+      ok(await page.evaluate(() => location.hash.includes('u=')));
+    },
+    'difficulty: naive play fails (mystery)': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = __us; const obs = new Map(X.ALL_COMBOS.map(c => [c, X.observe(c)])); const fb = (g, tO) => JSON.stringify(X.compareObs(X.observe(g), tO));
+        let seed = 3; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) % n; }; let naive = 0, idle = 0, comp = 0; const N = 40;
+        for (let s = 0; s < N; s++) { const tO = X.observe(X.genMystery('n' + s));
+          for (let g = 0; g < 6; g++) if (X.compareObs(X.observe(X.ALL_COMBOS[rnd(X.ALL_COMBOS.length)]), tO).win) { naive++; break; }
+          if (X.compareObs(X.observe(X.OURS), tO).win) idle++;
+          let cands = X.ALL_COMBOS.slice(), g = { ...X.OURS }, k; for (k = 1; k <= 6; k++) { if (X.compareObs(X.observe(g), tO).win) break; const f = fb(g, tO); cands = cands.filter(c => fb(g, obs.get(c)) === f); g = cands[0]; } if (k <= 6) comp++; }
+        return { naive: naive / N, idle: idle / N, comp: comp / N }; });
+      ok(r.naive <= .1, 'random guesses win ' + r.naive); ok(r.idle === 0); ok(r.comp >= .95, 'deduction wins ' + r.comp);
+    },
     'corrupted saves are repaired': async ({ page, eq }) => {
       for (const raw of ['null', '"x"', '{"consts":{"G":99,"a":-1},"chal":{"heavy":"x","zzz":{"n":1,"st":3}},"atlas":[5,{"c":{},"s":[]}],"active":"nope"}']) {
         await page.evaluate((raw) => localStorage.setItem('rh:us2', raw), raw); const p2 = await reopen(page);
