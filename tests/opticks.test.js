@@ -197,6 +197,46 @@ module.exports = {
       const r = await page.evaluate(() => { const o = window.__opt; const s = o.cleanSave({ done: { 0: 1, 13: 1, 18: 1, 25: 1 }, cur: 18 }); return [Object.keys(s.done).map(k => o.L[k].n).sort(), o.L[s.cur].n]; });
       eq(r, [["Bounce", "Newton's Prism"], "Newton's Prism"]);
     },
+    'workshop: generated problems are deterministic per seed, solvable by their design, unsolved when empty, need every piece': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const o = window.__opt, out = { bad: [], made: 0, same: true };
+        for (let i = 0; i < 40; i++) { const d = 1 + (i % 9), g = o.genBench('t' + i, d); if (!g) { out.bad.push('none ' + i); continue; } out.made++;
+          const g2 = o.genBench('t' + i, d); if (JSON.stringify(g) !== JSON.stringify(g2)) out.same = false;
+          const ok = ps => { const R = o.trace(g, ps); return g.targets.every((t, k) => o.checkTarget(t, R.hits[k], g).ok); };
+          if (!ok(g.sol) || ok([])) out.bad.push('solve ' + i);
+          if (g.sol.length > 1 && g.sol.some((q, k) => ok(g.sol.filter((_, j) => j !== k)))) out.bad.push('spare piece ' + i); }
+        return out; });
+      eq(r.bad, []); ok(r.same, 'not deterministic'); eq(r.made, 40);
+    },
+    'workshop: naive designs rarely light a late ladder problem; the designed one always does and sets par': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const o = window.__opt, rnd = RH.rng('wsnaive'); let naive = 0, comp = 0, n = 0;
+        for (let i = 0; i < 12; i++) { const g = o.genBench('L' + (10 + i), 6); if (!g) continue; n++; const tray = o.trayOf(g);
+          const ok = ps => { const R = o.trace(g, ps); return g.targets.every((t, k) => o.checkTarget(t, R.hits[k], g).ok); };
+          let hit = false; for (let t = 0; t < 150 && !hit; t++) { const ps = []; const m = 1 + rnd.int(Math.min(4, tray.length)); for (let k = 0; k < m; k++) ps.push({ ...tray[rnd.int(tray.length)], x: 1 + rnd() * 30, y: 1 + rnd() * 18, a: Math.round(rnd() * 24) * 7.5 }); hit = ok(ps); }
+          naive += hit; comp += ok(g.sol); }
+        return { naive, comp, n }; });
+      ok(r.n >= 10 && r.comp === r.n, JSON.stringify(r)); ok(r.naive / r.n <= .2, 'random designs solve too often: ' + JSON.stringify(r));
+    },
+    'workshop: scoring, ladder progress and the problem of the day': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(async () => { const o = window.__opt; o.S.done = { 0: 3, 1: 3, 2: 3 }; o.openWorkshop('ladder'); const lv = o.wsLv, n0 = o.S.ws.n;
+        o.placed = o.trayOf(lv).slice(0, lv.sol.length).map((p, k) => ({ ...p, ...lv.sol[k] })); o.recompute(); await new Promise(r => setTimeout(r, 1200));
+        const best = o.S.ws.best[lv.key]; o.openWorkshop('daily'); return { n0, n1: o.S.ws.n, best, par: lv.par, daily: o.wsLv.key, hash: location.hash }; });
+      eq(r.n1, r.n0 + 1, 'ladder should advance'); eq(r.best, r.par, 'the designed solution scores par'); ok(/^d\d{8}$/.test(r.daily), r.daily); ok(r.hash.startsWith('#ws=d'), r.hash);
+    },
+    'free bench: lamps can be placed; a two-mirror periscope and a Keplerian telescope enter the codex; designs share as a link': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(() => { const o = window.__opt; o.openWorkshop('free'); const tray = o.trayOf(o.wsLv), get = (t, extra = {}) => tray.find(p => p.t === t && Object.entries(extra).every(([k, v]) => p[k] === v));
+        const laser = get('src', { kind: 'laser' }), mirrors = tray.filter(p => p.t === 'mirror');
+        o.placed = [{ ...laser, x: 3, y: 15, a: 0 }, { ...mirrors[0], x: 10, y: 15, a: -45 }, { ...mirrors[1], x: 10, y: 6, a: -45 }]; o.recompute();
+        const peri = !!o.S.codex.periscope;
+        const sun = get('src', { kind: 'ruby' }), l9 = get('lens', { f: 8 }), l3 = get('lens', { f: 4 });
+        o.placed = [{ ...sun, x: 2, y: 10, a: 0 }, { ...l9, x: 8, y: 10, a: 90 }, { ...l3, x: 20.05, y: 10, a: 90 }]; o.recompute();
+        const kep = !!o.S.codex.kepler, code = o.encodeBench(o.placed), back = o.decodeBench(code).map(p => [p.id, p.x, p.y, p.a]);
+        return { peri, kep, code, back, orig: o.placed.map(p => [p.id, p.x, p.y, p.a]) }; });
+      ok(r.peri, 'periscope not recognised'); ok(r.kep, 'telescope not recognised'); eq(r.back, r.orig, 'share link round-trip');
+      await page.addInitScript(c => { if (!location.hash) location.hash = '#bench=' + c; }, r.code); await page.reload(); await page.waitForTimeout(800);
+      eq(await page.evaluate(() => [window.__opt.cur === window.__opt.WS, window.__opt.placed.length]), [true, 3], 'opening a shared link restores the bench');
+    },
     'locked chapters cannot be opened from the sidebar': async ({ page, eq }) => {
       await closeModals(page);
       const i = await page.evaluate(() => window.__opt.L.findIndex(l => l.c === 1));

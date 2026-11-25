@@ -121,7 +121,7 @@ module.exports = {
     },
     'locked scenarios cannot be opened; corrupted saves load safely': async ({ page, eq }) => {
       const r = await page.evaluate(() => { const R = window.__rumor; document.querySelector('.sc[data-i="7"]').click(); return [R.sc.n, R.scenOpen(7), R.cleanSave(null), R.cleanSave({ done: { 3: 1, 99: 1, x: 1 }, cur: 50, endless: 'lots' })]; });
-      eq(r[0], 'Village Talk'); eq(r[1], false); eq(r[2], { run: null, dailyBest: {}, runBest: 0, done: {}, cur: 0, endless: 0 }); eq(r[3], { done: { 3: 1 }, cur: 0, endless: 0 });
+      eq(r[0], 'Village Talk'); eq(r[1], false); eq(r[2], { run: null, dailyBest: {}, runBest: 0, done: {}, cur: 0, endless: 0 }); eq(r[3], { done: { 3: 1 }, cur: 0, endless: 0, run: null, dailyBest: {}, runBest: 0 });
       for (const bad of ['{oops', 'null', '[]', '{"done":"x","cur":"3"}', '{"done":{},"cur":12}']) {
         await reloadWith(page, 'rh:rumor', bad); await page.waitForFunction(() => window.__rumor && window.__rumor.T);
         eq(await page.evaluate(() => window.__rumor.sc.n), 'Village Talk', bad);

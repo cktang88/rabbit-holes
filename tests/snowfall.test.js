@@ -5,7 +5,7 @@ const L = (T, s, d = 2) => ({ T, s, d });
 
 module.exports = {
   page: 'snowfall/index.html',
-  ready: async page => { await page.waitForFunction(() => window.__snow); await close(page); },
+  ready: async page => { await page.waitForFunction(() => window.__snow); await close(page); await page.evaluate(() => __snow.setMode('cases')); }, // the forensic cases; the draw mode has its own tests below
   tests: {
     'habit(): the real temperature sequence (plates, columns and needles, plates, stars, columns) and humidity branching': async ({ page, eq }) => {
       const r = await page.evaluate(() => { const h = __snow.habit; return [h(-2, .2), h(-2, .9), h(-6, .2), h(-5.5, .9), h(-8.5, .9), h(-14, .2), h(-14, .5), h(-15, .9), h(-20, .9), h(-24, .2)]; });
@@ -76,7 +76,7 @@ module.exports = {
     'saves: old and corrupt saves load; progress stays within 1': async ({ page, eq }) => {
       const r = await page.evaluate(() => [null, '[]', { done: { 0: 1, 3: 1 }, cur: 2 }, { v: 2, done: { 2: 7, x: 1, 99: 1 }, seen: { plate: 1, bogus: 1 }, cur: 4 }].map(__snow.cleanSave));
       eq(r[2].done, {}); eq(r[3].done, { 2: 3 }); eq(r[3].seen, { plate: 1 }); eq(r[3].cur, 4);
-      await page.evaluate(() => { const S = __snow; S.CASES.forEach((_, i) => S.SAVE.done[i] = 3); S.sounding = [{ T: -2, s: .2, d: 2 }]; S.startCase(0); S.launch(); });
+      await page.evaluate(() => { const S = __snow; S.CASES.forEach((_, i) => S.SAVE.done[i] = 3); S.COMMS.forEach((_, i) => S.SAVE.comm[i] = 3); S.sounding = [{ T: -2, s: .2, d: 2 }]; S.startCase(0); S.launch(); });
       eq(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).snowfall), 1);
     },
     'the pad: dragging sets temperature and humidity of the selected layer': async ({ page, ok }) => {
@@ -116,6 +116,58 @@ module.exports = {
       const after = await page.evaluate(() => __snow.sounding.map(l => [l.T, l.s]));
       eq(after.length, 3); ok(after[0][0] < -15 && after[0][1] > .8, 'layer 1 did not follow the finger: ' + JSON.stringify(after));
       eq(after.slice(1), snd.slice(1), 'other layers moved');
+    },
+    'draw the fall: a path gives the same flake every time; links round-trip; habits read centre outwards': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const S = __snow, P = [S.P2(-14, .2), S.P2(-14, .95)], a = S.pathLayers(P), b = S.pathLayers(P), d = S.decodePath(S.encodePath(P));
+        const grow = L => { const x = S.crystalFor(L); while (!x.done) x.run(800); let n = 0; for (const v of x.o.fr) n += v; return n; };
+        return { same: JSON.stringify(a) === JSON.stringify(b), seq: S.habitSeq(a), rt: S.habitSeq(S.pathLayers(d)), name: S.nameOf(S.habitSeq(a)), rev: S.habitSeq(S.pathLayers(P.slice().reverse())), g1: grow(a), g2: grow(S.pathLayers(P.slice())) }; });
+      ok(r.same); eq(r.seq, ['plate', 'sector', 'dendrite']); eq(r.rt, r.seq); eq(r.rev, ['dendrite', 'sector', 'plate']); eq(r.g1, r.g2);
+      ok(typeof r.name === 'string' && r.name.length > 3);
+    },
+    'commissions: each is won by its par route with three stars; the daily sky is winnable for any date': async ({ page, ok }) => {
+      const bad = await page.evaluate(() => { const S = __snow, out = [];
+        S.COMMS.forEach((c, i) => { const j = S.judgeComm(c, c.par); if (!j.ok || j.stars !== 3) out.push(i + ' par route fails'); if (S.COMMS.some((d, k) => k !== i && d.want.join() === c.want.join())) out.push(i + ' duplicates another commission'); });
+        for (let d = 1; d <= 30; d++) { const c = S.dailyComm('2026-12-' + String(d).padStart(2, '0')); if (!c || !S.judgeComm(c, c.par).ok || c.want.length < 2) out.push('daily ' + d); }
+        if (JSON.stringify(S.dailyComm('2026-12-01')) !== JSON.stringify(S.dailyComm('2026-12-01'))) out.push('daily not deterministic');
+        return out; });
+      ok(!bad.length, bad.join('; '));
+    },
+    'difficulty: random scribbles rarely satisfy a commission; a planned route through the right clouds does': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const S = __snow; let sd = 3; const R = () => (sd = (sd * 1103515245 + 12345) % 2147483648) / 2147483648;
+        const late = S.COMMS.slice(3); let hits = 0, tries = 0;
+        for (const c of late) for (let t = 0; t < 60; t++) { tries++; const P = Array.from({ length: 2 + Math.floor(R() * 6) }, () => [R(), R()]); if (S.judgeComm(c, P).ok) hits++; }
+        // competent: for each wanted habit in order, head for the nearest point well inside that region (no knowledge of the par route)
+        const G = 48, H = 40, kind = (i, j) => S.habitSeq([{ T: -1 - 24 * (i + .5) / G, s: 1 - (j + .5) / H, d: 1 }, { T: -1 - 24 * (i + .5) / G, s: 1 - (j + .5) / H, d: 1 }])[0];
+        const K = []; for (let i = 0; i < G; i++) { K.push([]); for (let j = 0; j < H; j++) K[i].push(kind(i, j)); }
+        const inner = []; for (let i = 2; i < G - 2; i++) for (let j = 2; j < H - 2; j++) { let ok = true; for (let a = -2; a <= 2 && ok; a++) for (let b = -2; b <= 2; b++) if (K[i + a][j + b] !== K[i][j]) { ok = false; break; } if (ok) inner.push([i, j, K[i][j]]); }
+        const plan = want => { const P = []; let at = [.5, .5]; for (const k of want) { let best = null, bd = 9; for (const [i, j, kk] of inner) if (kk === k) { const x = (i + .5) / G, y = (j + .5) / H, d = Math.hypot(x - at[0], y - at[1]); if (d < bd) { bd = d; best = [x, y]; } } if (best) { P.push(best); at = best; } } return P; };
+        // a person draws that plan by hand: the same route with a little wobble along each stroke; a solver draws it exactly
+        const wobble = P => { const out = [P[0]]; for (let i = 1; i < P.length; i++) for (let t = 1; t <= 4; t++) { const f = t / 4, j = t < 4 ? .06 : 0; out.push([P[i - 1][0] + (P[i][0] - P[i - 1][0]) * f + (R() - .5) * j, P[i - 1][1] + (P[i][1] - P[i - 1][1]) * f + (R() - .5) * j]); } return out; };
+        const comp = late.map(c => { const j = S.judgeComm(c, wobble(plan(c.want))); return j.ok ? j.stars : 0; });
+        const solver = late.map(c => { const j = S.judgeComm(c, plan(c.want)); return j.ok ? j.stars : 0; });
+        return { rate: hits / tries, comp, solver }; });
+      ok(r.rate < .1, 'scribbles satisfied commissions too often: ' + r.rate);
+      ok(r.comp.filter(x => x >= 1).length >= r.comp.length - 1, 'region-to-region strokes should deliver most late commissions: ' + r.comp);
+      ok(r.comp.filter(x => x === 3).length <= 1 && r.solver.every(x => x === 3), 'three stars should need a near-exact line: hand ' + r.comp + ' solver ' + r.solver);
+    },
+    'draw with a real mouse and a finger: the flake grows, enters the codex, and the link replays it': async ({ page, ok, eq }) => {
+      await page.evaluate(() => __snow.setMode('draw')); await page.locator('#pad').scrollIntoViewIfNeeded();
+      const r = await page.locator('#pad').boundingBox(), pt = (T, s) => [r.x + r.width * (T + 1) / -24, r.y + r.height * (1 - s)];
+      let [x, y] = pt(-14, .2); await page.mouse.move(x, y); await page.mouse.down(); [x, y] = pt(-14, .95); await page.mouse.move(x, y, { steps: 15 }); await page.mouse.up();
+      await page.waitForTimeout(300);
+      eq(await page.evaluate(() => Object.keys(__snow.SAVE.codex)), ['plate,sector,dendrite']);
+      ok(await page.evaluate(() => location.hash.startsWith('#fall=')), 'no share link');
+      const cdp = await page.context().newCDPSession(page); [x, y] = pt(-5.5, .85);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + 2, y }] }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.waitForTimeout(300); ok(await page.evaluate(() => 'needle' in __snow.SAVE.codex), 'a tap did not grow a needle');
+      const hash = await page.evaluate(() => location.hash); await page.goto('about:blank'); await page.goto('http://localhost:8765/snowfall/index.html' + hash); await page.waitForTimeout(800);
+      ok(await page.evaluate(() => __snow.drawLayers && __snow.habitSeq(__snow.drawLayers).join() === 'needle'), 'link did not replay the flake');
+    },
+    'a commission through the UI: right flake earns stars, the wrong one explains what you grew': async ({ page, ok }) => {
+      await page.evaluate(() => { const S = __snow; S.setMode('draw'); S.SAVE.tab = 'comm'; S.SAVE.ci = 3; S.renderDraw(); S.release([S.P2(-2, .2)]); });
+      ok((await page.textContent('#side')).includes('Not quite'), 'no explanation for the wrong flake');
+      await page.evaluate(() => { const S = __snow; S.release(S.COMMS[3].par); });
+      ok(await page.evaluate(() => __snow.SAVE.comm[3] === 3), 'commission not recorded');
     },
     'phone: plates are the main surface; cases open from a drawer; no sideways scroll': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);

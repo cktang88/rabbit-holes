@@ -433,7 +433,7 @@ function catalog(o, seenIds){
   return {status:'new', sp, id:res.id};
 }
 function announce(found){
-  if (!found.length) return; SND.bell(found.length); const rare=[...found].sort((a,b)=>rarity(b)-rarity(a))[0];
+  if (!found.length) return; if (typeof breeding!=='undefined' && breeding){ SND.bell(found.length); return; } SND.bell(found.length); const rare=[...found].sort((a,b)=>rarity(b)-rarity(a))[0];
   RH.toast(`New ${TYPEN[rare.type]}: <i>${rare.name}</i>${found.length>1?` (+${found.length-1} more)`:''}`); pinSpecimen(rare);
 }
 function scan(quiet){
@@ -617,11 +617,12 @@ const OPS={cross:{n:'Cross', f:(a,b)=>({b:a.b, s:b.s})}, merge:{n:'Merge', f:(a,
 const SYL=['ba','ce','di','fo','gu','ha','ji','ka','lo','mu','na','pe','qui','ra','so','ti','vu','xe','yo','za'];
 function ruleName(rs){ const r=RH.rng('name:'+rs); let n=''; const k=2+r.int(2); for (let i=0;i<k;i++) n+=SYL[r.int(SYL.length)]; return n[0].toUpperCase()+n.slice(1); }
 function shelf(){ const out=STARTERS.map(([n,r])=>({n, r, starter:true})); for (const x of S.shelf) if (!out.some(y=>y.r===x.r)) out.push(x); return out; }
-let pick=[]; let breedOp='cross';
+let pick=[]; let breedOp='cross', breeding=false;
 function breed(ra, rb, op){ const a=parseRule(ra), b=parseRule(rb); const c=OPS[op].f(a,b); c.b&=~1; if (!c.b) return {err:'The child has no birth switches at all: nothing can ever be born. Try another pair.'};
   const rs=ruleStr(c); const known=shelf().find(x=>x.r===rs); const first=!known && !S.rules[rkey(c)];
   // run the child: a seeded soup, let it settle, then scan it
-  setRule(c); const before=sps().length; soup('breed:'+rs, true); tick(220); const found=scan(true); const beh=S.rules[rkey(c)].beh;
+  pending=null; document.getElementById('predict').classList.remove('on');
+  setRule(c); breeding=true; let found=0; try { soup('breed:'+rs, true); tick(220); found=scan(true); } finally { breeding=false; } const beh=S.rules[rkey(c)].beh;
   let card=known; if (!card){ card={n:ruleName(rs), r:rs, from:`${shelf().find(x=>x.r===ra)?.n||ra} ${OPS[op].n.toLowerCase()} ${shelf().find(x=>x.r===rb)?.n||rb}`, t:Date.now(), first}; S.shelf.push(card); }
   running=true; persist(); checkBounties(); renderLab(card); drawMap();
   if (!known) { if (first) SND.bell(2); RH.toast(`${first? 'New rule' : 'Rule'}: <b>${card.n}</b> (${rs}) ${beh==='complex'?'stays complex':beh==='chaotic'?'boils':beh==='dies'?'dies out':beh}${found? `, with ${found} new species` : ''}`); }

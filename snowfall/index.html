@@ -42,7 +42,7 @@
   #plates{grid-area:plates;display:grid;grid-template-rows:1fr auto;min-height:0}
   #cv{width:100%;height:100%;display:block;min-height:0}
   #padRow{display:flex;gap:14px;align-items:stretch;padding:8px 14px 12px;background:#0b0c11;border-top:1px solid #2a2d38}
-  #pad{width:min(460px,60vw);height:190px;cursor:crosshair;touch-action:none;background:#101219;border:1px solid #3a3f50}
+  #pad{width:min(560px,60vw);height:240px;cursor:crosshair;touch-action:none;background:#101219;border:1px solid #3a3f50}
   #padInfo{flex:1;min-width:0;font-size:15px;color:#c8d2e8}
   #padInfo b{color:#fff}
   .balloons{font-size:20px;letter-spacing:.1em}
@@ -212,7 +212,7 @@ function nameOf(seq) {
 }
 // rarity: small regions of the diagram and long histories are rare
 const AREA = (() => { const c = {}; for (let i = 0; i < 60; i++) for (let j = 0; j < 40; j++) { const k = habit(TMAX + (TMIN - TMAX) * (i + .5) / 60, (j + .5) / 40); c[k] = (c[k] || 0) + 1; } for (const k in c) c[k] /= 2400; return c; })();
-function rarity(seq) { const r = seq.reduce((a, k) => a * (1 / AREA[k]), 1) * Math.pow(1.6, seq.length - 1); return r < 6 ? 'common' : r < 40 ? 'uncommon' : r < 400 ? 'rare' : 'legendary'; }
+function rarity(seq) { const r = seq.reduce((a, k) => a + Math.log(1 / AREA[k]), 0) + .7 * (seq.length - 1); return r < 3 ? 'common' : r < 5.5 ? 'uncommon' : r < 8 ? 'rare' : 'legendary'; }
 const encodePath = P => resample(P).map(([x, y]) => Math.round(x * Q).toString(36).padStart(2, '0') + Math.round(y * Q).toString(36).padStart(2, '0')).join('');
 const decodePath = str => { const out = []; for (let i = 0; i + 4 <= str.length && out.length < 200; i += 4) { const x = parseInt(str.slice(i, i + 2), 36) / Q, y = parseInt(str.slice(i + 2, i + 4), 36) / Q; if (x >= 0 && x <= 1 && y >= 0 && y <= 1) out.push([x, y]); } return out; };
 const P2 = (T, sv) => [(T - TMAX) / (TMIN - TMAX), 1 - sv]; // temperature, humidity -> diagram coordinates
@@ -226,18 +226,24 @@ const COMMS = [
   { n: 'The capped column', who: 'a cotton-mill owner', text: 'a column with a plate on each end, like a cotton reel', par: [P2(-7, .2), P2(-11.5, .2)] },
   { n: 'A star on a sectored core', who: 'a jeweller in Boston', text: 'a sectored plate that grows broad star arms', par: [P2(-20, .5), P2(-20, .9)] },
   { n: 'Three seasons', who: 'the Vermont Historical Society', text: 'fern, then plate, then fern again, as if the weather changed its mind twice', par: [P2(-15, .9), P2(-15, .2), P2(-15, .9)] },
-  { n: 'The long fall', who: 'the Smithsonian', text: 'a flake that remembers four different clouds: plate, column, plate and finally fern', par: [P2(-2, .2), P2(-7, .2), P2(-13, .2), P2(-15, .3), P2(-15, .9)] },
+  { n: 'The long fall', who: 'the Smithsonian', text: 'a flake that remembers four different clouds: a column, then plate, sectors and finally fern', par: [P2(-2, .2), P2(-7, .2), P2(-13, .2), P2(-15, .3), P2(-15, .9)] },
 ];
-COMMS.forEach(c => { c.want = habitSeq(pathLayers(c.par)); c.ink = pathLen(c.par); });
+// The route planner: for each wanted habit in turn, head for the nearest point well inside its region. Par is the shorter of
+// the authored route and the planner's, so three stars need a line about as tight as a solver's.
+const PG = 48, PH = 40, INNER = (() => { const K = []; for (let i = 0; i < PG; i++) { K.push([]); for (let j = 0; j < PH; j++) K[i].push(habit(TMAX + (TMIN - TMAX) * (i + .5) / PG, 1 - (j + .5) / PH)); }
+  const out = []; for (let i = 2; i < PG - 2; i++) for (let j = 2; j < PH - 2; j++) { let ok = true; for (let a = -2; a <= 2 && ok; a++) for (let b = -2; b <= 2; b++) if (K[i + a][j + b] !== K[i][j]) { ok = false; break; } if (ok) out.push([(i + .5) / PG, (j + .5) / PH, K[i][j]]); } return out; })();
+function planRoute(want) { const P = []; let at = [.5, .5]; for (const k of want) { let best = null, bd = 9; for (const [x, y, kk] of INNER) if (kk === k) { const d = Math.hypot(x - at[0], y - at[1]); if (d < bd) { bd = d; best = [x, y]; } } if (best) { P.push(best); at = best; } } return P; }
+function setPar(c) { c.want = c.want || habitSeq(pathLayers(c.par)); c.ink = pathLen(c.par); const pl = planRoute(c.want); if (pl.length && habitSeq(pathLayers(pl)).join() === c.want.join() && pathLen(pl) < c.ink) { c.ink = pathLen(pl); c.solver = pl; } return c; }
+COMMS.forEach(c => setPar(c));
 function judgeComm(c, P) { // stars for a drawn path against a commission: right flake required, then ink against par
   const seq = habitSeq(pathLayers(P)), ok = seq.join(',') === c.want.join(','); if (!ok) return { ok, seq, stars: 0 };
-  const ink = pathLen(P), slack = ink - c.ink; return { ok, seq, ink, stars: slack <= .05 + c.ink * .15 ? 3 : slack <= .15 + c.ink * .6 ? 2 : 1 };
+  const ink = pathLen(P), slack = ink - c.ink; return { ok, seq, ink, stars: slack <= .01 + c.ink * .04 ? 3 : slack <= .15 + c.ink * .6 ? 2 : 1 };
 }
 // The daily sky: a commission everyone shares for the day, built from a seeded route through two or three clouds.
 function dailyComm(date) {
   const r = RH.rng('sky:' + date);
   for (let t = 0; t < 200; t++) { const n = 2 + r.int(2), par = Array.from({ length: n }, () => [r(), r()]), want = habitSeq(pathLayers(par));
-    if (want.length >= 2 && want.length <= 4) return { n: 'The daily sky', who: 'everyone, today', text: 'a ' + nameOf(want), par, want, ink: pathLen(par), daily: date }; }
+    if (want.length >= 2 && want.length <= 4) return setPar({ n: 'The daily sky', who: 'everyone, today', text: 'a ' + nameOf(want), par, want, daily: date }); }
 }
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 let drawPath = [], drawLayers = null, travel = 1, drawing = false, lastJudge = null;
@@ -420,7 +426,7 @@ function renderDraw() {
     const cm = currentComm(), j = lastJudge;
     const list = SAVE.tab === 'comm' ? `<div class="cases" id="cases">${COMMS.map((c, i) => `<button class="${i === SAVE.ci ? 'cur' : ''}" data-ci="${i}"><span>${i + 1}. ${c.n}</span><span class="st">${SAVE.comm[i] ? '★'.repeat(SAVE.comm[i]) : ''}</span></button>`).join('')}</div>` : '';
     const dl = SAVE.daily && SAVE.daily.date === todayStr() ? `Your best today: <b>${Math.round(SAVE.daily.ink * 100)}</b> units of ink (par ${Math.round(cm.ink * 100)}).` : `Par: ${Math.round(cm.ink * 100)} units of ink.`;
-    body = `<div class="lbl"><span>${cm.daily ? 'Today, ' + cm.daily : 'From ' + cm.who}</span></div><h2>${cm.n}</h2><div class="story">Wanted: <b>${cm.text}</b>. Grow it by drawing a fall that passes through the right clouds in the right order, centre first. ${cm.daily ? dl : 'Stars for using little ink: the shorter your line, the better.'}</div>
+    body = `<div class="lbl"><span>${cm.daily ? 'Today, ' + cm.daily : 'From ' + cm.who}</span></div><h2>${cm.n}</h2><div class="story">Wanted: <b>${cm.text}</b>. Rings, centre outwards: <b>${cm.want.map(k => SHORT[k]).join(' → ')}</b>. Draw a fall that passes through those clouds in that order. ${cm.daily ? dl : 'Stars for using little ink: the shorter your line, the better.'}</div>
       ${j ? `<div class="note" style="margin-top:6px">${j.ok ? `✓ That is the one${cm.daily ? '' : ': ' + '★'.repeat(j.stars)}, ${Math.round(j.ink * 100)} units of ink.` : `Not quite: you grew a <b>${nameOf(j.seq)}</b>. The client wants a <b>${nameOf(cm.want)}</b>.`}</div>` : ''}
       ${list}`;
   }
@@ -476,7 +482,7 @@ $('helpBtn').onclick = help;
 if (!SAVE.intro) { SAVE.intro = 1; persist(); help(); }
 startCase(cur);
 { const m = location.hash.match(/fall=([0-9a-z]+)/); if (m) { SAVE.mode = 'draw'; SAVE.tab = 'sky'; const P = decodePath(m[1]); if (P.length) setTimeout(() => release(P), 50); } }
-window.__snow = { pathLayers, habitSeq, nameOf, rarity, encodePath, decodePath, resample, pathLen, COMMS, judgeComm, dailyComm, todayStr, release, renderDraw, P2, get drawLayers() { return drawLayers; }, get drawPath() { return drawPath; }, crystalFor, crystals, habit, grow, similarity, CASES, MATCH, BALLOONS, scoreSounding, starsFor, cleanSave, SAVE, launch, startCase, isOpen, get cur() { return cur; }, get used() { return used; }, get sounding() { return sounding; }, set sounding(v) { sounding = v; sel = 0; renderColumn(); drawPad(); renderInfo(); } };
+window.__snow = { planRoute, setMode: m => { SAVE.mode = m; persist(); if (m === 'draw') renderDraw(); else startCase(cur); }, pathLayers, habitSeq, nameOf, rarity, encodePath, decodePath, resample, pathLen, COMMS, judgeComm, dailyComm, todayStr, release, renderDraw, P2, get drawLayers() { return drawLayers; }, get drawPath() { return drawPath; }, crystalFor, crystals, habit, grow, similarity, CASES, MATCH, BALLOONS, scoreSounding, starsFor, cleanSave, SAVE, launch, startCase, isOpen, get cur() { return cur; }, get used() { return used; }, get sounding() { return sounding; }, set sounding(v) { sounding = v; sel = 0; renderColumn(); drawPad(); renderInfo(); } };
 </script>
 </body>
 </html>

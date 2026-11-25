@@ -64,6 +64,8 @@
   #padMin{display:none} #storyT{display:none}
   #padBox.body #pad,#padBox.body #padT,#padBox.body .ctl .row:not(:last-child),#padBox.body #padMin,#padBox.body #mapT{display:none}
   #padBox.body .pw{display:block}
+  @media (max-width:860px),(max-height:500px){ #padBox.running #bodyPanel > :not(#runB){display:none} #bodyC{height:84px!important} .prow .b{padding:3px 6px;font-size:11px} #bodyPanel{width:auto} } /* while it swims, the dish gets the screen */
+  .prow{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0} .muted{color:var(--dim);font-size:11px;margin:4px 0} .dishl{margin:6px 0 2px;font-size:11.5px} #bodyC{height:130px!important}
   #bodyPanel{width:256px;font-size:12px;color:var(--dim)} #bodyPanel b{color:var(--engr);font-weight:600}
   #bodyPanel canvas{display:block;width:256px;height:76px;background:#0d0e0d;border:1px solid #000;box-shadow:inset 0 0 0 1px #2d2e2f;margin:4px 0 8px}
   #bodyPanel .big{font-size:15px;padding:10px 0;width:100%;margin-top:6px;min-height:44px}
@@ -221,6 +223,9 @@ const LV = [
     story: '<b>Master sample.</b> Engineers are building sperm-powered micro-robots that tow a drug-carrying bead. The bead adds a lot of drag, so the stroke that was best before is not best now.',
     goal: 'Tow the bead 30 body lengths in 10 s within 260 units of energy. ★★ under 228, ★★★ under 205.', test: S => S.reached && S.energy <= L.ebudget && S.t <= L.time, fail: S => !S.reached && (S.energy > L.ebudget || S.t > L.time),
     lesson: 'With a heavy load, a bigger, slower wave is worth its cost: the tail has to make thrust, not just speed. Sperm-hybrid micro-robots really do this (Medina-Sánchez et al., 2016).' },
+  { n: 'Microbe Builder', chapter: 'V · Build your own', body: 'builder', start: [0, 0, 0], openAfter: 1, endless: 1,
+    story: 'Now design your own microbe. Put a part on each slot of the body (a corkscrew flagellum, a wavy tail, a patch of cilia, a flapping arm, a cargo bead), choose how each one moves, and press <b>Run</b>. The physics is the same as before, so most designs go nowhere. A few swim beautifully. Find out which, and why.',
+    goal: 'Each dish is a challenge. Discover every gait, and beat your best on the daily dish.', test: () => false },
 ];
 for (const l of LV) l.goalBase = l.goal;
 
@@ -243,16 +248,16 @@ const SAVE = obj(RH.load('lowre', { done: {}, cur: 0 })); SAVE.done = obj(SAVE.d
 for (const k in SAVE.done) if (!(+k >= 0 && +k < LV.length && Number.isInteger(+k))) delete SAVE.done[k];
 // a saved loop must be at least 3 finite points inside shape space, or it is dropped
 const okLoop = l => Array.isArray(l) && l.length >= 3 && l.length <= 2000 && l.every(p => Array.isArray(p) && p.length === 2 && p.every(v => typeof v === 'number' && isFinite(v) && Math.abs(v) <= 1.45 + 1e-6));
-SAVE.stars = obj(SAVE.stars);
+SAVE.stars = obj(SAVE.stars); SAVE.gaits = obj(SAVE.gaits); SAVE.dish = obj(SAVE.dish);
 SAVE.slots = [0, 1, 2].map(k => Array.isArray(SAVE.slots) && okLoop(SAVE.slots[k]) ? SAVE.slots[k] : null);
-function maxOpen() { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; }
-const persist = () => { RH.save('lowre', SAVE); RH.progress('low-reynolds', Object.keys(SAVE.done).length / LV.length); };
+function maxOpen() { let m = 0; while (m < LV.length - 1 && SAVE.done[m] && !LV[m + 1].endless) m++; return m; }
+const persist = () => { RH.save('lowre', SAVE); RH.progress('low-reynolds', Object.keys(SAVE.done).filter(k => LV[k] && !LV[k].endless).length / LV.filter(l => !l.endless).length); };
 // loop: closed polygon in shape space. seg: the pose sits on loop[seg]→loop[seg+1]. trans: a point the pose is first travelling to.
 let L, sw, loop = [], seg = 0, trans = null, perim = 1, playing = true, speed = 3, trail = [], St, won = false, failed = false, asym = false, slotArm = false;
 const $ = id => document.getElementById(id);
 
 function load(i, retry = false) {
-  if (!(Number.isInteger(i) && i >= 0 && i < LV.length && (i <= maxOpen() || SAVE.done[i]))) i = maxOpen(); // locked or nonsense: the furthest open level
+  if (!(Number.isInteger(i) && i >= 0 && i < LV.length && (i <= maxOpen() || SAVE.done[i] || (LV[i].openAfter != null && (SAVE.done[LV[i].openAfter] || /#d=/.test(location.hash)))))) i = maxOpen(); // locked or nonsense: the furthest open level
   $('toast').classList.remove('on'); // a previous level's lesson (and its Next button) must not linger
   const fresh = !retry || LV[i] !== L;
   SAVE.cur = i; persist(); L = LV[i]; won = false; failed = false;
@@ -267,7 +272,7 @@ function load(i, retry = false) {
   $('padT').innerHTML = L.hinges === 1 ? '<b>One hinge.</b> A scallop can only open and close. Drag left and right to set the stroke.' : '<b>Shape space.</b> Each point is a pose (two hinge angles; hover to see it). <b>Draw a loop</b>: the swimmer repeats it. Amber pushes forward, blue back; switch the map to see turning.';
   $('asym').hidden = L.hinges !== 1; $('asym').classList.toggle('on', asym); $('slots').hidden = L.hinges === 1; $('slots').style.display = L.hinges === 1 ? 'none' : '';
   renderSlots();
-  $('padBox').classList.toggle('body', !!L.body); $('bodyPanel').hidden = !L.body; bd = null; if (L.body) bodyInit();
+  $('padBox').classList.toggle('body', !!L.body); $('padBox').classList.remove('running'); $('bodyPanel').hidden = !L.body; bd = null; if (L.body) bodyInit();
   cam.x = sw.x + 1.2; cam.y = sw.y; camSnap = true; layout();
 }
 const LIM = 1.45;
@@ -309,6 +314,7 @@ const gauss = r => Math.sqrt(-2 * Math.log(1 - r())) * Math.cos(2 * Math.PI * r(
 const taste = (x, y) => Math.exp(-Math.hypot(x - L.food[0], y - L.food[1]) / L.sigma);
 function bodyInit() {
   bodyRng = RH.rng(bodySeed != null ? bodySeed : (Math.random() * 1e9) | 0);
+  if (L.body === 'builder') { builderInit(); St.t = 0; return; }
   if (L.body === 'coli') { bd = { t: 0, mode: 'run', tt: 0, taste: [], sense: 0, spin: 0 }; L.target = L.food; L.tr = L.foodR; }
   else { bd = { t: 0, x: 0, E: 0, n: 1.5, A: .2, running: false, ph: 0 }; L.line = L.dist; }
   St.t = 0; St.eaten = false; renderBody();
@@ -330,6 +336,7 @@ function tailUP(n, A, R) { const k = 2 * Math.PI * n, b = A, e = (k * b) ** 2, c
   return [U, ((2 * Math.PI * 30 * b) ** 2 / 2 * 2 * (1 + .02 * k * k) + R * U * U) / 100]; }
 function tailStep(dt) { if (!bd.running) return; const [U, P] = tailUP(bd.n, bd.A, L.cargo); bd.t += dt; bd.x += U * dt; bd.E += P * dt; bd.U = U; sw.x = bd.x; St.t = bd.t; St.energy = bd.E; }
 function renderBody() {
+  if (L.body === 'builder') return builderPanel();
   const p = $('bodyPanel');
   if (L.body === 'coli') p.innerHTML = `<div><b>Taste</b> (the last 6 seconds)</div><canvas id="tasteC" width="512" height="152"></canvas>
     <div>time <b id="bt">0.0</b> / ${L.time} s · <span id="bm">running</span></div><button class="b big on" id="tumbleB">Tumble (space)</button>`;
@@ -342,6 +349,7 @@ function renderBody() {
     $('swimB').onclick = () => { if (won || failed) return; bd.running = !bd.running; $('swimB').textContent = bd.running ? 'Pause' : 'Swim'; FX.sfx('click'); }; }
 }
 function bodyHUD() {
+  if (L.body === 'builder') { if (frameN % 3 === 0) drawBodyDiagram(); return; }
   if (L.body === 'coli') { $('bt').textContent = bd.t.toFixed(1); $('bm').textContent = bd.mode === 'run' ? 'running' : 'tumbling';
     const c = $('tasteC'), x = c.getContext('2d'), w = c.width, h = c.height, T = bd.taste; x.fillStyle = '#0d0e0d'; x.fillRect(0, 0, w, h);
     x.strokeStyle = 'rgba(227,164,58,.18)'; for (let k = 1; k < 4; k++) { x.beginPath(); x.moveTo(0, k * h / 4); x.lineTo(w, k * h / 4); x.stroke(); }
@@ -350,7 +358,161 @@ function bodyHUD() {
     $('gE').style.width = Math.min(100, bd.E / L.ebudget * 100) + '%'; $('gE').classList.toggle('over', bd.E > L.ebudget); $('gT').style.width = Math.min(100, bd.t / L.time * 100) + '%'; }
 }
 
-// ================= simulation step =================
+// ================= MICROBE BUILDER =================
+// A body with four mounting slots (front, back, left, right). Each slot takes one part, each part with its own motion.
+// The swim is Stokes flow: no inertia, so at every instant the forces and torques sum to zero:
+//   body velocity = Σ(part forces) / drag,  turn rate = Σ(torques) / rotational drag.
+// Part thrusts come from resistive force theory (the same physics as the levels): a helix's thrust reverses with its spin,
+// a waving tail pushes away from its wave, beating cilia only push if their stroke is asymmetric (a symmetric beat is
+// reciprocal: the scallop theorem), a flapping arm goes nowhere in water but swims in shear-thinning goo if fast/slow.
+const SLOTS = [{ n: 'front', a: 0 }, { n: 'back', a: Math.PI }, { n: 'left', a: -Math.PI / 2 }, { n: 'right', a: Math.PI / 2 }];
+const PARTS = { flag: 'Flagellum', tail: 'Wavy tail', cilia: 'Cilia patch', arm: 'Flapping arm', bead: 'Cargo bead' };
+const newPart = t => t === 'flag' ? { t, push: 1, sp: 2, smart: 0 } : t === 'tail' ? { t, n: 1, A: .2 } : t === 'cilia' ? { t, asym: 1 } : t === 'arm' ? { t, asym: 1 } : t === 'bead' ? { t } : null;
+let design = [null, newPart('flag'), null, null], bslot = 1;
+// the forces a design makes, in the body frame (x = forward), given where it is (goo, glass)
+function partForces(d, env, tumbling) {
+  let Fx = 0, Fy = 0, tq = 0, xx = 1, yy = 2, xr = 1.2, cost = .1, wroll = 0;
+  d.forEach((p, k) => { if (!p) return; const a = SLOTS[k].a, ox = Math.cos(a), oy = Math.sin(a), rx = .7 * ox, ry = .7 * oy; let fx = 0, fy = 0;
+    if (p.t === 'flag') { const T = tumbling && p.smart ? 0 : 2.2 * p.sp; fx = (p.push ? -ox : ox) * T; fy = (p.push ? -oy : oy) * T; xx += .25; yy += .25; cost += .45 * p.sp * p.sp; if (env.glass) wroll += (p.push ? -1 : 1) * .1 * T; }
+    else if (p.t === 'tail') { const [U, P] = tailUP(p.n, p.A, 0); fx = -ox * U * 1.1; fy = -oy * U * 1.1; xx += .6; yy += .6; cost += P / 8; }
+    else if (p.t === 'cilia') { const T = p.asym ? 1 : 0; fx = T; xx += .2; yy += .2; cost += .3; } // beat rearwards along the surface: a push forward, off-centre if on a side
+    else if (p.t === 'arm') { const T = env.goo && p.asym ? 1.3 : 0; fx = -ox * T; fy = -oy * T; xx += .3; yy += .3; cost += .5; }
+    else if (p.t === 'bead') { xx += 1.6; yy += 1.6; xr += 1.6 * .49; }
+    Fx += fx; Fy += fy; tq += rx * fy - ry * fx; });
+  return { vx: Fx / xx, vy: Fy / yy, w: tq / xr + wroll, cost };
+}
+// a dish: seeded layout and a challenge
+const DISH_R = 46;
+function makeDish(seed) {
+  const r = RH.rng(seed * 17 + 3), type = ['race', 'tow', 'escape', 'endure'][seed % 4], D = { seed, type, goo: [], glass: [], current: null, predator: null, food: null };
+  const ang = r() * 2 * Math.PI, rr = 22 + r() * 16; D.food = [Math.cos(ang) * rr, Math.sin(ang) * rr]; D.start = [-Math.cos(ang) * 20, -Math.sin(ang) * 20, ang + (r() - .5) * 1.2];
+  for (let k = 0, n = (r() * 3) | 0; k < n; k++) D.goo.push([(r() - .5) * 60, (r() - .5) * 60, 7 + r() * 8]);
+  for (let k = 0, n = (r() * 2) | 0; k < n; k++) D.glass.push([(r() - .5) * 60, (r() - .5) * 60, 8 + r() * 8]);
+  if (r() < .6) D.current = [(r() - .5) * 2.4, (r() - .5) * 2.4];
+  if (type === 'escape') { const a2 = D.start[2] + Math.PI + (r() - .5) * 2; D.predator = [D.start[0] + Math.cos(a2) * 8, D.start[1] + Math.sin(a2) * 8]; D.pull = 30; } // it lurks behind you
+  D.limit = type === 'endure' ? 40 : type === 'escape' ? 30 : 45; D.budget = 35; D.foodR = 5;
+  return D;
+}
+const inCircles = (cs, x, y) => cs.some(([cx, cy, R]) => Math.hypot(x - cx, y - cy) < R);
+// one tick of a design in a dish (deterministic for a seed)
+function bStep(S, dt) {
+  const D = S.dish, env = { goo: inCircles(D.goo, S.x, S.y), glass: inCircles(D.glass, S.x, S.y) };
+  // a smart (chemotactic) flagellum tumbles when the taste of food falls
+  if (S.smart && D.food) { S.sense += dt; if (S.sense >= .25) { S.sense = 0; const c = Math.exp(-Math.hypot(S.x - D.food[0], S.y - D.food[1]) / 30) * (1 + .015 * gauss(S.r)), H = S.hist; H.push(c); if (H.length > 8) H.shift(); if (H.length >= 6 && S.tt <= 0 && (H[H.length - 1] + H[H.length - 2]) / 2 < (H[0] + H[1]) / 2) { S.tt = .2; S.phi += (S.r() < .5 ? -1 : 1) * (1.2 + .5 * S.r()); H.length = 0; } } } // compare now with a second ago, as E. coli does
+  S.tt -= dt; const f = partForces(S.design, env, S.tt > 0);
+  const c = Math.cos(S.phi), s = Math.sin(S.phi);
+  S.x += (c * f.vx - s * f.vy) * dt; S.y += (s * f.vx + c * f.vy) * dt; S.phi += f.w * dt + Math.sqrt(2 * .02 * dt) * gauss(S.r);
+  if (D.current) { S.x += D.current[0] * dt; S.y += D.current[1] * dt; }
+  if (D.predator) { const dx = D.predator[0] - S.x, dy = D.predator[1] - S.y, r2 = dx * dx + dy * dy; S.x += D.pull * dx / r2 * dt; S.y += D.pull * dy / r2 * dt; if (r2 < 9) S.eaten = true; }
+  const d = Math.hypot(S.x, S.y); if (d > DISH_R) { S.x *= DISH_R / d; S.y *= DISH_R / d; } // the dish wall
+  S.t += dt; S.E += f.cost * dt; S.speed = Math.hypot(f.vx, f.vy); S.path += S.speed * dt;
+}
+function bState(design, dish, seed) { return { design, dish, x: dish.start[0], y: dish.start[1], phi: dish.start[2], t: 0, E: 0, path: 0, r: RH.rng(seed), smart: design.some(p => p && p.t === 'flag' && p.smart), sense: 0, hist: [], tt: 0, eaten: false }; }
+// the verdict of a challenge
+function bJudge(S) {
+  const D = S.dish, hasBead = S.design.some(p => p && p.t === 'bead');
+  if (D.type === 'race') { if (Math.hypot(S.x - D.food[0], S.y - D.food[1]) < D.foodR) return { done: 1, ok: 1, score: S.t }; if (S.t >= D.limit) return { done: 1, ok: 0 }; }
+  if (D.type === 'tow') { if (!hasBead) return { done: 1, ok: 0, why: 'no cargo bead on this design' }; if (Math.hypot(S.x - D.food[0], S.y - D.food[1]) < D.foodR) return { done: 1, ok: 1, score: S.t }; if (S.t >= D.limit) return { done: 1, ok: 0 }; }
+  if (D.type === 'escape') { if (S.eaten) return { done: 1, ok: 0, why: 'eaten' }; if (S.t >= D.limit) return { done: 1, ok: 1, score: Math.hypot(S.x - D.predator[0], S.y - D.predator[1]) }; }
+  if (D.type === 'endure') { if (S.E >= D.budget || S.t >= D.limit) return { done: 1, ok: Math.hypot(S.x - D.start[0], S.y - D.start[1]) > 35 ? 1 : 0, score: Math.hypot(S.x - D.start[0], S.y - D.start[1]) }; }
+  return { done: 0 };
+}
+function bRun(design, dish, seed = 1, dt = .05) { const S = bState(design, dish, seed); let v; for (let k = 0; k < 4000; k++) { bStep(S, dt); v = bJudge(S); if (v.done) break; } return { S, v }; }
+// gaits: what the design does in open water (and in goo), measured, then named
+function gaitOf(design) {
+  const open = { seed: 0, type: 'free', goo: [], glass: [], current: null, predator: null, food: null, start: [0, 0, 0] };
+  const S = bState(design, open, 5); const pts = []; for (let k = 0; k < 300; k++) { bStep(S, .05); if (k % 10 === 0) pts.push([S.x, S.y, S.phi]); }
+  const goo = { ...open, goo: [[0, 0, 999]] }, G = bState(design, goo, 5); for (let k = 0; k < 300; k++) bStep(G, .05);
+  const disp = Math.hypot(S.x, S.y), turn = Math.abs(S.phi) / S.t, net = disp / S.t, mv = S.path / S.t;
+  const ang = Math.atan2(S.y, S.x), rel = Math.cos(ang), side = Math.abs(Math.sin(ang)), dgoo = Math.hypot(G.x, G.y) / G.t;
+  const bead = design.some(p => p && p.t === 'bead');
+  let g;
+  if (mv < .12) g = dgoo > .3 ? 'goo crawler' : design.some(p => p && (p.t === 'arm' || (p.t === 'cilia' && !p.asym))) ? "scallop's curse" : 'statue';
+  else if (turn > 1.2 && net < .6) g = 'spinner';
+  else if (turn > .15 && net < mv * .8) g = 'circler';
+  else if (side > .7) g = 'crab';
+  else if (rel < -.5) g = 'reverser';
+  else g = net > 3 ? 'dart' : net > 1 ? 'cruiser' : 'drifter';
+  if (bead && g !== 'statue' && g !== "scallop's curse") g = 'tug ' + g;
+  return { g, net, turn, mv };
+}
+const GAITS = ['statue', "scallop's curse", 'goo crawler', 'spinner', 'circler', 'crab', 'reverser', 'drifter', 'cruiser', 'dart', 'tug cruiser', 'tug dart'];
+// designs travel as a short code in the URL hash: one letter per slot, digits for settings
+function encodeDesign(d) { return d.map(p => !p ? '-' : p.t === 'flag' ? 'f' + p.push + p.sp + p.smart : p.t === 'tail' ? 't' + Math.round(p.n * 4) + Math.round(p.A * 20) : p.t === 'cilia' ? 'c' + p.asym : p.t === 'arm' ? 'a' + p.asym : 'b').join('.'); }
+function decodeDesign(s) { try { const d = s.split('.').slice(0, 4).map(c => c === '-' ? null : c[0] === 'f' ? { t: 'flag', push: +c[1] ? 1 : 0, sp: Math.max(1, Math.min(3, +c[2] || 2)), smart: +c[3] ? 1 : 0 } : c[0] === 't' ? { t: 'tail', n: Math.max(.5, Math.min(3, (+c.slice(1, -1) || 4) / 4)), A: Math.max(.05, Math.min(.35, (+c.slice(-1) || 4) / 20)) } : c[0] === 'c' ? { t: 'cilia', asym: +c[1] ? 1 : 0 } : c[0] === 'a' ? { t: 'arm', asym: +c[1] ? 1 : 0 } : c[0] === 'b' ? { t: 'bead' } : null); while (d.length < 4) d.push(null); return d; } catch (e) { return null; } }
+function builderInit() {
+  const h = /d=([\w.\-]+)/.exec(location.hash), s2 = /dish=(\d+)/.exec(location.hash);
+  if (h) { const d = decodeDesign(h[1]); if (d) design = d; }
+  bd = { mode: 'build', dish: makeDish(s2 ? +s2[1] : todayDish()), S: null, result: null };
+  sw.x = bd.dish.start[0]; sw.y = bd.dish.start[1]; sw.phi = bd.dish.start[2]; renderBody();
+}
+const todayDish = () => { const d = new Date(); return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate(); };
+function builderRun() { bd.S = bState(design.map(p => p && { ...p }), bd.dish, bd.dish.seed); bd.mode = 'run'; bd.result = null; trail = []; FX.sfx('whoosh'); renderBody(); layout(); }
+function builderStep(dt) {
+  if (bd.mode !== 'run') return; const S = bd.S; for (let q = 0; q < 2; q++) bStep(S, dt / 2); sw.x = S.x; sw.y = S.y; sw.phi = S.phi;
+  const v = bJudge(S); if (v.done) { bd.mode = 'done'; bd.result = v; finishDish(v); }
+}
+function finishDish(v) {
+  const D = bd.dish, k = 'd' + D.seed, best = SAVE.dish[k], lowBetter = D.type === 'race' || D.type === 'tow';
+  const gait = gaitOf(design); const fresh = !SAVE.gaits[gait.g]; if (fresh) SAVE.gaits[gait.g] = todayDish();
+  let msg;
+  if (v.ok) { const better = best == null || (lowBetter ? v.score < best : v.score > best); if (better) SAVE.dish[k] = +v.score.toFixed(1);
+    const ks = Object.keys(SAVE.dish); while (ks.length > 40) delete SAVE.dish[ks.shift()];
+    msg = `${D.type === 'race' || D.type === 'tow' ? `Reached the food in <b>${v.score.toFixed(1)} s</b>` : D.type === 'escape' ? `Survived, ${v.score.toFixed(0)} BL from the predator` : `Swam <b>${v.score.toFixed(0)} BL</b> on the energy budget`}${better ? ' · new best!' : ` · best ${best}`}`; FX.sfx('win'); shutter = performance.now(); }
+  else { msg = v.why === 'eaten' ? 'Eaten by the ciliate.' : v.why || 'Challenge failed.'; FX.sfx('fail'); }
+  persist(); toast(fresh ? `New gait: ${gait.g}` : gait.g, msg + `<br>This design ${gait.net < .12 ? 'barely moves in open water' : `travels ${gait.net.toFixed(1)} BL/s and turns ${(gait.turn * 57.3).toFixed(0)}°/s in open water`}.`, 8000, false, false, fresh); renderBody();
+}
+
+function builderPanel() {
+  const p = design[bslot], P = $('bodyPanel'), D = bd.dish;
+  const params = !p ? '<div class="muted">Empty slot. Pick a part.</div>'
+    : p.t === 'flag' ? `<div class="prow"><button class="b ${p.push ? 'on' : ''}" data-k="push" data-v="1">spin: push</button><button class="b ${p.push ? '' : 'on'}" data-k="push" data-v="0">spin: pull</button><button class="b ${p.smart ? 'on' : ''}" data-k="smart" data-v="${p.smart ? 0 : 1}">smart motor</button></div><label>Motor speed <b>${p.sp}</b></label><input type="range" min="1" max="3" step="1" value="${p.sp}" data-k="sp" aria-label="Motor speed">`
+    : p.t === 'tail' ? `<label>Waves <b>${p.n}</b></label><input type="range" min="0.5" max="3" step="0.25" value="${p.n}" data-k="n" aria-label="Waves"><label>Wave size <b>${Math.round(p.A * 100)}%</b></label><input type="range" min="0.05" max="0.35" step="0.05" value="${p.A}" data-k="A" aria-label="Wave size">`
+    : p.t === 'cilia' ? `<div class="prow"><button class="b ${p.asym ? 'on' : ''}" data-k="asym" data-v="1">power + recovery stroke</button><button class="b ${p.asym ? '' : 'on'}" data-k="asym" data-v="0">symmetric beat</button></div>`
+    : p.t === 'arm' ? `<div class="prow"><button class="b ${p.asym ? 'on' : ''}" data-k="asym" data-v="1">fast open, slow close</button><button class="b ${p.asym ? '' : 'on'}" data-k="asym" data-v="0">even flap</button></div>`
+    : '<div class="muted">A cargo bead: drag, nothing else. Some challenges want one.</div>';
+  const got = GAITS.filter(gn => SAVE.gaits[gn]).length;
+  P.innerHTML = `<canvas id="bodyC" width="512" height="260" aria-label="Your microbe: tap a slot"></canvas>
+    <div class="prow">${Object.entries(PARTS).map(([t, n]) => `<button class="b ${p && p.t === t ? 'on' : ''}" data-part="${t}">${n}</button>`).join('')}<button class="b" data-part="">empty</button></div>
+    <div id="pparams">${params}</div>
+    <div class="dishl">Dish <b>${D.seed}</b>: <b>${{ race: 'race to the food', tow: 'tow cargo to the food', escape: 'escape the ciliate', endure: 'go far on 35 energy' }[D.type]}</b>${SAVE.dish['d' + D.seed] != null ? ` · best ${SAVE.dish['d' + D.seed]}` : ''}</div>
+    <div class="prow"><button class="b" id="dToday">daily dish</button><button class="b" id="dNew">new dish</button><button class="b" id="dShare">share</button></div>
+    <button class="b big on" id="runB">${bd.mode === 'run' ? 'Stop' : 'Run'}</button>
+    <div class="muted">Gaits discovered <b>${got}</b> / ${GAITS.length}: ${GAITS.filter(gn => SAVE.gaits[gn]).join(', ') || 'none yet'}</div>`;
+  P.querySelectorAll('[data-part]').forEach(b => b.onclick = () => { design[bslot] = b.dataset.part ? newPart(b.dataset.part) : null; FX.sfx('place'); bd.mode = 'build'; resetBuildPose(); builderPanel(); });
+  P.querySelectorAll('#pparams [data-k]').forEach(el => { const k = el.dataset.k; if (el.tagName === 'INPUT') el.oninput = () => { design[bslot][k] = +el.value; builderPanel(); }; else el.onclick = () => { design[bslot][k] = +el.dataset.v; FX.sfx('click'); builderPanel(); }; });
+  $('runB').onclick = () => { if (bd.mode === 'run') { bd.mode = 'build'; resetBuildPose(); builderPanel(); } else builderRun(); };
+  $('dToday').onclick = () => { bd.dish = makeDish(todayDish()); bd.mode = 'build'; resetBuildPose(); builderPanel(); };
+  $('dNew').onclick = () => { bd.dish = makeDish((Math.random() * 1e6) | 0); bd.mode = 'build'; resetBuildPose(); builderPanel(); };
+  $('dShare').onclick = () => { const u = location.href.split('#')[0] + '#d=' + encodeDesign(design) + '&dish=' + bd.dish.seed; try { history.replaceState(null, '', '#d=' + encodeDesign(design) + '&dish=' + bd.dish.seed); navigator.clipboard.writeText(u); } catch (e) {} toast('Design link copied', u, 3500); };
+  const c = $('bodyC'); c.onpointerdown = e => { const r = c.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 512, y = (e.clientY - r.top) / r.height * 260; let bi = bslot, bdist = 1e9;
+    SLOTS.forEach((sl, k) => { const sx = 256 + Math.cos(sl.a) * 150, sy = 130 + Math.sin(sl.a) * 85, d = Math.hypot(x - sx, y - sy); if (d < bdist) { bdist = d; bi = k; } }); bslot = bi; FX.sfx('tick'); builderPanel(); };
+  $('padBox').classList.toggle('running', bd.mode === 'run');
+  drawBodyDiagram();
+}
+function resetBuildPose() { const D = bd.dish; sw.x = D.start[0]; sw.y = D.start[1]; sw.phi = D.start[2]; trail = []; bd.S = null; }
+function drawBodyDiagram() {
+  const c = $('bodyC'); if (!c) return; const x = c.getContext('2d'), W2 = 512, H2 = 260; x.fillStyle = '#121312'; x.fillRect(0, 0, W2, H2);
+  x.save(); x.translate(256, 130); drawMicrobe(x, design, 70, 0, performance.now(), -1, bslot); x.restore();
+}
+// a microbe drawn in phase contrast at scale u px per body unit, heading phi; sel highlights a slot in the builder
+function drawMicrobe(x, d, u, phi, now, alpha, sel) {
+  x.save(); x.rotate(phi); x.lineCap = 'round'; const t = now / 1000;
+  d.forEach((p, k) => { const a = SLOTS[k].a, ox = Math.cos(a), oy = Math.sin(a), px = ox * .55 * u * (k > 1 ? .55 : 1), py = oy * .55 * u;
+    if (sel === k) { x.strokeStyle = '#e3a43a'; x.lineWidth = 3; x.setLineDash([6, 5]); x.beginPath(); x.arc(ox * 2.1 * u, oy * 1.2 * u, .55 * u, 0, 7); x.stroke(); x.setLineDash([]); }
+    if (!p) return; x.save(); x.translate(px, py); x.rotate(a); x.strokeStyle = alpha === -1 ? 'rgba(232,230,214,.9)' : 'rgba(30,34,30,.85)'; x.lineWidth = Math.max(1.5, u * .05);
+    if (p.t === 'flag') { x.beginPath(); for (let q = 0; q <= 1.0001; q += .04) { const L2 = q * 2.2 * u, w = Math.sin(q * 14 - t * 20 * p.sp * (p.push ? 1 : -1)) * .16 * u; q ? x.lineTo(L2, w) : x.moveTo(L2, w); } x.stroke(); }
+    else if (p.t === 'tail') { x.beginPath(); for (let q = 0; q <= 1.0001; q += .02) { const L2 = q * 2.6 * u, w = Math.sin(2 * Math.PI * p.n * q - t * 8) * p.A * 2.6 * u * Math.min(1, q * 3); q ? x.lineTo(L2, w) : x.moveTo(L2, w); } x.stroke(); }
+    else if (p.t === 'cilia') { for (let q = -3; q <= 3; q++) { const ph = Math.sin(t * 9 + q * .7), ang = p.asym ? (ph > 0 ? ph * .9 : ph * .3) : ph * .6; x.beginPath(); x.moveTo(0, q * .09 * u); x.lineTo(Math.cos(ang) * .45 * u, q * .09 * u + Math.sin(ang) * .45 * u); x.stroke(); } }
+    else if (p.t === 'arm') { const ph = (t * 1.2) % 1, open = p.asym ? (ph < .25 ? ph / .25 : 1 - (ph - .25) / .75) : .5 - .5 * Math.cos(ph * 2 * Math.PI); x.lineWidth = u * .12; x.beginPath(); x.moveTo(0, 0); x.lineTo(Math.cos(open * 1.1 - .55) * 1.1 * u, Math.sin(open * 1.1 - .55) * 1.1 * u); x.stroke(); }
+    else if (p.t === 'bead') { const R = .45 * u, gr = x.createRadialGradient(.35 * u - R * .3, -R * .3, 0, .35 * u, 0, R); gr.addColorStop(0, '#e6e8dc'); gr.addColorStop(.8, '#9ea192'); gr.addColorStop(1, '#2a2c27'); x.fillStyle = gr; x.beginPath(); x.arc(.6 * u, 0, R, 0, 7); x.fill(); }
+    x.restore(); });
+  // the cell body: a phase-dark capsule with a bright halo; an amber granule marks the front
+  for (const [w, col] of alpha === -1 ? [[.95, 'rgba(250,252,240,.25)'], [.7, '#8a8f84'], [.42, '#c9ccbe']] : [[.95, 'rgba(250,252,240,.35)'], [.7, '#2c302a'], [.42, '#4a5046']]) { x.strokeStyle = col; x.lineWidth = w * u; x.beginPath(); x.moveTo(-.55 * u, 0); x.lineTo(.55 * u, 0); x.stroke(); }
+  x.fillStyle = '#e3a43a'; x.beginPath(); x.arc(.45 * u, 0, .1 * u, 0, 7); x.fill();
+  x.restore();
+}
+
 // Fixed small steps along the shape path (independent of frame rate), midpoint rule for the body's rotation.
 const DS = .004, ESCALE = 2;
 let DSX = DS; // exposed for the step-size convergence test
@@ -551,6 +713,15 @@ function edgeArrow(wx, wy, label) { // points at a goal that is off screen
 // marker pen on the coverslip: wobbly hand-drawn rings and lines (fixed wobble, so they don't crawl)
 function drawBody(now, z) {
   const k = cam.z / 110;
+  if (L.body === 'builder') { const D = bd.dish, [cx, cy] = toS(0, 0);
+    g.strokeStyle = 'rgba(40,58,170,.55)'; g.lineWidth = 3 * dpr; g.beginPath(); g.arc(cx, cy, DISH_R * z, 0, 7); g.stroke();
+    for (const [gx, gy, R] of D.goo) { const [x, y] = toS(gx, gy), gg = g.createRadialGradient(x, y, 0, x, y, R * z); gg.addColorStop(0, 'rgba(210,170,80,.35)'); gg.addColorStop(1, 'rgba(210,170,80,.05)'); g.fillStyle = gg; g.beginPath(); g.arc(x, y, R * z, 0, 7); g.fill(); g.fillStyle = 'rgba(90,60,10,.7)'; g.font = `${11 * dpr}px "IBM Plex Mono"`; g.fillText('goo', x - 10 * dpr, y); }
+    for (const [gx, gy, R] of D.glass) { const [x, y] = toS(gx, gy); g.strokeStyle = 'rgba(240,244,236,.55)'; g.setLineDash([4 * dpr, 4 * dpr]); g.beginPath(); g.arc(x, y, R * z, 0, 7); g.stroke(); g.setLineDash([]); g.fillStyle = 'rgba(30,34,30,.6)'; g.font = `${11 * dpr}px "IBM Plex Mono"`; g.fillText('glass', x - 16 * dpr, y); }
+    if (D.current) { g.strokeStyle = 'rgba(30,60,140,.25)'; g.lineWidth = dpr; const ph = (now / 1000) % 1; for (let i = -4; i <= 4; i++) for (let j = -4; j <= 4; j++) { const [x, y] = toS(i * 10 + D.current[0] * ph * 4, j * 10 + D.current[1] * ph * 4); g.beginPath(); g.moveTo(x, y); g.lineTo(x + D.current[0] * 4 * z, y + D.current[1] * 4 * z); g.stroke(); } }
+    if (D.food && D.type !== 'escape' && D.type !== 'endure') { const [fx, fy] = toS(...D.food), fg = g.createRadialGradient(fx, fy, 0, fx, fy, D.foodR * z * 2); fg.addColorStop(0, 'rgba(250,240,200,.5)'); fg.addColorStop(1, 'rgba(250,240,200,0)'); g.fillStyle = fg; g.beginPath(); g.arc(fx, fy, D.foodR * z * 2, 0, 7); g.fill(); g.strokeStyle = 'rgba(40,58,170,.8)'; g.lineWidth = 3 * dpr; g.beginPath(); g.arc(fx, fy, D.foodR * z, 0, 7); g.stroke(); }
+    if (D.predator) { const [px, py] = toS(...D.predator), R = 3 * z; g.fillStyle = '#3b4038'; g.beginPath(); g.arc(px, py, R, 0, 7); g.fill(); g.strokeStyle = 'rgba(30,34,30,.7)'; g.lineWidth = 1.5 * dpr; for (let q = 0; q < 30; q++) { const a = q / 30 * Math.PI * 2, w = Math.sin(now / 90 + q) * .25; g.beginPath(); g.moveTo(px + Math.cos(a) * R, py + Math.sin(a) * R); g.lineTo(px + Math.cos(a + w) * R * 1.3, py + Math.sin(a + w) * R * 1.3); g.stroke(); } }
+    const [mx, my] = toS(sw.x, sw.y); g.save(); g.translate(mx, my); drawMicrobe(g, design, Math.max(12 * dpr, 1.2 * z), sw.phi, now, 1, -2); g.restore();
+    return; }
   if (L.body === 'coli') {
     // the nutrient: a faint refractile cloud; the ciliate predator with its beating cilia and the current it draws
     const near = Math.max(0, 1 - Math.hypot(sw.x - L.food[0], sw.y - L.food[1]) / (L.foodR * 3)); g.globalAlpha = St.reached ? 1 : near; const [fx, fy] = toS(...L.food), fr = L.foodR * z * 1.6; const fg = g.createRadialGradient(fx, fy, 0, fx, fy, fr); fg.addColorStop(0, 'rgba(250,240,200,.35)'); fg.addColorStop(1, 'rgba(250,240,200,0)'); g.fillStyle = fg; g.beginPath(); g.arc(fx, fy, fr, 0, 7); g.fill();
@@ -582,6 +753,8 @@ function render(now) {
   const z = cam.z * dpr;
   // Brownian motes: phase-dark specks with bright rims, jiggling as every microbe's world does
   const spX = Math.max(15, W / (cam.z * dpr) * .55), spY = Math.max(10, H / (cam.z * dpr) * .55);
+  if (Math.abs(Math.log(cam.z / (motes.z || cam.z))) > .7) for (const m of motes) { m.x = cam.x + (Math.random() - .5) * 2 * spX; m.y = cam.y + (Math.random() - .5) * 2 * spY; } // re-scatter after a big zoom change
+  if (!motes.z || Math.abs(Math.log(cam.z / motes.z)) > .7) motes.z = cam.z;
   for (const m of motes) { m.vx = m.vx * .9 + (Math.random() - .5) * .004; m.vy = m.vy * .9 + (Math.random() - .5) * .004; m.x += m.vx; m.y += m.vy; if (Math.abs(m.x - cam.x) > spX) m.x = cam.x + (Math.random() - .5) * 2 * spX; if (Math.abs(m.y - cam.y) > spY) m.y = cam.y + (Math.random() - .5) * 2 * spY; const [x, y] = toS(m.x, m.y), r = (1 + m.r * 2.2) * dpr;
     g.fillStyle = 'rgba(240,244,232,.35)'; g.beginPath(); g.arc(x, y, r * 2, 0, 7); g.fill(); g.fillStyle = `rgba(30,34,30,${.35 + m.r * .4})`; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); }
   // obstacles: sand grains, refractile: bright body, dark rim, bright outer halo
@@ -657,10 +830,10 @@ function renderGoal() {
   $('next').style.display = ok && SAVE.cur < LV.length - 1 ? 'inline-block' : 'none';
 }
 function renderLevels() {
-  const mo = maxOpen();
-  $('levels').innerHTML = '<h4>Pond samples</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${i > mo && !SAVE.done[i] ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><span>${SAVE.stars[i] ? '<small style="font:11px IBM Plex Mono;color:#9a3a10">' + starStr(SAVE.stars[i]) + '</small>' : SAVE.done[i] ? '✓' : ''}</span></div>`).join('');
+  const mo = maxOpen(), locked = i => i > mo && !SAVE.done[i] && !(LV[i].openAfter != null && SAVE.done[LV[i].openAfter]);
+  $('levels').innerHTML = '<h4>Pond samples</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${locked(i) ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><span>${SAVE.stars[i] ? '<small style="font:11px IBM Plex Mono;color:#9a3a10">' + starStr(SAVE.stars[i]) + '</small>' : SAVE.done[i] ? '✓' : ''}</span></div>`).join('');
   $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { FX.sfx('click'); load(+el.dataset.i); });
-  $('lvsel').innerHTML = LV.map((l, i) => `<option value="${i}" ${i === SAVE.cur ? 'selected' : ''} ${i > mo && !SAVE.done[i] ? 'disabled' : ''}>${i + 1}. ${l.n}${SAVE.done[i] ? ' ✓' : ''}</option>`).join('');
+  $('lvsel').innerHTML = LV.map((l, i) => `<option value="${i}" ${i === SAVE.cur ? 'selected' : ''} ${locked(i) ? 'disabled' : ''}>${i + 1}. ${l.n}${SAVE.done[i] ? ' ✓' : ''}</option>`).join('');
 }
 $('lvsel').onchange = e => { FX.sfx('click'); load(+e.target.value); };
 const goNext = () => { if (SAVE.cur < LV.length - 1) { FX.sfx('click'); $('toast').classList.remove('on'); load(SAVE.cur + 1); } };
@@ -690,7 +863,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   if (document.hidden) { last = now; return; }
   const dt = Math.min(.05, (now - last) / 1000); last = now;
-  if (L.body && playing && !won && !failed) { const k = speed / 3; for (let q = 0; q < 4; q++) (L.body === 'coli' ? coliStep : tailStep)(dt * k / 4); const n = trail.length; if (!n || Math.hypot(trail[n - 2] - sw.x, trail[n - 1] - sw.y) > .05) { trail.push(sw.x, sw.y); if (trail.length > 4000) trail.splice(0, 2); } }
+  if (L.body && playing && !won && !failed) { const k = speed / 3; for (let q = 0; q < 4; q++) (L.body === 'coli' ? coliStep : L.body === 'builder' ? builderStep : tailStep)(dt * k / 4); const n = trail.length; if (!n || Math.hypot(trail[n - 2] - sw.x, trail[n - 1] - sw.y) > .05) { trail.push(sw.x, sw.y); if (trail.length > 4000) trail.splice(0, 2); } }
   if (!L.body && playing && !won && !failed && (!L.waitAct || St.acted)) {
     advance(dt * 2.2 * speed);
     const n = trail.length; if (!n || Math.hypot(trail[n - 2] - sw.x, trail[n - 1] - sw.y) > .02) { trail.push(sw.x, sw.y); if (trail.length > 3000) trail.splice(0, 2); }
@@ -700,10 +873,11 @@ function frame(now) {
   St.dist = sw.x - L.start[0];
   { // keep the swimmer and its goal (and nearby grains) in view: centre on them and zoom out if needed
     const vr = L.body === 'coli' ? 14 : L.body === 'tail' ? 5 : 1.6; let x0 = sw.x - vr, x1 = sw.x + vr, y0 = sw.y - vr, y1 = sw.y + vr;
+    if (L.body === 'builder') { x0 = y0 = -DISH_R - 2; x1 = y1 = DISH_R + 2; }
     if (L.target && L.body !== 'coli') { const m = L.body ? L.tr + 2 : 1; x0 = Math.min(x0, L.target[0] - m); x1 = Math.max(x1, L.target[0] + m); y0 = Math.min(y0, L.target[1] - m); y1 = Math.max(y1, L.target[1] + m); }
     if (L.predator && Math.hypot(sw.x - L.predator[0], sw.y - L.predator[1]) < 40) { x0 = Math.min(x0, L.predator[0] - 6); x1 = Math.max(x1, L.predator[0] + 6); y0 = Math.min(y0, L.predator[1] - 6); y1 = Math.max(y1, L.predator[1] + 6); }
     else if (L.line != null && !L.maxCycles && !L.budget) { x0 = Math.min(x0, L.line - .8); x1 = Math.max(x1, L.line + .8); }
-    const zt = FX.clamp(Math.min(freeW / (x1 - x0 + 1), freeH / (y1 - y0 + 1)), L.body === 'coli' ? 4 : 34, Math.min(110, W / dpr / 5.2));
+    const zt = FX.clamp(Math.min(freeW / (x1 - x0 + 1), freeH / (y1 - y0 + 1)), L.body === 'coli' || L.body === 'builder' ? 3 : 34, Math.min(110, W / dpr / 5.2));
     if (camSnap) { cam.z = zt; cam.x = (x0 + x1) / 2; cam.y = (y0 + y1) / 2; camSnap = false; }
     else { cam.z = FX.damp(cam.z, zt, 2, dt); cam.x = FX.damp(cam.x, (x0 + x1) / 2, 2, dt); cam.y = FX.damp(cam.y, (y0 + y1) / 2, 2, dt); }
   }
@@ -711,6 +885,7 @@ function frame(now) {
   if (L.body === 'coli' && !won && !failed && St.t > L.time) { failed = true; FX.sfx('fail'); toast('Starved', 'Time ran out before you found the food. Runs that make the taste rise should last longer.', 9000, false, true); }
   if (!won && !failed && L.fail && L.fail(St)) { failed = true; FX.sfx('fail'); toast(St.eaten ? 'Eaten' : L.body === 'tail' ? (St.t > L.time ? 'Too slow' : 'Out of energy') : 'Out of ' + (L.budget ? 'energy' : 'strokes'), St.eaten ? 'The current swept you into the ciliate\'s mouth. Run straight away from it, and don\'t tumble close in.' : L.body === 'tail' ? 'Every stroke is a trade: bigger and longer waves are faster but cost far more. Find the cheapest stroke that is still fast enough.' : failHint(), 9000, false, true); }
   if (L.body && bd) bodyHUD();
+  if (L.body === 'builder' && bd) { const S = bd.S, sh = !S ? 'Build a microbe, then press Run. Most designs go nowhere: find out why.' : `time <b>${S.t.toFixed(1)}</b> s · energy <b>${S.E.toFixed(1)}</b> · speed ${S.speed.toFixed(1)} BL/s`; if (sh !== lastStat) { $('stat').innerHTML = sh; lastStat = sh; } if (++frameN % 60 === 0) layout(); bodyHUD(); render(now); return; }
   if (L.body && bd) { const sh = L.body === 'coli' ? `time <b>${bd.t.toFixed(1)}</b> / ${L.time} s · ${bd.mode === 'run' ? 'running' : '<b>tumbling</b>'}${L.wall ? '<br><span class="hint">Pressed against the glass: runs curve clockwise.</span>' : ''}` : `swum <b>${bd.x.toFixed(1)}</b> / ${L.dist} body lengths · energy <b>${bd.E.toFixed(0)}</b> / ${L.ebudget} · ${bd.t.toFixed(1)} / ${L.time} s`; if (sh !== lastStat) { $('stat').innerHTML = sh; lastStat = sh; } if (++frameN % 60 === 0) layout(); render(now); return; }
   const hint = hintText();
   const sh = `strokes <b>${St.strokes.toFixed(1)}</b>${L.maxCycles ? ` / ${L.maxCycles}` : ''} · moved <b>${St.dist.toFixed(2)}</b> body lengths<br>turned <b>${(St.phi * 180 / Math.PI).toFixed(0)}°</b>${L.budget ? ` · energy <b style="color:${St.energy > L.budget ? '#b3261e' : '#000'}">${St.energy.toFixed(1)}</b> / ${L.budget}` : L.par ? ` · energy <b>${St.energy.toFixed(1)}</b> (★★★ ≤ ${L.par})` : ''}${pred ? `<br>this loop: ${pred.dx >= 0 ? '+' : ''}${pred.dx.toFixed(2)} BL, turn ${pred.turn >= 0 ? '+' : ''}${pred.turn.toFixed(0)}°, energy ${pred.e.toFixed(1)} per stroke` : ''}${hint ? `<br><span class="hint">${hint}</span>` : ''}`;
@@ -721,7 +896,7 @@ function frame(now) {
 load(+SAVE.cur || 0);
 requestAnimationFrame(frame);
 window.__lr = { LV, load, preset, advance, setLoop, reverse: reverseLoop, bodyVel, useSlot, St: () => St, sw: () => sw, get loop() { return loop; }, get trans() { return trans; },
-  SAVE, get shutter() { return shutter; }, get won() { return won; }, get failed() { return failed; }, get level() { return L; }, get pred() { return pred; }, predictLoop, drawLoop: pts => { setLoop(pts); St.drawn = true; }, get cam() { return cam; }, toS, get bd() { return bd; }, tumble, coliStep, tailStep, tailUP, bodySeed: v => { bodySeed = v; }, set ds(v) { DSX = v; }, get ds() { return DSX; }, set asym(v) { asym = v; }, set playing(v) { playing = v; } };
+  SAVE, get shutter() { return shutter; }, get won() { return won; }, get failed() { return failed; }, get level() { return L; }, get pred() { return pred; }, predictLoop, drawLoop: pts => { setLoop(pts); St.drawn = true; }, get cam() { return cam; }, toS, get bd() { return bd; }, tumble, coliStep, tailStep, tailUP, bodySeed: v => { bodySeed = v; }, get design() { return design; }, set design(v) { design = v; }, makeDish, bRun, gaitOf, encodeDesign, decodeDesign, partForces, newPart, set ds(v) { DSX = v; }, get ds() { return DSX; }, set asym(v) { asym = v; }, set playing(v) { playing = v; } };
 </script>
 </body>
 </html>

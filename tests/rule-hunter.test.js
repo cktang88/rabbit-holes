@@ -219,7 +219,7 @@ module.exports = {
       await dismiss(page);
       const a = await page.evaluate(() => { const R = __rh; R.running = false; const r = R.breed('B3/S23', 'B3678/S34678', 'cross'); return [r.card.n, r.card.r, r.beh, r.first]; });
       const p2 = await reopen(page); const b = await p2.evaluate(() => { const R = __rh; R.running = false; const r = R.breed('B3/S23', 'B3678/S34678', 'cross'); return [r.card.n, r.card.r, r.beh, r.first]; }); await p2.close();
-      eq(a, b); eq(a[1], 'B3/S34678'); ok(a[3], 'first found by you');
+      eq(a.slice(0, 3), b.slice(0, 3)); eq(a[1], 'B3/S34678'); ok(a[3] && !b[3], 'first found by you, once');
       const RECIPES = [[['B3/S23', 'B3678/S34678', 'cross']], [['B3678/S34678', 'B3/S23', 'cross']], [['B3/S23', 'B3678/S34678', 'cross']], [['B3/S23', 'B1357/S1357', 'cross']], [['B3/S23', 'B1357/S1357', 'cross']], [['B3/S23', 'B2/S', 'cross']]];
       const goals = await page.evaluate((RECIPES) => { const R = __rh; return R.GOALS.map((g, i) => { for (const [x, y, op] of RECIPES[i]) R.breed(x, y, op); return g.t(); }); }, RECIPES);
       eq(goals, [true, true, true, true, true, true]);

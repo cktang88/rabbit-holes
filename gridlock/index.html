@@ -260,7 +260,7 @@ function rebuildPaths(reset) {
   });
   settleT = 0; layoutLabels();
 }
-function flows() { for (const r of roads) r.cars = 0; if (!P) return; for (const ps of P) for (const p of ps) for (const i of p.e) roads[i].cars += p.f; }
+function flows() { for (const r of roads) r.cars = 0; if (!P) return; for (const ps of P) for (const p of ps) for (const i of p.e) if (roads[i]) roads[i].cars += p.f; } // (paths can briefly outlive a demolished road in the growing city)
 const time = r => r.t0 + r.k * r.cars / 1000;
 function cost(p) { let a = 0; for (const i of p.e) { const r = roads[i]; a += time(r) + r.toll; } return a; }
 function ttime(p) { let a = 0; for (const i of p.e) a += time(roads[i]); return a; }
@@ -570,7 +570,7 @@ function toast(big, small, ms = 2400) { const t = $('toast'); t.innerHTML = big 
 // gridlocks and the run ends. Score: months held. Seeded: the same seed always grows the same city.
 const GROW = { on: false, seed: '', rng: null, month: 0, t: 0, money: 0, meter: 0, over: false, type: 'street', drag: null, next: null, speed: 1, daily: false, jn: 0, hn: 0, wn: 0, best: 0, log: [] };
 const MONTH_S = 9, GLIMIT = 40, UNREACHED = 90;
-const RTYPE = { street: { n: 'Street', pace: 40, k: 9, cost: 1 }, avenue: { n: 'Avenue', pace: 46, k: 5, cost: 2 }, highway: { n: 'Highway', pace: 60, k: 2.5, cost: 4 } };
+const RTYPE = { street: { n: 'Street', pace: 40, k: 6, cost: 1 }, avenue: { n: 'Avenue', pace: 46, k: 3, cost: 2 }, highway: { n: 'Highway', pace: 60, k: 1.5, cost: 4 } };
 const DOOR = 4; // a job centre has room for this many roads in: the rest must share them
 const todaySeed = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const LETTERS = 'ABCDEFGHKLMNPRSTUVXYZ';
@@ -605,7 +605,7 @@ function addSuburb(p) {
   L.nodes[k] = [p[0], p[1], 'home'];
   // its commuters work at the nearest job centre
   let best = null, bd = 1e9; for (const [n, [x, y, kind]] of Object.entries(L.nodes)) if (kind === 'work') { const d = Math.hypot(x - p[0], y - p[1]); if (d < bd) { bd = d; best = n; } }
-  L.demand.push({ o: k, d: best, n: 700 });
+  L.demand.push({ o: k, d: best, n: 500 });
   return k;
 }
 function addJobs() {
@@ -622,8 +622,8 @@ const population = () => L.demand.reduce((a, d) => a + d.n, 0);
 function monthTick() {
   GROW.month++;
   const toll = roads.reduce((a, r) => a + (r.toll || 0) * r.cars / 1000, 0) * .5;
-  GROW.money += 2 + Math.floor(population() / 9000) + Math.round(toll);
-  for (const d of L.demand) d.n = Math.min(5000, Math.round(d.n * 1.13));
+  GROW.money += 3 + Math.floor(population() / 8000) + Math.round(toll);
+  for (const d of L.demand) d.n = Math.min(2000, Math.round(d.n * 1.04));
   const avg = avgGrow();
   GROW.meter = avg > GLIMIT ? GROW.meter + 1 : Math.max(0, GROW.meter - 1);
   if (GROW.meter >= 3) return endGrow();
@@ -777,7 +777,7 @@ if (/^#grow=/.test(location.hash)) SAVE.cur = GI;
 load(Math.min(SAVE.cur || 0, LV.length - 1));
 if (document.fonts) document.fonts.ready.then(() => { roads.forEach(r => r.lt = null); fit(); });
 raf = requestAnimationFrame(loop);
-window.__gl = { LV, load, GI, grow: { GROW, init: seed => { GROW.pendingSeed = seed; load(GI); }, month: () => monthTick(), avg: () => avgGrow(), build: (a, b, t) => buildRoad(a, b, t), split: (a, i, t) => { const saved = JSON.stringify([L.nodes, L.roads, GROW.jn]), r = roads[i], k = splitRoad(i, bez(r.G, .5)); const e = k ? buildRoad(a, k, t) : 'no road'; if (e) { const [nn, rr, jn] = JSON.parse(saved); L.nodes = nn; L.roads = rr; GROW.jn = jn; growRebuild(); } return e; }, junction: p => addJunction(p), bulldoze, population,
+window.__gl = { LV, load, GI, grow: { GROW, init: seed => { GROW.pendingSeed = seed; load(GI); }, month: () => monthTick(), avg: () => avgGrow(), build: (a, b, t) => buildRoad(a, b, t), snapshot: () => JSON.stringify([L.nodes, L.roads, GROW.jn, GROW.money]), restore: z => { const [nn, rr, jn, m] = JSON.parse(z); L.nodes = nn; L.roads = rr; GROW.jn = jn; GROW.money = m; growHeadless = true; growRebuild(); }, split: (a, i, t) => { const saved = JSON.stringify([L.nodes, L.roads, GROW.jn]), r = roads[i], k = splitRoad(i, bez(r.G, .5)); const e = k ? buildRoad(a, k, t) : 'no road'; if (e) { const [nn, rr, jn] = JSON.parse(saved); L.nodes = nn; L.roads = rr; GROW.jn = jn; growRebuild(); } return e; }, junction: p => addJunction(p), bulldoze, population,
   settle: () => { growHeadless = true; for (let i = 0; i < 4000; i++) { if (adjust(.004) < 1e-3 && i > 150) break; } growHeadless = false; return avgGrow(); }, set headless(v) { growHeadless = v; } }, get fc() { return fc; }, askForecast, get forecasts() { return SAVE.fc; }, cleanSave, gradeOf, gradeIdx, savedGrade, worstHome: () => worstHome(), get best() { return SAVE.best; }, get grade() { return SAVE.grade; }, budgetLeft: () => budgetLeft(), get won() { return won; }, get tool() { return tool; }, get sel() { return sel; }, roads: () => roads, average, adjust, P: () => P, rebuild: () => rebuildPaths(), view: () => ({ ...view, dpr }), labels: () => roads.map(r => [r.a + r.b, r.lx, r.ly]) };
 </script>
 </body>
