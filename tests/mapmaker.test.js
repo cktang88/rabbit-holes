@@ -40,7 +40,7 @@ module.exports = {
     },
     'whole-archipelago accuracy is the coast-length weighted mean; the cache refreshes when ink changes': async ({ page, near }) => {
       const r = await page.evaluate(() => {
-        const M = window.__map; M.S.ink = M.islands[0].coast.map(([x, y]) => [x, y]); M.hashInk();
+        const M = window.__map; M.S = M.freshSave(424242); M.boot(); M.S.ink = M.islands[0].coast.map(([x, y]) => [x, y]); M.hashInk();
         const tot = M.islands.reduce((s, is) => s + is.coast.length, 0); const a = M.accAll(), want = 100 * M.islands[0].coast.length / tot;
         M.S.ink = []; M.hashInk(); return { a, want, after: M.accAll() };
       });
@@ -181,7 +181,7 @@ module.exports = {
       ok(Math.abs(r.shiftedOff[0] - 10) < 7 && Math.abs(r.shiftedOff[1]) < 7, 'a chart drawn 10 leagues east puts the fix 10 leagues east: ' + r.shiftedOff); ok(/Fog/.test(r.fog), r.fog);
     },
     'set and drift: a fix after sailing in a current learns that current, and allowing for it shrinks the next error': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const M = window.__map; M.atPort = false; M.S.learned = {};
+      const r = await page.evaluate(() => { const M = window.__map; M.S = M.freshSave(424242); M.boot(); M.atPort = false; M.S.learned = {};
         const c = M.currentAt(M.ship.x, M.ship.y); M.ship.sail = 1; M.ship.h = 0; M.inkOn = false; M.nav = { dist: 0, t: 0, cells: {} };
         const run = () => { const sx = M.ship.x, sy = M.ship.y; M.ship.bx = sx; M.ship.by = sy; M.nav = { dist: 0, t: 0, cells: {} }; for (let i = 0; i < 200; i++){ M.ship.h = 0; M.ship.sail = 1; M.step(0.05); } return Math.hypot(M.ship.bx - M.ship.x, M.ship.by - M.ship.y); };
         // keep the ship away from land for the test
@@ -263,8 +263,9 @@ module.exports = {
       const r = await page.evaluate(() => { const M = window.__map, S = M.S; const steps = []; const adv = () => { M.simClock += 2; M.renderOrders(); steps.push(S.tut); };
         adv(); // at port: still step 0
         const [sx, sy] = S.tutSpot; M.atPort = false; M.ship = { x: sx, y: sy, bx: sx, by: sy, h: 0, sail: 1, voyageDmg: 0 }; S.tutFix = 1; S.allow = true; // everything later already "true": must still go one step at a time
-        S.ink = M.islands[0].coast.slice(0, Math.ceil(M.islands[0].coast.length * 0.3)).map(p => [p[0], p[1]]); M.hashInk();
-        adv(); adv(); adv(); // 0 → 1 → 2 (needs a charted landmark in sight) → stays at 2 until a bearing is taken while step 3 is showing
+        adv(); // 0 → 1
+        S.ink = M.islands[0].coast.slice(0, Math.ceil(M.islands[0].coast.length * 0.3)).map(p => [p[0], p[1]]); M.hashInk(); M.ship = (() => { const is = M.islands[0], c = is.coast[0], dx = c[0] - is.cx, dy = c[1] - is.cy, L = Math.hypot(dx, dy); const x = c[0] + dx / L * 25, y = c[1] + dy / L * 25; return { x, y, bx: x, by: y, h: 0, sail: 1, voyageDmg: 0 }; })();
+        adv(); adv(); // 0 → 1 → 2 (needs a charted landmark in sight) → stays at 2 until a bearing is taken while step 3 is showing
         const f = M.bearingFix(); if (!f.err) M.fixAt(f.x, f.y, 'Bearings taken on two charted landmarks'); else { const c = M.islands[0].coast[0]; M.ship = { x: c[0] + 20, y: c[1], bx: c[0] + 20, by: c[1], h: 0, sail: 1, voyageDmg: 0 }; const g = M.bearingFix(); M.fixAt(g.x || M.ship.x, g.y || M.ship.y, 'Bearings taken on two charted landmarks'); }
         adv(); adv(); S.done[0] = 1; adv(); return { steps, hidden: document.getElementById('orders').hidden }; });
       eq(r.steps, [0, 1, 2, 2, 3, 4, 5]); eq(r.hidden, true);

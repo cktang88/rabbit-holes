@@ -378,6 +378,17 @@ module.exports = {
       eq(await page.evaluate(() => __nand.circ.wires.map(w => w.to.join(':')).sort()), ['1:0', '1:1', 'out:0']);
       await page.click('#testBtn'); ok(/All 2 tests passed/.test(await page.textContent('#result')));
     },
+    'newcomer: level 1 wired with sloppy mouse drags (12px off every pin) passes; ghost wires show what is missing': async ({ page, ok, eq }) => {
+      await dismissModals(page); await page.click('#palette button:text-is("NAND")');
+      const p = await page.evaluate(() => { const N = __nand, v = N.view, r = document.getElementById('cv').getBoundingClientRect(), c = N.circ.comps[0]; const f = (q) => [r.left + q.x * v.z + v.x, r.top + q.y * v.z + v.y];
+        return { pin: f(N.portPos(['in', 0], 'out')), in0: f(N.portPos([c.id, 0], 'in')), in1: f(N.portPos([c.id, 1], 'in')), o: f(N.portPos([c.id, 0], 'out')), out: f(N.portPos(['out', 0], 'in')) }; });
+      const sloppy = async (a, b, ox, oy) => { await page.mouse.move(a[0] + ox, a[1] + oy); await page.mouse.down(); await page.mouse.move((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, { steps: 4 }); await page.mouse.move(b[0] - ox, b[1] - oy / 3, { steps: 4 }); await page.mouse.up(); };
+      const view0 = await page.evaluate(() => JSON.stringify(__nand.view));
+      await sloppy(p.pin, p.in0, 9, -8); await sloppy(p.pin, p.in1, 10, 6); await sloppy(p.o, p.out, -8, 9);
+      eq(await page.evaluate(() => JSON.stringify(__nand.view)), view0, 'board did not pan');
+      eq(await page.evaluate(() => __nand.circ.wires.map(w => w.from.join(':') + '>' + w.to.join(':')).sort()), ['1:0>out:0', 'in:0>1:0', 'in:0>1:1']);
+      await page.click('#testBtn'); ok(/All 2 tests passed/.test(await page.textContent('#result')));
+    },
     'phone layout: no horizontal scroll and the canvas is usable': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect() }));

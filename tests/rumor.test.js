@@ -238,6 +238,13 @@ module.exports = {
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: t[0], y: t[1] }] }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await page.waitForTimeout(200);
       eq(await page.evaluate(() => window.__rumor.sel), t[2]);
     },
+    'newcomer clarity: the goal states the pass mark and the day, the tick is labelled, and ending a day with whispers unused warns that they don\'t carry over': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const R = window.__rumor; R.start(0); const toasts = []; RH.toast = (m) => toasts.push(m);
+        const goal = document.getElementById('goal'); const line = goal.querySelector('.target').textContent, tick = goal.querySelector('.tick').textContent, pill = document.getElementById('wP').textContent;
+        document.getElementById('nextDay').click(); return { line, tick, pill, toasts, day: R.day }; });
+      ok(/40%/.test(r.line) && /day 7/.test(r.line), r.line); ok(/40%/.test(r.tick), r.tick); ok(/today/.test(r.pill), r.pill);
+      ok(r.toasts.some(t => /unused.*don't carry over/.test(t)), JSON.stringify(r.toasts)); ok(r.day === 2, 'the warning never blocks the day');
+    },
     'mobile layout: no horizontal scroll, town and Next day visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
       const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect().toJSON(), nd: document.getElementById('nextDay').getBoundingClientRect().toJSON() }));

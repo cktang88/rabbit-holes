@@ -74,6 +74,19 @@ module.exports = {
       await page.waitForTimeout(1000);
       ok(!(await page.evaluate(() => window.__opt.S.done[0])), 'won while passing by on keys');
     },
+    'dragging a mirror\'s end turns it, snapping to 45 degrees': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      await page.evaluate(() => { const o = window.__opt; o.loadLevel(0); o.placed = [{ ...o.trayOf(o.L[0])[0], x: 16, y: 6, a: 90 }]; o.sel = 0; o.recompute(); });
+      const pts = await page.evaluate(() => { const o = window.__opt, cv = document.getElementById('cv'), r = cv.getBoundingClientRect(), d = devicePixelRatio, M = o.VT();
+        const sc = (x, y) => [(M[0] * x + M[2] * y + M[4]) / d + r.left, (M[1] * x + M[3] * y + M[5]) / d + r.top];
+        const [h] = o.handlesOf(o.placed[0]); return { from: sc(h[0], h[1]), to: sc(16 + Math.cos(Math.PI / 4) * 1.5 + .05, 6 + Math.sin(Math.PI / 4) * 1.5) }; });
+      await page.mouse.move(...pts.from); await page.mouse.down();
+      for (let k = 1; k <= 8; k++) await page.mouse.move(pts.from[0] + (pts.to[0] - pts.from[0]) * k / 8, pts.from[1] + (pts.to[1] - pts.from[1]) * k / 8);
+      await page.mouse.up();
+      const p = await page.evaluate(() => window.__opt.placed[0]);
+      eq([p.x, p.y], [16, 6], 'turning should not move the piece'); eq(((p.a % 180) + 180) % 180, 45);
+      eq(await page.evaluate(() => [window.__opt.snapAngle(46.2), window.__opt.snapAngle(50.3)]), [45, 50.5]);
+    },
     'arrow keys cannot push a piece off the bench': async ({ page, ok }) => {
       await closeModals(page);
       await page.evaluate(() => { const o = window.__opt; o.loadLevel(0); o.placed = [{ ...o.trayOf(o.L[0])[0], x: .5, y: .5, a: 0 }]; o.sel = 0; o.recompute(); });

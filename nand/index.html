@@ -620,12 +620,23 @@ function draw(){
   l.outs.forEach((p,i)=>{ const y=pinY(i,l.outs.length); pin(W_OUT,y,p, osrc[i]? shownVal(osrc[i]) : outv[i],'out'); });
   if (unstable){ ctx.fillStyle='#ff6b5a'; ctx.font=FONT(13,'700'); ctx.textAlign='left'; ctx.fillText('⚠ OSCILLATING — a loop is fighting itself', W_IN+30, H-8); }
   // First wire on the first level: pulse the ports and ghost-draw the drag you need to make
-  if (SAVE.cur===0 && !circ.wires.length && !drag){ const pulse=6+3*Math.sin(now/220);
+  // Level 1 onboarding: pulse the dots, then ghost every wire still missing (input → both NAND legs, NAND → output)
+  if (SAVE.cur===0 && SAVE.best.NOT==null && !drag){ const pulse=6+3*Math.sin(now/220);
     const ports=[{x:W_IN,y:pinY(0,1)}]; for (const c of circ.comps){ const t=TYPES[c.type]; if (!t) continue; const s=compSize(c); t.ins.forEach((p,i)=>ports.push({x:c.x,y:c.y+16+i*18})); t.outs.forEach((p,i)=>ports.push({x:c.x+s.w,y:c.y+16+i*18})); }
+    ports.push({x:W_OUT,y:pinY(0,1)});
     ctx.strokeStyle='rgba(255,246,208,.9)'; ctx.lineWidth=2; for (const p of ports){ ctx.beginPath(); ctx.arc(p.x,p.y,pulse,0,7); ctx.stroke(); }
-    if (circ.comps.length){ const a={x:W_IN,y:pinY(0,1)}, b={x:circ.comps[0].x, y:circ.comps[0].y+16}; const k=(now%1600)/1600; ctx.setLineDash([4,6]); ctx.strokeStyle='rgba(255,246,208,.6)'; bez(a,b); ctx.stroke(); ctx.setLineDash([]);
-      const q=bezPt(wirePts(a,b),k); ctx.fillStyle='#fff6d0'; ctx.beginPath(); ctx.arc(q.x,q.y,4,0,7); ctx.fill(); ctx.font=FONT(11,'600'); ctx.textAlign='left'; ctx.fillStyle=PCB.silk; ctx.fillText('drag from dot to dot', (a.x+b.x)/2-40, Math.max(a.y,b.y)+40); }
+    const c0=circ.comps.find(c=>c.type==='NAND');
+    if (c0){ const pin={x:W_IN,y:pinY(0,1)}, outp={x:W_OUT,y:pinY(0,1)};
+      const need=[[pin,portPos([c0.id,0],'in'),[c0.id,0]],[pin,portPos([c0.id,1],'in'),[c0.id,1]],[portPos([c0.id,0],'out'),outp,['out',0]]].filter(([a,b,t])=>!circ.wires.some(w=>w.to[0]===t[0]&&w.to[1]===t[1]));
+      const k=(now%1600)/1600; ctx.setLineDash([4,6]); ctx.lineWidth=2;
+      for (const [a,b] of need){ ctx.strokeStyle='rgba(255,246,208,.6)'; bez(a,b); ctx.stroke(); const q=bezPt(wirePts(a,b),k); ctx.fillStyle='#fff6d0'; ctx.beginPath(); ctx.arc(q.x,q.y,4,0,7); ctx.fill(); }
+      ctx.setLineDash([]);
+      if (need.length){ ctx.font=FONT(12,'600'); ctx.textAlign='left'; ctx.fillStyle=PCB.silk; ctx.fillText(`drag along the dotted lines, dot to dot: ${need.length} wire${need.length===1?'':'s'} to go`, W_IN+30, Math.max(pin.y, c0.y+60)+70); }
+      else { ctx.font=FONT(12,'600'); ctx.textAlign='left'; ctx.fillStyle=PCB.silk; ctx.fillText('all wired: press RUN TESTS', W_IN+30, Math.max(pin.y, c0.y+60)+70); } }
     else { ctx.font=FONT(12,'600'); ctx.fillStyle=PCB.silk; ctx.textAlign='left'; ctx.fillText('← tap NAND in Parts to place a chip', W_IN+60, pinY(0,1)-30); } }
+  // lost the board? say how to get it back
+  { const rr=cv.getBoundingClientRect(); const ax=(W_IN-60)*view.z+view.x, bx=(W_OUT+60)*view.z+view.x, ty=pinY(0,1)*view.z+view.y;
+    if (bx<0 || ax>rr.width || ty<-200 || ty>rr.height+200){ ctx.save(); ctx.setTransform(d,0,0,d,0,0); ctx.font=FONT(14,'700'); ctx.fillStyle=PCB.silk; ctx.textAlign='center'; ctx.fillText('The board is off-screen: press FIT to bring it back', rr.width/2, rr.height/2); ctx.restore(); } }
   drawPackaging(now);
 }
 function lcd(x,y,txt,w){ ctx.fillStyle='#1b1d16'; rr(x-w/2-3,y-9,w+6,18,2); ctx.fill(); ctx.fillStyle='#9fbf57'; rr(x-w/2,y-7,w,14,1); ctx.fill(); ctx.fillStyle='#1d2a0c'; ctx.font='16px VT323, monospace'; ctx.textAlign='center'; ctx.fillText(txt, x, y+5); }
@@ -698,7 +709,7 @@ function animLoop(){ if (!softOn && !document.hidden) draw(); requestAnimationFr
 let touchPtr=false;
 function hitPort(wx,wy){
   // the nearest port within reach (a finger reaches further than a mouse), never simply the first one found
-  const l=lv(); const R=(touchPtr?18:9)/view.z+4; let best=null, bd=R;
+  const l=lv(); const R=Math.max((touchPtr?22:20)/view.z, 9); let best=null, bd=R;   // snaps to the nearest pin within ~20 screen px
   const consider=(x,y,hit)=>{ const d=Math.hypot(wx-x,wy-y); if (d<bd){ bd=d; best=hit; } };
   for (let i=0;i<l.ins.length;i++) consider(W_IN, pinY(i,l.ins.length), {ref:['in',i],dir:'out'});
   for (let i=0;i<l.outs.length;i++) consider(W_OUT, pinY(i,l.outs.length), {ref:['out',i],dir:'in'});
@@ -744,7 +755,9 @@ cv.addEventListener('pointerdown', e=>{ touchPtr = e.pointerType==='touch'; if (
   }
   let p=hitPort(wx,wy);
   // on a chip's body (not right on one of its legs) a touch moves the chip; only the legs start wires
-  if (p && touchPtr){ const body=hitComp(wx,wy); if (body && p.dist>7 && wx>body.x+4 && wx<body.x+compSize(body).w-4) p=null; }
+  if (p){ const body=hitComp(wx,wy); if (body && p.dist>7 && wx>body.x+4 && wx<body.x+compSize(body).w-4) p=null; }
+  // on an input switch (not right on its pin) a press toggles it
+  if (p){ const pinI=hitPin(wx,wy); if (pinI>=0 && p.dist>8) p=null; }
   if (p){ drag={kind:'wire',p,a:portPos(p.ref,p.dir),m:{x:wx,y:wy}}; return; }
   const pi=hitPin(wx,wy);
   if (pi>=0){

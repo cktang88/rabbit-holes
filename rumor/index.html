@@ -40,6 +40,8 @@
   .sc:hover{background:#00000008} .sc.cur{background:#1b17120f;font-weight:700} .sc.cur span:first-child::before{content:"☞ "} .sc.lock{color:#8a7f6a;cursor:default;font-style:italic}
   .sc .ok{color:var(--red);font-weight:700}
   #goal{font-size:15px;line-height:1.45}
+  #goal .target{margin:4px 0 8px;font-size:15px;border-left:3px solid var(--red);padding-left:8px}
+  .bar .tick{position:absolute;top:13px;transform:translateX(-50%);font-size:11px;font-style:italic;color:var(--red);white-space:nowrap}
   #goal b.t{font-family:UnifrakturCook,serif;font-size:22px;font-weight:700;display:block;border-bottom:1px solid var(--rule);margin-bottom:4px}
   .bar{height:12px;border:1.5px solid var(--ink);position:relative;background:repeating-linear-gradient(90deg,transparent 0 9px,#1b171222 9px 10px)}
   .bar div{height:100%;background:var(--ink)}
@@ -377,6 +379,7 @@ function desc(){ const c=T.cast; return sc.d.replace(/\{T\}/g,c.T.name).replace(
 function addLog(t){ log.unshift(t); if (log.length>60) log.pop(); document.getElementById('log').innerHTML=log.map(x=>`<div>${x}</div>`).join(''); }
 document.getElementById('nextDay').onclick=()=>{
   if (day>sc.days) return;
+  if (wLeft>0) RH.toast(`You left ${wLeft} whisper${wLeft===1?'':'s'} unused. They don't carry over: you get ${sc.w} fresh ones each morning.`);
   const before=goalStatus().v;
   const ev=simDay(); day++; wLeft=sc.w;
   if (day<=sc.days) addLog(`<b>— Day ${day} —</b>`); else addLog('<b>— The last day is over —</b>'); ev.slice(0,8).forEach(addLog);
@@ -525,12 +528,25 @@ function renderPerson(){
       addLog(ok? `You whispered to <b>${p.name}</b>: ${rText(v)}` : `<b>${p.name}</b>: ${msg}`);
       if (!ok) RH.toast(msg); renderAll(); if (portraitPhone.matches && wLeft<=0) setTimeout(()=>window.scrollTo({top:0,behavior:'smooth'}),500); else if (compactMQ.matches) document.getElementById('cGo')?.scrollIntoView({block:'nearest'}); }; }
 }
+// the pass mark in plain words: what, how much, by when
+function targetLine(){ const g=sc.goal, D=sc.days, by=`by the end of day ${D}`;
+  switch(g.type){ case 'reach': case 'exact': case 'pair': case 'verb': return `To win: <b>${g.pct}%</b> of the town believing it ${by}.`;
+    case 'defend': return `To win: no more than <b>${g.max}%</b> believing the lie at the end of day ${D}.`;
+    case 'ear': return `To win: the mayor believes it ${by}.`;
+    case 'shield': return `To win: <b>${g.pct}%</b> believing it ${by}, and the friend hears nothing.`;
+    case 'counter': return `To win: the lie at or under <b>${g.max}%</b>, and <b>${g.pct}%</b> believing the dirt on the rumor-monger, at the end of day ${D}.`;
+    case 'redeem': return `To win: <b>${g.pct}%</b> believing something good, and no more than <b>${g.max}%</b> the bad, at the end of day ${D}.`;
+    case 'double': return `To win: <b>${g.pct}%</b> for each story ${by}.`;
+    case 'mixed': return `To win: <b>${g.pct}%</b> believing the bad story, and the lie about the other at or under <b>${g.max}%</b>, ${by}.`;
+    case 'reconcile': return `To win: both believe something good about the other ${by}.`;
+    case 'reconcile+': return `To win: both reconciled, and <b>${g.pct}%</b> believing the bad story, ${by}.`; }
+  return ''; }
 function renderGoal(){
   const st=goalStatus(); const pct=Math.min(100,st.v);
-  document.getElementById('goal').innerHTML=`<b class="t">${sc.n}</b><p style="margin:6px 0">${desc()}</p><div class="bar"><div style="width:${pct}%;background:${st.ok?'#2f5d2f':st.inverse?'#b3241b':'#1b1712'}"></div><span style="left:${st.target}%"></span></div><div class="small dim" style="margin-top:4px">${st.label}</div>`;
+  document.getElementById('goal').innerHTML=`<b class="t">${sc.n}</b><p style="margin:6px 0">${desc()}</p><p class="target">${targetLine()}</p><div class="bar"><div style="width:${pct}%;background:${st.ok?'#2f5d2f':st.inverse?'#b3241b':'#1b1712'}"></div><span style="left:${st.target}%"></span><em class="tick" style="left:${st.target}%">${st.inverse?'at most ':''}${Math.round(st.target)}%</em></div><div class="small dim" style="margin-top:18px">${st.label}</div>`;
   const tree=versionTree(); if (tree.length) document.getElementById('goal').insertAdjacentHTML('beforeend', `<details class="vers" ${tree.length>1?'open':''}><summary>The story's family tree</summary>${tree.map(r=>`<div style="padding-left:${r.depth*14}px">${r.depth?'└ ':''}${r.how?`<i class="how">${r.how}:</i> `:''}${textOfKey(r.k)} <b>${r.n}</b></div>`).join('')}</details>`);
   document.getElementById('dayP').textContent= day>sc.days? 'Finished' : `Day ${day} of ${sc.days}`;
-  document.getElementById('wP').textContent=`${wLeft} whisper${wLeft===1?'':'s'} left`;
+  document.getElementById('wP').textContent=`${wLeft} whisper${wLeft===1?'':'s'} left today`; document.getElementById('wP').title='You get fresh whispers every morning. Unused ones do not carry over.';
   document.getElementById('nextDay').disabled = day>sc.days;
 }
 function renderScen(){
@@ -550,7 +566,7 @@ window.addEventListener('resize', fitView);
 start(SAVE.cur||0); requestAnimationFrame(draw);
 window.__rumor={ versionTree, noteVersion, textOfKey, get family(){ return family; }, chainOf, lesson, starsFor, reseed, get actionLog(){ return actionLog; }, get lastStars(){ return lastStars; }, topStory, printGazette, SC, VERBS, buildTown, hear, mutate, simDay, goalStatus, goalFor, sameV, rText, pctOf, believesBad, believesGood, start, finish, endlessSpec, cleanSave, scenOpen, bestEar, esc, renderAll,
   get T(){ return T; }, get sc(){ return sc; }, get day(){ return day; }, set day(v){ day=v; }, get wLeft(){ return wLeft; }, get firstWhisper(){ return firstWhisper; }, get SAVE(){ return SAVE; }, get log(){ return log; }, get sel(){ return sel; }, set sel(v){ sel=v; }, get view(){ return view; } };
-if (!SAVE.intro){ SAVE.intro=1; persist(); RH.modal(`<h2>The Rumor</h2><p>Every person in this town has friends, rivals, a loose tongue or a careful one, and a sense of who to trust.</p><p>Click someone and <b>whisper</b> a story. Then let the days pass. They'll tell their friends, who tell theirs, and the story changes on the way. Gossips make crimes worse, details drop out, and people pin the blame on whoever they already dislike.</p><p>Watch who carries it. Pick your first ear well.</p>`,[{label:'Lean in'}]); }
+if (!SAVE.intro){ SAVE.intro=1; persist(); RH.modal(`<h2>The Rumor</h2><p>Every person in this town has friends, rivals, a loose tongue or a careful one, and a sense of who to trust.</p><p>Tap someone and <b>whisper</b> a story. You get fresh whispers every morning, so use them every day. Then let the days pass. They'll tell their friends, who tell theirs, and the story changes on the way. Gossips make crimes worse, details drop out, and people pin the blame on whoever they already dislike.</p><p>Watch who carries it. Pick your first ear well.</p>`,[{label:'Lean in'}]); }
 </script>
 </body>
 </html>

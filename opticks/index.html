@@ -124,7 +124,7 @@
   <div id="side"></div>
   <div id="stage">
     <div id="info"></div>
-    <div id="wrap"><canvas id="cv"></canvas><div class="hint">Drag pieces from the tray onto the bench · drag to move · scroll or <kbd>Q</kbd>/<kbd>E</kbd> to rotate (hold <kbd>Shift</kbd> for fine) · arrow keys nudge · <kbd>Delete</kbd> or double-click returns a piece</div></div>
+    <div id="wrap"><canvas id="cv"></canvas><div class="hint">Drag pieces from the tray onto the bench · drag to move · drag an end (gold knob) to turn · scroll or <kbd>Q</kbd>/<kbd>E</kbd> to rotate (hold <kbd>Shift</kbd> for fine) · arrow keys nudge · <kbd>Delete</kbd> or double-click returns a piece</div></div>
     <div id="dock"><div id="rotBar" role="group" aria-label="Turn the selected piece"><button data-rot="-3" aria-label="Turn left 3 degrees">⟲ 3°</button><button data-rot="-0.25" aria-label="Turn left a quarter degree">⟲ ¼°</button><span id="rotLbl">Select a piece to turn it</span><button data-rot="0.25" aria-label="Turn right a quarter degree">¼° ⟳</button><button data-rot="3" aria-label="Turn right 3 degrees">3° ⟳</button><button id="retBtn" aria-label="Return the piece to the box">Return</button></div><div id="tray"></div></div>
   </div>
 </main>
@@ -507,12 +507,23 @@ const VT = () => view.rot ? [0, view.s, -view.s, 0, view.ox + BH * view.s, view.
 addEventListener('resize', resize);
 const toW = e => { const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1, px = (e.clientX - r.left) * dpr, py = (e.clientY - r.top) * dpr;
   return view.rot ? [(py - view.oy) / view.s, BH - (px - view.ox) / view.s] : [(px - view.ox) / view.s, (py - view.oy) / view.s]; };
-function moveTo(e) { if (!drag) return; const [x, y] = toW(e), p = placed[drag.i]; p.x = Math.round((x - drag.dx) * 4) / 4; p.y = Math.round((y - drag.dy) * 4) / 4; recompute(); }
+// Rotate by dragging a piece's end (or its knob): the piece turns to follow the pointer, snapping to 15° steps when close.
+const SEGS = { mirror: 1, splitter: 1, lens: 1 };
+const handlesOf = p => p.t === 'marker' ? [] : SEGS[p.t] ? [1, -1].map(k => { const [dx, dy] = rot(k * (p.L ?? SIZE[p.t]) / 2, 0, rad(p.a)); return [p.x + dx, p.y + dy]; }) : [(() => { const [dx, dy] = rot(1.9, 0, rad(p.a)); return [p.x + dx, p.y + dy]; })()];
+const angTo = (p, x, y) => Math.atan2(y - p.y, x - p.x) * 180 / Math.PI;
+function snapAngle(a) { const m = Math.round(a / 15) * 15; return Math.abs(a - m) < 2.5 ? m : Math.round(a * 2) / 2; }
+function moveTo(e) { if (!drag) return; const [x, y] = toW(e), p = placed[drag.i];
+  if (drag.rot) { const a = snapAngle(angTo(p, x, y) + drag.off); if (a !== p.a) { p.a = +a.toFixed(2); tickSfx(); } recompute(); return; }
+  p.x = Math.round((x - drag.dx) * 4) / 4; p.y = Math.round((y - drag.dy) * 4) / 4; recompute(); }
+function handleAt(x, y, touch) { const r = touch ? .9 : .55, order = sel >= 0 ? [sel, ...placed.keys()] : [...placed.keys()];
+  for (const i of order) { const p = placed[i]; if (!p) continue; if (!SEGS[p.t] && i !== sel) continue; for (const [hx, hy] of handlesOf(p)) if (Math.hypot(hx - x, hy - y) < r) return i; } return -1; }
 function pick(x, y, touch) {
   for (let i = placed.length - 1; i >= 0; i--) { const p = placed[i]; if (Math.hypot(p.x - x, p.y - y) < Math.max(touch ? 1.8 : 1.2, (p.L ?? SIZE[p.t] ?? 3) / 2)) return i; }
   return -1;
 }
-cv.addEventListener('pointerdown', e => { const [x, y] = toW(e), i = pick(x, y, e.pointerType === 'touch'); sel = i; if (i >= 0) { drag = { i, dx: x - placed[i].x, dy: y - placed[i].y }; cv.setPointerCapture(e.pointerId); } draw(); updateStatus(); });
+cv.addEventListener('pointerdown', e => { const [x, y] = toW(e), touch = e.pointerType === 'touch', h = handleAt(x, y, touch);
+  if (h >= 0) { sel = h; const p = placed[h]; drag = { i: h, rot: true, off: p.a - angTo(p, x, y) }; cv.setPointerCapture(e.pointerId); draw(); updateStatus(); return; }
+  const i = pick(x, y, touch); sel = i; if (i >= 0) { drag = { i, dx: x - placed[i].x, dy: y - placed[i].y }; cv.setPointerCapture(e.pointerId); } draw(); updateStatus(); });
 addEventListener('pointermove', e => { if (drag) moveTo(e); });
 function turnSel(d) { const p = placed[sel]; if (!p) return; p.a = +(p.a + d).toFixed(2); tickSfx(); save(); recompute(); }
 let rotHold = 0;
@@ -601,6 +612,8 @@ function focalMarks(c, p, pts, selected, lw) {
 }
 function drawPiece(c, p, selected, lw = 1 / view.s) {
   c.save();
+  if (selected && lw < .5 && placed.includes(p)) { // turning knobs on the selected piece
+    c.save(); for (const [hx, hy] of handlesOf(p)) { c.fillStyle = '#ffcf6a'; c.strokeStyle = '#2a1a08'; c.lineWidth = 1.5 * lw; c.beginPath(); c.arc(hx, hy, 7 * lw, 0, 7); c.fill(); c.stroke(); } c.restore(); }
   if (p.t === 'mirror' || p.t === 'splitter' || p.t === 'lens') {
     const L2 = (p.L ?? SIZE[p.t]) / 2, [dx, dy] = rot(L2, 0, rad(p.a));
     if (p.t === 'lens') {
@@ -753,7 +766,7 @@ const help = () => RH.modal(`<h2>Opticks</h2>
 $('helpBtn').onclick = help;
 render(); loadLevel(cur);
 if (!S.intro) { S.intro = 1; persist(); help(); }
-window.__opt = { lightLamp, predictHit, predictStars, migrate, get revealed() { return revealed; },  BOX, COST, parOf, costOf, starsFor, starsNow,  get view() { return view; }, toW, VT, turnSel, L, trace, checkTarget, loadLevel, cleanSave, trayOf, chOpen, SETTLE, get R() { return R; }, get cur() { return cur; }, get sel() { return sel; }, set sel(v) { sel = v; }, get placed() { return placed; }, set placed(v) { placed = v; }, recompute, S };
+window.__opt = { handlesOf, snapAngle,  lightLamp, predictHit, predictStars, migrate, get revealed() { return revealed; },  BOX, COST, parOf, costOf, starsFor, starsNow,  get view() { return view; }, toW, VT, turnSel, L, trace, checkTarget, loadLevel, cleanSave, trayOf, chOpen, SETTLE, get R() { return R; }, get cur() { return cur; }, get sel() { return sel; }, set sel(v) { sel = v; }, get placed() { return placed; }, set placed(v) { placed = v; }, recompute, S };
 </script>
 </body>
 </html>

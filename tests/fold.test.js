@@ -247,6 +247,12 @@ module.exports = {
       const d = await page.evaluate(() => ({ pos: __fold.pos, v: __fold.valid(__fold.pos) }));
       ok(d.v); eq(d.pos.slice(0, path.length), path.map(([dx, dy]) => [P0[0] + dx, P0[1] + dy]));
     },
+    'newcomer: warm-up 1 cleared in the default Pull mode by dragging each end down; the target outline is shown': async ({ page, ok, eq }) => {
+      await dismiss(page); eq(await page.evaluate(() => __fold.gmode), 'pull'); ok(await page.evaluate(() => !!__fold.ghostFold()), 'target outline');
+      const cs = await page.evaluate(() => __fold.cellSize);
+      for (const i of [0, 3]) { const [x, y] = await page.evaluate((i) => __fold.screen(i), i); await page.mouse.move(x, y); await page.mouse.down(); for (let k = 1; k <= 10; k++) await page.mouse.move(x, y + cs * k / 10); await page.mouse.up(); }
+      eq(await page.evaluate(() => __fold.contacts().c), 1); ok(await page.isVisible('#nextBtn')); eq(await page.evaluate(() => __fold.ghostFold()), null);
+    },
     'phone layout: no horizontal scroll, canvas is large enough': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect() }));
