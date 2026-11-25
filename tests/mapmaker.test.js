@@ -226,6 +226,41 @@ module.exports = {
         return { sure, doubtful, reef: s1.reef, marked: Object.keys(M.S.reefInk).length, sail: M.ship.sail }; });
       eq(r.sure, 0); ok(r.doubtful, 'doubtful ink is flagged'); eq(r.reef, true); ok(r.marked >= 1); ok(r.sail <= 1, 'sounding slows the ship');
     },
+    'you never sail into land you can see: the lookout calls "Land ahead!" and the ship heaves to, unharmed (even in fog)': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const M = window.__map, is = M.islands[1], c = is.coast[0]; const out = [];
+        for (const fog of [0, 20]) { const dx = c[0] - is.cx, dy = c[1] - is.cy, L = Math.hypot(dx, dy); const x = c[0] + dx / L * 40, y = c[1] + dy / L * 40;
+          M.atPort = false; M.fogT = fog; const h0 = M.S.hull; M.ship = { x, y, bx: x, by: y, h: Math.atan2(-dy, -dx), sail: 2, voyageDmg: 0 }; M.target = null;
+          for (let i = 0; i < 400; i++) { if (M.ship.sail === 0) break; M.ship.h = Math.atan2(c[1] - M.ship.y, c[0] - M.ship.x); M.step(0.05); }
+          out.push([M.S.hull === h0, M.ship.sail, M.isLand(M.ship.x, M.ship.y)]); }
+        M.fogT = 0; return out; });
+      eq(r, [[true, 0, false], [true, 0, false]]);
+    },
+    'hidden reefs: breakers are called in clear weather, the lead calls the shallows in fog, and fog slows the ship to half sail': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const M = window.__map; const toasts = []; RH.toast = (m) => toasts.push(m); M.atPort = false; const rf = M.reefs[0];
+        const put = (fog) => { rf.warnT = -1e9; M.fogT = fog; M.ship = { x: rf.x + 28, y: rf.y, bx: rf.x + 28, by: rf.y, h: Math.PI, sail: 1, voyageDmg: 0 }; M.step(0.05); };
+        put(0); const clear = toasts.slice(); toasts.length = 0; M.ship = { x: rf.x + 18, y: rf.y, bx: rf.x + 18, by: rf.y, h: Math.PI, sail: 1, voyageDmg: 0 }; rf.warnT = -1e9; M.fogT = 20; M.step(0.05); const fog = toasts.slice();
+        // speed in fog
+        M.ship = { x: 300, y: 60, bx: 300, by: 60, h: 0, sail: 2, voyageDmg: 0 }; while (M.isLand(M.ship.x, M.ship.y)) M.ship.y += 10; const x0 = M.ship.x, y0 = M.ship.y; M.fogT = 20; for (let i = 0; i < 20; i++) { M.ship.sail = 2; M.step(0.05); }
+        const moved = Math.hypot(M.ship.x - x0, M.ship.y - y0); M.fogT = 0; return { clear, fog, moved }; });
+      ok(r.clear.some(t => /Breakers/.test(t)), JSON.stringify(r.clear)); ok(r.fog.some(t => /lead.*shoaling/.test(t)) && !r.fog.some(t => /Breakers/.test(t)), JSON.stringify(r.fog)); ok(r.moved < 20, 'half sail in fog: moved ' + r.moved);
+    },
+    'after a fix the chart shows where we reckoned, where we are, and what the current did, in plain words; dead reckoning is explained once': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(async () => { const M = window.__map; let modals = 0; RH.modal = (h) => { modals++; window.__lastModal = h; return Promise.resolve(); }; M.atPort = false; M.S.explained = 0;
+        M.ship.bx = M.ship.x - 20; M.ship.by = M.ship.y - 30; M.nav = { dist: 200, t: 12, cells: { 5: 12 } }; M.fixAt(M.ship.x, M.ship.y, 'Bearings taken on two charted landmarks');
+        M.ship.bx = M.ship.x + 10; M.nav = { dist: 200, t: 12, cells: { 5: 12 } }; M.fixAt(M.ship.x, M.ship.y, 'Bearings taken on two charted landmarks'); await new Promise(r => setTimeout(r, 450));
+        return { d: M.lastDrift && [Math.round(M.lastDrift.off), M.lastDrift.dir], log: M.S.log[1].t, modals, txt: window.__lastModal }; });
+      eq(r.d, [10, 'west']); ok(/current carried us 36 miles south-east/.test(r.log), r.log); eq(r.modals, 1, 'explained only once'); ok(/Dead reckoning/.test(r.txt), r.txt);
+    },
+    'first commission walkthrough: set sail → chart the coast → take bearings → allow for current → deliver': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const M = window.__map, S = M.S; const steps = []; const look = () => { M.renderOrders(); steps.push(S.tut); };
+        look(); M.atPort = false; M.ship.sail = 2; look(); S.ink = M.islands[0].coast.slice(0, Math.ceil(M.islands[0].coast.length * 0.2)).map(p => [p[0], p[1]]); M.hashInk(); look();
+        S.tutFix = 1; look(); S.allow = true; look(); S.done[0] = 1; look(); return { steps, hidden: document.getElementById('orders').hidden }; });
+      eq(r.steps, [0, 1, 2, 3, 4, 5]); eq(r.hidden, true);
+    },
+    'event sounds are rate-limited: a burst of bumps makes one soft knock, not a scrape': async ({ page, eq }) => {
+      const n = await page.evaluate(() => { let c = 0; const t = FX.tone; FX.tone = () => { c++; }; const M = window.__map; for (let i = 0; i < 6; i++) M.damage(1, 'x'); FX.tone = t; return c; });
+      eq(n, 1);
+    },
     'mobile layout: no horizontal scroll, chart and sail buttons visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
       const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cv: document.getElementById('chart').getBoundingClientRect().toJSON(), look: document.getElementById('look').getBoundingClientRect().toJSON() }));
