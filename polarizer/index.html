@@ -106,6 +106,11 @@
     #hud.selon{max-height:calc(100vh - 120px)}
     .pc,.b{font-size:10.5px;padding:4px 7px;min-height:30px}
   }
+  /* zoom controls: three bakelite buttons on a little rack plate */
+  .pz-bar{position:fixed!important;right:16px;bottom:16px;padding:5px;gap:5px!important;border-radius:3px;background:linear-gradient(170deg,var(--enamel2),var(--enamel));border:1px solid #121414;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 8px 18px -8px rgba(0,0,0,.9)}
+  .pz-bar button{min-width:34px!important;min-height:34px!important;padding:0!important;border:1px solid #000;border-radius:3px;color:var(--engr);font:400 18px "Share Tech Mono",monospace!important;background:linear-gradient(#3b3d3e,#191a1b);box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 2px 0 #050505;opacity:1!important}
+  .pz-bar button:active{transform:translateY(1px)}
+  @media (max-width:900px),(max-height:500px){.pz-bar{right:6px;bottom:auto}.pz-bar button{min-width:32px!important;min-height:32px!important}}
   @media (prefers-reduced-motion:reduce){#toast,#toast.on{transition:opacity .2s}}
 </style>
 </head>
@@ -118,6 +123,7 @@
 <div id="toast" class="chip" role="status"></div>
 <script src="../shared/common.js"></script>
 <script src="../shared/fx.js"></script>
+<script src="../shared/panzoom.js"></script>
 <script>
 'use strict';
 // ================= quantum optics on a grid =================
@@ -263,11 +269,23 @@ function fit() {
   else { l = 380; r = innerWidth - 250; t = 30; b = Math.min(innerHeight - 150, tray.top - 70); }
   cell = Math.max(8, Math.min((r - l) / (GW + .9), (b - t) / (GH + .9))) * dpr; ox = (l + r) / 2 * dpr - cell * GW / 2; oy = (t + b) / 2 * dpr - cell * GH / 2; // leave room for the board's rim
   // the lab bench and the black anodised breadboard (M6 holes on a 25 mm pitch) are static: bake once per layout
-  const key = [W, H, cell, ox, oy].map(v => Math.round(v)).join(); if (key !== fit.key) { fit.key = key; bgC.width = W; bgC.height = H; bakeBench(); } // re-bake only when the layout really moved
+  if (key0() !== fit.key0) { fit.key0 = key0(); if (cam) { cam.state = { x: 0, y: 0, k: 1 }; cam.touched = false; } } // a new layout starts from the fitted view
+  rebake();
+  if (cam && cam.bar) { const b = cam.bar.style; if (innerHeight <= 500 && innerWidth >= 560 || narrow()) { b.top = (innerHeight <= 500 ? 6 : hud.bottom + 6) + 'px'; b.bottom = 'auto'; } else { b.top = 'auto'; b.bottom = '16px'; } }
   $('sel').style.bottom = (innerHeight - tray.top + 8) + 'px';
   need = true;
 }
 addEventListener('resize', () => L && fit());
+const key0 = () => [W, H, cell, ox, oy].map(v => Math.round(v)).join();
+// ---- the camera: the fitted layout is the identity view; zoom and pan sit on top of it (in CSS px) ----
+let cam = null, bakeT = 0;
+function rebake() { // the bench is baked for one camera; while the view moves the bake is stretched, then redrawn sharp once it settles
+  const key = key0() + '|' + (cam ? [cam.x, cam.y, cam.k].map(v => v.toFixed(3)).join() : '');
+  if (key === fit.key) return; fit.key = key; if (bgC.width !== W || bgC.height !== H) { bgC.width = W; bgC.height = H; }
+  bake.cam = cam ? cam.state : { x: 0, y: 0, k: 1 }; bakeBench();
+}
+const bake = { cam: { x: 0, y: 0, k: 1 } };
+const camT = () => cam ? [cam.k, cam.x * dpr, cam.y * dpr] : [1, 0, 0];
 const C = (x, y) => [ox + (x + .5) * cell, oy + (y + .5) * cell];
 function noiseCanvas(w, h, lo, hi, seed = 1) { // grainy texture (anodising, enamel, linoleum)
   const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'), im = x.createImageData(w, h); let a = seed >>> 0;
@@ -280,6 +298,7 @@ function bakeBench() {
   // bench: dark green-grey linoleum under a desk lamp
   const bench = g.createRadialGradient(W * .5, H * .42, 0, W * .5, H * .42, Math.max(W, H) * .75); bench.addColorStop(0, '#3a403b'); bench.addColorStop(1, '#121513'); g.fillStyle = bench; g.fillRect(0, 0, W, H);
   g.globalAlpha = .06; g.globalCompositeOperation = 'overlay'; g.fillStyle = g.createPattern(GRAIN, 'repeat'); g.fillRect(0, 0, W, H); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+  g.save(); g.setTransform(bake.cam.k, 0, 0, bake.cam.k, bake.cam.x * dpr, bake.cam.y * dpr);
   // the breadboard
   const m = cell * .42, bx = ox - m, by = oy - m, bw = cell * GW + 2 * m, bh = cell * GH + 2 * m;
   g.save(); g.shadowColor = 'rgba(0,0,0,.75)'; g.shadowBlur = 30 * dpr; g.shadowOffsetY = 12 * dpr; g.fillStyle = '#0d0e0f'; g.beginPath(); g.roundRect(bx, by, bw, bh, 6 * dpr); g.fill(); g.restore();
@@ -304,6 +323,7 @@ function bakeBench() {
   g.restore();
   // corner bolts
   for (const [cx, cy] of [[bx + m * .5, by + m * .5], [bx + bw - m * .5, by + m * .5], [bx + m * .5, by + bh - m * .5], [bx + bw - m * .5, by + bh - m * .5]]) bolt(g, cx, cy, m * .26);
+  g.restore();
 }
 function bolt(g, x, y, r) { // socket-head cap screw
   const gr = g.createRadialGradient(x - r * .3, y - r * .3, 0, x, y, r); gr.addColorStop(0, '#d8dadb'); gr.addColorStop(1, '#4b4e50'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
@@ -373,7 +393,10 @@ function drawPart(p, now, ghost) {
   g.restore();
 }
 function draw(now) {
-  g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(bgC, 0, 0);
+  g.setTransform(1, 0, 0, 1, 0, 0); const [k, tx, ty] = camT(), b = bake.cam;
+  if (b.k === k && Math.abs(b.x * dpr - tx) < .01 && Math.abs(b.y * dpr - ty) < .01) g.drawImage(bgC, 0, 0);
+  else { g.fillStyle = '#1a1e1b'; g.fillRect(0, 0, W, H); const s = k / b.k; g.setTransform(s, 0, 0, s, tx - b.x * dpr * s, ty - b.y * dpr * s); g.drawImage(bgC, 0, 0); }
+  g.setTransform(k, 0, 0, k, tx, ty);
   // the laser source: a long black head with a red aperture
   for (const sc of L.sources) { const [x, y] = C(sc.x, sc.y), s = cell * .38;
     g.save(); g.translate(x, y); g.rotate([0, Math.PI / 2, Math.PI, -Math.PI / 2][sc.d]); g.shadowColor = 'rgba(0,0,0,.7)'; g.shadowBlur = 10 * dpr; g.shadowOffsetY = 4 * dpr;
@@ -419,34 +442,43 @@ function draw(now) {
 const particles = FX.particles();
 
 // ================= input =================
-const cellAt = e => { const r = cv.getBoundingClientRect(), x = ((e.clientX - r.left) * dpr - ox) / cell, y = ((e.clientY - r.top) * dpr - oy) / cell; return [Math.floor(x), Math.floor(y)]; };
+const ptr = e => { const [wx, wy] = cam ? cam.toWorld(e.clientX, e.clientY) : [e.clientX, e.clientY]; return [wx * dpr, wy * dpr]; }; // world position, in the board's device-pixel units
+const cellAt = e => { const [px, py] = ptr(e); return [Math.floor((px - ox) / cell), Math.floor((py - oy) / cell)]; };
 const occupied = (x, y) => L.fixed.find(p => p.x === x && p.y === y) || parts.find(p => p.x === x && p.y === y) || L.sources.find(s => s.x === x && s.y === y);
 const inBoard = (x, y) => x >= 0 && y >= 0 && x < GW && y < GH;
 const free = (x, y, self) => { if (!inBoard(x, y)) return false; const o = occupied(x, y); return !o || o === self; };
 // ---- hands on the breadboard: drag optics out of the drawer, slide them between holes, twist rotation mounts by their ring ----
 let drag = null, celeb = 0;
-const ptr = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * dpr, (e.clientY - r.top) * dpr]; };
 function placeNew(t, x, y) {
   const max = L.tray[t] || 0; if (used(t) >= max) { FX.sfx('fail'); return null; }
   const p = P(t, x, y, t === 'phase' ? 90 : 0, 1); // filters and wave plates start at 0°: no free solutions
   parts.push(p); sel = p; FX.sfx('place'); FX.shake(.08); recompute(); renderTray(); showSel(); check(); return p;
 }
+// taps on empty holes act on release, so a drag there can pan the view and a second finger can pinch instead
+let tap = null, nPtr = 0;
 cv.addEventListener('pointerdown', e => {
-  const [x, y] = cellAt(e); if (!inBoard(x, y)) { sel = null; showSel(); return; }
-  const hit = occupied(x, y), [px, py] = ptr(e);
+  nPtr++; if (nPtr > 1) { tap = null; if (drag && (drag.mode === 'move' || drag.mode === 'press' || drag.mode === 'rot')) { if (drag.mode === 'rot') { drag.part.a = drag.a0; recompute(); showSel(); sliding = false; } drag = null; need = true; } return; }
+  const [x, y] = cellAt(e);
+  const hit = inBoard(x, y) && occupied(x, y), [px, py] = ptr(e);
+  if (!hit || !parts.includes(hit)) { tap = { x, y, cx: e.clientX, cy: e.clientY, hit }; return; }
   if (hit && parts.includes(hit)) {
     const [cx, cy] = C(hit.x, hit.y), d = Math.hypot(px - cx, py - cy) / cell;
     // grabbing the knurled ring of a selected (or any) rotation mount twists it; grabbing the middle carries the mount
     drag = { mode: ROT(hit.t) && d > .24 ? 'rot' : 'press', part: hit, x0: px, y0: py, a0: hit.a, ang0: Math.atan2(py - cy, px - cx), wasSel: sel === hit };
     if (drag.mode === 'rot') { sliding = true; sel = hit; showSel(); FX.sfx('tick'); }
-    cv.setPointerCapture(e.pointerId); return;
+    try { cv.setPointerCapture(e.pointerId); } catch (_) {} return;
   }
-  if (hit) { sel = null; showSel(); return; }
-  if (tool) { placeNew(tool, x, y); return; }
-  sel = null; showSel();
 });
+const ptrUp = e => {
+  nPtr = Math.max(0, nPtr - 1); const t = tap; tap = null;
+  if (!t || e.type === 'pointercancel' || Math.hypot(e.clientX - t.cx, e.clientY - t.cy) > 8) return;
+  if (!inBoard(t.x, t.y) || t.hit || !tool) { sel = null; showSel(); return; }
+  placeNew(tool, t.x, t.y);
+};
+cv.addEventListener('pointerup', ptrUp); cv.addEventListener('pointercancel', ptrUp);
 function dragMove(e) {
   if (!drag) return;
+  if (cam.gesturing && drag.mode !== 'new') return;
   const [px, py] = ptr(e);
   if (drag.mode === 'rot') {
     const [cx, cy] = C(drag.part.x, drag.part.y), ang = Math.atan2(py - cy, px - cx);
@@ -655,9 +687,15 @@ function frame(now) {
   if (need || celeb || drag || photons.length || flashes.length || particles.list.length) { need = false; draw(now); }
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; } else if (!raf) { need = true; raf = requestAnimationFrame(frame); } });
+cam = PanZoom(cv, { onChange: () => { need = true; clearTimeout(bakeT); bakeT = setTimeout(() => { rebake(); need = true; }, 140); },
+  canPanFrom: e => { const [x, y] = cellAt(e); return !(inBoard(x, y) && parts.includes(occupied(x, y))); }, min: .6, max: 4 });
+{ const goFit = animate => { cam.touched = false; const f = cam.state, t0 = performance.now(), ms = animate ? 260 : 0;
+    const step = now => { const u = ms ? Math.min(1, (now - t0) / ms) : 1, e = 1 - (1 - u) ** 3; cam.state = { x: f.x * (1 - e), y: f.y * (1 - e), k: f.k + (1 - f.k) * e }; cam.touched = false; if (u < 1) requestAnimationFrame(step); };
+    step(t0); };
+  cam.fit = goFit; } // the fitted view is the layout's own: Fit eases back to it
 load(+SAVE.cur || 0);
 raf = requestAnimationFrame(frame);
-window.__pz = { LV, load, simulate, addPart: (t, x, y, a = 0, m = 1) => { if (occupied(x, y)) return null; const p = P(t, x, y, a, m); parts.push(p); recompute(); renderTray(); check(); return p; }, setAngle: (p, a) => { p.a = a; recompute(); check(); }, hits: () => Rz.hits, fire, get fires() { return fires; }, get parts() { return parts; }, get won() { return won; }, select: p => { sel = p; showSel(); }, setAngleUI: a => setAngle(a), get holding() { return holding; }, get crate() { return crate; }, newCrate, crateFire, crateStamp, crateSeed: sd => { crateRng = RH.rng(sd); }, SAVE, screenOf: (x, y) => { const [px, py] = C(x, y), r = cv.getBoundingClientRect(); return [r.left + px / dpr, r.top + py / dpr, cell / dpr]; }, get celeb() { return celeb; } };
+window.__pz = { LV, load, simulate, addPart: (t, x, y, a = 0, m = 1) => { if (occupied(x, y)) return null; const p = P(t, x, y, a, m); parts.push(p); recompute(); renderTray(); check(); return p; }, setAngle: (p, a) => { p.a = a; recompute(); check(); }, hits: () => Rz.hits, fire, get fires() { return fires; }, get parts() { return parts; }, get won() { return won; }, select: p => { sel = p; showSel(); }, setAngleUI: a => setAngle(a), get holding() { return holding; }, get crate() { return crate; }, newCrate, crateFire, crateStamp, crateSeed: sd => { crateRng = RH.rng(sd); }, SAVE, screenOf: (x, y) => { const [px, py] = C(x, y), [sx, sy] = cam.toScreen(px / dpr, py / dpr); return [sx, sy, cell / dpr * cam.k]; }, get cam() { return cam; }, get tool() { return tool; }, setTool: t => { tool = t; renderTray(); }, get celeb() { return celeb; } };
 </script>
 </body>
 </html>

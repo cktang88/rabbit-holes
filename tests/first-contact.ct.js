@@ -10,7 +10,7 @@ function ctBot(seed, policy) {
   // handshake: competent and english know the swap from "you" to "we"; random needs many tries and then is shown it
   if (policy === 'random') { for (let k = 0; k < 6 && !fc.ctHandshake(seenW.slice(0, 1 + rnd.int(5)).map(() => seenW[rnd.int(seenW.length)])).ok;) k++; }
   fc.ctHandshake(C.hs.ans);
-  const guess = it => { for (let k = 0; k < 40 && fc.CT && !fc.X.cur.done && fc.X.cur.dos[it] !== C.val[it]; k++) fc.ctFile(it, rnd.int(16)); };
+  const guess = it => { for (let k = 0; k < 300 && fc.CT && !fc.X.cur.done && fc.X.cur.dos[it] !== C.val[it]; k++) fc.ctFile(it, rnd.int(16)); };
   const read = rep => rep && rep.kind === 'answer' ? rep.val : null;
   for (const it of C.items) {
     if (fc.X.cur.dos[it] === C.val[it]) continue;

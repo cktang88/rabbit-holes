@@ -14,6 +14,60 @@ module.exports = {
         if (await page.evaluate(i => window.__opt.L[i].predict, i)) { ok(await page.evaluate(i => { const o = window.__opt, lv = o.L[i]; return o.predictHit(lv, lv.sol[0]) && !o.predictHit(lv, { ...lv.sol[0], x: lv.sol[0].x + 1 }); }, i), `prediction level ${i}`); continue; }
         const c = await placeSol(page, i); ok(c.length && c.every(Boolean), `level ${i} solution fails: ${c}`); }
     },
+    'pan and zoom: a piece dragged from the tray while zoomed and panned lands under the pointer': async ({ page, ok, near }) => {
+      await closeModals(page);
+      await page.evaluate(() => { const o = window.__opt; o.loadLevel(0); o.placed = []; o.recompute(); const r = document.getElementById('cv').getBoundingClientRect(); o.cam.zoomAt(r.left + r.width / 2, r.top + r.height / 2, 2.2); o.cam.panBy(40, -25); });
+      const tb = await page.locator('#tray .piece').first().boundingBox(), cb = await page.locator('#cv').boundingBox();
+      const sx = cb.x + cb.width * .62, sy = cb.y + cb.height * .4;
+      await page.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2); await page.mouse.down(); await page.mouse.move(sx, sy, { steps: 8 }); await page.mouse.up();
+      const r = await page.evaluate(([sx, sy]) => { const o = window.__opt, c = document.getElementById('cv').getBoundingClientRect(), dpr = devicePixelRatio || 1;
+        const m = new DOMMatrix(o.VT()).inverse(), w = m.transformPoint(new DOMPoint((sx - c.left) * dpr, (sy - c.top) * dpr)); return { p: o.placed[0], w: [w.x, w.y], k: o.cam.k }; }, [sx, sy]);
+      ok(r.p && r.k > 2, 'no piece placed or not zoomed'); near(r.p.x, r.w[0], .2); near(r.p.y, r.w[1], .2);
+    },
+    'pan and zoom: a pinch that starts on a piece zooms but never moves, turns or places it; dragging bare bench pans, dragging a piece moves it': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const before = await page.evaluate(() => { const o = window.__opt; o.loadLevel(0); o.placed = [{ t: 'mirror', id: 0, x: 14, y: 8, a: 45 }]; o.sel = 0; o.recompute(); o.cam.fit(); return { ...o.placed[0], k: o.cam.k }; });
+      const after = await page.evaluate(() => { const o = window.__opt, cv = document.getElementById('cv'), dpr = devicePixelRatio || 1, c = cv.getBoundingClientRect();
+        const scr = (x, y) => { const p = new DOMMatrix(o.VT()).transformPoint(new DOMPoint(x, y)); return [c.left + p.x / dpr, c.top + p.y / dpr]; };
+        const [hx, hy] = scr(...o.handlesOf(o.placed[0])[0]), [mx, my] = scr(o.placed[0].x, o.placed[0].y);
+        const ev = (t, id, x, y) => cv.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch', isPrimary: id === 1 }));
+        ev('pointerdown', 1, hx, hy); ev('pointermove', 1, hx + 4, hy + 30); ev('pointerdown', 2, mx + 60, my + 40);
+        for (let k = 1; k <= 6; k++) { ev('pointermove', 1, hx - k * 8, hy - k * 5); ev('pointermove', 2, mx + 60 + k * 8, my + 40 + k * 5); }
+        ev('pointerup', 1, hx - 48, hy - 30); ev('pointerup', 2, mx + 108, my + 70); window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1 }));
+        return { ...o.placed[0], n: o.placed.length, k: o.cam.k }; });
+      eq([after.x, after.y, after.a, after.n], [before.x, before.y, before.a, 1]); ok(after.k > before.k * 1.3, 'pinch did not zoom ' + after.k);
+      await page.waitForTimeout(50);
+      const pan = await page.evaluate(() => { const o = window.__opt, cv = document.getElementById('cv'), c = cv.getBoundingClientRect(), x0 = o.cam.x;
+        const ev = (t, x, y) => cv.dispatchEvent(new PointerEvent(t, { pointerId: 5, clientX: x, clientY: y, bubbles: true, pointerType: 'mouse', button: 0 }));
+        let ex = c.left + 5, ey = c.top + 5; for (let k = 0; k < 40 && o.pick(...o.toW({ clientX: ex, clientY: ey })) >= 0; k++) ex += 10;
+        ev('pointerdown', ex, ey); ev('pointermove', ex + 30, ey); ev('pointerup', ex + 30, ey); window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 5 }));
+        return { dx: o.cam.x - x0, p: { ...o.placed[0] } }; });
+      ok(Math.abs(pan.dx - 30) < 1.5 && pan.p.x === before.x, 'empty drag ' + JSON.stringify(pan));
+      await page.waitForTimeout(50);
+      const cb = await page.evaluate(() => { const o = window.__opt, dpr = devicePixelRatio || 1, c = document.getElementById('cv').getBoundingClientRect(), p = new DOMMatrix(o.VT()).transformPoint(new DOMPoint(o.placed[0].x, o.placed[0].y)); return [c.left + p.x / dpr, c.top + p.y / dpr, o.cam.x]; });
+      await page.mouse.move(cb[0], cb[1]); await page.mouse.down(); await page.mouse.move(cb[0] + 40, cb[1] + 10, { steps: 5 }); await page.mouse.up();
+      const m = await page.evaluate(() => ({ x: window.__opt.placed[0].x, camx: window.__opt.cam.x }));
+      ok(m.x !== before.x && m.camx === cb[2], 'dragging the mirror ' + JSON.stringify(m));
+    },
+    'pan and zoom: Fit restores the whole bench; the bar is styled; a new experiment starts fitted': async ({ page, ok, near }) => {
+      await closeModals(page);
+      await page.evaluate(() => { const o = window.__opt, r = document.getElementById('cv').getBoundingClientRect(); o.cam.zoomAt(r.left + 50, r.top + 50, 3); o.cam.panBy(-80, 30); });
+      await page.click('.pz-fit'); await page.waitForTimeout(450);
+      const c = await page.evaluate(() => window.__opt.cam.state); near(c.k, 1, 1e-6); near(c.x, 0, 1e-6); near(c.y, 0, 1e-6);
+      ok(await page.evaluate(() => getComputedStyle(document.querySelector('.pz-bar button')).borderRadius === '50%'), 'pz bar not styled');
+      await page.evaluate(() => { const o = window.__opt, r = document.getElementById('cv').getBoundingClientRect(); o.cam.zoomAt(r.left + 50, r.top + 50, 3); o.loadLevel(1); });
+      near(await page.evaluate(() => window.__opt.cam.k), 1, 1e-6);
+    },
+    'pan and zoom on a phone: + zooms, the rotated bench still maps the pointer, and a tap on a piece selects it': async ({ page, ok }) => {
+      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }); const p = await ctx.newPage();
+      await p.goto(page.url()); await p.waitForTimeout(900); await p.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
+      await p.evaluate(() => { const o = window.__opt; o.loadLevel(0); o.placed = [{ t: 'mirror', id: 0, x: 14, y: 8, a: 45 }]; o.sel = -1; o.recompute(); });
+      await p.locator('.pz-in').tap(); await p.waitForTimeout(100);
+      const s = await p.evaluate(() => { const o = window.__opt, dpr = devicePixelRatio || 1, c = document.getElementById('cv').getBoundingClientRect(), q = new DOMMatrix(o.VT()).transformPoint(new DOMPoint(14, 8)); return { x: c.left + q.x / dpr, y: c.top + q.y / dpr, k: o.cam.k, rot: o.view.rot }; });
+      ok(s.k > 1.3 && s.rot, JSON.stringify(s));
+      await p.touchscreen.tap(s.x, s.y); await p.waitForTimeout(100);
+      ok(await p.evaluate(() => window.__opt.sel === 0), 'tap on the zoomed mirror did not select it'); await ctx.close();
+    },
     'no level is solved with an empty bench': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const o = window.__opt; return o.L.map((l, i) => { o.loadLevel(i); o.placed = []; o.recompute(); return o.R.checks.every(c => c.ok); }); });
       r.forEach((v, i) => ok(!v, `level ${i} solved at start`));

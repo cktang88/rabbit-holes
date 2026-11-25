@@ -36,7 +36,8 @@
   #behav{position:absolute;top:10px;left:12px;z-index:1;pointer-events:none;color:#3b2a1a;font-family:"IM Fell English SC",serif;font-size:15px;text-shadow:0 0 6px #f1d48e,0 0 2px #f1d48e}
   #log{position:absolute;left:50%;transform:translateX(-50%);bottom:70px;width:min(560px,92%);text-align:center;z-index:1;pointer-events:none;color:#f6eed8;font-family:"IM Fell English",serif;font-style:italic;font-size:15px;line-height:1.3}
   #log:not(:empty){background:rgba(42,29,18,.72);padding:4px 10px}
-  #fitBtn{position:absolute;right:10px;top:8px;z-index:3;font-size:14px;background:rgba(246,238,216,.92)}
+  .pz-bar{top:8px;right:10px;bottom:auto!important;z-index:3!important;gap:6px!important}
+  .pz-bar button{font-family:"IM Fell English SC",serif;font-size:20px!important;min-width:40px!important;min-height:40px!important;background:rgba(246,238,216,.92);opacity:1!important}
   #dock{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);display:flex;gap:8px;z-index:3;white-space:nowrap}
   #dock button{min-height:46px;min-width:48px;font-size:17px;box-shadow:inset 0 0 0 2px #f6eed8,inset 0 0 0 3px #b9a27a,3px 4px 10px rgba(0,0,0,.45)}
   #dock button.primary{padding:4px 28px;box-shadow:inset 0 0 0 2px #8b1e1e,inset 0 0 0 3px #d9a07a,3px 4px 10px rgba(0,0,0,.45)}
@@ -101,7 +102,7 @@
   .modal h2{font-family:"IM Fell English SC",serif;font-weight:400;font-size:26px;text-align:center;border-bottom:1px solid #3b2a1a}
   .modal .modal-actions{background-color:#efe2c2}
   .toast{background:#f9f1dc;color:#3b2a1a;border:1px solid #3b2a1a;border-radius:0;font-family:"IM Fell English",serif;box-shadow:3px 3px 0 rgba(0,0,0,.35)}
-  .toast-wrap{bottom:76px}
+  .toast-wrap{bottom:128px}
   /* phones: the journal is a sheet that rises from the bottom; the top of the dish stays in view */
   @media (max-width:700px){
     .topbar h1{display:none}
@@ -123,7 +124,6 @@
 <main id="center">
   <div id="agar"></div><canvas id="world" data-play></canvas><div id="lens"></div>
   <div id="behav"></div><div id="log"></div><div id="predict"></div>
-  <button id="fitBtn" title="Frame the colonies (F)">Fit</button>
   <div id="dock">
     <span class="dk-play"><button id="playBtn" aria-label="Play or pause">⏸</button><button id="soupBtn">New soup</button><button class="primary" id="scanBtn">Scan</button></span>
     <span class="dk-draw"><button id="drawClear">Clear</button><button class="primary" id="testDrawBtn">Test it</button><button id="drawDone">Done</button></span>
@@ -156,6 +156,7 @@
 </main>
 <script src="../shared/common.js"></script>
 <script src="../shared/fx.js"></script>
+<script src="../shared/panzoom.js"></script>
 <script>
 // ===================== State =====================
 const isObj=(o)=>o&&typeof o==='object'&&!Array.isArray(o);
@@ -244,34 +245,36 @@ function tick(n){ for (let i=0;i<n;i++){ stepGrid(grid,next,W,H,S.rule); [grid,n
 // 32-bit writes), scaled up on the GPU, and cut into round colonies by a mask pattern. The dish is a torus, so
 // panning wraps forever and the dashed line marks the seam. Fresh colonies are vermilion, old ones dark sepia.
 const cv=document.getElementById('world'), cx=cv.getContext('2d');
-const off=document.createElement('canvas'); off.width=W; off.height=H; const ocx=off.getContext('2d');
-const img=ocx.createImageData(W,H); const img32=new Uint32Array(img.data.buffer); let age=new Uint8Array(W*H);
+const K=6; // each cell is a K×K round stamp in the ImageData; the GPU scales it smoothly, so colonies come out round
+const off=document.createElement('canvas'); off.width=W*K; off.height=H*K; const ocx=off.getContext('2d'); const img=ocx.createImageData(W*K,H*K); const img32=new Uint32Array(img.data.buffer); let age=new Uint8Array(W*H), shown=new Uint8Array(W*H);
 const reduceMotion = typeof matchMedia==='function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const PAL=new Uint32Array(61); for (let a=0;a<=60;a++){ const t=Math.min(1,a/14); const r=170-t*112|0, g=58-t*24|0, b=30-t*10|0; PAL[a]=(255<<24|b<<16|g<<8|r)>>>0; }
-// view: z = CSS pixels per cell; (vx,vy) = the world point at the centre of the eyepiece
-let view={z:9, vx:W/2, vy:H/2}, scr={w:0,h:0,d:1}, lensMark=null, dirty=true, popNow=0, maskPat=null;
-const ZMAX=40, zmin=()=>Math.min(scr.w,scr.h)/W;
+// stamps: one K×K round colony per age (anti-aliased edge in the alpha byte); index 0 is empty agar
+const STAMP=[]; { const al=new Float32Array(K*K); for (let y=0;y<K;y++) for (let x=0;x<K;x++){ let c=0; for (let sy=0;sy<4;sy++) for (let sx=0;sx<4;sx++){ const dx=x+(sx+.5)/4-K/2, dy=y+(sy+.5)/4-K/2; if (dx*dx+dy*dy<=(K*.46)**2) c++; } al[y*K+x]=c/16; }
+  STAMP.push(new Uint32Array(K*K)); for (let a=1;a<=60;a++){ const st=new Uint32Array(K*K), col=PAL[a]&0xffffff; for (let j=0;j<K*K;j++) st[j]=((Math.round(al[j]*255)<<24)|col)>>>0; STAMP.push(st); } }
+// The camera is shared/panzoom.js: cam.k = CSS px per cell, (cam.x, cam.y) = where the world origin sits on screen.
+let scr={w:0,h:0,d:1}, lensMark=null, dirty=true, popNow=0, maskPat=null, pinned=null;
+const mod=(a,n)=>((a%n)+n)%n;
 function makeCanvas(w,h){ const c=document.createElement('canvas'); c.width=w; c.height=h; return c; }
 function buildOverlays(){ const m=makeCanvas(32,32), mg=m.getContext('2d'); const gr=mg.createRadialGradient(13,12,2,16,16,15); gr.addColorStop(0,'rgba(0,0,0,.82)'); gr.addColorStop(.75,'#000'); gr.addColorStop(1,'rgba(0,0,0,0)'); mg.fillStyle=gr; mg.beginPath(); mg.arc(16,16,15,0,7); mg.fill(); maskPat=cx.createPattern(m,'repeat'); }
 // The agar and the lens are CSS layers (composited, not repainted): the agar's speckles move with the view.
 const SPECK=(()=>{ const sp=makeCanvas(64,64), sg=sp.getContext('2d'); const r=RH.rng('agar'); for (let i=0;i<46;i++){ sg.fillStyle=`rgba(${90+r.int(40)},${55+r.int(30)},20,${.05+r()*.08})`; sg.beginPath(); sg.arc(r()*64,r()*64,1+r()*3.5,0,7); sg.fill(); } return sp.toDataURL(); })();
 const agarEl=document.getElementById('agar'); agarEl.style.backgroundImage=`url(${SPECK}),radial-gradient(ellipse at 42% 38%,#f6dc9c,#e2b766 55%,#a97a35)`;
 let lastAgar='';
-function layout(){ const r=cv.getBoundingClientRect(); const w=Math.max(100,Math.round(r.width)), h=Math.max(100,Math.round(r.height)), d=Math.min(1.5,window.devicePixelRatio||1);
-  if (w!==scr.w || h!==scr.h || d!==scr.d || !maskPat){ scr={w,h,d}; cv.width=w*d; cv.height=h*d; buildOverlays(); view.z=Math.max(zmin(),Math.min(ZMAX,view.z)); dirty=true; } }
+function layout(){ const r=cv.getBoundingClientRect(); const w=Math.max(100,Math.round(r.width)), h=Math.max(100,Math.round(r.height)), d=Math.min(1,window.devicePixelRatio||1);
+  if (w!==scr.w || h!==scr.h || d!==scr.d || !maskPat){ scr={w,h,d}; cv.width=w*d; cv.height=h*d; buildOverlays(); dirty=true; } }
 // Age the colonies and paint the generation into the ImageData (one pixel per cell)
-function refreshImage(){ let p=0; for (let i=0;i<W*H;i++){ if (grid[i]){ const a=age[i]<60? age[i]+1 : 60; age[i]=a; img32[i]=PAL[a]; p++; } else if (age[i]|img32[i]){ age[i]=0; img32[i]=0; } }
+function refreshImage(){ let p=0; const RW=W*K;
+  for (let i=0;i<W*H;i++){ let a=0; if (grid[i]){ a=age[i]<60? age[i]+1 : 60; p++; } age[i]=a; const v=a>14? 15 : a; // colours stop changing after age 14
+    if (v!==shown[i]){ shown[i]=v; const st=STAMP[a], x0=(i%W)*K, y0=((i/W)|0)*K; for (let y=0;y<K;y++){ const o=(y0+y)*RW+x0, so=y*K; for (let x=0;x<K;x++) img32[o+x]=st[so+x]; } } }
   ocx.putImageData(img,0,0); popNow=p; dirty=true; }
-const mod=(a,n)=>((a%n)+n)%n;
 function render(){
-  layout(); const {w,h,d}=scr, z=view.z, s=z*d, W2=w*d, H2=h*d;
-  const ox=(w/2-view.vx*z)*d, oy=(h/2-view.vy*z)*d;   // device position of the world origin
+  layout(); const {w,h,d}=scr, z=cam.k, s=z*d, W2=w*d, H2=h*d;
+  const ox=cam.x*d, oy=cam.y*d;   // device position of the world origin
   const ag=`${mod(ox/d,8*z).toFixed(1)}px ${mod(oy/d,8*z).toFixed(1)}px,0 0|${(8*z).toFixed(1)}px`; if (ag!==lastAgar){ lastAgar=ag; const [pos,sz]=ag.split('|'); agarEl.style.backgroundPosition=pos; agarEl.style.backgroundSize=`${sz} ${sz},100% 100%`; }
-  cx.setTransform(1,0,0,1,0,0); cx.globalCompositeOperation='source-over'; cx.clearRect(0,0,W2,H2); cx.imageSmoothingEnabled=false;
+  cx.setTransform(1,0,0,1,0,0); cx.globalCompositeOperation='source-over'; cx.clearRect(0,0,W2,H2); cx.imageSmoothingEnabled=true;
   const tw=W*s, th=H*s, x0=ox-Math.ceil(ox/tw)*tw, y0=oy-Math.ceil(oy/th)*th;
   for (let tx=x0; tx<W2; tx+=tw) for (let ty=y0; ty<H2; ty+=th) cx.drawImage(off, tx, ty, tw, th);
-  // cut the square pixels into round colonies
-  if (s>=5){ cx.globalCompositeOperation='destination-in'; maskPat.setTransform(new DOMMatrix([s/32,0,0,s/32,ox,oy])); cx.fillStyle=maskPat; cx.fillRect(0,0,W2,H2); cx.globalCompositeOperation='source-over'; }
   // the seam of the torus, and a faint ruled grid while drawing
   cx.strokeStyle='rgba(59,42,26,.35)'; cx.lineWidth=d; cx.setLineDash([6*d,6*d]); cx.beginPath();
   for (let tx=x0; tx<W2; tx+=tw){ cx.moveTo(tx,0); cx.lineTo(tx,H2); } for (let ty=y0; ty<H2; ty+=th){ cx.moveTo(0,ty); cx.lineTo(W2,ty); } cx.stroke(); cx.setLineDash([]);
@@ -282,21 +285,27 @@ function render(){
 }
 const behavEl=document.getElementById('behav');
 function draw(){ refreshImage(); render(); }
+// The camera (shared/panzoom.js). One finger or the mouse pans (unless you are drawing), two fingers pinch, the wheel
+// zooms, ⤢ frames the colonies. The dish is a torus: the view is kept centred on the first copy so panning wraps forever.
+const cam=PanZoom(cv, { world:()=>pinned||colonyBox(), min:.1, max:4, pad:16, canPanFrom:()=>!drawing,
+  onChange:()=>{ if (!scr.w) return; const cxw=(scr.w/2-cam.x)/cam.k, cyw=(scr.h/2-cam.y)/cam.k;
+    if (cxw<0||cxw>=W) cam.x=scr.w/2-mod(cxw,W)*cam.k; if (cyw<0||cyw>=H) cam.y=scr.h/2-mod(cyw,H)*cam.k; dirty=true; } });
+const view={ get z(){ return cam.k; }, get vx(){ return mod((scr.w/2-cam.x)/cam.k,W); }, get vy(){ return mod((scr.h/2-cam.y)/cam.k,H); } };
 // screen (CSS px inside the canvas) <-> world cells; the nearest copy of a cell on the torus
-function worldToScreen(x,y){ const dx=mod(x-view.vx+W/2,W)-W/2, dy=mod(y-view.vy+H/2,H)-H/2; return [scr.w/2+dx*view.z, scr.h/2+dy*view.z]; }
-function screenToWorld(px,py){ return [(px-scr.w/2)/view.z+view.vx, (py-scr.h/2)/view.z+view.vy]; }
-function dishToCell(px,py){ const [x,y]=screenToWorld(px,py); return [mod(Math.floor(x),W), mod(Math.floor(y),H)]; }
+function worldToScreen(x,y){ const dx=mod(x-view.vx+W/2,W)-W/2, dy=mod(y-view.vy+H/2,H)-H/2; return [scr.w/2+dx*cam.k, scr.h/2+dy*cam.k]; }
+function dishToCell(px,py){ const r=cv.getBoundingClientRect(); const [x,y]=cam.toWorld(r.left+px, r.top+py); return [mod(Math.floor(x),W), mod(Math.floor(y),H)]; }
 function cellToClient(x,y){ layout(); const r=cv.getBoundingClientRect(); const p=worldToScreen(x+.5,y+.5); return [r.left+p[0], r.top+p[1]]; }
-function setView(vx,vy,z){ view.vx=mod(vx,W); view.vy=mod(vy,H); view.z=Math.max(zmin(),Math.min(ZMAX,z)); dirty=true; }
-function zoomAt(px,py,f){ const [wx,wy]=screenToWorld(px,py); const z=Math.max(zmin(),Math.min(ZMAX,view.z*f)); setView(wx-(px-scr.w/2)/z, wy-(py-scr.h/2)/z, z); }
-// Fit: frame the colonies (the shortest arc of the torus that holds them on each axis)
+function setView(vx,vy,z){ layout(); cam.state={k:z, x:scr.w/2-vx*z, y:scr.h/2-vy*z}; cam.touched=true; }
+function zoomAt(px,py,f){ const r=cv.getBoundingClientRect(); cam.zoomAt(r.left+px, r.top+py, f); }
+// Fit: frame the colonies (the shortest arc of the torus that holds them on each axis), at least 30 cells across
 function span(occ,n){ let first=-1; for (let i=0;i<n;i++) if (occ[i]){ first=i; break; } if (first<0) return null;
   let best=0, bs=0, run=0; for (let k=1;k<=n;k++){ const i=(first+k)%n; if (!occ[i]){ run++; if (run>best){ best=run; bs=(i-run+1+n)%n; } } else run=0; }
   if (!best) return {c:n/2, len:n}; const start=(bs+best)%n, len=n-best; return {c:start+len/2, len}; }
-function viewBox(){ const top=46, bot=70; return {w:scr.w, h:Math.max(80,scr.h-top-bot), oy:(top-bot)/2}; }
-function fitTo(c){ layout(); const vb=viewBox(); const z=Math.max(zmin(), Math.min(16, vb.w/(c.w+4), vb.h/(c.h+4))); setView(c.x, c.y-vb.oy/z, z); }
-function fitColonies(){ const ox=new Uint8Array(W), oy=new Uint8Array(H); for (let i=0;i<W*H;i++) if (grid[i]){ ox[i%W]=1; oy[(i/W)|0]=1; }
-  const a=span(ox,W), b=span(oy,H); if (!a){ fitSoup(); return; } fitTo({x:a.c, y:b.c, w:a.len, h:b.len}); }
+function box(c){ const w=Math.max(30,c.w+6), h=Math.max(30,c.h+6); return {x:c.x-w/2, y:c.y-h/2, w, h}; }
+function colonyBox(){ const ox=new Uint8Array(W), oy=new Uint8Array(H); for (let i=0;i<W*H;i++) if (grid[i]){ ox[i%W]=1; oy[(i/W)|0]=1; }
+  const a=span(ox,W), b=span(oy,H); return a? box({x:a.c, y:b.c, w:a.len, h:b.len}) : box({x:W/2, y:H/2, w:48, h:48}); }
+function fitTo(c){ layout(); pinned=box(c); try { cam.fit(false); } finally { pinned=null; } cam.touched=true; }  // automatic framings are not refitted on resize
+function fitColonies(){ layout(); cam.fit(false); }
 function fitSoup(){ fitTo({x:W/2, y:H/2, w:48, h:48}); }
 // Click a colony to put it under the lens on its own (a focused, one-object scan).
 function examineAt(x,y){
@@ -329,34 +338,25 @@ document.getElementById('drawBtn').onclick=()=>setDrawing(true);
 document.getElementById('drawDone').onclick=()=>{ setDrawing(false); running=true; syncPlay(); };
 document.getElementById('drawClear').onclick=()=>{ grid.fill(0); gen=0; draw(); };
 document.getElementById('testDrawBtn').onclick=()=>testDrawing();
-// Gestures on the dish: one finger (or the mouse) pans, two fingers pinch, the wheel zooms, a tap examines a colony.
-// In draw mode one finger paints instead (the first cell decides whether you draw or erase).
-const ptrs=new Map(); let gest=null, paint=null;
+// Taps and painting on the dish. The camera handles pans and pinches; a tap that did not move examines a colony.
+// In draw mode one finger paints (the first cell decides whether you draw or erase); a second finger undoes that
+// stroke and becomes a pinch.
+const ptrs=new Map(); let tap=null, paint=null;
 const local=(e)=>{ const r=cv.getBoundingClientRect(); return [e.clientX-r.left, e.clientY-r.top]; };
+function setCell(k,v){ if (grid[k]!==v){ paint.undo.push([k,grid[k]]); grid[k]=v; } }
 function paintTo(px,py){ const [x,y]=dishToCell(px,py); const k=y*W+x; if (k===paint.last) return; const lx=paint.last%W, ly=(paint.last/W)|0;
   let dx=mod(x-lx+W/2,W)-W/2, dy=mod(y-ly+H/2,H)-H/2; const n=Math.max(Math.abs(dx),Math.abs(dy));
-  for (let i=1;i<=n;i++){ const xx=mod(Math.round(lx+dx*i/n),W), yy=mod(Math.round(ly+dy*i/n),H); grid[yy*W+xx]=paint.v; } paint.last=k; draw(); }
-cv.addEventListener('pointerdown', e=>{ e.preventDefault(); try{ cv.setPointerCapture(e.pointerId); }catch(_){}
-  const p=local(e); ptrs.set(e.pointerId,p);
+  for (let i=1;i<=n;i++){ const xx=mod(Math.round(lx+dx*i/n),W), yy=mod(Math.round(ly+dy*i/n),H); setCell(yy*W+xx, paint.v); } paint.last=k; draw(); }
+cv.addEventListener('pointerdown', e=>{ e.preventDefault(); const p=local(e); ptrs.set(e.pointerId,p);
   if (narrow() && document.body.classList.contains('sheet')) closeSheet();
-  if (ptrs.size===1){ gest={kind:drawing?'paint':'pan', p0:p, v0:{...view}, moved:0};
-    if (drawing){ const [x,y]=dishToCell(...p); const k=y*W+x; paint={v:grid[k]?0:1, last:k}; grid[k]=paint.v; SND.lens(); draw(); } }
-  else if (ptrs.size===2){ paint=null; const [a,b]=[...ptrs.values()]; gest={kind:'pinch', d0:Math.hypot(a[0]-b[0],a[1]-b[1])||1, c0:[(a[0]+b[0])/2,(a[1]+b[1])/2], v0:{...view}, moved:99}; }
-});
-cv.addEventListener('pointermove', e=>{ if (!ptrs.has(e.pointerId) || !gest) return; const p=local(e); ptrs.set(e.pointerId,p);
-  if (gest.kind==='pinch' && ptrs.size>=2){ const [a,b]=[...ptrs.values()]; const dd=Math.hypot(a[0]-b[0],a[1]-b[1])||1, c=[(a[0]+b[0])/2,(a[1]+b[1])/2];
-    const v=gest.v0, z=Math.max(zmin(),Math.min(ZMAX,v.z*dd/gest.d0)); const wx=(gest.c0[0]-scr.w/2)/v.z+v.vx, wy=(gest.c0[1]-scr.h/2)/v.z+v.vy; setView(wx-(c[0]-scr.w/2)/z, wy-(c[1]-scr.h/2)/z, z); return; }
-  gest.moved=Math.max(gest.moved, Math.hypot(p[0]-gest.p0[0], p[1]-gest.p0[1]));
-  if (gest.kind==='paint' && paint) paintTo(...p);
-  else if (gest.kind==='pan' && gest.moved>4){ const v=gest.v0; setView(v.vx-(p[0]-gest.p0[0])/v.z, v.vy-(p[1]-gest.p0[1])/v.z, v.z); cv.style.cursor='grabbing'; }
-});
-function endPtr(e){ if (!ptrs.has(e.pointerId)) return; const p=ptrs.get(e.pointerId); ptrs.delete(e.pointerId); cv.style.cursor='';
-  if (gest && gest.kind==='pan' && gest.moved<=6 && ptrs.size===0 && e.type==='pointerup'){ const [x,y]=dishToCell(...p); examineAt(x,y); }
-  if (ptrs.size===1 && gest && gest.kind==='pinch'){ const q=[...ptrs.values()][0]; gest={kind:'pan', p0:q, v0:{...view}, moved:99}; }
-  if (!ptrs.size){ gest=null; paint=null; } }
+  if (ptrs.size===1 && !cam.gesturing){ tap={p0:p, multi:false};
+    if (drawing){ try{ cv.setPointerCapture(e.pointerId); }catch(_){} const [x,y]=dishToCell(...p); const k=y*W+x; paint={v:grid[k]?0:1, last:k, undo:[]}; setCell(k,paint.v); SND.lens(); draw(); } }
+  else { if (tap) tap.multi=true; if (paint){ for (let i=paint.undo.length-1;i>=0;i--) grid[paint.undo[i][0]]=paint.undo[i][1]; paint=null; draw(); } } });
+cv.addEventListener('pointermove', e=>{ if (!ptrs.has(e.pointerId)) return; const p=local(e); ptrs.set(e.pointerId,p); if (paint && !cam.gesturing) paintTo(...p); });
+function endPtr(e){ if (!ptrs.has(e.pointerId)) return; ptrs.delete(e.pointerId); const p=local(e);
+  if (!drawing && tap && !tap.multi && !ptrs.size && e.type==='pointerup' && Math.hypot(p[0]-tap.p0[0],p[1]-tap.p0[1])<=6){ const [x,y]=dishToCell(...p); examineAt(x,y); }
+  if (!ptrs.size){ tap=null; paint=null; } }
 cv.addEventListener('pointerup', endPtr); cv.addEventListener('pointercancel', endPtr);
-cv.addEventListener('wheel', e=>{ e.preventDefault(); const p=local(e); zoomAt(p[0],p[1], Math.exp(-Math.max(-60,Math.min(60,e.deltaY))*0.006)); }, {passive:false});
-document.getElementById('fitBtn').onclick=()=>fitColonies();
 const pop=(g)=>{ let p=0; for (let i=0;i<g.length;i++) p+=g[i]; return p; };
 
 // ===================== Classifier =====================
@@ -730,7 +730,7 @@ function autoStep(){
   }
 }
 
-window.__rh={ breed, shelf, todayGoal, GOALS, OPS, ruleName, renderLab, predict, maybePredict, NOTES, noteFor, bitsOf, testDrawing, setDrawing, get pending(){ return pending; }, examineAt, catalog, autoUnlocked, dishToCell, cellToClient, get view(){ return view; }, setView, zoomAt, fitColonies, fitSoup, fps, openSheet, closeSheet, showTab, refreshImage, render, stepGrid, components, normalize, canon, unwrap, analyzeObject, growthCheck, classifyRule, parseRule, ruleStr, speedStr, nameFor, scan, setRule, soup, tick, checkBounties, renderBounties, BOUNTIES, claimed, W, H,
+window.__rh={ breed, shelf, todayGoal, GOALS, OPS, ruleName, renderLab, predict, maybePredict, NOTES, noteFor, bitsOf, testDrawing, setDrawing, get pending(){ return pending; }, examineAt, catalog, autoUnlocked, dishToCell, cellToClient, cam, get view(){ return view; }, setView, zoomAt, fitColonies, fitSoup, fps, openSheet, closeSheet, showTab, refreshImage, render, stepGrid, components, normalize, canon, unwrap, analyzeObject, growthCheck, classifyRule, parseRule, ruleStr, speedStr, nameFor, scan, setRule, soup, tick, checkBounties, renderBounties, BOUNTIES, claimed, W, H,
   get S(){ return S; }, get grid(){ return grid; }, get gen(){ return gen; }, setBudget(n){ growthBudget=n; }, get running(){ return running; }, set running(v){ running=v; }, get auto(){ return auto; },
   place(pts, ox=70, oy=70){ grid.fill(0); gen=0; for (const [x,y] of pts) grid[(oy+y)*W+ox+x]=1; draw(); } };
 // Main loop: step, repaint only what changed, and keep a frame clock (the tests read it to check 60fps).
@@ -743,7 +743,7 @@ function loop(now){ if (running){ const sp=+document.getElementById('speed').val
   requestAnimationFrame(loop); }
 function fps(ms=1000){ const t=performance.now(); const f=frames.filter(x=>x>t-ms); return f.length<2? 0 : (f.length-1)*1000/(f[f.length-1]-f[0]); }
 renderBits(); renderRuleInfo(); renderGuide(); renderBounties(); renderTotals(); renderAuto(); renderLab(); layout(); fitSoup(); soup(); requestAnimationFrame(loop);
-window.addEventListener('resize', ()=>{ const was={...scr}; layout(); if (was.w && (Math.abs(was.w-scr.w)>40 || Math.abs(was.h-scr.h)>80)) fitColonies(); render(); });
+window.addEventListener('resize', ()=>{ const c=[view.vx,view.vy], k=cam.k; layout(); if (cam.touched) setView(c[0],c[1],k); render(); });  // keep the same spot in the middle
 if (!S.intro){ S.intro=1; persist(); const hint='Pinch or scroll to zoom · drag to look around · tap a colony to examine it'; log(hint); setTimeout(()=>{ if (document.getElementById('log').textContent===hint) log(''); }, 12000); RH.modal(`<h2>Rule Hunter</h2><p>Conway's Game of Life is one rule: a dead cell is <b>B</b>orn with exactly 3 neighbours, and a live cell <b>S</b>urvives with 2 or 3. Change those numbers and you get a different universe. There are 262,144 of them.</p><p>Most are empty. Some explode. Some hold creatures that crawl, blink and grow, and nobody has ever named them.</p><p>Let a soup settle, then <b>tap a colony</b> to examine it under the lens, or <b>Scan</b> the whole dish. Tap the <b>rule</b> at the top to change the switches. Everything else (your field guide, prizes, the rule map and the breeding shelf) is in the journal, <b>⋯</b>.</p>`,[{label:'Go hunting'}]); }
 </script>
 </body>

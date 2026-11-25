@@ -240,6 +240,38 @@ module.exports = {
       await page.mouse.move(mx, my); await page.mouse.down(); await page.mouse.move(mx, 4, { steps: 10 }); await page.mouse.up();
       eq(await page.evaluate(() => __pz.parts.map(p => p.t)), ['pol'], 'dragged off the board goes back in the drawer');
     },
+    'pan and zoom: drop and tap-place land under the finger when zoomed; pinch places nothing; drag on empty space pans; Fit restores': async ({ page, ok, eq, near }) => {
+      await page.evaluate(() => { const S = __pz.SAVE; for (let i = 0; i < 11; i++) S.done[i] = 1; __pz.load(11); });
+      const k0 = await page.evaluate(() => __pz.cam.k);
+      await page.click('.pz-in'); await page.click('.pz-in'); ok(await page.evaluate(() => __pz.cam.k) > k0 * 1.8, 'zoomed in');
+      // drag a polariser from the drawer onto hole (6,3) at its zoomed position
+      let [hx, hy] = await page.evaluate(() => __pz.screenOf(6, 3)); const tray = await page.locator('#tray [data-t="pol"]').boundingBox();
+      await page.mouse.move(tray.x + tray.width / 2, tray.y + tray.height / 2); await page.mouse.down(); await page.mouse.move(hx + 3, hy - 2, { steps: 10 }); await page.mouse.up();
+      eq(await page.evaluate(() => __pz.parts.map(p => [p.t, p.x, p.y])), [['pol', 6, 3]], 'dropped where the pointer was');
+      // a mouse wheel zoom around a point keeps the hole under the cursor
+      await page.mouse.move(hx, hy); await page.mouse.wheel(0, -300); await page.waitForTimeout(50);
+      const [hx2, hy2] = await page.evaluate(() => __pz.screenOf(6, 3)); near(hx2, hx, 1.5); near(hy2, hy, 1.5);
+      // pick the mirror tool and tap a zoomed hole
+      await page.click('#tray [data-t="mirror"]'); const [mx, my] = await page.evaluate(() => __pz.screenOf(7, 4));
+      await page.mouse.click(mx, my); ok(await page.evaluate(() => __pz.parts.some(p => p.t === 'mirror' && p.x === 7 && p.y === 4)), 'tap placed a mirror at the zoomed hole');
+      // a two-finger pinch on empty holes with a tool armed places nothing, and zooms
+      await page.click('#tray [data-t="mirror"]').catch(() => {}); await page.evaluate(() => { if (!__pz.tool) __pz.setTool('mirror'); });
+      const r = await page.evaluate(() => { const el = document.getElementById('cv'), [ax, ay] = __pz.screenOf(9, 2), [bx, by] = __pz.screenOf(11, 2), n = __pz.parts.length, k = __pz.cam.k;
+        const ev = (t, id, x, y) => el.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch', isPrimary: id === 1 }));
+        ev('pointerdown', 1, ax, ay); ev('pointerdown', 2, bx, by); ev('pointermove', 1, ax - 30, ay); ev('pointermove', 2, bx + 30, by); ev('pointerup', 1, ax - 30, ay); ev('pointerup', 2, bx + 30, by);
+        return { added: __pz.parts.length - n, zoom: __pz.cam.k / k, tool: __pz.tool }; });
+      eq(r.added, 0, 'pinch placed a part'); ok(r.zoom > 1.1, 'pinch zoomed ' + r.zoom);
+      // dragging a placed part still moves it (it does not pan)
+      const cx0 = await page.evaluate(() => __pz.cam.x); [hx, hy] = await page.evaluate(() => __pz.screenOf(6, 3)); const [tx, ty] = await page.evaluate(() => __pz.screenOf(6, 5));
+      await page.mouse.move(hx, hy); await page.mouse.down(); await page.mouse.move(tx, ty, { steps: 8 }); await page.mouse.up();
+      ok(await page.evaluate(() => __pz.parts.some(p => p.t === 'pol' && p.x === 6 && p.y === 5)), 'carried the polariser'); eq(await page.evaluate(() => __pz.cam.x), cx0, 'moving a part does not pan');
+      // dragging an empty hole pans and places nothing
+      const n0 = await page.evaluate(() => __pz.parts.length), [ex, ey] = await page.evaluate(() => __pz.screenOf(3, 7));
+      await page.mouse.move(ex, ey); await page.mouse.down(); await page.mouse.move(ex + 60, ey, { steps: 6 }); await page.mouse.up();
+      near(await page.evaluate(() => __pz.cam.x) - cx0, 60, 2, 'empty-space drag pans'); eq(await page.evaluate(() => __pz.parts.length), n0, 'pan placed nothing');
+      await page.click('.pz-fit'); await page.waitForTimeout(450);
+      eq(await page.evaluate(() => [__pz.cam.k, __pz.cam.x, __pz.cam.y]), [1, 0, 0], 'Fit returns to the fitted board');
+    },
     'progress and locked levels': async ({ page, eq, ok }) => {
       const locked = await page.$$eval('#levels .lv.lock', els => els.map(e => +e.dataset.i));
       eq(locked, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);

@@ -32,7 +32,7 @@ module.exports = {
       ok(t, 'no city in view after zooming');
       await p.touchscreen.tap(t.x, t.y); await p.waitForTimeout(200);
       ok(await p.locator('#travelBox').isVisible(), 'tap after zoom did not plan'); eq(await p.evaluate(() => document.querySelector('#travelBox b').textContent), await p.evaluate(id => window.__caravan.cities[id].name, t.id));
-      ok(await p.evaluate(() => getComputedStyle(document.getElementById('zIn')).width) === '40px', 'zoom buttons');
+      ok(await p.evaluate(() => getComputedStyle(document.querySelector('#mapWrap .pz-in')).width) === '40px', 'zoom buttons');
       await ctx.close();
     },
     'touch: the intro dialog button is on screen without scrolling, portrait and landscape': async ({ page, ok }) => {

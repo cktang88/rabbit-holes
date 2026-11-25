@@ -84,7 +84,7 @@ module.exports = {
       eq(await page.evaluate(() => { const R = __rh; R.setRule(R.parseRule('B3/S23')); const a = R.classifyRule(); R.setRule(R.parseRule('B8/S')); return [a, R.classifyRule()]; }), ['complex', 'dies']);
     },
     'UI: rule box accepts valid text and rejects junk; B0 button disabled; bit buttons toggle': async ({ page, eq }) => {
-      await dismiss(page);
+      await dismiss(page); await page.click('#ruleChip'); await page.waitForTimeout(300);
       await page.fill('#ruleStr', 'B36/S23'); await page.press('#ruleStr', 'Enter'); eq(await page.evaluate(() => __rh.ruleStr(__rh.S.rule)), 'B36/S23');
       await page.fill('#ruleStr', 'garbage'); await page.press('#ruleStr', 'Enter'); eq(await page.evaluate(() => __rh.ruleStr(__rh.S.rule)), 'B36/S23');
       eq(await page.isDisabled('#bits button[data-k="b"][data-i="0"]'), true);
@@ -92,12 +92,12 @@ module.exports = {
     },
     'bounty tips: clicking a suggested rule switches to it': async ({ page, eq }) => {
       await dismiss(page);
-      await page.click('.tabs button[data-t="bounty"]'); await page.click('#p-bounty a[data-r="B34/S34"] >> nth=0');
+      await page.click('#moreBtn'); await page.click('.tabs button[data-t="bounty"]'); await page.waitForTimeout(300); await page.click('#p-bounty a[data-r="B34/S34"] >> nth=0');
       eq(await page.evaluate(() => __rh.ruleStr(__rh.S.rule)), 'B34/S34');
     },
     'rule map click jumps to that rule (never B0)': async ({ page, ok }) => {
       await dismiss(page);
-      await page.click('.tabs button[data-t="map"]'); const box = await page.locator('#mapCv').boundingBox();
+      await page.click('#moreBtn'); await page.click('.tabs button[data-t="map"]'); await page.waitForTimeout(300); const box = await page.locator('#mapCv').boundingBox();
       await page.mouse.click(box.x + 2, box.y + box.height / 2);
       ok(await page.evaluate(() => (__rh.S.rule.b & 1) === 0));
     },
@@ -117,7 +117,7 @@ module.exports = {
     'click a colony in the dish: it is examined alone and catalogued once (lens)': async ({ page, eq, ok }) => {
       await dismiss(page);
       await page.evaluate((PAT) => { const R = __rh; R.setRule(R.parseRule('B3/S23')); R.place(PAT.glider, 40, 40); }, PAT);
-      const pt = await page.evaluate(() => { const r = document.getElementById('world').getBoundingClientRect(), d = __rh.dish, sc = d.sq / __rh.W; return [r.left + d.x0 + 41.5 * sc, r.top + d.y0 + 41.5 * sc]; });
+      await page.evaluate(() => __rh.setView(42, 42, 10)); const pt = await page.evaluate(() => __rh.cellToClient(41, 41));
       await page.mouse.click(...pt);
       const a = await page.evaluate(() => [Object.values(__rh.S.species).map(s => s.type), document.getElementById('log').textContent, __rh.S.scans]);
       eq(a[0], ['diag']); ok(/New diagonal ship/.test(a[1]), a[1]); eq(a[2], 0, 'examining is not a scan');
@@ -126,19 +126,21 @@ module.exports = {
     },
     'the assistant (auto-hunt) is locked until 10 hand scans': async ({ page, eq }) => {
       await dismiss(page);
-      eq(await page.isDisabled('#autoBtn'), true); await page.click('#autoBtn', { force: true }); eq(await page.evaluate(() => __rh.auto), false);
+      await page.click('#ruleChip'); await page.waitForTimeout(300); await page.click('#p-rule summary'); eq(await page.isDisabled('#autoBtn'), true); await page.click('#autoBtn', { force: true }); eq(await page.evaluate(() => __rh.auto), false);
       await page.evaluate(() => { for (let i = 0; i < 10; i++) __rh.scan(true); });
       eq(await page.isDisabled('#autoBtn'), false); await page.click('#autoBtn'); eq(await page.evaluate(() => __rh.auto), true);
     },
-    'landscape phone: dish fills the screen; panels are drawers; edge buttons make soups and scan': async ({ page, eq, ok }) => {
+    'landscape phone: dish fills the screen; the journal is one sheet; the dock makes soups and scans': async ({ page, eq, ok }) => {
       await dismiss(page); await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(300);
-      const open = (id) => page.evaluate((id) => { const r = document.getElementById(id).getBoundingClientRect(); return r.right > 5 && r.left < innerWidth - 5; }, id);
-      eq([await open('left'), await open('right')], [false, false]);
-      await page.click('.drawerBtn[data-drawer="right"]'); await page.waitForTimeout(350); eq(await open('right'), true);
-      await page.click('.drawerBtn[data-drawer="left"]'); await page.waitForTimeout(350); eq([await open('left'), await open('right')], [true, false]);
-      await page.mouse.click(700, 200); await page.waitForTimeout(350); eq(await open('left'), false, 'tapping the dish closes the drawer');
-      const s0 = await page.evaluate(() => __rh.S.scans); await page.click('#scanBtn2'); eq(await page.evaluate(() => __rh.S.scans), s0 + 1);
-      await page.evaluate(() => { __rh.tick(30); }); await page.click('#soupBtn2'); eq(await page.evaluate(() => __rh.gen), 0);
+      const open = () => page.evaluate(() => { const r = document.getElementById('sheet').getBoundingClientRect(); return r.left < innerWidth - 5 && getComputedStyle(document.getElementById('sheet')).visibility === 'visible'; });
+      const w = await page.evaluate(() => { const r = document.getElementById('world').getBoundingClientRect(); return r.width * r.height / (innerWidth * innerHeight); });
+      ok(w > .8, 'dish fills the screen: ' + w); eq(await open(), false);
+      await page.click('#moreBtn'); await page.waitForTimeout(350); eq(await open(), true);
+      await page.mouse.click(120, 200); await page.waitForTimeout(350); eq(await open(), false, 'tapping the dish closes the journal');
+      await page.click('#ruleChip'); await page.waitForTimeout(350); eq(await open(), true); ok(await page.isVisible('#bits'), 'rule chip opens the switches');
+      await page.click('#sheetX'); await page.waitForTimeout(350);
+      const s0 = await page.evaluate(() => __rh.S.scans); await page.click('#scanBtn'); eq(await page.evaluate(() => __rh.S.scans), s0 + 1);
+      await page.evaluate(() => { __rh.tick(30); }); await page.click('#soupBtn'); eq(await page.evaluate(() => __rh.gen), 0);
     },
     'species are patterns, not pattern-per-rule: a glider found in two rules is one species living in both': async ({ page, eq }) => {
       await dismiss(page);
@@ -166,8 +168,8 @@ module.exports = {
     },
     'draw mode: draw a glider by clicking cells, test it, and earn the design prize': async ({ page, eq, ok }) => {
       await dismiss(page); await page.evaluate(() => { __rh.S.noPredict = 1; __rh.setRule(__rh.parseRule('B3/S23')); });
-      await page.click('#drawBtn');
-      const pts = await page.evaluate((PAT) => { const r = document.getElementById('world').getBoundingClientRect(), d = __rh.dish, sc = d.sq / __rh.W; return PAT.glider.map(([x, y]) => [r.left + d.x0 + (60 + x + .5) * sc, r.top + d.y0 + (60 + y + .5) * sc]); }, PAT);
+      await page.click('#ruleChip'); await page.waitForTimeout(300); await page.click('#drawBtn'); await page.evaluate(() => __rh.setView(62, 62, 12));
+      const pts = await page.evaluate((PAT) => PAT.glider.map(([x, y]) => __rh.cellToClient(60 + x, 60 + y)), PAT);
       for (const p of pts) await page.mouse.click(...p);
       eq(await page.evaluate(() => __rh.grid.reduce((a, b) => a + b, 0)), 5);
       await page.click('#testDrawBtn');
@@ -176,7 +178,7 @@ module.exports = {
     },
     'rule map compass: clicking a neighbour flips exactly that switch': async ({ page, eq }) => {
       await dismiss(page); await page.evaluate(() => { __rh.S.noPredict = 1; __rh.setRule(__rh.parseRule('B3/S23')); });
-      await page.click('.tabs button[data-t="map"]'); const box = await page.locator('#mapCv').boundingBox();
+      await page.click('#moreBtn'); await page.click('.tabs button[data-t="map"]'); await page.waitForTimeout(300); const box = await page.locator('#mapCv').boundingBox();
       // S row, switch 8: last cell of the second row
       await page.mouse.click(box.x + box.width * (8.5 / 9.5 + .02), box.y + box.height * ((24 + 320 / 9.5 + 18 + 15) / 330));
       eq(await page.evaluate(() => __rh.ruleStr(__rh.S.rule)), 'B3/S238');
@@ -204,16 +206,51 @@ module.exports = {
       ok(r.random.filter(x => x > .2).length === 0, 'random bot late-prize rates ' + r.random); ok(r.idle <= .2, 'idle ' + r.idle);
       ok(r.design && r.competent > Math.max(...r.random), 'competent policy beats naive: ' + r.competent); ok(r.right >= 4, 'note-based predictions ' + r.right); ok(!r.master, 'master prize needs more than the simple policy');
     },
-    'touch (phone): the dish stays on screen while you scroll to the controls; drag-paint in draw mode': async ({ page, ok, eq }) => {
+    'touch (phone): big cells, one-finger pan, pinch zoom, tap examines, drag-paint in draw mode': async ({ page, ok, eq, near }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.goto(page.url()); await page.waitForTimeout(600); await dismiss(page);
       const cdp = await touchSession(page);
-      await page.evaluate(() => document.getElementById('scanBtn').scrollIntoView({ block: 'end' })); await page.waitForTimeout(100);
-      const v = await page.evaluate(() => { const r = document.getElementById('world').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, h: innerHeight }; });
-      ok(v.top >= -1 && v.bottom > v.h * .45, 'dish still visible: ' + JSON.stringify(v));
-      ok(await page.isVisible('#scanBtn2') && await page.isVisible('#playBtn2'), 'control strip on the dish');
-      await page.evaluate(() => { __rh.S.noPredict = 1; __rh.setDrawing(true); });
-      const pts = await page.evaluate(() => { const r = document.getElementById('world').getBoundingClientRect(), d = __rh.dish, sc = d.sq / __rh.W; const f = (x, y) => [r.left + d.x0 + (x + .5) * sc, r.top + d.y0 + (y + .5) * sc]; return [f(70, 80), f(76, 80)]; });
+      const v = await page.evaluate(() => ({ k: __rh.cam.k, sw: document.scrollingElement.scrollHeight, h: innerHeight, dock: !!document.getElementById('scanBtn').getBoundingClientRect().width }));
+      ok(v.k >= 8 && v.k <= 14, 'cells are 8-14 CSS px on a phone: ' + v.k); ok(v.sw <= v.h + 1, 'no page scroll'); ok(v.dock);
+      const c = await page.evaluate(() => { const r = document.getElementById('world').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+      const vx0 = await page.evaluate(() => __rh.view.vx); await touchDrag(cdp, [c[0] + 60, c[1]], [c[0] - 60, c[1]], 8);
+      near(await page.evaluate(() => __rh.view.vx) - vx0, 120 / v.k, 1.5, 'one finger pans the dish');
+      await touchPinch(cdp, c, 40, 80); const k2 = await page.evaluate(() => __rh.cam.k); ok(k2 > v.k * 1.6, 'pinch zooms in: ' + k2);
+      await page.evaluate(() => { __rh.S.noPredict = 1; __rh.setRule(__rh.parseRule('B3/S23')); __rh.place([[0, 0], [1, 0], [0, 1], [1, 1]], 80, 80); __rh.setView(81, 81, 12); });
+      const t = await page.evaluate(() => __rh.cellToClient(80, 80));
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: t[0], y: t[1], id: 1 }] }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await page.waitForTimeout(100);
+      eq(await page.evaluate(() => Object.values(__rh.S.species).map(s => s.type)), ['still'], 'a tap examines the colony');
+      await page.evaluate(() => { __rh.setDrawing(true); __rh.setView(73, 80, 12); });
+      const pts = await page.evaluate(() => [__rh.cellToClient(70, 80), __rh.cellToClient(76, 80)]);
       await touchDrag(cdp, pts[0], pts[1], 12); eq(await page.evaluate(() => { let n = 0; for (let x = 70; x <= 76; x++) n += __rh.grid[80 * __rh.W + x]; return n; }), 7);
+    },
+    'view: pan wraps around the torus, wheel zooms about the cursor, fit frames the colonies': async ({ page, ok, near, eq }) => {
+      await dismiss(page);
+      const r = await page.evaluate(() => { const R = __rh; R.setView(5, 5, 10); const a = R.dishToCell(...(() => { const p = R.cellToClient(158, 3); const q = document.getElementById('world').getBoundingClientRect(); return [p[0] - q.left, p[1] - q.top]; })());
+        R.cam.panBy(-1000 * 10, 0); const vx = R.view.vx; R.grid.fill(0); for (const [x, y] of [[150, 10], [151, 10], [152, 10], [5, 10]]) R.grid[y * R.W + x] = 1; R.fitColonies();
+        return { a, vx, fit: [R.view.vx, R.view.vy, R.cam.k] }; });
+      eq(r.a, [158, 3], 'the cell across the seam is reachable'); ok(r.vx >= 0 && r.vx < 160, 'centre stays on the torus: ' + r.vx);
+      ok(r.fit[0] > 150 || r.fit[0] < 6, 'fit frames across the seam: ' + r.fit[0]); near(r.fit[1], 10.5, 1.5);
+      const box = await page.locator('#world').boundingBox(); await page.mouse.move(box.x + 100, box.y + 100);
+      const before = await page.evaluate(() => { const q = document.getElementById('world').getBoundingClientRect(); return __rh.cam.toWorld(q.left + 100, q.top + 100); });
+      await page.mouse.wheel(0, -300); await page.waitForTimeout(80);
+      const after = await page.evaluate(() => { const q = document.getElementById('world').getBoundingClientRect(); return __rh.cam.toWorld(q.left + 100, q.top + 100); });
+      near(after[0], before[0], .05); near(after[1], before[1], .05);
+      await page.click('.pz-fit'); await page.waitForTimeout(400); ok(await page.evaluate(() => __rh.cam.k > 0));
+    },
+    'UI: the default screen shows a handful of controls; everything else is one tap away in the journal': async ({ page, ok }) => {
+      await dismiss(page); for (const vp of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) { await page.setViewportSize(vp); await page.waitForTimeout(300);
+        const n = await page.evaluate(() => [...document.querySelectorAll('button, input, a, select, summary')].filter(e => { const r = e.getBoundingClientRect(), cs = getComputedStyle(e); if (!r.width || !r.height || cs.visibility === 'hidden') return false; const x = r.left + r.width / 2, y = r.top + r.height / 2; return x > 0 && x < innerWidth && y > 0 && y < innerHeight && !e.closest('#predict'); }).length);
+        ok(n <= 11, `${vp.width}px: ${n} visible controls`); }
+    },
+    'performance: 60fps on a throttled phone (4x slower CPU, retina screen, busy soup)': async ({ page, ok }) => {
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true }); await page.waitForTimeout(300); await dismiss(page);
+      await page.evaluate(() => { const R = __rh; R.S.noPredict = 1; R.setRule(R.parseRule('B3678/S34678')); R.soup(); R.running = true; });
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 }); await page.waitForTimeout(2500);
+      const fps = await page.evaluate(() => __rh.fps(2000));
+      const ms = await page.evaluate(() => { const R = __rh, cx = document.getElementById('world').getContext('2d'); R.running = false; const t = performance.now(); for (let i = 0; i < 30; i++) { R.tick(4); R.refreshImage(); R.render(); cx.getImageData(0, 0, 1, 1); } return (performance.now() - t) / 30; });
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+      ok(fps >= 50, 'frames per second on a 4x-throttled phone: ' + fps.toFixed(1)); ok(ms < 14, 'work per frame (step + paint + composite) ' + ms.toFixed(1) + 'ms of the 16.7ms budget');
     },
     'breeding: crossing rules is deterministic (same child, name and behaviour) and every daily commission has a known recipe': async ({ page, eq, ok }) => {
       await dismiss(page);
@@ -225,7 +262,7 @@ module.exports = {
       eq(goals, [true, true, true, true, true, true]);
     },
     'breeding by real clicks: pick two cards, the child joins the shelf; a childless (no-birth) mix is refused': async ({ page, eq, ok }) => {
-      await dismiss(page); await page.click('.tabs button[data-t="lab"]');
+      await dismiss(page); await page.click('#moreBtn'); await page.click('.tabs button[data-t="lab"]'); await page.waitForTimeout(300);
       await page.click('#p-lab [data-r="B3/S23"]'); await page.click('#p-lab [data-r="B2/S"]');
       ok(await page.evaluate(() => __rh.shelf().some(x => x.r === 'B3/S')));
       await page.click('#p-lab [data-op="overlap"]'); await page.click('#p-lab [data-r="B2/S"]'); await page.click('#p-lab [data-r="B3/S12345"]');

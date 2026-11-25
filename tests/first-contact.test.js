@@ -289,7 +289,7 @@ module.exports = {
       await closeModals(page); ok(await page.locator('#ctBtn').isVisible(), 'open channel button missing');
       await page.click('#ctBtn'); await page.locator('.modal-bg button', { hasText: 'Ladder contact 1' }).click(); await page.waitForTimeout(300);
       const C = await page.evaluate(() => { const C = window.__fc.CT; return { ans: C.hs.ans, items: C.items, val: C.val, q: C.items.map(i => window.__fc.ctQuestion(C, i)), par: C.par }; });
-      const type = async (sel, ws) => { const q = page.locator(sel); for (const w of ws) await q.locator(`[data-pw="${w}"]`).click(); await q.locator('[data-send]').click(); await page.waitForTimeout(150); };
+      const type = async (sel, ws) => { const q = page.locator(sel); await q.locator("[data-clear]").click(); for (const w of ws) await q.locator(`[data-pw="${w}"]`).click(); await q.locator('[data-send]').click(); await page.waitForTimeout(150); };
       await type('.q.ct[data-ct="hs"]', ['D0']); ok((await page.textContent('.q.ct .fb')).includes('NO ACK'), 'wrong handshake accepted');
       await type('.q.ct[data-ct="hs"]', C.ans); ok(await page.locator('.q.ct[data-ct="ask"]').count() === 1, 'channel did not open');
       await type('.q.ct[data-ct="ask"]', C.q[0]); eq(await page.locator('.ex').count(), 1);

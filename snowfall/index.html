@@ -40,9 +40,19 @@
   .cases button.cur{background:#2a4a8a;color:#fff}
   .cases .st{color:#a07a20}
   #plates{grid-area:plates;display:grid;grid-template-rows:1fr auto;min-height:0}
-  #cv{width:100%;height:100%;display:block;min-height:0}
+  #cvBox{position:relative;min-height:0}
+  #cv{width:100%;height:100%;display:block;min-height:0;cursor:grab}
+  .pz-bar button{background:linear-gradient(#2b2f3a,#171a22);color:var(--frost);border:1px solid #4a5060;border-radius:2px;font-family:Georgia,serif}
   #padRow{display:flex;gap:14px;align-items:stretch;padding:8px 14px 12px;background:#0b0c11;border-top:1px solid #2a2d38}
-  #pad{width:min(560px,60vw);height:240px;cursor:crosshair;touch-action:none;background:#101219;border:1px solid #3a3f50}
+  #padBox{display:grid;grid-template-columns:44px minmax(0,1fr);grid-template-rows:auto 34px;width:min(620px,62vw);flex:0 0 auto}
+  #pad{width:100%;height:240px;cursor:crosshair;touch-action:none;background:#101219;border:1px solid #3a3f50;box-sizing:border-box;display:block}
+  #yAx{position:relative;color:#c8d2e8;font-size:13px}
+  #yAx span{position:absolute;right:5px;transform:translateY(-50%);font-family:Georgia,serif}
+  #yAx span:after{content:'';position:absolute;right:-5px;top:50%;width:4px;border-top:1px solid #c8d2e8}
+  #yAx b{position:absolute;left:11px;top:50%;transform:translate(-50%,-50%) rotate(-90deg);white-space:nowrap;font-weight:400;font-size:12px;color:#9aa3b8}
+  #xAx{position:relative;color:#c8d2e8;font-size:13px}
+  #xAx span{position:absolute;top:2px;transform:translateX(-50%);font-family:Georgia,serif}
+  #xAx b{position:absolute;left:0;right:0;bottom:0;text-align:center;font-weight:400;font-size:12px;color:#9aa3b8}
   #padInfo{flex:1;min-width:0;font-size:15px;color:#c8d2e8}
   #padInfo b{color:#fff}
   .balloons{font-size:20px;letter-spacing:.1em}
@@ -70,22 +80,23 @@
     html,body{height:auto;overflow:auto}
     body{grid-template-columns:1fr;grid-template-rows:auto auto auto;grid-template-areas:"top" "plates" "side";min-height:100vh}
     #plates{grid-template-rows:56vh auto}
-    #padRow{flex-direction:column} #pad{width:100%;height:170px}
+    #padRow{flex-direction:column} #padBox{width:100%} #pad{height:190px}
     #side{border-right:0}
   }
   @media (max-height:500px) and (min-width:600px){ /* landscape phone: notebook and diagram on the left, the plates fill the rest */
     body{grid-template-columns:270px 1fr;grid-template-rows:auto 1fr auto;grid-template-areas:"top top" "side cv" "pad cv"}
-    #plates{display:contents} #cv{grid-area:cv} #padRow{grid-area:pad;flex-direction:column;gap:4px;padding:4px 8px;border-right:6px solid #1a1c24}
-    #pad{height:96px;width:100%} #padInfo{font-size:12px} #padInfo .balloons{font-size:14px}
+    #plates{display:contents} #cvBox{grid-area:cv} #padRow{grid-area:pad;flex-direction:column;gap:4px;padding:4px 8px;border-right:6px solid #1a1c24}
+    #padBox{width:100%;grid-template-rows:auto 30px} #pad{height:110px} #yAx{font-size:11px} #yAx b{display:none} #padInfo{font-size:12px} #padInfo .balloons{font-size:14px}
   }
 </style>
 </head>
 <body>
 <div class="topbar"><a class="home" href="../index.html">← Rabbit Holes</a><h1>Snowfall</h1><button class="lvl-btn" id="lvlBtn">☰ List</button><span class="sp"></span><span id="tot" style="font-size:14px;color:#9aa3b8"></span><button id="helpBtn">?</button></div>
 <div id="side"></div>
-<div id="plates"><canvas id="cv"></canvas><div id="padRow"><canvas id="pad" aria-label="The Nakaya diagram: temperature across, humidity up"></canvas><div id="padInfo"></div></div></div>
+<div id="plates"><div id="cvBox"><canvas id="cv"></canvas></div><div id="padRow"><div id="padBox"><div id="yAx" aria-hidden="true"><b>vapour excess over ice, g/m³</b><span style="top:84.2%">0</span><span style="top:57.9%">0.1</span><span style="top:31.6%">0.2</span><span style="top:5.3%">0.3</span></div><canvas id="pad" aria-label="Nakaya's diagram: air temperature across, vapour excess over ice up"></canvas><div></div><div id="xAx" aria-hidden="true"><span style="left:0;transform:none">0</span><span style="left:16.67%">−5</span><span style="left:33.33%">−10</span><span style="left:50%">−15</span><span style="left:66.67%">−20</span><span style="left:83.33%">−25</span><span style="left:100%;transform:translateX(-100%)">−30</span><b>air temperature, °C · warm ← → cold</b></div></div><div id="padInfo"></div></div></div>
 <script src="../shared/common.js"></script>
 <script src="../shared/fx.js"></script>
+<script src="../shared/panzoom.js"></script>
 <script>
 'use strict';
 // ================= the physics: Nakaya's morphology diagram =================
@@ -179,7 +190,7 @@ function crystalFor(layers) {
   const key = JSON.stringify(layers.map(l => [l.T, l.s, l.d])); if (crystals.has(key)) return crystals.get(key);
   // every layer is a phase: grow until the radius that layer's growth reaches (all six arms share it, so they stay in step),
   // or, below ice saturation, erode: the tips and corners sublimate first, so the crystal rounds off as it shrinks
-  const cr = grow(layers), am = cr.amax || 1, ph = cr.marks.map(m => m.kind === 'sub' ? { erode: Math.round(m.v / am * RMAX) } : { until: Math.max(3, Math.min(RMAX, Math.round(m.a / am * RMAX))), p: reiterOf(m.kind, m.s) });
+  const cr = grow(layers), am = cr.amax || 1, ph = cr.marks.map(m => m.kind === 'sub' ? { erode: Math.round(m.v / am * RMAX * 3) } : { until: Math.max(3, Math.min(RMAX, Math.round(m.a / am * RMAX))), p: reiterOf(m.kind, m.s) });
   const o = Sim(), first = ph.find(q => q.p), rnd = RH.rng('flake:' + key); seedSim(o, ...(first ? first.p : reiterOf('plate', .03)));
   for (let k = 0; k < NN; k++) o.nz[k] = 1 + .1 * (rnd() - .5); // tiny local differences in vapour supply: the only source of asymmetry
   const cvs = document.createElement('canvas'); cvs.width = cvs.height = OS;
@@ -208,14 +219,14 @@ function pump() { if (pumping) return; pumping = true; requestAnimationFrame(fun
 const L = (T, s, d = 2) => ({ T, s, d });
 const CASES = [
   { n: 'The Cold Chamber', chamber: 1, story: 'Before reading other people\'s snow, grow your own. In this cold chamber the air holds one steady condition. Drag the dot on <b>Nakaya\'s diagram</b> below (temperature across, humidity up) and press <b>Grow</b>. Each new kind of crystal you grow is labelled on the diagram for good. <b>Find four different kinds</b> to open the case files. The chamber costs nothing.' },
-  { n: 'Hoarfrost Morning', target: [[L(-2, .25, 3)]], story: 'Bentley\'s first plate of the winter: a small, plain, solid hexagon. It fell through a single, steady cloud. Set your sounding (one layer) to the weather that made it, then grow it. You have <b>five balloons</b>; each regrowth costs one.' },
-  { n: 'The Needle Storm', target: [[L(-5.5, .85, 3)]], story: 'Long thin ice needles fell all afternoon, sticking to Bentley\'s sleeve. Which single cloud grows a needle rather than a plate?' },
-  { n: 'The Star', target: [[L(-15, .9, 3)]], story: 'The flake everyone pictures: six fern-like arms. It needs a very particular cloud.' },
-  { n: 'The Capped Column', target: [[L(-7, .25, 3), L(-14, .5, 1)]], story: 'A solid column with a flat plate on each end, like a cotton reel. A crystal grows from the inside out, so its <b>middle is its past</b>: it fell through one cloud and then another. Add a second layer to your sounding.' },
-  { n: 'Ferns on a Plate', target: [[L(-14, .25, 3), L(-14, .95, 1)]], story: 'A solid hexagon in the centre, then sudden ferns at the tips. The temperature never changed. What did?' },
-  { n: 'Three Cloud Decks', target: [[L(-2, .3, 1), L(-6, .5, 3), L(-15, .9, 2)]], story: 'A tiny plate at the heart, a hollow column through it, and ferns at the ends. Three decks of cloud, top to bottom. Read it from the inside out.' },
-  { n: 'Two Flakes, One Storm', target: [[L(-6, .3, 1), L(-15, .6, 3), L(-12, .95, 2)], [L(-15, .6, 3), L(-12, .95, 2)]], from: [0, 1], story: 'Two flakes from the same storm, caught a minute apart. The second one formed lower down and missed the top layer. <b>One sounding</b> must explain both: the first flake falls through all of it, the second through all but the first layer.' },
-  { n: 'The Bentley Plate', target: [[L(-16, .2, 1), L(-6, .9, 1), L(-14, .5, 2), L(-15, .95, 2)]], master: 1, story: 'The master plate: Bentley\'s favourite, photographed on 4 February 1902. Four cloud layers, unequal times. Many have tried. Fewer balloons, more stars.' },
+  { n: 'Hoarfrost Morning', target: [[L(-2, .03, 3)]], story: 'Bentley\'s first plate of the winter: a small, plain, solid hexagon. It fell through a single, steady cloud. Set your sounding (one layer) to the weather that made it, then grow it. You have <b>five balloons</b>; each regrowth costs one.' },
+  { n: 'The Needle Storm', target: [[L(-5, .14, 3)]], story: 'Long thin ice needles fell all afternoon, sticking to Bentley\'s sleeve. Which single cloud grows a needle rather than a plate?' },
+  { n: 'The Star', target: [[L(-15, .2, 3)]], story: 'The flake everyone pictures: six fern-like arms. It needs a very particular cloud.' },
+  { n: 'The Capped Column', target: [[L(-7, .03, 3), L(-14, .08, 1)]], story: 'A solid column with a flat plate on each end, like a cotton reel. A crystal grows from the inside out, so its <b>middle is its past</b>: it fell through one cloud and then another. Add a second layer to your sounding.' },
+  { n: 'Ferns on a Plate', target: [[L(-14, .03, 3), L(-14, .2, 1)]], story: 'A solid hexagon in the centre, then sudden ferns at the tips. The temperature never changed. What did?' },
+  { n: 'Three Cloud Decks', target: [[L(-2, .03, 1), L(-6, .08, 3), L(-15, .2, 2)]], story: 'A tiny plate at the heart, a hollow column through it, and ferns at the ends. Three decks of cloud, top to bottom. Read it from the inside out.' },
+  { n: 'Two Flakes, One Storm', target: [[L(-6, .03, 1), L(-15, .08, 3), L(-14, .19, 2)], [L(-15, .08, 3), L(-14, .19, 2)]], from: [0, 1], story: 'Two flakes from the same storm, caught a minute apart. The second one formed lower down and missed the top layer. <b>One sounding</b> must explain both: the first flake falls through all of it, the second through all but the first layer.' },
+  { n: 'The Bentley Plate', target: [[L(-16, .03, 1), L(-5.5, .14, 1), L(-14, .08, 2), L(-15, .2, 2)]], master: 1, story: 'The master plate: Bentley\'s favourite, photographed on 4 February 1902. Four cloud layers, unequal times. Many have tried. Fewer balloons, more stars.' },
 ];
 const BALLOONS = 5;
 // ================= DRAW THE FALL =================
@@ -281,15 +292,15 @@ const LEGENDS = [
   { id: 'twelve', name: 'twelve-branched star', where: 'Two stars joined at birth with a 30° twist. The twin is thought to start when a supercooled droplet freezes: begin just above the water line near −15 °C, drop below it at once, then grow stars steadily for most of the fall.',
     test: L => { const rime = L.map(isRime); return steady(L) && rime[0] && !rime.slice(2).some(Boolean) && L.length - rime.filter(Boolean).length >= 18 && L.every(l => inT(l, -12, -18)) && L.filter(l => !isRime(l)).every(l => ['stellar', 'dendrite'].includes(kindOf(l))); },
     recipe: [P2(-15, .232), P2(-15, .2), P2(-15.6, .13)] },
-  { id: 'fern', name: 'fernlike stellar dendrite', where: 'The fastest-growing snowflake: near −15 °C (−13 to −17), just below water saturation (above about 0.15 g/m³). It needs at least 28 minutes of that air without straying, or the side branches never fill in.',
-    test: L => { const R = runsOf(L), d = R.filter(r => r.k === 'dendrite'); return steady(L) && !L.some(isRime) && d.length === 1 && d[0].n >= 14 && R.length <= 2; },
-    recipe: [P2(-14, .17), P2(-16, .19)] },
+  { id: 'fern', name: 'fernlike stellar dendrite', where: 'The fastest-growing snowflake. Like every crystal it starts as a small faceted plate (drier air near −15 °C), then needs a long, steady stretch in the fern window: −13 to −17 °C, just below water saturation (above about 0.15 g/m³), for at least 28 minutes, or the side branches never fill in.',
+    test: L => { const R = runsOf(L), last = R.at(-1); return steady(L) && !L.some(isRime) && last?.k === 'dendrite' && last.n >= 14 && R.length >= 2 && R.length <= 3 && R.slice(0, -1).every(r => ['plate', 'sector', 'stellar'].includes(r.k)) && R[0].n >= 2; },
+    recipe: [P2(-15, .08), P2(-15, .15), P2(-13.5, .2), P2(-16.5, .2), P2(-13.5, .205)] },
   { id: 'triangle', name: 'triangular plate', where: 'A plate that grew as a truncated triangle. Libbrecht notes they turn up most often near −2 °C in slow growth; why is still not fully understood. Hold −1.5 to −2.75 °C, between 0.01 and 0.05 g/m³, for almost the whole fall.',
     test: L => steady(L) && L.filter(l => inT(l, -1.5, -2.75) && l.s >= .01 && l.s <= .05).length >= 21,
     recipe: [P2(-1.9, .02), P2(-2.4, .04)] },
-  { id: 'rosette', name: 'bullet rosette', where: 'Several columns radiating from one polycrystalline seed: very cold air, below −22 °C, well above ice saturation from the moment it forms (Bailey & Hallett\'s cold-cloud habits). Hold it for at least 16 minutes.',
-    test: L => { const R = runsOf(L); return steady(L) && !L.some(isRime) && R[0]?.k === 'column' && R[0].n >= 8 && L.slice(0, R[0].n).every(l => l.T <= -22) && L[0].s >= .06; },
-    recipe: [P2(-25, .09), P2(-27.5, .08)] },
+  { id: 'rosette', name: 'bullet rosette', where: 'Several columns radiating from one polycrystalline seed: very cold air, below −23 °C, well above ice saturation (0.10 g/m³ or more, but under the water line) from the moment it forms, and held for at least 16 minutes (Bailey & Hallett\'s cold-cloud habits).',
+    test: L => { const R = runsOf(L), n = R[0]?.n || 0; return steady(L) && !L.some(isRime) && R[0]?.k === 'column' && n >= 8 && L.slice(0, n).every(l => l.T <= -23 && l.s >= .1); },
+    recipe: [P2(-25, .12), P2(-27, .11)] },
 ];
 // Everything about one drawn fall: the steps, the habits, rime and sublimation, and the form's name and rarity
 function classify(P) {
@@ -344,14 +355,17 @@ const targetsOf = c => c.target.map(t => grow(t));
 // ================= state =================
 function cleanSave(raw) {
   const s = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}, done = {}, seen = {};
-  if (s.v === 2 && s.done && typeof s.done === 'object') for (const k in s.done) if (/^\d+$/.test(k) && +k < CASES.length && s.done[k] >= 1) done[k] = Math.min(3, s.done[k] | 0);
-  if (s.v === 2 && s.seen && typeof s.seen === 'object') for (const k of KINDS) if (s.seen[k]) seen[k] = 1;
-  const codex = {}, comm = {};
-  if (s.v === 2 && s.codex && typeof s.codex === 'object') for (const k in s.codex) { const e = s.codex[k]; if (/^[a-z,]{3,80}$/.test(k) && e && typeof e === 'object' && Object.keys(codex).length < 300) codex[k] = { d: String(e.d || '').slice(0, 10), p: String(e.p || '').slice(0, 120), n: Math.max(1, e.n | 0) }; }
-  if (s.v === 2 && s.comm && typeof s.comm === 'object') for (const k in s.comm) if (/^\d+$/.test(k) && s.comm[k] >= 1) comm[k] = Math.min(3, s.comm[k] | 0);
-  const daily = s.v === 2 && s.daily && typeof s.daily.date === 'string' && Number.isFinite(s.daily.ink) ? { date: s.daily.date.slice(0, 10), ink: s.daily.ink } : null;
-  return { v: 2, done, seen, codex, comm, daily, mode: s.v === 2 && s.mode === 'cases' ? 'cases' : 'draw', tab: s.v === 2 && ['sky', 'comm', 'daily'].includes(s.tab) ? s.tab : 'sky', ci: s.v === 2 && Number.isInteger(s.ci) ? s.ci : 0,
-    cur: Number.isInteger(s.cur) && s.cur >= 0 && s.cur < CASES.length ? s.cur : 0, intro: s.v === 2 && s.intro ? 1 : 0 };
+  if ((s.v === 2 || s.v === 3) && s.done && typeof s.done === 'object') for (const k in s.done) if (/^\d+$/.test(k) && +k < CASES.length && s.done[k] >= 1) done[k] = Math.min(3, s.done[k] | 0);
+  if ((s.v === 2 || s.v === 3) && s.seen && typeof s.seen === 'object') for (const k of KINDS) if (s.seen[k]) seen[k] = 1;
+  const codex = {}, comm = {}, ok2 = s.v === 2 || s.v === 3;
+  if (ok2 && s.codex && typeof s.codex === 'object') for (const k in s.codex) { const e = s.codex[k]; if (!/^[a-z,+:]{3,80}$/.test(k) || !e || typeof e !== 'object' || Object.keys(codex).length >= 300) continue;
+    const ent = { d: String(e.d || '').slice(0, 10), p: String(e.p || '').slice(0, 120), n: Math.max(1, e.n | 0) };
+    const key = s.v === 3 ? k : classify(decodePath(ent.p)).key; // v2 codices were graded with the old diagram: regrow each entry from its line
+    if (!codex[key]) codex[key] = ent; else codex[key].n += ent.n; }
+  if (ok2 && s.comm && typeof s.comm === 'object') for (const k in s.comm) if (/^\d+$/.test(k) && s.comm[k] >= 1) comm[k] = Math.min(3, s.comm[k] | 0);
+  const daily = ok2 && s.daily && typeof s.daily.date === 'string' && Number.isFinite(s.daily.ink) ? { date: s.daily.date.slice(0, 10), ink: s.daily.ink } : null;
+  return { v: 3, done, seen, codex, comm, daily, mode: ok2 && s.mode === 'cases' ? 'cases' : 'draw', tab: ok2 && ['sky', 'comm', 'daily', 'notes'].includes(s.tab) ? s.tab : 'sky', ci: ok2 && Number.isInteger(s.ci) ? s.ci : 0, drew: ok2 && s.drew ? 1 : 0,
+    cur: Number.isInteger(s.cur) && s.cur >= 0 && s.cur < CASES.length ? s.cur : 0, intro: ok2 && s.intro ? 1 : 0 };
 }
 const SAVE = cleanSave(RH.load('snowfall', null));
 const persist = () => { RH.save('snowfall', SAVE); RH.progress('snowfall', Math.min(1, (Object.keys(SAVE.done).length + Object.keys(SAVE.comm).length) / (CASES.length + COMMS.length))); };
@@ -359,12 +373,14 @@ const isOpen = i => i === 0 || !!SAVE.done[i - 1] || (i === 1 && Object.keys(SAV
 let grownLayers = [], cur = isOpen(SAVE.cur) ? SAVE.cur : 0, sounding, sel = 0, used = 0, grown = null, develop = 0, best = 0;
 function startCase(i) {
   cur = i; SAVE.cur = i; persist(); used = 0; grown = null; grownLayers = []; develop = 0; best = 0; sel = 0;
-  sounding = [L(-10, .5, 2)]; // the default is deliberately none of the answers: the column/plate boundary at middling humidity
+  sounding = [L(-10, .07, 2)]; // the default is deliberately none of the answers: the column/plate boundary at middling humidity
   render();
 }
 const $ = id => document.getElementById(id);
 // ================= rendering the crystals =================
 const cv = $('cv'), g = cv.getContext('2d');
+// a closer look: scroll or pinch to zoom into the plates, drag to move about, ⤢ to fit again (world = the plates at rest)
+const cam = PanZoom(cv, { world: () => { const r = cv.getBoundingClientRect(); return { x: 0, y: 0, w: Math.max(1, r.width), h: Math.max(1, r.height) }; }, canPanFrom: () => true, min: 1, max: 10, pad: 0, onChange: () => drawPlates() });
 function drawSide(x, y, scale, cr, alpha = 1, capMax = 1e9) { // looking across: the column body, hollows and needles, and caps at both ends
   g.save(); g.translate(x, y); g.globalAlpha = alpha; g.shadowColor = '#a9c8ff'; g.shadowBlur = 8;
   const w0 = .25 * scale, h0 = cr.ax.length ? w0 : Math.max(2, w0 * .35); g.fillStyle = '#dfe9ffcc'; g.fillRect(-w0, -h0, 2 * w0, 2 * h0); // a lone plate is thin edge-on
@@ -379,100 +395,148 @@ function drawSide(x, y, scale, cr, alpha = 1, capMax = 1e9) { // looking across:
     for (const yy of (s.cap ? [-cEnd - th, cEnd] : [-th / 2])) { g.fillStyle = s.kind === 'dendrite' || s.kind === 'stellar' ? '#e6efff88' : '#e6efffcc'; g.fillRect(-hw, yy, 2 * hw, th); } }
   g.restore();
 }
+const sizeMM = cr => Math.max(cr.amax, cr.c) * .04; // crystal diameter (or column length), mm
+function drawFlake(cx, cl, X, Y, size) { // the automaton's picture, plus what the field guide's oddities look like
+  const k = cl?.key || '', img = (rot = 0, sc = 1, dx = 0, dy = 0) => { g.save(); g.translate(X + dx, Y + dy); g.rotate(rot); g.drawImage(cx.cvs, -size * sc / 2, -size * sc / 2, size * sc, size * sc); g.restore(); };
+  g.shadowColor = '#a9c8ffaa'; g.shadowBlur = 12;
+  if (k === 'legend:rosette') { const n = 5, len = size * .48, w = len * .16; g.shadowBlur = 6;
+    for (let i = 0; i < n; i++) { g.save(); g.translate(X, Y); g.rotate(i * 2 * Math.PI / n + .4 + (i % 2) * .25); const gr = g.createLinearGradient(0, -w, 0, w); gr.addColorStop(0, '#8fb0e0cc'); gr.addColorStop(.4, '#f2f7ffee'); gr.addColorStop(1, '#8fb0e0cc');
+      g.fillStyle = gr; g.beginPath(); g.moveTo(len * .12, 0); g.lineTo(len * .32, -w); g.lineTo(len, -w); g.lineTo(len, w); g.lineTo(len * .32, w); g.closePath(); g.fill(); g.strokeStyle = '#ffffffaa'; g.lineWidth = 1; g.stroke(); g.restore(); }
+    return; }
+  if (k === 'poly') { img(.5, .5, -size * .2, -size * .1); img(1.9, .45, size * .2, size * .02); img(3.6, .42, -size * .04, size * .22); img(5.1, .3, size * .12, -size * .2); return; }
+  if (k === 'legend:triangle') { g.save(); g.beginPath(); for (let i = 0; i < 3; i++) for (const s2 of [-1, 1]) { const a = -Math.PI / 2 + i * 2 * Math.PI / 3 + s2 * .42, R = size * .48; g.lineTo(X + R * Math.cos(a), Y + R * Math.sin(a)); } g.closePath(); g.clip(); img(); g.restore(); return; }
+  img(); if (k === 'legend:twelve') { g.globalAlpha *= .9; img(Math.PI / 6, .96); }
+  g.shadowBlur = 0;
+  if (cx.done && (k === 'graupel' || (cl?.rime >= 2))) { // rime: frozen droplets stuck to the edges; graupel buries the crystal in them
+    if (!cx.rimeDots) { const d = [], o = cx.o; for (let i = 0; i < PX.length; i += 3) { const c = PX[i]; if (c < 0 || !o.fr[c]) continue; let n = 0; for (let q = 0; q < 6; q++) n += o.fr[c + NB[q]]; if (n < 6) d.push([(i % OS) / OS - .5, (i / OS | 0) / OS - .5]); }
+      const r = RH.rng('rime' + d.length); cx.rimeDots = Array.from({ length: Math.min(d.length, 400) }, () => d[r.int(d.length)]); cx.rimeR = r; }
+    const n = k === 'graupel' ? 0 : Math.min(cx.rimeDots.length, cl.rime * 18); g.fillStyle = '#eef3fbdd';
+    for (let i = 0; i < n; i++) { const [u, v] = cx.rimeDots[i]; g.beginPath(); g.arc(X + u * size, Y + v * size, Math.max(1.2, size * .012), 0, 7); g.fill(); }
+    if (k === 'graupel') { const R = Math.max(size * .42, 16), r = RH.rng('graupel'); for (let i = 0; i < 320; i++) { const a = r() * 7, d = R * Math.sqrt(r()) * (.8 + .2 * Math.sin(a * 5)); g.fillStyle = i % 5 ? '#e9eef8e6' : '#b9c6dccc'; g.beginPath(); g.arc(X + d * Math.cos(a), Y + d * Math.sin(a), R * (.08 + r() * .08), 0, 7); g.fill(); } } }
+}
 function plateFrame(x, y, w, h, label, sub) { // a glass-plate negative: dark glass, chipped silvered edge, paper label
   g.save(); g.fillStyle = '#0b0d12'; g.fillRect(x, y, w, h);
-  const gr = g.createRadialGradient(x + w / 2, y + h / 2, Math.min(w, h) * .2, x + w / 2, y + h / 2, Math.max(w, h) * .7); gr.addColorStop(0, '#0000'); gr.addColorStop(1, '#3a404c55'); g.fillStyle = gr; g.fillRect(x, y, w, h);
+  const gr = g.createRadialGradient(x + w / 2, y + h / 2, Math.max(0, Math.min(w, h) * .2), x + w / 2, y + h / 2, Math.max(1, Math.max(w, h) * .7)); gr.addColorStop(0, '#0000'); gr.addColorStop(1, '#3a404c55'); g.fillStyle = gr; g.fillRect(x, y, w, h);
   g.strokeStyle = '#8a92a4'; g.lineWidth = 3; g.strokeRect(x, y, w, h); g.strokeStyle = '#ffffff10'; g.lineWidth = 1; for (let k = 0; k < 6; k++) { g.beginPath(); g.moveTo(x + w * ((k * 37) % 100) / 100, y); g.lineTo(x + w * ((k * 61) % 100) / 100, y + h); g.stroke(); }
   g.fillStyle = '#efe7d2'; g.fillRect(x + 10, y + h - 34, Math.min(w - 20, 230), 26); g.fillStyle = '#2a2418'; g.font = '20px "Pinyon Script", cursive'; g.textBaseline = 'middle'; g.fillText(label, x + 16, y + h - 21);
   if (sub) { g.fillStyle = '#9aa3b8'; g.font = '14px "IM Fell English", serif'; g.fillText(sub, x + 12, y + 14); }
   g.restore();
 }
 function drawPlates() {
-  const dpr = FX.fit(cv, 2), W = cv.width / dpr, H = cv.height / dpr; g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const dpr = FX.fit(cv, 2), W = cv.width / dpr, H = cv.height / dpr; g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height); g.setTransform(dpr * cam.k, 0, 0, dpr * cam.k, dpr * cam.x, dpr * cam.y);
   const c = SAVE.mode === 'draw' ? { chamber: 1 } : CASES[cur], mine = grown;
   let T = c.chamber ? [] : targetsOf(c), panes = [...T.map((t, i) => ({ cr: t, layers: c.target[i], lab: T.length > 1 ? `Specimen ${'AB'[i]}` : 'The specimen', sub: 'Bentley\'s negative' })), { cr: c.chamber ? mine : (Array.isArray(mine) ? mine[0] : mine), layers: grownLayers[0], lab: c.chamber ? 'The chamber' : 'Your regrowth', sub: grown ? '' : 'not yet grown', you: 1 }];
   if (!c.chamber && T.length > 1 && Array.isArray(mine)) panes.push({ cr: mine[1], layers: grownLayers[1], lab: 'Your regrowth B', you: 1 });
   if (SAVE.mode === 'draw') { const cm = currentComm(); panes = [];
-    if (cm) { const L2 = pathLayers(cm.par); panes.push({ cr: grow(L2), layers: L2, lab: cm.daily ? 'Today\'s sky' : 'The client\'s photograph', sub: 'for ' + cm.who }); T = [panes[0].cr]; }
-    panes.push({ cr: drawLayers ? grow(drawLayers) : null, layers: drawLayers, lab: 'Your flake', sub: drawLayers ? nameOf(habitSeq(drawLayers)) : '', you: 1 }); }
+    if (cm) { const L2 = pathLayers(cm.par); panes.push({ cr: grow(L2), layers: L2, cl: classify(cm.par), lab: cm.daily ? 'Today\'s sky' : 'The client\'s photograph', sub: 'for ' + cm.who }); T = [panes[0].cr]; }
+    panes.push({ cr: drawLayers ? grow(drawLayers) : null, layers: drawLayers, cl: drawClass, lab: 'Your flake', sub: drawClass ? drawClass.name : '', you: 1 }); }
   const n = panes.length, wide = W > H * 1.1, cols = wide ? n : n <= 2 ? 1 : 2, rows = Math.ceil(n / cols), gap = 12, pw = (W - gap * (cols + 1)) / cols, ph = (H - gap * (rows + 1)) / rows;
   panes.forEach((p, i) => { const x = gap + (i % cols) * (pw + gap), y = gap + (i / cols | 0) * (ph + gap); plateFrame(x, y, pw, ph, p.lab, p.sub);
     if (!p.cr) { g.fillStyle = '#6a7388'; g.font = 'italic 17px "IM Fell English", serif'; g.textAlign = 'center'; g.fillText(SAVE.mode === 'draw' ? 'draw the fall on the diagram below' : c.chamber ? 'set the weather below, then grow' : 'launch a balloon to regrow it here', x + pw / 2, y + ph / 2); g.textAlign = 'left'; return; }
     const maxR = Math.max(p.cr.a, ...(T.map(t => t.a)), 1), maxC = Math.max(p.cr.c, ...(T.map(t => t.c)), 1), sc = Math.min(pw * .3 / maxR, (ph - 70) * .45 / maxR);
     const alpha = p.you && develop < 1 ? develop : 1;
-    { const cx = crystalFor(p.layers), size = Math.min(pw * .6, ph - 66); g.save(); g.globalAlpha = alpha; g.shadowColor = '#a9c8ffaa'; g.shadowBlur = 14; g.drawImage(cx.cvs, x + pw * .34 - size / 2, y + (ph - 40) * .52 - size / 2, size, size); g.restore(); }
+    { // seen from above, at true relative size (in the draw mode against a 3 mm reference flake), with a scale bar
+      const cx = crystalFor(p.layers), full = Math.min(pw * .6, ph - 66), ref = Math.max(SAVE.mode === 'draw' ? 75 : 0, ...panes.filter(q => q.cr).map(q => q.cr.amax)), size = full * Math.max(.1, Math.min(1, (p.cl?.key === 'legend:rosette' ? p.cr.c : p.cr.amax) / ref));
+      const X = x + pw * .34, Y = y + (ph - 40) * .52; g.save(); g.globalAlpha = alpha; drawFlake(cx, p.cl, X, Y, size); g.restore();
+      if (SAVE.mode === 'draw') { const mm = full * .95 / (ref * .04), unit = [5, 2, 1, .5, .2, .1].find(u => u * mm <= pw * .22) || .1, L = unit * mm;
+        if (L > 6) { g.strokeStyle = '#c8d2e8'; g.lineWidth = 2; g.beginPath(); g.moveTo(x + 14, y + ph - 56); g.lineTo(x + 14 + L, y + ph - 56); g.stroke(); g.fillStyle = '#c8d2e8'; g.font = '12px Georgia, serif'; g.fillText(unit + ' mm', x + 14, y + ph - 62); } } }
     const colA = Math.max(.3, ...p.cr.ax.map(s => s.a), ...T.flatMap(t => t.ax.map(s => s.a))), ss = Math.min(pw * .06 / colA, (ph - 70) * .4 / (maxC + .3)); drawSide(x + pw * .84, y + (ph - 40) * .52, ss, p.cr, alpha, pw * .13);
     g.fillStyle = '#6a7388'; g.font = '13px "IM Fell English", serif'; g.textAlign = 'center'; g.fillText('from above', x + pw * .34, y + ph - 46); g.fillText('edge on', x + pw * .84, y + ph - 46); g.textAlign = 'left';
     if (p.you && p.score != null) {} });
 }
 // ================= the Nakaya diagram =================
 const pad = $('pad'), pg = pad.getContext('2d');
-const padXY = (T, s, W, H) => [(T - TMAX) / (TMIN - TMAX) * W, (1 - s) * H];
-const padMap = document.createElement('canvas'); let padKey = '';
-function drawPad() {
+const padXY = (T, r, W, H) => { const [x, y] = P2(T, r); return [x * W, y * H]; };
+const padMap = document.createElement('canvas'); let padKey = '', hover = null, ghostT = 0;
+const COL = { plate: [70, 110, 170], sector: [60, 90, 150], stellar: [50, 70, 130], dendrite: [40, 50, 110], column: [130, 80, 60], hollow: [150, 95, 60], needle: [170, 110, 50] };
+const GHOST = [P2(-6, .03), P2(-12, .03), P2(-15, .12), P2(-15, .19)]; // a sample fall the ghost pen traces until your first stroke
+function drawPad(now = performance.now()) {
   const dpr = FX.fit(pad, 3), W = pad.width / dpr, H = pad.height / dpr; pg.setTransform(1, 0, 0, 1, 0, 0); pg.clearRect(0, 0, pad.width, pad.height); pg.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const draw = SAVE.mode === 'draw', known = k => draw || SAVE.seen[k];
   // the coloured regions are drawn once per size and per set of observed kinds, at CSS resolution, then scaled onto the pad
   // (putImageData ignores the transform, so on a 3x phone it used to cover only a corner and every old dot stayed on screen)
-  const key = Math.round(W) + 'x' + Math.round(H) + ':' + Object.keys(SAVE.seen).sort().join(',');
+  const key = Math.round(W) + 'x' + Math.round(H) + ':' + (draw ? 'all' : Object.keys(SAVE.seen).sort().join(','));
   if (key !== padKey) { padKey = key; padMap.width = Math.max(1, Math.round(W)); padMap.height = Math.max(1, Math.round(H)); const mg = padMap.getContext('2d'), img = mg.createImageData(padMap.width, padMap.height);
-    const COL = { plate: [70, 110, 170], sector: [60, 90, 150], stellar: [50, 70, 130], dendrite: [40, 50, 110], column: [130, 80, 60], hollow: [150, 95, 60], needle: [170, 110, 50] };
-    for (let py = 0; py < img.height; py++) for (let px = 0; px < img.width; px++) { const T = TMAX + (TMIN - TMAX) * px / img.width, sv = 1 - py / img.height, k = habit(T, sv), seen = SAVE.seen[k], c = seen ? COL[k] : [30, 32, 42], o = (py * img.width + px) * 4; img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 255; }
+    for (let py = 0; py < img.height; py++) for (let px = 0; px < img.width; px++) { const [T, r] = ptTS([px / img.width, py / img.height]), o = (py * img.width + px) * 4; let c;
+      if (r < 0) c = (px + py) % 6 < 2 ? [44, 38, 34] : [34, 30, 28]; // below ice saturation: sublimation
+      else { const k = habit(T, Math.min(r, waterLine(T))); c = known(k) ? COL[k] : [30, 32, 42]; if (r > waterLine(T)) c = (px - py + 999) % 7 < 2 ? [150, 160, 180] : c.map(v => v * .55 + 20); } // droplets: rime hatching
+      img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 255; }
     mg.putImageData(img, 0, 0); }
   pg.imageSmoothingEnabled = false; pg.drawImage(padMap, 0, 0, W, H); pg.imageSmoothingEnabled = true;
-  pg.font = '12px "IM Fell English", serif'; pg.fillStyle = '#e8f1ff';
-  // labels for the regions you have already observed
-  const LBL = { plate: [-1.2, .3], sector: [-1.2, .88], column: [-7, .2], hollow: [-8.5, .6], needle: [-5.5, .9], dendrite: [-15, .9], stellar: [-20, .9] };
-  const chip = (txt, x, y, al) => { const w = pg.measureText(txt).width + 8, x0 = al === 'left' ? x : x - w / 2; pg.fillStyle = '#0b0d12cc'; pg.fillRect(x0, y - 10, w, 15); pg.fillStyle = '#e8f1ff'; pg.textAlign = 'left'; pg.fillText(txt, x0 + 4, y + 1); };
-  pg.textBaseline = 'middle';
-  for (const k in LBL) if (SAVE.seen[k]) { const [x, y] = padXY(LBL[k][0], LBL[k][1], W, H); chip(KNAME[k].replace('hexagonal ', '').replace('fern-like ', '').replace(' column', ''), x, Math.min(H - 22, Math.max(10, y)), LBL[k][0] > -3 ? 'left' : 'center'); }
-  if (SAVE.seen.plate && SAVE.seen.sector) { const [x, y] = padXY(-15, .15, W, H); chip('plates', x, Math.min(H - 22, y), 'center'); }
+  const small = W < 420, fs = small ? 11 : 13;
+  pg.font = `${fs}px "IM Fell English", serif`; pg.textBaseline = 'middle';
+  const chip = (txt, x, y, al = 'center', bg = '#0b0d12cc', fg = '#e8f1ff') => { const w = pg.measureText(txt).width + 8, x0 = Math.max(1, Math.min(W - w - 1, al === 'left' ? x : al === 'right' ? x - w : x - w / 2)); pg.fillStyle = bg; pg.fillRect(x0, y - fs * .65, w, fs * 1.3); pg.fillStyle = fg; pg.textAlign = 'left'; pg.fillText(txt, x0 + 4, y + 1); };
+  // the habit bands of Nakaya's diagram, divided at −4, −10 and −22 °C
+  pg.strokeStyle = '#ffffff40'; pg.lineWidth = 1; for (const T of [-4, -10, -22]) { const [x] = padXY(T, 0, W, H); pg.beginPath(); pg.moveTo(x, 0); pg.lineTo(x, H); pg.stroke(); }
+  // region labels (in the cases, only the kinds you have observed)
+  const LBL = { plate: [[-2, .02, 'plates'], [-16, .015, 'plates'], [-26, .025, 'plates']], sector: [[-16, .07, 'sectored plates']], stellar: [[-20.5, .13, 'stars']], dendrite: [[-15, .18, 'ferns']], column: [[-7, .015, 'columns'], [-26, .1, 'columns']], hollow: [[-8, .08, 'hollow']], needle: [[-5.2, .135, 'needles']] };
+  for (const k in LBL) if (known(k)) for (const [T, r, t] of LBL[k]) { if (small && (t === 'plates' && T === -2)) continue; const [x, y] = padXY(T, r, W, H); chip(small && t === 'sectored plates' ? 'sectored' : t, x, y); }
+  // ice saturation (0) and water saturation (Nakaya's curve): between them crystals grow; above, droplets rime them
+  pg.strokeStyle = '#ffffffaa'; pg.setLineDash([5, 4]); pg.lineWidth = 1.5; pg.beginPath(); for (let T = TMAX; T >= TMIN - .01; T -= .25) { const [x, y] = padXY(T, waterLine(T), W, H); T === TMAX ? pg.moveTo(x, y) : pg.lineTo(x, y); } pg.stroke();
+  { const [x, y] = padXY(0, 0, W, H), [x1] = padXY(TMIN, 0, W, H); pg.beginPath(); pg.moveTo(x, y); pg.lineTo(x1, y); pg.stroke(); } pg.setLineDash([]);
+  { const [x, y] = padXY(-12, waterLine(-12), W, H); chip(small ? 'water sat.' : 'water saturation (droplets above: rime)', x, y - fs - 2, 'center', '#0b0d12aa', '#ffffff'); }
+  { const [x, y] = padXY(-24, 0, W, H); chip(small ? 'ice sat.' : 'ice saturation (below: sublimates)', x, y + fs + 2, 'center', '#0b0d12aa', '#d9c9b0'); }
   pg.textBaseline = 'alphabetic';
-  // axes: temperature across, supersaturation up, and the water-saturation line (above it, droplets are present)
-  pg.strokeStyle = '#ffffff55'; pg.setLineDash([4, 4]); pg.beginPath(); for (let T = TMAX; T >= TMIN; T -= .5) { const s = Math.min(1, .25 + .028 * -T); const [x, y] = padXY(T, s, W, H); T === TMAX ? pg.moveTo(x, y) : pg.lineTo(x, y); } pg.stroke(); pg.setLineDash([]);
-  pg.fillStyle = '#9aa3b8'; pg.textAlign = 'left'; for (const T of [-2, -5, -10, -15, -20, -25]) { const [x] = padXY(T, 0, W, H); pg.fillText(T + '°', Math.min(x + 2, W - 26), H - 4); pg.fillStyle = '#ffffff22'; pg.fillRect(x, 0, 1, H); pg.fillStyle = '#9aa3b8'; }
-  pg.save(); pg.translate(10, H / 2); pg.rotate(-Math.PI / 2); pg.textAlign = 'center'; pg.fillText('humidity (supersaturation) →', 0, 0); pg.restore();
-  if (SAVE.mode === 'draw') { // the drawn fall, with a bead travelling down it as the crystal grows
+  const readout = (pt, near) => { const [T, r] = ptTS(pt), k = habit(T, Math.min(r, waterLine(T))), what = r < 0 ? 'sublimates' : r > waterLine(T) ? 'rimes' : known(k) ? SHORT[k] : '?';
+    pg.font = `600 ${fs + 1}px "IM Fell English", serif`; pg.textBaseline = 'middle'; const y = pt[1] * H - (near ? 34 : 22); chip(`${fmtT(T)} · ${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(2)} g/m³ · ${what}`, pt[0] * W, Math.max(fs, y < fs ? pt[1] * H + 30 : y), 'center', '#efe7d2', '#2a2418'); pg.textBaseline = 'alphabetic'; };
+  if (draw) { // the drawn fall, with a bead travelling down it as the crystal grows
     const pts = (drawing || !drawLayers) ? drawPath : resample(drawPath);
+    if (!pts.length && !drawing) { // an empty diagram that asks to be drawn on: the ghost pen traces a sample fall
+      const t = ((now - ghostT) / 3400) % 1, q = resample(GHOST, 60), n = Math.max(1, Math.round(Math.min(1, t / .75) * (q.length - 1))), pulse = .5 + .5 * Math.sin(now / 260);
+      pg.strokeStyle = '#ffffff70'; pg.setLineDash([6, 6]); pg.lineWidth = 2.5; pg.lineCap = 'round'; pg.beginPath(); q.slice(0, n + 1).forEach(([x, y], i) => i ? pg.lineTo(x * W, y * H) : pg.moveTo(x * W, y * H)); pg.stroke(); pg.setLineDash([]);
+      pg.strokeStyle = `rgba(255,224,138,${.4 + .6 * pulse})`; pg.lineWidth = 2; pg.beginPath(); pg.arc(q[0][0] * W, q[0][1] * H, 7 + 7 * pulse, 0, 7); pg.stroke(); pg.fillStyle = '#ffe08a'; pg.beginPath(); pg.arc(q[0][0] * W, q[0][1] * H, 4, 0, 7); pg.fill();
+      if (!SAVE.drew) { const [hx, hy] = q[n]; pg.fillStyle = '#ffffffee'; pg.beginPath(); pg.arc(hx * W, hy * H, 6, 0, 7); pg.fill(); pg.font = '26px serif'; pg.textAlign = 'left'; pg.fillText('✍️', hx * W - 4, hy * H + 22); }
+      pg.font = `600 ${small ? 14 : 16}px "IM Fell English", serif`; pg.textBaseline = 'middle'; chip('✎ Draw the flake\'s fall through the cloud', W / 2, H * .38, 'center', '#efe7d2ee', '#2a2418'); pg.textBaseline = 'alphabetic';
+      if (hover) readout(hover, false); return; }
     if (pts.length) { pg.strokeStyle = '#ffffffdd'; pg.lineWidth = 3; pg.lineJoin = pg.lineCap = 'round'; pg.beginPath(); pts.forEach(([x, y], i) => i ? pg.lineTo(x * W, y * H) : pg.moveTo(x * W, y * H)); pg.stroke();
+      // where the air could not keep up, the path the flake really took (the clamped fall) is drawn in blue under it
+      if (!drawing && drawLayers) { pg.strokeStyle = '#a9c8ff'; pg.lineWidth = 2; pg.setLineDash([2, 3]); pg.beginPath(); drawLayers.forEach((l, i) => { const [x, y] = padXY(l.T, l.s, W, H); i ? pg.lineTo(x, y) : pg.moveTo(x, y); }); pg.stroke(); pg.setLineDash([]); }
       const [x0, y0] = pts[0]; pg.fillStyle = '#a9c8ff'; pg.beginPath(); pg.arc(x0 * W, y0 * H, 5, 0, 7); pg.fill();
-      if (!drawing && drawLayers && travel < 1) { const q = resample(drawPath), k = Math.min(q.length - 1, Math.round(travel * (q.length - 1))), [bx, by] = q[k]; pg.fillStyle = '#ffe08a'; pg.beginPath(); pg.arc(bx * W, by * H, 8, 0, 7); pg.fill(); } }
+      if (!drawing && drawLayers && travel < 1) { const k = Math.min(drawLayers.length - 1, Math.round(travel * (drawLayers.length - 1))), [bx, by] = padXY(drawLayers[k].T, drawLayers[k].s, W, H); pg.fillStyle = '#ffe08a'; pg.beginPath(); pg.arc(bx, by, 8, 0, 7); pg.fill(); } }
+    if (drawing && pts.length) readout(pts.at(-1), true); else if (hover) readout(hover, false);
     return;
   }
   // your sounding: each layer as a numbered dot, joined in order
   if (sounding) { pg.strokeStyle = '#fff'; pg.lineWidth = 1.5; pg.beginPath(); sounding.forEach((l, i) => { const [x, y] = padXY(l.T, l.s, W, H); i ? pg.lineTo(x, y) : pg.moveTo(x, y); }); pg.stroke();
-    sounding.forEach((l, i) => { const [x, y] = padXY(l.T, l.s, W, H); pg.fillStyle = i === sel ? '#ffe08a' : '#fff'; pg.beginPath(); pg.arc(x, y, i === sel ? 8 : 6, 0, 7); pg.fill(); pg.fillStyle = '#000'; pg.textAlign = 'center'; pg.fillText(i + 1, x, y + 4); }); }
+    sounding.forEach((l, i) => { const [x, y] = padXY(l.T, l.s, W, H); pg.fillStyle = i === sel ? '#ffe08a' : '#fff'; pg.beginPath(); pg.arc(x, y, i === sel ? 8 : 6, 0, 7); pg.fill(); pg.fillStyle = '#000'; pg.textAlign = 'center'; pg.font = '12px serif'; pg.fillText(i + 1, x, y + 4); });
+    if (dragging) { const l = sounding[sel]; readout(P2(l.T, l.s), true); } }
 }
+// the ghost pen runs only while the diagram is empty and on show (a few dozen cheap frames a second, nothing else)
+let ghostOn = false;
+function ghostLoop() { if (ghostOn) return; ghostOn = true; ghostT = performance.now(); let last = 0;
+  const f = now => { if (SAVE.mode !== 'draw' || drawPath.length || drawing || document.hidden) { ghostOn = false; return; } if (now - last > 33) { last = now; drawPad(now); } requestAnimationFrame(f); }; requestAnimationFrame(f); }
 let dragging = false;
 function padSet(e) { const r = pad.getBoundingClientRect(), x = FX.clamp((e.clientX - r.left) / r.width, 0, 1), y = FX.clamp((e.clientY - r.top) / r.height, 0, 1);
-  const l = sounding[sel]; l.T = Math.round((TMAX + (TMIN - TMAX) * x) * 2) / 2; l.s = Math.round((1 - y) * 20) / 20; drawPad(); renderInfo(); renderColumn(); }
+  const l = sounding[sel]; l.T = Math.round((TMAX + (TMIN - TMAX) * x) * 2) / 2; l.s = Math.round((DMAX - (DMAX - DMIN) * y) * 100) / 100; drawPad(); renderInfo(); renderColumn(); }
 // pressing the pad grabs the nearest layer dot (and selects it); far from every dot, it moves the selected layer there
 const padPt = e => { const r = pad.getBoundingClientRect(); return [FX.clamp((e.clientX - r.left) / r.width, 0, 1), FX.clamp((e.clientY - r.top) / r.height, 0, 1)]; };
-pad.addEventListener('pointerdown', e => { if (SAVE.mode !== 'draw') return; drawing = true; drawPath = [padPt(e)]; drawLayers = null; try { pad.setPointerCapture(e.pointerId); } catch (err) {} drawPad(); drawPlates(); });
-pad.addEventListener('pointermove', e => { if (SAVE.mode !== 'draw' || !drawing) return; const p = padPt(e), l = drawPath.at(-1); if (Math.hypot(p[0] - l[0], p[1] - l[1]) > .006 && drawPath.length < 400) { drawPath.push(p); drawPad(); } });
+pad.addEventListener('pointerdown', e => { if (SAVE.mode !== 'draw') return; drawing = true; hover = null; if (!SAVE.drew) { SAVE.drew = 1; persist(); } drawPath = [padPt(e)]; drawLayers = null; try { pad.setPointerCapture(e.pointerId); } catch (err) {} drawPad(); drawPlates(); });
+pad.addEventListener('pointermove', e => { if (SAVE.mode === 'draw' && !drawing && e.pointerType === 'mouse') { hover = padPt(e); drawPad(); } if (SAVE.mode !== 'draw' || !drawing) return; const p = padPt(e), l = drawPath.at(-1); if (Math.hypot(p[0] - l[0], p[1] - l[1]) > .006 && drawPath.length < 400) { drawPath.push(p); drawPad(); } });
 pad.addEventListener('pointerup', () => { if (SAVE.mode === 'draw' && drawing) { drawing = false; release(); } });
 pad.addEventListener('pointercancel', () => { drawing = false; });
+pad.addEventListener('pointerleave', () => { if (hover) { hover = null; drawPad(); } });
 pad.addEventListener('pointerdown', e => { if (SAVE.mode === 'draw') return; const r = pad.getBoundingClientRect(); let best = -1, bd = e.pointerType === 'mouse' ? 22 : 36;
   sounding.forEach((l, i) => { const [x, y] = padXY(l.T, l.s, r.width, r.height), d = Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y); if (d < bd) { bd = d; best = i; } });
   if (best >= 0 && best !== sel) { sel = best; renderColumn(); }
   dragging = true; try { pad.setPointerCapture(e.pointerId); } catch (err) {} padSet(e); });
 pad.addEventListener('pointercancel', () => { dragging = false; });
 pad.addEventListener('pointermove', e => { if (dragging && SAVE.mode !== 'draw') padSet(e); });
-pad.addEventListener('pointerup', () => { dragging = false; });
+pad.addEventListener('pointerup', () => { if (dragging) { dragging = false; drawPad(); } });
 // ================= panels =================
 function renderColumn() {
   const c = CASES[cur], max = c.chamber ? 1 : 4;
-  $('column').innerHTML = sounding.map((l, i) => `<div class="layer ${i === sel ? 'sel' : ''}" data-i="${i}" tabindex="0"><span class="t"><b>${i + 1}.</b> ${l.T.toFixed(1)} °C, humidity ${Math.round(l.s * 100)}%</span>
+  $('column').innerHTML = sounding.map((l, i) => `<div class="layer ${i === sel ? 'sel' : ''}" data-i="${i}" tabindex="0"><span class="t"><b>${i + 1}.</b> ${fmtT(l.T)}, ${l.s >= 0 ? '+' : '−'}${Math.abs(l.s).toFixed(2)} g/m³</span>
     ${c.chamber ? '' : `<span class="d">${[1, 2, 3].map(d => `<button data-d="${d}" class="${l.d === d ? 'on' : ''}" title="Time in this layer">${'▮'.repeat(d)}</button>`).join('')}</span>`}${sounding.length > 1 ? '<button class="x" title="Remove layer">×</button>' : ''}</div>`).join('') +
     (sounding.length < max ? '<button id="addL">+ Add a lower layer</button>' : '');
   $('column').querySelectorAll('.layer').forEach(el => { const i = +el.dataset.i;
     el.onclick = e => { if (e.target.closest('button')) return; sel = i; renderColumn(); drawPad(); renderInfo(); };
     el.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { sounding[i].d = +b.dataset.d; renderColumn(); });
     const x = el.querySelector('.x'); if (x) x.onclick = () => { sounding.splice(i, 1); sel = Math.min(sel, sounding.length - 1); renderColumn(); drawPad(); }; });
-  if ($('addL')) $('addL').onclick = () => { const p = sounding[sounding.length - 1]; sounding.push(L(Math.max(TMIN, p.T - 3), Math.min(1, p.s + .15), 2)); /* offset so the new dot does not hide the last one */ sel = sounding.length - 1; renderColumn(); drawPad(); };
+  if ($('addL')) $('addL').onclick = () => { const p = sounding[sounding.length - 1]; sounding.push(L(Math.max(TMIN, p.T - 3), Math.min(waterLine(Math.max(TMIN, p.T - 3)) - .02, p.s + .04), 2)); /* offset so the new dot does not hide the last one */ sel = sounding.length - 1; renderColumn(); drawPad(); };
 }
 function renderInfo() {
   const c = CASES[cur], l = sounding[sel], k = habit(l.T, l.s);
-  $('padInfo').innerHTML = `<div>Layer ${sel + 1}: <b>${l.T.toFixed(1)} °C</b>, humidity <b>${Math.round(l.s * 100)}%</b>${SAVE.seen[k] ? ` · grows <b>${KNAME[k]}</b>` : ' · <i>unobserved: grow it to find out</i>'}</div>
+  $('padInfo').innerHTML = `<div>Layer ${sel + 1}: <b>${fmtT(l.T)}</b>, <b>${fmtV(l.T, l.s)}</b>${l.s < 0 ? ' · <i>below ice saturation: it sublimates</i>' : isRime(l) ? ' · <i>above water saturation: droplets rime it</i>' : ''}${SAVE.seen[k] ? ` · grows <b>${KNAME[k]}</b>` : ' · <i>unobserved: grow it to find out</i>'}</div>
     ${c.chamber ? `<div class="note" style="color:#9aa3b8">Kinds observed: ${Object.keys(SAVE.seen).length} of ${KINDS.length}${Object.keys(SAVE.seen).length >= 4 ? ' · the case files are open' : ''}</div>` : `<div class="balloons" title="Balloons left">${'🎈'.repeat(BALLOONS - used)}${'·'.repeat(used)}</div>${grown ? `<div>Match with the specimen: <b>${Math.round(best * 100)}%</b> (${Math.round(MATCH * 100)}% solves it)</div>` : ''}`}
     <div style="margin-top:6px"><button class="primary" id="growBtn">${c.chamber ? '❄ Grow in the chamber' : '🎈 Launch a balloon and regrow'}</button></div>`;
   $('growBtn').onclick = launch;
@@ -491,30 +555,37 @@ function render() {
 }
 // ================= the draw mode: release, codex, commissions =================
 const currentComm = () => SAVE.tab === 'comm' ? COMMS[Math.min(COMMS.length - 1, Math.max(0, SAVE.ci))] : SAVE.tab === 'daily' ? dailyComm(todayStr()) : null;
+let drawClass = null;
+const RANK = { common: 0, uncommon: 1, rare: 2, legendary: 3 };
 function release(P = drawPath) {
-  if (!P.length) return; drawPath = P; drawLayers = pathLayers(P); const x = crystalFor(drawLayers); travel = 0;
-  const seq = habitSeq(drawLayers), key = seq.join(','), fresh = !SAVE.codex[key];
-  for (const k of seq) SAVE.seen[k] = 1;
+  if (!P.length) return; drawPath = P; const cl = classify(P); drawClass = cl; drawLayers = cl.layers; const x = crystalFor(drawLayers); travel = 0;
+  const key = cl.key, fresh = !SAVE.codex[key];
+  for (const k of cl.seq) if (KINDS.includes(k)) SAVE.seen[k] = 1;
   if (fresh) SAVE.codex[key] = { d: todayStr(), p: encodePath(P), n: 1 }; else SAVE.codex[key].n++;
   const cm = currentComm(); lastJudge = cm ? judgeComm(cm, P) : null;
   if (cm && lastJudge.ok) { if (cm.daily) { if (!SAVE.daily || SAVE.daily.date !== cm.daily || lastJudge.ink < SAVE.daily.ink) SAVE.daily = { date: cm.daily, ink: Math.round(lastJudge.ink * 1000) / 1000 }; }
     else if (lastJudge.stars > (SAVE.comm[SAVE.ci] || 0)) SAVE.comm[SAVE.ci] = lastJudge.stars; }
   persist(); shutter(); animateDevelop();
-  if (fresh) RH.toast(`First found by you: <b>${nameOf(seq)}</b> · ${rarity(seq)}`, 3400);
+  if (cl.wild) RH.toast(`No real air changes that fast: the flake tumbled through turbulent updrafts and came down as <b>${cl.name}</b>. Draw a calmer fall.`, 4200);
+  else if (fresh) RH.toast(`First found by you: <b>${cl.name}</b> · ${cl.rar}`, 3400);
   if (cm && lastJudge.ok) setTimeout(() => { [1568, 2093, 2637].forEach((f, i) => FX.tone({ f, type: 'sine', dur: 1, vol: .05, delay: i * .1 })); RH.toast(cm.daily ? `Today's sky matched with ${(lastJudge.ink * 100).toFixed(0)} units of ink.` : `Commission delivered ${'★'.repeat(lastJudge.stars)}`, 3000); }, 900);
   location.hash = 'fall=' + encodePath(P);
   renderDraw();
   // the bead travels down the line in step with the crystal's growth
-  const t0 = performance.now(); const anim = now => { travel = x.done ? 1 : Math.min(1, x.o.R / RMAX); drawPad(); if (travel < 1) requestAnimationFrame(anim); }; requestAnimationFrame(anim);
+  const anim = () => { travel = x.done ? 1 : Math.min(1, x.i / Math.max(1, x.ph.length)); drawPad(); if (travel < 1) requestAnimationFrame(anim); }; requestAnimationFrame(anim);
 }
 function renderDraw() {
-  const tabs = [['sky', '❄ Draw the fall'], ['comm', '📜 Commissions'], ['daily', '📅 Daily sky'], ['cases', '🔎 Cases']];
+  const tabs = [['sky', '❄ Draw the fall'], ['comm', '📜 Commissions'], ['daily', '📅 Daily sky'], ['notes', '📓 Field notes'], ['cases', '🔎 Cases']];
   let body = '';
   if (SAVE.tab === 'sky') {
-    const ents = Object.entries(SAVE.codex).sort((a, b) => a[1].d < b[1].d ? 1 : -1);
-    body = `<div class="story">Draw the line a snowflake falls along: press on <b>Nakaya's diagram</b> where it is born, drag through the clouds it passes (temperature across, humidity up) and lift. It grows as it falls, <b>centre first</b>: every stretch of your line adds its own ring. Small changes make very different flakes. Every new kind goes into your codex.</div>
-      <div class="lbl"><span>Your codex</span><span>${ents.length} found</span></div>
-      <div class="codex">${ents.length ? ents.map(([k, e]) => { const seq = k.split(','); return `<button data-p="${e.p}" title="Grow it again"><span>${nameOf(seq)}</span><span class="rar ${rarity(seq)}">${rarity(seq)}</span></button>`; }).join('') : '<div class="note">Nothing yet. Draw your first fall below.</div>'}</div>`;
+    const ents = Object.entries(SAVE.codex).sort((a, b) => RANK[keyRar(b[0])] - RANK[keyRar(a[0])] || (a[1].d < b[1].d ? 1 : -1));
+    body = `<div class="story">Draw the line a snowflake falls along: press on <b>Nakaya's diagram</b> where it is born, drag through the air it falls through (temperature across, vapour excess up) and lift. A fall lasts about 48 minutes; it grows <b>centre first</b>, so every stretch of your line adds its own ring. Real air changes smoothly: scribbles make tumbling, broken flakes. Every new form goes into your codex.</div>
+      <div class="lbl"><span>Your codex</span><span>${ents.length} found · ${ents.filter(([k]) => keyRar(k) === 'legendary').length}/${LEGENDS.length} legendary</span></div>
+      <div class="codex">${ents.length ? ents.map(([k, e]) => `<button data-p="${e.p}" title="Grow it again"><span>${keyName(k)}</span><span class="rar ${keyRar(k)}">${keyRar(k)}</span></button>`).join('') : '<div class="note">Nothing yet. Draw your first fall on the diagram.</div>'}</div>`;
+  } else if (SAVE.tab === 'notes') {
+    body = `<div class="story">The legendary forms are real, documented snow crystals. Each grows only under its own conditions, held steadily: these are the windows the field guides give. Find them on the diagram.</div>
+      ${LEGENDS.map(l => { const got = SAVE.codex['legend:' + l.id]; return `<div class="lbl"><span>${got ? '❄' : '○'} ${l.name}</span>${got ? '<span class="rar legendary">found</span>' : ''}</div><div class="note">${l.where}</div>`; }).join('')}
+      <div class="lbl"><span>Sources</span></div><div class="note">K. G. Libbrecht, <i>Ken Libbrecht's Field Guide to Snowflakes</i> (Voyageur, 2006); U. Nakaya, <i>Snow Crystals: Natural and Artificial</i> (Harvard, 1954); M. Bailey &amp; J. Hallett, J. Atmos. Sci. 66 (2009); the pictures are grown by C. Reiter's hexagonal automaton (Chaos, Solitons &amp; Fractals 23, 2005).</div>`;
   } else {
     const cm = currentComm(), j = lastJudge;
     const list = SAVE.tab === 'comm' ? `<div class="cases" id="cases">${COMMS.map((c, i) => `<button class="${i === SAVE.ci ? 'cur' : ''}" data-ci="${i}"><span>${i + 1}. ${c.n}</span><span class="st">${SAVE.comm[i] ? '★'.repeat(SAVE.comm[i]) : ''}</span></button>`).join('')}</div>` : '';
@@ -527,14 +598,14 @@ function renderDraw() {
   $('side').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { if (b.dataset.tab === 'cases') { SAVE.mode = 'cases'; persist(); startCase(cur); return; } SAVE.tab = b.dataset.tab; lastJudge = null; persist(); renderDraw(); drawPlates(); });
   $('side').querySelectorAll('[data-ci]').forEach(b => b.onclick = () => { SAVE.ci = +b.dataset.ci; lastJudge = null; persist(); renderDraw(); drawPlates(); document.body.classList.remove('drawer'); });
   $('side').querySelectorAll('.codex [data-p]').forEach(b => b.onclick = () => release(decodePath(b.dataset.p)));
-  const seq = drawLayers ? habitSeq(drawLayers) : null;
-  $('padInfo').innerHTML = `<div>${seq ? `Your flake: <b>${nameOf(seq)}</b> · <span class="rar ${rarity(seq)}">${rarity(seq)}</span> · ink ${Math.round(pathLen(drawPath) * 100)}` : '<b>Press and drag</b> on the diagram to draw the fall, then lift.'}</div>
-    <div class="note" style="color:#9aa3b8">${seq ? 'Centre outwards: ' + seq.map(k => SHORT[k]).join(' → ') : 'Temperature across (warm on the left), humidity up.'}</div>
+  const cl = drawLayers ? drawClass : null, seq = cl && cl.seq;
+  $('padInfo').innerHTML = `<div>${cl ? `Your flake: <b>${cl.name}</b> · <span class="rar ${cl.rar}">${cl.rar}</span> · ${sizeMM(grow(drawLayers)).toFixed(1)} mm · ink ${Math.round(pathLen(drawPath) * 100)}` : '<b>Press and drag</b> on the diagram to draw the fall, then lift.'}</div>
+    <div class="note" style="color:#9aa3b8">${cl ? (cl.wild ? 'Turbulent: the line asked the air to change faster than real air can.' : cl.seq.length && KINDS.includes(cl.seq[0]) ? 'Centre outwards: ' + seq.map(k => SHORT[k]).join(' → ') + (cl.rime >= 2 ? ' · rimed by droplets' : '') + (cl.sub >= 2 ? ' · sublimated at the end' : '') : '') : 'Air temperature across (warm on the left); vapour excess over ice up. Lift to let it fall.'}</div>
     <div class="row" style="margin-top:6px"><button id="clrBtn">Clear</button>${seq ? '<button id="shareBtn">🔗 Share this flake</button>' : ''}</div>`;
-  $('clrBtn').onclick = () => { drawPath = []; drawLayers = null; lastJudge = null; history.replaceState(null, '', location.pathname); renderDraw(); drawPad(); drawPlates(); };
+  $('clrBtn').onclick = () => { drawPath = []; drawLayers = null; drawClass = null; lastJudge = null; history.replaceState(null, '', location.pathname); renderDraw(); drawPad(); drawPlates(); };
   if ($('shareBtn')) $('shareBtn').onclick = () => { const url = location.origin + location.pathname + '#fall=' + encodePath(drawPath); try { navigator.clipboard?.writeText(url); } catch (e) {} RH.toast('Link copied: anyone who opens it sees this fall grow.', 2600); };
   $('tot').textContent = `${Object.keys(SAVE.codex).length} forms · ${Object.values(SAVE.comm).reduce((a, b) => a + b, 0)}★ commissions`;
-  drawPad(); drawPlates();
+  drawPad(); drawPlates(); if (!drawPath.length) ghostLoop();
 }
 // ================= growing and judging =================
 function scoreSounding(c, snd) { // regrow every specimen from the player's sounding (later flakes enter lower down) and take the worst match
@@ -545,17 +616,18 @@ function scoreSounding(c, snd) { // regrow every specimen from the player's soun
 const starsFor = n => n <= 2 ? 3 : n <= 3 ? 2 : 1;
 async function launch() {
   const c = CASES[cur];
-  if (c.chamber) { grown = grow(sounding); grownLayers = [sounding.map(l => ({ ...l }))]; const k = habit(sounding[0].T, sounding[0].s), fresh = !SAVE.seen[k]; SAVE.seen[k] = 1;
+  if (c.chamber && sounding[0].s <= 0) { RH.toast('Below ice saturation the seed crystal only sublimates: nothing grows. Raise the humidity above the ice line.', 3600); return; }
+  if (c.chamber) { grown = grow(sounding); grownLayers = [sounding.map(l => ({ ...l }))]; const k = kindOf(sounding[0]), fresh = !SAVE.seen[k]; SAVE.seen[k] = 1;
     if (Object.keys(SAVE.seen).length >= 4 && !SAVE.done[0]) { SAVE.done[0] = 1; RH.toast('Four kinds observed. The case files are open.', 4000); }
     persist(); shutter(); animateDevelop(); if (fresh) RH.toast(`New on the diagram: <b>${KNAME[k]}</b>`, 3200); render(); return; }
   if (used >= BALLOONS) return;
   used++; const r = scoreSounding(c, sounding); grown = r.mine.length > 1 ? r.mine : r.mine[0]; grownLayers = c.target.map((_, i) => sounding.slice((c.from || [0])[i] || 0).map(l => ({ ...l }))); best = Math.max(best, r.score);
-  for (const l of sounding) SAVE.seen[habit(l.T, l.s)] = 1; persist(); shutter(); animateDevelop();
+  for (const l of sounding) if (l.s > 0) SAVE.seen[kindOf(l)] = 1; persist(); shutter(); animateDevelop();
   if (r.score >= MATCH) {
     const st = starsFor(used); if (st > (SAVE.done[cur] || 0)) SAVE.done[cur] = st; persist(); render();
     await new Promise(res => setTimeout(res, 900));
     [1568, 2093, 2637, 3136].forEach((f, i) => FX.tone({ f, type: 'sine', dur: 1.2, vol: .05, delay: i * .12 }));
-    await RH.modal(`<h2>Plate ${cur} developed</h2><div class="stars">${'★'.repeat(st)}${'☆'.repeat(3 - st)}</div><p style="text-align:center">Your sounding regrew the specimen (${Math.round(r.score * 100)}% match) with ${used} balloon${used > 1 ? 's' : ''}.</p><p class="note" style="color:#9aa3b8;text-align:center">Read inside out: ${c.target[0].map(l => KNAME[habit(l.T, l.s)]).join(' → ')}.</p>`, [{ label: 'Next case', value: 1 }]);
+    await RH.modal(`<h2>Plate ${cur} developed</h2><div class="stars">${'★'.repeat(st)}${'☆'.repeat(3 - st)}</div><p style="text-align:center">Your sounding regrew the specimen (${Math.round(r.score * 100)}% match) with ${used} balloon${used > 1 ? 's' : ''}.</p><p class="note" style="color:#9aa3b8;text-align:center">Read inside out: ${c.target[0].map(l => KNAME[kindOf(l)]).join(' → ')}.</p>`, [{ label: 'Next case', value: 1 }]);
     if (cur + 1 < CASES.length && isOpen(cur + 1)) startCase(cur + 1); else render();
     return;
   }
@@ -569,13 +641,13 @@ function animateDevelop() { // signature: the regrowth develops on the glass lik
 addEventListener('resize', () => { drawPlates(); drawPad(); });
 $('lvlBtn').onclick = e => { e.stopPropagation(); document.body.classList.toggle('drawer'); };
 document.addEventListener('click', e => { if (document.body.classList.contains('drawer') && !e.target.closest('#cases') && e.target !== $('lvlBtn')) document.body.classList.remove('drawer'); });
-const help = () => RH.modal(`<h2>Snowfall</h2><p>In 1885 Wilson Bentley photographed his first snowflake. Later, Ukichiro Nakaya grew them in a laboratory and found that the <b>shape</b> of a crystal records the <b>weather</b> it grew in: temperature decides plates or columns, humidity decides how branched.</p>
-  <p>A flake grows from the inside out as it falls, so its centre is its oldest part. Here you <b>draw its fall</b>: a line across Nakaya's diagram, through the clouds it passes. Lift your finger and watch it grow, ring by ring. Every new kind goes into your codex; Bentley's correspondents send commissions; the daily sky is the same for everyone. The forensic cases are under 🔎 Cases.</p>`, [{ label: 'Open the notebook' }]);
+const help = () => RH.modal(`<h2>Snowfall</h2><p>In 1885 Wilson Bentley photographed his first snowflake. Later, Ukichiro Nakaya grew them in a laboratory and found that a crystal's <b>shape</b> records the <b>air</b> it grew in. Temperature decides plates or columns: plates down to −4 °C, columns and needles to −10 °C, plates, stars and ferns to −22 °C, and mixed plates and columns colder still. The <b>vapour excess over ice</b> decides how fast it grows and how branched it is. Below ice saturation a crystal sublimates; above water saturation, supercooled droplets freeze onto it (rime).</p>
+  <p>A flake grows from the inside out during a fall of about 48 minutes, so its centre is its oldest part. Here you <b>draw its fall</b> across Nakaya's diagram. Real air changes smoothly, so a calm, deliberate line grows a clean crystal, while a scribble grows a tumbled, broken one. The five legendary forms in your field notes each need their real recipe. Bentley's correspondents send commissions, and the daily sky is the same for everyone. The forensic cases are under 🔎 Cases.</p>`, [{ label: 'Open the notebook' }]);
 $('helpBtn').onclick = help;
 if (!SAVE.intro) { SAVE.intro = 1; persist(); help(); }
 startCase(cur);
 { const m = location.hash.match(/fall=([0-9a-z]+)/); if (m) { SAVE.mode = 'draw'; SAVE.tab = 'sky'; const P = decodePath(m[1]); if (P.length) setTimeout(() => release(P), 50); } }
-window.__snow = { planRoute, setMode: m => { SAVE.mode = m; persist(); if (m === 'draw') renderDraw(); else startCase(cur); }, pathLayers, habitSeq, nameOf, rarity, encodePath, decodePath, resample, pathLen, COMMS, judgeComm, dailyComm, todayStr, release, renderDraw, P2, get drawLayers() { return drawLayers; }, get drawPath() { return drawPath; }, crystalFor, crystals, habit, grow, similarity, CASES, MATCH, BALLOONS, scoreSounding, starsFor, cleanSave, SAVE, launch, startCase, isOpen, get cur() { return cur; }, get used() { return used; }, get sounding() { return sounding; }, set sounding(v) { sounding = v; sel = 0; renderColumn(); drawPad(); renderInfo(); } };
+window.__snow = { classify, fallOf, LEGENDS, waterLine, ptTS, kindOf, isRime, keyName, keyRar, sizeMM, get drawClass() { return drawClass; }, DMIN, DMAX, TMIN, TMAX, planRoute, setMode: m => { SAVE.mode = m; persist(); if (m === 'draw') renderDraw(); else startCase(cur); }, pathLayers, habitSeq, nameOf, rarity, encodePath, decodePath, resample, pathLen, COMMS, judgeComm, dailyComm, todayStr, release, renderDraw, P2, get drawLayers() { return drawLayers; }, get drawPath() { return drawPath; }, crystalFor, crystals, habit, grow, similarity, CASES, MATCH, BALLOONS, scoreSounding, starsFor, cleanSave, SAVE, launch, startCase, isOpen, get cur() { return cur; }, get used() { return used; }, get sounding() { return sounding; }, set sounding(v) { sounding = v; sel = 0; renderColumn(); drawPad(); renderInfo(); } };
 </script>
 </body>
 </html>

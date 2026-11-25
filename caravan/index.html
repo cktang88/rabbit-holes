@@ -26,8 +26,8 @@
   main{flex:1;display:flex;min-height:0}
   #mapWrap{flex:1;position:relative;min-width:0;border:6px solid #120c06}
   #map{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
-  #zoomBar{position:absolute;right:20px;bottom:20px;display:flex;flex-direction:column;gap:6px;z-index:3}
-  #zoomBar button{width:40px;height:40px;font-size:22px;padding:0;border-radius:50%;background:radial-gradient(circle at 40% 35%,#fff3c8,#d4a940 70%,#8a6a10);border-color:#6a4a08}
+  #mapWrap .pz-bar{right:20px;bottom:20px;flex-direction:column;gap:6px;z-index:3}
+  #mapWrap .pz-bar button{width:40px;height:40px;font-size:22px;padding:0;color:#3a2408;opacity:1;width:40px;height:40px;font-size:22px;padding:0;border-radius:50%;background:radial-gradient(circle at 40% 35%,#fff3c8,#d4a940 70%,#8a6a10);border-color:#6a4a08}
   /* the ledger */
   #side{width:540px;display:flex;flex-direction:column;min-height:0;color:var(--ink);background:linear-gradient(90deg,#00000030,transparent 18px),var(--fibre),linear-gradient(#f4e8ca,#e8d6ac);border-left:4px solid #3a220c;box-shadow:inset 0 0 30px #8a5a2a44}
   .tabs{display:flex;gap:3px;padding:0 10px;border-bottom:2px solid var(--verm)}
@@ -111,7 +111,7 @@
 <body>
 <div class="topbar"><a class="home" href="../index.html">← Rabbit Holes</a><h1>Caravan</h1><span class="spacer"></span><span class="small dim" id="career"></span></div>
 <main>
-  <div id="mapWrap"><canvas id="map" aria-label="Map: tap a city to plan a journey; pinch or use the buttons to zoom"></canvas><div id="zoomBar"><button id="zIn" aria-label="Zoom in">+</button><button id="zOut" aria-label="Zoom out" disabled>−</button></div><div id="travelBox"></div><div id="encBox" role="dialog" aria-label="Encounter on the road"></div>
+  <div id="mapWrap"><canvas id="map" aria-label="Map: tap a city to plan a journey; pinch or use the buttons to zoom"></canvas><div id="travelBox"></div><div id="encBox" role="dialog" aria-label="Encounter on the road"></div>
     <div class="legend" id="legend" role="button" tabindex="0" aria-label="Map key: tap to show or hide"><b class="lgK">Key</b><span class="lgB">Dome colour = age of your price news<br><span style="color:#1f8a7a">●</span> fresh <span style="color:#c9971a">●</span> weeks <span style="color:#b3402a">●</span> months <span style="color:#8a8070">●</span> never seen<br><span style="color:#b3402a">- - -</span> bandit country</span></div>
     <div id="mapTip">Click a city to plan a journey · your price book only knows what you've seen or been told</div></div>
   <div id="side">
@@ -126,6 +126,7 @@
 </main>
 <script src="../shared/common.js"></script>
 <script src="../shared/fx.js"></script>
+<script src="../shared/panzoom.js"></script>
 <script>
 // ===================== Sound: camel bells, coin, sand =====================
 const SFX={
@@ -409,8 +410,7 @@ const cv=document.getElementById('map'), ctx=cv.getContext('2d'); let hoverC=-1;
 function fit(){ const r=cv.getBoundingClientRect(); cv.width=r.width*devicePixelRatio; cv.height=r.height*devicePixelRatio; buildMapBg(); }
 // inside the lapis border. On a tall (portrait) map the road runs north-south instead: Chang'an at the top, Constantinople at the bottom.
 // P0: the whole map fitted to the canvas. P: the same after the player's zoom and pan (pinch, wheel or the +/- buttons).
-let zoom=1, panX=0, panY=0;
-const P=(c)=>{ const [x,y]=P0(c); return [x*zoom+panX, y*zoom+panY]; };
+const P=(c)=>{ const [x,y]=P0(c); return [x*cam.k+cam.x, y*cam.k+cam.y]; };
 const P0=(c)=>{ const r=cv.getBoundingClientRect(); if (r.height>r.width*1.15){ const px=30, py=40; return [px+c.y*(r.width-2*px), py+(1-c.x)*(r.height-2*py)]; } const px=44, py=30; return [px+c.x*(r.width-2*px), py+c.y*(r.height-2*py)]; };
 // ---- the map as a Persian miniature: gold-ground parchment, lapis border, pastel rocks, ochre dunes. Static parts drawn once. ----
 let mapBg=null;
@@ -495,9 +495,9 @@ function drawMap(){
   const r=cv.getBoundingClientRect(); const d=devicePixelRatio; ctx.setTransform(1,0,0,1,0,0);
   // the routes are baked into the background in CSS pixels: whenever the map's box changes (layout, fonts, rotation,
   // a new career) the canvas and its background are rebuilt, so roads and city icons always share one projection
-  if (!mapBg || mapBg.rw!==r.width || mapBg.rh!==r.height || mapBg.seed!==C.seed){ fit(); zoom=1; panX=panY=0; }
+  if (!mapBg || mapBg.rw!==r.width || mapBg.rh!==r.height || mapBg.seed!==C.seed){ fit(); cam.fit(); }
   ctx.fillStyle='#120c06'; ctx.fillRect(0,0,cv.width,cv.height);
-  ctx.setTransform(zoom,0,0,zoom,panX*d,panY*d); if (mapBg) ctx.drawImage(mapBg,0,0); ctx.setTransform(d,0,0,d,0,0);
+  ctx.setTransform(cam.k,0,0,cam.k,cam.x*d,cam.y*d); if (mapBg) ctx.drawImage(mapBg,0,0); ctx.setTransform(d,0,0,d,0,0);
   if (plan && !plan.none){ ctx.strokeStyle='#d4a940'; ctx.lineWidth=5; ctx.lineCap='round'; ctx.globalAlpha=.85; let at=C.at; for (const l of plan.legs){ const to=l.r.a===at?l.r.b:l.r.a; const [x1,y1]=P(cities[at]),[x2,y2]=P(cities[to]); ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); at=to; } ctx.globalAlpha=1; }
   placeLabels();
   for (const c of cities){ const [x,y]=P(c); drawCity(c,x,y); }
@@ -513,26 +513,15 @@ function drawMap(){
 }
 const cityAt=e=>{ const r=cv.getBoundingClientRect(); let best=-1, bd=matchMedia('(pointer:coarse)').matches? 24 : 18; for (const c of cities){ const [x,y]=P(c), d=Math.hypot(x-(e.clientX-r.left),y-(e.clientY-r.top)); if (d<bd){ bd=d; best=c.id; } } return best; };
 cv.addEventListener('mousemove',e=>{ hoverC=cityAt(e); cv.style.cursor=hoverC>=0?'pointer':'default'; });
-cv.addEventListener('click',e=>{ if (dragged){ dragged=false; return; } if (traveling) return; const ci=cityAt(e); if (ci>=0) planTo(ci); }); // from the click itself: taps have no hover
-// ---- zoom and pan: pinch with two fingers, drag with one when zoomed in, mouse wheel, or the +/- buttons.
-// At full view a one-finger drag scrolls the page, as the map would if it weren't a canvas.
-const ZMAX=3.5;
-function clampPan(){ const r=cv.getBoundingClientRect(); panX=Math.min(0,Math.max(r.width*(1-zoom),panX)); panY=Math.min(0,Math.max(r.height*(1-zoom),panY)); }
-function zoomAt(px,py,f){ const nz=Math.min(ZMAX,Math.max(1,zoom*f)); panX=px-(px-panX)*nz/zoom; panY=py-(py-panY)*nz/zoom; zoom=nz; if (zoom===1){ panX=panY=0; } clampPan(); document.getElementById('zOut').disabled=zoom<=1; document.getElementById('zIn').disabled=zoom>=ZMAX; }
-const ptrs=new Map(); let dragged=false, pinch0=null, downAt=null;
-cv.addEventListener('pointerdown',e=>{ ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY}); downAt={x:e.clientX,y:e.clientY}; dragged=false; if (ptrs.size===2){ const [a,b]=[...ptrs.values()]; pinch0=Math.hypot(a.x-b.x,a.y-b.y); } });
-cv.addEventListener('pointermove',e=>{
-  const p=ptrs.get(e.pointerId); if (!p) return; const dx=e.clientX-p.x, dy=e.clientY-p.y; p.x=e.clientX; p.y=e.clientY;
-  if (ptrs.size===2){ const [a,b]=[...ptrs.values()], dd=Math.hypot(a.x-b.x,a.y-b.y), r=cv.getBoundingClientRect(); if (pinch0>0) zoomAt((a.x+b.x)/2-r.left,(a.y+b.y)/2-r.top,dd/pinch0); pinch0=dd; dragged=true; return; }
-  if (Math.hypot(e.clientX-downAt.x,e.clientY-downAt.y)>6) dragged=true;
-  if (!dragged) return;
-  if (zoom>1){ panX+=dx; panY+=dy; clampPan(); } else if (e.pointerType!=='mouse') window.scrollBy(0,-dy);
-});
-['pointerup','pointercancel','pointerleave'].forEach(t=>cv.addEventListener(t,e=>{ ptrs.delete(e.pointerId); if (ptrs.size<2) pinch0=null; }));
-cv.addEventListener('wheel',e=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); zoomAt(e.clientX-r.left,e.clientY-r.top,e.deltaY<0?1.2:1/1.2); },{passive:false});
+cv.addEventListener('click',e=>{ if (cam.gesturing || moved) return; if (traveling) return; const ci=cityAt(e); if (ci>=0) planTo(ci); }); // from the click itself: taps have no hover
+// ---- zoom and pan (shared camera): pinch or wheel to zoom, drag the map (not a city) to pan, + − ⤢ in the corner. The map never leaves the frame.
+function clampCam(){ const r=cv.getBoundingClientRect(); cam.k=Math.max(1,cam.k); cam.x=Math.min(0,Math.max(r.width*(1-cam.k),cam.x)); cam.y=Math.min(0,Math.max(r.height*(1-cam.k),cam.y)); }
+const cam=PanZoom(cv,{ world:()=>{ const r=cv.getBoundingClientRect(); return {x:0,y:0,w:r.width||1,h:r.height||1}; }, pad:0, min:1, max:3.5, canPanFrom:e=>cityAt(e)<0, onChange:clampCam });
+function zoomAt(px,py,f){ const r=cv.getBoundingClientRect(); cam.zoomAt(r.left+px,r.top+py,f); }
+let moved=false, downXY=null; // a press that drags more than a few pixels is a pan, never a click on a city
+cv.addEventListener('pointerdown',e=>{ downXY=[e.clientX,e.clientY]; moved=false; },true);
+cv.addEventListener('pointermove',e=>{ if (downXY && Math.hypot(e.clientX-downXY[0],e.clientY-downXY[1])>6) moved=true; },true);
 document.getElementById('legend').onclick=()=>document.getElementById('legend').classList.toggle('open');
-document.getElementById('zIn').onclick=()=>{ const r=cv.getBoundingClientRect(); zoomAt(r.width/2,r.height/2,1.4); };
-document.getElementById('zOut').onclick=()=>{ const r=cv.getBoundingClientRect(); zoomAt(r.width/2,r.height/2,1/1.4); };
 
 function bestKnown(g){ let best=null; for (const ci in C.book){ if (+ci===C.at) continue; const b=C.book[ci]; const p=b.p[g]*0.97; if (!best||p>best.p) best={ci:+ci,p,age:C.day-b.day}; } return best; }
 function renderMarket(){
@@ -604,7 +593,7 @@ setInterval(persist, 5000);
 if (!C || C.ended){ newCareer(); }
 buildAndRender();
 if (C.day>=CAREER_DAYS) endCareer(); fit(); window.addEventListener('resize',fit); requestAnimationFrame(drawMap); requestAnimationFrame(loop);
-window.__caravan = { maxBuy,  P0, zoomAt, get zoom(){ return zoom; }, labelBoxes:()=>labels.slice(),  get headless(){ return headless; }, set headless(v){ headless=v; }, travelNow, starsFor, STAR_AT, GEO, rivalPos, newCareerSeed:(seed)=>{ traveling=null; plan=null; newCareer(seed); }, P, mapSegs:()=>mapBg&&mapBg.segs, get mapBg(){ return mapBg; }, get encountersOn(){ return encountersOn; }, set encountersOn(v){ encountersOn=v; }, ENC, resolveEncounter, maybeEncounter, renderEncounter, coins:()=>coins, get C(){ return C; }, get M(){ return M; }, get cities(){ return cities; }, get routes(){ return routes; }, get traveling(){ return traveling; }, GOODS, CAREER_DAYS, cleanCareer, cleanMeta, shortest, neighbors, trade, tick, planTo, travel, deliver, checkContracts, endCareer, netWorth, banditChance, buildAndRender, persist, load, cap };
+window.__caravan = { cam, maxBuy,  P0, zoomAt, get zoom(){ return cam.k; }, labelBoxes:()=>labels.slice(),  get headless(){ return headless; }, set headless(v){ headless=v; }, travelNow, starsFor, STAR_AT, GEO, rivalPos, newCareerSeed:(seed)=>{ traveling=null; plan=null; newCareer(seed); }, P, mapSegs:()=>mapBg&&mapBg.segs, get mapBg(){ return mapBg; }, get encountersOn(){ return encountersOn; }, set encountersOn(v){ encountersOn=v; }, ENC, resolveEncounter, maybeEncounter, renderEncounter, coins:()=>coins, get C(){ return C; }, get M(){ return M; }, get cities(){ return cities; }, get routes(){ return routes; }, get traveling(){ return traveling; }, GOODS, CAREER_DAYS, cleanCareer, cleanMeta, shortest, neighbors, trade, tick, planTo, travel, deliver, checkContracts, endCareer, netWorth, banditChance, buildAndRender, persist, load, cap };
 if (!M.intro){ M.intro=1; persist(); RH.modal(`<h2>The Caravan</h2><p>Twenty-three cities from Chang'an to Constantinople. Silk is cheap in the east and dear in the west. Everyone knows that, and so do the six rival houses you'll see on the road, so the real money is in knowing <b>what's changed</b>. Markets drift from month to month; rivals buy out one city and flood another.</p><p>Your price book only holds what you've seen with your own eyes, and that goes out of date. Pigeons, paid agents and tavern gossip all buy you fresher information. Wars, plagues and famines change everything. The rumours usually arrive first.</p><p>You have three years. Make your house rich.</p>`,[{label:'Load the camels'}]); }
 </script>
 </body>

@@ -2,6 +2,7 @@
 const ready = async page => { await page.waitForFunction(() => window.__coaster && __coaster.design.nodes.length); await page.waitForTimeout(200); };
 async function reopen(page, url) { const p = await page.context().newPage(), errs = []; p.on('pageerror', e => errs.push(e.message)); await p.goto(url || page.url()); await ready(p); p.errs = errs; return p; }
 
+const phone = { width: 390, height: 844 };
 module.exports = {
   page: 'coaster/index.html',
   ready,
@@ -74,6 +75,52 @@ module.exports = {
       eq(await page.evaluate(() => __coaster.last.ok), true, 'after lowering the hill the ride should finish');
       ok(await page.$eval('#result', e => getComputedStyle(e).display !== 'none' && /approved/i.test(e.textContent)), 'result card');
       ok(await page.evaluate(() => __coaster.SAVE.done.first >= 1), 'progress saved');
+    },
+    'speed-up: playback at 1x, 2x and 4x visits every physics sample and gives identical peaks and scores': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; return [1, 2, 4].map(s => K.playback(s)); });
+      const [a, b, c] = r;
+      eq(a.visited, a.n - 1, 'every sample visited at 1x'); eq(c.visited, a.n - 1, 'every sample visited at 4x');
+      eq([b.peak, b.low, b.thrill, b.comfort], [a.peak, a.low, a.thrill, a.comfort], '2x matches 1x'); eq([c.peak, c.low, c.thrill, c.comfort], [a.peak, a.low, a.thrill, a.comfort], '4x matches 1x');
+      ok(Math.abs(a.peak - a.stats.gmax) < 1e-9 || a.peak >= a.stats.gmax, 'the gauge sees the true peak');
+      ok(Math.abs(c.frames * 4 - a.frames) <= 8, `4x should take a quarter of the frames (${c.frames} vs ${a.frames})`);
+    },
+    'speed button cycles 1x, 2x, 4x, pause during a ride': async ({ page, eq }) => {
+      await page.click('#tRide'); const seen = [];
+      for (let i = 0; i < 4; i++) { seen.push(await page.evaluate(() => __coaster.play.speed)); if (i < 3) await page.click('#tSpd'); }
+      eq(seen, [1, 2, 4, 0]);
+      const k0 = await page.evaluate(() => __coaster.play.k); await page.waitForTimeout(400); eq(await page.evaluate(() => __coaster.play.k), k0, 'paused');
+    },
+    '3D ride view opens full screen, toggles to the blueprint and back, and closes at the end': async ({ page, ok, eq }) => {
+      await page.waitForFunction(() => window.THREE);
+      await page.click('#tRide'); await page.waitForTimeout(300);
+      const big = await page.evaluate(() => { const r = document.getElementById('v3').getBoundingClientRect(); return { on: __coaster.V3.on, frac: r.width * r.height / (innerWidth * innerHeight) }; });
+      ok(big.on && big.frac > .95, `3D view should fill the screen (${big.frac})`);
+      await page.click('#t3d'); eq(await page.evaluate(() => __coaster.V3.on), false, 'back to the blueprint');
+      ok(await page.$eval('#v3', e => getComputedStyle(e).display === 'none'));
+      await page.click('#t3d'); eq(await page.evaluate(() => __coaster.V3.on), true, 'and into the ride again');
+      await page.click('#tCam'); await page.waitForTimeout(200); eq(await page.evaluate(() => __coaster.V3.chase && __coaster.V3.train.visible), true, 'chase camera shows the train');
+      await page.click('#tCam'); await page.click('#tSkip'); await page.waitForTimeout(300);
+      eq(await page.evaluate(() => [__coaster.V3.on, !!__coaster.play]), [false, false], 'closed when the ride ends');
+    },
+    'front-seat camera sits on the train: 1.25 m above the track at the interpolated seat, looking along it': async ({ page, ok }) => {
+      await page.waitForFunction(() => window.THREE);
+      await page.evaluate(() => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; });
+      await page.click('#tRide'); await page.click('#tSpd'); await page.click('#tSpd'); // 4x
+      for (let i = 0; i < 5; i++) {
+        await page.waitForTimeout(900);
+        const r = await page.evaluate(() => { const K = __coaster, P = K.play; if (!P) return null; P.speed = 0; const s = K.seatAt(); const q = new THREE.Vector3(); K.v3Open(); const c = K.V3.cam; c.getWorldDirection(q);
+          const d = Math.hypot(c.position.x - s.p[0], c.position.y - s.p[1], c.position.z - s.p[2]), dot = q.x * s.fwd[0] + q.y * s.fwd[1] + q.z * s.fwd[2];
+          const R = K.last.r, i0 = R.idx[P.k], S = K.design.S, tr = [S[i0].X, S[i0].y, S[i0].Z], gap = Math.hypot(s.p[0] - tr[0], s.p[1] - tr[1], s.p[2] - tr[2]); P.speed = 4; return { d, dot, gap }; });
+        if (!r) break;
+        ok(Math.abs(r.d - 1.25) < .3, `camera ${r.d.toFixed(2)} m from the seat`); ok(r.dot > .9, `looking along the track (${r.dot.toFixed(2)})`); ok(r.gap < 1, `seat ${r.gap.toFixed(2)} m from the physics sample`);
+      }
+    },
+    'phone: the 3D ride renders a frame in under 16 ms with a capped pixel ratio and a low-poly scene': async ({ page, ok }) => {
+      await page.setViewportSize(phone); await page.waitForFunction(() => window.THREE);
+      await page.evaluate(() => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; });
+      await page.click('#tRide'); await page.waitForTimeout(500);
+      const b = await page.evaluate(() => __coaster.bench3d(90));
+      ok(b && b.ms < 16, `frame time ${b && b.ms.toFixed(2)} ms`); ok(b.tris < 60000, `${b.tris} triangles`); ok(b.pr <= 2, `pixel ratio ${b.pr}`); ok(b.calls < 40, `${b.calls} draw calls`);
     },
     'corrupted saves never crash the page': async ({ page, ok }) => {
       for (const v of ['null', '7', '[]', '{"done":null,"designs":{"first":"!!"},"cur":99}', '{bad']) {

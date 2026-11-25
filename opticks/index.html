@@ -51,7 +51,10 @@
   #tray .dim{color:#d0b090!important;font-style:italic}
   #status{margin-left:auto;font-size:13px}
   .ok{color:#3d6a14} .no{color:var(--bad)}
-  .hint{position:absolute;left:10px;bottom:8px;font-size:13px;color:#a8916c;pointer-events:none;font-style:italic}
+  .pz-bar{right:10px!important;bottom:10px!important;gap:5px!important}
+  .pz-bar button{font-family:Georgia,serif;color:#e8cf9a;background:radial-gradient(circle at 40% 35%,#6a4a26,#2a1a0c);border:1px solid #b08a4a;border-radius:50%;width:38px;height:38px;box-shadow:0 2px 6px #000a,inset 0 1px 0 #ffe2a055;opacity:.9!important}
+  .pz-bar button:hover{color:#fff3d0;border-color:#e0b870}
+  .hint{position:absolute;left:10px;right:150px;bottom:8px;font-size:13px;color:#a8916c;pointer-events:none;font-style:italic}
   .tg{font-size:14px;display:flex;gap:12px;flex-wrap:wrap;margin-top:4px}
   .tg span{padding:0 2px;border-bottom:1px solid #6b563666;font-style:italic}
   .tg span.ok{color:#2f5a0c;border-color:#2f5a0c}
@@ -131,12 +134,13 @@
   <div id="side"></div>
   <div id="stage">
     <div id="info"></div>
-    <div id="wrap"><canvas id="cv"></canvas><div class="hint">Drag pieces from the tray onto the bench · drag to move · drag an end (gold knob) to turn · scroll or <kbd>Q</kbd>/<kbd>E</kbd> to rotate (hold <kbd>Shift</kbd> for fine) · arrow keys nudge · <kbd>Delete</kbd> or double-click returns a piece</div></div>
+    <div id="wrap"><canvas id="cv"></canvas><div class="hint">Drag pieces from the tray onto the bench · drag to move · drag an end (gold knob) to turn · scroll over a piece or <kbd>Q</kbd>/<kbd>E</kbd> to rotate · scroll or pinch elsewhere to zoom, drag the bare bench to pan (hold <kbd>Shift</kbd> for fine) · arrow keys nudge · <kbd>Delete</kbd> or double-click returns a piece</div></div>
     <div id="dock"><div id="rotBar" role="group" aria-label="Turn the selected piece"><button data-rot="-3" aria-label="Turn left 3 degrees">⟲ 3°</button><button data-rot="-0.25" aria-label="Turn left a quarter degree">⟲ ¼°</button><span id="rotLbl">Select a piece to turn it</span><button data-rot="0.25" aria-label="Turn right a quarter degree">¼° ⟳</button><button data-rot="3" aria-label="Turn right 3 degrees">3° ⟳</button><button id="retBtn" aria-label="Return the piece to the box">Return</button></div><div id="tray"></div></div>
   </div>
 </main>
 <script src="../shared/common.js"></script>
 <script src="../shared/fx.js"></script>
+<script src="../shared/panzoom.js"></script>
 <script>
 'use strict';
 const WS = 1000; // the level slot the workshop uses (never saved as the current campaign level)
@@ -450,6 +454,7 @@ const cv = $('cv'), g = cv.getContext('2d');
 let placed = [], sel = -1, drag = null, R = null, winT = 0, revealed = false, view = { s: 30, ox: 0, oy: 0 };
 
 function loadLevel(i) {
+  if (i !== cur && cam.touched) cam.fit(); // a new experiment starts with the whole bench in view
   cur = i; if (i !== WS) S.cur = i; persist();
   const lv = LV(i), saved = i === WS ? wsSaved() : S.layouts[i];
   placed = saved ? saved.map(p => ({ ...p })) : [];
@@ -704,9 +709,15 @@ function resize() {
   view = { s, rot, ox: (cv.width - w * s) / 2, oy: (cv.height - h * s) / 2 }; draw();
 }
 // world -> canvas pixels. In a tall (portrait) canvas the bench is turned a quarter turn clockwise.
-const VT = () => view.rot ? [0, view.s, -view.s, 0, view.ox + BH * view.s, view.oy] : [view.s, 0, 0, view.s, view.ox, view.oy];
+const VT0 = () => view.rot ? [0, view.s, -view.s, 0, view.ox + BH * view.s, view.oy] : [view.s, 0, 0, view.s, view.ox, view.oy];
+// the same, seen through the pan/zoom camera (which works in the canvas's CSS pixels)
+const VT = () => { const [a, b, c, d, e, f] = VT0(), k = cam.k, dpr = devicePixelRatio || 1; return [a * k, b * k, c * k, d * k, e * k + cam.x * dpr, f * k + cam.y * dpr]; };
 addEventListener('resize', resize);
-const toW = e => { const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1, px = (e.clientX - r.left) * dpr, py = (e.clientY - r.top) * dpr;
+// pan and zoom: wheel or pinch zooms, dragging empty bench pans, + − ⤢ in the corner; dragging a piece still moves the piece
+const cam = PanZoom(cv, { world: () => { const r = cv.getBoundingClientRect(); return { x: 0, y: 0, w: r.width || 1, h: r.height || 1 }; }, pad: 0, min: 1, max: 6,
+  canPanFrom: e => { if (e.pointerType === 'mouse' && e.button !== 0) return false; const [x, y] = toW(e), t = e.pointerType === 'touch'; return handleAt(x, y, t) < 0 && pick(x, y, t) < 0; },
+  onChange: () => draw() });
+const toW = e => { const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1, [cx, cy] = cam.toWorld(e.clientX, e.clientY), px = cx * dpr, py = cy * dpr;
   return view.rot ? [(py - view.oy) / view.s, BH - (px - view.ox) / view.s] : [(px - view.ox) / view.s, (py - view.oy) / view.s]; };
 // Rotate by dragging a piece's end (or its knob): the piece turns to follow the pointer, snapping to 15° steps when close.
 const SEGS = { mirror: 1, splitter: 1, lens: 1 };
@@ -722,10 +733,13 @@ function pick(x, y, touch) {
   for (let i = placed.length - 1; i >= 0; i--) { const p = placed[i]; if (Math.hypot(p.x - x, p.y - y) < Math.max(touch ? 1.8 : 1.2, (p.L ?? SIZE[p.t] ?? 3) / 2)) return i; }
   return -1;
 }
-cv.addEventListener('pointerdown', e => { const [x, y] = toW(e), touch = e.pointerType === 'touch', h = handleAt(x, y, touch);
-  if (h >= 0) { sel = h; const p = placed[h]; drag = { i: h, rot: true, off: p.a - angTo(p, x, y) }; cv.setPointerCapture(e.pointerId); draw(); updateStatus(); return; }
-  const i = pick(x, y, touch); sel = i; if (i >= 0) { drag = { i, dx: x - placed[i].x, dy: y - placed[i].y }; cv.setPointerCapture(e.pointerId); } draw(); updateStatus(); });
-addEventListener('pointermove', e => { if (drag) moveTo(e); });
+function cancelDrag() { if (!drag) return; const p = placed[drag.i];
+  if (drag.fromTray) { placed.splice(drag.i, 1); sel = -1; renderTray(); } else if (p && drag.orig) Object.assign(p, drag.orig);
+  drag = null; recompute(); updateStatus(); }
+cv.addEventListener('pointerdown', e => { if (cam.gesturing) { cancelDrag(); return; } const [x, y] = toW(e), touch = e.pointerType === 'touch', h = handleAt(x, y, touch);
+  if (h >= 0) { sel = h; const p = placed[h]; drag = { i: h, rot: true, off: p.a - angTo(p, x, y), orig: { x: p.x, y: p.y, a: p.a } }; cv.setPointerCapture(e.pointerId); draw(); updateStatus(); return; }
+  const i = pick(x, y, touch); sel = i; if (i >= 0) { drag = { i, dx: x - placed[i].x, dy: y - placed[i].y, orig: { x: placed[i].x, y: placed[i].y, a: placed[i].a } }; cv.setPointerCapture(e.pointerId); } draw(); updateStatus(); });
+addEventListener('pointermove', e => { if (drag && !cam.gesturing) moveTo(e); });
 function turnSel(d) { const p = placed[sel]; if (!p) return; p.a = +(p.a + d).toFixed(2); tickSfx(); save(); recompute(); }
 let rotHold = 0;
 document.querySelectorAll('#rotBar [data-rot]').forEach(b => {
@@ -745,7 +759,7 @@ const endDrag = () => {
 addEventListener('pointerup', endDrag);
 addEventListener('pointercancel', endDrag);
 cv.addEventListener('dblclick', e => { const [x, y] = toW(e), i = pick(x, y); if (i >= 0) { placed.splice(i, 1); sel = -1; save(); renderTray(); recompute(); } });
-cv.addEventListener('wheel', e => { if (sel < 0) return; e.preventDefault(); const st = e.shiftKey ? .25 : 3; placed[sel].a = +(placed[sel].a + (e.deltaY > 0 ? st : -st)).toFixed(2); tickSfx(); save(); recompute(); }, { passive: false });
+cv.addEventListener('wheel', e => { if (sel < 0) return; { const [x, y] = toW(e); if (pick(x, y) !== sel && handleAt(x, y) !== sel) return; } e.preventDefault(); e.stopImmediatePropagation(); const st = e.shiftKey ? .25 : 3; placed[sel].a = +(placed[sel].a + (e.deltaY > 0 ? st : -st)).toFixed(2); tickSfx(); save(); recompute(); }, { passive: false });
 addEventListener('keydown', e => {
   if (sel < 0 || e.target.tagName === 'INPUT') return;
   const p = placed[sel], st = e.shiftKey ? .25 : 3, mv = e.shiftKey ? .05 : .25;
@@ -861,7 +875,7 @@ function buildBench() { // drawn in world units through the view transform, so i
   benchCv = document.createElement('canvas'); benchCv.width = cv.width; benchCv.height = cv.height;
   const b = benchCv.getContext('2d'), w = cv.width, h = cv.height, s = view.s, r = RH.rng('oak');
   b.fillStyle = '#060403'; b.fillRect(0, 0, w, h);
-  b.setTransform(...VT());
+  b.setTransform(...VT0());
   const gr = b.createLinearGradient(0, 0, 0, BH); gr.addColorStop(0, '#2e1c0f'); gr.addColorStop(.5, '#3a2413'); gr.addColorStop(1, '#24150a');
   b.fillStyle = gr; b.fillRect(0, 0, BW, BH);
   b.save(); b.beginPath(); b.rect(0, 0, BW, BH); b.clip();
@@ -904,9 +918,9 @@ requestAnimationFrame(anim);
 function draw() {
   if (!R || R.lv !== cur) return;
   const lv = LV();
-  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#050403'; g.fillRect(0, 0, cv.width, cv.height);
   if (!benchCv || benchCv.width !== cv.width || benchCv.height !== cv.height || benchCv.s !== view.s || benchCv.rot !== view.rot) { buildBench(); benchCv.s = view.s; benchCv.rot = view.rot; }
-  g.drawImage(benchCv, 0, 0);
+  { const dpr = devicePixelRatio || 1; g.setTransform(cam.k, 0, 0, cam.k, cam.x * dpr, cam.y * dpr); g.drawImage(benchCv, 0, 0); }
   g.setTransform(...VT());
   // light falling on the wood: a warm wash under every beam
   g.globalCompositeOperation = 'lighter'; g.lineCap = 'round';
@@ -974,7 +988,7 @@ const help = () => RH.modal(`<h2>Opticks</h2>
 $('helpBtn').onclick = help;
 render(); if (!fromHash()) loadLevel(cur);
 if (!S.intro) { S.intro = 1; persist(); help(); }
-window.__opt = { WS, genBench, openWorkshop, classify, INSTR, withSrc, wsScore, get wsLv() { return wsLv; }, encodeBench, decodeBench,  handlesOf, snapAngle,  lightLamp, predictHit, predictStars, migrate, get revealed() { return revealed; },  BOX, COST, parOf, costOf, starsFor, starsNow,  get view() { return view; }, toW, VT, turnSel, L, trace, checkTarget, loadLevel, cleanSave, trayOf, chOpen, SETTLE, get R() { return R; }, get cur() { return cur; }, get sel() { return sel; }, set sel(v) { sel = v; }, get placed() { return placed; }, set placed(v) { placed = v; }, recompute, S };
+window.__opt = { cam, pick, WS, genBench, openWorkshop, classify, INSTR, withSrc, wsScore, get wsLv() { return wsLv; }, encodeBench, decodeBench,  handlesOf, snapAngle,  lightLamp, predictHit, predictStars, migrate, get revealed() { return revealed; },  BOX, COST, parOf, costOf, starsFor, starsNow,  get view() { return view; }, toW, VT, turnSel, L, trace, checkTarget, loadLevel, cleanSave, trayOf, chOpen, SETTLE, get R() { return R; }, get cur() { return cur; }, get sel() { return sel; }, set sel(v) { sel = v; }, get placed() { return placed; }, set placed(v) { placed = v; }, recompute, S };
 </script>
 </body>
 </html>
