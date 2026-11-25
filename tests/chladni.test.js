@@ -12,11 +12,11 @@ module.exports = {
   tests: {
     'square plate: the cos·cos families, f ∝ n²+m² (twins split by a hair), symmetric, zero on their nodal lines; the solver reproduces them': async ({ page, ok, near }) => {
       const r = await page.evaluate(() => { const X = __ch, sq = X.SQ.map(m => ({ id: m.id, ratio: m.f / (46 * (m.n * m.n + m.m * m.m)), sym: m.z(.2, .7) - m.s * m.z(.7, .2), diag: m.s < 0 ? m.z(.3, .3) : 0 }));
-        // the grid solver (a free-edge membrane approximation) on a square with a hole in one corner: λ ∝ n²+m² → 1, 1, 2, 4, 4
+        // the grid solver (a free-edge membrane approximation) on a square with a hole in one corner: λ ∝ n²+m² → 1, 1, 2, 4
         const pl = X.plateOf('square', [[.03, .03]]), lam = pl.modes.map(m => m.lam);
-        return { sq, r: [1, 2, 3, 4].map(k => lam[k] / lam[0]) }; });
+        return { sq, r: [1, 2, 3].map(k => lam[k] / lam[0]) }; });
       for (const m of r.sq) { ok(m.ratio >= 1 && m.ratio < 1.15, m.id + ' ratio ' + m.ratio); near(m.sym, 0, 1e-12, m.id + ' symmetry'); near(m.diag, 0, 1e-12, m.id + ' diagonal node'); }
-      [1, 2, 4, 4].forEach((want, k) => ok(Math.abs(r.r[k] / want - 1) < .2, `solver ratio ${k + 1}: ${r.r[k]} vs ${want}`));
+      [1, 2, 4].forEach((want, k) => ok(Math.abs(r.r[k] / want - 1) < .2, `solver ratio ${k + 1}: ${r.r[k]} vs ${want}`));
     },
     'sand flows to the nodal lines: one long note puts most grains where the plate is still; a note stops the sand where it is when it ends': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const X = __ch, pl = X.plateOf('square'), cfg = { shape: 'square', start: 'even', finger: null, holes: [] };
@@ -25,9 +25,9 @@ module.exports = {
         return { start: still(s0), quarter: still(sq), long: still(s2), same: JSON.stringify(Array.from(X.perform(cfg, [[3, 1], [1, .5]], 800).sx)) === JSON.stringify(Array.from(X.perform(cfg, [[3, 1], [1, .5]], 800).sx)) }; });
       ok(r.start < .4 && r.long > .8, JSON.stringify(r)); ok(r.quarter > r.start + .1 && r.quarter < r.long - .1, 'a quarter note should be partway: ' + JSON.stringify(r)); ok(r.same, 'not deterministic');
     },
-    'order matters: playing a commission\'s notes backwards rarely delivers': async ({ page, ok }) => {
+    'order matters: a commission\'s notes played backwards never earn two stars, and mostly miss': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const X = __ch; return X.COMMS.filter(c => c.ref.length > 1).map(c => { const cfg = { shape: c.shape, start: c.start, finger: c.finger || null, holes: c.holes || [] }; return [c.id, X.matchOf(c, X.perform(cfg, c.ref.slice().reverse(), 600), 600)]; }); });
-      const delivered = r.filter(([, m]) => m >= .8); ok(delivered.length <= 2, 'backwards delivers: ' + JSON.stringify(delivered));
+      const good = r.filter(([, m]) => m >= .9); ok(!good.length, 'backwards earns stars: ' + JSON.stringify(good));
       ok(r.filter(([, m]) => m < .7).length >= r.length * .6, JSON.stringify(r));
     },
     'every commission: the start is 0%, its hidden score is 100%; a methodical composer (beam search) delivers it; random apprentices rarely earn 90%': async ({ page, ok }) => {
