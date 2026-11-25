@@ -232,7 +232,7 @@ const SHOP = { pol: 30, det: 40, mirror: 20, hwp: 60, bs: 50, phase: 40, pbs: 80
 const KINDS = { pol: 'Polarising filter', hwp: 'Half-wave plate', phase: 'Phase plate', live: 'Bomb: LIVE', dud: 'Bomb: dud', up: 'Mirror to the top port', down: 'Mirror to the bottom port' };
 // which contents each grade of box may hold, and how fine its angles are
 const GRADES = [null,
-  { pick: [['pol']], step: 15, budget: 160, fee: 60, label: 'one filter' },
+  { pick: [['pol']], step: 15, budget: 200, fee: 60, label: 'one filter' },
   { pick: [['pol'], ['hwp']], step: 15, budget: 180, fee: 80, label: 'one optic' },
   { pick: [['pol', 'pol'], ['hwp', 'pol'], ['pol', 'hwp'], ['hwp', 'hwp']], step: 15, budget: 240, fee: 110, label: 'two optics' },
   { pick: [['live'], ['dud']], step: 15, budget: 60, fee: 120, label: 'a bomb' },
@@ -245,7 +245,7 @@ function genBox(seed, grade) {
   const G = GRADES[grade], r = RH.rng((seed * 7919 + grade * 104729) >>> 0), kinds = G.pick[Math.floor(r() * G.pick.length)];
   const els = kinds.map(k => k === 'pol' || k === 'hwp' ? { k, a: Math.floor(r() * (k === 'hwp' ? 90 : 180) / G.step) * G.step } : k === 'phase' ? { k, a: (1 + Math.floor(r() * (360 / G.step - 1))) * G.step } : { k });
   // a box that does nothing visible to a bare beam would be unfair at grade 1: avoid a filter at 90° there (nothing ever gets through)
-  if (grade === 1 && els[0].a === 90) els[0].a = 105;
+  if (grade === 1 && els[0].a > 60 && els[0].a < 120) els[0].a = [0, 15, 30, 45, 60, 120, 135, 150, 165][els[0].a % 9]; // the first boxes let at least a quarter of the light through
   if (grade === 2 && !els[0].a) els[0].a = 15; // a filter or wave plate at 0° does nothing to the laser's own light: indistinguishable at this grade
   return { seed, grade, els, budget: G.budget, fee: G.fee };
 }
@@ -343,7 +343,7 @@ function gradeCard(answers) {
   const G = GRADES[box.grade], tol = Math.max(5, G.step / 2), lines = [];
   box.els.forEach((e, i) => { const a = answers[i] || {}, typeOk = a.k === e.k; let angOk = true;
     if (typeOk && (e.k === 'pol' || e.k === 'hwp' || e.k === 'phase')) { const per = e.k === 'pol' ? 180 : e.k === 'hwp' ? 90 : 360, d = Math.abs((((+a.a - e.a) % per) + per * 1.5) % per - per / 2); angOk = isFinite(+a.a) && a.a !== '' && d <= (e.k === 'phase' ? 22 : tol); }
-    lines.push({ typeOk, angOk, pay: typeOk ? (angOk ? 40 : 15) : -30 }); });
+    lines.push({ typeOk, angOk, pay: typeOk ? (angOk ? 40 : -10) : -30 }); });
   const photons = box.budget - bx.left, pay = lines.reduce((s, l) => s + l.pay, 0) + (lines.every(l => l.typeOk && l.angOk) ? box.fee : 0) - Math.round(photons * .25);
   return { lines, pay, perfect: lines.every(l => l.typeOk && l.angOk), photons };
 }
@@ -428,14 +428,14 @@ function fit() {
   dpr = FX.fit(cv, 2); W = cv.width; H = cv.height;
   const tray = $('tray').getBoundingClientRect(), hud = $('hud').getBoundingClientRect();
   let l, r, t, b;
-  if (innerHeight <= 500 && innerWidth >= 560) { l = hud.right + 6; r = innerWidth - 6; t = 6; b = tray.top - 6; } // landscape phone: board beside the notes
-  else if (narrow()) { l = 6; r = innerWidth - 6; t = hud.bottom + 6; b = tray.top - 62; } // keep room for the angle panel above the tray
+  if (innerHeight <= 500 && innerWidth >= 560) { l = hud.right + 6; r = innerWidth - 48; t = 6; b = tray.top - 6; } // the zoom keys get their own strip on the right // landscape phone: board beside the notes
+  else if (narrow()) { l = 6; r = innerWidth - 6; t = hud.bottom + 48; b = tray.top - 62; } // and a row under the notes on a phone // keep room for the angle panel above the tray
   else { l = 380; r = innerWidth - 250; t = 30; b = Math.min(innerHeight - 150, tray.top - 70); }
   cell = Math.max(8, Math.min((r - l) / (GW + .9), (b - t) / (GH + .9))) * dpr; ox = (l + r) / 2 * dpr - cell * GW / 2; oy = (t + b) / 2 * dpr - cell * GH / 2; // leave room for the board's rim
   // the lab bench and the black anodised breadboard (M6 holes on a 25 mm pitch) are static: bake once per layout
   if (key0() !== fit.key0) { fit.key0 = key0(); if (cam) { cam.state = { x: 0, y: 0, k: 1 }; cam.touched = false; } } // a new layout starts from the fitted view
   rebake();
-  if (cam && cam.bar) { const b = cam.bar.style; if (innerHeight <= 500 && innerWidth >= 560 || narrow()) { b.top = (innerHeight <= 500 ? 6 : hud.bottom + 6) + 'px'; b.bottom = 'auto'; } else { b.top = 'auto'; b.bottom = '16px'; } }
+  if (cam && cam.bar) { const b = cam.bar.style; if (innerHeight <= 500 && innerWidth >= 560) { b.top = '6px'; b.bottom = 'auto'; b.right = '6px'; b.flexDirection = 'column'; } else if (narrow()) { b.top = (hud.bottom + 6) + 'px'; b.bottom = 'auto'; b.right = '6px'; b.flexDirection = 'row'; } else { b.top = 'auto'; b.bottom = '16px'; b.right = '16px'; b.flexDirection = 'row'; } }
   $('sel').style.bottom = (innerHeight - tray.top + 8) + 'px';
   need = true;
 }

@@ -295,9 +295,11 @@ module.exports = {
         // careful: transmission with no analyser, an analyser sweep fitted to cos², and (for grade 2) vertical light in: a filter blocks some, a wave plate never absorbs
         const careful = (sd, g) => { X.openBox(sd, g); if (!X.parts.some(p => p.t === 'det')) X.addPart('det', 12, 4); X.boxFire(40); const T0 = X.bx.log[Object.keys(X.bx.log)[0]], t0 = (T0.clicks.P1 || 0) / T0.shots;
           const an = X.addPart('pol', 10, 4, 0); for (const a of [0, 45, 90, 135]) { X.setAngle(an, a); X.boxFire(25); } const f = X.cosFit(X.evidence()), r15 = v => ((Math.round(v / 15) * 15) % 180 + 180) % 180;
-          if (g === 1) return sign([{ k: 'pol', a: r15(f.ph) }]);
+          // a filter at θ passes cos²θ of the laser: that fixes |θ|; the analyser sweep picks the sign
+          const polAngle = () => { const m = Math.acos(Math.sqrt(Math.min(1, Math.max(0, t0)))) * 180 / Math.PI, E = X.evidence(), err = th => E.reduce((s2, q) => s2 + q.w * (q.y - t0 * Math.cos((q.a - th) * Math.PI / 180) ** 2) ** 2, 0); return r15(err(m) <= err(180 - m) ? m : 180 - m); };
+          if (g === 1) return sign([{ k: 'pol', a: polAngle() }]);
           X.parts.splice(X.parts.indexOf(an), 1); const pre = X.addPart('pol', 4, 4, 90); const n0 = X.bx.shots; X.boxFire(20); const tv = Object.values(X.bx.log).slice(-1)[0], v = (tv.clicks.P1 || 0) / tv.shots;
-          return sign(t0 > .7 && v > .7 ? [{ k: 'hwp', a: r15(f.ph / 2) % 90 }] : [{ k: 'pol', a: r15(f.ph) }]); };
+          return sign(t0 > .7 && v > .7 ? [{ k: 'hwp', a: r15(f.ph / 2) % 90 }] : [{ k: 'pol', a: polAngle() }]); };
         const naive = (sd, g) => { X.openBox(sd, g); if (!X.parts.some(p => p.t === 'det')) X.addPart('det', 12, 4); X.boxFire(20); const k = g === 1 || rnd() < .5 ? 'pol' : 'hwp'; return sign([{ k, a: Math.floor(rnd() * 12) * 15 }]); };
         const o = { care: [], naive: [] }; for (const g of [1, 2]) for (let sd = 40; sd < 48; sd++) { o.care.push(careful(sd, g)); o.naive.push(naive(sd + 100, g)); }
         const sum = a => a.reduce((x, v) => x + v, 0); o.careSum = sum(o.care); o.naiveSum = sum(o.naive); o.carePerfect = o.care.filter(v => v > 60).length; return o; });
@@ -313,7 +315,7 @@ module.exports = {
           const hd = X.simulate({ sources: [{ x: 1, y: 4, d: 0, pol: 0 }], fixed: X.boxParts({ els: [{ k: 'dud' }] }) }, X.parts).hits, dark = ['P1', 'P2'].find(k => !hd[k] || hd[k].p < 1e-9); o.dark = dark;
           while (!X.bx.destroyed && X.bx.left > 0) { X.boxFire(1); if (X.fires[dark]) break; } if (X.bx.destroyed) lost++; else cert++; }
         o.ev = [cert, lost];
-        const c0 = X.bxSave().cash; document.getElementById('bShop').click(); const btn = document.querySelector('[data-buy="pol"]'); btn.click(); o.shop = [c0 - X.bxSave().cash, X.bxSave().own.pol, X.LV[12].n];
+        X.SAVE.bx.cash = 200; const c0 = X.bxSave().cash; document.getElementById('bShop').click(); const btn = document.querySelector('[data-buy="pol"]'); btn.click(); o.shop = [c0 - X.bxSave().cash, X.bxSave().own.pol, X.LV[12].n];
         o.tray = [...document.querySelectorAll('#tray [data-t]')].map(b => b.dataset.t); return o; });
       eq(r.direct, [true, 1], 'the first photon straight through detonates a live bomb');
       ok(r.ev[0] >= 4 && r.ev[1] >= 8, 'an interferometer certifies some live bombs untouched (and loses some): ' + r.ev);

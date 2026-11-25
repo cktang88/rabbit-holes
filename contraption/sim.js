@@ -33,33 +33,33 @@ const PTYPES=Object.keys(PARTS);
 // ---------- Benches ----------
 // drop: [x,y,vx,vy] where the hopper lets the cargo go. basket: [x,y] (its floor). fixed: static boards [x,y,halfW,halfH,deg]. pass: how many of the ten tomorrows must come through.
 const BENCHES=[
- {id:'first', n:'The first egg', t:'Bring the egg down to the basket without cracking it.', cargo:'egg', drop:[3,4], basket:[12,0], bin:{plank:3},
+ {id:'first', note:'Dear Porter, the shop below wants eggs, and the stair is steep. Would you build me something gentle? B.', n:'The first egg', t:'Bring the egg down to the basket without cracking it.', cargo:'egg', drop:[3,4], basket:[12,0], bin:{plank:3},
   sol:[['plank',4,3.5,-1],['plank',7,2.5,-1],['plank',10,1.4,-1]]},
- {id:'zigzag', n:'The long way down', t:'A deep shaft. Spend the height slowly.', cargo:'egg', drop:[3,9.9], basket:[3.1,0], fixed:[[2,5.25,.15,5.25,0],[5.9,5.25,.15,5.25,0]], bin:{plank:6},
+ {id:'zigzag', note:'That shaft was the old dumb-waiter. Mind your elbows. B.', n:'The long way down', t:'A deep shaft. Spend the height slowly.', cargo:'egg', drop:[3,9.9], basket:[3.1,0], fixed:[[2,5.25,.15,5.25,0],[5.9,5.25,.15,5.25,0]], bin:{plank:6},
   sol:[['plank',3.65,9.4,-1],['plank',4.25,7.95,1],['plank',3.65,6.5,-1],['plank',4.25,5.05,1],['plank',3.65,3.6,-1],['plank',4.25,2.15,1]]},
- {id:'cushion', n:'Something soft', t:'Straight down is quickest. Make the landing soft.', cargo:'egg', drop:[8,7], basket:[12,0], bin:{cushion:2, plank:1},
+ {id:'cushion', note:'Not one cracked. I have told nobody it is me sending them. B.', n:'Something soft', t:'Straight down is quickest. Make the landing soft.', cargo:'egg', drop:[8,7], basket:[12,0], bin:{cushion:2, plank:1},
   sol:[['cushion',8.25,3.75,-2],['cushion',9.75,2.5,-2]]},
- {id:'hammock', n:'The hammock', t:'A high hopper, and the basket almost underneath it.', cargo:'egg', drop:[6,11], basket:[10.5,0], bin:{hammock:1, cushion:1, plank:2},
+ {id:'hammock', note:'The hammock is off the ship my grandmother crossed on. She was a sea-hen. B.', n:'The hammock', t:'A high hopper, and the basket almost underneath it.', cargo:'egg', drop:[6,11], basket:[10.5,0], bin:{hammock:1, cushion:1, plank:2},
   sol:[['hammock',6.5,7.5,-2],['cushion',8,3,-1]]},
- {id:'wall', n:'Over the wall', t:'A wall stands between the hopper and the basket.', cargo:'egg', drop:[3,8], basket:[18,0], fixed:[[11.5,2.5,.2,2.5,0]], bin:{plank:4, hammock:1, cushion:2},
+ {id:'wall', note:"The wall is the vicar's. He says it keeps the foxes out. I am not a fox. B.", n:'Over the wall', t:'A wall stands between the hopper and the basket.', cargo:'egg', drop:[3,8], basket:[19,0], fixed:[[11.5,2.5,.2,2.5,0]], bin:{plank:4, hammock:1, cushion:2},
   sol:[['plank',4,7.5,-1],['plank',7,6.6,-1],['plank',10,5.7,-1],['hammock',13.5,3.6,-1],['plank',16.3,1.6,-1]]},
- {id:'goose', n:'A heavier charge', t:'A goose egg: twice the weight, nearly as fragile.', cargo:'goose', drop:[4,10], basket:[16,0], bin:{plank:4, cushion:2, hammock:1},
+ {id:'goose', note:'My cousin from the pond has one for you too. She is a good deal heavier than me. B.', n:'A heavier charge', t:'A goose egg: twice the weight, nearly as fragile.', cargo:'goose', drop:[4,10], basket:[16,0], bin:{plank:4, cushion:2, hammock:1},
   sol:[['plank',5,9.5,-1],['plank',8,8.5,-1],['hammock',11,5.5,-2],['cushion',13.5,2.5,-1]]},
- {id:'seesaw', n:'Catch and lower', t:'No room for a ramp. Catch it, and let it down slowly.', cargo:'goose', drop:[5,8], basket:[8.5,0], fixed:[[2.5,4,.15,4,0],[11.5,4,.15,4,0]], bin:{seesaw:1, weight:2, block:2, plank:1},
+ {id:'seesaw', note:'We had a seesaw in the yard once. It was the best summer. B.', n:'Catch and lower', t:'No room for a ramp. Catch it, and let it down slowly.', cargo:'goose', drop:[5,8], basket:[8.5,0], fixed:[[2.5,4,.15,4,0],[11.5,4,.15,4,0]], bin:{seesaw:1, weight:2, block:2, plank:1},
   sol:[['seesaw',6.5,3,0],['weight',8.1,3.6,0]]},
- {id:'handoff', n:'In a hurry', t:'This hopper throws the goose egg out fast. Take the speed off it.', cargo:'goose', drop:[2,3,6,0], basket:[9,0], bin:{cushion:1, plank:2, block:2},
+ {id:'handoff', note:'Sorry about the hurry. I sat on the lever. B.', n:'In a hurry', t:'This hopper throws the goose egg out fast. Take the speed off it.', cargo:'goose', drop:[2,3,6,0], basket:[9,0], bin:{cushion:1, plank:2, block:2},
   sol:[['cushion',10.2,1.6,6]]},
- {id:'parachute', n:'Parachute', t:'A very high hopper and a long way across. Tie on a balloon.', cargo:'goose', drop:[4,13], basket:[12,0], bin:{balloon:1, plank:2, cushion:1},
+ {id:'parachute', note:'I watched it float all the way down from the roost. I clucked out loud. B.', n:'Parachute', t:'A very high hopper and a long way across. Tie on a balloon.', cargo:'goose', drop:[4,13], basket:[12,0], bin:{balloon:1, plank:2, cushion:1},
   sol:[['balloon',4,14,0],['plank',6,4,-1],['plank',9,3,-1]]},
- {id:'bubble', n:'A soap bubble', t:'It floats down by itself. The draughts are the trouble.', cargo:'bubble', drop:[12,12], basket:[12,0], bin:{plank:4},
+ {id:'bubble', note:"The bubbles are from Monday's washing. They are a treat, not a delivery. B.", n:'A soap bubble', t:'It floats down by itself. The draughts are the trouble.', cargo:'bubble', drop:[12,12], basket:[12,0], bin:{plank:4},
   sol:[['plank',10.3,3.3,-3],['plank',13.7,3.3,3]]},
- {id:'bubble2', n:'Round the shelf', t:'A bubble, and a shelf right underneath it.', cargo:'bubble', drop:[8,12], basket:[15,0], fixed:[[8,7,2.5,.12,0]], bin:{plank:4, hammock:1},
+ {id:'bubble2', note:"A bubble is the thinnest thing in the world. Thinner than the vicar's patience. B.", n:'Round the shelf', t:'A bubble, and a shelf right underneath it.', cargo:'bubble', drop:[8,12], basket:[15,0], fixed:[[8,7,2.5,.12,0]], bin:{plank:4, hammock:1},
   sol:[['plank',11,10,-1],['plank',13.3,4,-3],['plank',16.7,4,3]]},
- {id:'watch', n:'Face up', t:'A pocket watch. It is tough, but it must come to rest face up.', cargo:'watch', drop:[3,8], basket:[14,0], bin:{plank:4, cushion:1, block:1},
+ {id:'watch', note:"The watch was my grandfather's. Face up, so he can see where he is going. B.", n:'Face up', t:'A pocket watch. It is tough, but it must come to rest face up.', cargo:'watch', drop:[3,8], basket:[14,0], bin:{plank:4, cushion:1, block:1},
   sol:[['plank',4,7.3,-2],['plank',7,5.6,-2],['plank',10,3.9,-2],['cushion',13.9,2.2,0]]},
- {id:'jelly', n:'Quince jelly', t:'It does not mind a bump. It minds being pulled apart.', cargo:'jelly', drop:[4,9], basket:[15,0], bin:{plank:4, hammock:1, cushion:2},
+ {id:'jelly', note:'The quince jelly is for you, Porter. You have earned it. B.', n:'Quince jelly', t:'It does not mind a bump. It minds being pulled apart.', cargo:'jelly', drop:[4,9], basket:[15,0], bin:{plank:4, hammock:1, cushion:2},
   sol:[['plank',5,8.4,-1],['plank',8,7.4,-1],['plank',11,6.3,-1],['hammock',14,3.5,-1]]},
- {id:'grand', n:'The grand delivery', t:'A goose egg from the very top corner to the very far one. Cheapest wins.', cargo:'goose', drop:[1.5,13], basket:[22,0], fixed:[[8,9,2,.12,0],[16,5,2,.12,0]], bin:{plank:6, cushion:2, hammock:1, seesaw:1, weight:2, block:2, balloon:1},
+ {id:'grand', note:'You have guessed by now. I am Bertha, the brown hen in the loft, and the eggs were never for the shop. They hatch better somewhere soft. Look in your baskets. B.', n:'The grand delivery', t:'A goose egg from the very top corner to the very far one. Cheapest wins.', cargo:'goose', drop:[1.5,13], basket:[22,0], fixed:[[8,9,2,.12,0],[16,5,2,.12,0]], bin:{plank:6, cushion:2, hammock:1, seesaw:1, weight:2, block:2, balloon:1},
   sol:[['balloon',1.5,14,0],['plank',4,11,-1],['plank',7,9.7,-1],['plank',10,8.7,-1],['plank',13,7.6,-1],['plank',16,6,-1],['plank',19,4.6,-1]]},
 ];
 
@@ -93,7 +93,7 @@ class Sim{
     for (const f of B.fixed||[]) this.box('static',f[0],f[1],f[2],f[3],f[4]||0,{friction:.5},'fixed');
     // the basket: a felt-lined tray (its floor is soft felt: the last bump into it counts half)
     const [bx,by]=B.basket, bk=w.createBody({type:'static', position:V(bx,by)});
-    bk.createFixture(pl.Box(.8,.06,V(0,.06),0),FR({friction:.9})); bk.createFixture(pl.Box(.06,.45,V(-.8,.45),0),FR()); bk.createFixture(pl.Box(.06,.45,V(.8,.45),0),FR());
+    bk.createFixture(pl.Box(.8,.06,V(0,.06),0),FR({friction:.9})); bk.createFixture(pl.Box(.06,.3,V(-.8,.3),0),FR()); bk.createFixture(pl.Box(.06,.3,V(.8,.3),0),FR());
     this.basket=this.add({kind:'basket', b:bk});
     parts.forEach((p,i)=>{ for (const o of this.makePart(p,i)) { o.part=i; o.ptype=p[0]; } });
     this.makeCargo();

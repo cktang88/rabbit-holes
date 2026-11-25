@@ -57,6 +57,7 @@
   .mech{display:grid;grid-template-columns:44px 1fr;gap:2px 10px;padding:6px 0;border-bottom:1px dotted #8a6a3a88;font-size:14px}
   .mech .g{font-size:22px;text-align:center;color:var(--brass2)} .mech.unk{color:#8f7a5c} .mech small{display:block;color:var(--ink2);font-style:italic;font-size:12.5px}
   .note{font-style:italic;color:var(--ink2);font-size:14px}
+  .letter{font:italic 15px/1.5 "Libre Baskerville",serif;color:#3a2a6a;background:#fffdf4;border-left:3px solid #8a6a3a;padding:6px 10px;margin:8px 0}
   .hist{display:flex;align-items:flex-end;gap:2px;height:56px;margin:4px 0 0;border-bottom:1px solid #6b4a22}
   .hist i{flex:1;background:#b49a6a;min-height:2px;position:relative} .hist i.me{background:var(--red)}
   .hl{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink2);font-style:italic;margin-bottom:6px}
@@ -129,7 +130,7 @@ function cleanParts(v){ return (Array.isArray(v)?v:[]).slice(0,200).filter(q=>Ar
 let SAVE=cleanSave(RH.load('gentle',null));
 const passed=(id)=>{ const b=SAVE.best[id]; return !!b && b.saved>=(pById[id]?.pass||7); };
 const persist=()=>{ RH.save('gentle',SAVE); RH.progress('contraption', BENCHES.filter(b=>passed(b.id)).length/BENCHES.length); };
-const benchOpen=(i)=> i===0 || passed(BENCHES[i-1].id) || passed(BENCHES[i].id) || (i>1 && passed(BENCHES[i-2].id) && passed(BENCHES[i-2].id));
+const benchOpen=(i)=> i===0 || passed(BENCHES[i-1].id) || passed(BENCHES[i].id) || (i>1 && passed(BENCHES[i-2].id));
 // parts and cargo met so far: the sandbox offers only these
 function unlocked(){ const parts=new Set(), cargo=new Set(); BENCHES.forEach((b,i)=>{ if (benchOpen(i)){ Object.keys(b.bin).forEach(t=>parts.add(t)); cargo.add(b.cargo); } }); return {parts:[...parts], cargo:CARGO_ORDER.filter(c=>cargo.has(c))}; }
 
@@ -195,8 +196,10 @@ function drawHopper(){ const [x,y]=B.drop; const ang=(B.drop[2]||0)>0? -.3 : 0; 
   ctx.beginPath(); ctx.moveTo(-.7,.9); ctx.lineTo(.7,.9); ctx.lineTo(.42,.05); ctx.lineTo(-.42,.05); ctx.closePath(); ctx.fill(); ctx.strokeStyle='#5a3d12'; ctx.lineWidth=.04; ctx.stroke(); ctx.restore(); }
 function drawBasket(){ const [x,y]=B.basket; ctx.save(); ctx.translate(x,y);
   ctx.fillStyle='#3f6b4a'; ctx.fillRect(-.74,.04,1.48,.1);
-  ctx.strokeStyle='#7a4c22'; ctx.lineWidth=.07; for (let k=0;k<=5;k++){ ctx.beginPath(); ctx.moveTo(-.86,k*.18); ctx.quadraticCurveTo(0,k*.18-.08,.86,k*.18); ctx.stroke(); }
-  ctx.fillStyle='#a8743a'; ctx.fillRect(-.86,0,.12,.92); ctx.fillRect(.74,0,.12,.92); ctx.restore(); }
+  ctx.strokeStyle='#7a4c22'; ctx.lineWidth=.07; for (let k=0;k<=3;k++){ ctx.beginPath(); ctx.moveTo(-.86,k*.19); ctx.quadraticCurveTo(0,k*.19-.08,.86,k*.19); ctx.stroke(); }
+  ctx.fillStyle='#a8743a'; ctx.fillRect(-.86,0,.12,.62); ctx.fillRect(.74,0,.12,.62);
+  if (passed('grand')){ const t=performance.now()/400; for (const [cx,ph] of [[-.35,0],[.3,2]]){ const by=.62+Math.max(0,Math.sin(t+ph))*.08; ctx.fillStyle='#f5d34a'; ctx.beginPath(); ctx.arc(cx,by,.2,0,7); ctx.fill(); ctx.fillStyle='#2b1d12'; ctx.beginPath(); ctx.arc(cx+.07,by+.06,.03,0,7); ctx.fill(); ctx.fillStyle='#d98a1a'; ctx.beginPath(); ctx.moveTo(cx+.17,by+.02); ctx.lineTo(cx+.28,by-.01); ctx.lineTo(cx+.17,by-.05); ctx.fill(); } }
+  ctx.restore(); }
 function drawHint(){ const t=performance.now()/1000, [x,y]=B.drop, a=(t%2)/2; ctx.globalAlpha=.25+.35*Math.sin(a*Math.PI);
   ctx.strokeStyle='#a8321f'; ctx.lineWidth=.06; ctx.setLineDash([.2,.14]); ctx.beginPath(); ctx.moveTo(x-1,y-.7); ctx.lineTo(x+2,y-1.5); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1;
   ctx.save(); ctx.scale(1,-1); ctx.fillStyle='#a8321f'; ctx.font='italic .42px "Libre Baskerville"'; ctx.fillText('a plank here?', x+.2, -(y-2.1)); ctx.restore(); }
@@ -334,7 +337,7 @@ function noteMechs(found, quiet){ for (const m of found){ if (SAVE.mech[m]) cont
 function summary(){ if (B.sandbox){ const saved=results.filter(r=>r&&r.ok).length; tell(`${saved} of 10 tomorrows came through.`); return; }
   const saved=results.filter(r=>r.ok).length, R={saved, gentle:GM.score(results), cost:costOf(parts)}, pass=B.pass||7, ok=saved>=pass;
   if (saved===FUTURES && !SAVE.mech.tenfold){ noteMechs(['tenfold']); }
-  const prev=SAVE.best[B.id]; let better=false;
+  const prev=SAVE.best[B.id]; let better=false; const firstPass=!passed(B.id) && ok;
   if (!prev){ SAVE.best[B.id]={...R, lean: ok? R.cost : 999, soft: ok? R.gentle : 999}; better=ok; }
   else { const b=prev; if (saved>b.saved || (saved===b.saved && (R.gentle<b.gentle || R.cost<b.cost))){ b.saved=saved; b.gentle=R.gentle; b.cost=R.cost; better=true; } if (ok && R.cost<b.lean){ b.lean=R.cost; better=true; } if (ok && R.gentle<b.soft){ b.soft=R.gentle; better=true; } }
   if (B.daily){ const k=B.id.slice(6); if (ok) SAVE.daily[k]=shareStrip(); }
@@ -345,7 +348,7 @@ function summary(){ if (B.sandbox){ const saved=results.filter(r=>r&&r.ok).lengt
   setTimeout(()=>RH.modal(`<h2>Delivered whole</h2><p style="font-size:20px;letter-spacing:2px;margin:4px 0">${shareStrip()}</p>
     <div class="axes"><div><b>${saved}/10</b>tomorrows</div><div><b>${R.gentle}%</b>hardest bump</div><div><b>${R.cost}</b>cost</div></div>
     ${H? `<p class="note" style="margin:4px 0">Where your machine sits among the machines the workshop's solver found for this bench:</p>${histHTML(H.cost,R.cost,'cost')}${histHTML(H.gentle,R.gentle,'hardest bump %')}` : ''}
-    <p class="note">Cheaper, gentler and surer pull against each other. ${better?'A new best for this bench.':''}</p>`,
+    ${firstPass && B.note? `<p class="letter">${B.note}</p>` : ''}<p class="note">Cheaper, gentler and surer pull against each other. ${better?'A new best for this bench.':''}</p>`,
     [{label:'Improve it'},{label:'Copy result'},{label: BENCHES.indexOf(B)<BENCHES.length-1 && !B.daily? 'Next bench' : 'The Book'}]).then(l=>{
       if (l==='Copy result'){ copyText(shareText()); RH.toast('Copied: the strip and a link to your machine.'); stopRun(); }
       else if (l==='Next bench'){ openBench(BENCHES[BENCHES.indexOf(B)+1]); setHash(); }
@@ -364,13 +367,14 @@ function closeBook(){ $('book').classList.remove('on'); }
 $('bookBtn').onclick=()=>openBook(); $('book').addEventListener('click', e=>{ if (e.target.id==='book') closeBook(); });
 function drawBook(){ const nm=MECHS.filter(m=>SAVE.mech[m[0]]).length;
   let h=`<div style="display:flex;align-items:center;gap:8px"><h2 style="flex:1">The Porter's Book</h2><button id="bkClose">Close</button></div>
-    <div id="tabs">${[['benches','Benches'],['mech','Braking · '+nm+'/'+MECHS.length],['daily','Daily'],['sandbox','Sandbox'],['save','Save']].map(([k,n])=>`<button data-tab="${k}" class="${tab===k?'on':''}">${n}</button>`).join('')}</div>`;
+    <div id="tabs">${[['benches','Benches'],['mech','Braking · '+nm+'/'+MECHS.length],['letters','Letters'],['daily','Daily'],['sandbox','Sandbox'],['save','Save']].map(([k,n])=>`<button data-tab="${k}" class="${tab===k?'on':''}">${n}</button>`).join('')}</div>`;
   if (tab==='benches'){ h+=`<p class="note">Every machine is run against ten tomorrows: the drop a little off, the table tilted, a draught. A bench passes when enough come through whole. Then it is about cost and the hardest bump.</p>`;
     let lastC=null; BENCHES.forEach((b,i)=>{ const op=benchOpen(i);
       if (b.cargo!==lastC){ if (lastC) h+='</div>'; lastC=b.cargo; const seen=op||SAVE.seen[b.cargo]; h+=`<div class="chap"><canvas width="60" height="60" data-icon="${seen?b.cargo:''}"></canvas>${seen? CARGO[b.cargo].n : 'Something else will come down the hopper…'}</div><div class="grid">`; }
       const bs=SAVE.best[b.id]; h+=`<button class="pz ${passed(b.id)?'done':''}" data-p="${b.id}" ${op?'':'disabled'}><b>${i+1}. ${op?b.n:'· · ·'}</b><small>${bs? `${bs.saved}/10 · bump ${bs.soft<999?bs.soft:bs.gentle}% · cost ${bs.lean<999?bs.lean:bs.cost}` : op? 'not yet tried' : 'locked'}</small></button>`; });
     h+='</div>'; }
   else if (tab==='mech'){ h+=`<p class="note">Recorded from what your machines actually do while they run, in any of the ten tomorrows.</p>`+MECHS.map(m=>SAVE.mech[m[0]]? `<div class="mech"><span class="g">${m[2]}</span><div><b>${m[1]}</b> <small>first seen ${SAVE.mech[m[0]]}: ${m[3]}</small><small>${m[4]}</small></div></div>` : `<div class="mech unk"><span class="g">?</span><div><b>${m[1].startsWith('Lesson')?'A lesson not yet learned':'Not yet seen'}</b><small>${m[3]}</small></div></div>`).join(''); }
+  else if (tab==='letters'){ const got=BENCHES.filter(b=>passed(b.id)&&b.note); h+=`<p class="note">Notes tucked into the hopper, one with each bench you pass. ${got.length} of ${BENCHES.length}.</p>`+(got.length? got.map(b=>`<p class="letter">${b.note}</p>`).join('') : '<p class="note">Nothing yet. Pass the first bench.</p>'); }
   else if (tab==='daily'){ const k=today(); h+=`<p class="note">One bench a day, the same for everyone, built from the date. Pass it and share your strip of ten without giving the machine away.</p><p>Today: <b>${SAVE.daily[k]||'not yet passed'}</b></p><p><button data-daily="${k}">Open today's bench</button></p>`;
     const days=Object.entries(SAVE.daily).slice(-10).reverse(); if (days.length) h+='<h3>Past days</h3>'+days.map(([d,s])=>`<div class="note">${d}: ${s}</div>`).join(''); }
   else if (tab==='sandbox'){ const u=unlocked(); h+=`<p class="note">Every part you have met, no goal but your own. A link carries your machine exactly: whoever opens it sees the same ten tomorrows.</p><p>${u.cargo.map(c=>`<button data-sandbox="${c}">${CARGO[c].n}</button>`).join(' ')}</p><p><button id="shareBtn">Copy a link to the machine on the bench</button></p><p class="note" id="shareOut"></p>`; }

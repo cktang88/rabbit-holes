@@ -156,7 +156,11 @@ let lastTick = 0; const tickSfx = () => { const t = performance.now(); if (t - l
 // ================= optics =================
 const BW = 32, BH = 20;
 const WL = [650, 600, 570, 530, 470, 420]; // wavelengths for white light (nm)
-const GLASS = { crown: [1.5046, 4200], flint: [1.6040, 10500], water: [1.3199, 3000], diamond: [2.38, 15000] };
+const GLASS = { crown: [1.5046, 4200], flint: [1.6040, 10500], fluor: [1.4270, 2390], water: [1.3199, 3000], diamond: [2.38, 15000] };
+const lamsOf = s => s.l === 'white' ? WL : Array.isArray(s.l) ? s.l : [s.l];
+// Fresnel loss at one air-glass surface (normal incidence), used only by commissions, which count every photon
+const fres = (g, l) => { const n = nOf(g, l); return ((n - 1) / (n + 1)) ** 2; };
+const SPECULUM = .7; // Newton's mirror metal reflects about 70%
 const nOf = (g, l) => GLASS[g][0] + GLASS[g][1] / (l * l);
 function wlColor(l, a = 1) {
   let r = 0, g = 0, b = 0;
@@ -205,7 +209,7 @@ function trace(level, pieces) {
   const paths = [], hits = level.targets.map(() => []), finals = [];
   const rays = [];
   level.sources.forEach((s, si) => {
-    const lams = s.l === 'white' ? WL : [s.l];
+    const lams = lamsOf(s);
     const n = s.n ?? 1;
     for (let k = 0; k < n; k++) {
       let ox = s.x, oy = s.y, a = rad(s.a);
@@ -216,7 +220,7 @@ function trace(level, pieces) {
   });
   let budget = 6000;
   while (rays.length && budget-- > 0) {
-    const r = rays.pop(); if (r.I < .02 || r.depth > 60) continue;
+    const r = rays.pop(); if (r.I < .005 || r.depth > 60) continue;
     let best = { t: 1e9 };
     for (const s of segs) { const h = segHit(r.x, r.y, r.dx, r.dy, ...s.s); if (h && h.t < best.t) best = { t: h.t, u: h.u, seg: s }; }
     for (const pg of polys) for (let e = 0; e < pg.v.length; e++) { const [x1, y1] = pg.v[e], [x2, y2] = pg.v[(e + 1) % pg.v.length]; const h = segHit(r.x, r.y, r.dx, r.dy, x1, y1, x2, y2); if (h && h.t < best.t) best = { t: h.t, poly: pg, e }; }
@@ -225,22 +229,22 @@ function trace(level, pieces) {
     for (const w of walls) { const h = segHit(r.x, r.y, r.dx, r.dy, ...w); if (h && h.t < best.t) best = { t: h.t, edge: 1 }; }
     const hx = r.x + r.dx * best.t, hy = r.y + r.dy * best.t;
     paths.push({ x1: r.x, y1: r.y, x2: hx, y2: hy, l: r.l, I: r.I });
-    const nr = (dx, dy, I = r.I, ev) => rays.push({ ...r, x: hx, y: hy, dx, dy, I, depth: r.depth + 1, refl: r.refl + (ev === 'r'), tir: r.tir + (ev === 't'), refr: r.refr + (ev === 'n') });
+    const loss = level.loss, nr = (dx, dy, I = r.I, ev) => rays.push({ ...r, x: hx, y: hy, dx, dy, I, depth: r.depth + 1, refl: r.refl + (ev === 'r'), tir: r.tir + (ev === 't'), refr: r.refr + (ev === 'n') });
     if (best.edge) { finals.push({ x: hx, y: hy, x0: r.x, y0: r.y, dx: r.dx, dy: r.dy, l: r.l, I: r.I, si: r.si, k: r.k, refl: r.refl, tir: r.tir, refr: r.refr }); continue; }
     if (best.spot) { for (const sp of spots) if (Math.hypot(hx - sp.x, hy - sp.y) <= sp.r + 1e-6) hits[sp.i].push({ si: r.si, k: r.k, l: r.l, I: r.I, x: hx, y: hy, dx: r.dx, dy: r.dy }); continue; }
-    if (best.arc) { const ac = best.arc, nx = (hx - ac.cx) / ac.R, ny = (hy - ac.cy) / ac.R, d = r.dx * nx + r.dy * ny; nr(r.dx - 2 * d * nx, r.dy - 2 * d * ny, r.I, 'r'); continue; }
+    if (best.arc) { const ac = best.arc, nx = (hx - ac.cx) / ac.R, ny = (hy - ac.cy) / ac.R, d = r.dx * nx + r.dy * ny; nr(r.dx - 2 * d * nx, r.dy - 2 * d * ny, r.I * (loss ? SPECULUM : 1), 'r'); continue; }
     if (best.seg) {
       const { p, s } = best.seg, ex = s[2] - s[0], ey = s[3] - s[1], L = Math.hypot(ex, ey), tx = ex / L, ty = ey / L, nx = -ty, ny = tx;
       if (p.t === 'wall') continue;
       if (p.t === 'screen') { hits[p.ti].push({ si: r.si, k: r.k, l: r.l, I: r.I, x: hx, y: hy, dx: r.dx, dy: r.dy, u: best.u }); continue; }
       const dn = r.dx * nx + r.dy * ny;
-      if (p.t === 'mirror') { nr(r.dx - 2 * dn * nx, r.dy - 2 * dn * ny, r.I, 'r'); continue; }
+      if (p.t === 'mirror') { nr(r.dx - 2 * dn * nx, r.dy - 2 * dn * ny, r.I * (loss ? SPECULUM : 1), 'r'); continue; }
       if (p.t === 'splitter') { nr(r.dx - 2 * dn * nx, r.dy - 2 * dn * ny, r.I / 2, 'r'); nr(r.dx, r.dy, r.I / 2); continue; }
       if (p.t === 'lens') {
         const sgn = dn >= 0 ? 1 : -1, an = Math.abs(dn), u = (r.dx * tx + r.dy * ty) / an, y = (best.u - .5) * L;
         const f = (p.f ?? 6) * (GLASS[p.g || 'crown'][0] + GLASS[p.g || 'crown'][1] / 589 ** 2 - 1) / (nOf(p.g || 'crown', r.l) - 1);
         const u2 = u - y / f, ddx = sgn * nx + u2 * tx, ddy = sgn * ny + u2 * ty, m = Math.hypot(ddx, ddy);
-        nr(ddx / m, ddy / m); continue;
+        nr(ddx / m, ddy / m, r.I * (loss ? (1 - fres(p.g || 'crown', r.l)) ** 2 : 1)); continue;
       }
     }
     if (best.poly) {
@@ -253,7 +257,7 @@ function trace(level, pieces) {
       const eta = entering ? 1 / n : n, N = entering ? [nx, ny] : [-nx, -ny], ci = Math.abs(cosi);
       const k = 1 - eta * eta * (1 - ci * ci);
       if (k < 0) { nr(r.dx + 2 * ci * N[0], r.dy + 2 * ci * N[1], r.I, 't'); continue; } // total internal reflection
-      const ct = Math.sqrt(k); nr(eta * r.dx + (eta * ci - ct) * N[0], eta * r.dy + (eta * ci - ct) * N[1], r.I, 'n');
+      const ct = Math.sqrt(k); nr(eta * r.dx + (eta * ci - ct) * N[0], eta * r.dy + (eta * ci - ct) * N[1], r.I * (loss ? 1 - fres(pg.g, r.l) : 1), 'n');
       continue;
     }
   }
@@ -262,7 +266,7 @@ function trace(level, pieces) {
 
 // ================= target checks =================
 function checkTarget(tg, hits, level) {
-  const src = tg.src ?? 0, s = level.sources[src], lams = s.l === 'white' ? WL : [s.l];
+  const src = tg.src ?? 0, s = level.sources[src], lams = lamsOf(s);
   const want = tg.l ? (Array.isArray(tg.l) ? tg.l : [tg.l]) : lams;
   const hs = hits.filter(h => h.si === src && want.includes(h.l));
   const total = (s.n ?? 1) * want.length;
@@ -285,15 +289,15 @@ const LASER = (x, y, a, l = 650) => ({ k: 'beam', x, y, a, l, n: 1 });
 const CHS = ['Reflection', 'Refraction', 'Lenses', 'Colour', 'Instruments', 'Foresight'];
 const L = [];
 // ---- Reflection
-L.push({ c: 0, n: 'Bounce', s: 'Light travels in straight lines until something turns it. A mirror reflects at the same angle it arrives. <i>Drag the mirror onto the bench and rotate it until the laser hits the target.</i>',
+L.push({ c: 0, n: 'Bounce', s: 'Light travels in straight lines until something turns it. A mirror reflects at the same angle it arrives. <i>Drag the mirror onto the bench and rotate it until the sunbeam hits the target.</i>',
   sources: [LASER(2, 4, 0)], targets: [{ k: 'spot', x: 16, y: 16, r: .6 }], sol: [{ t: 'mirror', x: 16, y: 4, a: 45 }] });
 L.push({ c: 0, n: 'Around the Wall', s: 'Three mirrors and a wall in the way.',
   sources: [LASER(2, 10, 0)], fixed: [W(12, 4, 12, 18)], targets: [{ k: 'spot', x: 22, y: 12, r: .6 }], sol: [{ t: 'mirror', x: 6, y: 10, a: -45 }, { t: 'mirror', x: 6, y: 2, a: -45 }, { t: 'mirror', x: 22, y: 2, a: 45 }] });
 L.push({ c: 0, n: 'Two Targets', s: 'A <b>beam splitter</b> is a half-silvered mirror: half the light passes straight through and half is reflected.',
   sources: [LASER(2, 10, 0)], targets: [{ k: 'spot', x: 26, y: 10, r: .6, frac: .45 }, { k: 'spot', x: 12, y: 18, r: .6, frac: .45 }], sol: [{ t: 'splitter', x: 12, y: 10, a: 45 }] });
-L.push({ c: 0, n: 'Return to Sender', s: 'Two mirrors at right angles send light straight back the way it came, wherever it comes from. Astronauts left arrays of these "corner reflectors" on the Moon, and lasers still bounce off them.',
+L.push({ c: 0, n: 'Return to Sender', s: 'Two mirrors at right angles send light straight back the way it came, wherever it comes from. Astronauts left arrays of these "corner reflectors" on the Moon, and observatories still fire light at them bounce off them.',
   sources: [LASER(2, 6, 0)], fixed: [W(1, 7.5, 14, 7.5)], targets: [{ k: 'spot', x: 2.5, y: 9, r: .6 }], sol: [{ t: 'mirror', x: 20, y: 6, a: 45 }, { t: 'mirror', x: 20, y: 9, a: -45 }] });
-L.push({ c: 0, n: 'Three Lasers', s: 'Three beams, one target. Each beam needs its own mirror.',
+L.push({ c: 0, n: 'Three Lasers', s: 'Three shutter-holes, three coloured glasses, one target. Each beam needs its own mirror.',
   sources: [LASER(2, 3, 0), LASER(2, 17, 0, 530), LASER(30, 3, 180, 470)], targets: [{ k: 'spot', x: 16, y: 10, r: .7, src: 0 }, { k: 'spot', x: 16, y: 10, r: .7, src: 1 }, { k: 'spot', x: 16, y: 10, r: .7, src: 2 }],
   sol: [{ t: 'mirror', x: 9, y: 3, a: 22.5 }, { t: 'mirror', x: 9, y: 17, a: -22.5 }, { t: 'mirror', x: 23, y: 3, a: -22.5 }] });
 L.push({ c: 0, n: 'The Maze', s: 'Thread the beam under one wall and over the next. Four mirrors, and every one has to be in exactly the right place.',
