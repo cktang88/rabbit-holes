@@ -142,12 +142,13 @@ module.exports = {
       ok(t.found.egg, 'egg not found by tapping'); ok(t.found.larva, 'larva not found by tapping');
       if (pts.empty) { await page.mouse.click(pts.empty.x, pts.empty.y); eq(await page.evaluate(() => __bee.world().tut.wrong), t.wrong + 1); }
     },
-    'the comb magnifier: wheel or double-tap zooms around the finger, and taps still find the right cell': async ({ page, ok, eq }) => {
+    'the comb magnifier: button, pinch or wheel zooms, and taps still find the right cell': async ({ page, ok, eq }) => {
       await page.evaluate(() => { __bee.load('first'); __bee.open(0); __bee.frame(4, 0); }); await page.waitForTimeout(900);
       const c = await page.evaluate(() => { const k = __bee.findCell(1); return __bee.cellScreen(k.r, k.c); });
-      await page.mouse.dblclick(c.x, c.y); await page.waitForTimeout(300);
-      ok(await page.evaluate(() => __bee.insp() && __bee.zoom(undefined) >= 1), 'zoom api');
-      const z = await page.evaluate(() => __bee.world() && document && window.__bee.zoom(2.6, innerWidth / 2, innerHeight / 2)); eq(z, 2.6);
+      await page.click('#tZoom'); await page.waitForTimeout(300);
+      ok(await page.evaluate(() => __bee.zoom(undefined) > 2), 'magnifier button zooms in');
+      await page.evaluate(() => __bee.zoom(1)); await page.waitForTimeout(200);
+      const z = await page.evaluate(c => __bee.zoom(2.6, c.x, c.y), c); eq(z, 2.6); // zoom about the egg: it stays under the finger
       await page.waitForTimeout(300);
       const c2 = await page.evaluate(() => { const k = __bee.findCell(1); return __bee.cellScreen(k.r, k.c); });
       await page.mouse.click(c2.x, c2.y); await page.waitForTimeout(400);
