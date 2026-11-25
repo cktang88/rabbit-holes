@@ -70,6 +70,9 @@ module.exports = {
       ok(!S.nIdle.goal && S.nIdle.power === 0, 'idle');
       ok(!S.nGorge.goal && S.nGorge.delta < S.nIdle.delta - 3, 'gorge dam should cost the delta ' + JSON.stringify([S.nGorge, S.nIdle.delta]));
       ok(S.nWin.goal, 'known plan ' + JSON.stringify(S.nWin));
+      // the known plan clears the goal comfortably, not by a hair: at least 15% more power and a point more delta
+      const want = await page.evaluate(() => __ws.SC[2].want);
+      ok(S.nWin.power >= want.power * 1.15 && S.nWin.delta >= want.delta + 1, `margin too thin: ${S.nWin.power} GWh vs ${want.power}, ${S.nWin.delta}% vs ${want.delta}%`);
     },
     'difficulty: naive play fails the late sites (idle, the obvious move, random works); competent plans win; 3 medals need more': async ({ page, ok }) => {
       const S = await sims(page), naive = [S.nIdle, S.nGorge, S.nLow, S.nRandom, S.fwOld, S.fwFar];
