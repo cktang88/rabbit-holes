@@ -75,7 +75,7 @@ module.exports = {
       const e = await page.evaluate(() => { const T = window.__tm; return Math.abs(T.dev(T.tun(), 0, 7)); });
       ok(e <= .5, 'did not land near pure: ' + e);
       await page.waitForTimeout(1400); ok(!(await page.evaluate(() => window.__tm.S.done[0])), 'completed while still holding');
-      ok(await page.evaluate(() => document.querySelector('.candle').classList.contains('hl')), 'flame not highlighted after close tuning');
+      ok(await page.evaluate(() => document.getElementById('ivPlay').classList.contains('hl')), 'Listen not highlighted once close to pure');
       await page.mouse.up(); await page.waitForTimeout(1300);
       ok(await page.evaluate(() => window.__tm.S.done[0] >= 2), 'level 1 not cleared');
     },

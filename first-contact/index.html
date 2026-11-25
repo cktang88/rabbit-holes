@@ -130,6 +130,7 @@
   .nbRow.coach{box-shadow:0 0 0 3px var(--amber),1px 2px 4px #0006}
   @keyframes pulse{50%{outline-color:#ffb00055}}
   @media (prefers-reduced-motion:reduce){.tx.coach,.q.coach{animation:none}}
+  @media (max-width:760px),(max-height:500px){.toast{font-size:16px;padding:6px 10px}.goal{font-size:13px;padding:6px 8px;line-height:1.35}.goal .dim{display:none}.goal .gl0{font-size:15px}.strip .mini{width:84px}.strip .pic{width:76px;height:50px}}
   .modal .lede{font-size:18px;font-weight:700}
   .modal .annot{display:flex;align-items:center;gap:10px;background:#fffdf0;padding:10px;border:1px dashed #8a9a80;margin:8px 0}
   .modal .annot .pic{width:150px;height:97px;background:var(--crt);border-radius:8px;overflow:hidden;flex:0 0 auto}
@@ -202,6 +203,8 @@ const SFX = {
   static: () => { FX.tone({ noise: 1, f: 1600, q: .3, dur: .45, vol: .09 }); FX.tone({ f: 180, f2: 120, type: 'sawtooth', dur: .3, vol: .04 }); },
   chord: () => [523, 659, 784, 1047].forEach((f, i) => FX.tone({ f, type: 'triangle', dur: .9, vol: .06, delay: i * .06 })),
 };
+// one message at a time: a new one replaces the last instead of stacking over the printout
+const say = (m, ms) => { document.querySelectorAll('.toast').forEach(t => t.remove()); RH.toast(m, ms); };
 const sfx = n => { try { if (typeof FX !== 'undefined') SFX[n](); } catch (e) {} };
 // a teletype rattling out n lines of printout
 function chatter(n){ try { if (typeof FX === 'undefined') return; for (let k=0;k<Math.min(n,14);k++) for (let j=0;j<5;j++) FX.tone({ noise: 1, f: 2600 + Math.random()*1800, q: 5, dur: .02, vol: .045, delay: k*.12 + j*.022 }); } catch (e) {} }
@@ -595,12 +598,12 @@ const allSolved = ()=> CH.every((c,i)=>chDoneAt(i));
 function confirmWords(ws){ S.known ||= {}; const fresh=ws.filter(w=>!S.known[w]); fresh.forEach(w=>S.known[w]=1); return fresh; }
 function solve(id, final){ if (S.solved[id]) return; S.solved[id]=1; delete drafts[id]; setTimeout(coachTick, 0);
   const [ci,k]=id.split(':').map(Number), q=CH[ci].qs[k]; const newly=confirmWords(q.ans);
-  persist(); RH.toast(`ACK. Reply received.${newly.length?` ${newly.length} symbol${newly.length>1?'s':''} confirmed.`:''}`); render();
+  persist(); say(`ACK. Reply received.${newly.length?` ${newly.length} symbol${newly.length>1?'s':''} confirmed.`:''}`); render();
   const chDone = ci===S.chapter && chDoneAt(ci) && !q.optional;
   if (chDone) { const g=gradeNotes([...new Set(CH[S.chapter].tx.flatMap(t=>t.words))]); persist(); setTimeout(()=>rosetta(g), 400); }
   if (allSolved() && !S.ended){ S.ended=1; persist(); setTimeout(ending, chDone? 2600 : 500); }
-  else if (final) setTimeout(()=>RH.toast('They are waiting for the rest of your replies to this transmission.'),700);
-  else if (chDone) setTimeout(()=>RH.toast(`TRANSMISSION ${S.chapter+1} DECODED. ${'★'.repeat(chStars(S.chapter))}${'☆'.repeat(3-chStars(S.chapter))}`),700);
+  else if (final) setTimeout(()=>say('They are waiting for the rest of your replies to this transmission.'),700);
+  else if (chDone) setTimeout(()=>say(`TRANSMISSION ${ci+1} DECODED. ${'★'.repeat(chStars(ci))}${'☆'.repeat(3-chStars(ci))}`),700);
 }
 // When a transmission is decoded, the SETI team checks the guesses pencilled on your cards against its own analysis.
 // Right guesses are confirmed (green), wrong ones are marked (red). Glyphs you never annotated stay unexplained.
@@ -622,7 +625,7 @@ function rosetta(g){
   const els=[...document.querySelectorAll('#feed .tx .g[data-w]')]; if (!els.length) return;
   document.querySelector('#feed .sheet')?.classList.add('decoded');
   els.forEach((el,n)=>setTimeout(()=>{ const w=el.dataset.w; if (S.known&&S.known[w]) el.classList.add('kn','flash'); else if (S.bad&&S.bad[w]) el.classList.add('bad','flash'); if (n%3===0) sfx('tick'); }, n*45));
-  setTimeout(()=>{ sfx('chord'); renderNotebook(); if (g && (g.right.length||g.wrong.length)) RH.toast(`SETI: ${g.right.length} of your guesses confirmed${g.wrong.length?`, ${g.wrong.length} marked wrong`:''}.`, 4200); else RH.toast('SETI: pencil guesses on the cards and they will be checked when a transmission is decoded.', 4200); }, els.length*45+100);
+  setTimeout(()=>{ sfx('chord'); renderNotebook(); if (g && (g.right.length||g.wrong.length)) say(`SETI: ${g.right.length} of your guesses confirmed${g.wrong.length?`, ${g.wrong.length} marked wrong`:''}.`, 4200); else say('SETI: pencil guesses on the cards and they will be checked when a transmission is decoded.', 4200); }, els.length*45+100);
 }
 async function ending(){
   S.decoded = (S.decoded||0)+1; persist();
@@ -652,7 +655,7 @@ const TUT = [
   { goal:()=>`That symbol's card is open in the lexicon. <b>Pencil what it means</b>: type the number of dots, then press Enter.`, hl:()=>['tx:1','card:D1'],
     hint:()=>'Frame 002 has one dot. Type 1.', done:()=>!!(S.known&&S.known.D1) },
   { goal:()=>`Confirmed: it means 1. Now <b>name the symbols for 2 and 3</b> the same way: tap the symbol in the highlighted frame and pencil its number. <span class="prog">${['D2','D3'].filter(w=>S.known[w]).length} of 2</span>`, hl:()=>['D2','D3'].filter(w=>!S.known[w]).slice(0,1).map(w=>'tx:'+(+w.slice(1))),
-    hint:()=>{ const w=['D2','D3'].find(w=>!S.known[w]); return w? `Frame ${pad3(+w.slice(1)+1)}: count its dots, tap its symbol and pencil the number.` : ''; }, done:()=>!!(S.known.D2&&S.known.D3), after:()=>{ for (const w of tutDigits()){ (S.known ||= {})[w]=1; if (!S.notes[w]) S.notes[w]=String(+w.slice(1)); } RH.toast(`You've got the pattern. The SETI team pencilled in the rest of the single symbols, 0 to ${LANG.base-1}.`, 4200); } },
+    hint:()=>{ const w=['D2','D3'].find(w=>!S.known[w]); return w? `Frame ${pad3(+w.slice(1)+1)}: count its dots, tap its symbol and pencil the number.` : ''; }, done:()=>!!(S.known.D2&&S.known.D3), after:()=>{ for (const w of tutDigits()){ (S.known ||= {})[w]=1; if (!S.notes[w]) S.notes[w]=String(+w.slice(1)); } say(`You've got the pattern. The SETI team pencilled in the rest of the single symbols, 0 to ${LANG.base-1}.`, 4200); } },
   { goal:()=>`They have no single symbol for ${LANG.base}. Frame ${pad3(LANG.base+1)} shows ${LANG.base} dots <b>boxed as one bundle</b> and uses <b>two</b> symbols. Compare the frames below: which symbol counts the bundles, and which counts the loose dots?`, strip:true, button:'I see how they count',
     hint:()=>`Like our 10: one bundle of ten and nothing loose. Their ${LANG.base} is "one bundle, zero loose".`, done:()=>coach.seen },
   { goal:()=>`<b>Reply to question 1.</b> Count the bundles of ${LANG.base} and the loose dots, then tap that number on your <b>counting chart</b>. (You can also spell it on the glyph keys and press Transmit.)`, hl:()=>['q:0'],
@@ -691,32 +694,32 @@ function applyCoach(){
 }
 // pencilled guesses are checked straight away during the tutorial, so nobody gets stuck on transmission 1
 function tutCheckNote(w){
-  if (!tutOn() || !/^D\d+$/.test(w) || S.tut<1 || S.tut>2) return;
-  if (guessRight(w, S.notes[w])) { (S.known ||= {})[w]=1; if (S.bad) delete S.bad[w]; RH.toast(`Confirmed: that symbol means ${+w.slice(1)}.`, 2200); }
-  else if (S.notes[w]) { (S.bad ||= {})[w]=1; const f=+w.slice(1)+1; RH.toast(`Not quite. Count the dots in frame ${pad3(f)} again.`, 2600); }
+  if (!tutOn() || !/^D\d+$/.test(w) || S.tut<1 || S.tut>2 || (S.known&&S.known[w])) return;
+  if (guessRight(w, S.notes[w])) { (S.known ||= {})[w]=1; if (S.bad) delete S.bad[w]; say(`Confirmed: that symbol means ${+w.slice(1)}.`, 2200); }
+  else if (S.notes[w]) { (S.bad ||= {})[w]=1; const f=+w.slice(1)+1; say(`Not quite. Count the dots in frame ${pad3(f)} again.`, 2600); }
   persist(); renderNotebook(); coachTick();
 }
 // SETI hints point at evidence instead of handing over meanings. Asking again about the same symbol reveals it (which costs from transmission 3 on).
 function evidenceHint(){
   const i=S.chapter, ch=CH[i], open=ch.qs.find((q,k)=>!S.solved[i+':'+k]);
   S.evid ||= {}; const ok=open&&open.hint&&!S.evid['q:'+i+':'+ch.qs.indexOf(open)];
-  if (ok){ S.evid['q:'+i+':'+ch.qs.indexOf(open)]=1; persist(); document.querySelector(`#feed .q[data-q="${ch.qs.indexOf(open)}"]`)?.scrollIntoView({block:'center'}); return RH.toast('SETI: '+open.hint, 8000); }
+  if (ok){ S.evid['q:'+i+':'+ch.qs.indexOf(open)]=1; persist(); document.querySelector(`#feed .q[data-q="${ch.qs.indexOf(open)}"]`)?.scrollIntoView({block:'center'}); return say('SETI: '+open.hint, 8000); }
   const want=[...new Set([...(open?open.ans:[]), ...ch.tx.flatMap(t=>t.words)])].filter(w=>!(S.known&&S.known[w]) && !S.seti[w]);
-  if (!want.length) return RH.toast('Nothing left to hint here.');
+  if (!want.length) return say('Nothing left to hint here.');
   S.evid ||= {};
   for (const w of want){ if (S.evid[w]) continue;
     let best=null; ch.tx.forEach((A,a)=>{ if (!A.words.includes(w)) return; ch.tx.forEach((B,b)=>{ if (B.words.includes(w)) return; const common=A.words.filter(x=>B.words.includes(x)).length; if (common && (!best||common>best.c)) best={a,b,c:common}; }); });
     if (!best) continue;
     S.evid[w]=1; persist(); render(); focusGlyph(w);
     [best.a,best.b].forEach(k=>document.querySelector(`#feed .tx[data-tx="${k}"]`)?.classList.add('coach'));
-    return RH.toast(`SETI: compare frames ${pad3(best.a+1)} and ${pad3(best.b+1)}. They share ${best.c} symbol${best.c>1?'s':''}, but only ${pad3(best.a+1)} has the highlighted one. What is different about it?`, 7000);
+    return say(`SETI: compare frames ${pad3(best.a+1)} and ${pad3(best.b+1)}. They share ${best.c} symbol${best.c>1?'s':''}, but only ${pad3(best.a+1)} has the highlighted one. What is different about it?`, 7000);
   }
   // every symbol has had its evidence pointed out: reveal one meaning
   const w=want[0]; S.seti[w] = /^D\d+$/.test(w) ? `digit ${w.slice(1)}` : MEANING[w]; if (!forgiving(i+':0')) S.hints[i]=(S.hints[i]||0)+1; persist(); render(); focusGlyph(w);
-  RH.toast(`SETI team: "We're fairly sure this one means <b>${S.seti[w]}</b>."${forgiving(i+':0')? '' : ' (costs a star\'s worth: counts as a miss)'}`, 5000);
+  say(`SETI team: "We're fairly sure this one means <b>${S.seti[w]}</b>."${forgiving(i+':0')? '' : ' (costs a star\'s worth: counts as a miss)'}`, 5000);
 }
 function focusGlyph(w){
-  if (tutOn() && S.tut===0) { if (w!=='D1') return RH.toast('That is a different frame\'s symbol. Frame 002 is the one with a single dot.', 2600); coach.tapped = true; setTimeout(coachTick,0); }
+  if (tutOn() && S.tut===0) { if (w!=='D1') return say('That is a different frame\'s symbol. Frame 002 is the one with a single dot.', 2600); coach.tapped = true; setTimeout(coachTick,0); }
   if (phone()) lex(true); // on a phone the lexicon is a drawer: tapping a glyph opens it at that card
   document.querySelectorAll('.g.hl,.nbRow.hl').forEach(e=>e.classList.remove('hl'));
   document.querySelectorAll(`#feed .g[data-w="${w}"]`).forEach(e=>e.classList.add('hl'));
@@ -738,16 +741,16 @@ function renderNotebook(){
 }
 const MEANING = {PLUS:'plus',MINUS:'minus',TIMES:'times',EQUALS:'equals',YES:'yes / true',NO:'no / false',IS:'is',H:'hydrogen',HE:'helium',C:'carbon',N:'nitrogen',O:'oxygen',WATER:'water',AND:'and',STAR:'star',PLANET:'planet',MOON:'moon',HAVE:'have',LIVE:'live (on)',WE:'we',YOU:'you',PL:'(plural)',HEAD:'head',EYE:'eye',ARM:'arm',FINGER:'finger',LEG:'leg',PAST:'(past tense)',NOT:'not',BIG:'big',SMALL:'small',HOT:'hot',COLD:'cold',GO:'go',SEE:'see',SEND:'send',SIGNAL:'signal',Q:'(question)',HOWMANY:'how many?',SHAPE:'shape',SIDE:'side'};
 document.getElementById('hintBtn').onclick=()=>{
-  if (tutOn()) { const t=TUT[S.tut].hint(); if (t) RH.toast('SETI: '+t, 7000); return; }
+  if (tutOn()) { const t=TUT[S.tut].hint(); if (t) say('SETI: '+t, 7000); return; }
   return evidenceHint();
   const i=S.chapter; const used=S.hints[i]||0;
-  if (used>=3) return RH.toast('The SETI team has no more ideas for this transmission. (3 hints per transmission.)');
+  if (used>=3) return say('The SETI team has no more ideas for this transmission. (3 hints per transmission.)');
   const cand = seen.filter(w=>!S.seti[w] && !(S.conf[w]===2) && !(S.known&&S.known[w]));
-  if (!cand.length) return RH.toast('Nothing left to hint.');
+  if (!cand.length) return say('Nothing left to hint.');
   // prefer words from the current chapter
   const cur = new Set(CH[i].tx.flatMap(t=>t.words)); const pool = cand.filter(w=>cur.has(w)); const w = (pool.length?pool:cand)[Math.floor(Math.random()*(pool.length||cand.length))];
   S.seti[w] = w[0]==='D' && /^D\d+$/.test(w) ? `digit ${w.slice(1)}` : MEANING[w]; S.hints[i]=used+1; persist(); render(); focusGlyph(w);
-  RH.toast(`SETI team: "We're fairly sure this one means <b>${S.seti[w]}</b>." (${2-used} left; each hint counts as a miss)`);
+  say(`SETI team: "We're fairly sure this one means <b>${S.seti[w]}</b>." (${2-used} left; each hint counts as a miss)`);
 };
 document.getElementById('glossBtn').onclick=()=>{ S.gloss=!S.gloss; document.getElementById('glossBtn').textContent='Gloss: '+(S.gloss?'on':'off'); persist(); render(); };
 document.getElementById('newBtn').onclick=async()=>{ if (await RH.modal('<h2>New signal?</h2><p>A different species with a new language. Your notebook for this signal will be cleared.</p>',[{label:'Cancel',value:0},{label:'Tune in',value:1}])) newSignal(); };
