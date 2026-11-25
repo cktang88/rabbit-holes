@@ -27,6 +27,7 @@ function ageLoad(i, sd) {
   $('tName').textContent = 'The Canal Age · #' + seedA; $('story').innerHTML = Cm.story; setMini(mode !== 'survey');
   ageSave(); reanalyse(); renderLevels(); requestAnimationFrame(() => { fitMap(); kick(); });
   if (mode === 'survey') setTimeout(() => { if (G && !G.hint && mode === 'survey') { G.hint = AGE.firstHint(G); kick(); } }, 60);
+  if (mode === 'run' && G.offer && G.m <= G.offer.until) { const n = [...G.news].reverse().find(x => x.kind === 'offer'); if (n) showNote(n); } // an open offer is still on the table
   if (mode === 'run') banner('Welcome back', `${monthName(G.m)}. Press ▶ to carry on.`, 2200);
   if (mode === 'done') setTimeout(ageFinish, 300);
 }

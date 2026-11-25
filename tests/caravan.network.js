@@ -1,19 +1,20 @@
 // A network-building house for Caravan's Road's Ledger (run in the page). It trades like the strong trader, and as each phase
 // opens it uses the new verbs. Each one can be switched off for the ablation tests.
 //  corr:  hire a correspondent in every city it reaches           lofts: build lofts along a chain that spans the road
+//  (forging waits until the network is nearly complete: a lie ends a house's custom, so it pays best at the end)
 //  sell:  sell news to every house that will pay (true), or only the three sales that open the next phases ('unlock')                 forge: sell forged letters to trusting houses
 function networkHouse(seed, opt) {
   const K = window.__caravan; K.encountersOn = false; K.headless = true; K.newCareerSeed(seed);
   const C = K.C, G = K.GOODS.length, cities = K.cities, LOFTS = [0, 2, 5, 11, 14, 17, 22];
   const want = ci => (opt.corr && C.phase >= 2 && !C.corr[ci]) || (opt.lofts && C.phase >= 4 && LOFTS.includes(ci) && !C.lofts[ci]);
   let steps = 0;
-  while (C.day < K.CAREER_DAYS && C.ledgerDay == null && steps++ < 4000) {
+  while (C.day < (opt.until || K.CAREER_DAYS) && C.ledgerDay == null && steps++ < 4000) {
     const here = cities[C.at], SP = {}, sp = d => SP[d] !== undefined ? SP[d] : (SP[d] = K.shortest(C.at, d));
     for (let g = 0; g < G; g++) if (C.cargo[g] > 0) K.trade(g, -999);
     // the news business, before buying goods
     if (opt.corr && C.phase >= 2 && !C.corr[C.at] && C.gold > 80) K.hireCorr();
     if (opt.lofts && C.phase >= 4 && LOFTS.includes(C.at) && !C.lofts[C.at] && C.gold > 220) K.buildLoft();
-    if (C.phase >= 3) C.rivals.forEach((rv, i) => { if (opt.forge && C.phase >= 5 && rv.trust >= 0.5) { const far = [0, 22, 6, 20][i % 4]; K.forge(i, far === rv.at ? 11 : far, 11); } else if (opt.sell === true || (opt.sell === 'unlock' && new Set(C.sold).size < 3 && !C.sold.includes(i))) K.sellNews(i); });
+    if (C.phase >= 3) C.rivals.forEach((rv, i) => { if (opt.forge && C.phase >= 5 && rv.trust >= 0.5 && K.freshCities() >= 17) { const far = [0, 22, 6, 20][i % 4]; K.forge(i, far === rv.at ? 11 : far, 11); } else if (opt.sell === true || (opt.sell === 'unlock' && new Set(C.sold).size < 3 && !C.sold.includes(i))) K.sellNews(i); });
     if (here.closed) { const tr = K.travelNow(K.neighbors(C.at)[0].to); if (tr === 'end') break; if (!tr) K.tick(); continue; }
     const afford = (g, gold) => { let lo = 0, hi = 3000; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (K.buyCost(g, m).total <= gold - 60) lo = m; else hi = m - 1; } return lo; };
     // once rich, the network comes first: head for the nearest city that still needs a correspondent or a loft (trading on the way)

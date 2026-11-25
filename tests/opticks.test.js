@@ -167,7 +167,7 @@ module.exports = {
       });
       eq(Object.keys(r[0].done), ['0']); eq(r[0].layouts[0].length, 1, 'one valid unique piece'); eq(r[0].layouts[0][0].f, undefined, 'piece props come from the tray'); eq(r[0].cur, 0);
       ok(!r[0].layouts[3] && !r[0].layouts[77]);
-      for (const x of r.slice(1)) eq(x, { done: {}, layouts: {}, tries: {}, cur: 0, intro: 0, v: 2 });
+      for (const x of r.slice(1)) eq(x, { done: {}, layouts: {}, tries: {}, cur: 0, intro: 0, v: 2, ob: { n: 3, fees: 0, slots: [{ s: 'o1', k: 0 }, { s: 'o2', k: 0 }, { s: 'o3', k: 0 }], best: {} } });
       await page.addInitScript(() => localStorage.setItem('rh:opticks', '{"done":{"0":1,"500":1},"layouts":{"0":"x"},"cur":"7"}'));
       await page.reload(); await page.waitForTimeout(500);
       eq(await page.evaluate(() => Object.keys(window.__opt.S.done).length), 1);
@@ -253,31 +253,77 @@ module.exports = {
       const r = await page.evaluate(() => { const o = window.__opt; const s = o.cleanSave({ done: { 0: 1, 13: 1, 18: 1, 25: 1 }, cur: 18 }); return [Object.keys(s.done).map(k => o.L[k].n).sort(), o.L[s.cur].n]; });
       eq(r, [["Bounce", "Newton's Prism"], "Newton's Prism"]);
     },
-    'workshop: generated problems are deterministic per seed, solvable by their design, unsolved when empty, need every piece': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(() => { const o = window.__opt, out = { bad: [], made: 0, same: true };
-        for (let i = 0; i < 40; i++) { const d = 1 + (i % 9), g = o.genBench('t' + i, d); if (!g) { out.bad.push('none ' + i); continue; } out.made++;
-          const g2 = o.genBench('t' + i, d); if (JSON.stringify(g) !== JSON.stringify(g2)) out.same = false;
-          const ok = ps => { const R = o.trace(g, ps); return g.targets.every((t, k) => o.checkTarget(t, R.hits[k], g).ok); };
-          if (!ok(g.sol) || ok([])) out.bad.push('solve ' + i);
-          if (g.sol.length > 1 && g.sol.some((q, k) => ok(g.sol.filter((_, j) => j !== k)))) out.bad.push('spare piece ' + i); }
+    'order book: orders are deterministic per seed, solvable by the Guild design, unsolved when empty, at every rank': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const o = window.__opt, out = { bad: [], made: 0, same: true, kinds: {} };
+        for (let rank = 0; rank < 5; rank++) for (let i = 0; i < 16; i++) { const g = o.genComm('t' + i, rank); if (!g) { out.bad.push('none ' + rank + ':' + i); continue; } out.made++; out.kinds[g.kind] = 1;
+          if (JSON.stringify(g) !== JSON.stringify(o.genComm('t' + i, rank))) out.same = false;
+          const m = o.measureComm(g, o.trace(g, g.refP), g.refP), m0 = o.measureComm(g, o.trace(g, []), []);
+          if (!m.all) out.bad.push('guild fails ' + rank + ':' + i); if (m0.main) out.bad.push('empty passes ' + rank + ':' + i);
+          if (g.clauses.length > [1, 2, 2, 3, 3][rank]) out.bad.push('too many clauses'); }
         return out; });
-      eq(r.bad, []); ok(r.same, 'not deterministic'); eq(r.made, 40);
+      eq(r.bad, []); ok(r.same, 'not deterministic'); eq(r.made, 80); eq(Object.keys(r.kinds).sort(), ['burn', 'periscope', 'reduce', 'search', 'spectro']);
     },
-    'workshop: naive designs rarely light a late ladder problem; the designed one always does and sets par': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const o = window.__opt, rnd = RH.rng('wsnaive'); let naive = 0, comp = 0, n = 0;
-        for (let i = 0; i < 12; i++) { const g = o.genBench('L' + (10 + i), 6); if (!g) continue; n++; const tray = o.trayOf(g);
-          const ok = ps => { const R = o.trace(g, ps); return g.targets.every((t, k) => o.checkTarget(t, R.hits[k], g).ok); };
-          let hit = false; for (let t = 0; t < 150 && !hit; t++) { const ps = []; const m = 1 + rnd.int(Math.min(4, tray.length)); for (let k = 0; k < m; k++) ps.push({ ...tray[rnd.int(tray.length)], x: 1 + rnd() * 30, y: 1 + rnd() * 18, a: Math.round(rnd() * 24) * 7.5 }); hit = ok(ps); }
-          naive += hit; comp += ok(g.sol); }
-        return { naive, comp, n }; });
-      ok(r.n >= 10 && r.comp === r.n, JSON.stringify(r)); ok(r.naive / r.n <= .2, 'random designs solve too often: ' + JSON.stringify(r));
+    'order book bots: random play fails; a competent maker meets every order; no single fixed habit meets them all': async ({ page, ok }) => {
+      const r = await page.evaluate(src => { const B = eval(src), o = window.__opt, rnd = RH.rng('naive'), out = { n: 0, comp: 0, rand: 0, idle: 0, fixed: { mirrors: 0, glass: 0, kepler: 0, 'cheapest-main': 0 }, fams: new Set() };
+        for (let rank = 0; rank < 5; rank++) for (let i = 0; i < 8; i++) { const c = o.getComm('bot' + i, rank); out.n++;
+          const b = B.competent(c); if (b) { out.comp++; out.fams.add(c.kind + ':' + b.k); }
+          out.rand += B.random(c, rnd, 60); out.idle += o.measureComm(c, o.trace(c, []), []).all;
+          for (const h of Object.keys(out.fixed)) out.fixed[h] += B.fixed(c, h); }
+        out.fams = out.fams.size; return out; }, require('./opticks.bots.js').botSrc);
+      ok(r.comp === r.n, 'competent maker failed some orders: ' + JSON.stringify(r));
+      ok(r.idle === 0 && r.rand / r.n <= .15, 'random designs pass too often: ' + JSON.stringify(r));
+      for (const [h, v] of Object.entries(r.fixed)) ok(v < r.n, `the fixed habit "${h}" met every order`);
+      ok(r.fams >= 8, 'the winning designs are too uniform: ' + r.fams);
     },
-    'workshop: scoring, ladder progress and the problem of the day': async ({ page, ok, eq }) => {
+    'light is counted: speculum returns 70%, glass loses about 4% a surface, total internal reflection loses nothing': async ({ page, near }) => {
+      const r = await page.evaluate(() => { const o = window.__opt, src = [{ k: 'beam', x: 2, y: 4, a: 0, l: 650, n: 1 }], lv = { sources: src, targets: [], loss: 1 };
+        const out = R => R.finals.reduce((a, f) => a + f.I, 0);
+        return [out(o.trace(lv, [{ t: 'mirror', x: 16, y: 4, a: 45 }])), out(o.trace(lv, [{ t: 'lens', f: 6, L: 5, x: 10, y: 4, a: 90 }])), out(o.trace(lv, [{ t: 'rprism', s: 3, x: 16, y: 5, a: 0 }])), out(o.trace({ ...lv, loss: 0 }, [{ t: 'mirror', x: 16, y: 4, a: 45 }]))]; });
+      near(r[0], .7, 1e-9); near(r[1], .917, .005); near(r[2], .917, .005); near(r[3], 1, 1e-9);
+    },
+    'white sunlight: a single lens of any glass cannot meet a white burning order; a crown-flint doublet or a concave mirror can': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const o = window.__opt; let c = null; for (let i = 0; i < 80 && !c; i++) { const g = o.getComm('w' + i, 2); if (g.kind === 'burn' && g.white && Math.abs(g.targets[0].y - g.sources[0].y) < .3) c = g; }
+        const y0 = c.sources[0].y, T = c.targets[0], pass = ps => o.measureComm(c, o.trace(c, ps), ps).main;
+        const single = [2, 3, 4, 6, 8, 9, 12].some(f => ['crown', 'flint', 'fluor'].some(g => { for (let x = T.x - f - 1; x <= T.x - f + 1; x += .02) if (pass([{ t: 'lens', f, L: 5, g, x, y: y0, a: 90 }])) return true; return false; }));
+        let dbl = false; for (const f of [3, 4, 6]) for (let x = T.x - 2 * f - 1; x <= T.x - 2 * f + 1 && !dbl; x += .02) dbl = pass([{ t: 'lens', f, L: 5, x, y: y0, a: 90 }, { t: 'lens', f: -2 * f, L: 5, g: 'flint', x: x + .25, y: y0, a: 90 }]);
+        return { single, dbl, spec: c.spec }; });
+      ok(!r.single && r.dbl, JSON.stringify(r));
+    },
+    'order book: the first order is one lens; paying raises rank, refills the slot, declines and the order of the day work': async ({ page, ok, eq }) => {
       await closeModals(page);
-      const r = await page.evaluate(async () => { const o = window.__opt; o.S.done = { 0: 3, 1: 3, 2: 3 }; o.openWorkshop('ladder'); const lv = o.wsLv, n0 = o.S.ws.n;
-        o.placed = o.trayOf(lv).slice(0, lv.sol.length).map((p, k) => ({ ...p, ...lv.sol[k] })); o.recompute(); await new Promise(r => setTimeout(r, 1200));
-        const best = o.S.ws.best[lv.key]; o.openWorkshop('daily'); return { n0, n1: o.S.ws.n, best, par: lv.par, daily: o.wsLv.key, hash: location.hash }; });
-      eq(r.n1, r.n0 + 1, 'ladder should advance'); eq(r.best, r.par, 'the designed solution scores par'); ok(/^d\d{8}$/.test(r.daily), r.daily); ok(r.hash.startsWith('#ws=d'), r.hash);
+      const r = await page.evaluate(async () => { const o = window.__opt; o.S.done = { 0: 3, 1: 3, 2: 3 }; o.render();
+        const sl = o.S.ob.slots[0], c = o.getComm(sl.s, sl.k), out = { first: c.kind + ':' + c.refP.length + ':' + c.clauses.length };
+        o.openComm(sl.s, sl.k, 0); o.placed = c.refP.map(p => ({ ...p })); o.recompute(); await new Promise(r => setTimeout(r, 1200));
+        out.fees = o.S.ob.fees; out.slot = o.S.ob.slots[0].s; out.paid = o.wsLv.paid;
+        o.recompute(); await new Promise(r => setTimeout(r, 1000)); out.fees2 = o.S.ob.fees; // no double pay
+        const before = o.S.ob.slots[1].s; o.openComm(o.S.ob.slots[1].s, o.S.ob.slots[1].k, 1); o.declineComm(); out.declined = before !== o.S.ob.slots[1].s;
+        o.openWorkshop('daily'); out.daily = o.wsLv.key; out.hash = location.hash;
+        o.S.ob.fees = 50; out.rank = o.RANKS[o.rankOf(o.S.ob.fees)][0];
+        return out; });
+      eq(r.first, 'burn:1:0'); ok(r.fees >= 3 && r.paid && r.slot === 'o4', JSON.stringify(r)); eq(r.fees2, r.fees, 'paid twice');
+      ok(r.declined, 'decline'); ok(/^d\d{8}\.2$/.test(r.daily) && r.hash === '#c=' + r.daily, r.daily + ' ' + r.hash); eq(r.rank, 'Master optician');
+      eq(await page.locator('.modal-bg').count(), 0, 'no blocking modal');
+    },
+    'sealed: the lamp stays dark, one lighting pays double; a failed lighting breaks the seal and the plain fee still pays': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(async () => { const o = window.__opt, out = {}; o.S.done = { 0: 3, 1: 3, 2: 3 };
+        const sl = o.S.ob.slots[1], c = o.getComm(sl.s, sl.k); o.openComm(sl.s, sl.k, 1); o.toggleSeal();
+        o.placed = c.refP.map(p => ({ ...p })); o.recompute(); await new Promise(r => setTimeout(r, 1100));
+        out.notAuto = o.S.ob.fees === 0; out.dark = !o.revealed && document.querySelector('#tg').textContent.includes('sealed');
+        out.lit = o.commLight(); out.fees = o.S.ob.fees; out.fee = c.fee; out.sealedBest = o.S.ob.best[sl.s + '.' + sl.k].sealed;
+        const s2 = o.S.ob.slots[2], c2 = o.getComm(s2.s, s2.k); o.openComm(s2.s, s2.k, 2); o.toggleSeal(); o.placed = []; o.recompute();
+        out.miss = o.commLight(); out.unsealed = !o.wsLv.sealedOn; out.again = o.commLight();
+        o.placed = c2.refP.map(p => ({ ...p })); o.recompute(); await new Promise(r => setTimeout(r, 1100)); out.fees3 = o.S.ob.fees; out.fee2 = c2.fee;
+        return out; });
+      ok(r.notAuto && r.dark, 'sealed design paid without lighting: ' + JSON.stringify(r)); eq(r.lit, true); ok(r.fees >= 2 * r.fee && r.sealedBest, JSON.stringify(r));
+      eq(r.miss, false); ok(r.unsealed && r.again === null, 'one lighting only'); ok(r.fees3 >= r.fees + r.fee2 && r.fees3 < r.fees + 2 * r.fee2, JSON.stringify(r));
+    },
+    'order book saves survive corruption; share links open the same order': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const c = window.__opt.cleanSave; return [c({ ob: { n: 'x', fees: -5, slots: [{ s: 'evil', k: 9 }], best: { 'o1.0': { cost: 'a' }, 'o2.0': { cost: 3, len: 2, light: .8, sealed: 1 }, 'bad key!': { cost: 1, len: 1, light: 1 } } } }).ob, c({ ob: 'junk' }).ob]; });
+      eq(r[0].n, 3); eq(r[0].fees, 0); eq(r[0].slots.map(s => s.s), ['o1', 'o2', 'o3']); eq(Object.keys(r[0].best), ['o2.0']); eq(r[1].fees, 0);
+      await page.addInitScript(() => { if (!location.hash) location.hash = '#c=zz7.3'; }); await page.reload(); await page.waitForTimeout(900);
+      const g = await page.evaluate(() => [window.__opt.cur === window.__opt.WS, window.__opt.wsLv.key, window.__opt.wsLv.pays, JSON.stringify(window.__opt.genComm('zz7', 3).shelf) === JSON.stringify(window.__opt.wsLv.shelf)]);
+      eq(g, [true, 'zz7.3', false, true]);
     },
     'free bench: lamps can be placed; a two-mirror periscope and a Keplerian telescope enter the codex; designs share as a link': async ({ page, ok, eq }) => {
       await closeModals(page);

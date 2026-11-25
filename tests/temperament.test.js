@@ -1,231 +1,146 @@
-// Temperament: tuning maths, every commission solvable, deliberate commit, saves.
+// Temperament: a season at one organ. Real interval maths, tuning by beats (no cents shown), whose music pays for the comma.
+const { tmBot } = require('./temperament.bots.js');
 const closeModals = page => page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
-const solutions = () => {
-  const T = window.__tm, SC = 1200 * Math.log2(81 / 80);
-  const just = [0, 1200 * Math.log2(16 / 15), 1200 * Math.log2(9 / 8), 1200 * Math.log2(6 / 5), 1200 * Math.log2(5 / 4), 1200 * Math.log2(4 / 3), 1200 * Math.log2(45 / 32), 1200 * Math.log2(3 / 2), 1200 * Math.log2(8 / 5), 1200 * Math.log2(5 / 3), 1200 * Math.log2(9 / 5), 1200 * Math.log2(15 / 8)];
-  // Remote Keys: minimax optimum (worst error ~3.26 cents), found offline by smoothed-max descent.
-  // Patron's Third and All Twenty-Four: minimax optima from an offline solver (3 stars).
-  const PATRON = [0, 76.411, 200, 269.48, 386.675, 500, 579.832, 700, 772.614, 890.034, 966.113, 1083.254];
-  const FINALE = [0, 96.437, 197.12, 297.862, 394.3, 499.286, 595.724, 700.711, 797.149, 893.587, 998.574, 1095.011];
-  const WTC = [0, 99.574, 199.161, 298.819, 391.61, 503.769, 599.999, 702.936, 795.805, 895.385, 999.999, 1094.629];
-  const remote = [0, 105.213, 208.801, 283.275, 387.944, 494.786, 600, 705.214, 808.795, 882.728, 987.397, 1094.786];
-  const P = k => T.PRESET[k].c();
-  return [P('pyth'), P('pyth'), P('pyth'), T.wolfAt(2), P('mean'), just, P('mean'), P('mean'), T.chainFrom(-SC / 4, -SC / 4, 11, 0), P('werck'), P('vallotti'), P('et'), WTC, T.chainFrom(-SC / 4, -SC / 4, 9, 2), remote, PATRON, FINALE];
-};
+const SEEDS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+const runBots = (page, posts, pols) => page.evaluate(([posts, pols, seeds]) => { const out = {}; for (const p of posts) { out[p] = {}; for (const pol of pols) out[p][pol] = seeds.map(s => tmBot(p, s, pol)); } return out; }, [posts, pols, SEEDS]);
 
 module.exports = {
   page: 'temperament/index.html',
   ready: async page => { await page.waitForFunction(() => window.__tm); await closeModals(page); },
   tests: {
-    'interval maths: pure fifth has no beats, ET fifth beats ~0.89 Hz, comma is conserved': async ({ page, near, ok }) => {
+    'interval maths: pure fifth beatless, ET fifth beats ~0.89 Hz, the comma is conserved whatever the pegs do': async ({ page, near, ok }) => {
       const r = await page.evaluate(() => {
-        const T = window.__tm, pyth = T.PRESET.pyth.c(), et = T.ET();
-        const sums = []; for (let t = 0; t < 20; t++) { const c = T.ET().map((x, i) => i ? x + (Math.random() - .5) * 60 : 0); sums.push([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].reduce((a, i) => a + T.dev(c, i, 7), 0)); }
-        return { b0: T.beats(pyth, 0, 7), bet: T.beats(et, 0, 7), dEt: T.dev(et, 0, 7), m3: T.dev(T.PRESET.mean.c(), 0, 4), sums, octave: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].every(i => Math.abs(T.iv(et, i, 7) - 700) < 1e-9) };
+        const T = window.__tm, pyth = T.START.pyth(), et = T.START.et(), s = T.newSeason(1, 'x'), sums = [];
+        for (let t = 0; t < 20; t++) { T.setNote(s, 1 + (t % 11), s.tun[1 + (t % 11)] + (Math.sin(t * 7) * 30)); sums.push([...Array(12).keys()].reduce((a, i) => a + T.dev(s.tun, i, 7), 0)); }
+        return { b0: T.beats(pyth, 0, 7), bet: T.beats(et, 0, 7), bM3: T.beats(et, 0, 4), m3: T.dev(T.START.mean(), 0, 4), sums, wolf: T.dev(T.START.mean(), 8, 7) };
       });
-      near(r.b0, 0, 1e-9); near(r.bet, 0.886, 0.01); near(r.dEt, -1.955, 0.001); near(r.m3, 0, 1e-9); ok(r.octave, 'ET fifths not 700');
-      r.sums.forEach(s => near(s, -23.46, 0.01, 'sum of fifth deviations around the circle must be minus the Pythagorean comma'));
+      near(r.b0, 0, 1e-9); near(r.bet, .886, .01); near(r.bM3, 10.4, .2, 'ET C–E beats about 10 times a second'); near(r.m3, 0, 1e-9); near(r.wolf, 35.7, .1, 'meantone wolf');
+      r.sums.forEach(x => near(x, -23.46, .01, 'twelve fifths must always lose a Pythagorean comma'));
     },
-    'every commission: unmet at start, met by a known tuning': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(sol => {
-        const T = window.__tm, S = eval('(' + sol + ')')();
-        return T.C.slice(0, T.CAMP).map((c, i) => ({ i, start: Math.min(...c.goals.map(g => T.goalEval(g, T.startTuning(i)).stars)), sol: Math.min(...c.goals.map(g => T.goalEval(g, S[i]).stars)) }));
-      }, solutions.toString());
-      eq(r.length, 17);
-      ok(r.slice(11).every(x => x.sol === 3), 'late known tunings should reach 3 stars: ' + JSON.stringify(r.slice(11)));
-      ok(r.every(x => x.start === 0), 'met at start: ' + r.filter(x => x.start).map(x => x.i));
-      ok(r.every(x => x.sol >= 1), 'unsolvable: ' + JSON.stringify(r.filter(x => x.sol < 1)));
+    'no cents are ever printed: you tune by beats': async ({ page, ok }) => {
+      const t = await page.evaluate(() => document.body.innerText);
+      ok(!/¢|cents?\b/i.test(t), 'found a cents readout');
     },
-    'The Comma: the wolf tool tunes eleven pure fifths, and where you put the wolf decides the commission': async ({ page, eq, near }) => {
-      const r = await page.evaluate(() => {
-        const T = window.__tm, [f11, off] = T.C[3].goals, out = [];
-        for (let w = 0; w < 12; w++) { const c = T.wolfAt(w), d = [...Array(12).keys()].map(i => T.dev(c, i, 7));
-          out.push({ w, c0: c[0], wolf: d[w], others: Math.max(...d.filter((_, i) => i !== w).map(Math.abs)), f11: T.goalEval(f11, c).stars, off: T.goalEval(off, c).ok }); }
-        return out;
-      });
-      r.forEach(x => { eq(x.c0, 0, 'C moved'); near(x.wolf, -23.46, .01, 'wolf size'); near(x.others, 0, 1e-6, 'other fifths'); eq(x.f11, 3); });
-      // the piece is in flats down to A-flat: C, F, B-flat, E-flat, A-flat (G#), G fifths are taken
-      eq(r.filter(x => x.off).map(x => x.w), [1, 2, 4, 6, 9, 11]);
+    'first ten seconds: C–G is selected, G has sagged into a wolf, nudging G up calms it and the coach moves on': async ({ page, ok }) => {
+      ok(await page.evaluate(() => { const T = window.__tm; return T.sel[0] === 0 && T.sel[1] === 7 && Math.abs(T.dev(T.S.ss.tun, 0, 7)) > 12; }), 'C–G not a wolf at start');
+      ok((await page.textContent('#coachL')).includes('flame'), 'no first coach step');
+      for (let i = 0; i < 5; i++) await page.click('#nud [data-d="3"]');
+      const d = await page.evaluate(() => Math.abs(window.__tm.dev(window.__tm.S.ss.tun, 0, 7)));
+      ok(d < 7, 'not calmed: ' + d);
+      ok((await page.textContent('#coachL')).includes('Hear'), 'coach did not advance');
+      ok(await page.evaluate(() => window.__tm.S.ss.moved.join() === '7'), 'one peg should be used');
     },
-    'wolf button: select a fifth, press it, the tuning follows': async ({ page, ok }) => {
-      await page.evaluate(() => { const T = window.__tm; T.S.done = { 0: 3, 1: 3, 2: 3 }; T.setCur(3); });
-      await page.click('#wheel .arc[data-k="7"][data-i="2"]');
-      await page.click('#ivWolf');
-      const r = await page.evaluate(() => { const T = window.__tm, t = T.tun(); return Math.abs(T.dev(t, 2, 7) + 23.46) < .01; });
-      ok(r, 'wolf not placed on D–A');
-      await page.waitForTimeout(1300);
-      ok(await page.evaluate(() => window.__tm.S.done[3] === 3), 'commission not met');
-      ok(await page.locator('.modal .seal').count() === 1, 'no seal');
-      ok(await page.evaluate(() => document.getElementById('kbd').classList.contains('gliss')), 'no glissando');
-    },
-    'regression: dragging the G peg through pure without stopping does not complete the commission': async ({ page, ok }) => {
-      const b = await page.locator('.peg').boundingBox(), x = b.x + b.width / 2, y = b.y + b.height / 2;
-      await page.mouse.move(x, y); await page.mouse.down();
-      for (let dy = 0; dy <= 250; dy += 5) { await page.mouse.move(x, y - dy); await page.waitForTimeout(15); }
-      await page.mouse.up(); await page.waitForTimeout(1400);
-      ok(!(await page.evaluate(() => window.__tm.S.done[0])), 'swept through pure and it completed');
-      ok(await page.evaluate(() => window.__tm.tun()[7] > 700 + 15), 'the peg did not retune G');
-    },
-    'newcomer: drag the G peg to pure (mouse), hold, release: level 1 clears after the settle, with the coach steps': async ({ page, ok, eq }) => {
-      ok((await page.textContent('#coach')).includes('Drag the G peg'), 'no first coach step');
-      ok(await page.evaluate(() => document.querySelector('.peg').classList.contains('hl')), 'peg not highlighted');
-      const b = await page.locator('.peg').boundingBox(), x = b.x + b.width / 2, y = b.y + b.height / 2;
-      await page.mouse.move(x, y); await page.mouse.down();
-      for (let dy = 0; dy <= 110; dy += 10) { await page.mouse.move(x, y - dy); await page.waitForTimeout(20); }
-      const e = await page.evaluate(() => { const T = window.__tm; return Math.abs(T.dev(T.tun(), 0, 7)); });
-      ok(e <= .5, 'did not land near pure: ' + e);
-      await page.waitForTimeout(1400); ok(!(await page.evaluate(() => window.__tm.S.done[0])), 'completed while still holding');
-      ok(await page.evaluate(() => document.getElementById('ivPlay').classList.contains('hl')), 'Listen not highlighted once close to pure');
-      await page.mouse.up(); await page.waitForTimeout(1300);
-      ok(await page.evaluate(() => window.__tm.S.done[0] >= 2), 'level 1 not cleared');
-    },
-    'newcomer (touch, phone): drag the G node on the wheel to pure and it clears': async ({ page, ok }) => {
+    'dragging a note on the rose (touch) retunes it, and the drag counts as one peg': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
-      await page.locator('#wheel .node[data-n="7"]').scrollIntoViewIfNeeded();
       const b = await page.locator('#wheel .node[data-n="7"]').boundingBox(), x = b.x + b.width / 2, y = b.y + b.height / 2;
+      const before = await page.evaluate(() => window.__tm.S.ss.tun[7]);
       const cdp = await page.context().newCDPSession(page);
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
-      for (let dy = 0; dy <= 110; dy += 10) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - dy }] });
+      for (let dy = 0; dy <= 60; dy += 6) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - dy }] });
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-      await page.waitForTimeout(1400);
-      ok(await page.evaluate(() => window.__tm.S.done[0] >= 1), 'touch drag on the wheel did not clear level 1: G at ' + await page.evaluate(() => window.__tm.dev(window.__tm.tun(), 0, 7)));
+      const r = await page.evaluate(b0 => { const s = window.__tm.S.ss; return { d: s.tun[7] - b0, moved: s.moved.length, undo: s.undo.length }; }, before);
+      ok(r.d > 2, 'G not raised: ' + r.d); ok(r.moved === 1 && r.undo === 1, 'drag should be one peg and one undo step: ' + JSON.stringify(r));
     },
-    'rapid clicks through the target do not complete; stopping there does': async ({ page, ok }) => {
-      // G starts 9 cents flat; pure needs about +11. Click +5 three times quickly (passes through pure at +10) then -5 back.
-      for (const d of ['5', '5', '5']) { await page.click(`#noteBox [data-n="${d}"]`); await page.waitForTimeout(120); }
-      await page.click('#noteBox [data-n="-5"]'); await page.click('#noteBox [data-n="-5"]'); await page.click('#noteBox [data-n="-5"]');
-      await page.waitForTimeout(1300);
-      ok(!(await page.evaluate(() => window.__tm.S.done[0])), 'completed by clicking through');
-      for (let n = 0; n < 2; n++) await page.click('#noteBox [data-n="5"]');
-      await page.click('#noteBox [data-n="1"]');
-      await page.waitForTimeout(1300);
-      ok(await page.evaluate(() => window.__tm.S.done[0] >= 1), 'did not complete when stopped on pure');
+    'mobile: the rose and its controls fit on one 390x844 screen': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(400);
+      const r = await page.evaluate(() => { const w = document.getElementById('wheel').getBoundingClientRect(), c = document.getElementById('ctl').getBoundingClientRect(); return { w: [w.top, w.bottom, w.width], c: [c.top, c.bottom], sw: document.documentElement.scrollWidth }; });
+      ok(r.w[0] >= 0 && r.c[1] <= 844 && r.w[2] > 330, JSON.stringify(r)); ok(r.sw <= 392, 'sideways scroll');
     },
-    'switching commission during the settle window cancels the award': async ({ page, ok }) => {
-      await page.evaluate(() => { const T = window.__tm, t = T.tun(); t[7] = 1200 * Math.log2(1.5); T.render(); T.setCur(1); });
-      await page.waitForTimeout(1300);
-      ok(!(await page.evaluate(() => window.__tm.S.done[0])), 'awarded a commission that was left');
-      await page.evaluate(() => window.__tm.setCur(0)); await page.waitForTimeout(1300);
-      ok(await page.evaluate(() => window.__tm.S.done[0] === 3), 'settled pure fifth not awarded on return');
-    },
-    'acts unlock in order; progress bounded; corrupt saves load': async ({ page, eq, ok }) => {
+    'pegs: free ones first, then each costs coin; undo and reset refund': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => {
-        const T = window.__tm, put = v => localStorage.setItem('rh:temper', typeof v === 'string' ? v : JSON.stringify(v)), out = {};
-        out.a1 = T.actOpen(1); T.S.done[0] = 3; T.S.done[1] = 1; T.S.done[2] = 2; out.a1b = T.actOpen(1);
-        put('{{'); out.junk = Object.keys(T.loadState().done).length;
-        put({ done: { 0: 7, 1: 0, 99: 3, 2: 'x' }, tun: { 0: [1, 2], 1: Array(12).fill(0), 2: Array(12).fill(null) }, cur: 'q' });
-        const s = T.loadState(); out.s = [s.done, Object.keys(s.tun), s.cur];
-        for (let i = 0; i < 16; i++) T.S.done[i] = 3; T.render(); out.hub = JSON.parse(localStorage.getItem('rh:hub')).temperament;
+        const T = window.__tm, s = T.newSeason(0, 'p'), c0 = s.coin, out = {};
+        [2, 4, 9].forEach(n => T.setNote(s, n, s.tun[n] + 1)); out.free = c0 - s.coin;
+        T.setNote(s, 2, s.tun[2] + 1); out.same = c0 - s.coin;
+        T.setNote(s, 11, s.tun[11] + 1); out.extra = c0 - s.coin;
+        T.undo(s); out.undo = c0 - s.coin;
+        T.setNote(s, 11, s.tun[11] + 1); T.setNote(s, 5, s.tun[5] - 2); T.resetWeek(s); out.reset = [c0 - s.coin, s.moved.length];
+        out.fork = T.setNote(s, 0, 5); const k = T.newSeason(3, 'k'); out.locked = T.setNote(k, 7, k.tun[7] + 1);
         return out;
       });
-      eq([r.a1, r.a1b], [false, true]); eq(r.junk, 0); eq(r.s, [{ 0: 3 }, ['1'], 0]);
-      ok(r.hub === undefined || r.hub <= 1, 'hub ' + r.hub);
+      eq(r, { free: 0, same: 0, extra: 2, undo: 0, reset: [0, 0], fork: false, locked: false });
     },
-    'phone layout: no horizontal scroll': async ({ page, ok }) => {
-      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
-      ok(await page.evaluate(() => document.documentElement.scrollWidth) <= 392, 'overflow');
-    },
-    'presets are earned: equal temperament only after building it, never on its own commission': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(() => { const T = window.__tm, opts = () => [...document.querySelectorAll('#preset option')].map(o => o.value);
-        T.S.done = {}; for (let i = 0; i < 11; i++) T.S.done[i] = 3; T.setCur(11); const a = opts(); T.setCur(16); const b = opts();
-        T.S.done[11] = 3; T.setCur(16); const c = opts(); T.setCur(11); const d = opts(); return { a, b, c, d }; });
-      ok(!r.a.includes('et') && !r.b.includes('et'), 'ET offered before it was built'); ok(r.c.includes('et'), 'ET not offered after building it'); ok(!r.d.includes('et'), 'ET offered on its own commission');
-      const fin = await page.evaluate(() => { const T = window.__tm; return Math.min(...T.C[16].goals.map(g => T.goalEval(g, T.PRESET.et.c()).stars)); });
-      eq(fin, 0, 'equal temperament must not pass the finale');
-    },
-    'commissions show the worst chord and the interval that limits it': async ({ page, ok }) => {
-      await page.evaluate(() => { const T = window.__tm; for (let i = 0; i < 13; i++) T.S.done[i] = 3; T.setCur(13); });
-      ok(await page.locator('#wheel polygon').count() === 10, 'chord triangles');
-      const txt = await page.textContent('.bindbtn'); ok(/is limited by its (fifth|major third|minor third)/.test(txt), txt);
-      await page.click('.bindbtn');
-      const sel = await page.evaluate(() => document.querySelector('#ivBox h3').textContent); ok(txt.includes(sel.split(' ')[0]), 'binding interval not selected: ' + sel);
-      ok(/Comma budget/.test(await page.textContent('#goals')), 'no comma budget');
-      const sum = await page.evaluate(() => { const T = window.__tm; return T.chordInfo(T.tun(), 'C').parts.length; }); ok(sum === 3);
-    },
-    'v1 saves: the finale result moves past the inserted commission': async ({ page, eq }) => {
-      const r = await page.evaluate(() => { localStorage.setItem('rh:temper', JSON.stringify({ done: { 14: 2, 15: 3 }, tun: { 15: Array(12).fill(0).map((_, i) => i * 100) }, cur: 15 }));
-        const s = window.__tm.loadState(); return [s.done, Object.keys(s.tun), s.cur, s.v]; });
-      eq(r, [{ 14: 2, 16: 3 }, ['16'], 16, 2]);
-    },
-    'difficulty: naive play fails': async ({ page, ok }) => {
+    'tools: Pure makes the selected interval beatless; Temper and Even only once the posting grants them': async ({ page, near, eq }) => {
       const r = await page.evaluate(() => {
-        const T = window.__tm, late = [11, 12, 13, 14, 15, 16], stars = (i, c) => Math.min(...T.C[i].goals.map(g => T.goalEval(g, c).stars));
-        const rng = s => () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
-        const avail = i => Object.keys(T.PRESET).filter(k => ({ pyth: 3, mean: 7, werck: 9, vallotti: 10, et: 11 })[k] < i);
-        const descend = (i, temps, iters) => { const g = T.C[i].goals, c = T.ET();
-          const fine = c => g.flatMap(x => x.k === 'ch' ? x.list.map(n => T.chordInfo(c, n).err / x.tol[2]) : x.k === 'tCFG' ? [0, 5, 7].map(q => T.dev(c, q, 4) / x.tol[2]) : x.k === 't' ? [Math.abs(T.dev(c, x.i, 4)) / x.tol[2]] : [T.goalEval(x, c).err / x.tol[2]]);
-          for (const Tm of temps) { const sm = c => { const v = fine(c), m = Math.max(...v); return m + Tm * Math.log(v.reduce((a, x) => a + Math.exp((x - m) / Tm), 0)); }; let lr = .5;
-            for (let it = 0; it < iters; it++) { const f0 = sm(c), gr = []; for (let n = 1; n < 12; n++) { c[n] += 1e-4; gr[n] = (sm(c) - f0) / 1e-4; c[n] -= 1e-4; } const c2 = c.map((x, n) => n ? x - lr * gr[n] : 0); if (sm(c2) < f0) { for (let n = 1; n < 12; n++) c[n] = c2[n]; lr *= 1.2; } else lr *= .5; if (lr < 1e-8) break; } }
-          return c; };
-        const runs = [];
-        for (const i of late) {
-          runs.push(stars(i, T.startTuning(i)));                                                    // idle
-          for (let seed = 1; seed <= 6; seed++) { const R = rng(seed), c = T.startTuning(i); let best = 0;     // random nudges
-            for (let t = 0; t < 300; t++) { c[1 + Math.floor(R() * 11)] += [-5, -1, -.1, .1, 1, 5][Math.floor(R() * 6)]; best = Math.max(best, stars(i, c)); } runs.push(best); }
-          runs.push(Math.max(0, ...avail(i).map(k => stars(i, T.PRESET[k].c()))));                  // load the best earned preset
-          { const g = T.C[i].goals, c = T.startTuning(i); let best = 0;                               // greedy: make the worst interval pure
-            for (let t = 0; t < 40; t++) { let sel; const ch = g.find(x => x.k === 'ch');
-              if (ch) sel = ch.list.map(n => T.chordInfo(c, n)).reduce((a, b) => b.err > a.err ? b : a).bind;
-              else { let m = -1; for (let n = 0; n < 12; n++) for (const k of [7, 4]) { const d = Math.abs(T.dev(c, n, k)); if (d > m) { m = d; sel = { i: n, k }; } } }
-              const j = (sel.i + sel.k) % 12, pure = { 7: 701.955, 4: 386.314, 3: 315.641 }[sel.k];
-              if (j !== 0) c[j] = c[sel.i] + pure - (sel.i + sel.k >= 12 ? 1200 : 0); else c[sel.i] = c[j] + 1200 - pure;
-              best = Math.max(best, stars(i, c)); } runs.push(best); }
-        }
-        const competent = late.map(i => stars(i, descend(i, [1, .3], 300)));
-        return { naiveOk: runs.filter(x => x <= 1).length / runs.length, competent };
+        const T = window.__tm, s = T.newSeason(0, 'q'), t = T.newSeason(2, 'q');
+        T.applyTool(s, 'pure', 9, 4); const temperVillage = T.applyTool(s, 'temper', 0, 7);
+        T.applyTool(t, 'temper', 2, 7); T.applyTool(t, 'even', 4, 7, true);
+        return { pure: T.dev(s.tun, 9, 4), tv: temperVillage, temper: T.dev(t.tun, 2, 7), even: T.iv(t.tun, 4, 7) };
       });
-      ok(r.naiveOk >= .8, 'naive policies scored above 1 star too often: ' + r.naiveOk);
-      ok(r.competent.every(s => s >= 1), 'competent policy failed a late commission: ' + r.competent);
-      ok(r.competent.slice(1).filter(s => s === 3).length <= 1, 'a simple optimiser already gets 3 stars: ' + r.competent);
+      near(r.pure, 0, 1e-9); eq(r.tv, false); near(r.temper, -5.377, .01); near(r.even, 700, 1e-9);
     },
-    'Music Room: pieces are deterministic per seed, wander through more keys as you climb, and the solver tuning earns three stars': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(() => { const T = window.__tm, a = JSON.stringify(T.pieceGen('s1', 4)), b = JSON.stringify(T.pieceGen('s1', 4)), c = JSON.stringify(T.pieceGen('s2', 4));
-        const keys = [1, 3, 5, 9].map(l => T.pieceGen('s1', l).keys.length), out = [];
-        for (let l = 1; l <= 12; l++) { const p = T.pieceGen('lad', l), sol = T.solvePiece(p.chords), g = { k: 'ch', list: [...new Set(p.chords)], tol: [sol.worst + 6, sol.worst + 2, sol.worst + .2] };
-          const st = T.goalEval(g, sol.c).stars, et = T.goalEval(g, T.ET()).stars; out.push([st, et, Math.round(sol.worst * 10) / 10]); }
-        return { same: a === b, differ: a !== c, keys, out }; });
-      ok(r.same && r.differ, 'not deterministic per seed'); ok(r.keys[0] === 1 && r.keys[3] >= 4, 'later pieces should modulate more: ' + r.keys);
-      ok(r.out.every(([st]) => st === 3), 'solver tuning should earn 3 stars: ' + JSON.stringify(r.out));
-      ok(r.out.filter(([, et]) => et === 3).length <= 2, 'equal temperament should rarely be good enough for three stars: ' + JSON.stringify(r.out));
+    'naive play fails: an idle or random tuner never earns promotion': async ({ page, ok }) => {
+      await page.addScriptTag({ content: tmBot.toString() });
+      const r = await runBots(page, [0, 1, 2, 3], ['idle', 'random']);
+      for (const p in r) for (const pol in r[p]) ok(r[p][pol].every(x => !x.passed), `${pol} passed post ${p}: ` + JSON.stringify(r[p][pol].map(x => x.rep)));
     },
-    'Music Room: perform, advance, daily piece and your own composition, all through the UI': async ({ page, ok, eq }) => {
-      await page.evaluate(() => { const T = window.__tm; for (let i = 0; i < 4; i++) T.S.done[i] = 3; T.setCur(T.ROOM); });
-      ok(await page.isDisabled('#rNext'), 'next piece before performing');
-      await page.evaluate(() => { const T = window.__tm; T.S.tun[T.ROOM] = T.C[T.ROOM].solver.slice(); T.render(); }); await page.waitForTimeout(1300);
-      ok(await page.evaluate(() => window.__tm.S.room.best[window.__tm.roomKey()] === 3), 'solver tuning not awarded');
-      await page.click('#rNext'); eq(await page.evaluate(() => window.__tm.S.room.level), 2);
-      await page.click('#rDaily'); ok(await page.evaluate(() => window.__tm.S.room.seed.startsWith('daily:')));
-      await page.click('#rCompose'); for (const ch of ['C', 'Am', 'F', 'G']) await page.click(`[data-ch="${ch}"]`); await page.click('#cUse');
-      eq(await page.evaluate(() => window.__tm.C[window.__tm.ROOM].goals[0].list), ['C', 'Am', 'F', 'G']);
-      ok(await page.evaluate(() => location.hash === '#piece=C.Am.F.G'), 'no share link');
-      ok(await page.evaluate(() => (localStorage.getItem('rh:temper') || '').length < 50000));
+    'competent adaptive play is promoted at every posting, and no fixed temperament wins every season': async ({ page, ok }) => {
+      await page.addScriptTag({ content: tmBot.toString() });
+      const r = await runBots(page, [0, 1, 2, 3, 4], ['adaptive', 'et', 'mean']);
+      for (const p in r) {
+        const a = r[p].adaptive.filter(x => x.passed).length;
+        ok(a >= 7, `adaptive passed only ${a}/8 at post ${p}: ` + r[p].adaptive.map(x => x.rep));
+        for (const pol of ['et', 'mean']) { const n = r[p][pol].filter(x => x.passed).length; ok(n < SEEDS.length, `${pol} wins every season at post ${p}`);
+          ok(r[p][pol].reduce((a, x) => a + x.rep, 0) < r[p].adaptive.reduce((a, x) => a + x.rep, 0), `${pol} should do worse than adaptive at ${p}`); }
+      }
+      ok([1, 2, 3].every(p => r[p].mean.filter(x => x.passed).length <= 4 && r[p].et.filter(x => x.passed).length <= 4), 'a fixed temperament passes too often after the village');
     },
-    'Music Room difficulty: naive tunings score worse than a sensible tuner, who falls short of the solver': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const T = window.__tm, res = { naive: [], comp: [] };
-        for (let l = 7; l <= 12; l++) { const p = T.pieceGen('diff', l), list = [...new Set(p.chords)], sol = T.solvePiece(p.chords), g = { k: 'ch', list, tol: [sol.worst + 6, sol.worst + 2, sol.worst + .2] };
-          const st = c => T.goalEval(g, c).stars;
-          res.naive.push(st(T.ET()), st(T.PRESET.mean.c()), st(T.PRESET.pyth.c()), st(T.PRESET.vallotti.c()));
-          // a sensible tuner: from equal temperament, follow the worst chords downhill at a coarse focus only (no fine cooling)
-          const fine = c => list.flatMap(n => T.chordInfo(c, n).parts.map(q => Math.abs(q.d))), c = T.ET();
-          for (const Tm of [1, .5]) { const sm = c => { const v = fine(c), m = Math.max(...v); return m + Tm * Math.log(v.reduce((a, x) => a + Math.exp((x - m) / Tm), 0)); }; let lr = .5;
-            for (let it = 0; it < 150; it++) { const f0 = sm(c), gr = []; for (let q = 1; q < 12; q++) { c[q] += 1e-4; gr[q] = (sm(c) - f0) / 1e-4; c[q] -= 1e-4; } const c2 = c.map((x, q) => q ? x - lr * gr[q] : 0); if (sm(c2) < f0) { for (let q = 1; q < 12; q++) c[q] = c2[q]; lr *= 1.2; } else lr *= .5; } }
-          res.comp.push(st(c)); }
-        return res; });
-      ok(r.naive.filter(x => x <= 1).length / r.naive.length >= .8, 'naive presets score too well: ' + r.naive);
-      ok(r.comp.every(x => x >= 1), 'a sensible tuner should perform every late piece: ' + r.comp);
-      ok(r.comp.filter(x => x === 3).length <= 2, 'three stars should need a solver-level tuning: ' + r.comp);
+    'deterministic per seed: the same weeks, drifts and bot result every time': async ({ page, eq, ok }) => {
+      await page.addScriptTag({ content: tmBot.toString() });
+      const r = await page.evaluate(() => { const T = window.__tm, P = T.postFor(2, 'zz');
+        return { w: JSON.stringify(T.genWeek(P, 'zz', 3)) === JSON.stringify(T.genWeek(P, 'zz', 3)), d: JSON.stringify(T.genWeek(P, 'zz', 3)) !== JSON.stringify(T.genWeek(P, 'zy', 3)),
+          a: tmBot(1, 'det', 'adaptive'), b: tmBot(1, 'det', 'adaptive'), wa: JSON.stringify(T.postFor(4, 'w1')) === JSON.stringify(T.postFor(4, 'w1')) }; });
+      ok(r.w && r.d && r.wa, 'weeks not seeded'); eq(r.a, r.b);
     },
-    'phone: level list is a drawer behind a labelled button; picking a level closes it': async ({ page, ok }) => {
-      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(500);
-      const off = await page.evaluate(() => document.getElementById('side').getBoundingClientRect().right <= 0);
-      ok(off, 'list visible without opening the drawer');
-      ok(await page.isVisible('#lvlBtn'), 'no drawer button');
-      await page.click('#lvlBtn'); await page.waitForTimeout(300);
-      ok(await page.evaluate(() => document.body.classList.contains('drawer') && document.getElementById('side').getBoundingClientRect().left >= 0), 'drawer did not open');
-      await page.click('#side .cm:not(.locked) >> nth=1'); await page.waitForTimeout(300);
-      ok(!(await page.evaluate(() => document.body.classList.contains('drawer'))), 'drawer stayed open');
-      await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(150);
-      ok(!(await page.isVisible('#lvlBtn')), 'drawer button on desktop');
+    'a whole week through the page: accept, ring, hurry, results, next week drifts the organ': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { const T = window.__tm; T.startSeason(1, 'ui'); });
+      await page.click('[data-acc="L0"]'); await page.click('[data-acc="L1"]'); await page.click('[data-acc="L2"]');
+      eq(await page.evaluate(() => window.__tm.S.ss.acc.length), 2, 'slots not enforced');
+      await page.click('#perf'); await page.waitForTimeout(400); await page.click('#desk'); await page.waitForTimeout(500);
+      ok(await page.locator('#nextW').count() === 1, 'no results');
+      const before = await page.evaluate(() => window.__tm.S.ss.tun.slice());
+      await page.click('#nextW');
+      const r = await page.evaluate(b => { const s = window.__tm.S.ss; return { week: s.week, changed: s.tun.filter((x, i) => Math.abs(x - b[i]) > .1).length, log: s.log.length }; }, before);
+      eq(r.week, 1); ok(r.changed >= 1, 'no drift'); eq(r.log, 1);
+    },
+    'turning back the week restores purse, reputation and pegs': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const T = window.__tm, s = T.newSeason(1, 'rt'); T.toggleAccept(s, 'L0'); T.setNote(s, 4, s.tun[4] - 3);
+        const snap = JSON.stringify([s.coin, s.rep, s.tun, s.acc]); T.perform(s); T.retake(s); return [snap === JSON.stringify([s.coin, s.rep, s.tun, s.acc]), s.phase, s.retakes, s.moved]; });
+      eq(r, [true, 'week', 1, [4]]);
+    },
+    'a dark week hides the colours and the marks but keeps the flame': async ({ page, ok }) => {
+      await page.evaluate(() => { const T = window.__tm; T.startSeason(0, 'dk'); const s = T.S.ss; while (!T.genWeek(T.postFor(0, 'dk'), 'dk', s.week).dark) { T.perform(s); T.nextWeek(s); } T.renderAll(); });
+      const r = await page.evaluate(() => ({ dark: document.body.classList.contains('dark'), marks: document.querySelectorAll('.ch.sweet,.ch.sour,.ch.fair,.ch.wolf').length, txt: document.getElementById('wheel').textContent }));
+      ok(r.dark && r.marks === 0 && r.txt.includes('by ear'), JSON.stringify(r));
+    },
+    'season end: promotion opens the next posting; the share grid has one glyph a week': async ({ page, ok, eq }) => {
+      await page.addScriptTag({ content: tmBot.toString() });
+      const r = await page.evaluate(async () => { const T = window.__tm; T.S.ss = T.newSeason(0, 'b'); const s = T.S.ss;
+        while (s.phase === 'week') { for (const l of T.genWeek(T.postFor(0, 'b'), 'b', s.week).letters) T.toggleAccept(s, l.id); [7, 4, 9].forEach(n => 0); T.perform(s); if (s.phase === 'done') T.nextWeek(s); }
+        return { grid: T.shareGrid(s), phase: s.phase }; });
+      eq([...r.grid].length, 6); eq(r.phase, 'end');
+      // drive a passing season through the end-of-season modal
+      await page.evaluate(() => { const T = window.__tm; T.S.ss = T.newSeason(0, 'b'); const s = T.S.ss; s.week = 5; s.rep = 40; T.perform(s); T.renderAll(); });
+      await page.click('#endB'); await page.waitForTimeout(300);
+      ok((await page.textContent('.modal')).includes('Promoted'), 'no promotion');
+      ok(await page.evaluate(() => window.__tm.S.open === 1 && window.__tm.S.best[0].seal), 'next posting not open');
+    },
+    'saves: corrupt or hostile saves load safely; a season survives reload': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const T = window.__tm, put = v => localStorage.setItem('rh:temper3', typeof v === 'string' ? v : JSON.stringify(v)), out = [];
+        for (const v of ['{{', 'null', '[]', '7', { open: 'x', best: { 0: { rep: 'NaN' }, 99: 1 }, ss: { post: 9, seed: 3 } }, { open: 99, ss: { post: 1, seed: 'a', tun: [0, 1, 2], week: -4 } },
+          { ss: { post: 2, seed: 'q', tun: Array(12).fill(1e9), week: 999, phase: 'done', log: 'x', acc: ['L9', 'h', 'L0'], coin: 'lots' }, dailies: { '2026-01-01': 5, 'junk': 'x' } }]) {
+          put(v); const s = T.loadState(); out.push([s.open, !!s.ss, Number.isFinite(s.ss.coin), s.ss.tun.every(Number.isFinite) && s.ss.tun.every((x, n) => Math.abs(x - 100 * n) <= 70), s.ss.week < T.POSTS[s.ss.post].weeks, Object.keys(s.dailies).length]); }
+        return out; });
+      r.forEach(x => ok(x[1] && x[2] && x[3] && x[4] && x[0] >= 0 && x[0] <= 4 && x[5] === 0, 'bad load ' + JSON.stringify(x)));
+      await page.evaluate(() => { const T = window.__tm; T.startSeason(2, 'keep'); const s = T.S.ss; T.toggleAccept(s, 'L1'); T.setNote(s, 4, s.tun[4] + 2); T.S.ss.week = 0; localStorage.setItem('rh:temper3', JSON.stringify({ ...T.S, ss: { ...s, undo: undefined } })); });
+      await page.reload(); await page.waitForFunction(() => window.__tm); await closeModals(page);
+      const k = await page.evaluate(() => { const s = window.__tm.S.ss; return [s.post, s.seed, s.acc, s.moved]; });
+      eq(k, [2, 'keep', ['L1'], [4]]);
+    },
+    'share link: #season=post:seed plays the same weeks (daily seeds included)': async ({ page, eq }) => {
+      await page.evaluate(() => { const T = window.__tm; T.S.open = 2; localStorage.setItem('rh:temper3', JSON.stringify({ open: 2 })); });
+      await page.goto(page.url().split('#')[0] + '#season=4:daily%3A2026-11-25'); await page.reload(); await page.waitForFunction(() => window.__tm); await closeModals(page);
+      const r = await page.evaluate(() => { const s = window.__tm.S.ss; return [s.post, s.seed, s.daily]; });
+      eq(r, [4, 'daily:2026-11-25', '2026-11-25']);
     },
   },
 };

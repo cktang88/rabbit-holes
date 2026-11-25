@@ -481,11 +481,11 @@ const SYSNAME = { caesar: 'Caesar shift', affine: 'affine cipher', subst: 'keywo
 const FMT = { caesar: 'spaced', affine: 'spaced', subst: 'spaced', vig: 'grouped', rotor: 'grouped' };
 const T_LEN = { caesar: 90, affine: 120, subst: 260, vig: 250, rotor: 150 };
 const PTS = { resident: 60, handler: 40, agent: 25 };
-// the captured machine: three stepping wheels whose shifts add up (an odometer: the right wheel turns every letter)
+// the captured machine: three wheels whose shifts add up; they turn 1, 3 and 7 teeth a letter, so no two settings start alike
 const RW = (() => { const r = RH.rng('captured-machine-1953'); return [0, 1, 2].map(() => r.shuffle([...Array(26).keys()])); })();
 function rotorApply(t, set, sign) {
-  let i = 0; return t.replace(/[A-Z]/g, c => { const p0 = set[2] + i++, p1 = set[1] + Math.floor(p0 / 26), p2 = set[0] + Math.floor(p1 / 26);
-    return A[(ix(c) + sign * (RW[0][p0 % 26] + RW[1][p1 % 26] + RW[2][p2 % 26]) + 2600) % 26]; });
+  let i = 0; return t.replace(/[A-Z]/g, c => { const k = RW[0][(set[0] + i) % 26] + RW[1][(set[1] + 3 * i) % 26] + RW[2][(set[2] + 7 * i) % 26]; i++;
+    return A[(ix(c) + sign * k + 2600) % 26]; });
 }
 function bombe(text, crib) { // every wheel setting under which the text opens with the crib
   const L = letters(text).slice(0, crib.length), out = [];
@@ -584,7 +584,7 @@ function encMsg(plain, steps, keys, fmt) {
   let c = target; steps.forEach((s, j) => { c = STEP[s.t].enc(c, keys[j]); });
   return { target: letters(target), cipher: fmt === 'grouped' ? group5(c) : fmt === 'raw' ? letters(c) : c };
 }
-const MSGS = {};
+const MSGS = {}, DECKS = {};
 function postMsgs(run, d, lite) {
   const net = postNet(run.seed), sig = net.ops.map(op => postStatus(run, op.id, d)[0] + epochOf(run, op.id, d)).join('') + run.arrests.filter(a => a.day === d - 1).map(a => a.o).join('');
   const ck = run.seed + ':' + d + ':' + sig + (lite ? 'L' : ''); if (MSGS[ck]) return MSGS[ck];
@@ -609,7 +609,8 @@ function postMsgs(run, d, lite) {
         if (f.k === 'rotor') { const di = dayInfo(net, ROTOR_DAY); said.push(`THE NEW MACHINES ARRIVE ON ${WEEKDAYS[di.wd]} THE ${ordWord(di.date)}. BURN THE OLD TABLES.`); }
       }
       const start = [op.opening ? op.opening + '.' : '', ...said].filter(Boolean).join(' ');
-      m.plain = genText(r, d === 1 ? 0 : T_LEN[sys], start, EXCL); m.fmt = FMT[sys];
+      const deck = { order: DECKS[run.seed] ||= RH.rng('post-deck:' + run.seed).shuffle(TPL.filter(t => !EXCL.some(w => t.includes(w)))), at: ((d - 1) * 6 + net.order.indexOf(o)) * 5 }; // the fortnight deals sentences from one shuffled deck
+      m.plain = genText(r, d === 1 ? 0 : T_LEN[sys], start, EXCL, deck); m.fmt = FMT[sys];
       Object.assign(m, encMsg(m.plain, [{ t: sys }], [m.key], m.fmt));
     }
     out.push(m);
@@ -684,7 +685,8 @@ function postEndDay(run) {
   run.news.push({ d, ev }); run.day++; run.work = {}; run.cur = null;
   if (run.day > DAYS) { run.over = true; return ev; }
   const cards = applyCards(run);
-  cards.forEach(c => run.news.at(-1).ev.push(c.t === 'read' ? `${net.ops[c.o].n}'s card read his new message.` : c.t === 'failed' ? `${net.ops[c.o].n}'s card FAILED: his new message came out as garbage. The card is struck.` : `${net.ops[c.o].n}'s old card is useless against the new machines.`));
+  cards.forEach(c => { if (c.t !== 'retired') run.news.at(-1).ev.push(c.t === 'read' ? `${net.ops[c.o].n}'s card read his new message.` : `${net.ops[c.o].n}'s card FAILED: his new message came out as garbage. The card is struck.`); });
+  if (run.day === ROTOR_DAY) run.news.at(-1).ev.push('The new rotor machines are on the air. Every old habit card is useless; the bombe is on your bench.');
   return ev;
 }
 function postScore(run) {
@@ -881,13 +883,13 @@ function postStart(seed, daily) { S.post.run = postNew(seed, daily); delete S.wo
 function postGo(id) { const run = postRun(); run.cur = id; persist(); openVault(POST); }
 function statusOf(run, m) { return run.read[m.id] === 'card' ? ['READ BY CARD', 'ok'] : run.read[m.id] ? ['BROKEN', 'ok'] : run.failed[m.id] ? ['CARD FAILED', 'bad'] : ['unread', '']; }
 function postMap(run, net, known) {
-  const heard = net.order.filter(o => known.heard.has(o)), W = 340, H = 196, pos = {};
-  heard.forEach((o, k) => { const t = -Math.PI / 2 + 2 * Math.PI * k / Math.max(1, heard.length); pos[o] = [W / 2 + 128 * Math.cos(t), H / 2 + 64 * Math.sin(t)]; });
+  const heard = net.order.filter(o => known.heard.has(o)), W = 340, H = 150, pos = {};
+  heard.forEach((o, k) => { const t = -Math.PI / 2 + 2 * Math.PI * k / Math.max(1, heard.length); pos[o] = [W / 2 + 120 * Math.cos(t), H / 2 + 6 + 50 * Math.sin(t)]; });
   let g = '';
   run.threads.forEach(t => { const [a, b] = t.split('-').map(Number); if (pos[a] && pos[b]) g += `<line x1="${pos[a][0]}" y1="${pos[a][1]}" x2="${pos[b][0]}" y2="${pos[b][1]}" stroke="#a8231b" stroke-width="2.4"/>`; });
   heard.forEach(o => {
     const [x, y] = pos[o], has = run.threads.some(t => t.split('-').map(Number).includes(o));
-    if (!has) { const dx = (x - W / 2) * .2, dy = (y - H / 2) * .25 - 6; g += `<line x1="${x}" y1="${y}" x2="${x + dx}" y2="${y + dy}" stroke="#5f533b" stroke-dasharray="3 3"/><text x="${x + dx * 1.35}" y="${y + dy * 1.35 + 4}" text-anchor="middle" font-size="13" fill="#5f533b" font-weight="700">?</text>`; }
+    if (!has) g += `<line x1="${x + 18}" y1="${y - 6}" x2="${x + 32}" y2="${y - 16}" stroke="#5f533b" stroke-dasharray="3 3"/><text x="${x + 37}" y="${y - 14}" text-anchor="middle" font-size="14" fill="#5f533b" font-weight="700">?</text>`;
   });
   heard.forEach(o => {
     const [x, y] = pos[o], op = net.ops[o], st = postStatus(run, o, run.day + 1);
@@ -986,8 +988,8 @@ function postReadView(m) {
 }
 function postBrief(m) { // what you know about the sender, above the bench
   const run = postRun(), net = postNet(run.seed), op = net.ops[m.o], log = run.logs[m.o] || [], f = run.failed[m.id];
-  let h = `<button id="pBack">← Tonight's traffic</button> `;
-  if (m.d === 1) h += `<div class="case"><b>${op.n}</b> is lazy: he uses a Caesar shift. Turn the wheel (or type a word you expect, like STRIKE, into the probable-word slot) until the message reads.</div>`;
+  let h = '';
+  if (m.d === 1) h += `<div class="case"><b>${op.n}</b> is lazy: he uses a Caesar shift. Turn the wheel (or type a word you expect, like THE, into the probable-word slot) until the message reads.</div>`;
   else if (m.sys === 'rotor') h += `<div class="case"><b>${op.n}</b> now sends on the rotor machine. Put the <b>Rotor machine</b> on the bench: if you know how he opens his messages, the bombe finds the setting; if you know his habit, set the wheels yourself.${op.opening && log.length ? '' : ''}</div>`;
   else if (log.length) h += `<div class="case"><b>${op.n}</b> sends in a ${SYSNAME[m.sys]}. Keys read so far: ${log.map(e => `${dayInfo(net, e.d).label} <b>${valText(e.sys, e.val, e.a)}</b> (ind. ${e.ind})`).join(' · ')}.</div>`;
   else h += clerkNotes(POST);
@@ -1026,7 +1028,7 @@ function openVault(i) {
   const L = b.keys?.find((k, j) => v.steps[j].t === 'vig')?.kw?.length;
   const story = v.story.replace(/\{L\}/g, L);
   const nh = (i === POST ? w.hints : S.hints[i]) || 0, sv = S.solved[i];
-  $('center').innerHTML = `
+  $('center').innerHTML = `${i === POST ? `<button id="pBack" class="small">← Tonight's traffic</button>` : ''}
     <div class="row" style="justify-content:space-between;align-items:flex-start">
       <div><div class="dim small">${['I','II','III','IV','V','VI','VII'][v.e]}. ${ERAS[v.e]} · ${i === POST ? `Day ${postRun().day} of ${DAYS} · indicator ${v.msg.ind}` : 'Vault ' + (i + 1)}</div><h2 class="vt">${sv ? '🔓' : '🔒'} ${v.n}</h2></div>
       <div class="row">${v.alarm && !sv ? `<span class="alarm ${w.armed ? 'live' : ''}" id="alarm" title="When this runs out, the message and its key change">⏰ ${Math.floor(alarmLeft(i) / 60)}:${String(alarmLeft(i) % 60).padStart(2, '0')}${w.armed ? '' : ' · starts when you touch the bench'}</span>` : ''}<span class="pill" id="timer">⏱ ${fmtT(w.time)}</span><button id="hintBtn">💡 Hint (${3 - nh} left${i === POST ? ', −5 each' : ''})</button>${sv ? '<button id="newMsg" title="Same cipher, new message and key">🔁 New intercept</button>' : ''}</div>
@@ -1114,7 +1116,7 @@ function benchHTML(i) {
   return `
     <div class="lbl"><span>Ciphertext · ${letters(b.cipher).length} letters</span></div>
     <div class="txt" id="ctext">${esc(b.cipher)}</div>
-    <div class="lbl"><span>Workbench</span><span class="row"><select id="addSel">${TOOL_ORDER.filter(t => avail.includes(t)).map(t => `<option value="${t}" ${(V[i].intro || [])[0] === t ? 'selected' : ''}>${TOOLS[t].name}</option>`).join('')}</select><button id="addBtn">+ Add tool</button></span></div>
+    <div class="lbl"><span>Workbench</span><span class="row"><select id="addSel">${TOOL_ORDER.filter(t => avail.includes(t)).map(t => `<option value="${t}" ${(i === POST ? { caesar: 'shift', affine: 'affine', subst: 'subst', vig: 'vig', rotor: 'rotor' }[V[i].msg?.sys] : (V[i].intro || [])[0]) === t ? 'selected' : ''}>${TOOLS[t].name}</option>`).join('')}</select><button id="addBtn">+ Add tool</button></span></div>
     <div id="stages">${w.stages.map((st, k) => stageHTML(st, k, w.stages.length)).join('<div class="arrow">↓</div>')}</div>
     ${w.stages.length ? '' : '<div class="note">No tools on the bench yet. Add one above.</div>'}
     <div class="lbl"><span>Output</span><span id="outInfo" class="small"></span>${V[i].carbons && !S.solved[i] ? `<button id="pullBtn" class="primary" title="See the output for the key as it is set now. Uses one sheet.">Pull a carbon (${V[i].carbons - (w.pulls || 0)} left)</button>` : ''}</div>

@@ -16,6 +16,7 @@ const solveFn = () => {
         case 'col': { const pos = []; k.order.forEach((c, j2) => { pos[c] = j2; }); return { t: 'col', s: { w: k.w, pos } }; }
         case 'rev': return { t: 'rev', s: {} };
         case 'vig': return { t: 'vig', s: { sh: k.sh.slice() } };
+        case 'rotor': return { t: 'rotor', s: { set: k.set.slice() } };
       }
     }).reverse();
     return { stages };
@@ -301,9 +302,9 @@ module.exports = {
       const bad = await page.evaluate(() => { const X = window.__vault, out = [], names = Object.entries(X.TOOLS).map(([k, t]) => [k, t.name]);
         X.V.forEach((v, i) => { const av = X.toolsAt(i), text = X.caseCard(i).replace(/<[^>]+>/g, '') + ' ' + [0, 1, 2].map(k => X.hintText(i, k)).join(' ');
           const card = X.caseCard(i).replace(/<[^>]+>/g, ''), teaches = i === 0 || (v.intro || []).some(t => X.TOOLS[t]);
-          if (!v.pad && i !== X.WIRE && !/Lock:.*Key:/.test(card)) out.push(i + ' missing lock/key');
-          if (!v.pad && i !== X.WIRE && teaches !== /First step:/.test(card)) out.push(i + (teaches ? ' teaches a tool without a first step' : ' gives the first step away'));
-          if (!v.pad && i !== X.WIRE && !teaches) { X.S.hints[i] = 1; if (!/First step:/.test(X.caseCard(i))) out.push(i + ' no walkthrough after a hint'); delete X.S.hints[i]; }
+          if (!v.pad && i !== X.POST && !/Lock:.*Key:/.test(card)) out.push(i + ' missing lock/key');
+          if (!v.pad && i !== X.POST && teaches !== /First step:/.test(card)) out.push(i + (teaches ? ' teaches a tool without a first step' : ' gives the first step away'));
+          if (!v.pad && i !== X.POST && !teaches) { X.S.hints[i] = 1; if (!/First step:/.test(X.caseCard(i))) out.push(i + ' no walkthrough after a hint'); delete X.S.hints[i]; }
           if (!v.pad) for (const s of v.steps) { const need = { caesar: 'shift', atbash: 'atbash', affine: 'affine', subst: 'subst', rail: 'rail', col: 'col', rev: 'rev', vig: 'vig' }[s.t]; if (!av.has(need)) out.push(i + ' needs ' + need + ' before it is introduced'); }
           for (const [k, nm] of names) if (text.includes(nm) && !av.has(k)) out.push(i + ' mentions ' + nm);
           if (/Probable word slot under the substitution/.test(text) && !av.has('crib')) out.push(i + ' mentions the crib slot early'); });
@@ -320,75 +321,94 @@ module.exports = {
       await page.click('#pullBtn');
       ok(await page.evaluate(i => !!window.__vault.S.solved[i], i), 'did not open');
     },
-    'Wire Room: generation is deterministic per seed, every intercept up to level 20 is solvable and closed at its start': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(() => { const X = window.__vault, out = [];
-        const a = JSON.stringify(X.wireDef('abc', 7)), b = JSON.stringify(X.wireDef('abc', 7)), c = JSON.stringify(X.wireDef('abd', 7));
-        X.S.solved = {}; for (let i = 0; i < 4; i++) X.S.solved[i] = { stars: 3, time: 0 };
-        for (const seed of ['abc', 'daily:2026-01-01']) { X.wireStart(seed); for (let L = 1; L <= 20; L++) { X.S.wire.run.level = L; X.applyWire(); X.openVault(X.WIRE);
-          if (X.isOpenNow(X.WIRE)) out.push(seed + ' L' + L + ' open at start');
-          const w = X.workOf(X.WIRE); w.stages = window.__solution(X.WIRE).stages; if (!X.isOpenNow(X.WIRE)) out.push(seed + ' L' + L + ' unsolvable'); } }
-        const msgs = new Set([1, 2, 3].map(L => { X.S.wire.run.level = L; X.applyWire(); return X.build(X.WIRE).cipher; }));
-        return { same: a === b, differ: a !== c, out, distinct: msgs.size, steps: [1, 6, 12, 15].map(L => X.wireDef('abc', L).steps.length), alarm: [1, 12, 30].map(L => X.wireDef('abc', L).alarm) };
+    'Listening Post: the network is deterministic per seed; day 1 is one man, one short Caesar message under a lazy habit, with the shift wheel ready': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const X = window.__vault, a = JSON.stringify(X.postNet('abc')), b = JSON.stringify(X.postNet('abc')), c = JSON.stringify(X.postNet('abd'));
+        const out = []; for (const seed of ['abc', 'xyz', 'daily:2026-11-25', 'q1', 'q2', 'q3']) { const run = X.postNew(seed), m = X.postMsgs(run, 1);
+          if (m.length !== 1 || m[0].sys !== 'caesar' || m[0].rule !== 'FIX' || m[0].target.length > 80 || !m[0].facts.some(f => f.k === 'op')) out.push(seed + ' ' + JSON.stringify([m.length, m[0].sys, m[0].rule, m[0].target.length])); }
+        for (let i = 0; i < 3; i++) X.S.solved[i] = { stars: 3, time: 0 }; X.postStart('abc'); X.S.post.run.cur = X.postMsgs(X.S.post.run, 1)[0].id; X.openVault(X.POST);
+        return { same: a === b, differ: a !== c, out, tool: X.workOf(X.POST).stages.map(s => s.t), open: X.isOpenNow(X.POST), roles: X.postNet('abc').ops.map(o => o.role).join() }; });
+      ok(r.same && r.differ, 'network not deterministic per seed'); ok(!r.out.length, r.out.join('; '));
+      eq(r.tool, ['shift']); ok(!r.open, 'open at the start'); eq(r.roles, 'resident,handler,agent,agent,agent,agent');
+    },
+    'Listening Post: every message of a fortnight is closed at the start and opened by its key; every rotor message can be read by a habit or by the bombe on his opening': async ({ page, ok }) => {
+      const bad = await page.evaluate(() => { const X = window.__vault, out = []; let rot = 0, bombed = 0;
+        for (const seed of ['abc', 'xyz', 'q1', 'q2']) { const run = X.postNew(seed); X.S.post.run = run; const net = X.postNet(seed);
+          for (let d = 1; d <= 14; d++) { run.day = d; for (const m of X.postMsgs(run, d)) { run.cur = m.id; X.openVault(X.POST); const w = X.workOf(X.POST); w.stages = [];
+            if (X.isOpenNow(X.POST)) out.push(seed + ' ' + m.id + ' open at start');
+            w.stages = window.__solution(X.POST).stages; if (!X.isOpenNow(X.POST)) out.push(seed + ' ' + m.id + ' unsolvable');
+            if (m.sys === 'rotor') { rot++; const op = net.ops[m.o], crib = op.opening ? op.opening.replace(/[^A-Z]/g, '').slice(0, 10) : '';
+              const hits = crib ? X.bombe(m.cipher, crib) : [], viaBombe = hits.some(h => h.join() === m.key.set.join()); if (viaBombe) bombed++;
+              if (!viaBombe && (m.rule === 'RANDOM' || (m.rule === 'FIX' && !op.opening))) out.push(seed + ' ' + m.id + ' unreadable rotor'); } } } }
+        return { out, rot, bombed }; });
+      ok(!bad.out.length, bad.out.slice(0, 6).join('; ')); ok(bad.rot > 100 && bad.bombed > bad.rot * .4, `rotor ${bad.rot}, bombe-able ${bad.bombed}`);
+    },
+    'habit cards are falsifiable: the right card reads his next message, a wrong card prints garbage and is struck, and an arrest re-keys the cell so its cards fail': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const X = window.__vault, net = X.postNet('abc'), first = net.order[0];
+        const day1 = run => { X.postMsgs(run, 1).forEach(m => X.postLearn(run, m, 'hand')); };
+        const right = X.postNew('abc'); day1(right); const fitsR = X.cardFits(right, first, 'FIX').ok, fitsS = X.cardFits(right, first, 'STEP').ok, fitsD = X.cardFits(right, first, 'DATE').ok;
+        X.postFile(right, first, 'FIX'); X.postEndDay(right); const m2 = X.postMsgs(right, 2).find(m => m.o === first);
+        const wrong = X.postNew('abc'); day1(wrong); X.postFile(wrong, first, 'STEP'); X.postEndDay(wrong); const w2 = X.postMsgs(wrong, 2).find(m => m.o === first), f = wrong.failed[w2.id];
+        const letters = s => s.replace(/[^A-Z]/g, ''), garbage = f && f.text && !letters(w2.plain).startsWith(letters(f.text).slice(0, 12));
+        // re-keying: read everyone up to day 6 with true cards, then arrest a man and watch his cell's cards fail the next day
+        const run = X.postNew('abc'); let failedAfter = 0, readAfter = 0, cell = [];
+        for (let d = 1; d <= 6; d++) { X.postMsgs(run, d).forEach(m => { X.postLearn(run, m, 'hand'); }); for (const o of [0, 1, 2, 3, 4, 5]) if (run.logs[o] && !run.cards[o]) { const rule = X.postMsgs(run, d).find(m => m.o === o)?.rule; if (rule) X.postFile(run, o, rule); } X.postEndDay(run); }
+        const target = net.ops.find(o => o.role === 'agent' && X.postStatus(run, o.id, run.day) === 'air' && net.ops.some(q => q.id !== o.id && q.h === o.h && run.cards[q.id]));
+        run.arrests.push({ o: target.id, day: run.day, how: 'arrest' }); cell = net.ops.filter(q => q.id !== target.id && (q.h === target.h || q.id === target.h) && run.cards[q.id]).map(q => q.id);
+        const ev = X.postEndDay(run);
+        X.postMsgs(run, run.day).forEach(m => { if (cell.includes(m.o)) { if (run.failed[m.id]) failedAfter++; if (run.read[m.id] === 'card') readAfter++; } });
+        return { fitsR, fitsS, fitsD, read2: right.read[m2.id], wrongRead: !!wrong.read[w2.id], struck: (wrong.struck[first] || []).length, garbage, cardGone: !wrong.cards[first], cell: cell.length, failedAfter, readAfter, rekeyNote: X.postMsgs(run, run.day).filter(m => cell.includes(m.o)).every(m => m.plain.includes('IS TAKEN')) };
       });
-      ok(r.same && r.differ, 'not deterministic per seed'); ok(!r.out.length, r.out.join('; ')); eq(r.distinct, 3);
-      ok(r.steps[0] === 1 && r.steps[2] === 2 && r.steps[3] === 2, 'difficulty should climb to stacked layers'); ok(r.alarm[2] < r.alarm[1], 'late levels should get less time');
+      ok(r.fitsR && r.fitsS && !r.fitsD, 'day-1 card fits wrong: ' + JSON.stringify(r));
+      eq(r.read2, 'card'); ok(!r.wrongRead && r.struck === 1 && r.cardGone && r.garbage, 'wrong card did not visibly fail: ' + JSON.stringify(r));
+      ok(r.cell > 0 && r.failedAfter === r.cell && r.readAfter === 0 && r.rekeyNote, 're-key did not fail the cell\'s cards: ' + JSON.stringify(r));
     },
-    'Wire Room runs: breaking intercepts scores, missed alarms cost agents, three misses end the run; naive play scores 0': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(async () => { const X = window.__vault; X.S.solved = {}; for (let i = 0; i < 4; i++) X.S.solved[i] = { stars: 3, time: 0 };
-        // competent: read the key (a capable analyst), break five intercepts
-        X.wireStart('runtest'); for (let n = 0; n < 5; n++) { X.workOf(X.WIRE).stages = window.__solution(X.WIRE).stages; if (X.isOpenNow(X.WIRE)) X.wireAdvance(true); }
-        const comp = { ...X.S.wire.run };
-        // naive: tries random single tools until the alarm, every intercept
-        X.wireStart('runtest'); let naiveWins = 0; let sd = 5; const Rn = () => (sd = (sd * 1103515245 + 12345) % 2147483648) / 2147483648;
-        while (X.S.wire.run) { let won = false; for (let t = 0; t < 60 && !won; t++) { X.workOf(X.WIRE).stages = [{ t: 'shift', s: { k: Math.floor(Rn() * 26) } }, { t: 'rev', s: {} }].slice(0, 1 + Math.floor(Rn() * 2)); won = X.isOpenNow(X.WIRE); }
-          if (won) naiveWins++; const before = X.S.wire.run; X.wireAdvance(won); if (!X.S.wire.run) break; }
-        await new Promise(r => setTimeout(r, 50)); document.querySelectorAll('.modal-bg').forEach(m => m.remove());
-        return { comp, naiveWins, best: X.S.wire.best, ended: !X.S.wire.run };
+    'acting: a watched strike catches the man, an unwatched one does damage; arrest needs his address; taking a handler sends his agents to ground': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const X = window.__vault, net = X.postNet('abc'), s0 = net.strikes.find(s => s.day === 3 && net.ops[s.o].arr === 1);
+        const a = X.postNew('abc'); X.postMsgs(a, 1).forEach(m => X.postLearn(a, m, 'hand')); const known = X.postKnown(a).strikes.has(s0.s); X.postWatch(a, s0.s); X.postEndDay(a); X.postEndDay(a); X.postEndDay(a);
+        const b = X.postNew('abc'); X.postEndDay(b); X.postEndDay(b); X.postEndDay(b);
+        const c = X.postNew('abc'); const noAddr = X.postArrest(c, net.order[0]);
+        const h = net.ops[1], agents = net.ops.filter(o => o.h === 1).map(o => o.id), d = X.postNew('abc'); for (let k = 1; k < Math.max(h.arr, ...agents.map(o => net.ops[o].arr)); k++) X.postEndDay(d);
+        d.arrests.push({ o: 1, day: d.day, how: 'arrest' }); X.postEndDay(d);
+        const fled = agents.every(o => X.postStatus(d, o, d.day) === 'fled') && !X.postMsgs(d, d.day).some(m => agents.includes(m.o));
+        return { known, caught: a.arrests.some(x => x.o === s0.o && x.how === 'caught'), dmgA: a.damage, dmgB: b.damage, value: s0.value, noAddr, fled };
       });
-      eq([r.comp.score, r.comp.level, r.comp.agents, r.comp.tokens], [5, 6, 3, 4]);
-      ok(r.ended && r.naiveWins <= 1, 'naive play should fail almost every intercept: ' + r.naiveWins);
-      ok(r.best >= 5, 'best run not recorded');
+      ok(r.known && r.caught && r.dmgA === 0, 'watch did not catch: ' + JSON.stringify(r)); eq(r.dmgB, r.value); ok(!r.noAddr, 'arrested without an address'); ok(r.fled, 'agents of a taken handler stayed on the air');
     },
-    'Wire Room (review fixes): the clock starts when the intercept arrives; from intercept 4 the system is unnamed and the clerk gives statistics; breaks and losses are stamped; HQ perks every third break': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(() => { const X = window.__vault; for (let i = 0; i < 4; i++) X.S.solved[i] = { stars: 3, time: 0 }; X.wireStart('review');
-        const armed = X.workOf(X.WIRE).armed === true, alarmLive = document.getElementById('alarm').classList.contains('live');
-        const names = /shift|affine|alphabet|rail|columns|Vigen|reversal/i, early = X.wireDef('review', 3), late = [4, 7, 12, 15].map(L => X.wireDef('review', L));
-        for (let n = 0; n < 3; n++) { X.workOf(X.WIRE).stages = window.__solution(X.WIRE).stages; X.wireAdvance(true); }
-        const stamp = document.querySelector('.wstamp')?.textContent || '', perk = X.S.wire.run.perk, a0 = X.V[X.WIRE].alarm;
-        document.querySelector('[data-perk="clock"]').click(); const a1 = X.V[X.WIRE].alarm, perkGone = !document.querySelector('[data-perk]');
-        const notes = X.clerkNotes(X.WIRE).replace(/<[^>]+>/g, ''), story = X.V[X.WIRE].story;
-        X.wireAdvance(false); const lost = document.querySelector('.wstamp')?.textContent || '';
-        return { armed, alarmLive, earlyNamed: names.test(early.story), lateNamed: late.some(d => names.test(d.story)), stamp, perk, a0, a1, perkGone, notes, storyNamed: names.test(story), lost }; });
-      ok(r.armed && r.alarmLive, 'the alarm should be running as soon as the intercept is shown');
-      ok(r.earlyNamed && !r.lateNamed && !r.storyNamed, 'systems should be named only on the first intercepts');
-      ok(/Index of coincidence/.test(r.notes) && /commonest letters/.test(r.notes), 'clerk statistics missing: ' + r.notes);
-      ok(r.stamp.includes('BROKEN') && r.lost.includes('AGENT LOST'), 'no stamp for a break or a loss: ' + r.stamp + ' / ' + r.lost);
-      ok(r.perk === 1 && r.a1 === r.a0 + 45 && r.perkGone, 'HQ perk after three breaks: ' + JSON.stringify([r.perk, r.a0, r.a1]));
+    'bots: careful analysts (read, watch, draw threads) beat listeners who never act and reckless arresters on average; the dossier compares you with 64 of them': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = window.__vault, seeds = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8', 'a9', 'a10'];
+        const sc = pol => seeds.map(s => X.postSim(s, pol, 7)); const comp = sc({ read: 1, act: 1, thr: 1 }), naive = sc({ read: 1, act: 0, thr: 0 }), reck = sc({ read: .8, reckless: 1, thr: .5 }), half = sc({ read: .5, act: .5, thr: .3, guess: .5 });
+        const pop = X.postPop('a1'), spread = Math.max(...pop) - Math.min(...pop);
+        return { comp, naive, reck, half, spread, beatN: comp.filter((v, k) => v > naive[k]).length, beatR: comp.filter((v, k) => v > reck[k]).length, beatH: comp.filter((v, k) => v > half[k]).length }; });
+      const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+      ok(r.beatN >= 9 && r.beatH >= 9 && mean(r.comp) > mean(r.reck) + 40, JSON.stringify(r)); ok(r.spread >= 100, 'bot population too narrow: ' + r.spread);
     },
-    'Wire Room difficulty climbs smoothly: one new idea per step, easy stacks before hard ones': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const X = window.__vault, hard = new Set(['subst', 'vig']); const lv = [];
-        for (let L = 1; L <= 15; L++) { const d = X.wireDef('curve', L), st = d.steps.map(s => s.t); lv.push({ L, n: st.length, hard: st.filter(t => hard.has(t)).length, len: d.len, alarm: d.alarm }); }
-        return lv; });
-      const firstDouble = r.find(x => x.n > 1), firstHard = r.find(x => x.n > 1 && x.hard >= 1);
-      ok(firstDouble.hard === 0, 'the first stacked intercept should be an easy stack');
-      const easyStacks = r.filter(x => x.n > 1 && x.hard === 0 && x.L < firstHard.L).length; ok(easyStacks >= 3, 'need at least three easy stacks before the hard ones: ' + easyStacks);
-      ok(r.every((x, k) => !k || x.n <= r[k - 1].n + 1), 'stack depth jumps');
+    'Listening Post through the page: break day 1 on the wheel, file a card, end the day, the card reads day 2; the run survives a reload; a fortnight ends in a dossier': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { const X = window.__vault; for (let i = 0; i < 3; i++) X.S.solved[i] = { stars: 3, time: 0 }; X.S.post.run = null; X.openVault(X.POST); });
+      ok(await page.evaluate(() => document.getElementById('pDaily').textContent.includes('network')), 'no daily network');
+      await page.click('#pNew'); await page.click('.ptr');
+      const k = await page.evaluate(() => window.__vault.V[window.__vault.POST].msg.key.k);
+      for (let j = 0; j < k; j++) await page.click('[data-a="k+"]');
+      await page.waitForTimeout(2400);
+      ok(await page.evaluate(() => Object.values(window.__vault.S.post.run.read).includes('hand')), 'day 1 did not break');
+      await page.click('#pCard'); await page.click('[data-card="FIX"]'); await page.click('#pEnd'); await page.waitForTimeout(150);
+      ok(await page.evaluate(() => [...document.querySelectorAll('.ptr .pst')].some(e => e.textContent === 'READ BY CARD')), 'card did not read day 2');
+      ok(await page.evaluate(() => (localStorage.getItem('rh:vault') || '').length < 60000), 'save too big');
+      await page.reload(); await page.waitForFunction(() => window.__vault);
+      eq(await page.evaluate(() => window.__vault.S.post.run.day), 2);
+      await page.evaluate(() => { const X = window.__vault, run = X.S.post.run; while (run.day < X.DAYS) X.postEndDay(run); X.postDash(); });
+      await page.click('#pEnd'); await page.waitForTimeout(150); await page.click('.modal-bg .primary'); await page.waitForTimeout(300);
+      const dossier = await page.evaluate(() => document.querySelector('.modal')?.textContent || '');
+      ok(/dossier/i.test(dossier) && /simulated analysts/.test(dossier) && /resident/.test(dossier), 'no dossier: ' + dossier.slice(0, 120));
     },
-    'plaintexts vary: a run of intercepts rarely repeats a sentence': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const X = window.__vault; X.wireStart('variety'); const sents = [];
-        let first8 = 0; for (let L = 1; L <= 14; L++) { X.S.wire.run.level = L; X.applyWire(); sents.push(...X.build(X.WIRE).plain.split(/(?<=[.!?])\s+/).map(t => t.replace(/[^A-Z]/g, '')).filter(t => t.length > 10)); if (L === 8) first8 = sents.length; }
-        const c = {}; sents.forEach(t => c[t] = (c[t] || 0) + 1); return { n: sents.length, distinct: Object.keys(c).length, first8, distinct8: new Set(sents.slice(0, first8)).size }; });
-      ok(r.distinct8 === r.first8, `a sentence repeated within the first eight intercepts: ${JSON.stringify(r)}`);
-      ok(r.distinct / r.n >= .85, `sentences repeat too often over a long run: ${JSON.stringify(r)}`);
-    },
-    'Wire Room: hints spend run tokens, saves stay small, and the lobby offers a daily seed': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(() => { const X = window.__vault; X.S.solved = {}; for (let i = 0; i < 4; i++) X.S.solved[i] = { stars: 3, time: 0 }; X.S.wire.run = null; X.openVault(X.WIRE);
-        const lobby = document.getElementById('wDaily').textContent.includes(X.today());
-        X.wireStart('tok'); return { lobby }; });
-      ok(r.lobby, 'no daily seed in the lobby');
-      await page.click('#hintBtn'); await page.waitForTimeout(100);
-      eq(await page.evaluate(() => [window.__vault.S.wire.run.tokens, window.__vault.S.hints[window.__vault.WIRE]]), [2, 1]);
-      ok(await page.evaluate(() => (localStorage.getItem('rh:vault') || '').length < 50000), 'save too big');
+    'Era I: no modal on arrival and the first vault is one click from opening; a fortnight rarely repeats a sentence': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { localStorage.clear(); return 1; });
+      await page.reload(); await page.waitForFunction(() => window.__vault);
+      ok(!(await page.$('.modal-bg')), 'a modal greets a new player');
+      ok(await page.isVisible('[data-a="k+"]'), 'the shift wheel is not on screen');
+      const rep = await page.evaluate(() => { const X = window.__vault, run = X.postNew('variety'), c = {}; let n = 0;
+        for (let d = 1; d <= 8; d++) X.postMsgs(run, d).forEach(m => m.plain.split(/(?<=[.!?])\s+/).forEach(t => { if (t.length > 25 && !/^(REPORT|TELL|I PAID|MY NEW|ON |THE NEW)/.test(t)) { n++; c[t] = (c[t] || 0) + 1; } }));
+        return { n, dup: Object.values(c).filter(x => x > 2).length }; });
+      ok(rep.dup <= 3, 'sentences repeat too often: ' + JSON.stringify(rep));
     },
     'phone: level list is a drawer behind a labelled button; picking a level closes it': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(500);

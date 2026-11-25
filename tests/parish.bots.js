@@ -1,27 +1,78 @@
-// Scripted families for the Parish saga (run in the page). Each returns an answer for a pending choice.
-//  idle      - always the first option ("not yet", "work the land", "let it go")
-//  random    - any option
-//  steward   - competent: marries everyone off to the best match, the heir works the land and younger sons learn trades,
-//              buys land when the purse allows, shuts the house against sickness, sends spare children abroad
-function sagaPolicy(name) {
-  if (name === 'idle') return () => 0;
-  if (name === 'random') { let k = 7; return (V, c) => { k = (k * 1103515245 + 12345) % 2147483648; return k % window.__parish.optionsFor(V, c).length; }; }
-  return (V, c) => {
-    const P = window.__parish, F = V.fam, p = V.P[c.id], opts = P.optionsFor(V, c), us = P.kin(V);
-    if (c.k === 'name') return 0;
-    if (c.k === 'match') { let best = 1, bv = -1; c.offers.forEach((o, i) => { const v = (p.sex === 'M' ? o.dowry : -o.dowry) + (o.hale ? 25 : 0); if (v > bv) { bv = v; best = i + 1; } }); return best; }
-    if (c.k === 'trade') { const sons = us.filter(x => x.sex === 'M' && x.s === F.sur && x.died === null).sort((a, b) => a.born - b.born); if (p.sex === 'M' && sons[0] === p) return 0; return F.coin > 40 ? 1 : 2; }
-    if (c.k === 'land') return F.coin > c.price + 30 ? 1 : 0;
-    if (c.k === 'plague') return F.coin > 12 ? 1 : 0;
-    if (c.k === 'ship') return us.length > 9 && us.filter(x => x.sex === 'M' && x.s === F.sur).length > 3 ? 1 : 0;
-    if (c.k === 'warden') return F.coin > 40 ? 1 : 0;
-    return 0;
-  };
+// Readers for Parish (run in the page, or in Node against the engine). They see only what a player sees:
+// each slot's candidates, what sealed links strike out, the letters, and whether three pins sealed.
+//  random   - pins any candidate (or "not in this book") for any open slot; when the pins jam, pulls a random one
+//  first    - fixed: the first candidate listed, or "not in this book"; when jammed, cuts every pin and moves on
+//  nearest  - fixed: the unstruck same-surname candidate whose age fits best, else "not in this book"; when jammed, cuts all
+//  reader   - adaptive: pins what the book leaves certain, tests one doubtful thread at a time beside two sure ones,
+//             reads the seals as evidence, follows the letters, and lets the curate file the plain links
+function parishBot(E, seed, name, budget) {
+  const V = E.makeVillage(seed), D = E.newDesk(), R = V.reg; let acts = 0, rs = 7 + seed, curated = -1;
+  const rnd = n => { rs = (rs * 1103515245 + 12345) % 2147483648; return rs % n; };
+  const tr = () => Object.keys(D.sealed).length >= E.TRANSCRIPT_AT;
+  const visible = sl => tr() || !R[sl.e].lost;
+  const cands = (k, P) => E.candidates(V, k, D.sealed, tr(), P);
+  const secretsOut = () => V.secrets.filter(x => E.secretOut(V, x, D.sealed)).length;
+  const pinned = k => D.pins.some(p => p[0] === k);
+  const done = () => secretsOut() === 4;
+  const curate = () => { const n = Object.keys(D.sealed).length; if (n >= E.CURATE_AT && n - curated >= 6) { E.curateFile(V, D, tr()); curated = n; acts++; } };
+  // letters: the reader looks first at what the letters name (the visible targets), and at entries those lead to
+  const letterKeys = () => { const ks = []; for (const L of V.letters) L.targets.forEach((k, i) => { const st = L.steps[i] || {}; if (!st.hidden && st.from == null) ks.push(k); }); return ks; };
+  const fit = (k, c) => { const s = V.slotOf[k], e = R[s.e], x = R[c.id]; if (s.k === 'g') return Math.abs(e.d - x.d - 27); if (s.k === 'b') return Math.abs(e.d - x.d - 24); if (s.k === 'd') return Math.abs(e.d - x.d - e.w.age); return Math.abs(e.d - x.d - 6); };
+  if (name === 'random') {
+    const open = () => V.slots.filter(s => visible(s) && !(s.key in D.sealed));
+    while (acts < budget && !done()) {
+      if (D.pins.length >= E.MAXPINS) { E.deskUnpin(V, D, D.pins[rnd(D.pins.length)][0]); acts++; continue; }
+      const o = open().filter(s => !pinned(s.key)); if (!o.length) break; const s = o[rnd(o.length)];
+      const c = cands(s.key); const opts = [...c.map(x => x.id), null]; E.deskPin(V, D, s.key, opts[rnd(opts.length)]); acts++;
+    }
+  } else if (name === 'first' || name === 'nearest') {
+    const order = [...new Set([...letterKeys(), ...V.slots.map(s => s.key)])];
+    let i = 0;
+    while (acts < budget && !done() && i < order.length * 2) {
+      curate();
+      const k = order[i++ % order.length], s = V.slotOf[k]; if (k in D.sealed || pinned(k) || !visible(s)) continue;
+      const c = cands(k); let a = null;
+      if (name === 'first') a = c.length ? c[0].id : null;
+      else { const m = c.filter(x => !x.strike && !x.other).sort((x, y) => fit(k, x) - fit(k, y)); a = m.length ? m[0].id : null; }
+      E.deskPin(V, D, k, a); acts++;
+      if (D.pins.length >= E.MAXPINS) { while (D.pins.length) { E.deskUnpin(V, D, D.pins[0][0]); acts++; } }
+    }
+  } else { // the adaptive reader
+    const tried = {}; let probe = null;
+    const certain = (k, P) => {
+      const s = V.slotOf[k], c = cands(k, P).filter(x => !x.strike);
+      if (!c.length) return !tr() && Math.abs(R[s.e].y - V.lost) < 50 ? undefined : null;
+      if (c.length === 1 && !c[0].other && !E.mayBeAbsent(V, s, tr())) return c[0].id;
+      return undefined;
+    };
+    const options = (k, P) => { const c = cands(k, P).filter(x => !x.strike); const main = c.filter(x => !x.other).sort((x, y) => fit(k, x) - fit(k, y)), oth = c.filter(x => x.other).sort((x, y) => fit(k, x) - fit(k, y)); return [...main.map(x => x.id), ...oth.map(x => x.id), null].filter(a => !(tried[k] || []).includes(a)); };
+    let stall = 0;
+    while (acts < budget && !done()) {
+      curate();
+      if (D.pins.length >= E.MAXPINS) { const p = D.pins[0]; (tried[p[0]] ||= []).push(p[1]); E.deskUnpin(V, D, p[0]); acts++; probe = null; continue; }
+      const P = E.persons(V, D.sealed), prio = [...new Set([...letterKeys(), ...V.secrets.length ? [] : []])];
+      const focusKeys = new Set(prio);
+      // the entries the letters name, and every slot one thread away from them, come first
+      for (const k of prio) { const e = R[V.slotOf[k].e]; for (const c of cands(k, P)) { for (const k2 of (R[c.id].sl || [])) focusKeys.add(k2); for (const k3 of (V.rev[c.id] || [])) focusKeys.add(k3); } }
+      const all = [...focusKeys, ...V.slots.map(s => s.key)].filter((k, i, a) => a.indexOf(k) === i && !(k in D.sealed) && visible(V.slotOf[k]));
+      const sure = D.pins.filter(p => p[0] !== (probe && probe[0])).length;
+      // keep two sure pins waiting, so a third pin tests a doubtful thread
+      if (probe) { // the probe did not seal: it was wrong
+        if (probe[0] in D.sealed) probe = null;
+        else { (tried[probe[0]] ||= []).push(probe[1]); E.deskUnpin(V, D, probe[0]); acts++; probe = null; continue; }
+      }
+      let placed = false;
+      if (sure < 2) { for (const k of all) { if (pinned(k)) continue; const a = certain(k, P); if (a !== undefined) { const r = E.deskPin(V, D, k, a); acts++; placed = true; break; } } }
+      if (placed) continue;
+      if (sure >= 2 || !placed) { // test the most promising doubtful slot near the letters
+        let best = null;
+        for (const k of all) { if (pinned(k)) continue; if (certain(k, P) !== undefined) continue; const o = options(k, P); if (o.length) { best = [k, o[0]]; break; } }
+        if (!best) break;
+        const before = Object.keys(D.sealed).length; E.deskPin(V, D, best[0], best[1]); acts++;
+        if (Object.keys(D.sealed).length === before) { if (sure >= 2) probe = best; else if (++stall > 50) break; }
+      }
+    }
+  }
+  return { secrets: secretsOut(), seals: Object.keys(D.sealed).length, cut: D.cut, acts, letters: V.letters.filter(L => E.letterDone(L, D.sealed)).length, slots: V.slots.length };
 }
-function runSaga(seed, name) {
-  const P = window.__parish, V = P.newVillage(seed), pol = sagaPolicy(name);
-  while (!V.ended) { P.stepYear(V); if (V.ended) break; P.resolvePending(V, pol); }
-  const all = V.P, babies = all.filter(p => p.born >= 1700 && p.born < 1840), infant = babies.filter(p => p.died !== null && p.died - p.born < 1).length / babies.length;
-  return { sc: P.scoreOf(V), score: P.scoreOf(V).total, end: V.ended.y, why: V.ended.why, pop: all.filter(p => p.died === null && p.left === null).length, infant: +infant.toFixed(3), regs: V.reg.length };
-}
-module.exports = { sagaPolicy, runSaga };
+if (typeof module !== 'undefined') module.exports = { parishBot };

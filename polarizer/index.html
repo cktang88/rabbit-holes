@@ -94,6 +94,8 @@
     #lvSel{min-height:34px}
     #sel input[type=range]{min-height:30px}
     #toast{font-size:16px;padding:10px 34px 14px 14px}
+    #hud h1 #title{display:none} #hud h1 #lvSel{flex:1;min-width:0;margin:0;font-size:13px}
+    #hud.boxm{max-height:23vh}
   }
   @media (max-height:500px) and (min-width:560px){
     #levels{display:none} #lvSel{display:block}
@@ -104,8 +106,18 @@
     #sel{left:6px;right:auto;width:270px;transform:none;bottom:6px!important;padding:4px 8px;gap:4px}
     #sel input[type=range]{width:120px}
     #hud.selon{max-height:calc(100vh - 120px)}
+    #hud.boxm{max-height:52vh}
     .pc,.b{font-size:10.5px;padding:4px 7px;min-height:30px}
   }
+  #sheet{position:fixed;display:none;z-index:6;padding:6px 10px 8px;border-radius:1px;background:linear-gradient(#f3eedc,#e6dfc6);color:#1d1c18;font-size:12px;box-shadow:0 -2px 0 #000,0 -4px 12px rgba(0,0,0,.55)}
+  #sheet.on{display:block}
+  #sheet .shh{display:flex;align-items:center;gap:6px}
+  #sheet .shh .b{margin:0}
+  #sheet #shT{flex:1;text-align:left;background:none;border:0;color:#1d1c18;font:700 12px "Share Tech Mono",monospace;letter-spacing:.06em;min-height:34px;padding:0;cursor:pointer}
+  #sheet:not(.open) .shb{display:none}
+  #sheet .shh .b{padding:6px 8px}
+  #sheet #card{margin-top:4px}
+  .crow{display:flex;gap:5px;align-items:center;margin-top:3px} .crow select{flex:1;min-height:32px} .crow input{width:74px;min-height:32px}
   /* zoom controls: three bakelite buttons on a little rack plate */
   .pz-bar{position:fixed!important;right:16px;bottom:16px;padding:5px;gap:5px!important;border-radius:3px;background:linear-gradient(170deg,var(--enamel2),var(--enamel));border:1px solid #121414;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 8px 18px -8px rgba(0,0,0,.9)}
   .pz-bar button{min-width:34px!important;min-height:34px!important;padding:0!important;border:1px solid #000;border-radius:3px;color:var(--engr);font:400 18px "Share Tech Mono",monospace!important;background:linear-gradient(#3b3d3e,#191a1b);box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 2px 0 #050505;opacity:1!important}
@@ -119,6 +131,7 @@
 <div id="hud" class="chip"><a class="home" href="../index.html">← Rabbit Holes</a><h1><span id="title">Polarizer</span><button class="b ghost" id="storyT" aria-expanded="false">Notes</button></h1><select id="lvSel" aria-label="Experiment"></select><div id="story"></div><div id="goal"></div></div>
 <div id="levels" class="chip"></div>
 <div id="tray" class="chip"></div>
+<div id="sheet" aria-label="Specification card"></div>
 <div id="sel" class="chip"><span id="selName"></span><input type="range" id="selR" min="0" max="180" step="5" aria-label="Angle"><input type="number" id="selN" min="0" max="180" step="1" aria-label="Angle in degrees"><b id="selV">°</b><button class="b ghost" id="selDel">Remove</button></div>
 <div id="toast" class="chip" role="status"></div>
 <script src="../shared/common.js"></script>
@@ -218,7 +231,7 @@ const LV = [
     lesson: 'The quantum Zeno effect: with N passes a live bomb survives with probability cos²ᴺ(90°/N), which goes to 1 as N grows. Measurement can protect as well as disturb.' },
   { n: 'Lab Sandbox', sources: [S0(1, 4)], fixed: [P('det', 13, 4, 0, 0, { id: 'D1' }), P('det', 13, 7, 0, 0, { id: 'D2' }), P('det', 7, 8, 0, 0, { id: 'D3' })], tray: { pol: 4, hwp: 3, bs: 2, pbs: 2, mirror: 6, phase: 2, bomb: 1 }, free: 1, fire: 1,
     story: 'Everything in the drawer. Build your own experiments.', goal: 'No goal.', test: () => false, lesson: '' },
-  { n: 'Sealed Boxes', box: 1, openAfter: 3, sources: [S0(1, 4)], fixed: [], tray: {}, test: () => false, lesson: '',
+  { n: 'Sealed Boxes', box: 1, sources: [S0(1, 4)], fixed: [], tray: {}, test: () => false, lesson: '',
     story: 'Clients post you <b>sealed optics</b>. You can\'t see the light inside, only what comes out. Build probes around the box, fire single photons, and each one clicks a detector <b>at random</b>, with odds set by what is in there. Then sign a card saying what\'s inside. Correct lines pay; wrong lines, wasted photons and exploded boxes cost.', goal: '' },
 ];
 
@@ -320,23 +333,44 @@ function cardHTML() {
 function renderBoxPanel() {
   if (!L || !L.box || !$('boxp')) return; const S = bxSave(), clicks = {};
   for (const E of Object.values(bx.log)) for (const k in E.clicks) clicks[k] = (clicks[k] || 0) + E.clicks[k];
-  const rows = Object.values(bx.log).filter(E => E.shots).slice(-4).map(E => `<div style="display:flex;justify-content:space-between;gap:6px"><span>${E.ana != null ? `analyser ${E.ana}°` : 'no analyser'} · ${E.desc} part${E.desc === 1 ? '' : 's'}</span><span>${Object.entries(E.clicks).map(([k, v]) => `<b>${k}</b> ${v}`).join(' ') || '<b>0</b>'} / ${E.shots}</span></div>`).join('');
-  $('boxStat').innerHTML = `Photons left <b>${bx.left}</b> / ${box.budget} · cash <b>$${S.cash}</b>` + (rows ? `<div style="margin-top:3px;border-top:1px dotted rgba(0,0,0,.3)">${rows}</div>` : '<br>Fire a photon: the detector clicks, or doesn\'t.') + (bx.destroyed ? '<br><b style="color:#a8321e">Box destroyed.</b>' : '');
+  const rows = Object.values(bx.log).filter(E => E.shots).slice(phoneUI() ? -1 : -4).map(E => `<div style="display:flex;justify-content:space-between;gap:6px"><span>${E.ana != null ? `analyser ${E.ana}°` : 'no analyser'} · ${E.desc} part${E.desc === 1 ? '' : 's'}</span><span>${Object.entries(E.clicks).map(([k, v]) => `<b>${k}</b> ${v}`).join(' ') || '<b>0</b>'} / ${E.shots}</span></div>`).join('');
+  $('boxStat').innerHTML = `Photons left <b>${bx.left}</b> / ${box.budget} · cash <b>$${S.cash}</b>` + (rows ? `<div style="margin-top:3px;border-top:1px dotted rgba(0,0,0,.3)">${rows}</div>` : phoneUI() ? '' : '<br>Fire a photon: the detector clicks, or doesn\'t.') + (bx.destroyed ? '<br><b style="color:#a8321e">Box destroyed.</b>' : '');
   drawEvidence();
 }
-function boxGoalHTML() {
-  const S = bxSave();
-  return `${box.daily ? '<b>Daily box</b>' : `Box <b>${box.seed}</b> · grade ${box.grade}/${BGMAX}`}: the label says <b>${box.els.length} part${box.els.length > 1 ? 's' : ''}</b>, entry side first. Fee $${box.fee}.`
-    + (bxSave().top < 4 ? `<div style="margin-top:6px;font-size:12px;color:#6b6556">On the shelf, not yet yours: a crate stamped <b style="color:#a8321e">⚠ DO NOT ILLUMINATE</b> (grade 4).</div>` : '')
-    + `<div id="boxp"><div id="boxStat" style="margin-top:6px;font-size:12px"></div><canvas id="evid" style="width:100%;height:92px;display:block;margin-top:6px;border:1px solid rgba(0,0,0,.25)"></canvas>`
-    + `<div id="card" style="margin-top:6px">${cardHTML()}</div><div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap"><button class="b" id="bSign">Sign the card</button><button class="b ghost" id="bShop">Shop</button><button class="b ghost" id="bNew">Skip</button><button class="b ghost" id="bDaily">Daily</button><button class="b ghost" id="bShare">Share</button></div></div>`;
+const LESSON_FOR = { 1: 0, 2: 2, 3: 1, 4: 7, 5: 4, 6: 7, 7: 10 }; // the lesson that teaches what each grade of box hides
+const phoneUI = () => narrow() || (innerHeight <= 500 && innerWidth >= 560);
+const cardBlock = () => `<div id="card" style="margin-top:6px">${cardHTML()}</div>`;
+function renderSheet() { // phones: the spec card rides in a sheet above the drawer, with the trigger, so signing never needs a scroll
+  const sh = $('sheet'), on = !!(L && L.box && phoneUI()); renderGoal.phone = phoneUI();
+  if (!on) { sh.className = ''; sh.innerHTML = ''; return; }
+  const open = !!renderSheet.open, li = LESSON_FOR[box.grade];
+  sh.className = 'on' + (open ? ' open' : '');
+  sh.innerHTML = `<div class="shh"><button class="b" id="bf1">Fire 1</button><button class="b" id="bf10">×10</button><button class="b" id="bf50">×50</button><button id="shT" aria-expanded="${open}">${open ? '▾' : '▴'} Card</button><button class="b" id="bSign">Sign</button></div>`
+    + `<div class="shb">${cardBlock()}${shopRow()}${teaser()}${lessonLink(li)}</div>`;
+  $('shT').onclick = () => { renderSheet.open = !open; FX.sfx('click'); keepCard(renderSheet); wireBoxPanel(true); fit(); };
 }
-function wireBoxPanel() {
-  $('bSign').onclick = signCard; $('bShop').onclick = openShop;
+function keepCard(fn) { const v = [...document.querySelectorAll('[data-ci],[data-ca]')].map(e => [e.dataset.ci != null ? 'ci' : 'ca', e.dataset.ci ?? e.dataset.ca, e.value]); fn(); for (const [k, i, x] of v) { const e = document.querySelector(`[data-${k}="${i}"]`); if (e) e.value = x; } }
+const shopRow = () => `<div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">${phoneUI() ? '' : '<button class="b" id="bSign">Sign the card</button>'}<button class="b ghost" id="bShop">Shop</button><button class="b ghost" id="bNew">Skip</button><button class="b ghost" id="bDaily">Daily</button><button class="b ghost" id="bShare">Share</button></div>`;
+const teaser = () => bxSave().top < 4 ? `<div style="margin-top:6px;font-size:12px;color:#6b6556">On the shelf, not yet yours: a crate stamped <b style="color:#a8321e">⚠ DO NOT ILLUMINATE</b> (grade 4).</div>` : '';
+const lessonLink = li => `<div style="margin-top:6px;font-size:12px;color:#6b6556">Not sure what's in here? <a href="#" data-lesson="${li}" style="color:#1d1c18">Lesson ${li + 1}: ${LV[li].n}</a> shows it in the open.</div>`;
+function boxGoalHTML() {
+  const S = bxSave(), li = LESSON_FOR[box.grade], ph = phoneUI();
+  const coach = box.grade === 1 && S.n === 0 ? `<div style="margin-top:4px;font-size:12px">① <b>Fire 10</b>: count the clicks. ② Drag a <b>polariser</b> from the drawer between the box and the detector, twist it, fire again. ③ The fitted curve peaks at the hidden filter's angle: write it on the ${ph ? '<b>Card</b> below' : 'card'} and sign.</div>` : '';
+  const head = ph ? `${box.daily ? '<b>Daily box</b>' : `Box <b>${box.seed}</b> · grade ${box.grade}/${BGMAX}`} · <b>${box.els.length} part${box.els.length > 1 ? 's' : ''}</b> · fee $${box.fee}`
+    : `${box.daily ? '<b>Daily box</b>' : `Box <b>${box.seed}</b> · grade ${box.grade}/${BGMAX}`}: the label says <b>${box.els.length} part${box.els.length > 1 ? 's' : ''}</b>, entry side first. Fee $${box.fee}.` + teaser();
+  return head + `<div id="boxp"><div id="boxStat" style="margin-top:${ph ? 3 : 6}px;font-size:12px"></div><canvas id="evid" style="width:100%;height:${ph ? 46 : 92}px;display:block;margin-top:${ph ? 3 : 6}px;border:1px solid rgba(0,0,0,.25)"></canvas>` + coach
+    + (ph ? '' : cardBlock() + shopRow() + lessonLink(li)) + '</div>';
+}
+function wireBoxPanel(sheetOnly) {
+  if (!sheetOnly) keepCard(renderSheet);
+  if ($('bSign')) $('bSign').onclick = () => { if ($('sheet').classList.contains('on') && !renderSheet.open) { $('shT').click(); return; } signCard(); };
+  for (const n of [1, 10, 50]) if ($('bf' + n)) $('bf' + n).onclick = () => boxFire(n);
+  $('bShop').onclick = openShop;
+  document.querySelectorAll('[data-lesson]').forEach(a => a.onclick = e => { e.preventDefault(); FX.sfx('click'); load(+a.dataset.lesson); });
   $('bNew').onclick = () => { FX.sfx('click'); openBox((Math.random() * 1e6) | 0, bxSave().grade, false); };
   $('bDaily').onclick = () => { FX.sfx('click'); openBox(dayNum() % 1000000, 4, true); };
   $('bShare').onclick = () => { const u = location.href.split('#')[0] + '#box=' + box.seed + '-' + box.grade; try { navigator.clipboard.writeText(u); } catch (e) {} toast('Box link copied', u, 3000); };
-  renderBoxPanel();
+  if (!sheetOnly) renderBoxPanel();
 }
 // grading a card: types must match; angles within half a step (filters repeat every 180°, wave plates every 90°, delays every 360°)
 function gradeCard(answers) {
@@ -399,18 +433,18 @@ const SND = {
 // ================= state =================
 const obj = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 const SAVE = obj(RH.load('polarizer', {})); SAVE.done = obj(SAVE.done); SAVE.stars = obj(SAVE.stars); // tolerate corrupted / hand-edited saves
-const NCAMP = LV.filter(l => !l.free && !l.box).length;
+const NCAMP = LV.filter(l => !l.free && !l.box).length, BOXI = LV.findIndex(l => l.box);
 for (const k in SAVE.done) if (!(+k >= 0 && +k < NCAMP)) delete SAVE.done[k];
 const persist = () => { RH.save('polarizer', SAVE); RH.progress('polarizer', Object.keys(SAVE.done).length / NCAMP); };
 const maxOpen = () => { let m = 0; while (m < NCAMP && SAVE.done[m]) m++; return m; };
-const isOpen = i => Number.isInteger(i) && i >= 0 && i < LV.length && (i <= maxOpen() || SAVE.done[i] || LV[i].free || (LV[i].box && (SAVE.done[LV[i].openAfter] || sharedBox)));
+const isOpen = i => Number.isInteger(i) && i >= 0 && i < LV.length; // the workbench and every lesson are open: lessons are there when a box stumps you
 let L, parts = [], sel = null, tool = null, Rz, fires = {}, flashes = [], photons = [], won = false, need = true;
 const timers = new Set();
 const $ = id => document.getElementById(id);
 const later = (fn, ms) => { const h = setTimeout(() => { timers.delete(h); fn(); }, ms); timers.add(h); };
 const cancelShots = () => { timers.forEach(clearTimeout); timers.clear(); };
 function load(i) {
-  if (!isOpen(i)) i = maxOpen();
+  if (!isOpen(i)) i = BOXI; // a new (or confused) save starts at the boxes: the lessons are there when you want them
   cancelShots(); hideToast(); clearTimeout(settleH); settleH = 0; holding = false;
   crate = null;
   SAVE.cur = i; L = LV[i].box ? boxLevel(LV[i]) : LV[i]; persist(); parts = []; sel = null; tool = null; fires = {}; flashes = []; photons = []; won = false;
@@ -428,19 +462,23 @@ const narrow = () => innerWidth <= 900;
 function fit() {
   dpr = FX.fit(cv, 2); W = cv.width; H = cv.height;
   const tray = $('tray').getBoundingClientRect(), hud = $('hud').getBoundingClientRect();
+  const sh = $('sheet'), shOn = sh.classList.contains('on');
+  if (shOn) { const st = sh.style, ls = innerHeight <= 500 && innerWidth >= 560; st.left = ls ? (hud.right + 8) + 'px' : '8px'; st.right = ls ? '54px' : '8px'; st.bottom = (innerHeight - tray.top + 6) + 'px'; }
+  const shTop = shOn ? sh.getBoundingClientRect().top : tray.top;
+  $('hud').style.maxHeight = L && L.box && !phoneUI() ? Math.max(200, tray.top - hud.top - 12) + 'px' : ''; // a long box sheet scrolls inside the notes, never under the drawer
   let l, r, t, b;
-  if (innerHeight <= 500 && innerWidth >= 560) { l = hud.right + 6; r = innerWidth - 48; t = 6; b = tray.top - 6; } // the zoom keys get their own strip on the right // landscape phone: board beside the notes
-  else if (narrow()) { l = 6; r = innerWidth - 6; t = hud.bottom + 48; b = tray.top - 62; } // and a row under the notes on a phone // keep room for the angle panel above the tray
+  if (innerHeight <= 500 && innerWidth >= 560) { l = hud.right + 6; r = innerWidth - 48; t = 6; b = shTop - 6; } // the zoom keys get their own strip on the right // landscape phone: board beside the notes
+  else if (narrow()) { l = 6; r = innerWidth - 6; t = hud.bottom + 48; b = shOn ? shTop - 8 : tray.top - 62; } // and a row under the notes on a phone // keep room for the angle panel above the tray
   else { l = 380; r = innerWidth - 250; t = 30; b = Math.min(innerHeight - 150, tray.top - 70); }
   cell = Math.max(8, Math.min((r - l) / (GW + .9), (b - t) / (GH + .9))) * dpr; ox = (l + r) / 2 * dpr - cell * GW / 2; oy = (t + b) / 2 * dpr - cell * GH / 2; // leave room for the board's rim
   // the lab bench and the black anodised breadboard (M6 holes on a 25 mm pitch) are static: bake once per layout
   if (key0() !== fit.key0) { fit.key0 = key0(); if (cam) { cam.state = { x: 0, y: 0, k: 1 }; cam.touched = false; } } // a new layout starts from the fitted view
   rebake();
   if (cam && cam.bar) { const b = cam.bar.style; if (innerHeight <= 500 && innerWidth >= 560) { b.top = '6px'; b.bottom = 'auto'; b.right = '6px'; b.flexDirection = 'column'; } else if (narrow()) { b.top = (hud.bottom + 6) + 'px'; b.bottom = 'auto'; b.right = '6px'; b.flexDirection = 'row'; } else { b.top = 'auto'; b.bottom = '16px'; b.right = '16px'; b.flexDirection = 'row'; } }
-  $('sel').style.bottom = (innerHeight - tray.top + 8) + 'px';
+  $('sel').style.bottom = (innerHeight - shTop + 8) + 'px';
   need = true;
 }
-addEventListener('resize', () => L && fit());
+addEventListener('resize', () => { if (!L) return; if (L.box && renderGoal.phone !== phoneUI()) { renderGoal(); renderTray(); } else fit(); });
 const key0 = () => [W, H, cell, ox, oy].map(v => Math.round(v)).join();
 // ---- the camera: the fitted layout is the identity view; zoom and pan sit on top of it (in CSS px) ----
 let cam = null, bakeT = 0;
@@ -799,7 +837,7 @@ function renderTray() {
     if ($('crNew')) $('crNew').onclick = () => { newCrate(); FX.sfx('pop'); renderTray(); };
     fit(); return; }
   $('tray').innerHTML = Object.entries(L.tray).filter(([, n]) => !L.box || n > 0).map(([t, n]) => `<button class="pc ${tool === t ? 'on' : ''}" data-t="${t}">${NAMES[t]} <i>${n - used(t)}</i></button>`).join('') +
-    (L.box ? `<button class="b" id="bf1">Fire 1</button><button class="b" id="bf10">Fire 10</button><button class="b" id="bf50">Fire 50</button>` : L.fire ? `<button class="b" id="f1">Fire 1 photon</button><button class="b" id="f20">Fire 20</button>` : `<button class="b ghost" id="f20">Fire 20 photons</button>`) + `<button class="b ghost" id="rst">${L.box ? 'Clear' : 'Reset'}</button>`;
+    (L.box ? (phoneUI() ? '' : `<button class="b" id="bf1">Fire 1</button><button class="b" id="bf10">Fire 10</button><button class="b" id="bf50">Fire 50</button>`) : L.fire ? `<button class="b" id="f1">Fire 1 photon</button><button class="b" id="f20">Fire 20</button>` : `<button class="b ghost" id="f20">Fire 20 photons</button>`) + `<button class="b ghost" id="rst">${L.box ? 'Clear' : 'Reset'}</button>`;
   $('tray').querySelectorAll('[data-t]').forEach(b => {
     b.onpointerdown = e => { if (e.button) return; e.preventDefault(); drag = { mode: 'new', type: b.dataset.t, cx: e.clientX, cy: e.clientY, moved: false }; FX.sfx('tick'); };
     b.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tool = tool === b.dataset.t ? null : b.dataset.t; FX.sfx('click'); renderTray(); renderGoal(); } };
@@ -814,7 +852,9 @@ const stars = n => '★'.repeat(n) + '☆'.repeat(3 - n);
 const nextBtn = () => SAVE.cur < NCAMP - 1 && SAVE.done[SAVE.cur] ? `<button class="b" data-next>Next experiment →</button>` : '';
 const goNext = () => { FX.sfx('click'); load(SAVE.cur + 1); };
 function renderGoal() {
-  if (L && L.box) { $('goal').className = ''; $('goal').innerHTML = boxGoalHTML(); wireBoxPanel(); fit(); return; }
+  $('hud').classList.toggle('boxm', !!(L && L.box));
+  if (L && L.box) { $('goal').className = ''; keepCard(() => { $('goal').innerHTML = boxGoalHTML(); wireBoxPanel(); }); fit(); return; }
+  renderSheet();
   const ok = SAVE.done[SAVE.cur], st = SAVE.stars[SAVE.cur];
   $('goal').className = (ok ? 'ok' : '') + (holding ? ' hold' : '');
   $('goal').innerHTML = (ok ? '✓ ' : '▸ ') + L.goal + (st ? ` <span style="color:#ffd27a">${stars(st)}</span>` : '') + (tool || ok || L.crate ? '' : '<br><span style="color:#6b6556;font-size:12px">Drag a part from the drawer onto any hole. Twist a mount by its knurled ring; drag its middle to move it, or off the board to remove it.</span>') + (nextBtn() ? '<br>' + nextBtn() : '');
@@ -823,9 +863,10 @@ function renderGoal() {
 }
 function renderLevels() {
   const locked = i => !isOpen(i);
-  $('levels').innerHTML = '<h4>Experiments</h4>' + LV.map((l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${locked(i) ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><span>${SAVE.done[i] ? '✓' : ''}</span></div>`).join('');
+  const row = (l, i) => `<div class="lv ${i === SAVE.cur ? 'cur' : ''} ${locked(i) ? 'lock' : ''}" data-i="${i}"><span>${l.box ? '▣ ' + l.n : i + 1 + '. ' + l.n}</span><span>${l.box ? '$' + bxSave().cash : SAVE.done[i] ? '✓' : ''}</span></div>`;
+  $('levels').innerHTML = '<h4>Workbench</h4>' + row(LV[BOXI], BOXI) + '<h4 style="margin-top:12px">Lessons</h4>' + LV.map((l, i) => l.box ? '' : row(l, i)).join('');
   $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { FX.sfx('click'); load(+el.dataset.i); });
-  $('lvSel').innerHTML = LV.map((l, i) => `<option value="${i}" ${i === SAVE.cur ? 'selected' : ''} ${locked(i) ? 'disabled' : ''}>${i + 1}. ${l.n}${SAVE.done[i] ? ' ✓' : locked(i) ? ' 🔒' : ''}</option>`).join('');
+  $('lvSel').innerHTML = [BOXI, ...LV.keys()].filter((i, n) => n === 0 || i !== BOXI).map(i => [LV[i], i]).map(([l, i]) => `<option value="${i}" ${i === SAVE.cur ? 'selected' : ''} ${locked(i) ? 'disabled' : ''}>${l.box ? '▣ ' + l.n + '' : 'Lesson ' + (i + 1) + '. ' + l.n}${SAVE.done[i] ? ' ✓' : locked(i) ? ' 🔒' : ''}</option>`).join('');
 }
 $('lvSel').onchange = () => { FX.sfx('click'); load(+$('lvSel').value); };
 function hideToast() { clearTimeout(toast.h); $('toast').classList.remove('on'); }
@@ -847,7 +888,8 @@ function check() {
     if (L.grade) { const n = L.grade(H); SAVE.stars[SAVE.cur] = Math.max(SAVE.stars[SAVE.cur] || 0, n); st = ` <span style="color:#a8321e">${stars(n)}</span>`; }
     if (L.boomBudget) { const b = fires.boom || 0, n = b <= 20 ? 3 : b <= 30 ? 2 : 1; SAVE.stars[SAVE.cur] = Math.max(SAVE.stars[SAVE.cur] || 0, n); st = ` <span style="color:#ffd27a">${stars(n)}</span>`; }
     persist(); FX.sfx('win'); FX.shake(.2); celeb = performance.now();
-    toast('✓ ' + L.n + st, L.lesson, 12000, nextBtn() ? '<div>' + nextBtn() + '</div>' : ''); renderGoal(); renderLevels();
+    toast('✓ ' + L.n + st, L.lesson, 12000, '<div>' + nextBtn() + `<button class="b ghost" data-bench>Back to the boxes</button></div>`); renderGoal(); renderLevels();
+    $('toast').querySelectorAll('[data-bench]').forEach(b => b.onclick = e => { e.stopPropagation(); hideToast(); FX.sfx('click'); load(BOXI); });
   }
 }
 // render only when something changed or is animating; nothing at all while the tab is hidden
@@ -867,7 +909,8 @@ cam = PanZoom(cv, { onChange: () => { need = true; clearTimeout(bakeT); bakeT = 
     const step = now => { const u = ms ? Math.min(1, (now - t0) / ms) : 1, e = 1 - (1 - u) ** 3; cam.state = { x: f.x * (1 - e), y: f.y * (1 - e), k: f.k + (1 - f.k) * e }; cam.touched = false; if (u < 1) requestAnimationFrame(step); };
     step(t0); };
   cam.fit = goFit; } // the fitted view is the layout's own: Fit eases back to it
-load(+SAVE.cur || 0);
+$('storyT').before($('lvSel'));
+load(SAVE.cur == null && !Object.keys(SAVE.done).length ? BOXI : Number.isInteger(SAVE.cur) ? SAVE.cur : BOXI);
 raf = requestAnimationFrame(frame);
 window.__pz = { genBox, boxParts, openBox, boxFire, gradeCard, cosFit, evidence, bxSave, get box() { return box; }, get bx() { return bx; }, BOX, GRADES, LV, load, simulate, addPart: (t, x, y, a = 0, m = 1) => { if (occupied(x, y)) return null; const p = P(t, x, y, a, m); if (t === 'det') { let k = 1; while (parts.some(q => q.id === 'P' + k)) k++; p.id = 'P' + k; } parts.push(p); recompute(); renderTray(); check(); return p; }, setAngle: (p, a) => { p.a = a; recompute(); check(); }, hits: () => Rz.hits, fire, get fires() { return fires; }, get parts() { return parts; }, get won() { return won; }, select: p => { sel = p; showSel(); }, setAngleUI: a => setAngle(a), get holding() { return holding; }, get crate() { return crate; }, newCrate, crateFire, crateStamp, crateSeed: sd => { crateRng = RH.rng(sd); }, SAVE, screenOf: (x, y) => { const [px, py] = C(x, y), [sx, sy] = cam.toScreen(px / dpr, py / dpr); return [sx, sy, cell / dpr * cam.k]; }, get cam() { return cam; }, get tool() { return tool; }, setTool: t => { tool = t; renderTray(); }, get celeb() { return celeb; } };
 </script>

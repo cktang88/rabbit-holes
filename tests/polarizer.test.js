@@ -322,9 +322,11 @@ module.exports = {
       eq(r.shop.slice(0, 2), [30, 2], 'bought a second filter'); ok(r.tray.includes('pol') && !r.tray.includes('bs') || r.tray.length >= 1, 'drawer shows what you own');
     },
     'progress and locked levels': async ({ page, eq, ok }) => {
+      eq(await page.textContent('#title'), 'Sealed Boxes', 'a new player lands on the workbench');
       const locked = await page.$$eval('#levels .lv.lock', els => els.map(e => +e.dataset.i));
-      eq(locked, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12]);
-      await page.evaluate(() => __pz.load(5)); eq(await page.textContent('#title'), 'Crossed Filters', 'locked level reachable');
+      eq(locked, [], 'every lesson is open: they are optional');
+      eq(await page.$$eval('#levels .lv', els => els.map(e => +e.dataset.i)).then(a => a[0]), 12, 'the workbench is listed first');
+      await page.evaluate(() => __pz.load(5)); eq(await page.textContent('#title'), 'Which Path?', 'any lesson can be opened');
       await page.evaluate(() => __pz.load(11)); eq(await page.textContent('#title'), 'Lab Sandbox', 'sandbox is always open');
       await page.evaluate(() => { __pz.load(0); __pz.addPart('pol', 7, 4, 45); });
       eq(await page.evaluate(() => __pz.won), true);
@@ -334,9 +336,10 @@ module.exports = {
       eq(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).polarizer), hub);
     },
     'corrupted / odd saves load without errors': async ({ page, eq, ok }) => {
-      for (const [save, title] of [['null', 'Crossed Filters'], ['5', 'Crossed Filters'], ['"x"', 'Crossed Filters'], ['[1,2]', 'Crossed Filters'],
-        ['{"done":"zz","stars":7,"cur":-3}', 'Crossed Filters'], ['{"cur":6}', 'Crossed Filters'], ['{"cur":"abc"}', 'Crossed Filters'],
-        ['{"done":{"0":1,"1":1},"cur":2}', 'A Better Way'], ['{"cur":11}', 'Lab Sandbox'], ['{"done":{"0":1,"99":1,"-1":1},"cur":1}', 'The Staircase'], ['{not json', 'Crossed Filters']]) {
+      const SB = 'Sealed Boxes';
+      for (const [save, title] of [['null', SB], ['5', SB], ['"x"', SB], ['[1,2]', SB],
+        ['{"done":"zz","stars":7,"cur":-3}', SB], ['{"cur":6}', 'Quantum Eraser'], ['{"cur":"abc"}', SB],
+        ['{"done":{"0":1,"1":1},"cur":2}', 'A Better Way'], ['{"cur":11}', 'Lab Sandbox'], ['{"done":{"0":1,"99":1,"-1":1},"cur":1}', 'The Staircase'], ['{not json', SB]]) {
         const { p2, errs } = await openWith(page, save);
         eq(errs, [], 'errors for ' + save); eq(await p2.textContent('#title'), title, 'level for ' + save);
         const hub = await p2.evaluate(() => JSON.parse(localStorage.getItem('rh:hub') || '{}').polarizer);

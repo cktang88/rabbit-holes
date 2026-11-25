@@ -1,6 +1,6 @@
 // Caravan: Silk Road trading. Logic via window.__caravan.
 const { caravanBot } = require('./caravan.bots.js');
-const { strongTrader } = require('./caravan.strong.js');
+const { networkHouse } = require('./caravan.network.js');
 const closeModals = page => page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
 const keepStorage = async page => { const snap = await page.evaluate(() => JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])))); await page.addInitScript(s => { const o = JSON.parse(s); for (const k in o) localStorage.setItem(k, o[k]); }, snap); };
 const reload = async page => { await keepStorage(page); await page.reload(); await page.waitForTimeout(500); await closeModals(page); };
@@ -106,20 +106,47 @@ module.exports = {
       ok(r.wants, 'target city should want silk'); ok(r.spentFrac > .5 && r.spentFrac <= .9 + 1e-9, 'suggested buy spent ' + r.spentFrac); ok(r.done, 'selling silk there should finish the first job');
       await page.evaluate(() => window.__caravan.buildAndRender()); eq(await page.locator('#p-market .job').count(), 0, 'banner should go');
     },
-    'difficulty: naive play fails; a greedy trader on stale prices gets 2 stars at most; 3 stars needs the quantity judgement; a career is 30-50 journeys': async ({ page, ok }) => {
-      await closeModals(page); await page.addScriptTag({ content: caravanBot.toString() + '\n' + strongTrader.toString() });
-      const r = await page.evaluate(() => { const K = window.__caravan, w = {}, S = [1, 2, 3, 4, 5, 6].map(s => s * 1013);
-        for (const pol of ['idle', 'random', 'obvious', 'greedy-book']) w[pol] = S.map(s => caravanBot(s, pol));
-        const tn = K.travelNow; let trips = 0; K.travelNow = (...a) => { trips++; return tn(...a); }; w.strong = S.map(s => strongTrader(s, { qty: 'suggest', stale: 'discount' })); K.travelNow = tn; w.trips = [trips / S.length]; w.fill = S.map(s => strongTrader(s, { qty: 'fill', stale: 'discount' }));
-        return { w, st: Object.fromEntries(Object.entries(w).map(([k, v]) => [k, v.map(K.starsFor)])) }; });
-      ok(r.w.trips[0] >= 25 && r.w.trips[0] <= 55, 'a career should be thirty to fifty journeys: ' + r.w.trips[0]);
-      const naive = [...r.st.idle, ...r.st.random, ...r.st.obvious], mean = a => a.reduce((x, y) => x + y, 0) / a.length;
-      ok(naive.filter(x => x <= 1).length / naive.length >= .8, 'naive bots reach 2+ stars too often: ' + JSON.stringify(r.w));
-      ok(r.st['greedy-book'].filter(x => x >= 2).length >= 3, 'the competent trader should often win: ' + r.w['greedy-book']);
-      ok(r.st['greedy-book'].filter(x => x === 3).length <= 1, '3 stars should need more than the simple greedy trader: ' + r.w['greedy-book']);
-      ok(r.st.strong.filter(x => x === 3).length >= 4, 'the strong trader should reach 3 stars: ' + r.w.strong);
-      // the surviving decision: how much to buy. Ignoring it (always buying all you can afford) costs far more than 10%
-      ok(mean(r.w.fill) < mean(r.w.strong) * .9 && r.w.fill.every((v, i) => v < r.w.strong[i]), 'quantity should matter: ' + r.w.fill + ' vs ' + r.w.strong);
+    'the Road\'s Ledger: a house that builds a news network completes it in about two years; a pure trader never does': async ({ page, ok }) => {
+      await closeModals(page); await page.addScriptTag({ content: networkHouse.toString() });
+      const r = await page.evaluate(() => { const S = [1013, 2026, 3039], all = { corr: true, lofts: true, sell: true, forge: true };
+        const full = S.map(s => networkHouse(s, all)); window.__caravan.persist(); const size = localStorage.getItem('rh:caravan').length; return { full, size, trader: networkHouse(1013, { until: 900 }) }; });
+      ok(r.size < 50000, 'save size ' + r.size);
+      ok(r.full.every(x => x.ledger != null && x.ledger < 1100), 'network houses: ' + JSON.stringify(r.full.map(x => [x.ledger, x.fresh])));
+      ok(r.full.every(x => x.trips >= 25 && x.trips <= 60), 'journeys to the Ledger: ' + r.full.map(x => x.trips));
+      ok(r.trader.ledger == null && r.trader.fresh < 12, 'a pure trader should never get near: ' + JSON.stringify(r.trader));
+    },
+    'ablation: lofts are needed; selling news buys fortune; forging buys more fortune and costs honour (each over 10%)': async ({ page, ok }) => {
+      await closeModals(page); await page.addScriptTag({ content: networkHouse.toString() });
+      const r = await page.evaluate(() => { const S = [1013, 2026, 3039], base = { corr: true, lofts: true, sell: true, forge: true }, run = o => S.map(s => networkHouse(s, { ...base, ...o })), mean = (a, k) => a.reduce((x, y) => x + y[k], 0) / a.length;
+        const noLoft = networkHouse(1013, { ...base, lofts: false, until: 1100 }), forger = run({}), honest = run({ forge: false }), unlock = run({ forge: false, sell: 'unlock' });
+        return { noLoft, f: [mean(forger, 'fortune'), mean(honest, 'fortune'), mean(unlock, 'fortune')], h: [mean(forger, 'honour'), mean(honest, 'honour')], d: [mean(honest, 'ledger'), mean(unlock, 'ledger')] }; });
+      ok(r.noLoft.ledger == null, 'without lofts the Ledger should be out of reach: ' + JSON.stringify(r.noLoft));
+      ok(r.f[1] > r.f[2] * 1.1, 'selling news should pay over 10%: ' + r.f);
+      ok(r.f[0] > r.f[1] * 1.1 && r.h[0] < r.h[1] - 20, 'forging should pay over 10% and cost honour: ' + r.f + ' / ' + r.h);
+      console.log('      fortune forger/honest/unlock-only', r.f.map(Math.round), 'honour', r.h, 'ledger days honest/unlock-only', r.d.map(Math.round));
+    },
+    'phases open through play: correspondents after four journeys, selling after three correspondents, lofts after a sale, rumours after three houses': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(() => { const K = window.__caravan, C = K.C, out = []; K.headless = true; K.encountersOn = false; C.gold = 5000;
+        out.push(K.hireCorr()); for (const to of [1, 0, 1, 0]) K.travelNow(to); out.push(C.phase);
+        out.push(K.hireCorr()); K.travelNow(1); K.hireCorr(); K.travelNow(2); K.hireCorr(); out.push(C.phase, Object.keys(C.corr).length);
+        out.push(K.buildLoft()); K.sellNews(0); out.push(C.phase); K.sellNews(1); K.sellNews(2); out.push(C.phase); K.headless = false; return out; });
+      eq(r, [false, 2, true, 3, 3, false, 4, 5]);
+      await page.evaluate(() => window.__caravan.renderAll()); ok(await page.locator('#house .houses').isVisible() && await page.locator('#openMk').isVisible(), 'the network takes over the panel and the market folds to one line');
+    },
+    'letters crawl along the roads; a pigeon loft chain makes them arrive much sooner': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const K = window.__caravan, C = K.C; C.at = 0; const slow = K.newsPath(22, 0).days; for (const ci of [0, 2, 5, 11, 14, 17, 22]) C.lofts[ci] = 1; const fast = K.newsPath(22, 0);
+        C.phase = 2; C.corr[22] = { since: 0 }; const d0 = C.day; let sent = null; for (let k = 0; k < 8 && !sent; k++) { K.tick(); sent = C.letters.find(l => l.f === 22); }
+        const arrive = sent.a; while (C.day < arrive) K.tick(); return { slow, fast: fast.days, pig: fast.way.some(w => w[2]), arrived: C.book[22] && C.book[22].day === sent.s && C.book[22].src === 'corr' }; });
+      ok(r.fast < r.slow / 3 && r.pig, JSON.stringify(r)); ok(r.arrived, 'the letter should land in the price book on the day it arrives');
+    },
+    'houses trade on what they know: sold news fills their book; a forged letter sends them hauling, and when caught they trust you less, will not buy, and forge letters to you': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const K = window.__caravan, C = K.C, rv = C.rivals[0]; K.headless = true; C.phase = 5;
+        for (let ci = 0; ci < 23; ci++) K.see(ci); const before = Object.keys(rv.book).length, pay = K.sellNews(0), after = Object.keys(rv.book).length;
+        rv.bought = -99; const t0 = rv.trust, fpay = K.forge(0, 11, 11); rv.to = null; rv.at = 11; const fake = rv.fake; rv.to = 11; rv.left = 1; rv.g = null; K.tick();
+        const caught = rv.trust < t0 * 0.6; rv.bought = -99; const refuse = K.sellPrice_(rv) === 0; let forgedToMe = false; for (let d = 0; d < 70 && !forgedToMe; d++){ K.tick(); forgedToMe = C.letters.some(l => l.fake && l.src === 0) || Object.values(C.book).some(b => b.fake && b.src === 0); }
+        K.headless = false; return { before, after, pay, fpay, fake: !!fake, caught, refuse, forgedToMe, honour: K.honour() }; });
+      ok(r.after > r.before && r.pay > 0, 'selling news should fill their book: ' + JSON.stringify(r)); ok(r.fpay > 0 && r.fake && r.caught && r.refuse && r.forgedToMe, JSON.stringify(r));
     },
     'geography is coherent: no city wants what it makes, and silk runs east to west': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const K = window.__caravan; return { same: K.cities.filter(c => c.prod.some(g => c.dem.includes(g))).length, silkE: K.cities[0].prod.includes(8), silkW: K.cities[22].dem.includes(8) }; });
@@ -209,7 +236,7 @@ module.exports = {
       await page.evaluate(() => { const K = window.__caravan; K.trade(8, 10); });
       const price = await page.evaluate(() => window.__caravan.cities[0].price[8]);
       await reload(page);
-      eq(await page.evaluate(() => window.__caravan.cities[0].price[8]), price, 'prices rolled back');
+      ok(Math.abs(await page.evaluate(() => window.__caravan.cities[0].price[8]) - price) < 0.01, 'prices rolled back');
       const far = await page.evaluate(() => { const K = window.__caravan; K.encountersOn = false; K.planTo(6); K.travel(); return 6; });
       await page.waitForTimeout(400);
       await page.evaluate(() => window.__caravan.persist());

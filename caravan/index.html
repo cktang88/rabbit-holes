@@ -197,7 +197,9 @@ let M = cleanMeta(RH.load('caravan-meta', null));
 let C = cleanCareer(RH.load('caravan', null));
 let cities, routes, rng, plan=null, traveling=null;
 // the world's live prices and a journey in progress are saved with the career, so a reload neither rolls prices back nor loses a trip
-const persist=()=>{ if (C && cities){ C.prices=cities.map(c=>c.price); C.mods=cities.map(c=>c.mod); C.drifts=cities.map(c=>c.drift); C.trav= traveling? {legs:traveling.legs.map(l=>routes.indexOf(l.r)), leg:traveling.leg, t:traveling.t, dayCount:traveling.dayCount||0, enc:traveling.enc||null, encDone:traveling.encDone||0} : null; }
+const r3=a=>a.map(x=>Math.round(x*1000)/1000);
+const persist=()=>{ if (C && cities){ C.prices=cities.map(c=>r3(c.price)); C.mods=cities.map(c=>r3(c.mod)); C.drifts=cities.map(c=>r3(c.drift)); C.trav= traveling? {legs:traveling.legs.map(l=>routes.indexOf(l.r)), leg:traveling.leg, t:traveling.t, dayCount:traveling.dayCount||0, enc:traveling.enc||null, encDone:traveling.encDone||0} : null; }
+  if (C) C.events=C.events.filter(e=>e.k==='serai'||e.end>C.day);
   RH.save('caravan',C); RH.save('caravan-meta',M); RH.progress('caravan', Math.min(1, Math.log10(1+M.best)/5)); };
 
 // ===================== World =====================
@@ -350,7 +352,7 @@ const snap=ci=>cities[ci].price.map(x=>Math.round(x*10)/10);
 function sendLetter(from, p, src, fake){ const np=newsPath(from, C.at); if (!np) return; C.letters.push({f:from, s:C.day, a:C.day+Math.max(1,np.days), p, src, fake:fake?1:0, w:np.way}); }
 function lettersTick(){
   const nCorr=Object.keys(C.corr).length; C.gold-=nCorr*CORR_WAGE;
-  if (C.day%LETTER_EVERY===0) for (const ci in C.corr) if (!cities[ci].closed) sendLetter(+ci, snap(+ci), 'corr');
+  if (C.day%LETTER_EVERY===0) for (const ci in C.corr) if (!cities[ci].closed && C.letters.filter(l=>l.f===+ci).length<4) sendLetter(+ci, snap(+ci), 'corr'); // a correspondent writes again only when the road is not already full of their letters
   C.letters=C.letters.filter(l=>{ if (l.a>C.day) return true; const cur=C.book[l.f]; if (!cur || cur.day<l.s) C.book[l.f]={day:l.s, p:l.p, src:l.src, fake:l.fake||0}; return false; });
   // hostile houses forge letters to you
   for (const [i,rv] of (C.rivals||[]).entries()) if (rv.trust<0.3 && (C.day+i*7)%30===0){ const ci=rng.int(cities.length), g=rng.int(GOODS.length), p=snap(ci); p[g]=Math.round(Math.max(p[g],usual(ci,g))*2.4*10)/10; sendLetter(ci, p, i, 1); }
@@ -719,7 +721,7 @@ function showLedger(){
   const h=`<b>Price book</b> <span class="small dim">what you know, and how old it is</span><div class="bkWrap"><table class="bk"><tr><th>City</th><th>Age</th><th>From</th>${GOODS.map(g=>`<th title="${g[0]}">${g[0].slice(0,3)}</th>`).join('')}</tr>`+Object.entries(C.book).sort((a,b)=>a[0]-b[0]).map(([ci,b])=>`<tr><td>${cities[ci].name}</td><td class="age">${C.day-b.day}d</td><td class="age">${b.src==='corr'?'✒️':Number.isInteger(b.src)?'✉️ '+C.rivals[b.src].name.split(' ').pop():'👁'}</td>${b.p.map(p=>`<td>${Math.round(p)}</td>`).join('')}</tr>`).join('')+'</table></div><hr style="border-color:var(--line)">'+C.log.slice().reverse().map(l=>`<div class="news">${l}</div>`).join('');
   RH.modal(`<h2>Ledger</h2><div class="ledger">${h}</div>`,[{label:'Close'}]);
 }
-function logIt(t){ C.log.push(`<span class="age">d${C.day}</span> ${t}`); if (C.log.length>200) C.log.shift(); }
+function logIt(t){ C.log.push(`<span class="age">d${C.day}</span> ${t}`); if (C.log.length>60) C.log.shift(); }
 function renderStatus(){
   const yr=Math.floor(C.day/360)+1, season=['Spring','Summer','Autumn','Winter'][Math.floor((C.day%360)/90)];
   document.getElementById('status').innerHTML=`<div>Gold<b>${Math.floor(C.gold).toLocaleString()}</b></div><div>Cargo<b>${Math.floor(load())}/${cap()}</b><span class="age">${C.camels} camels</span></div><div>Date<b>${season}, yr ${yr}</b></div><div>Ledger<b>${freshCities()}/${cities.length}</b><span class="age">fresh cities</span></div>`;

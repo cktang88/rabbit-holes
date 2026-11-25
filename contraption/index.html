@@ -44,7 +44,7 @@
   .part .l{display:block;font:italic 400 10px/1 "Libre Baskerville",serif;color:#dcc69b;pointer-events:none;margin-top:-1px}
   .part.new{box-shadow:0 0 0 2px var(--brass),0 0 14px var(--brass)}
   .part[disabled]{opacity:.35}
-  #stage .pz-bar{right:6px;bottom:6px;gap:3px} #stage .pz-bar button{min-width:36px;min-height:36px;padding:0;font-size:18px;opacity:.85}
+  #stage .pz-bar{right:6px;top:6px;bottom:auto;gap:3px} #stage .pz-bar button{min-width:36px;min-height:36px;padding:0;font-size:18px;opacity:.85}
   #ghost{position:fixed;pointer-events:none;z-index:40;display:none;transform:translate(-50%,-50%);width:90px;height:66px}
   #book{position:fixed;inset:0;z-index:50;background:#000a;display:none;align-items:center;justify-content:center}
   #book.on{display:flex}
@@ -66,7 +66,7 @@
   textarea{width:100%;box-sizing:border-box;font:12px monospace;height:70px;background:#fffaf0;border:1px solid #8a6a3a}
   .chap{font:400 17px "Fredericka the Great",serif;color:var(--green);margin:10px 0 4px;display:flex;align-items:center;gap:8px}
   .chap canvas{width:30px;height:30px}
-  .toast-wrap{bottom:auto;top:84px} .toast{background:linear-gradient(#f4ead2,#e3d2aa);color:var(--ink);border:1px solid #6b4a22;border-radius:2px;font:14.5px "Libre Baskerville",serif}
+  .toast-wrap{bottom:92px;top:auto} .toast{background:linear-gradient(#f4ead2,#e3d2aa);color:var(--ink);border:1px solid #6b4a22;border-radius:2px;font:14.5px "Libre Baskerville",serif}
   .toast b{color:var(--red)}
   .modal{background:linear-gradient(#f4ead2,#e3d2aa);color:var(--ink);border:1px solid #6b4a22;border-radius:2px;font:15px/1.45 "Libre Baskerville",serif}
   .modal h2{font:400 27px "Fredericka the Great",serif;color:var(--red)} .modal .modal-actions{background:#e8d9b5}
@@ -75,7 +75,8 @@
   @keyframes stamp{0%{opacity:0;transform:scale(2.4) rotate(-40deg)}20%{opacity:1;transform:scale(.95) rotate(-10deg)}28%{transform:scale(1.03) rotate(-10deg)}80%{opacity:1}100%{opacity:0;transform:scale(1) rotate(-10deg)}}
   main{flex:1;min-height:0;display:flex;flex-direction:column}
   @media (max-width:640px){
-    header{padding:4px 8px;gap:6px} h1{font-size:18px} header a.home{font-size:0} header a.home::before{content:"←";font-size:18px} header button{padding:4px 8px;font-size:13px}
+    .toast{font-size:13px;max-width:86vw} .rh-like{display:none}
+    header{padding:4px 8px;gap:6px} h1{font-size:17px} header a.home{font-size:0} header a.home::before{content:"←";font-size:18px} header button{padding:4px 8px;font-size:13px}
     #card{margin:0 6px 4px;font-size:12.5px;padding:4px 8px;flex-wrap:wrap;gap:4px 8px} #card .n{font-size:15px} #card .t{flex-basis:100%;order:3}
     #strip i{width:11px;height:14px}
     #bin{gap:4px;justify-content:flex-start} .part{width:48px;height:54px} .part canvas{width:46px;height:36px}
@@ -156,7 +157,7 @@ const saveBuild=()=>{ SAVE.builds[B.id]=parts.map(p=>p.slice()); persist(); };
 function openBench(b, ps){ B=b; parts=cleanParts(ps ?? SAVE.builds[b.id] ?? []); mode='build'; sel=-1; results=[]; queue=[]; bg=null; live=null; autoplay=null;
   view=new Sim(B, parts, 0); hidePop(); renderAll(); cam.fit(false); tell('');
   const fresh=Object.keys(B.bin).filter(t=>!SAVE.seen[t]); if (!SAVE.seen[B.cargo]) fresh.push(B.cargo);
-  if (fresh.length && !B.sandbox){ setTimeout(()=>{ for (const t of fresh){ SAVE.seen[t]=1; const D=PARTS[t]||CARGO[t]; RH.toast(`New: <b>${D.n}</b>. ${D.d}`, 4200); } persist(); }, 400); }
+  if (fresh.length && !B.sandbox){ setTimeout(()=>{ RH.toast(fresh.map(t=>{ SAVE.seen[t]=1; const D=PARTS[t]||CARGO[t]; return `New: <b>${D.n}</b>. ${D.d}`; }).join('<br>'), 5000); persist(); }, 400); }
   newParts=fresh; }
 let newParts=[];
 function rebuild(){ view=new Sim(B, parts, 0); saveBuild(); renderAll(); }
@@ -165,7 +166,11 @@ function renderAll(){ renderBin(); renderCard(); }
 // ===================== Drawing =====================
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 let dragging=null;
-const cam=PanZoom(cv,{ world:()=>({x:-10,y:-10,w:BW*SC+20,h:BH*SC+20}), pad:4, min:.7, max:6, canPanFrom:e=> e.button===1 || (!dragging && hitPart(...toM(e.clientX,e.clientY))<0) });
+// the view frames the part of the bench that matters (hopper, basket, boards, parts), with room around it
+function interest(){ const xs=[B.drop[0], B.basket[0]], ys=[B.drop[1]+1.6, 0]; for (const f of B.fixed||[]){ xs.push(f[0]-f[2], f[0]+f[2]); ys.push(f[1]+f[3]); } for (const p of parts){ xs.push(p[1]); ys.push(p[2]); }
+  let x0=Math.max(0,Math.min(...xs)-3), x1=Math.min(BW,Math.max(...xs)+3), y1=Math.min(BH,Math.max(...ys)+1.5); if (x1-x0<10){ const c=(x0+x1)/2; x0=Math.max(0,c-5); x1=Math.min(BW,x0+10); } if (y1<6) y1=6;
+  return {x:x0*SC-6, y:(BH-y1)*SC-6, w:(x1-x0)*SC+12, h:y1*SC+12}; }
+const cam=PanZoom(cv,{ world:interest, pad:4, min:.35, max:5, canPanFrom:e=> e.button===1 || (!dragging && hitPart(...toM(e.clientX,e.clientY))<0) });
 const toM=(cx,cy)=>{ const [u,v]=cam.toWorld(cx,cy); return [u/SC, BH-v/SC]; };
 const toScreenM=(x,y)=>cam.toScreen(x*SC,(BH-y)*SC);
 function grain(base, dark, seed){ const c=document.createElement('canvas'); c.width=64; c.height=16; const g=c.getContext('2d'); g.fillStyle=base; g.fillRect(0,0,64,16); const r=RH.rng(seed);
