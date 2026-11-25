@@ -147,6 +147,87 @@ module.exports = {
         return { inside: pts.every(([x, y]) => x > 0 && x < innerWidth && y > 0 && y < innerHeight), req: { top: req.top, bottom: req.bottom, h: req.height }, items: document.querySelectorAll('#cReq li').length }; });
       ok(r.inside, 'every node of the loop on screen'); ok(r.items >= 2 && r.req.h > 20 && r.req.bottom <= 844 * .5, 'checklist visible near the top: ' + JSON.stringify(r.req));
     },
+    'smooth track: a 4-node loop is curvature-continuous and round, where the old Catmull-Rom made a rounded square': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const K = __coaster, N = (x, y) => ({ x, y });
+        // curvature measured from the sampled positions alone (the same way for both curves)
+        const kap = P => { const k = []; for (let i = 1; i < P.length - 1; i++) { const a = Math.atan2(P[i].y - P[i - 1].y, P[i].x - P[i - 1].x), b = Math.atan2(P[i + 1].y - P[i].y, P[i + 1].x - P[i].x); let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; k.push(d / Math.hypot(P[i + 1].x - P[i - 1].x, P[i + 1].y - P[i - 1].y) * 2); } return k; };
+        const cr = nodes => { const out = [], P = [nodes[0], ...nodes, nodes[nodes.length - 1]]; // the previous interpolation: centripetal Catmull-Rom
+          for (let i = 1; i < P.length - 2; i++) { const p0 = P[i - 1], p1 = P[i], p2 = P[i + 1], p3 = P[i + 2], tj = (a, b) => Math.pow(Math.hypot(b.x - a.x, b.y - a.y) || 1e-3, .5), t0 = 0, t1 = tj(p0, p1), t2 = t1 + tj(p1, p2), t3 = t2 + tj(p2, p3);
+            for (let k = 0; k < 40; k++) { const t = t1 + (t2 - t1) * k / 40, L = (a, b, ta, tb) => ({ x: (tb - t) / (tb - ta) * a.x + (t - ta) / (tb - ta) * b.x, y: (tb - t) / (tb - ta) * a.y + (t - ta) / (tb - ta) * b.y });
+              const A1 = L(p0, p1, t0, t1), A2 = L(p1, p2, t1, t2), A3 = L(p2, p3, t2, t3), c = L(L(A1, A2, t0, t2), L(A2, A3, t1, t3), t1, t2); out.push({ ...c, seg: i - 1, th: 0, k: 0 }); } }
+          out.push({ ...nodes[nodes.length - 1], seg: nodes.length - 2, th: 0, k: 0 }); return K.resample(out); };
+        const measure = S => { const k = kap(S); let jump = 0; for (let i = 1; i < k.length; i++) jump = Math.max(jump, Math.abs(k[i] - k[i - 1]));
+          let th = 0; const H = [0]; for (let i = 0; i < k.length; i++) { th += k[i] * Math.hypot(S[i + 1].x - S[i].x, S[i + 1].y - S[i].y); H.push(th); }
+          const c = H.findIndex(t => t > Math.PI); let i0 = c, i1 = c; while (i0 > 1 && H[i0 - 1] > Math.PI / 4) i0--; while (i1 < k.length - 1 && H[i1 + 1] < 7 * Math.PI / 4) i1++;
+          const kl = k.slice(i0 - 1, i1), mean = kl.reduce((a, b) => a + b, 0) / kl.length, P = S.slice(i0, i1 + 1), xs = P.map(p => p.x), ys = P.map(p => p.y);
+          return { jump, minR: Math.min(...kl) / mean, maxR: Math.max(...kl) / mean, aspect: (Math.max(...ys) - Math.min(...ys)) / (Math.max(...xs) - Math.min(...xs)) }; };
+        const loops = { 'The Loop start': K.COMS[1].start(), 'four dots by hand': [N(0, 2), N(40, 36), N(84, 6), N(110, 14), N(102, 28), N(92, 16), N(112, 4), N(150, 4)] }, out = {};
+        for (const [nm, ns] of Object.entries(loops)) out[nm] = { now: measure(K.geometry({ nodes: ns, lift: 1 })), old: measure(cr(ns)) };
+        return out; });
+      const f = m => `jump ${m.jump.toFixed(3)} /m per sample, κ min/mean ${m.minR.toFixed(2)}, max/mean ${m.maxR.toFixed(2)}, aspect ${m.aspect.toFixed(2)}`;
+      for (const [nm, m] of Object.entries(r)) {
+        ok(m.now.jump < .05, `${nm}: curvature jumps between samples: ${f(m.now)}`);
+        ok(m.now.minR > .4, `${nm}: a flat side in the loop: ${f(m.now)}`); ok(m.now.maxR < 2.6, `${nm}: a corner in the loop: ${f(m.now)}`);
+        ok(m.now.aspect > .6 && m.now.aspect < 1.8, `${nm}: loop proportions: ${f(m.now)}`);
+        ok(m.old.jump > 2 * m.now.jump && (m.old.minR < .3 || m.old.maxR > 3), `${nm}: the test should catch the old squarish curve: ${f(m.old)}`);
+      }
+    },
+    'elements: the + drawer stamps a clothoid loop whose handle reshapes it; it rides gentler than a circle of the same height; convert leaves plain nodes': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { const K = __coaster; K.load(K.COMS.findIndex(c => c.id === 'sandbox')); K.sel = 2; }); await page.waitForTimeout(150);
+      ok(await page.evaluate(() => getComputedStyle(document.getElementById('drawer')).display === 'none'), 'drawer starts closed');
+      await page.click('#tPlus'); await page.click('#e_loop'); await page.waitForTimeout(150);
+      const a = await page.evaluate(() => { const K = __coaster, g = K.groups()[0], ix = K.groupOf(g.id), ys = ix.map(i => K.design.nodes[i].y), xs = ix.slice(1, -1).map(i => K.design.nodes[i].x); // width of the loop itself (not its run-out)
+        return { n: K.design.nodes.length, t: g.t, h: g.h, H: Math.max(...ys) - Math.min(...ys), W: Math.max(...xs) - Math.min(...xs), ok: K.live.ok, g: K.live.st.gmax, inv: K.live.st.inv, hd: K.handleOf(g).map(v => v / devicePixelRatio), closed: getComputedStyle(document.getElementById('drawer')).display === 'none' }; });
+      eq(a.n, 11, 'seven loop nodes added'); eq(a.t, 'loop'); ok(a.closed, 'drawer closes after stamping'); ok(a.ok && a.inv === 1 && a.g < 4.5, `stamped loop rides: ${JSON.stringify(a)}`);
+      ok(a.H / a.W > 1.1, `a teardrop is taller than wide: ${a.H}×${a.W}`);
+      // the same height as a circle of four dots at the same place: the teardrop is gentler
+      const circ = await page.evaluate(h => { const K = __coaster, N = (x, y) => ({ x, y }), R = h / 2, c = 100; return K.scores({ nodes: [N(0, 2), N(40, 36), N(84, 6), N(c, 6), N(c + R, 6 + R), N(c, 6 + h), N(c - R, 6 + R), N(c, 6), N(140, 5), N(180, 5)], lift: 1 }, K.site).st.gmax; }, a.H);
+      ok(circ > a.g + .5, `circle ${circ.toFixed(2)} g vs stamped teardrop ${a.g.toFixed(2)} g`);
+      // drag the diamond up: the loop grows and everything after it slides along
+      const endX0 = await page.evaluate(() => __coaster.design.nodes.at(-1).x);
+      await page.mouse.move(a.hd[0], a.hd[1]); await page.mouse.down(); for (let k = 1; k <= 5; k++) await page.mouse.move(a.hd[0], a.hd[1] - k * 8); await page.mouse.up();
+      const b = await page.evaluate(() => { const K = __coaster, g = K.groups()[0]; return { h: g.h, n: K.design.nodes.length, endX: K.design.nodes.at(-1).x, sel: K.selG === g.id, insp: document.getElementById('insp').textContent }; });
+      ok(b.h > a.h + 2 && b.n === 11 && b.sel, `handle raised the loop: ${a.h} → ${b.h}`); ok(b.endX > endX0, 'the rest of the ride slid along'); ok(/Loop/.test(b.insp) && /Convert/.test(b.insp), 'element card shows');
+      await page.click('#iConv');
+      eq(await page.evaluate(() => [__coaster.groups().length, __coaster.design.nodes.filter(n => n.g || n.el).length, __coaster.design.nodes.length]), [0, 0, 11], 'converted to plain nodes');
+      const all = await page.evaluate(() => { const K = __coaster, o = {}; for (const t of Object.keys(K.ELS)) { K.design = { nodes: K.COMS.find(c => c.id === 'sandbox').start(), lift: 1 }; K.sel = 2; K.stamp(t); const L = K.live; o[t] = { ok: L.ok, lat: L.st.latmax, g: L.st.gmax }; } return o; });
+      for (const [t, v] of Object.entries(all)) ok(v.ok && v.g < 6, `${t} stamp rides: ${JSON.stringify(v)}`);
+      ok(all.turn.lat > .3 && all.helix.lat > .3, 'turn and helix really turn');
+    },
+    'tangent arms: drag a node\'s arm to pin its slope, Auto gives the smooth slope back, and a share code keeps it': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { const K = __coaster; K.load(K.COMS.findIndex(c => c.id === 'sandbox')); }); await page.waitForTimeout(150);
+      const [x, y] = await page.evaluate(() => { const n = __coaster.design.nodes[2]; return __coaster.screenOf(n.x, n.y); });
+      await page.mouse.click(x, y); await page.waitForTimeout(100);
+      const A = await page.evaluate(() => { const K = __coaster, a = K.arms(2); return { front: K.screenOf(...a.front), D: a.D.slice(), t: K.design.nodes[2].t || null }; });
+      eq(A.t, null, 'auto to start'); ok(await page.evaluate(() => /auto/i.test(document.getElementById('iAuto').textContent)));
+      await page.mouse.move(...A.front); await page.mouse.down(); for (let k = 1; k <= 5; k++) await page.mouse.move(A.front[0] + k * 3, A.front[1] - k * 12); await page.mouse.up();
+      const B = await page.evaluate(() => { const K = __coaster, n = K.design.nodes[2]; return { t: n.t, code: K.enc(K.design), back: K.dec(K.enc(K.design)).nodes[2].t }; });
+      ok(B.t && Math.atan2(B.t.y, B.t.x) > Math.atan2(A.D[1], A.D[0]) + .2, `arm tilted the slope up: ${JSON.stringify(A.D)} → ${JSON.stringify(B.t)}`);
+      ok(B.back && Math.abs(B.back.x - B.t.x) < .011 && Math.abs(B.back.y - B.t.y) < .011, 'share code keeps the pinned tangent');
+      await page.click('#iAuto'); eq(await page.evaluate(() => __coaster.design.nodes[2].t || null), null, 'Auto unpins');
+      // a pinned tangent still leaves the neighbours smooth: the curve is C2 everywhere else
+      ok(await page.evaluate(() => { const K = __coaster, d = { nodes: K.COMS.find(c => c.id === 'sandbox').start(), lift: 1 }; d.nodes[2].t = { x: 1, y: 0 }; const S = K.geometry(d); return S.every(p => isFinite(p.k) && isFinite(p.y)); }), 'pinned tangent geometry is finite');
+    },
+    'snapping: a dragged node snaps level with its neighbour and halfway between its neighbours; off in the drawer, it doesn\'t': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { const K = __coaster, N = (x, y) => ({ x, y }); K.load(K.COMS.findIndex(c => c.id === 'sandbox')); K.design = { nodes: [N(0, 2), N(40, 36), N(84, 6), N(110, 14), N(150, 5)], lift: 1 }; }); await page.waitForTimeout(150);
+      const drag = async (wx, wy) => { const [x, y] = await page.evaluate(() => { const n = __coaster.design.nodes[3]; return __coaster.screenOf(n.x, n.y); }), [x2, y2] = await page.evaluate(([a, b]) => __coaster.screenOf(a, b), [wx, wy]);
+        await page.mouse.move(x, y); await page.mouse.down(); for (let k = 1; k <= 4; k++) await page.mouse.move(x + (x2 - x) * k / 4, y + (y2 - y) * k / 4); await page.mouse.up(); return page.evaluate(() => ({ ...__coaster.design.nodes[3] })); };
+      const a = await drag(117.6, 6.4); eq([a.x, a.y], [117, 6], 'snapped level with node 2 and halfway between nodes 2 and 4');
+      await page.click('#tPlus'); await page.click('#e_snap'); await page.click('#tPlus');
+      const b = await drag(118.4, 6.6); ok(b.y !== 6 && b.x !== 117, `snap off: placed where dropped ${JSON.stringify(b)}`);
+      await page.click('#tPlus'); await page.click('#e_snap'); await page.click('#tPlus');
+    },
+    'smooth tool: irons out a bumpy run without lowering the lift hill or touching a loop': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const K = __coaster, N = (x, y) => ({ x, y }); K.load(K.COMS.findIndex(c => c.id === 'sandbox'));
+        K.design = { nodes: [N(0, 2), N(40, 36), N(70, 14), N(84, 20), N(96, 8), N(110, 18), N(124, 6), N(140, 12), N(160, 5), N(180, 5)], lift: 1 };
+        const rough = d => { const S = K.geometry(d); let s = 0; for (let i = 1; i < S.length; i++) s += (S[i].k - S[i - 1].k) ** 2; return s; };
+        const before = { r: rough(K.design), crest: K.design.nodes[1].y, g: K.live.st.gmax }; K.sel = -1; K.smooth();
+        const after = { r: rough(K.design), crest: K.design.nodes[1].y, g: K.live.st.gmax };
+        K.design = { nodes: K.COMS[1].start(), lift: 1 }; const loop0 = JSON.stringify(K.design.nodes.slice(5, 10)); K.smooth(); const loop1 = JSON.stringify(K.design.nodes.slice(5, 10));
+        return { before, after, loopKept: loop0 === loop1 }; });
+      ok(r.after.r < r.before.r * .6, `curvature roughness ${r.before.r.toFixed(4)} → ${r.after.r.toFixed(4)}`); ok(r.after.crest === r.before.crest, 'lift crest untouched');
+      ok(r.after.g < r.before.g, `peak g ${r.before.g.toFixed(2)} → ${r.after.g.toFixed(2)}`); ok(r.loopKept, 'loops are left alone');
+    },
     'corrupted saves never crash the page': async ({ page, ok }) => {
       for (const v of ['null', '7', '[]', '{"done":null,"designs":{"first":"!!"},"cur":99}', '{bad']) {
         await page.evaluate(v => { localStorage.clear(); localStorage.setItem('rh:coaster', v); }, v);
