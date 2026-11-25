@@ -37,6 +37,8 @@
   #pop.on{display:flex} #pop button{min-width:40px;min-height:40px;padding:0;font-size:18px}
   #tell{position:absolute;left:50%;top:8px;transform:translateX(-50%);z-index:5;color:var(--ink);background:#f4ead2ee;border:1px solid #7a5a2a;padding:4px 12px;font-size:13.5px;font-style:italic;display:none;max-width:90%;text-align:center;pointer-events:none}
   #tell.on{display:block}
+  #ribbon{position:absolute;left:8px;bottom:8px;z-index:5;color:var(--ink);background:#f4ead2f2;border:1px solid #7a5a2a;box-shadow:0 3px 8px #0006;padding:4px 10px;font-size:13.5px;max-width:calc(100% - 70px);opacity:0;transform:translateY(8px);transition:opacity .25s,transform .25s;pointer-events:none}
+  #ribbon.on{opacity:1;transform:none} #ribbon b{color:var(--red)} #ribbon .g{color:var(--brass2);margin-right:6px}
   #bin{display:flex;gap:6px;justify-content:center;align-items:flex-end;padding:6px 8px 8px;flex:none;overflow-x:auto}
   .part{position:relative;width:62px;height:60px;padding:0;background:radial-gradient(circle at 40% 30%,#5a3c22,#2e1d0f);border:1px solid #1a0f06;border-radius:4px;box-shadow:inset 0 0 8px #000a,0 2px 0 #120a04;touch-action:none;color:#f0d28a;flex:none}
   .part canvas{display:block;width:60px;height:44px;pointer-events:none}
@@ -94,7 +96,7 @@
 </header>
 <div id="card" aria-live="polite"><span class="n" id="pzN"></span><span class="t" id="pzT"></span><span id="strip" title="The ten tomorrows: tap one to watch it" role="button" aria-label="The ten tomorrows"></span><span class="c" id="pzC"></span></div>
 <main>
-  <div id="stage" data-play><canvas id="cv" aria-label="The bench"></canvas><div id="tell"></div>
+  <div id="stage" data-play><canvas id="cv" aria-label="The bench"></canvas><div id="tell"></div><div id="ribbon" aria-live="polite"></div>
     <div id="pop" role="toolbar" aria-label="Part"><button data-a="l" aria-label="Turn left">⟲</button><button data-a="r" aria-label="Turn right">⟳</button><button data-a="x" aria-label="Put back in the box">✕</button></div>
   </div>
   <div id="bin" role="toolbar" aria-label="Parts box"></div>
@@ -136,17 +138,21 @@ const benchOpen=(i)=> i===0 || passed(BENCHES[i-1].id) || passed(BENCHES[i].id) 
 function unlocked(){ const parts=new Set(), cargo=new Set(); BENCHES.forEach((b,i)=>{ if (benchOpen(i)){ Object.keys(b.bin).forEach(t=>parts.add(t)); cargo.add(b.cargo); } }); return {parts:[...parts], cargo:CARGO_ORDER.filter(c=>cargo.has(c))}; }
 
 // ===================== Daily: a bench built from the date, kept only if a template machine gets most eggs through =====================
-function dailyBench(key){ const r=GM.rng('gentle-daily:'+key); const cargos=['egg','goose','watch','jelly','egg'];
-  for (let tries=0; tries<30; tries++){
-    const h=3+Math.floor(r()*5), x0=1.5+r()*3, n=Math.max(2,Math.ceil((h-1)/1.05)), dir=1, sol=[]; let x=x0+1, y=h-.5;
-    for (let k=0;k<n && y>1.2;k++){ sol.push(['plank', +(Math.round(x*4)/4).toFixed(2), +(Math.round(y*4)/4).toFixed(2), -1]); x+=3; y-=1.05; }
-    const last=sol[sol.length-1], bx=last[1]+2.1; if (bx>22.5) continue;
+// The template is a chain of planks one short of the floor; the last stretch needs a catcher, found by a small search.
+// The day's box holds one plank fewer than the full chain would need, so the obvious answer is never quite allowed.
+function dailyBench(key){ const r=GM.rng('gentle-daily:'+key); const cargos=['egg','goose','watch','jelly','egg','goose'];
+  for (let tries=0; tries<12; tries++){
+    const h=4+Math.floor(r()*5), x0=1.5+r()*3, chain=[]; let x=x0+1, y=h-.5; const steep=r()<.4? -2 : -1, dy= steep===-2? 1.6 : 1.05;
+    while (y>1.2 && x<20){ chain.push(['plank', Math.round(x*4)/4, Math.round(y*4)/4, steep]); x+=3; y-=dy; }
+    if (chain.length<2) continue; const bx=Math.round((chain[chain.length-1][1]+2.2)*4)/4; if (bx>22.5) continue;
     const cargo=cargos[Math.floor(r()*cargos.length)];
-    const fixed=[]; const fx=x0+3+r()*(bx-x0-4), top=h-2-r()*2; if (top>1.5) fixed.push([+fx.toFixed(2), +(top+1.6).toFixed(2), .12, .4+r()*.6, 0]);
-    const B={id:'daily:'+key, seed:'daily:'+key, n:'Daily bench', t:'Today\'s bench, the same for everyone. Ten tomorrows; lowest cost wins the day.', cargo, drop:[+x0.toFixed(2),h], basket:[+bx.toFixed(2),0], fixed, bin:{plank:5, cushion:2, hammock:1, seesaw:1, block:2, weight:1, balloon:1}, pass:7, daily:true};
-    // the obstacle must not sit on the template's path
-    if (fixed.length && sol.some(p=>Math.abs(p[1]-fixed[0][0])<1.7 && Math.abs(p[2]-fixed[0][1])<1.4)) fixed.length=0;
-    const R=runAll(B,sol); if (R.saved>=7){ B.sol=sol; return B; } }
+    const fixed=[]; if (r()<.7){ const fx=x0+2+r()*(bx-x0-3), top=.8+r()*(h-2); const f=[Math.round(fx*4)/4, Math.round(top*4)/4, .12, .3+Math.round(r()*4)/10, 0]; if (!chain.some(p=>Math.abs(p[1]-f[0])<1.8 && Math.abs(p[2]-f[1])<1.3)) fixed.push(f); }
+    const B={id:'daily:'+key, seed:'daily:'+key, n:'Daily bench', t:'Today\'s bench, the same for everyone. One plank short of easy.', cargo, drop:[Math.round(x0*4)/4,h], basket:[bx,0], fixed,
+      bin:{plank:chain.length-1, cushion:2, hammock:1, seesaw:1, block:2, weight:1, balloon:1}, pass:7, daily:true};
+    const base=chain.slice(0,-1), ex=chain[chain.length-1][1], ey=chain[chain.length-1][2];
+    for (const t of ['cushion','hammock']) for (const dx of [0,1,-1]) for (const yy of [ey-.5, ey-1.25, ey-2]) for (const tu of [-1,-2]){
+      if (yy<.75) continue; const sol=base.concat([[t, Math.round((ex+dx)*4)/4, Math.round(yy*4)/4, tu]]);
+      const s=new Sim(B,sol,0); s.run(); if (!s.result.ok) continue; if (runAll(B,sol).saved>=7){ B.sol=sol; return B; } } }
   const B={...BENCHES[0], id:'daily:'+key, seed:'daily:'+key, n:'Daily bench', daily:true}; return B; }
 function sandboxBench(cargo){ const u=unlocked(); return {id:'sandbox', n:'Sandbox', t:'Every part you have met, no goal but your own. Book → Sandbox to share it.', cargo:cargo||'egg', drop:[3,12], basket:[20,0], fixed:[], bin:Object.fromEntries(u.parts.map(t=>[t,99])), pass:0, sandbox:true}; }
 
@@ -157,7 +163,7 @@ const saveBuild=()=>{ SAVE.builds[B.id]=parts.map(p=>p.slice()); persist(); };
 function openBench(b, ps){ B=b; parts=cleanParts(ps ?? SAVE.builds[b.id] ?? []); mode='build'; sel=-1; results=[]; queue=[]; bg=null; live=null; autoplay=null;
   view=new Sim(B, parts, 0); hidePop(); renderAll(); cam.fit(false); tell('');
   const fresh=Object.keys(B.bin).filter(t=>!SAVE.seen[t]); if (!SAVE.seen[B.cargo]) fresh.push(B.cargo);
-  if (fresh.length && !B.sandbox){ setTimeout(()=>{ RH.toast(fresh.map(t=>{ SAVE.seen[t]=1; const D=PARTS[t]||CARGO[t]; return `New: <b>${D.n}</b>. ${D.d}`; }).join('<br>'), 5000); persist(); }, 400); }
+  if (fresh.length && !B.sandbox){ for (const t of fresh){ SAVE.seen[t]=1; const D=PARTS[t]||CARGO[t]; ribbon(`<span class="g">✦</span>New ${PARTS[t]?'part':'cargo'}: <b>${D.n}</b>. ${D.d}`, 4200); } persist(); }
   newParts=fresh; }
 let newParts=[];
 function rebuild(){ view=new Sim(B, parts, 0); saveBuild(); renderAll(); }
@@ -257,7 +263,7 @@ function drawCargo(S){ drawCords(S); const o=S.cargo; if (!o) return; const b=o.
     const f=Math.min(1,o.gv), col= f<.5? '#2f6b4a' : f<.8? '#c7983c' : '#a8321f'; ctx.strokeStyle=col; ctx.beginPath(); ctx.arc(gx,gy,.3,Math.PI*.9,Math.PI*.9-Math.PI*.8*f,true); ctx.stroke();
     const pk=Math.min(1,dmg), a=Math.PI*.9-Math.PI*.8*pk; ctx.strokeStyle='#a8321f'; ctx.lineWidth=.04; ctx.beginPath(); ctx.moveTo(gx+Math.cos(a)*.22,gy+Math.sin(a)*.22); ctx.lineTo(gx+Math.cos(a)*.4,gy+Math.sin(a)*.4); ctx.stroke(); }
 }
-function drawIcon(c,t){ const g=c.getContext('2d'); g.setTransform(1,0,0,1,0,0); g.clearRect(0,0,c.width,c.height); g.translate(c.width/2,c.height*.55); const k=c.width/4.6; g.scale(k,-k);
+function drawIcon(c,t){ const g=c.getContext('2d'); g.setTransform(1,0,0,1,0,0); g.clearRect(0,0,c.width,c.height); const cg=CARGO[t]; g.translate(c.width/2,c.height*(cg?.5:.55)); const k=c.width/(cg?2:4.6); g.scale(k,-k);
   const wood=(x,y,w,h,col)=>{ g.fillStyle=col; g.fillRect(x,y,w,h); g.strokeStyle='#3a2210'; g.lineWidth=.05; g.strokeRect(x,y,w,h); };
   switch(t){ case 'plank': wood(-1.6,-.1,3.2,.2,'#d9b27a'); break;
     case 'cushion': g.strokeStyle='#c7983c'; g.lineWidth=.09; g.beginPath(); for (let k=0;k<=8;k++) g.lineTo((k%2?.25:-.25)*(k&&k<8?1:0), -.7+k*.11); g.stroke(); wood(-.9,.2,1.8,.16,'#b8452c'); wood(-.5,-.8,1,.12,'#7d5c1e'); break;
@@ -282,6 +288,9 @@ function renderCard(){ $('pzN').textContent=B.n; $('pzT').textContent=B.t;
   renderStrip();
   $('runBtn').textContent= mode==='build'? '▶ Run' : '■ Reset'; $('runBtn').classList.toggle('stop', mode!=='build'); }
 function renderStrip(){ const cur= live? live.k : -1; let h=''; for (let k=0;k<FUTURES;k++){ const r=results[k]; h+=`<i class="${r? (r.ok?'ok':'bad') : mode!=='build'?'run':''} ${k===cur&&mode!=='build'?'cur':''}" data-k="${k}" title="Tomorrow ${k+1}${r?': '+r.why:''}"></i>`; } $('strip').innerHTML=h; }
+const RQ=[]; let rOn=false;
+function ribbon(html, ms){ RQ.push([html,ms]); if (!rOn) nextRibbon(); }
+function nextRibbon(){ const el=$('ribbon'); if (!RQ.length){ rOn=false; el.classList.remove('on'); return; } rOn=true; const [h,ms]=RQ.shift(); el.innerHTML=h; el.classList.add('on'); setTimeout(()=>{ el.classList.remove('on'); setTimeout(nextRibbon, 260); }, ms); }
 function tell(s){ const el=$('tell'); el.textContent=s; el.classList.toggle('on', !!s); }
 
 // ===================== Building: drag from the box, drag to move, tap to turn =====================
@@ -338,7 +347,7 @@ function allDone(){ if (autoplay) return; const saved=results.filter(r=>r&&r.ok)
   const worst=results.findIndex((r,k)=>k>0 && r && r.ok!==results[0].ok);
   if (worst>0){ setTimeout(()=>{ if (mode!=='run' || autoplay) return; live=new Sim(B, parts, worst); post=0; acc=0; autoplay={k:worst, fast:true, summary:true}; tell(`Tomorrow ${worst+1}: ${live.fp.why}…`); renderStrip(); }, 1100); }
   else setTimeout(()=>{ if (mode==='run') summary(); }, 900); }
-function noteMechs(found, quiet){ for (const m of found){ if (SAVE.mech[m]) continue; SAVE.mech[m]=today(); persist(); const M=MECHS.find(x=>x[0]===m); if (M) RH.toast(`${M[0]==='freefall'||M[1].startsWith('Lesson')?'':'Recorded in the Book: '}<b>${M[1]}</b>. ${M[3]}`, 4200); } }
+function noteMechs(found, quiet){ for (const m of found){ if (SAVE.mech[m]) continue; SAVE.mech[m]=today(); persist(); const M=MECHS.find(x=>x[0]===m); if (M) ribbon(`<span class="g">${M[2]}</span>${M[1].startsWith('Lesson')?'':'In the Book: '}<b>${M[1]}</b>`, 2600); } }
 function summary(){ if (B.sandbox){ const saved=results.filter(r=>r&&r.ok).length; tell(`${saved} of 10 tomorrows came through.`); return; }
   const saved=results.filter(r=>r.ok).length, R={saved, gentle:GM.score(results), cost:costOf(parts)}, pass=B.pass||7, ok=saved>=pass;
   if (saved===FUTURES && !SAVE.mech.tenfold){ noteMechs(['tenfold']); }
@@ -352,14 +361,14 @@ function summary(){ if (B.sandbox){ const saved=results.filter(r=>r&&r.ok).lengt
   const H=(GM.HIST||{})[B.id];
   setTimeout(()=>RH.modal(`<h2>Delivered whole</h2><p style="font-size:20px;letter-spacing:2px;margin:4px 0">${shareStrip()}</p>
     <div class="axes"><div><b>${saved}/10</b>tomorrows</div><div><b>${R.gentle}%</b>hardest bump</div><div><b>${R.cost}</b>cost</div></div>
-    ${H? `<p class="note" style="margin:4px 0">Where your machine sits among the machines the workshop's solver found for this bench:</p>${histHTML(H.cost,R.cost,'cost')}${histHTML(H.gentle,R.gentle,'hardest bump %')}` : ''}
+    ${H? `<p class="note" style="margin:4px 0">Where your machine sits among the machines the workshop's solver found for this bench:</p>${histHTML(H.cost,R.cost,'cost')}${histHTML(H.gentle,R.gentle,'hardest bump %',10)}` : ''}
     ${firstPass && B.note? `<p class="letter">${B.note}</p>` : ''}<p class="note">Cheaper, gentler and surer pull against each other. ${better?'A new best for this bench.':''}</p>`,
     [{label:'Improve it'},{label:'Copy result'},{label: BENCHES.indexOf(B)<BENCHES.length-1 && !B.daily? 'Next bench' : 'The Book'}]).then(l=>{
       if (l==='Copy result'){ copyText(shareText()); RH.toast('Copied: the strip and a link to your machine.'); stopRun(); }
       else if (l==='Next bench'){ openBench(BENCHES[BENCHES.indexOf(B)+1]); setHash(); }
       else if (l==='The Book') openBook('benches'); else stopRun(); }), 1200); }
-function histHTML(h, mine, label){ const max=Math.max(...h.map(x=>x[1])); let placed=false;
-  const bars=h.map(([v,n],i)=>{ const me=!placed && (mine<=v || i===h.length-1); if (me) placed=true; return `<i class="${me?'me':''}" style="height:${Math.max(4,n/max*100)}%" title="${label} ${v}: ${n}"></i>`; }).join('');
+function histHTML(h, mine, label, step=1){ const max=Math.max(...h.map(x=>x[1])); let placed=false;
+  const bars=h.map(([v,n],i)=>{ const me=!placed && (mine<v+step || i===h.length-1); if (me) placed=true; return `<i class="${me?'me':''}" style="height:${Math.max(4,n/max*100)}%" title="${label} ${v}: ${n}"></i>`; }).join('');
   return `<div class="hist">${bars}</div><div class="hl"><span>${label} ${h[0][0]}</span><span>${h[h.length-1][0]}</span></div>`; }
 function shareStrip(){ const c=B.cargo; return results.map(r=>r&&r.ok? OKS[c] : BADS[c]).join(''); }
 function shareText(){ const saved=results.filter(r=>r&&r.ok).length; return `The Gentle Machine · ${B.daily? 'daily '+B.id.slice(6) : B.n}\n${shareStrip()} ${saved}/10 · cost ${costOf(parts)}\n${location.origin+location.pathname}#m=${encodeMachine()}`; }

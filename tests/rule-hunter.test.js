@@ -205,7 +205,7 @@ module.exports = {
       const n = await page.evaluate(() => { __rh.toast('one'); __rh.toast('two'); __rh.toast('three'); return document.querySelectorAll('.toast').length; }); eq(n, 1);
       await page.evaluate(() => { for (let i = 0; i < 3; i++) __rh.scan(true); });
       ok(await page.isVisible('#breedBtn'), 'the breed button'); await page.click('#breedBtn'); await page.waitForTimeout(300); ok(await page.isVisible('#p-lab .shelf'), 'opens the breeding shelf');
-      eq(await page.evaluate(() => [...document.querySelectorAll('.tabs button[data-t]')].map(b => b.dataset.t).slice(0, 2)), ['rule', 'lab']);
+      eq(await page.evaluate(() => [...document.querySelectorAll('.tabs button[data-t]')].map(b => b.dataset.t).slice(0, 3)), ['laws', 'rule', 'lab']);
     },
     'species are patterns, not pattern-per-rule: a glider found in two rules is one species living in both': async ({ page, eq }) => {
       await dismiss(page);

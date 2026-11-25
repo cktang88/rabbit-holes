@@ -34,31 +34,31 @@ const PTYPES=Object.keys(PARTS);
 // drop: [x,y,vx,vy] where the hopper lets the cargo go. basket: [x,y] (its floor). fixed: static boards [x,y,halfW,halfH,deg]. pass: how many of the ten tomorrows must come through.
 const BENCHES=[
  {id:'first', note:'Dear Porter, thank you. The shop below wants eggs and the stair is steep, so I shall keep sending them down to you. B.', n:'The first egg', t:'Bring the egg down to the basket without cracking it.', cargo:'egg', drop:[3,4], basket:[12,0], bin:{plank:3},
-  sol:[['plank',4,3.5,-1],['plank',7,2.5,-1],['plank',10,1.4,-1]]},
+  sol:[['plank',4,3.5,-1],['plank',7,2.5,-1],['plank',10,1.5,-1]]},
  {id:'zigzag', note:'That shaft was the old dumb-waiter. Mind your elbows. B.', n:'The long way down', t:'A deep shaft. Spend the height slowly.', cargo:'egg', drop:[3,9.9], basket:[3.1,0], fixed:[[2,5.25,.15,5.25,0],[5.9,5.25,.15,5.25,0]], bin:{plank:6},
-  sol:[['plank',3.65,9.4,-1],['plank',4.25,7.95,1],['plank',3.65,6.5,-1],['plank',4.25,5.05,1],['plank',3.65,3.6,-1],['plank',4.25,2.15,1]]},
+  sol:[['plank',3.5,9.5,-1],['plank',4.5,8,1],['plank',3.5,6.5,-1],['plank',4.5,5,1],['plank',3.5,3.5,-1],['plank',4.5,2,1]]},
  {id:'cushion', note:'Soft landings! I have told nobody it is me sending them. B.', n:'Something soft', t:'Straight down is quickest. Make the landing soft.', cargo:'egg', drop:[8,7], basket:[12,0], bin:{cushion:2, plank:1},
   sol:[['cushion',8.25,3.75,-2],['cushion',9.75,2.5,-2]]},
  {id:'hammock', note:'The hammock is off the ship my grandmother crossed on. She was a sea-hen. B.', n:'The hammock', t:'A high hopper, and the basket almost underneath it.', cargo:'egg', drop:[6,10], basket:[9,0], bin:{hammock:1, cushion:1, plank:2},
   sol:[['hammock',6.5,2,-3]]},
  {id:'wall', note:"The wall is the vicar's. He says it keeps the foxes out. I am not a fox. B.", n:'Over the wall', t:'A wall stands between the hopper and the basket.', cargo:'egg', drop:[3,8], basket:[16,0], fixed:[[11.5,2.5,.2,2.5,0]], bin:{plank:4, hammock:1, cushion:2},
-  sol:[['plank',4,7.5,-1],['plank',7,6.6,-1],['plank',10,5.7,-1],['hammock',14,2.5,-2]]},
+  sol:[['plank',4,7.5,-1],['plank',7,6.5,-1],['plank',10,5.75,-1],['hammock',14,2.5,-2]]},
  {id:'goose', note:'My cousin from the pond has one for you too. She is a good deal heavier than me. B.', n:'A heavier charge', t:'A goose egg: twice the weight, nearly as fragile.', cargo:'goose', drop:[4,10], basket:[16,0], bin:{plank:4, cushion:2, hammock:1},
-  sol:[['plank',5,9.5,-1],['plank',8,8.45,-1],['plank',11,7.4,-1],['hammock',14.5,5,-2],['cushion',17,2.5,-1]]},
+  sol:[['plank',5,9.5,-1],['plank',8,8.5,-1],['plank',11,7.5,-1],['hammock',14.5,5,-2],['cushion',17,2.5,-1]]},
  {id:'seesaw', note:'We had a seesaw in the yard once. It was the best summer. B.', n:'Catch and lower', t:'No room for a ramp. Catch it, and let it down slowly.', cargo:'goose', drop:[5,4.6], basket:[3.9,0], fixed:[[2.2,2.6,.15,2.6,0],[9.5,2.6,.15,2.6,0]], bin:{seesaw:1, weight:2, block:2, plank:1},
-  sol:[['seesaw',6,1.5,0],['block',6,2.1,0],['block',8,2.3,0]]},
+  sol:[['seesaw',6,1.5,0],['block',6,2,0],['block',8,2.25,0]]},
  {id:'handoff', note:'Sorry about the hurry. I sat on the lever. B.', n:'In a hurry', t:'This hopper throws the goose egg out fast. Meet it at the angle it is falling.', cargo:'goose', drop:[2,5,6,0], basket:[11,0], bin:{cushion:1, plank:2, block:2},
   sol:[['plank',6.5,2.5,-1]]},
  {id:'parachute', note:'I watched it float all the way down from the roost. I clucked out loud. B.', n:'Parachute', t:'A very high hopper, a shelf in the way, and draughts. Tie on a balloon.', cargo:'goose', drop:[5,13], basket:[2,0], fixed:[[6.5,8,2.5,.12,0]], bin:{balloon:1, plank:3, cushion:1},
   sol:[['balloon',5,14,0],['plank',4.5,10,3],['plank',1,2,-3],['plank',3.5,1.5,4]]},
  {id:'bubble', note:"The bubbles are from Monday's washing. They are a treat, not a delivery. B.", n:'A soap bubble', t:'It floats down by itself. The draughts are the trouble.', cargo:'bubble', drop:[12,12], basket:[12,0], bin:{plank:4},
-  sol:[['plank',10.3,3.3,-3],['plank',13.7,3.3,3]]},
+  sol:[['plank',10.25,3.25,-3],['plank',13.75,3.25,3]]},
  {id:'watch', note:"The watch was my grandfather's. Face up, so he can see where he is going. B.", n:'Face up', t:'A pocket watch. It is tough, but it must come to rest face up.', cargo:'watch', drop:[3,7], basket:[11,0], bin:{plank:4, cushion:1, block:1},
-  sol:[['plank',4,6.3,-2],['plank',6.5,4.5,-2],['plank',9,2,-2]]},
- {id:'jelly', note:'The quince jelly is for you, Porter. You have earned it. B.', n:'Quince jelly', t:'It does not mind a bump. It minds being pulled apart.', cargo:'jelly', drop:[4,7], basket:[9,0], bin:{plank:4, hammock:1, cushion:2},
+  sol:[['plank',4,6.25,-2],['plank',6.5,4.5,-2],['plank',9,2,-2]]},
+ {id:'jelly', note:'The quince jelly is for you, Porter. You have earned it. B.', n:'Quince jelly', t:'Quince jelly shrugs off small bumps, but it rolls like a wheel and will not sit still.', cargo:'jelly', drop:[4,7], basket:[9,0], bin:{plank:4, hammock:1, cushion:2},
   sol:[['plank',4.5,5,-2],['cushion',7,1.5,1]]},
  {id:'grand', note:'You have guessed by now. I am Bertha, the brown hen in the loft, and the eggs were never for the shop. They hatch better somewhere soft. Look in your baskets. B.', n:'The grand delivery', t:'A goose egg from the top left corner to the far right one, with only six planks.', cargo:'goose', drop:[1.5,9.6], basket:[22,0], fixed:[[8,6.4,2,.12,0],[16,3.4,2,.12,0]], bin:{plank:6, cushion:2, hammock:1, seesaw:1, weight:2, block:2, balloon:1},
-  sol:[['plank',2.5,9.1,-1],['plank',5.5,8.05,-1],['plank',8.5,7,-1],['plank',11.5,5.95,-1],['plank',14.5,4.9,-1],['plank',17.5,3.5,-1]]},
+  sol:[['plank',2.5,9,-1],['plank',5.5,8,-1],['plank',8.5,7,-1],['plank',11.5,6,-1],['plank',14.5,5,-1],['plank',17.5,3.5,-1]]},
 ];
 
 // ---------- The ten tomorrows ----------
@@ -100,7 +100,7 @@ class Sim{
     const [dx,dy]=B.drop; for (const o of this.bodies) if (o.kind==='balloon'){ const p=o.b.getPosition(); if (Math.hypot(p.x-dx,p.y-dy)<3){ const c=this.cargo.b;
       w.createJoint(pl.RopeJoint({maxLength:Math.max(.8,Math.hypot(p.x-dx,p.y-dy))}, o.b, c, p, c.getPosition())); o.tied=c; } }
   }
-  makePart([t,x,y,turn],i){ const a=(turn||0)*15, w=this.world, out=[]; const push=(o)=>{ out.push(o); return o; };
+  makePart([t,x,y,turn],i){ x=Math.round(x*4)/4; y=Math.round(y*4)/4; turn=Math.round(turn||0); const a=turn*15, w=this.world, out=[]; const push=(o)=>{ out.push(o); return o; };
     switch(t){
       case 'plank': push(this.box('static',x,y,1.5,.1,a,{friction:.45},'plank')); break;
       case 'block': push(this.box('dynamic',x,y,.35,.35,a,{density:1,friction:.6},'block')); break;
@@ -224,9 +224,11 @@ const MECHS=[
  ['freefall','Lesson: free fall','✗','An egg fell for over a second untouched, then cracked.','Speed builds by 10 m/s every second of falling. Catch it early.'],
  ['burst','Lesson: the bubble','✗','A bubble burst.','A bubble lives by being left alone: let the air do the work.'],
  ['facedown','Lesson: face down','✗','The watch came to rest face down.','A box tumbles over its edge when it is tipped past its corner.'],
- ['torn','Lesson: the tear','✗','The jelly was stretched until it tore.','Soft things survive blows and fail under pulling: tension, not impact.'],
+ ['torn','Lesson: the split','✗','The jelly landed so hard it split in two.','Soft things spread a blow out by stretching; stretch them too far and they part.'],
 ];
 
-const G={pl, BW, BH, DT, TMAX, FUTURES, CARGO, CARGO_ORDER, PARTS, PTYPES, BENCHES, MECHS, Sim, runAll, futureParams, rng, costOf, score};
+// solver histograms: every passing machine a local search around each bench's scripted machine found (scratch tool, regenerated offline)
+const HIST={"first":{"cost":[[3,77]],"gentle":[[50,4],[60,18],[70,20],[80,17],[90,18]],"n":77},"zigzag":{"cost":[[4,4],[5,38],[6,70]],"gentle":[[70,5],[80,25],[90,82]],"n":112},"cushion":{"cost":[[4,27],[5,101]],"gentle":[[80,50],[90,74],[100,4]],"n":128},"hammock":{"cost":[[3,6],[4,85],[5,24],[6,39],[7,12]],"gentle":[[60,106],[70,44],[80,16]],"n":166},"wall":{"cost":[[6,18],[7,7],[8,51],[9,27],[10,16],[11,8]],"gentle":[[60,8],[70,108],[80,7],[90,4]],"n":127},"goose":{"cost":[[6,1],[7,5],[8,19],[9,53],[10,22],[11,28]],"gentle":[[80,36],[90,91],[100,1]],"n":128},"seesaw":{"cost":[[3,4],[4,49],[5,108],[6,32],[7,15],[8,2]],"gentle":[[60,11],[70,44],[80,45],[90,110]],"n":210},"handoff":{"cost":[[1,7],[2,80],[3,39],[4,59],[5,34],[6,3]],"gentle":[[80,146],[90,76]],"n":222},"parachute":{"cost":[[4,27],[5,155],[6,2],[7,29]],"gentle":[[10,3],[20,152],[30,57],[40,0],[50,1]],"n":213},"bubble":{"cost":[[2,112],[3,89],[4,48]],"gentle":[[40,147],[50,67],[60,0],[70,34],[80,1]],"n":249},"watch":{"cost":[[3,13],[4,39],[5,70],[6,32],[7,19]],"gentle":[[30,5],[40,68],[50,55],[60,0],[70,1],[80,44]],"n":173},"jelly":{"cost":[[1,2],[2,4],[3,45],[4,35],[5,41],[6,58],[7,18],[8,16],[9,3]],"gentle":[[80,21],[90,201]],"n":222},"grand":{"cost":[[5,7],[6,57],[7,18],[8,24],[9,30],[10,4],[11,4],[12,1]],"gentle":[[80,1],[90,134],[100,10]],"n":145}};
+const G={HIST, pl, BW, BH, DT, TMAX, FUTURES, CARGO, CARGO_ORDER, PARTS, PTYPES, BENCHES, MECHS, Sim, runAll, futureParams, rng, costOf, score};
 if (typeof module!=='undefined' && module.exports) module.exports=G; else root.GM=G;
 })(typeof self!=='undefined'? self : this);

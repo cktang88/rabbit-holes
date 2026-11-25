@@ -43,7 +43,7 @@ module.exports = {
     },
     'tag on a card filters to that tag; search narrows; no-match message': async ({ page, ok }) => {
       await page.click('#vibes [data-tag="quick"]');
-      await page.click('article.card[data-id="ruin"] .t[data-tag="maths"]');
+      await page.click('article.card[data-id="gridlock"] .t[data-tag="maths"]');
       const ids = [...new Set((await cards(page)).map(c => c[0]))];
       ok(ids.includes('ruin') && ids.includes('gridlock') && ids.includes('escapement') && !ids.includes('caravan'), ids.join());
       await page.fill('#q', 'zzzz-nothing'); await page.waitForTimeout(300);

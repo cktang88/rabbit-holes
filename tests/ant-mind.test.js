@@ -1,229 +1,126 @@
-// Ant Mind: map data, pathfinding, scent painting, goals/stars, saves and input.
-const paintTrail = `(mi) => { const A = window.__ant; const cv = document.getElementById('cv'), rc = cv.getBoundingClientRect();
-  const ev = (x, y) => { const q = A.toScreen(x, y); return { clientX: q[0], clientY: q[1] }; };
-  let k = -1, bd = 1e9; for (let i = 0; i < A.W * A.H; i++) if (A.food[i] > 0 && A.home[i] < bd) { bd = A.home[i]; k = i; }
-  const path = []; let x = k % A.W, y = (k / A.W) | 0;
-  for (let s = 0; s < 400; s++) { path.push([x, y]); let bx = x, by = y, bv = A.home[A.idx(x, y)];
-    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= A.W || Y >= A.H) continue; if (A.home[A.idx(X, Y)] < bv) { bv = A.home[A.idx(X, Y)]; bx = X; by = Y; } }
-    if (bx === x && by === y) break; x = bx; y = by; }
-  path.reverse(); A.strokeStart(); A.painting = 1; A.brush = 'forage'; for (let i = 0; i < path.length; i += 2) A.paint(ev(path[i][0] + 0.5, path[i][1] + 0.5)); A.painting = 0; }`;
-// The harness clears localStorage on every navigation; this injects a save that survives the reload (init scripts run in order)
-const reloadWith = async (page, key, v) => { await page.addInitScript(([k, val]) => { try { localStorage.setItem(k, val); } catch (e) {} }, [key, v]); await page.reload(); };
-// Colony bots for the difficulty test: idle (the map's starting chemistry), greedy (max trail, no evaporation, no wandering), and a tuned chemistry a thoughtful player finds
-const BOT = "window.__antbot=(mi,policy,seedShift=0)=>{ const A=window.__ant; RH.modal=()=>Promise.resolve(); RH.toast=()=>{};\n  for (let i=0;i<20;i++) A.SAVE.stars[i]=A.SAVE.stars[i]||1; A.openMap(mi); A.paused=true; const M=A.MAPS[mi];\n  const rc=document.getElementById('cv').getBoundingClientRect(); const ev=(x,y)=>{ const q=A.toScreen(x,y); return {clientX:q[0], clientY:q[1]}; };\n  const stroke=(pts,brush)=>{ A.brush=brush; A.strokeStart(); A.painting=1; for (const [x,y] of pts) A.paint(ev(x+0.5,y+0.5)); A.painting=0; };\n  const pathTo=(k)=>{ const path=[]; let x=k%A.W,y=(k/A.W)|0; for(let s=0;s<400;s++){ path.push([x,y]); let bx=x,by=y,bv=A.home[A.idx(x,y)]; for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]){ const X=x+dx,Y=y+dy; if(X<0||Y<0||X>=A.W||Y>=A.H) continue; if(A.home[A.idx(X,Y)]<bv){bv=A.home[A.idx(X,Y)];bx=X;by=Y;} } if(bx===x&&by===y) break; x=bx;y=by; } return path.reverse(); };\n  const rng=RH.rng(77+seedShift); document.getElementById('ratio').value=10; // every policy starts from the default hatch ratio\n  if (policy==='random') A.setChem({dep:20+rng()*180, evap:rng()*100, noise:rng()*100});\n  if (policy==='greedy') A.setChem({dep:200, evap:0, noise:0});\n  const chemFor=(M)=> M.moving? {dep:110,evap:85,noise:50} : M.rain? {dep:200,evap:30,noise:25} : M.cold? {dep:150,evap:35,noise:25} : M.layout? {dep:100,evap:85,noise:40} : {dep:130,evap:45,noise:30};\n  if (policy==='competent') A.setChem(chemFor(M));\n  let scout=true; if (policy.startsWith('chem:')){ const [d,e,n,ra,sc]=policy.slice(5).split('/').map(Number); A.setChem({dep:d,evap:e,noise:n}); document.getElementById('ratio').value= Number.isFinite(ra)? ra : (M.rival||M.spider)?35:0; if (sc===0) scout=false; }\n  if (policy==='competent') document.getElementById('ratio').value = (M.rival||M.spider)? 35 : 0;\n  let t=0;\n  for (; t<M.t*20 && !A.gameOver; t++){\n    if ((policy==='competent'||policy.startsWith('chem:')) && t%300===0){\n      let k=-1,bd=1e9; for(let i=0;i<A.W*A.H;i++) if(A.food[i]>0&&A.home[i]<bd){bd=A.home[i];k=i;} if (k>=0 && !(M.layout) && scout) stroke(pathTo(k).filter((_,i)=>i%2===0).slice(0,60),'forage');\n      const foes=[...A.spiders.filter(s=>s.hp>0)]; if (A.nests[1]&&A.nests[1].hp>0) foes.push(A.nests[1]);\n      if (foes.length && A.unlockedScent(A.SCENTS[1])){ const f=foes[0]; stroke(pathTo(A.idx(f.x|0,f.y|0)).filter((_,i)=>i%2===0),'alarm'); }\n    }\n\n    A.stepWorld(0.05);\n  }\n  const [v,n]=A.goalProgress(); return {mi, policy, won: v>=n, stars: v>=n? A.SAVE.stars[mi] : 0, t:Math.round(t/20), v:Math.round(v), n:Math.round(n)};\n};\n";
+// Ant Mind: the colony runs an instinct card the player writes. These tests drive the real simulation in the page (window.__ant.S)
+// with bots: idle and random cards fail, the card you arrive with fails the next chamber, a competent adaptive card wins,
+// no fixed card survives every Colony Years seed, runs are deterministic, saves survive corruption, and the UI edits live.
+const reloadWith = async (page, key, v) => { await page.addInitScript(([k, val]) => { try { localStorage.setItem(k, val); } catch (e) {} }, [key, v]); await page.reload(); await page.waitForTimeout(500); };
+// the adaptive Colony Years bot: reads the season's tags (shown to the player before each season) and picks a card for them
+const ADAPT = `(sea) => { const t = sea.tags;
+  if (t.includes('cold')) return (t.includes('spider')?'danger>flee,':'')+'always>pick,carry>mark,always>revisit,scout>wander,always>home';
+  if (t.includes('spider') && t.includes('rain')) return 'danger>flee,always>pick,carry>mark,tired>home,always>revisit,always>trail';
+  if (t.includes('spider')) return 'danger>flee,always>pick,carry>mark,tired>home,always>trail';
+  if (t.includes('rain')) return 'always>pick,carry>mark,tired>home,always>revisit,always>trail';
+  return 'always>pick,carry>mark,tired>home,always>trail'; }`;
+const YEARS = (cards, seeds, adapt) => `(() => { const S = window.__ant.S, adapt = ${adapt || 'null'}; const out = {};
+  for (const [name, card] of Object.entries(${JSON.stringify(cards)})) { out[name] = [];
+    for (const sd of ${JSON.stringify(seeds)}) { let col = 45, k = 0, fails = 0;
+      for (; k < 12 && col >= 20 && fails < 3; k++) { const sea = S.season(sd, k, col); const r = S.run(sea.spec, 'y:' + sd + ':' + k, card || adapt(sea)); if (!r.won) fails++; col = S.after(col, r, sea.spec); }
+      out[name].push(col >= 20 && fails < 3 ? k : k - 1); } }
+  return out; })()`;
+
 module.exports = {
   page: 'ant-mind/index.html',
-  ready: async (page) => { await page.waitForFunction(() => window.__ant && window.__ant.G); await page.evaluate(() => { document.querySelectorAll('.modal-bg').forEach(m => m.remove()); window.__ant.paused = true; RH.modal = (h) => { window.__lastModal = h; return Promise.resolve(); }; }); },
   tests: {
-    'every map is winnable on paper: enough reachable food, reachable spiders and rival nest, nests on open ground, not won at start': async ({ page, ok }) => {
-      const bad = await page.evaluate(() => {
-        const A = window.__ant, bad = [];
-        A.MAPS.forEach((M, i) => { A.build(i);
-          const seen = new Uint8Array(A.W * A.H), q = [A.idx(A.nests[0].x, A.nests[0].y)]; seen[q[0]] = 1;
-          for (let h = 0; h < q.length; h++) { const j = q[h], x = j % A.W, y = (j / A.W) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= A.W || Y >= A.H) continue; const k = A.idx(X, Y); if (!seen[k] && A.G[k] !== A.ROCK) { seen[k] = 1; q.push(k); } } }
-          let reach = 0; for (let k = 0; k < A.W * A.H; k++) if (seen[k]) reach += A.food[k];
-          if (M.g.type === 'food' && reach < M.g.n * 2) bad.push(`${i} food ${reach}<${M.g.n * 2}`);
-          if (M.g.type === 'kill' && A.spiders.length < M.g.n) bad.push(i + ' too few spiders');
-          A.spiders.forEach((sp, k) => { if (!A.passable(sp.x, sp.y) || !(A.home[A.idx(sp.x | 0, sp.y | 0)] < 1e9)) bad.push(`${i} spider ${k} stuck in ${A.G[A.idx(sp.x | 0, sp.y | 0)]}`); });
-          for (const n of A.nests) if (A.G[A.idx(n.x, n.y)] !== A.PASS) bad.push(i + ' nest blocked');
-          if (A.nests[1] && !(A.home[A.idx(A.nests[1].x, A.nests[1].y)] < 1e9) && !seen[A.idx(A.nests[1].x, A.nests[1].y)]) bad.push(i + ' rival unreachable');
-          if (M.g.type === 'nest' && !A.nests[1]) bad.push(i + ' nest goal without rival');
-          const [v, n] = A.goalProgress(); if (v >= n) bad.push(i + ' won at start');
-        });
-        return bad;
-      });
-      ok(!bad.length, bad.join(', '));
+    'loads into chamber 1 with a one-line card and ants already walking': async ({ page, eq, ok }) => {
+      const s = await page.evaluate(() => ({ ci: __ant.ci, card: __ant.S.text(__ant.card), ants: __ant.w.ants.length, t: __ant.w.t }));
+      eq(s.ci, 0); eq(s.card, 'always>wander'); ok(s.ants >= 40); ok(s.t > 0.3, 'the colony runs immediately: no intro wall');
+      ok(await page.locator('.rule.new.pulse button').isVisible(), 'the empty line invites the first tap');
     },
-    'pathfinding: home distance is 0 at the nest, 1 per step, 1.41 diagonal, and never through rock': async ({ page, near, eq }) => {
-      const r = await page.evaluate(() => {
-        const A = window.__ant; A.build(0); const G = A.G; G.fill(A.PASS); const n = { x: 50, y: 50 };
-        let d = A.bfs(n); const a = [d[A.idx(50, 50)], d[A.idx(53, 50)], d[A.idx(53, 53)], d[A.idx(50, 47)]];
-        for (let y = 0; y < A.H; y++) G[A.idx(60, y)] = A.ROCK; d = A.bfs(n);
-        return { a, wall: d[A.idx(61, 50)] };
-      });
-      eq(r.a.slice(0, 2), [0, 3]); near(r.a[2], 3 * 1.41, 1e-4); eq(r.a[3], 3); eq(r.wall, 1e9);
+    'every chamber: the card you arrive with fails, the reference card wins, idle fails': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const S = __ant.S, C = S.CHAMBERS; return C.map((c, i) => ({ n: c.n,
+        prev: S.run(c.spec, c.seed, i ? C[i - 1].ref : c.start).won, ref: S.run(c.spec, c.seed, c.ref).won, idle: S.run(c.spec, c.seed, 'always>wander').won,
+        lines: S.parse(c.ref).length, slots: c.slots, t: c.spec.t })); });
+      for (const c of r) { ok(!c.prev, `${c.n}: the previous card should fail`); ok(c.ref, `${c.n}: the reference card should win`); ok(!c.idle, `${c.n}: idle should fail`); ok(c.lines <= c.slots, `${c.n}: reference fits the card`); ok(c.t >= 60 && c.t <= 90, `${c.n}: resolves in 60–90 s`); }
     },
-    'ants lay their own trails: with no input the colony finds food slowly; a scout trail and stronger chemistry make it faster; no trail at all is slowest': async ({ page, ok }) => {
-      const r = await page.evaluate(`(() => { const A = window.__ant; const trail = ${paintTrail}; const run = (chem, scout) => { A.openMap(0); A.paused = true; if (chem) A.setChem(chem); let t = 0; for (; t < 150 * 20 && !A.gameOver; t++) { if (scout && t % 300 === 0) trail(0); A.stepWorld(0.05); } return [Math.round(t / 20), Math.round(A.delivered)]; };
-        return { idle: run(null, false), scout: run(null, true), strong: run({ dep: 150, evap: 35, noise: 25 }, false), none: run({ dep: 20, evap: 100, noise: 35 }, false) }; })()`);
-      ok(r.scout[0] < r.idle[0], 'scout trail speeds it up: ' + JSON.stringify(r)); ok(r.strong[0] < r.idle[0], 'stronger trail chemistry speeds it up: ' + JSON.stringify(r)); ok(r.none[0] > r.idle[0], 'without trails the colony is slowest: ' + JSON.stringify(r));
+    'random cards almost never win (naive play fails)': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const S = __ant.S, C = S.CHAMBERS, rr = S.rngOf('random-bot'); let wins = 0, n = 0;
+        C.forEach((c, i) => { const cs = new Set(['always']), as = new Set(['wander']); for (let j = 0; j <= i; j++) { (C[j].conds || []).forEach(k => cs.add(k)); (C[j].acts || []).forEach(k => as.add(k)); }
+          const cl = [...cs], al = [...as]; for (let k = 0; k < 8; k++) { const m = 1 + rr.int(c.slots), card = []; for (let q = 0; q < m; q++) card.push((rr() < .3 ? '!' : '') + cl[rr.int(cl.length)] + '>' + al[rr.int(al.length)]); n++; if (S.run(c.spec, c.seed, card.join(',')).won) wins++; } });
+        return { wins, n }; });
+      ok(r.wins / r.n < 0.08, `random cards won ${r.wins}/${r.n}`);
     },
-    'double bridge: on yesterday\'s long trail with slow evaporation the colony stays stuck; fast evaporation lets the short way win': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const A = window.__ant; for (let i = 0; i < 20; i++) A.SAVE.stars[i] = 1; const run = (chem) => { A.openMap(1); A.paused = true; if (chem) A.setChem(chem); let t = 0; for (; t < 200 * 20 && !A.gameOver; t++) A.stepWorld(0.05); const [v, n] = A.goalProgress(); return { won: v >= n, share: Math.round(A.bridgeShare() * 100), t: Math.round(t / 20) }; };
-        return { stuck: run(null), fast: run({ dep: 100, evap: 80, noise: 35 }) }; });
-      ok(!r.stuck.won && r.stuck.share < 50, 'stuck: ' + JSON.stringify(r.stuck)); ok(r.fast.won && r.fast.share >= 70, 'fast evaporation: ' + JSON.stringify(r.fast));
+    'line order matters: the same lines in the wrong order mill to death': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const S = __ant.S, c = S.CHAMBERS[2]; return [S.run(c.spec, c.seed, 'always>pick,carry>mark,tired>home,always>trail'), S.run(c.spec, c.seed, 'always>pick,carry>mark,always>trail,tired>home')]; });
+      ok(r[0].won && !r[1].won, 'tired above trail breaks the mill; below it does not'); ok(r[1].seen.includes('mill') && r[1].lost > 8, 'the wrong order shows a mill and deaths');
     },
-    'gland reserve never goes negative and an empty gland paints nothing; right-drag erases every scent': async ({ page, eq, ok }) => {
-      const r = await page.evaluate(() => {
-        const A = window.__ant, rc = document.getElementById('cv').getBoundingClientRect(); A.openMap(0); A.paused = true;
-        const ev = (x, y) => { const q = A.toScreen(x, y); return { clientX: q[0], clientY: q[1] }; };
-        A.painting = 1; let min = 1; for (let k = 0; k < 4000; k++) { A.paint(ev(20 + (k * 7) % 150, 10 + (k * 13) % 100)); min = Math.min(min, A.gland); } A.painting = 0;
-        const sum = () => A.scent.forage.reduce((s, v) => s + v, 0); const before = sum();
-        A.painting = 1; A.paint(ev(5, 5)); A.paint(ev(100, 100)); A.painting = 0; const after = sum();
-        A.scent.alarm[A.idx(60, 60)] = 1; A.scent.forage[A.idx(60, 60)] = 1; A.painting = -1; A.paint(ev(60.5, 60.5)); A.painting = 0;
-        return { min, gland: A.gland, grew: after - before, erased: [A.scent.alarm[A.idx(60, 60)], A.scent.forage[A.idx(60, 60)]] };
-      });
-      ok(r.min >= 0, 'gland ' + r.min); ok(r.gland <= 0.002, 'gland should be drained, got ' + r.gland); eq(r.grew, 0); eq(r.erased, [0, 0]);
+    'Colony Years: no fixed card survives every seed; idle dies fast': async ({ page, ok }) => {
+      const cards = { idle: 'always>wander', trail: 'always>pick,carry>mark,tired>home,always>trail', flee: 'danger>flee,always>pick,carry>mark,tired>home,always>trail',
+        rain: 'danger>flee,always>pick,carry>mark,tired>home,always>revisit,always>trail', winter: 'tired>home,always>pick,carry>mark,always>trail,scout>wander,always>home', fight: 'danger>attack,always>pick,carry>mark,tired>home,always>trail' };
+      const r = await page.evaluate(YEARS(cards, ['s1', 's2', 's3', 's4', 's5', 's6']));
+      for (const [n, v] of Object.entries(r)) ok(v.some(x => x < 12), `${n} survived every seed: ${v}`);
+      ok(r.idle.every(x => x <= 2), 'idle dies within two seasons: ' + r.idle);
     },
-    'scent fades over time and rain washes it away much faster': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const A = window.__ant; A.openMap(0); A.paused = true; const i = A.idx(100, 60);
-        A.scent.forage[i] = 1; for (let k = 0; k < 20; k++) A.stepWorld(0.05); const dry = A.scent.forage[i];
-        A.scent.forage[i] = 1; A.rainT = 5; for (let k = 0; k < 20; k++) A.stepWorld(0.05); const wet = A.scent.forage[i];
-        return { dry, wet }; });
-      ok(r.dry < 1 && r.dry > 0.6, 'dry decay ' + r.dry); ok(r.wet < 0.2 * r.dry, 'rain decay ' + r.wet);
+    'Colony Years: an adaptive card (re-written each season) survives': async ({ page, ok }) => {
+      const r = await page.evaluate(YEARS({ adapt: null }, ['s1', 's2', 's3', 's4', 's5', 's6'], ADAPT));
+      ok(r.adapt.filter(x => x >= 10).length >= 5, 'adaptive should last 10+ seasons on most seeds: ' + r.adapt);
     },
-    'goals: kills, rival nest and timeouts end the map correctly; stars only improve': async ({ page, eq, ok }) => {
-      const r = await page.evaluate(() => {
-        const A = window.__ant, out = {};
-        A.SAVE.stars[4] = 1; A.SAVE.stars[5] = 3; A.openMap(5); A.paused = true; A.kills = 1; A.checkEnd(); out.kill = [A.gameOver, A.SAVE.stars[5]];
-        A.SAVE.stars[10] = 1; A.openMap(11); A.paused = true; A.nests[1].hp = 0; A.checkEnd(); out.nest = A.gameOver;
-        A.openMap(0); A.paused = true; A.timeLeft = 0.01; A.stepWorld(0.05); out.timeout = [A.gameOver, /season ended/.test(window.__lastModal)];
-        A.openMap(0); A.paused = true; A.delivered = 50; A.timeLeft = 140; A.checkEnd(); out.fast = A.SAVE.stars[0];
-        A.openMap(0); A.paused = true; A.delivered = 50; A.timeLeft = 5; A.checkEnd(); out.slowAfterFast = A.SAVE.stars[0];
-        out.hub = JSON.parse(localStorage.getItem('rh:hub'))['ant-mind'];
-        return out;
-      });
-      eq(r.kill, [true, 3], 'a 1-star replay must not lower 3 stars'); eq(r.nest, true); eq(r.timeout, [true, true]); eq(r.fast, 3); eq(r.slowAfterFast, 3);
-      ok(r.hub > 0 && r.hub <= 1, 'hub ' + r.hub);
+    'deterministic per seed and card; different seeds differ': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const S = __ant.S, c = S.CHAMBERS[4]; const a = S.run(c.spec, 'x1', c.ref), b = S.run(c.spec, 'x1', c.ref), d = S.run(c.spec, 'x2', c.ref);
+        const s1 = S.season('2026-01-01', 3, 50), s2 = S.season('2026-01-01', 3, 50); return { a, b, d, same: JSON.stringify(s1) === JSON.stringify(s2) }; });
+      eq(r.a, r.b); ok(JSON.stringify(r.a) !== JSON.stringify(r.d)); ok(r.same);
     },
-    'nothing leaks from one map into the next (dig field, particles, hatch timers, deliveries)': async ({ page, eq }) => {
-      const r = await page.evaluate(() => { const A = window.__ant; A.SAVE.stars[2] = 1; A.openMap(3); A.paused = true; A.scent.dig.fill(1); for (let k = 0; k < 10; k++) A.stepWorld(0.05); A.delivered = 33;
-        const was = A.digMixOn; A.openMap(0); return [was, A.digMixOn, A.fx.length, A.hatchT, A.delivered]; });
-      eq(r, [true, false, 0, 0, 0]);
+    'editing a line applies to the running colony at once (no reset)': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { __ant.paused = true; __ant.run(200); });
+      const t0 = await page.evaluate(() => __ant.w.t);
+      await page.click('.rule.new button'); await page.click('#picker .opts button:has-text("pick up food")');
+      const s = await page.evaluate(() => ({ t: __ant.w.t, card: __ant.S.text(__ant.card) }));
+      eq(s.card, 'always>wander,always>pick'); ok(Math.abs(s.t - t0) < 1e-9, 'the world was not reset');
+      // the new line sits below "always wander", so nobody runs it: move it up from its action picker
+      await page.click('.rule .act[data-i="1"]'); await page.click('#picker [data-mv="-1"]');
+      eq(await page.evaluate(() => __ant.S.text(__ant.card)), 'always>pick,always>wander');
+      await page.evaluate(() => __ant.run(100));
+      const used = await page.evaluate(() => __ant.w.counts[0] + __ant.w.ants.filter(a => a.carry).length);
+      ok(used > 0, 'ants obey the new line: some are carrying');
+      // conditions: unless + carrying
+      await page.click('.rule .cond[data-i="1"]'); await page.click('#picker [data-neg="1"]'); await page.click('#picker .opts button:has-text("carrying food")');
+      eq(await page.evaluate(() => __ant.S.text(__ant.card)), 'always>pick,!carry>wander');
     },
-    'locked maps cannot be opened; corrupted saves load safely': async ({ page, eq }) => {
-      const r = await page.evaluate(() => { const A = window.__ant; document.querySelector('[data-m="6"]').click(); A.openMap(9);
-        return [A.mapI, A.cleanSave(null), A.cleanSave({ stars: { 0: 3, 1: 7, 50: 2 }, ups: ['legs', 'bogus', 3], cur: 99 })]; });
-      eq(r[0], 0); eq(r[1], { years: {}, stars: {}, ups: [], chem: { dep: 100, evap: 50, noise: 35 }, chemSet: {}, cur: 0 }); eq(r[2], { stars: { 0: 3 }, ups: ['legs'], cur: 0, years: {}, chem: { dep: 100, evap: 50, noise: 35 }, chemSet: {} });
-      for (const bad of ['{bad', 'null', '"str"', '{"stars":[],"ups":"x","cur":15}']) {
-        await reloadWith(page, 'rh:ant', bad); await page.waitForFunction(() => window.__ant && window.__ant.G);
-        eq(await page.evaluate(() => window.__ant.mapI), 0, bad);
+    'locked pieces show as ? and cannot be chosen': async ({ page, ok }) => {
+      await page.click('.rule .act[data-i="0"]');
+      const dis = await page.locator('#picker .opts button:disabled').count(); ok(dis >= 6, 'later actions are locked in chamber 1: ' + dis);
+      await page.keyboard.press('Escape');
+    },
+    'the scent brush is scarce: painting spends the gland and lays trail': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const A = __ant, w = A.w; const g0 = w.gland; let laid = 0; for (let x = 30; x < 110; x += 0.8) A.S.paint(w, x, 40, false);
+        for (let i = 0; i < w.trail.length; i++) laid += w.trail[i]; return { g0, g1: w.gland, laid }; });
+      ok(r.g0 > 0.9 && r.g1 < 0.15, `gland ${r.g0} -> ${r.g1}`); ok(r.laid > 20);
+      // real pointer painting on the canvas
+      await page.evaluate(() => { __ant.w.gland = 1; __ant.paused = true; });
+      const a = await page.evaluate(() => __ant.toScreen(60, 20)), b = await page.evaluate(() => __ant.toScreen(90, 20));
+      await page.mouse.move(a[0], a[1]); await page.mouse.down(); for (let k = 1; k <= 10; k++) await page.mouse.move(a[0] + (b[0] - a[0]) * k / 10, a[1]); await page.mouse.up();
+      ok(await page.evaluate(() => __ant.w.gland < 0.9 && __ant.w.trail[__ant.S.idx(75, 20)] > 0.3), 'dragging paints');
+    },
+    'winning a chamber saves the best, opens the next and keeps the card': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { __ant.setCard('always>pick,carry>home'); __ant.paused = true; __ant.run(2000); });
+      ok(await page.evaluate(() => __ant.ended && __ant.w.won));
+      await page.waitForSelector('.modal', { timeout: 4000 });
+      ok(await page.locator('.modal').textContent().then(t => /par/.test(t)), 'result shows axes vs par');
+      await page.click('.modal button:has-text("Next chamber")');
+      const s = await page.evaluate(() => ({ ci: __ant.ci, card: __ant.S.text(__ant.card), best: __ant.SAVE.best[0] }));
+      eq(s.ci, 1); eq(s.card, 'always>pick,carry>home'); ok(s.best && s.best.lines === 2);
+      const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:ant')));
+      ok(stored.best[0] && stored.v === 2);
+    },
+    'failing shows a diagnosis and retry is one tap': async ({ page, ok }) => {
+      await page.evaluate(() => { __ant.openChamber(0); __ant.paused = true; __ant.run(3000); });
+      await page.waitForSelector('.modal', { timeout: 3000 });
+      const t = await page.locator('.modal').textContent(); ok(/food/.test(t), t);
+      const t0 = Date.now(); await page.click('.modal button'); ok(await page.evaluate(() => !__ant.ended && __ant.w.t < 1)); ok(Date.now() - t0 < 2000);
+    },
+    'corrupted saves are survived': async ({ page, ok }) => {
+      for (const bad of ['{', 'null', '[]', '{"v":2,"best":{"0":{"t":"x","lost":null},"99":{}},"cur":42,"card":"always>explode,carry>home,!!x>y","seen":"yes","years":{"<script>":5,"ok":"9"}}', '{"v":2,"cards":{"0":5,"7":"always>pick"},"ycard":3}']) {
+        await reloadWith(page, 'rh:ant', bad);
+        const s = await page.evaluate(() => ({ ci: __ant.ci, card: __ant.S.text(__ant.card), ants: __ant.w.ants.length, best: Object.keys(__ant.SAVE.best).length }));
+        ok(s.ants > 0 && s.ci === 0, 'game boots from ' + bad); ok(!/explode/.test(s.card));
       }
     },
-    'real mouse and touch both paint forage scent on the canvas': async ({ page, ok }) => {
-      const box = await page.evaluate(() => document.getElementById('cv').getBoundingClientRect().toJSON());
-      await page.mouse.move(box.x + 60, box.y + 60); await page.mouse.down(); await page.mouse.move(box.x + 200, box.y + 120, { steps: 8 }); await page.mouse.up();
-      const m = await page.evaluate(() => window.__ant.scent.forage.reduce((s, v) => s + v, 0));
-      ok(m > 1, 'mouse painted ' + m);
-      const t = await page.evaluate(() => { const A = window.__ant; A.scent.forage.fill(0); const cv = document.getElementById('cv'), r = cv.getBoundingClientRect();
-        const ev = (ty, x, y) => new PointerEvent(ty, { clientX: r.left + x, clientY: r.top + y, pointerId: 3, pointerType: 'touch', bubbles: true, isPrimary: true, button: 0, buttons: 1 });
-        cv.dispatchEvent(ev('pointerdown', 80, 80)); for (let k = 1; k < 10; k++) cv.dispatchEvent(ev('pointermove', 80 + k * 15, 80 + k * 5)); window.dispatchEvent(ev('pointerup', 230, 130));
-        return [A.scent.forage.reduce((s, v) => s + v, 0), A.painting]; });
-      ok(t[0] > 1 && t[1] === 0, 'touch painted ' + JSON.stringify(t));
-    },
-    'newcomers who have not painted get a hint banner': async ({ page, ok }) => {
-      const b = await page.evaluate(() => { const A = window.__ant; A.openMap(0); A.paused = true; for (let k = 0; k < 9 * 20; k++) A.stepWorld(0.05); return document.getElementById('banner').textContent; });
-      ok(/find food on their own/i.test(b), b);
-    },
-    'windfalls: none on the first map; later maps drop food somewhere reachable, 28-95 steps from the nest': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(() => {
-        const A = window.__ant; A.openMap(0); A.paused = true; const first = A.windT;
-        A.SAVE.stars[0] = A.SAVE.stars[1] = 1; A.openMap(2); A.paused = true; const out = [];
-        for (let k = 0; k < 6; k++) { const before = A.food.reduce((s, v) => s + v, 0); const w = A.windfall(); const after = A.food.reduce((s, v) => s + v, 0); out.push(w ? [A.home[A.idx(w.x, w.y)], after - before] : null); }
-        A.windT = 0.01; A.stepWorld(0.05); const timed = A.windfalls.length;
-        return { first, out, timed, banner: document.getElementById('banner').textContent };
-      });
-      eq(r.first, 1e9, 'no windfalls while learning');
-      ok(r.out.every(w => w && w[0] >= 28 && w[0] <= 95 && w[1] > 0), JSON.stringify(r.out)); ok(r.timed >= 7, 'the timer drops one too'); ok(/Fresh food/.test(r.banner), r.banner);
-    },
-    'tallies: one stroke per unit, gates of five, coarser units for big numbers': async ({ page, eq }) => {
-      const r = await page.evaluate(() => { const t = window.__ant.tally; const strokes = (h) => (h.match(/M/g) || []).length; return [strokes(t(0)), strokes(t(4)), strokes(t(5)), strokes(t(12)), /×10/.test(t(120)), strokes(t(120)), /×100/.test(t(1300)), / 1300$/.test(t(1300))]; });
-      eq(r, [0, 4, 5, 12, true, 12, true, true]);
-    },
-    'a win grows the tunnel bloom first, then shows the result': async ({ page, ok }) => {
-      const r = await page.evaluate(async () => { const A = window.__ant; window.__lastModal = null; A.openMap(0); A.paused = true; A.delivered = 50; A.checkEnd();
-        const early = [!!A.winFx, A.winFx && A.winFx.segs.length, window.__lastModal]; await new Promise(res => setTimeout(res, 2100)); return { early, late: window.__lastModal }; });
-      ok(r.early[0] && r.early[1] > 50 && r.early[2] === null, JSON.stringify(r.early)); ok(/colony thrives/.test(r.late), 'modal after the bloom');
-    },
-    'phones: portrait turns the map on its side, touch maps back to the right cell, and the panel lives in a drawer': async ({ page, ok, eq }) => {
-      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(700);
-      const r = await page.evaluate(() => { const A = window.__ant, cv = document.getElementById('cv'), rc = cv.getBoundingClientRect(), c = A.cell;
-        const a = A.toScreen(0, 0), b = A.toScreen(A.W, A.H); const mapArea = Math.abs(b[0] - a[0]) * Math.abs(b[1] - a[1]);
-        const [sx, sy] = A.toScreen(50, 30); const turned = Math.abs(b[1] - a[1]) > Math.abs(b[0] - a[0]); const back = A.toCell({ clientX: sx, clientY: sy });
-        const sideHidden = getComputedStyle(document.getElementById('side')).visibility; document.getElementById('drawerBtn').click(); const sideOpen = getComputedStyle(document.getElementById('side')).visibility;
-        return { rot: A.rotated, turned, back, area: mapArea / (390 * 844), sideHidden, sideOpen }; });
-      eq([r.rot, r.turned], [true, true]); ok(Math.abs(r.back[0] - 50) < 0.01 && Math.abs(r.back[1] - 30) < 0.01, JSON.stringify(r.back)); ok(r.area > 0.45, 'map area ' + r.area);
-      eq([r.sideHidden, r.sideOpen], ['hidden', 'visible']);
-      await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(300);
-      eq(await page.evaluate(() => window.__ant.rotated), false, 'landscape phones keep the map upright');
-    },
-    'pan and zoom: scent painted while zoomed lands under the finger, a pinch paints nothing, and Fit frames the whole soil': async ({ page, ok, eq }) => {
-      await page.evaluate(() => { window.__ant.paused = true; window.__ant.scent.forage.fill(0); });
-      const rc = await page.evaluate(() => document.getElementById('cv').getBoundingClientRect().toJSON());
-      await page.mouse.move(rc.x + rc.width / 2, rc.y + rc.height / 2); await page.mouse.wheel(0, -400); await page.waitForTimeout(80);
-      const z = await page.evaluate(() => { const A = window.__ant; return { k: A.cam.k }; });
-      await page.mouse.move(rc.x + rc.width / 2 - 100, rc.y + rc.height / 2); await page.mouse.down(); await page.mouse.up();
-      const hit = await page.evaluate(() => { const A = window.__ant, f = A.scent.forage; let sx = 0, sy = 0, n = 0; for (let i = 0; i < f.length; i++) if (f[i] > 0) { sx += (i % A.W) * f[i]; sy += ((i / A.W) | 0) * f[i]; n += f[i]; } return [sx / n, sy / n, n]; });
-      const want = await page.evaluate((q) => window.__ant.toCell({ clientX: q[0], clientY: q[1] }), [rc.x + rc.width / 2 - 100, rc.y + rc.height / 2]);
-      ok(hit[2] > 0 && Math.hypot(hit[0] - want[0], hit[1] - want[1]) < 1.5, 'painted under the cursor: ' + JSON.stringify({ hit, want, z }));
-      const p = await page.evaluate(async () => { const A = window.__ant, cv = document.getElementById('cv'); A.scent.forage.fill(0); A.cam.fit(); const k0 = A.cam.k;
-        const ev = (t, id, x, y, tgt = cv) => tgt.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch', isPrimary: id === 1 }));
-        ev('pointerdown', 1, 300, 300); ev('pointerdown', 2, 360, 300); ev('pointermove', 1, 260, 300); ev('pointermove', 2, 400, 300); await new Promise(r => setTimeout(r, 90)); ev('pointermove', 1, 250, 300); ev('pointerup', 1, 250, 300); ev('pointerup', 2, 400, 300);
-        let n = 0; for (const v of A.scent.forage) if (v > 0) n++; const zoomed = A.cam.k / k0;
-        document.querySelector('.pz-fit').click(); await new Promise(r => setTimeout(r, 400)); const rc = cv.getBoundingClientRect(), a = A.toScreen(0, 0), b = A.toScreen(A.W, A.H);
-        return { painted: n, zoomed, fit: [Math.min(a[0], b[0]) >= rc.left - 1, Math.min(a[1], b[1]) >= rc.top - 1, Math.max(a[0], b[0]) <= rc.right + 1, Math.max(a[1], b[1]) <= rc.bottom + 1] }; });
-      eq(p.painted, 0, 'a pinch paints nothing'); ok(p.zoomed > 1.5, 'the pinch zoomed ' + p.zoomed); eq(p.fit, [true, true, true, true], 'Fit frames the soil');
-    },
-    'Colony Years: seasons are generated deterministically from the seed, and a link opens a run': async ({ page, eq, ok }) => {
-      const r = await page.evaluate(() => { const A = window.__ant; const g1 = JSON.stringify([0, 1, 2, 3, 7].map(k => A.genSeason('abc', k, 60))), g2 = JSON.stringify([0, 1, 2, 3, 7].map(k => A.genSeason('abc', k, 60)));
-        const g3 = JSON.stringify([0, 1, 2, 3, 7].map(k => A.genSeason('xyz', k, 60)));
-        const hashG = () => { let h = 2166136261; for (let i = 0; i < A.G.length; i++) { h ^= A.G[i] + (A.food[i] > 0 ? 7 : 0); h = Math.imul(h, 16777619); } return h >>> 0; };
-        A.startYears('abc'); const h1 = hashG(); A.startYears('abc'); const h2 = hashG(); A.startYears('xyz'); const h3 = hashG();
-        const seasons = [0, 1, 2, 3].map(k => A.genSeason('abc', k).n);
-        return { same: g1 === g2, differs: g1 !== g3, h: [h1 === h2, h1 !== h3], seasons, mode: A.mapI === A.GEN }; });
-      ok(r.same && r.differs, 'generation per seed'); eq(r.h, [true, true]); eq(r.seasons, ['Year 1, spring', 'Year 1, summer', 'Year 1, autumn', 'Year 1, winter']); ok(r.mode);
-      await page.goto(page.url().replace(/#.*/, '') + '#years=linkseed'); await page.reload(); await page.waitForFunction(() => window.__ant && window.__ant.G);
-      eq(await page.evaluate(() => [window.__ant.years && window.__ant.years.seed, window.__ant.mapI === window.__ant.GEN]), ['linkseed', true]);
-    },
-    'Colony Years: new scents arrive with the seasons, not stats; a bigger colony must bring more food': async ({ page, eq, ok }) => {
-      const r = await page.evaluate(() => { const A = window.__ant; A.startYears('abc'); const u0 = A.SCENTS.map(s => A.unlockedScent(s));
-        A.years.k = 5; const u5 = A.SCENTS.map(s => A.unlockedScent(s)); return { u0, u5, small: A.genSeason('abc', 0, 40).g.n, big: A.genSeason('abc', 0, 150).g.n }; });
-      eq(r.u0, [true, false, false, false]); eq(r.u5, [true, true, true, true]); ok(r.big > r.small * 1.5, `need grows with the colony: ${r.small} → ${r.big}`);
-    },
-    'Colony Years: a competent colony survives six seasons on every seed tried; an idle one starves within three': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const A = window.__ant; RH.modal = () => Promise.resolve(); RH.toast = () => {}; const out = {};
-        const ev = (x, y) => { const q = A.toScreen(x, y); return { clientX: q[0], clientY: q[1] }; };
-        const stroke = (pts, brush) => { A.brush = brush; A.strokeStart(); A.painting = 1; for (const [x, y] of pts) A.paint(ev(x + 0.5, y + 0.5)); A.painting = 0; };
-        const pathTo = (k) => { const path = []; let x = k % A.W, y = (k / A.W) | 0; for (let s = 0; s < 400; s++) { path.push([x, y]); let bx = x, by = y, bv = A.home[A.idx(x, y)]; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= A.W || Y >= A.H) continue; if (A.home[A.idx(X, Y)] < bv) { bv = A.home[A.idx(X, Y)]; bx = X; by = Y; } } if (bx === x && by === y) break; x = bx; y = by; } return path.reverse(); };
-        for (const seed of ['a', 'b']) for (const pol of ['competent', 'idle']) { A.startYears(seed); A.paused = true;
-          for (let season = 0; season < 6 && !A.years.over; season++) { const M = A.MAP();
-            if (pol === 'competent') { A.setChem(M.moving ? { dep: 110, evap: 85, noise: 50 } : M.rain ? { dep: 200, evap: 30, noise: 25 } : M.cold ? { dep: 150, evap: 35, noise: 25 } : { dep: 130, evap: 45, noise: 30 }); document.getElementById('ratio').value = (M.rival || M.spider) ? 35 : 0; }
-            else document.getElementById('ratio').value = 10;
-            for (let t = 0; t < M.t * 20 && !A.gameOver; t++) {
-              if (pol === 'competent' && t % 300 === 0) { let k = -1, bd = 1e9; for (let i = 0; i < A.W * A.H; i++) if (A.food[i] > 0 && A.home[i] < bd) { bd = A.home[i]; k = i; } if (k >= 0) stroke(pathTo(k).filter((_, i) => i % 2 === 0).slice(0, 60), 'forage');
-                const foes = [...A.spiders.filter(s => s.hp > 0)]; if (A.nests[1] && A.nests[1].hp > 0) foes.push(A.nests[1]); if (foes.length && A.unlockedScent(A.SCENTS[1])) { const f = foes[0]; stroke(pathTo(A.idx(f.x | 0, f.y | 0)).filter((_, i) => i % 2 === 0), 'alarm'); } }
-              A.stepWorld(0.05); }
-            A.advanceYears(); }
-          out[seed + ':' + pol] = A.years.over ? A.years.k - 1 : A.years.k; }
-        return out; });
-      ok(r['a:competent'] >= 6 && r['b:competent'] >= 6, 'competent: ' + JSON.stringify(r)); ok(r['a:idle'] <= 3 && r['b:idle'] <= 3, 'idle: ' + JSON.stringify(r));
-    },
-    'difficulty: on late maps idle and greedy chemistry fail; a chemistry tuned to the season wins, but not with three stars': async ({ page, ok }) => {
-      await page.addScriptTag({ content: BOT });
-      const r = await page.evaluate(() => { const out = []; for (const [mi, tuned] of [[16, 'chem:200/45/50'], [18, 'chem:110/85/50']]) for (const pol of ['idle', 'greedy', tuned]) { const A = window.__ant; A.SAVE.stars = {}; const x = window.__antbot(mi, pol); out.push([mi, pol, x.won, x.stars]); } return out; });
-      const naive = r.filter(x => x[1] === 'idle' || x[1] === 'greedy'), tuned = r.filter(x => x[1].startsWith('chem:'));
-      ok(naive.filter(x => x[2] && x[3] > 1).length === 0 && naive.filter(x => x[2]).length <= naive.length * 0.2, 'naive: ' + JSON.stringify(naive));
-      ok(tuned.every(x => x[2]), 'tuned should win: ' + JSON.stringify(tuned)); ok(tuned.every(x => x[3] < 3), 'three stars need better than a simple tuning: ' + JSON.stringify(tuned));
-    },
-    'no map is unwinnable: encoded strategies win the hardest maps (Spider Season, Two Fronts, First Frost, Siege, The Long Winter), where idle play fails': async ({ page, ok }) => {
-      await page.addScriptTag({ content: BOT });
-      // strategy = trail strength / evaporation / wandering / % soldiers hatched [/ 0 = no scout trails]
-      const plan = { 9: 'chem:200/40/20/60/0', 13: 'chem:150/40/20/80', 15: 'chem:150/90/50/0', 17: 'chem:150/40/20/80', 19: 'chem:150/80/50/40' };
-      const r = await page.evaluate((plan) => { const out = []; for (const [mi, pol] of Object.entries(plan)) { window.__ant.SAVE.stars = {}; const w = window.__antbot(+mi, pol); window.__ant.SAVE.stars = {}; const idle = window.__antbot(+mi, 'idle'); out.push([+mi, w.won, idle.won && idle.stars > 1]); } return out; }, plan);
-      for (const [mi, won, idleGood] of r) { ok(won, `map ${mi + 1}: the encoded strategy should win`); ok(!idleGood, `map ${mi + 1}: idle play should not win well`); }
-    },
-    'ant mill: on Death Spiral the foragers circle a closed trail and starve; fast evaporation or a wiped gap breaks the mill': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const A = window.__ant; for (let i = 0; i < 20; i++) A.SAVE.stars[i] = 1; const rc = document.getElementById('cv').getBoundingClientRect();
-        const run = (chem, wipe) => { A.openMap(7); A.paused = true; if (chem) A.setChem(chem); let t = 0, peak = 0;
-          if (wipe){ const m = A.mill; A.strokeStart(); A.painting = -1; for (let d = -6; d <= 6; d++) A.paint((q => ({ clientX: q[0], clientY: q[1] }))(A.toScreen(m.x + m.r + d, m.y))); A.painting = 0; }
-          for (; t < 200 * 20 && !A.gameOver; t++) { A.stepWorld(0.05); if (t === 400) peak = A.millShare(); } const [v, n] = A.goalProgress(); return { won: v >= n, peak: Math.round(peak * 100), t: Math.round(t / 20), food: Math.round(A.delivered) }; };
-        return { idle: run(null), evap: run({ dep: 200, evap: 80, noise: 0 }) }; });
-      ok(!r.idle.won && r.idle.peak >= 80 && r.idle.food < 10, 'idle colony mills: ' + JSON.stringify(r.idle)); ok(r.evap.won, 'evaporation breaks the mill: ' + JSON.stringify(r.evap));
-    },
-    'mobile layout: no horizontal scroll and the map is fully visible': async ({ page, ok }) => {
-      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
-      const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect().toJSON() }));
-      ok(r.sw <= 390, 'scrollWidth ' + r.sw); ok(r.cv.left >= 0 && r.cv.right <= 390 && r.cv.width > 300, 'canvas ' + JSON.stringify(r.cv));
+    'a shared card link loads the card; Colony Years daily seed link works once open': async ({ page, ok, eq }) => {
+      await page.goto(page.url().split('#')[0] + '#c=1&card=' + encodeURIComponent('always>pick,carry>home,always>wander')); await page.reload(); await page.waitForTimeout(500);
+      eq(await page.evaluate(() => __ant.S.text(__ant.card)), 'always>pick,carry>home,always>wander');
+      const best = {}; for (let i = 0; i < 7; i++) best[i] = { t: 50, lost: 0, lines: 5 };
+      await reloadWith(page, 'rh:ant', JSON.stringify({ v: 2, best }));
+      await page.goto(page.url().split('#')[0] + '#years=2026-11-25'); await page.reload(); await page.waitForTimeout(500);
+      const y = await page.evaluate(() => ({ seed: __ant.years && __ant.years.seed, paused: __ant.paused, tags: __ant.years.sea.tags }));
+      eq(y.seed, '2026-11-25'); ok(y.paused, 'a season starts paused so you can edit first'); ok(y.tags.length >= 1);
+      ok(await page.locator('#yearsBox button:has-text("Today")').isVisible());
     },
   },
 };

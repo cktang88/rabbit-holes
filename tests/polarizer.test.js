@@ -1,6 +1,60 @@
 // Polarizer: quantum optics on a grid. Physics checked against analytic results; every level solvable,
 // unsolved at start, and wins need a deliberate (held) setting, not a sweep past the answer.
 const URL_ = 'polarizer/index.html';
+// a systematic prober for any grade of sealed box: enumerate every box the label allows, choose each probe by expected
+// information (minus a heavy penalty on the chance of detonating a bomb), update on each photon, sign the most likely box
+const BAYES_BOT = () => {
+  window.bayesBot = (X, grades, seeds, opts = {}) => {
+    const SRC = [{ x: 1, y: 4, d: 0, pol: 0 }], catchers = [[6, 0], [7, 0], [8, 0], [6, 8], [7, 8], [8, 8]];
+    const probes = [];
+    for (const th of [0, 30, 60, 90, 120, 150]) for (const an of [null, 0, 45, 90, 135]) probes.push([...(th ? [['hwp', 3, 4, th / 2, 1]] : []), ...(an == null ? [] : [['pol', 10, 4, an, 1]]), ['det', 12, 4, 0, 1], ...catchers.map(([x, y]) => ['det', x, y, 0, 1])]);
+    for (const [inp, bias, an] of [[0, 0], [0, 45], [0, 90], [0, 135], [15, 0], [15, 90], [0, 0, 45], [0, 90, 45]]) probes.push([...(inp ? [['hwp', 2, 4, inp, 1]] : []), ...(an ? [['pol', 11, 2, an, 1]] : []), ['bs', 3, 4, 0, 0], ['mirror', 3, 2, 0, 0], ['mirror', 10, 4, 0, 0], ['bs', 10, 2, 0, 0], ['det', 12, 2, 0, 1], ['det', 10, 0, 0, 1], ...(bias ? [['phase', 5, 2, bias, 1]] : []), ...catchers.map(([x, y]) => ['det', x, y, 0, 1])]);
+    for (const an of [0, 45, 90, 135]) probes.push([...[6, 7, 8].flatMap(x => [['pol', x, 1, an, 1], ['pol', x, 7, an, 1]]), ['det', 12, 4, 0, 1], ...catchers.map(([x, y]) => ['det', x, y, 0, 1])]); // analysers above and below the box, for light a mirror sends out of a side port
+    const asParts = pr => { let k = 0; return pr.map(([t, x, y, a, m]) => ({ t, x, y, a, m, ...(t === 'det' ? { id: 'P' + ++k } : {}) })); };
+    const cache = window.__bbCache ||= {};
+    const tables = (g, n) => { const key = g + ':' + n; if (cache[key]) return cache[key];
+      const G = X.GRADES[g], H = [], prior = [], picks = G.pick.filter(p => p.length === n);
+      const angs = k => k === 'pol' ? [...Array(180 / G.step).keys()].map(i => i * G.step) : k === 'hwp' ? [...Array(90 / G.step).keys()].map(i => i * G.step) : k === 'phase' ? [...Array(360 / G.step - 1).keys()].map(i => (i + 1) * G.step) : [null];
+      for (const pk of picks) { let combos = [[]]; for (const k of pk) combos = combos.flatMap(c => angs(k).map(a => [...c, a == null ? { k } : { k, a }])); for (const c of combos) { H.push(c); prior.push(1 / picks.length / combos.length); } }
+      const PP = probes.map(asParts), outs = PP.map(pp => [...pp.filter(p => p.t === 'det').map(p => p.id), 'BOMB']), K = outs.map(o => o.length);
+      const T = PP.map((_, j) => new Float32Array(H.length * K[j]));
+      H.forEach((h, i) => { const lv = { sources: SRC, fixed: X.boxParts({ els: h }) }; PP.forEach((pp, j) => { const hits = X.simulate(lv, pp).hits; outs[j].forEach((id, o) => { T[j][i * K[j] + o] = hits[id] ? hits[id].p : 0; }); }); });
+      const cls = new Int32Array(H.length), ids = new Map(); H.forEach((h, i) => { const sg = X.boxSig(h); if (!ids.has(sg)) ids.set(sg, ids.size); cls[i] = ids.get(sg); });
+      return cache[key] = { H, prior, T, K, outs, cls }; };
+    const lam = opts.lam ?? 30, res = [];
+    for (const g of grades) for (const sd of seeds) {
+      X.openBox(sd, g); const n = X.box.els.length, { H, prior, T, K, outs, cls } = tables(g, n);
+      let w = Float64Array.from(prior), act = [...H.keys()], cur = -1, shots = 0;
+      const ent = () => { let s = 0, z = 0; for (const i of act) z += w[i]; for (const i of act) { const p = w[i] / z; if (p > 0) s -= p * Math.log2(p); } return s; };
+      const choose = () => { let z = 0; for (const i of act) z += w[i]; let best = -1e9, bj = 0;
+        T.forEach((t, j) => { const k = K[j], po = new Float64Array(k + 1); let boom = 0, eig = 0;
+          for (const i of act) { const p = w[i] / z; let s = 0; for (let o = 0; o < k; o++) { po[o] += p * t[i * k + o]; s += t[i * k + o]; } po[k] += p * Math.max(0, 1 - s); boom += p * t[i * k + k - 1]; }
+          // expected information: H(outcome) − E_h H(outcome | h)
+          let Hy = 0; for (const q of po) if (q > 1e-12) Hy -= q * Math.log2(q); let Hc = 0;
+          for (const i of act) { const p = w[i] / z; let s = 0, e = 0; for (let o = 0; o < k; o++) { const q = t[i * k + o]; s += q; if (q > 1e-12) e -= q * Math.log2(q); } const r = 1 - s; if (r > 1e-12) e -= r * Math.log2(r); Hc += p * e; }
+          eig = Hy - Hc; const v = eig - lam * boom; if (v > best) { best = v; bj = j; } }); return bj; };
+      const setup = j => { if (j === cur) return; document.getElementById('rst').click(); for (const p of probes[j]) X.addPart(p[0], p[1], p[2], p[3], p[4]); cur = j; };
+      const map = () => { const m = new Map(); let z = 0; for (const i of act) { z += w[i]; m.set(cls[i], (m.get(cls[i]) || 0) + w[i]); } let bc = -1, bm = -1; for (const [c, v] of m) if (v > bm) { bm = v; bc = c; } let bi = -1; for (const i of act) if (cls[i] === bc && (bi < 0 || w[i] > w[bi])) bi = i; return [bi, bm / z]; };
+      while (X.bx.left > 0 && !X.bx.destroyed) {
+        const [, pm] = map(); if (pm > (opts.conf ?? .95) || shots >= (opts.cap ?? 220)) break;
+        if (shots % 5 === 0) setup(choose());
+        const before = { ...X.fires }; X.boxFire(1); shots++;
+        let o; if (X.bx.destroyed) o = K[cur] - 1; else { const id = Object.keys(X.fires).find(k => (X.fires[k] || 0) > (before[k] || 0)); o = id ? outs[cur].indexOf(id) : K[cur]; }
+        const k = K[cur], t = T[cur]; let mx = 0;
+        for (const i of act) { let q; if (o < k) q = t[i * k + o]; else { let s = 0; for (let u = 0; u < k; u++) s += t[i * k + u]; q = Math.max(0, 1 - s); } w[i] *= q + 1e-9; if (w[i] > mx) mx = w[i]; }
+        for (const i of act) w[i] /= mx; act = act.filter(i => w[i] > 1e-8);
+      }
+      if (X.bx.destroyed) { res.push({ g, sd, pay: -50, boom: 1, shots }); continue; }
+      const [bi, pm] = map(); let ans = H[bi];
+      if (pm < .5) { let z = 0; for (const i of act) z += w[i]; ans = H[bi].map((_, l) => { const m = new Map(); for (const i of act) { const e = H[i][l], k = e.k + ':' + (e.a ?? ''); m.set(k, (m.get(k) || 0) + w[i]); } let bk = null, bv = -1; for (const [k, v] of m) if (v > bv) { bv = v; bk = k; } const [k, a] = bk.split(':'); return a === '' ? { k } : { k, a: +a }; }); } // unsure of the whole: answer each line by its own best odds
+      ans.forEach((a, i) => { document.querySelector(`[data-ci="${i}"]`).value = a.k; document.querySelector(`[data-ca="${i}"]`).value = a.a == null ? '' : a.a; });
+      const c0 = X.bxSave().cash; document.getElementById('bSign').click(); const pay = X.bxSave().cash - c0;
+      res.push({ g, sd, pay, shots, pm: +pm.toFixed(2), truth: JSON.stringify(X.box.els), guess: JSON.stringify(ans) });
+    }
+    return res;
+  };
+};
+
 // known solutions: [type, x, y, angle, mirrorOrientation]
 const SOL = [
   [['pol', 7, 4, 45]],
@@ -320,6 +374,35 @@ module.exports = {
       eq(r.direct, [true, 1], 'the first photon straight through detonates a live bomb');
       ok(r.ev[0] >= 4 && r.ev[1] >= 8, 'an interferometer certifies some live bombs untouched (and loses some): ' + r.ev);
       eq(r.shop.slice(0, 2), [30, 2], 'bought a second filter'); ok(r.tray.includes('pol') && !r.tray.includes('bs') || r.tray.length >= 1, 'drawer shows what you own');
+    },
+    'sealed boxes, grades 3, 5 and 7: a systematic prober certifies most boxes and profits; guessing loses money': async ({ page, ok }) => {
+      await page.evaluate(BAYES_BOT);
+      const r = await page.evaluate(() => { FX.setMuted(true); const X = __pz; let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647; Math.random = rnd;
+        const o = { care: bayesBot(X, [3, 5, 7], [40, 41, 42, 43, 44, 45, 46, 47]), naive: [] };
+        for (const g of [3, 5, 7]) for (let sd = 140; sd < 148; sd++) { X.openBox(sd, g); const n = X.box.els.length, picks = X.GRADES[g].pick.filter(p => p.length === n), G = X.GRADES[g];
+          X.addPart('det', 12, 4); X.boxFire(20); if (X.bx.destroyed) { o.naive.push({ g, pay: -50 }); continue; }
+          const pk = picks[Math.floor(rnd() * picks.length)];
+          pk.forEach((k, i) => { document.querySelector(`[data-ci="${i}"]`).value = k; document.querySelector(`[data-ca="${i}"]`).value = k === 'pol' ? Math.floor(rnd() * 180 / G.step) * G.step : k === 'hwp' ? Math.floor(rnd() * 90 / G.step) * G.step : k === 'phase' ? (1 + Math.floor(rnd() * (360 / G.step - 1))) * G.step : ''; });
+          const c0 = X.bxSave().cash; document.getElementById('bSign').click(); o.naive.push({ g, pay: X.bxSave().cash - c0 }); }
+        const sum = a => a.reduce((x, v) => x + v.pay, 0), by = (a, g) => a.filter(v => v.g === g);
+        return { per: [3, 5, 7].map(g => [g, sum(by(o.care, g)), by(o.care, g).filter(v => v.pay > 100).length, sum(by(o.naive, g))]), booms: o.care.filter(v => v.boom).length }; });
+      for (const [g, care, perfect, naive] of r.per) { ok(care > 0 && naive < 0, `grade ${g}: careful +$${care}, guessing $${naive}`); ok(perfect >= 5, `grade ${g}: careful prober certified ${perfect}/8`); }
+      ok(r.booms <= 2, 'the careful prober rarely blows up a box: ' + r.booms);
+    },
+    'sealed boxes: a card describing a physically identical box is accepted; a certified card opens the next grade': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { FX.setMuted(true); const X = __pz, o = {};
+        // two half-wave plates only rotate by twice their difference: (75°, 60°) and (15°, 0°) are the same box
+        const sd = [...Array(400).keys()].find(k => { const e = X.genBox(k, 3).els; return e[0].k === 'hwp' && e[1].k === 'hwp' && e[0].a >= 15 && e[1].a >= 15; });
+        X.openBox(sd, 3); const e = X.box.els; o.truth = e;
+        const sign = ans => { ans.forEach((a, i) => { document.querySelector(`[data-ci="${i}"]`).value = a.k; document.querySelector(`[data-ca="${i}"]`).value = a.a; }); const c0 = X.bxSave().cash; document.getElementById('bSign').click(); return X.bxSave().cash - c0; };
+        o.same = X.boxSig(e) === X.boxSig([{ k: 'hwp', a: e[0].a - 15 }, { k: 'hwp', a: e[1].a - 15 }]);
+        o.pay = sign([{ k: 'hwp', a: e[0].a - 15 }, { k: 'hwp', a: e[1].a - 15 }]); o.grade = X.bxSave().grade;
+        X.openBox(sd, 3); o.wrong = sign([{ k: 'hwp', a: (e[0].a + 15) % 90 }, { k: 'hwp', a: e[1].a }]);
+        // a live bomb hides whatever is in front of it: the filter's angle in front of it can't be known, so it is not marked down
+        o.shadow = X.boxSig([{ k: 'pol', a: 30 }, { k: 'live' }]) === X.boxSig([{ k: 'pol', a: 120 }, { k: 'live' }]) && X.boxSig([{ k: 'pol', a: 30 }, { k: 'live' }]) !== X.boxSig([{ k: 'pol', a: 30 }, { k: 'dud' }]);
+        return o; });
+      ok(r.same, 'same signature'); ok(r.pay > 100, 'equivalent card certified: ' + r.pay + ' ' + JSON.stringify(r.truth)); eq(r.grade, 4, 'certifying a grade-3 box opens grade 4');
+      ok(r.wrong < 0, 'a genuinely different card is not: ' + r.wrong); ok(r.shadow, 'parts in a live bomb\'s shadow are free; live vs dud is not');
     },
     'progress and locked levels': async ({ page, eq, ok }) => {
       eq(await page.textContent('#title'), 'Sealed Boxes', 'a new player lands on the workbench');

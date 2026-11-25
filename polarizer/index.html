@@ -249,9 +249,9 @@ const GRADES = [null,
   { pick: [['pol'], ['hwp']], step: 15, budget: 180, fee: 80, label: 'one optic' },
   { pick: [['pol', 'pol'], ['hwp', 'pol'], ['pol', 'hwp'], ['hwp', 'hwp']], step: 15, budget: 240, fee: 110, label: 'two optics' },
   { pick: [['live'], ['dud']], step: 15, budget: 60, fee: 120, label: 'a bomb' },
-  { pick: [['phase'], ['hwp', 'phase']], step: 45, budget: 200, fee: 130, label: 'a delay' },
+  { pick: [['phase'], ['hwp', 'phase']], step: 15, budget: 200, fee: 130, label: 'a delay' },
   { pick: [['pol', 'live'], ['hwp', 'dud'], ['up'], ['down'], ['pol', 'up']], step: 15, budget: 160, fee: 140, label: 'mixed' },
-  { pick: [['hwp', 'pol', 'hwp'], ['pol', 'phase', 'live'], ['hwp', 'down'], ['phase', 'dud'], ['pol', 'pol', 'pol']], step: 5, budget: 300, fee: 180, label: 'three-part' }];
+  { pick: [['hwp', 'pol', 'hwp'], ['pol', 'phase', 'live'], ['hwp', 'down'], ['phase', 'dud'], ['pol', 'pol', 'pol']], step: 15, budget: 300, fee: 180, label: 'three-part' }];
 const BGMAX = GRADES.length - 1;
 function genBox(seed, grade) {
   grade = Math.max(1, Math.min(BGMAX, grade | 0)); seed = seed >>> 0;
@@ -260,6 +260,8 @@ function genBox(seed, grade) {
   // a box that does nothing visible to a bare beam would be unfair at grade 1: avoid a filter at 90° there (nothing ever gets through)
   if (grade === 1 && els[0].a > 60 && els[0].a < 120) els[0].a = [0, 15, 30, 45, 60, 120, 135, 150, 165][els[0].a % 9]; // the first boxes let at least a quarter of the light through
   if (grade === 2 && !els[0].a) els[0].a = 15; // a filter or wave plate at 0° does nothing to the laser's own light: indistinguishable at this grade
+  // two filters in a row near 90° apart make a box that is simply black: nothing to measure. Turn the second one 45° further
+  for (let i = 1; i < els.length; i++) if (els[i].k === 'pol' && els[i - 1].k === 'pol' && Math.abs(((els[i].a - els[i - 1].a) % 180 + 180) % 180 - 90) < 25) els[i].a = (els[i].a + 45) % 180;
   return { seed, grade, els, budget: G.budget, fee: G.fee };
 }
 // the hidden parts as real board parts (never drawn), plus inert filler so the whole box is sealed
@@ -275,14 +277,14 @@ function boxParts(B) {
 }
 const sharedBox = /box=\d+-\d/.test(location.hash);
 const dayNum = () => { const d = new Date(); return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate(); };
-function bxSave() { const S = obj(SAVE.bx), own = obj(S.own); const o = { cash: Number.isFinite(S.cash) ? Math.round(S.cash) : 100, grade: Number.isInteger(S.grade) && S.grade >= 1 && S.grade <= BGMAX ? S.grade : 1, top: Math.max(1, Math.min(BGMAX, S.top | 0)), seed: Number.isInteger(S.seed) && S.seed >= 0 ? S.seed : 1, n: Math.max(0, S.n | 0), own: {}, daily: obj(S.daily), d: S.d ? 1 : 0 };
+function bxSave() { const S = obj(SAVE.bx), own = obj(S.own); const o = { cash: Number.isFinite(S.cash) ? Math.round(S.cash) : 100, grade: Number.isInteger(S.grade) && S.grade >= 1 && S.grade <= BGMAX ? S.grade : 1, top: Math.max(1, Math.min(BGMAX, S.top | 0)), seed: Number.isInteger(S.seed) && S.seed >= 0 ? S.seed : 1, n: Math.max(0, S.n | 0), own: {}, daily: obj(S.daily), d: S.d ? 1 : 0 }; o.bg = Number.isInteger(S.bg) && S.bg >= 1 && S.bg <= BGMAX ? S.bg : o.grade; // grade: the next box you are sent; bg: the box on the bench now
   for (const t of Object.keys(SHOP)) o.own[t] = Math.max(0, Math.min(9, own[t] | 0)); o.own.pol = Math.max(1, o.own.pol); o.own.det = Math.max(1, o.own.det); return o; }
 let box = null, bx = null; // the box on the bench, and this box's session: photons left, evidence, destroyed?
 function boxLevel(base) {
   const h = /box=(\d+)-(\d)/.exec(location.hash), S = bxSave();
-  if (!box) box = h ? genBox(+h[1], +h[2]) : genBox(S.seed, S.grade);
+  if (!box) box = h ? genBox(+h[1], +h[2]) : genBox(S.seed, S.bg);
   if (box.daily == null) box.daily = !h && !!S.d;
-  SAVE.bx = { ...S, seed: box.seed, grade: box.grade, d: box.daily ? 1 : 0 };
+  SAVE.bx = { ...S, seed: box.seed, bg: box.grade, d: box.daily ? 1 : 0 };
   try { history.replaceState(null, '', '#box=' + box.seed + '-' + box.grade); } catch (e) {}
   bx = { left: box.budget, log: {}, destroyed: false, shots: 0, signed: false };
   return { ...base, sources: [S0(1, 4, 0)], fixed: boxParts(box), tray: { ...S.own }, test: () => false };
@@ -307,7 +309,7 @@ function boxFire(n) {
   need = true; renderBoxPanel(); return n;
 }
 function boxLost() {
-  const S = bxSave(); S.cash -= 50; SAVE.bx = { ...S, seed: box.seed, grade: box.grade }; persist();
+  const S = bxSave(); S.cash -= 50; SAVE.bx = { ...S, seed: box.seed, bg: box.grade }; persist();
   toast('BOX DESTROYED', 'A photon reached a live bomb inside. The client\'s box is gone and so is $50 of your deposit. A live bomb can be certified without touching it: put the box in one arm of an interferometer and watch the port that should stay dark.', 12000, `<div><button class="b" id="tnextbox">Next box →</button></div>`);
   $('tnextbox').onclick = e => { e.stopPropagation(); nextBox(false); };
 }
@@ -377,14 +379,14 @@ function boxSig(els) {
   const dets = [P('det', BOX.x0 + BOX.n + 1, BOX.y, 0, 1, { id: 'out' })]; for (let i = 0; i < BOX.n; i++) dets.push(P('det', BOX.x0 + i, 0, 0, 1, { id: 'u' + i }), P('det', BOX.x0 + i, 8, 0, 1, { id: 'd' + i }));
   const f = v => (Math.round(v * 1e5) / 1e5 || 0).toFixed(5), sig = [];
   for (const pol of [0, 90]) { const h = simulate({ sources: [S0(BOX.x0 - 1, BOX.y, pol)], fixed: boxParts({ els }) }, dets).hits;
-    for (const id of ['out', 'BOMB', ...dets.slice(1).map(d => d.id)]) { const e = h[id]; sig.push(e ? (id === 'BOMB' ? [f(e.p)] : [...e.h, ...e.v].map(f)).join(',') : '-'); } }
-  return sig.join('|');
+    for (const id of ['out', ...dets.slice(1).map(d => d.id)]) { const e = h[id]; sig.push(e ? [...e.h, ...e.v].map(f).join(',') : '-'); } }
+  return sig.join('|') + (els.some(e => e.k === 'live') ? '|live' : '');
 }
 // grading a card: types must match; angles within half a step (filters repeat every 180°, wave plates every 90°, delays every 360°)
 function gradeCard(answers) {
   const G = GRADES[box.grade], tol = Math.max(5, G.step / 2), lines = [];
   box.els.forEach((e, i) => { const a = answers[i] || {}, typeOk = a.k === e.k; let angOk = true;
-    if (typeOk && (e.k === 'pol' || e.k === 'hwp' || e.k === 'phase')) { const per = e.k === 'pol' ? 180 : e.k === 'hwp' ? 90 : 360, d = Math.abs((((+a.a - e.a) % per) + per * 1.5) % per - per / 2); angOk = isFinite(+a.a) && a.a !== '' && d <= (e.k === 'phase' ? 22 : tol); }
+    if (typeOk && (e.k === 'pol' || e.k === 'hwp' || e.k === 'phase')) { const per = e.k === 'pol' ? 180 : e.k === 'hwp' ? 90 : 360, d = Math.abs((((+a.a - e.a) % per) + per * 1.5) % per - per / 2); angOk = isFinite(+a.a) && a.a !== '' && d <= tol; }
     lines.push({ typeOk, angOk, pay: typeOk ? (angOk ? 40 : -10) : -30 }); });
   const asEls = answers.map(a => a.k === 'pol' || a.k === 'hwp' || a.k === 'phase' ? { k: a.k, a: +a.a } : { k: a.k });
   const equiv = !lines.every(l => l.typeOk && l.angOk) && answers.length === box.els.length && asEls.every(e => KINDS[e.k] && (e.a == null || (e.a !== '' && isFinite(e.a)))) && boxSig(asEls) === boxSig(box.els);
@@ -401,7 +403,7 @@ function signCard() {
   if (R.perfect) for (const e of box.els) { const t = e.k === 'up' || e.k === 'down' ? 'mirror' : e.k; if (SHOP[t] && S.own[t] < 9) { S.own[t]++; kept.push(NAMES[t]); } } // a certified box is yours to take apart: its optics join your drawer
   if (R.perfect && !box.daily) S.grade = Math.min(BGMAX, Math.max(S.grade, box.grade + 1)); S.top = Math.max(S.top, S.grade);
   if (box.daily) { S.daily[dayNum()] = R.pay; const kd = Object.keys(S.daily).sort(); while (kd.length > 30) delete S.daily[kd.shift()]; }
-  SAVE.bx = { ...S, seed: box.seed, grade: box.grade, d: box.daily ? 1 : 0 }; persist();
+  SAVE.bx = { ...S, seed: box.seed, bg: box.grade, d: box.daily ? 1 : 0 }; persist();
   const truth = box.els.map((e, i) => `${i + 1}. ${KINDS[e.k]}${e.a != null ? ' at ' + e.a + '°' : ''} ${R.lines[i].typeOk && R.lines[i].angOk ? '✓' : R.lines[i].typeOk ? '(angle off)' : '✗'}`).join('<br>')
     + (R.equiv ? '<br><i>Your card describes different parts, but a box built to it does exactly the same thing to every photon. No experiment could tell them apart, so the client accepts it.</i>' : '');
   if (R.perfect) { won = true; FX.sfx('win'); celeb = performance.now(); } else FX.sfx('fail');
@@ -413,7 +415,7 @@ function nextBox(up) { const S = bxSave(); FX.sfx('click'); openBox(box.seed + 1
 function openShop() {
   const S = bxSave(), row = ([t, c]) => `<button class="b ${S.cash >= c ? '' : 'ghost'}" data-buy="${t}" ${S.cash >= c ? '' : 'disabled'}>${NAMES[t]} $${c} <i>${S.own[t]}</i></button>`;
   toast('Supply catalogue', `Cash $${S.cash}. Parts you buy stay in your drawer for every box.`, 20000, `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px">${Object.entries(SHOP).map(row).join('')}</div>`);
-  document.querySelectorAll('[data-buy]').forEach(b => b.onclick = e => { e.stopPropagation(); const S2 = bxSave(), t = b.dataset.buy; if (S2.cash < SHOP[t] || S2.own[t] >= 9) return; S2.cash -= SHOP[t]; S2.own[t]++; SAVE.bx = { ...S2, seed: box.seed, grade: box.grade, d: box.daily ? 1 : 0 }; persist(); L.tray = { ...S2.own }; FX.sfx('place'); renderTray(); openShop(); renderBoxPanel(); });
+  document.querySelectorAll('[data-buy]').forEach(b => b.onclick = e => { e.stopPropagation(); const S2 = bxSave(), t = b.dataset.buy; if (S2.cash < SHOP[t] || S2.own[t] >= 9) return; S2.cash -= SHOP[t]; S2.own[t]++; SAVE.bx = { ...S2, seed: box.seed, bg: box.grade, d: box.daily ? 1 : 0 }; persist(); L.tray = { ...S2.own }; FX.sfx('place'); renderTray(); openShop(); renderBoxPanel(); });
 }
 // draw the sealed box over its holes: brushed steel, rivets, the shipping label, the ports
 function drawBox(now) {

@@ -873,12 +873,13 @@ function lawFrame(now) { if (mode !== 'law' || !LM.h) return; if (now - lawT < 9
   document.getElementById('lwGen').textContent = 'gen ' + LM.t; if (LM.pz === PZ[0] && !LM.touched && !S.law[PZ[0].id] && now - LM.opened > 6000 && !document.querySelector('#lwBits .hint')) renderLawBits(); }
 function renderLaws() { const el = document.getElementById('p-laws'); const day = todayKey();
   el.innerHTML = `<p class="small">Change the laws of a universe until a seed does what is asked. Par is the fewest switches that will do it. ${solvedN()} of ${PZ.length} laws obeyed.</p><div class="lw-list">` +
-    `<div class="pz"><b>Today's law</b><span class="m">a new one each day, the same for everyone${S.lawDaily && S.lawDaily.d === day ? ` · yours: ${S.lawDaily.f} switches` : ''}</span><button data-daily>Open</button></div>` +
+    `<div class="pz"><b>Today's law</b><span class="m">a new one each day, the same for everyone${S.law['day-' + day] ? ` · yours: ${S.law['day-' + day].f} switches` : ''}</span><button data-daily>Open</button></div>` +
     PZ.map((p, i) => { const b = S.law[p.id], open = pzOpen(i); return `<div class="pz ${open ? '' : 'locked'}"><b>${i + 1}. ${open ? tname(p) : '…'}</b><span class="m">${open ? `par ${p.par}` : ''}${b ? ` · best ${b.f} sw · ${b.l} laws${p.target !== 'box' ? ' · ' + b.g + ' gen' : ''}${b.f <= p.par ? ' ★' : ''}` : ''}</span>${open ? `<button data-pz="${p.id}">${b ? 'Again' : 'Open'}</button>` : ''}</div>`; }).join('') + '</div>';
   el.querySelectorAll('[data-pz]').forEach(b => b.onclick = () => { closeSheet(); openLaw(PZ.find(p => p.id === b.dataset.pz)); });
   el.querySelector('[data-daily]').onclick = () => { closeSheet(); openDaily(); }; }
 // today's law: made from the date, so everyone gets the same seed, behaviour and starting rule
-function openDaily() { const day = todayKey(); const pz = LAW.daily(day); if (!pz) { toast('No law today; try a numbered one.'); return; } pz.id = 'day-' + day; openLaw(pz); }
+function openDaily() { const day = todayKey(); if (S.lawDay && S.lawDay.d === day && S.lawDay.pz && typeof S.lawDay.pz.seed === 'string' && LAW.parse(S.lawDay.pz.start) && LAW.parse(S.lawDay.pz.ghost) && LAW.T[S.lawDay.pz.target] && S.lawDay.pz.hist) { openLaw(S.lawDay.pz); return; }
+  toast('Drafting today\'s law…', 1500); setTimeout(() => { const pz = LAW.daily(day); if (!pz) { toast('No law today; try a numbered one.'); return; } pz.id = 'day-' + day; pz.daily = day; S.lawDay = { d: day, pz }; persist(); openLaw(pz); }, 60); }
 document.getElementById('lwUndo').onclick = () => { LM.rule = { ...LM.start }; resim(); };
 document.getElementById('lwNext').onclick = () => { const i = PZ.indexOf(LM.pz); if (i >= 0 && PZ[i + 1]) openLaw(PZ[i + 1]); };
 document.getElementById('lwAll').onclick = () => openSheet('laws');

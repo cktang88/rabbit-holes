@@ -11,7 +11,8 @@
   const dist = (a, b) => bits({ b: a.b ^ b.b, s: a.s ^ b.s });
   const ruleStr = (r) => 'B' + [...Array(9)].map((_, i) => (r.b >> i) & 1 ? i : '').join('') + '/S' + [...Array(9)].map((_, i) => (r.s >> i) & 1 ? i : '').join('');
   const parse = (t) => { const m = String(t).toUpperCase().match(/^B([0-8]*)\/S([0-8]*)$/); if (!m) return null; let b = 0, s = 0; for (const c of m[1]) b |= 1 << +c; for (const c of m[2]) s |= 1 << +c; return { b: b & ~1, s }; };
-  function place(cells) { const g = new Uint8Array(NN); let mx = 0, my = 0; for (const [x, y] of cells) { mx = Math.max(mx, x); my = Math.max(my, y); } const ox = (G - mx - 1) >> 1, oy = (G - my - 1) >> 1; for (const [x, y] of cells) g[(oy + y) * G + ox + x] = 1; return g; }
+  const cellsOf = (c) => typeof c === 'string' ? c.split(' ').map(p => p.split(',').map(Number)) : c;
+  function place(cells) { cells = cellsOf(cells); const g = new Uint8Array(NN); let mx = 0, my = 0; for (const [x, y] of cells) { mx = Math.max(mx, x); my = Math.max(my, y); } const ox = (G - mx - 1) >> 1, oy = (G - my - 1) >> 1; for (const [x, y] of cells) g[(oy + y) * G + ox + x] = 1; return g; }
   // the history of the seed under a rule: an array of generations (stops early if it explodes)
   function run(seed, rule, gens) { let a = place(seed), b = new Uint8Array(NN); const h = [a.slice()]; for (let t = 0; t < gens; t++) { step(a, b, rule); [a, b] = [b, a]; h.push(a.slice()); let p = 0; for (let i = 0; i < NN; i++) p += a[i]; if (p > NN * .45) break; } return h; }
   const pop = (g) => { let p = 0; for (let i = 0; i < NN; i++) p += g[i]; return p; };

@@ -34,6 +34,10 @@
   #stats{margin-top:5px;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
   #step{margin-top:8px;padding:6px 10px;font-size:13.5px;line-height:1.4;background:rgba(179,38,30,.07);border-left:3px solid var(--ver)}
   #step b{color:var(--ver)}
+  #chart{margin-top:6px;font:600 11px "Spectral SC",Georgia,serif;color:var(--muted)} #chart div{display:flex;align-items:center;gap:3px;flex-wrap:wrap;margin-top:2px}
+  #chart .cl{width:46px} #chart em{font:italic 400 11.5px Spectral,Georgia,serif}
+  #chart .cs{display:inline-block;width:20px;height:14px;box-shadow:inset 0 0 0 1px rgba(42,29,18,.35)} #chart .cs.ok{outline:2px solid #3d6a2a;outline-offset:1px}
+  #toast .eds{display:flex;gap:6px;justify-content:center;margin:6px 0} #toast .eds figure{margin:0;font-size:11px} #toast .eds img{width:64px;height:64px;display:block;box-shadow:0 2px 6px rgba(0,0,0,.4)}
   /* the tool rack: an oiled board with tools, tins and the brayer */
   #tray{bottom:14px;left:50%;transform:translateX(-50%);padding:9px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 24px);border-radius:3px;
     background:repeating-linear-gradient(88deg,rgba(0,0,0,.12) 0 2px,transparent 2px 9px,rgba(255,220,170,.05) 9px 11px,transparent 11px 17px),linear-gradient(#7a4e2c,#4a2c16);box-shadow:inset 0 1px 0 rgba(255,220,170,.25),0 14px 28px -12px #000}
@@ -145,6 +149,7 @@
   <div id="meter"><span>Likeness</span><div class="bar"><i id="mBar"></i><b style="left:85%"></b></div><span id="mTxt">0%</span></div>
   <div id="stats"></div>
   <div id="step"></div>
+  <div id="chart" style="display:none"></div>
 </div>
 <div id="tray" class="chip"><div class="grp" id="tools"></div><div class="sep"></div><div class="grp" id="inks"></div><div class="sep"></div><div class="grp" id="acts"></div></div>
 <div id="toast" class="chip" role="status"></div>
@@ -359,58 +364,81 @@ LV.push({ n: 'Free Studio', studio: true, paper: CREAM, inks: RACK, story: 'No c
 const NLV = 20;
 
 
-// ---------------- the Print Club: endless generated commissions, ranked ----------------
-// After the campaign, the hours are here: a ladder of commissions generated from a seed (plus one daily commission everyone
-// shares), each a new scene with its own inks to order. Any print at 85% likeness with no missed shape is delivered; then the
-// club ranks it against 80 members on likeness and on cuts, Opus Magnum style. Beat 90% of them on a measure to earn its mark.
-const CLUB = NLV + 1, CLUB_OPEN = 5, CLUB_N = 80, RACK_M = RACK.map(k => k.m);
-LV.push({ n: 'The Print Club', club: true, paper: CREAM, inks: [], layers: [], story: '', fact: 'Print clubs of the 1920s and 30s sent each member an edition of the year\'s chosen block; members compared impressions jealously.' });
-const SUBJ = ['house', 'tree', 'boat', 'lighthouse', 'mountains', 'cat', 'sunflowers'];
+// ---------------- Colour commissions: three glazes, six colours ----------------
+// The endless mode is a second game hidden under the first: clients ask for colours that are not on the shelf. Transparent
+// glazes multiply (real subtractive mixing), so three pulls can make up to eight colours, but only if each shape takes its
+// own stack of glazes. Carving stops a shape for good; a paper frisket (mask) skips one pull. Friskets are few, and every one
+// lifts the sheet a little: across an edition of four the passes drift out of register.
+const CLUB = NLV + 1, CLUB_OPEN = 5, ED_N = 4, GPASS = .8;
+const GLAZES = [I('Lemon', '#f2df4a', 't'), I('Gamboge', '#e9ae33', 't'), I('Rose madder', '#e88aa8', 't'), I('Crimson', '#cc3a5e', 't'), I('Cerulean', '#7bbbe0', 't'),
+  I('Prussian', '#3f6ea8', 't'), I('Sap green', '#93b85e', 't'), I('Violet', '#8f74c4', 't'), I('Burnt sienna', '#c9814f', 't'), I('Payne\'s grey', '#8a95a3', 't'), I('Viridian', '#4fa89a', 't')];
+LV.push({ n: 'Colour Commissions', club: true, paper: CREAM, inks: [], layers: [], story: '', fact: 'Glazing (stacking transparent colours) is how a few inks give many: yellow under blue is green, rose under blue is violet.' });
+const POPS = [];
+// a scene = a backdrop, one subject and an accent, each made of shapes; every shape is given its own stack of glazes
+const BACKS = {
+  meadow: (r, rr) => { const hz = rr(130, 170); return { hz, name: 'in a meadow', parts: [c => ALL(c), c => P(c, `M0 ${hz} Q${rr(60, 200)} ${hz - rr(20, 50)} 256 ${hz - rr(0, 20)} L256 256 L0 256Z`), c => P(c, `M0 ${hz + 50} Q128 ${hz + rr(20, 40)} 256 ${hz + 46} L256 256 L0 256Z`)] }; },
+  sea: (r, rr) => { const hz = rr(140, 165); return { hz, name: 'by the sea', parts: [c => ALL(c), c => Q(c, 0, hz, 256, 256), c => { for (let k = 0; k < 4; k++) S(c, `M${rr(0, 120)} ${hz + 18 + k * 20} q20 -8 40 0 q20 8 40 0`, 3); }, c => P(c, `M0 256 L0 ${hz + 60} Q90 ${hz + 40} 140 256Z`)] }; },
+  table: (r, rr) => { const hz = rr(150, 180); return { hz, name: 'on a table', parts: [c => ALL(c), c => Q(c, 0, hz, 256, 256), c => { for (let x = 0; x < 256; x += 32) Q(c, x, 0, 14, hz); }, c => Q(c, 0, hz, 256, 6)] }; },
+  night: (r, rr) => { const hz = rr(150, 175); return { hz, name: 'at night', parts: [c => ALL(c), c => { for (let k = 0; k < 9; k++) C(c, rr(8, 248), rr(8, hz - 50), 2.6); }, c => P(c, `M0 ${hz} L${rr(40, 90)} ${hz - rr(40, 70)} L${rr(120, 150)} ${hz - 10} L${rr(180, 220)} ${hz - rr(50, 80)} L256 ${hz} L256 256 L0 256Z`)] }; },
+  quilt: (r, rr) => { const hz = 256; return { hz: 180, name: 'on a quilt', parts: [c => ALL(c), c => { for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) if ((x + y) % 2) Q(c, x * 64, y * 64, 64, 64); }, c => { for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) if ((x + y) % 2 === 0) C(c, x * 64 + 32, y * 64 + 32, 9); }] }; },
+  dunes: (r, rr) => { const hz = rr(120, 150); return { hz: hz + 40, name: 'in the dunes', parts: [c => ALL(c), c => P(c, `M0 ${hz + 20} Q80 ${hz - 30} 150 ${hz + 10} T256 ${hz} L256 256 L0 256Z`), c => P(c, `M0 ${hz + 80} Q120 ${hz + 30} 256 ${hz + 70} L256 256 L0 256Z`)] }; },
+  rays: (r, rr) => { return { hz: 190, name: 'in the sun', parts: [c => ALL(c), c => { for (let k = 0; k < 12; k += 2) { const a = k * Math.PI / 6, b = (k + 1) * Math.PI / 6; P(c, `M128 128 L${128 + 260 * Math.cos(a)} ${128 + 260 * Math.sin(a)} L${128 + 260 * Math.cos(b)} ${128 + 260 * Math.sin(b)}Z`); } }, c => Q(c, 0, 200, 256, 56)] }; },
+};
+const SUBJ = {
+  house: (x, y) => ({ n: 'a house', parts: [c => { Q(c, x - 34, y - 50, 68, 50); }, c => P(c, `M${x - 42} ${y - 50} L${x} ${y - 88} L${x + 42} ${y - 50}Z`), c => { Q(c, x - 24, y - 38, 12, 12); Q(c, x + 12, y - 38, 12, 12); }, c => Q(c, x - 6, y - 22, 12, 22)] }),
+  tree: (x, y) => ({ n: 'a tree', parts: [c => Q(c, x - 6, y - 70, 12, 72), c => C(c, x, y - 92, 40), c => { C(c, x - 16, y - 104, 9); C(c, x + 18, y - 84, 8); C(c, x - 4, y - 74, 7); }] }),
+  boat: (x, y) => ({ n: 'a fishing boat', parts: [c => P(c, `M${x - 50} ${y} L${x + 50} ${y} L${x + 36} ${y + 18} L${x - 36} ${y + 18}Z`), c => P(c, `M${x - 4} ${y - 70} L${x - 4} ${y - 4} L${x - 44} ${y - 4}Z`), c => P(c, `M${x + 4} ${y - 60} L${x + 4} ${y - 4} L${x + 38} ${y - 4}Z`)] }),
+  lighthouse: (x, y) => ({ n: 'a lighthouse', parts: [c => P(c, `M${x - 16} ${y} L${x - 10} ${y - 100} L${x + 10} ${y - 100} L${x + 16} ${y}Z`), c => { Q(c, x - 14, y - 40, 28, 12); Q(c, x - 12, y - 76, 24, 10); }, c => Q(c, x - 10, y - 118, 20, 16), c => P(c, `M${x - 14} ${y - 118} L${x} ${y - 134} L${x + 14} ${y - 118}Z`)] }),
+  mountain: (x, y) => ({ n: 'a mountain', parts: [c => P(c, `M${x - 90} ${y} L${x} ${y - 110} L${x + 90} ${y}Z`), c => P(c, `M${x - 24} ${y - 80} L${x} ${y - 110} L${x + 24} ${y - 80} L${x + 10} ${y - 88} L${x} ${y - 78} L${x - 10} ${y - 88}Z`), c => P(c, `M${x + 20} ${y} L${x + 60} ${y - 50} L${x + 100} ${y}Z`)] }),
+  cat: (x, y) => ({ n: 'a cat', parts: [c => { E(c, x, y - 22, 40, 26); C(c, x + 34, y - 54, 20); P(c, `M${x + 20} ${y - 66} L${x + 22} ${y - 86} L${x + 34} ${y - 70}Z`); P(c, `M${x + 36} ${y - 70} L${x + 48} ${y - 86} L${x + 50} ${y - 66}Z`); }, c => S(c, `M${x - 36} ${y - 14} Q${x - 70} ${y - 30} ${x - 58} ${y - 66}`, 9), c => { C(c, x + 27, y - 56, 4); C(c, x + 41, y - 56, 4); }, c => { for (const d of [-14, 0, 14]) S(c, `M${x + d} ${y - 44} L${x + d + 4} ${y - 4}`, 4); }] }),
+  sunflowers: (x, y) => ({ n: 'sunflowers', parts: [c => { for (const d of [-36, 0, 36]) S(c, `M${x + d} ${y} L${x + d} ${y - 70 - d / 3}`, 5); }, c => { for (const d of [-36, 0, 36]) C(c, x + d, y - 76 - d / 3, 18); }, c => { for (const d of [-36, 0, 36]) C(c, x + d, y - 76 - d / 3, 7); }] }),
+  windmill: (x, y) => ({ n: 'a windmill', parts: [c => P(c, `M${x - 22} ${y} L${x - 14} ${y - 80} L${x + 14} ${y - 80} L${x + 22} ${y}Z`), c => { for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + .4; P(c, `M${x} ${y - 84} L${x + 60 * Math.cos(a) - 8 * Math.sin(a)} ${y - 84 + 60 * Math.sin(a) + 8 * Math.cos(a)} L${x + 60 * Math.cos(a) + 8 * Math.sin(a)} ${y - 84 + 60 * Math.sin(a) - 8 * Math.cos(a)}Z`); } }, c => Q(c, x - 6, y - 20, 12, 20), c => C(c, x, y - 84, 6)] }),
+  bridge: (x, y) => ({ n: 'a stone bridge', parts: [c => P(c, `M${x - 110} ${y - 30} L${x + 110} ${y - 30} L${x + 110} ${y + 10} L${x + 40} ${y + 10} Q${x} ${y - 30} ${x - 40} ${y + 10} L${x - 110} ${y + 10}Z`), c => Q(c, x - 110, y - 38, 220, 8), c => { for (let k = -100; k < 100; k += 24) Q(c, k + x, y - 50, 6, 12); }] }),
+  fish: (x, y) => ({ n: 'two fish', parts: [c => { E(c, x - 30, y - 40, 34, 16); P(c, `M${x - 64} ${y - 40} L${x - 84} ${y - 56} L${x - 84} ${y - 24}Z`); }, c => { E(c, x + 40, y - 70, 28, 13, .2); P(c, `M${x + 66} ${y - 64} L${x + 84} ${y - 50} L${x + 82} ${y - 80}Z`); }, c => { C(c, x - 10, y - 44, 4); C(c, x + 24, y - 74, 3.5); }, c => { for (let k = 0; k < 3; k++) S(c, `M${x - 40 + k * 10} ${y - 54} l4 28`, 3); }] }),
+  teapot: (x, y) => ({ n: 'a teapot', parts: [c => E(c, x, y - 40, 46, 38), c => { P(c, `M${x + 40} ${y - 40} Q${x + 72} ${y - 58} ${x + 80} ${y - 84} L${x + 88} ${y - 80} Q${x + 78} ${y - 40} ${x + 44} ${y - 22}Z`); S(c, `M${x - 42} ${y - 64} Q${x - 80} ${y - 50} ${x - 44} ${y - 18}`, 9); }, c => E(c, x, y - 78, 22, 7), c => { for (const d of [-20, 0, 20]) C(c, x + d, y - 36, 6); }] }),
+  pears: (x, y) => ({ n: 'three pears', parts: [c => { for (const d of [-50, 0, 50]) { C(c, x + d, y - 24, 22); C(c, x + d, y - 52, 13); } }, c => { for (const d of [-50, 0, 50]) S(c, `M${x + d} ${y - 64} l4 -14`, 4); }, c => { for (const d of [-50, 0, 50]) E(c, x + d + 10, y - 70, 9, 4, -.5); }, c => E(c, x, y + 2, 90, 7)] }),
+  kite: (x, y) => ({ n: 'a kite', parts: [c => P(c, `M${x} ${y - 150} L${x + 34} ${y - 110} L${x} ${y - 60} L${x - 34} ${y - 110}Z`), c => P(c, `M${x} ${y - 150} L${x + 34} ${y - 110} L${x} ${y - 110}Z`), c => S(c, `M${x} ${y - 60} Q${x + 30} ${y - 30} ${x - 10} ${y}`, 3), c => { for (let k = 0; k < 3; k++) P(c, `M${x + 6 - k * 6} ${y - 44 + k * 16} l10 -4 l-4 10Z`); }] }),
+  tent: (x, y) => ({ n: 'a tent', parts: [c => P(c, `M${x - 60} ${y} L${x} ${y - 80} L${x + 60} ${y}Z`), c => P(c, `M${x - 16} ${y} L${x} ${y - 40} L${x + 16} ${y}Z`), c => { S(c, `M${x} ${y - 80} L${x} ${y - 96}`, 3); P(c, `M${x} ${y - 96} L${x + 22} ${y - 90} L${x} ${y - 84}Z`); }] }),
+  castle: (x, y) => ({ n: 'a castle', parts: [c => { Q(c, x - 60, y - 60, 120, 60); for (let k = -60; k < 60; k += 20) Q(c, x + k, y - 72, 10, 12); }, c => { Q(c, x - 76, y - 96, 30, 96); Q(c, x + 46, y - 96, 30, 96); }, c => { P(c, `M${x - 80} ${y - 96} L${x - 61} ${y - 126} L${x - 42} ${y - 96}Z`); P(c, `M${x + 42} ${y - 96} L${x + 61} ${y - 126} L${x + 80} ${y - 96}Z`); }, c => P(c, `M${x - 14} ${y} L${x - 14} ${y - 26} Q${x} ${y - 40} ${x + 14} ${y - 26} L${x + 14} ${y}Z`)] }),
+  cactus: (x, y) => ({ n: 'a cactus in a pot', parts: [c => { Q(c, x - 12, y - 110, 24, 100); S(c, `M${x - 12} ${y - 60} L${x - 34} ${y - 60} L${x - 34} ${y - 86}`, 12); S(c, `M${x + 12} ${y - 44} L${x + 32} ${y - 44} L${x + 32} ${y - 76}`, 12); }, c => P(c, `M${x - 30} ${y - 14} L${x + 30} ${y - 14} L${x + 22} ${y + 20} L${x - 22} ${y + 20}Z`), c => C(c, x, y - 114, 8)] }),
+  bird: (x, y) => ({ n: 'a bird on a branch', parts: [c => S(c, `M${x - 120} ${y - 30} Q${x} ${y - 50} ${x + 120} ${y - 20}`, 8), c => { E(c, x, y - 62, 26, 17); C(c, x + 22, y - 76, 11); P(c, `M${x - 24} ${y - 64} L${x - 50} ${y - 74} L${x - 44} ${y - 56}Z`); }, c => E(c, x - 4, y - 64, 14, 7, -.3), c => P(c, `M${x + 32} ${y - 78} L${x + 42} ${y - 74} L${x + 32} ${y - 70}Z`)] }),
+  umbrella: (x, y) => ({ n: 'an umbrella', parts: [c => P(c, `M${x - 70} ${y - 70} Q${x} ${y - 150} ${x + 70} ${y - 70}Z`), c => P(c, `M${x - 24} ${y - 70} Q${x} ${y - 150} ${x + 24} ${y - 70}Z`), c => S(c, `M${x} ${y - 70} L${x} ${y} q0 10 -12 6`, 4), c => { for (let k = 0; k < 8; k++) S(c, `M${x - 110 + k * 30} ${y - 140} l-6 14`, 2.5); }] }),
+  tulips: (x, y) => ({ n: 'tulips in a vase', parts: [c => P(c, `M${x - 26} ${y} Q${x - 40} ${y - 40} ${x - 18} ${y - 60} L${x + 18} ${y - 60} Q${x + 40} ${y - 40} ${x + 26} ${y}Z`), c => { for (const d of [-26, 0, 26]) S(c, `M${x + d / 3} ${y - 60} L${x + d} ${y - 110 + Math.abs(d)}`, 4); }, c => { for (const d of [-26, 0, 26]) P(c, `M${x + d - 12} ${y - 120 + Math.abs(d)} L${x + d - 12} ${y - 136 + Math.abs(d)} L${x + d - 4} ${y - 128 + Math.abs(d)} L${x + d} ${y - 140 + Math.abs(d)} L${x + d + 4} ${y - 128 + Math.abs(d)} L${x + d + 12} ${y - 136 + Math.abs(d)} L${x + d + 12} ${y - 120 + Math.abs(d)} Q${x + d} ${y - 108 + Math.abs(d)} ${x + d - 12} ${y - 120 + Math.abs(d)}Z`); }, c => Q(c, x - 24, y - 30, 48, 6)] }),
+};
+const ACCENTS = { sun: (rr, hz) => c => C(c, rr(40, 216), rr(30, Math.max(40, hz - 90)), rr(16, 24)), moon: (rr, hz) => c => { const x = rr(40, 216), y = rr(30, Math.max(40, hz - 90)); C(c, x, y, 18); }, clouds: (rr, hz) => c => { const x = rr(30, 160), y = rr(24, Math.max(30, hz - 100)); E(c, x, y, 34, 10); E(c, x + 70, y + 20, 26, 8); }, birds: (rr, hz) => c => { for (let k = 0; k < 3; k++) S(c, `M${60 + k * 30} ${40 + k * 10} q8 -8 14 0 q6 -8 14 0`, 3); } };
+const SUBSETS = [0, 1, 2, 3, 4, 5, 6, 7];
+function glazeColor(paper, inks, s, x = R / 2) { const o = paper.slice(); for (let b = 0; b < 3; b++) if (s >> b & 1) over(o, inks[b], x, o); return o; }
 function genComm(seed, lv) {
-  const r = RH.rng('club:' + seed), n = seed.startsWith('daily:') ? 4 : Math.min(5, 3 + Math.floor((lv - 1) / 3)), subj = r.pick(SUBJ), night = r() < .35;
-  const ord = r.shuffle([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]).slice(0, n).sort((a, b) => lightness(RACK[b]) - lightness(RACK[a]));
-  const inks = ord.map(k => ({ ...RACK[k], m: RACK_M[k] })), top = n, mid = Math.max(2, n - 1), lo = Math.min(2, n), rr = (a, b) => a + r.int(b - a + 1);
-  const hz = rr(140, 176), sx = rr(40, 216), sy = rr(34, 70), sr = rr(14, 24), hx = rr(40, 200);
-  const L = [[night ? top : 1, ALL], [night ? 1 : 0, c => C(c, sx, sy, sr)], [lo, c => P(c, `M0 ${hz} Q${hx} ${hz - rr(30, 60)} 256 ${hz - rr(0, 20)} L256 256 L0 256Z`)],
-    [mid, c => P(c, `M0 ${hz + 46} Q128 ${hz + rr(14, 34)} 256 ${hz + rr(36, 56)} L256 256 L0 256Z`)]];
-  if (night) L.push([0, c => { for (let k = 0; k < 5; k++) C(c, rr(10, 246), rr(10, hz - 60), 2.5); }]);
-  const ox = rr(70, 170), oy = hz + rr(-6, 10), ob = night ? (n >= 4 ? n - 2 : 1) : top, li = night && ob !== 1 ? 1 : 0; // at night the subject must not vanish into the sky
-  if (subj === 'house') L.push([ob, c => { Q(c, ox, oy - 44, 64, 50); P(c, `M${ox - 8} ${oy - 44} L${ox + 32} ${oy - 80} L${ox + 72} ${oy - 44}Z`); }], [li, c => { Q(c, ox + 10, oy - 32, 12, 12); Q(c, ox + 42, oy - 32, 12, 12); }], [lo, c => Q(c, ox + 26, oy - 18, 12, 24)]);
-  if (subj === 'tree') L.push([ob, c => Q(c, ox + 22, oy - 70, 10, 80)], [mid, c => C(c, ox + 27, oy - 84, 36)], [lo, c => { C(c, ox + 12, oy - 96, 8); C(c, ox + 40, oy - 76, 7); }]);
-  if (subj === 'boat') L.push([ob, c => P(c, `M${ox - 30} ${oy + 30} L${ox + 60} ${oy + 30} L${ox + 46} ${oy + 46} L${ox - 16} ${oy + 46}Z`)], [0, c => P(c, `M${ox + 12} ${oy - 30} L${ox + 12} ${oy + 26} L${ox + 46} ${oy + 26}Z`)], [lo, c => { S(c, `M${ox - 50} ${oy + 58} L${ox - 20} ${oy + 58}`, 3); S(c, `M${ox + 70} ${oy + 64} L${ox + 100} ${oy + 64}`, 3); }]);
-  if (subj === 'lighthouse') L.push([0, c => P(c, `M${ox} ${oy + 10} L${ox + 6} ${oy - 90} L${ox + 26} ${oy - 90} L${ox + 32} ${oy + 10}Z`)], [ob, c => { Q(c, ox + 2, oy - 40, 28, 14); Q(c, ox + 5, oy - 76, 22, 12); }], [ob === 1 ? 0 : 1, c => Q(c, ox + 6, oy - 104, 20, 14)], [ob, c => P(c, `M${ox + 2} ${oy - 103} L${ox + 16} ${oy - 118} L${ox + 30} ${oy - 103}Z`)]);
-  if (subj === 'mountains') L.push([mid, c => P(c, `M${ox - 70} ${oy + 4} L${ox} ${oy - 90} L${ox + 70} ${oy + 4}Z`)], [0, c => P(c, `M${ox - 18} ${oy - 66} L${ox} ${oy - 90} L${ox + 18} ${oy - 66} L${ox + 8} ${oy - 72} L${ox} ${oy - 64} L${ox - 8} ${oy - 72}Z`)], [ob, c => { for (const d of [-40, 40]) P(c, `M${ox + d - 8} ${oy + 30} L${ox + d} ${oy - 4} L${ox + d + 8} ${oy + 30}Z`); }]);
-  if (subj === 'cat') L.push([ob, c => { E(c, ox + 30, oy - 10, 34, 24); C(c, ox + 60, oy - 40, 18); P(c, `M${ox + 48} ${oy - 52} L${ox + 50} ${oy - 70} L${ox + 60} ${oy - 56}Z`); P(c, `M${ox + 62} ${oy - 56} L${ox + 72} ${oy - 70} L${ox + 74} ${oy - 52}Z`); S(c, `M${ox} ${oy - 4} Q${ox - 30} ${oy - 20} ${ox - 20} ${oy - 50}`, 7); }], [ob === 1 ? 0 : 1, c => { C(c, ox + 54, oy - 42, 3); C(c, ox + 66, oy - 42, 3); }]);
-  if (subj === 'sunflowers') L.push(...[0, 1, 2].map(k => [mid, c => S(c, `M${ox - 30 + k * 34} ${oy + 30} L${ox - 30 + k * 34} ${oy - 50 + k * 12}`, 4)]), ...[0, 1, 2].map(k => [1, c => C(c, ox - 30 + k * 34, oy - 54 + k * 12, 16)]), ...[0, 1, 2].map(k => [ob, c => C(c, ox - 30 + k * 34, oy - 54 + k * 12, 6)]));
-  const names = { house: 'a house', tree: 'a lone tree', boat: 'a boat', lighthouse: 'a lighthouse', mountains: 'mountains', cat: 'a cat on the hill', sunflowers: 'sunflowers' };
-  return { name: names[subj] + (night ? ' at night' : ''), inks, need: n, layers: L, seed, lv };
+  const r = RH.rng('glaze:' + seed), rr = (a, b) => a + r.int(b - a + 1), daily = String(seed).startsWith('daily:');
+  // 1. the hidden plan: three glazes whose eight stacks are all clearly different colours
+  let plan;
+  for (let t = 0; t < 200; t++) { const p = r.shuffle(GLAZES.map((_, k) => k)).slice(0, 3), inks = p.map(k => GLAZES[k]), cols = SUBSETS.map(s => glazeColor(lin(CREAM), inks, s));
+    let ok = true; for (let a = 0; a < 8 && ok; a++) for (let b = a + 1; b < 8 && ok; b++) if (dE(cols[a], cols[b]) < 11) ok = false; if (ok) { plan = p; break; } }
+  plan ||= [0, 2, 4];
+  // 2. the scene: backdrop + subject + accent; each shape gets a stack. Six different stacks are used, at least two of them doubles or triples.
+  const bk = r.pick(Object.keys(BACKS)), B0 = BACKS[bk](r, rr), sk = r.pick(Object.keys(SUBJ)), sx = rr(80, 176), sy = Math.min(236, B0.hz + rr(0, 30)), S0 = SUBJ[sk](sx, sy);
+  const acc = r.pick(Object.keys(ACCENTS)), parts = [...B0.parts, ...S0.parts]; if (parts.length < 7 || r() < .5) parts.splice(B0.parts.length, 0, ACCENTS[acc](rr, B0.hz));
+  let use; for (let t = 0; t < 50; t++) { use = r.shuffle(SUBSETS.slice()).slice(0, 6); if (use.filter(s => s === 3 || s === 5 || s === 6 || s === 7).length >= 2) break; }
+  const layers = parts.map((fn, i) => [i < 6 ? use[i] : use[r.int(6)], fn]);
+  // neighbours drawn on top of each other must differ, or the shape vanishes into what is under it
+  for (let i = 1; i < layers.length; i++) if (layers[i][0] === layers[i - 1][0]) layers[i][0] = use[(use.indexOf(layers[i][0]) + 1) % 6];
+  // 3. the shelf: the plan's three glazes among decoys (more decoys as the ladder climbs)
+  const nDec = daily ? 5 : Math.min(7, 3 + Math.floor(lv / 2)), dec = r.shuffle(GLAZES.map((_, k) => k).filter(k => !plan.includes(k))).slice(0, nDec);
+  const shelf = r.shuffle([...plan, ...dec]), inks = shelf.map(k => ({ ...GLAZES[k] })), glaze = plan.map(k => shelf.indexOf(k));
+  const time = { meadow: 'morning', sea: 'noon', table: 'afternoon', night: 'night', quilt: 'evening', dunes: 'noon', rays: 'midsummer' }[bk];
+  return { name: `${S0.n} ${B0.name}`, time, inks, need: 3, layers, glaze, seed, lv, slack: daily ? 1 : lv < 3 ? 2 : lv < 7 ? 1 : 0 };
 }
+// friskets: the fewest masks a plan needs if its glazes are pulled in a given order, over every order
+const PERMS = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+function masksFor(regions, ord) { let n = 0; for (const rg of regions) { let last = -1; ord.forEach((b, p) => { if (rg.s >> b & 1) last = p; }); for (let p = 0; p < last; p++) if (!(rg.s >> ord[p] & 1)) n++; } return n; }
+function planMasks(regions) { let best = 1e9, ord = null; for (const o of PERMS) { const n = masksFor(regions, o); if (n < best) { best = n; ord = o; } } return { n: best, ord }; }
 const clubKey = () => SAVE.club.seed + ':' + SAVE.club.lv;
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-// the club members, modelled region by region: each carves a region at the right moment with probability p (their care),
-// otherwise one pull early or late; gouge users take several strokes per region. Likeness is scored as score() scores it.
-const clubPops = new Map();
-function clubPop() {
-  const key = clubKey(); if (clubPops.has(key)) return clubPops.get(key);
-  const r = RH.rng('club-members:' + key), n = L.need, o = [0, 0, 0], col = [];
-  for (let st = 0; st <= n; st++) { stateColor(st, R / 2, o); const lb = []; lab(o[0], o[1], o[2], lb, 0); col.push(lb); }
-  const sc = (c, s) => clamp(1 - (Math.hypot(col[c][0] - col[s][0], col[c][1] - col[s][1], col[c][2] - col[s][2]) - 4) / 16, 0, 1);
-  const wsum = T.regions.reduce((a, g) => a + g.w, 0), raw = cs => T.regions.reduce((a, g, k) => a + g.w * sc(cs[k], g.s), 0) / wsum, raw0 = raw(T.regions.map(() => 0)), out = [];
-  for (let m = 0; m < CLUB_N; m++) { const p = .5 + .42 * r(), gouge = r() < .5; let cuts = 0;
-    const cs = T.regions.map(g => { let c = g.s; if (r() > p) c = clamp(g.s + (g.s === n ? -1 : g.s === 0 ? 1 : r() < .5 ? -1 : 1), 0, n); if (c < n) cuts += gouge ? 1 + Math.floor(r() * Math.min(5, g.n / 900)) : 1; return c; });
-    out.push({ lk: clamp((raw(cs) - raw0) / (1 - raw0), 0, 1), cuts: cuts + r.int(4) }); }
-  clubPops.set(key, out); if (clubPops.size > 6) clubPops.delete(clubPops.keys().next().value); return out; }
-const beats = (v, arr, higher) => arr.length ? arr.reduce((a, x) => a + ((higher ? v > x : v < x) ? 1 : v === x ? .5 : 0), 0) / arr.length : 0;
-function histSVG(vals, you, fmt) {
-  const W = 200, H = 46, n = 12, lo = Math.min(...vals, you), hi = Math.max(...vals, you) + 1e-9, cnt = Array(n).fill(0); vals.forEach(v => cnt[Math.min(n - 1, Math.floor((v - lo) / (hi - lo) * n))]++);
-  const mx = Math.max(...cnt), X = v => 4 + (v - lo) / (hi - lo) * (W - 8), bw = (W - 8) / n;
-  return `<svg viewBox="0 0 ${W} ${H + 12}" width="200" height="58">${cnt.map((c, i) => `<rect x="${4 + i * bw + 1}" y="${H - c / mx * (H - 4)}" width="${bw - 2}" height="${c / mx * (H - 4)}" fill="currentColor" opacity=".35"/>`).join('')}<line x1="${X(you)}" x2="${X(you)}" y1="0" y2="${H}" stroke="#c8402a" stroke-width="2.5"/><text x="3" y="${H + 11}" font-size="10" fill="currentColor">${fmt(lo)}</text><text x="${W - 3}" y="${H + 11}" font-size="10" text-anchor="end" fill="currentColor">${fmt(hi)}</text></svg>`;
-}
-function clubResult(r) { // rank, record, and describe a delivered club print
-  const pop = clubPop(), lk = Math.round(r.lk * 1000) / 1000, bl = beats(lk, pop.map(x => x.lk), true), bc = beats(r.strokes, pop.map(x => x.cuts), false), marks = (bl >= .9) + (bc >= .9);
-  if (r.pass) { const k = clubKey(), b = SAVE.club.best[k], first = !b; SAVE.club.best[k] = { lk: Math.max(lk, b ? b.lk : 0), c: Math.min(r.strokes, b ? b.c : 1e9), m: Math.max(marks, b ? b.m : 0) };
+function clubResult(r) { // record a delivered colour commission
+  const g = r.glz, marks = (g.masks <= g.par) + (r.lk >= .9);
+  if (r.pass) { const k = clubKey(), b = SAVE.club.best[k], first = !b; SAVE.club.best[k] = { lk: Math.max(r.lk, b ? b.lk : 0), c: Math.min(r.strokes, b ? b.c : 1e9), m: Math.max(marks, b ? b.m : 0), k: Math.min(g.masks, b && isFinite(b.k) ? b.k : 99) };
     if (first) SAVE.club.n++; const ks = Object.keys(SAVE.club.best); if (ks.length > 30) delete SAVE.club.best[ks[0]]; persist(); }
-  return { pop, bl, bc, marks };
+  return { marks };
 }
 function clubSet(seed, lv) { SAVE.club.seed = String(seed).slice(0, 40); SAVE.club.lv = lv; persist(); }
 const FACTS = ['The block is carved mirror-reversed so the print reads the right way. We flip it for you.', 'A baren is a flat pad of coiled bamboo sheath; rubbing it presses the paper into the inked block.',
@@ -436,12 +464,13 @@ const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const SAVE = (v => isObj(v) ? v : {})(RH.load('woodcut', {}));
 SAVE.best = isObj(SAVE.best) ? SAVE.best : {}; for (const k in SAVE.best) if (!isObj(SAVE.best[k]) || !isFinite(SAVE.best[k].lk)) delete SAVE.best[k];
 SAVE.ed = isFinite(SAVE.ed) ? +SAVE.ed : 0; SAVE.wips = isObj(SAVE.wips) ? SAVE.wips : {};
-{ const c = isObj(SAVE.club) ? SAVE.club : {}, best = {}; for (const k in (isObj(c.best) ? c.best : {})) { const b = c.best[k]; if (isObj(b) && isFinite(b.lk) && isFinite(b.c)) best[String(k).slice(0, 60)] = { lk: +b.lk, c: b.c | 0, m: Math.min(2, Math.max(0, b.m | 0)) }; }
+{ const c = isObj(SAVE.club) ? SAVE.club : {}, best = {}; for (const k in (isObj(c.best) ? c.best : {})) { const b = c.best[k]; if (isObj(b) && isFinite(b.lk) && isFinite(b.c)) best[String(k).slice(0, 60)] = { lk: +b.lk, c: b.c | 0, m: Math.min(2, Math.max(0, b.m | 0)), k: isFinite(b.k) ? Math.max(0, b.k | 0) : 99 }; }
   SAVE.club = { seed: typeof c.seed === 'string' && c.seed ? c.seed.slice(0, 40) : Math.random().toString(36).slice(2, 8), lv: Math.max(1, Math.min(999, c.lv | 0)), lad: Math.max(1, Math.min(999, c.lad | 0)), n: Math.max(0, c.n | 0), best }; }
 let GAL = (v => Array.isArray(v) ? v.filter(e => isObj(e) && typeof e.d === 'string') : [])(RH.load('woodcut-gal', []));
 const doneCount = () => Object.keys(SAVE.best).filter(k => +k < NLV && SAVE.best[k].lk >= PASS).length;
 const persist = () => { RH.save('woodcut', SAVE); RH.progress('woodcut', doneCount() / NLV); };
 let L, Li = 0, T = null, ORDER = null, PAPER;
+let masks = new Set(), passLog = [];
 let uncut, pcol, pt, disp, plab, passes, strokes, undo, surfInk, prevInk, sel = -1, finished = false, result = null, preview = false, diff = false, confirmAt = -1e9, usedK, rTaps = 0;
 let tool = 'region', anim = null, touched = false;
 const blockCv = mk(R, R), blockCtx = blockCv.getContext('2d'), blockImg = blockCtx.createImageData(R, R);
@@ -457,7 +486,7 @@ let draws = 0;
 function kick() { need = true; if (!raf && !document.hidden) raf = requestAnimationFrame(frame); }
 
 // ---------------- target analysis ----------------
-function stateColor(s, x, o) { o[0] = PAPER[0]; o[1] = PAPER[1]; o[2] = PAPER[2]; for (let k = 0; k < s; k++) over(o, L.inks[ORDER[k]], x, o); return o; }
+function stateColor(s, x, o) { o[0] = PAPER[0]; o[1] = PAPER[1]; o[2] = PAPER[2]; if (L.glaze) { for (let b = 0; b < 3; b++) if (s >> b & 1) over(o, L.inks[L.glaze[b]], x, o); return o; } for (let k = 0; k < s; k++) over(o, L.inks[ORDER[k]], x, o); return o; }
 function buildTarget(layers) {
   const st = new Uint8Array(N);
   for (const [s, fn] of layers) {
@@ -509,17 +538,18 @@ function load(i, opts = {}) {
   if (wipT) { clearTimeout(wipT); wipT = 0; if (L) wipSave(); } // the last stroke on the old block must not be lost
   hideToast(); anchor = null; Li = i; L = LV[i]; SAVE.cur = i; persist();
   if (L.club) { const cm = genComm(SAVE.club.seed, SAVE.club.lv), daily = SAVE.club.seed.startsWith('daily:');
-    Object.assign(L, { ckey: clubKey(), inks: cm.inks, need: cm.need, layers: cm.layers, comm: cm, story: `Print Club, ${daily ? 'today\'s commission' : 'commission ' + SAVE.club.lv}: <b>${cm.name}</b>, in ${cm.need} inks, untraced. Deliver it at 85% likeness, then see how the club's ${CLUB_N} members did.` }); }
-  PAPER = lin(L.paper); ORDER = L.studio ? (opts.prompt ? opts.prompt.order : RACK.map((_, k) => k)) : L.inks.slice(0, L.need).map((_, k) => k);
+    Object.assign(L, { ckey: clubKey(), inks: cm.inks, need: 3, layers: cm.layers, comm: cm, glaze: cm.glaze, slack: cm.slack, story: `${daily ? 'Today\'s colour commission' : 'Colour commission ' + SAVE.club.lv}: <b>${cm.name}</b>. Six colours, three pulls, and none of the six is on the shelf.` }); }
+  PAPER = lin(L.paper); ORDER = L.studio ? (opts.prompt ? opts.prompt.order : RACK.map((_, k) => k)) : L.glaze ? L.glaze.slice() : L.inks.slice(0, L.need).map((_, k) => k);
   if (L.studio) { L.inks = RACK; T = opts.prompt ? buildTarget(opts.prompt.layers) : null; L.prompt = opts.prompt || null; }
   else T = buildTarget(L.layers);
   uncut = new Uint8Array(N).fill(1); pcol = new Float32Array(N * 3); pt = new Uint8Array(N); disp = new Float32Array(N * 3); plab = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) { pcol.set(PAPER, i * 3); disp.set(PAPER, i * 3); } computePlab();
-  passes = []; strokes = 0; undo = []; surfInk = null; prevInk = null; sel = -1; finished = false; result = null; preview = false; diff = false; anim = null; usedK = new Set(); rTaps = 0; touched = false; hanko = null; flash = null; chips.length = 0;
+  passes = []; masks = new Set(); passLog = []; strokes = 0; undo = []; surfInk = null; prevInk = null; sel = -1; finished = false; result = null; preview = false; diff = false; anim = null; usedK = new Set(); rTaps = 0; touched = false; hanko = null; flash = null; chips.length = 0;
   if (T) { T.blank = null; T.blank = score().raw; T.ideal = idealStrokes(); L.parStrokes = T.ideal + Math.max(2, Math.ceil(T.ideal * .25)); }
   // clean Region cuts are rationed after the first five prints: the rest is carved by hand (gouge / lasso)
   // no more rationed clean cuts: from the eleventh commission the block comes untraced, so you carve from reading the commission, not from pencil lines
-  L.rBudget = Infinity; L.untraced = !L.studio && i >= 10;
+  L.rBudget = Infinity; L.untraced = !L.studio && !L.club && i >= 10;
+  if (L.glaze) { const pm = planMasks(T.regions); L.parMasks = pm.n; L.fBudget = pm.n + L.slack; L.bestOrd = pm.ord; L.parStrokes = T.regions.filter(g => !(g.s >> pm.ord[2] & 1)).length + 2; }
   L.show = L.inks.map((_, k) => k);
   if (!L.studio) { L.show.sort((a, b) => lightness(L.inks[b]) - lightness(L.inks[a]));
     // from the teapot on, the palette is shuffled: the player has to work out the order themselves
@@ -543,7 +573,9 @@ function renderBlock(yA = 0, yB = R - 1) {
   const d = blockImg.data, a = anim && anim.phase === 'roll' ? anim.k : -1, rollRow = a >= 0 ? a * R : -1, ic = [0, 0, 0], ic2 = [0, 0, 0];
   for (let y = yA; y <= yB; y++) for (let x = 0; x < R; x++) {
     const i = y * R + x, g = grain[i]; let r, gg, b;
-    if (uncut[i]) {
+    if (uncut[i] && masks.size && T && masks.has(T.comp[i])) { // a paper frisket lies on this shape for the next pull
+      const f = .93 + .07 * g + ((x + y) % 9 === 0 ? -.08 : 0); r = PAPER[0] * f; gg = PAPER[1] * f; b = PAPER[2] * f;
+    } else if (uncut[i]) {
       const f = .78 + .3 * g; r = WOOD[0] * f; gg = WOOD[1] * f; b = WOOD[2] * f;
       const ink = a >= 0 ? (y < rollRow ? surfInk : prevInk) : surfInk, al = a >= 0 ? (y < rollRow ? .9 : .55) : (anim ? .9 : .55);
       if (ink) { inkAt(ink, x, ic); const k = al * (.85 + .15 * g); r += (ic[0] * .9 - r) * k; gg += (ic[1] * .9 - gg) * k; b += (ic[2] * .9 - b) * k; }
@@ -560,7 +592,7 @@ function renderBlock(yA = 0, yB = R - 1) {
 const PVO = [0, 0, 0], pvImg = new ImageData(R, R), hlImg = new ImageData(R, R);
 function renderPreview() {
   pvDirty = false; if (sel < 0) return; const ink = L.inks[sel], o = PVO, img = pvImg, d = img.data;
-  for (let i = 0; i < N; i++) { o[0] = pcol[i * 3]; o[1] = pcol[i * 3 + 1]; o[2] = pcol[i * 3 + 2]; if (uncut[i]) over(o, ink, i % R, o); d[i * 4] = to8(o[0]); d[i * 4 + 1] = to8(o[1]); d[i * 4 + 2] = to8(o[2]); d[i * 4 + 3] = 255; }
+  for (let i = 0; i < N; i++) { o[0] = pcol[i * 3]; o[1] = pcol[i * 3 + 1]; o[2] = pcol[i * 3 + 2]; if (uncut[i] && !(masks.size && masks.has(T.comp[i]))) over(o, ink, i % R, o); d[i * 4] = to8(o[0]); d[i * 4 + 1] = to8(o[1]); d[i * 4 + 2] = to8(o[2]); d[i * 4 + 3] = 255; }
   pvCtx.putImageData(img, 0, 0);
 }
 
@@ -587,10 +619,34 @@ const rLeft = () => L.rBudget - rTaps;
 function regionAt(x, y) {
   let n = 0;
   if (rLeft() <= 0) { FX.sfx('tick'); toast('No clean cuts left', 'Carve the rest by hand: <b>Lasso</b> a shape, or <b>U-gouge</b> / <b>V-gouge</b> it. Undo refunds a cut.', 3500); return 0; }
-  if (T) n = carveComp(T.comp[y * R + x]); else n = floodUncut(x, y);
+  if (T && !L.untraced) n = carveComp(T.comp[y * R + x]); else n = floodUncut(x, y); // untraced: the cut fills only what your own carved lines enclose
   if (n) { if (pendingUndo) pendingUndo.rt = 1; rTaps++; pushUndoPrev(); strokes++; FX.sfx('pop'); scratch(1); FX.shake(.12); touched = true; flash = { t: performance.now() }; updateHUD(); if (rLeft() <= 0) { setTool('lasso'); toast('Last clean cut used', 'Carve the rest by hand: <b>Lasso</b> a shape or drag a <b>gouge</b>. Undo refunds a cut.', 4000); } else renderTray(); }
   else FX.sfx('tick');
   return n;
+}
+const masksUsed = () => passLog.reduce((a, p) => a + p.m.length, 0) + masks.size;
+function toggleMask(x, y) { // lay a paper frisket on a shape (or lift it): that shape skips the next pull only
+  if (!T || !L.glaze || finished || anim) return 0; const i = y * R + x, c = T.comp[i]; if (!uncut[i]) { FX.sfx('tick'); return 0; }
+  if (masks.has(c)) masks.delete(c);
+  else { if (masksUsed() >= L.fBudget) { FX.sfx('tick'); toast('No friskets left', `This commission allows ${L.fBudget} paper mask${L.fBudget === 1 ? '' : 's'}. Carve instead, or pull the glazes in another order.`, 3200); return 0; } masks.add(c); }
+  FX.tone({ noise: 1, f: 3200, q: .7, dur: .08, vol: .07 }); touched = true; blockDirty = pvDirty = true; hlComp = -2; updateHUD(); renderTray(); return 1;
+}
+// the edition: four sheets, each pass laid down with its own small registration error; a frisket under a pass lifts the sheet and
+// makes that pass wander further. The block's edges wear a little more with every sheet.
+function editionScores() {
+  const r = RH.rng('drift:' + (L.ckey || Li)), o = [0, 0, 0], lb = new Float32Array(N * 3), lks = [], thumbs = [], img = tmpCtx.createImageData(R, R);
+  const offs = []; for (let s = 0; s < ED_N; s++) offs.push(passLog.map(p => { const a = r() * 6.283, mag = (s ? .3 + r() * .8 : 0) + 1.1 * p.m.length; return [Math.round(Math.cos(a) * mag), Math.round(Math.sin(a) * mag)]; }));
+  for (let s = 0; s < ED_N; s++) {
+    for (let i = 0; i < N; i++) { const x = i % R, y = i / R | 0; o[0] = PAPER[0]; o[1] = PAPER[1]; o[2] = PAPER[2];
+      for (let k = 0; k < passLog.length; k++) { const p = passLog[k], xx = x - offs[s][k][0], yy = y - offs[s][k][1]; if (xx < 0 || yy < 0 || xx >= R || yy >= R) continue; const j = yy * R + xx; if (!p.cov[j]) continue;
+        if (s && ((Math.imul(j, 2654435761) + k * 97 + s * 13) >>> 0) % 100 < 7 * s && ((xx > 0 && !p.cov[j - 1]) || (xx < R - 1 && !p.cov[j + 1]) || (yy > 0 && !p.cov[j - R]) || (yy < R - 1 && !p.cov[j + R]))) continue; // worn edge: no ink
+        over(o, L.inks[p.k], xx, o); }
+      lab(o[0], o[1], o[2], lb, i * 3); img.data[i * 4] = to8(o[0]); img.data[i * 4 + 1] = to8(o[1]); img.data[i * 4 + 2] = to8(o[2]); img.data[i * 4 + 3] = 255; }
+    let sw = 0, ss = 0; for (const rg of T.regions) { let e = 0; for (const i of rg.px) { const j = i * 3; e += Math.hypot(lb[j] - T.tlab[j], lb[j + 1] - T.tlab[j + 1], lb[j + 2] - T.tlab[j + 2]); } e /= rg.px.length; ss += clamp(1 - (e - 4) / 16, 0, 1) * rg.w; sw += rg.w; }
+    lks.push(clamp((ss / sw - T.blank) / (1 - T.blank), 0, 1));
+    try { tmpCtx.setTransform(1, 0, 0, 1, 0, 0); tmpCtx.putImageData(img, 0, 0); const c = mk(72, 72); c.getContext('2d').drawImage(tmpCv, 0, 0, 72, 72); thumbs.push(c.toDataURL('image/jpeg', .7)); } catch (e) { thumbs.push(''); }
+  }
+  return { lks, mean: lks.reduce((a, b) => a + b, 0) / lks.length, thumbs };
 }
 let pendingUndo = null; function pushUndoPrev() { if (pendingUndo) { undo.push(pendingUndo); if (undo.length > 40) undo.shift(); pendingUndo = null; } }
 function lassoFill(pts) {
@@ -600,10 +656,10 @@ function lassoFill(pts) {
 
 // ---------------- pulling a print ----------------
 function applyPull(k) {
-  const ink = L.inks[k], ic = [0, 0, 0], rnd = RH.rng(passes.length * 977 + Li * 31 + 5);
+  const ink = L.inks[k], ic = [0, 0, 0], rnd = RH.rng(passes.length * 977 + Li * 31 + 5), mk = masks, hasM = mk.size > 0 && T, covM = L.glaze ? new Uint8Array(N) : null;
   prevCtx.drawImage(printCv, 0, 0);
   for (let i = 0; i < N; i++) {
-    if (!uncut[i]) continue; const x = i % R, j = i * 3; inkAt(ink, x, ic);
+    if (!uncut[i] || (hasM && mk.has(T.comp[i]))) continue; const x = i % R, j = i * 3; inkAt(ink, x, ic); if (covM) covM[i] = 1;
     // ideal colour (for scoring) and a speckled display colour: grain and paper tooth starve a few spots of ink
     let cov = .93 + .07 * rnd() - .16 * Math.max(0, grain[i] - .72) * 3; if (rnd() < .012) cov *= .45;
     if (ink.m === 't') for (let c = 0; c < 3; c++) { pcol[j + c] *= ic[c]; disp[j + c] *= 1 + (ic[c] - 1) * cov; }
@@ -611,6 +667,7 @@ function applyPull(k) {
       for (let c = 0; c < 3; c++) { const v = pcol[j + c] + (ic[c] - pcol[j + c]) * cv; pcol[j + c] = v; disp[j + c] += (v - disp[j + c]) * cov; } }
     pt[i]++;
   }
+  if (covM) passLog.push({ k, cov: covM, m: [...mk] }); masks = new Set();
   prevInk = surfInk; surfInk = ink; passes.push(k); usedK.add(k); undo = []; computePlab(); renderPrint(); pvDirty = true;
 }
 function pull(k, instant) {
@@ -624,7 +681,7 @@ function pull(k, instant) {
 }
 function afterPull() {
   anim = null; blockDirty = true; sel = -1; renderTray(); updateHUD();
-  if (!L.studio && (passes.length >= L.inks.length || ORDER.every(k => usedK.has(k)))) { finish(); return; } // every needed ink printed (spares may be left)
+  if (!L.studio && (L.glaze ? passes.length >= 3 : passes.length >= L.inks.length || ORDER.every(k => usedK.has(k)))) { finish(); return; } // every needed ink printed (spares may be left)
   if (passes.length === 1 || Math.random() < .5) toast(passes.length === 1 ? 'First impression' : 'Pass ' + passes.length, FACTS[(passes.length + Li) % FACTS.length], 5000);
 }
 const ANIM = { roll: 750, drop: 420, rub: 800, peel: 950 };
@@ -664,9 +721,10 @@ function finish() {
   finished = true; sel = -1; preview = false;
   const sc = score(), w = waste(), par = L.studio ? 0 : L.need;
   let stars = 0;
-  const pass = !!T && !L.studio && sc.lk >= PASS && sc.miss === 0;
+  const ed = L.glaze ? editionScores() : null;
+  const pass = !!T && !L.studio && (ed ? ed.mean >= GPASS : sc.lk >= PASS) && sc.miss === 0;
   if (pass) { stars = 1; if (passes.length <= par && strokes <= L.parStrokes) stars++; if (stars === 2 && sc.lk >= .93 && w <= .03) stars++; }
-  result = { lk: sc.lk, rs: sc.rs, waste: w, passes: passes.length, par, strokes, parStrokes: L.parStrokes, stars, pass, miss: sc.miss || 0, ed: ++SAVE.ed, hints: T && !L.studio ? missHints(sc.rs) : [] };
+  result = { lk: ed ? ed.mean : sc.lk, glz: ed ? { lks: ed.lks, thumbs: ed.thumbs, masks: passLog.reduce((a, p) => a + p.m.length, 0), par: L.parMasks, budget: L.fBudget } : null, rs: sc.rs, waste: w, passes: passes.length, par, strokes, parStrokes: L.parStrokes, stars, pass, miss: sc.miss || 0, ed: ++SAVE.ed, hints: T && !L.studio ? missHints(sc.rs) : [] };
   // diff overlay: tint regions that missed
   const img = diffCtx.createImageData(R, R);
   if (T) T.regions.forEach((r, ri) => { if (sc.rs[ri] >= .8) return; for (let i = 0; i < N; i++) if (T.comp[i] === r.comp) { img.data[i * 4] = 255; img.data[i * 4 + 1] = 40; img.data[i * 4 + 2] = 40; img.data[i * 4 + 3] = 150; } });
@@ -688,6 +746,7 @@ function missHints(rs) {
   const where = r => { let sx = 0, sy = 0; for (const i of r.px) { sx += i % R; sy += i / R | 0; } const x = sx / r.px.length / R, y = sy / r.px.length / R;
     return (y < .33 ? 'top' : y > .67 ? 'bottom' : 'middle') + (x < .33 ? ' left' : x > .67 ? ' right' : y > .33 && y < .67 ? '' : ''); };
   const miss = T.regions.map((r, ri) => ({ r, sc: rs[ri] })).filter(o => o.sc < .5).sort((a, b) => b.r.n - a.r.n).slice(0, 2);
+  if (L.glaze) return miss.map(({ r }) => { const i = r.px[r.px.length >> 1]; return `${where(r).trim().replace(/^middle$/, 'centre')} area: printed as <b>${passLog.filter(p => p.cov[i]).map(p => L.inks[p.k].n).join(' + ') || 'bare paper'}</b>, which is not the commission's colour`; });
   return miss.map(({ r }) => { const cnt = new Int32Array(16); for (const i of r.px) cnt[pt[i]]++; let m = 0; for (let k = 1; k < 16; k++) if (cnt[k] > cnt[m]) m = k;
     const got = nameForT(m), want = targetName(r.s);
     return `${where(r).trim().replace(/^middle$/, 'centre')} area: should be <b>${want}</b>, printed as <b>${got}</b>` + (m < r.s ? ' (carved too early)' : m > r.s ? ' (left on the block too long)' : ' (wrong order of inks)'); });
@@ -704,10 +763,11 @@ function saveGallery() {
 }
 const starStr = n => '★'.repeat(n) + '☆'.repeat(3 - n);
 function showResult() {
-  if (L.club) { const r = result, c = r.club, pct = x => Math.round(x * 100) + '%';
-    const big = `${pct(r.lk)} likeness · ${r.strokes} cuts · ${r.pass ? 'delivered' : '<span class="nostar">not yet</span>'}`;
-    const small = r.pass ? `<span class="hist"><span>Likeness: better than <b>${pct(c.bl)}</b> of the club${c.bl >= .9 ? ' ✦' : ''}<br>${histSVG(c.pop.map(x => x.lk), r.lk, v => pct(v))}</span><span>Cuts: fewer than <b>${pct(c.bc)}</b>${c.bc >= .9 ? ' ✦' : ''}<br>${histSVG(c.pop.map(x => x.cuts), r.strokes, v => Math.round(v))}</span></span>`
-      : `<b>Not quite:</b> ${r.lk < PASS ? `you need ${PASS * 100}% likeness.` : `${r.miss} detail${r.miss > 1 ? 's' : ''} printed the wrong colour.`} ${r.hints.join('; ')}`;
+  if (L.club) { const r = result, g = r.glz, pct = x => Math.round(x * 100) + '%';
+    const big = `Edition of ${ED_N}: ${pct(r.lk)} · ${g.masks} frisket${g.masks === 1 ? '' : 's'} (master: ${g.par}) · ${r.strokes} cuts · ${r.pass ? 'delivered' : '<span class="nostar">not yet</span>'}`;
+    const eds = `<span class="eds">${g.lks.map((v, i) => `<figure>${g.thumbs[i] ? `<img src="${g.thumbs[i]}" alt="">` : ''}<figcaption>${i + 1}/${ED_N} · ${pct(v)}</figcaption></figure>`).join('')}</span>`;
+    const small = eds + (r.pass ? `${g.masks <= g.par ? '✦ As few friskets as the master printer. ' : `The master printer needed ${g.par} frisket${g.par === 1 ? '' : 's'}: another order of glazes saves some. `}${r.lk >= .9 ? '✦ A crisp edition.' : 'Every frisket shifts the sheet: later sheets drift.'}`
+      : `<b>Not quite:</b> ${r.lk < GPASS ? `the edition needs ${GPASS * 100}% likeness across all ${ED_N} sheets; friskets make the sheets drift.` : `${r.miss} shape${r.miss > 1 ? 's' : ''} printed the wrong colour.`} ${r.hints.join('; ')}`);
     return toast(big, small, 60000, `<div class="btns"><button class="tb" data-a="retry">Retry</button>${r.pass ? '<button class="tb pull" data-a="cnext">Next commission →</button>' : ''}${SAVE.club.seed.startsWith('daily:') ? '' : '<button class="tb" data-a="cdaily">Today\'s</button>'}<button class="tb" data-a="cshare">Share</button></div>`); }
   const r = result, nxt = Li < NLV - 1 && r.pass ? '<button class="tb pull" data-a="next">Next print →</button>' : Li === NLV - 1 && r.pass ? '<button class="tb pull" data-a="studio">Open the studio →</button>' : '';
   const big = L.studio ? `Edition no. ${r.ed} signed` + (T ? ` · ${Math.round(r.lk * 100)}% likeness` : '') : `${Math.round(r.lk * 100)}% likeness · ${r.passes}/${r.par} passes · ${r.pass ? `<span class="stars">${starStr(r.stars)}</span>` : '<span class="nostar">not yet</span>'}`; // stars only for a passed print
@@ -771,7 +831,7 @@ function drawBoard(now) {
   // kento: L-shaped corner mark (bottom right) and a straight hikitsuke mark (bottom left)
   g.fillStyle = '#4a321e'; const ky = B.y + B.s + pad * .55, kw = pad * .4; g.fillRect(B.x + B.s - B.s * .18, ky, B.s * .18 + kw, kw); g.fillRect(B.x + B.s, ky - pad * .4, kw, pad * .4 + kw); g.fillRect(B.x + B.s * .08, ky, B.s * .22, kw);
   g.imageSmoothingEnabled = true; g.drawImage(blockCv, B.x, B.y, B.s, B.s);
-  if (tool === 'region' && hlComp >= 0 && !anim && !finished) { g.globalAlpha = .7; g.drawImage(hlCv, B.x, B.y, B.s, B.s); g.globalAlpha = 1; }
+  if ((tool === 'region' || tool === 'mask') && hlComp >= 0 && !anim && !finished) { g.globalAlpha = .7; g.drawImage(hlCv, B.x, B.y, B.s, B.s); g.globalAlpha = 1; }
   if (flash) { const k = (now - flash.t) / 350; if (k >= 1) flash = null; else { g.fillStyle = `rgba(255,240,210,${.25 * (1 - k)})`; g.fillRect(B.x, B.y, B.s, B.s); } }
   // label
   g.fillStyle = 'rgba(244,234,216,.5)'; g.font = `${11 * dpr}px Spectral,Georgia,serif`; g.textAlign = 'left';
@@ -832,9 +892,11 @@ function nameForT(t) { if (!t) return 'paper'; let j = t - 1; while (j > 0 && L.
 function drawTooltip() {
   if (!hover || anim || finished || mobile || drag) return; const [bx, by] = hover, i = by * R + bx; if (bx < 0 || by < 0 || bx >= R || by >= R) return;
   const rows = []; const here = [pcol[i * 3], pcol[i * 3 + 1], pcol[i * 3 + 2]];
-  if (uncut[i]) { rows.push(['Carve now → stays', here, nameForT(pt[i])]); if (sel >= 0) rows.push(['Leave → next pull', over(here.slice(), L.inks[sel], bx, []), (L.inks[sel].m === 't' && pt[i] ? nameForT(pt[i]) + ' + ' : '') + L.inks[sel].n]); }
-  else rows.push(['Carved: will remain', here, nameForT(pt[i])]);
-  if (T) rows.push(['Target here', [T.tcol[i * 3], T.tcol[i * 3 + 1], T.tcol[i * 3 + 2]], '']);
+  const nm = L.glaze ? (passLog.filter(p => p.cov[i]).map(p => L.inks[p.k].n).join(' + ') || 'paper') : nameForT(pt[i]);
+  if (uncut[i] && L.glaze && masks.has(T.comp[i])) rows.push(['Under a frisket: skips the next pull', here, nm]); else
+  if (uncut[i]) { rows.push(['Carve now → stays', here, nm]); if (sel >= 0) rows.push(['Leave → next pull', over(here.slice(), L.inks[sel], bx, []), (L.inks[sel].m === 't' && pt[i] ? nm + ' + ' : '') + L.inks[sel].n]); }
+  else rows.push(['Carved: will remain', here, nm]);
+  if (T && !L.untraced) rows.push(['Target here', [T.tcol[i * 3], T.tcol[i * 3 + 1], T.tcol[i * 3 + 2]], '']);
   const [sx, sy] = b2s(bx, by), fs = 11.5 * dpr, lh = 19 * dpr, w = 250 * dpr, h = rows.length * lh + 10 * dpr; let x = sx + 18 * dpr, y = sy + 18 * dpr; if (x + w > W) x = sx - w - 18 * dpr; if (y + h > H) y = sy - h - 18 * dpr;
   g.fillStyle = 'rgba(30,23,18,.93)'; g.beginPath(); g.roundRect(x, y, w, h, 8 * dpr); g.fill(); g.font = `${fs}px Spectral,Georgia,serif`; g.textAlign = 'left';
   rows.forEach(([lbl, col, nm], k) => { const yy = y + 8 * dpr + k * lh; g.fillStyle = css(col); g.fillRect(x + 8 * dpr, yy, 22 * dpr, 13 * dpr); g.strokeStyle = 'rgba(255,255,255,.25)'; g.strokeRect(x + 8 * dpr, yy, 22 * dpr, 13 * dpr); g.fillStyle = '#f4ead8'; g.fillText(lbl + (nm ? ': ' + nm : ''), x + 38 * dpr, yy + 11 * dpr, w - 46 * dpr); });
@@ -868,7 +930,7 @@ const RAD = { v: 2.4, u: 8 };
 let lastScratch = 0; function scratch(big) { const n = performance.now(); if (!big && n - lastScratch < 45) return; lastScratch = n; FX.tone({ noise: 1, f: 2400 + Math.random() * 2400, q: 1.6, dur: big ? .18 : .045, vol: big ? .12 : .06 }); }
 function setHover(p) {
   const b = [Math.floor(p[0]), Math.floor(p[1])]; hover = inBlock(p) && b[0] >= 0 && b[1] >= 0 && b[0] < R && b[1] < R ? b : null;
-  let c = -1; if (hover && tool === 'region' && !L.untraced) { if (T) c = T.comp[b[1] * R + b[0]]; }
+  let c = -1; if (hover && (tool === 'region' || tool === 'mask') && !L.untraced) { if (T) c = T.comp[b[1] * R + b[0]]; }
   if (c !== hlComp) { hlComp = c; if (c >= 0) { const img = hlImg; img.data.fill(0); for (let i = 0; i < N; i++) if (T.comp[i] === c && uncut[i]) { img.data[i * 4] = 255; img.data[i * 4 + 1] = 230; img.data[i * 4 + 2] = 170; img.data[i * 4 + 3] = 110; } hlCtx.putImageData(img, 0, 0); } }
   kick();
 }
@@ -877,7 +939,7 @@ cv.addEventListener('pointerdown', e => {
   if (anim) { skipAnim(); return; }
   const p = toBlock(e); if (!inBlock(p) || finished) return;
   const q = [clamp(p[0], 0, R - 1), clamp(p[1], 0, R - 1)];
-  if (tool === 'region') { pendingRegion = { q, x: e.clientX, y: e.clientY }; return; } // clears on release, so a pinch that starts here clears nothing
+  if (tool === 'region' || tool === 'mask') { pendingRegion = { q, x: e.clientX, y: e.clientY }; return; } // clears on release, so a pinch that starts here clears nothing
   cv.setPointerCapture(e.pointerId); touched = true;
   drag = { tool, start: snap(q), last: q, sm: q, pts: [snap(q)], base: uncut.slice(), n: 0, t0: performance.now(), q0: q, far: 0 };
   if (tool !== 'lasso') { drag.n += stamp(q[0], q[1], RAD[tool]); scratch(); partDirty = pvDirty = true; }
@@ -896,7 +958,7 @@ cv.addEventListener('pointermove', e => {
 // straight cuts without a keyboard: tap where the cut starts, then tap where it ends (tap the same spot again for a single nick)
 let anchor = null;
 const endDrag = e => {
-  if (pendingRegion) { const pr = pendingRegion; pendingRegion = null; if (!cam.gesturing && e && Math.hypot(e.clientX - pr.x, e.clientY - pr.y) < 10) { pendingUndo = uncut.slice(); regionAt(pr.q[0] | 0, pr.q[1] | 0); pendingUndo = null; setHover(toBlock(e)); } return; }
+  if (pendingRegion) { const pr = pendingRegion; pendingRegion = null; if (!cam.gesturing && e && Math.hypot(e.clientX - pr.x, e.clientY - pr.y) < 10) { if (tool === 'mask') toggleMask(pr.q[0] | 0, pr.q[1] | 0); else { pendingUndo = uncut.slice(); regionAt(pr.q[0] | 0, pr.q[1] | 0); pendingUndo = null; } setHover(toBlock(e)); } return; }
   if (!drag) return; if (cam.gesturing) { cancelGesture(); return; } const d = drag; drag = null;
   if (d.tool !== 'lasso' && d.far < 4 && performance.now() - d.t0 < 400) {
     uncut.set(d.base); d.n = 0;
@@ -924,7 +986,7 @@ function setTool(t) { tool = t; anchor = null; hlComp = -2; FX.sfx('click'); ren
 function surfaceColor() { if (!passes.length) return PAPER; for (let i = 0; i < N; i++) if (uncut[i]) return [pcol[i * 3], pcol[i * 3 + 1], pcol[i * 3 + 2]]; return PAPER; }
 function renderTray() {
   const rl = rLeft();
-  $('tools').innerHTML = TOOLS.map(([k, n, ic, tip], j) => `<button data-s="${{ v: 'V-cut', u: 'U-cut', region: 'Region', lasso: 'Lasso' }[k]}" class="tb ${tool === k ? 'on' : ''}" data-t="${k}" title="${n}: ${tip} (${j + 1})${k === 'region' && rl < 1e9 ? ' · ' + rl + ' clean cuts left' : ''}" ${k === 'region' && rl <= 0 && !finished ? 'disabled' : ''}><span class="ic">${ic}</span><span class="lbl">${n}</span>${k === 'region' && rl < 1e9 ? `<span class="cnt">×${rl}</span>` : ''}</button>`).join('') + `<button class="tb" data-s="Undo" id="undo" title="Undo (Z)" ${undo.length && !finished ? '' : 'disabled'}><span class="ic">↶</span><span class="lbl">Undo</span></button>`;
+  $('tools').innerHTML = (L.glaze ? TOOLS.concat([['mask', 'Frisket', '▭', 'paper mask: the shape skips the next pull']]) : TOOLS).map(([k, n, ic, tip], j) => `<button data-s="${{ v: 'V-cut', u: 'U-cut', region: 'Region', lasso: 'Lasso', mask: 'Mask' }[k]}" class="tb ${tool === k ? 'on' : ''}" data-t="${k}" title="${n}: ${tip} (${j + 1})${k === 'region' && rl < 1e9 ? ' · ' + rl + ' clean cuts left' : ''}" ${k === 'region' && rl <= 0 && !finished ? 'disabled' : ''}><span class="ic">${ic}</span><span class="lbl">${n}</span>${k === 'region' && rl < 1e9 ? `<span class="cnt">×${rl}</span>` : ''}${k === 'mask' ? `<span class="cnt">${L.fBudget - masksUsed()}</span>` : ''}</button>`).join('') + `<button class="tb" data-s="Undo" id="undo" title="Undo (Z)" ${undo.length && !finished ? '' : 'disabled'}><span class="ic">↶</span><span class="lbl">Undo</span></button>`;
   const base = surfaceColor();
   $('inks').innerHTML = L.show.map(k => { const ink = L.inks[k], used = !L.studio && usedK.has(k);
     // swatch = what the remaining uncut surface becomes: current colour | colour after this ink
@@ -954,16 +1016,27 @@ function updateHUD() {
   kick(); wipSoon();
   const sc = score(), lk = Math.round(sc.lk * 100);
   $('mBar').style.width = (T ? lk : 0) + '%'; $('mTxt').textContent = T ? lk + '%' : '–'; $('meter').style.opacity = T ? 1 : .4;
-  $('stats').textContent = L.studio ? `passes ${passes.length} · strokes ${strokes}` : `pass ${passes.length}/${L.need}${L.spare ? ' (+' + L.spare.length + ' spare tin)' : ''} · strokes ${strokes}/${L.parStrokes} par`;
+  $('stats').textContent = L.glaze ? `pull ${passes.length}/3 · friskets ${masksUsed()}/${L.fBudget} · cuts ${strokes}` : L.studio ? `passes ${passes.length} · strokes ${strokes}` : `pass ${passes.length}/${L.need}${L.spare ? ' (+' + L.spare.length + ' spare tin)' : ''} · strokes ${strokes}/${L.parStrokes} par`;
   let s;
   if (finished) s = result.pass || L.studio ? 'Signed and stamped. The block is spent.' : result.lk >= PASS ? `${result.miss} missed detail${result.miss > 1 ? 's' : ''}: every shape counts. Try a fresh block.` : 'Missed the 85% mark. Try a fresh block.';
   else if (anim) s = 'Printing… (tap to skip)';
   else if (L.studio) s = sel < 0 ? 'Carve, then pick an ink. Tap the selected ink again to toggle opaque / transparent.' : 'Pull when ready. Pulls are permanent.';
   else if (!passes.length && !strokes && innerWidth < 900 && !(innerHeight < 520 && innerWidth > innerHeight)) s = L.story;
+  else if (L.glaze && !passes.length && !strokes) s = `<b>Three pulls, six colours.</b> Glazes multiply: pick three tins whose stacks make the commission. Carve what is finished; lay a <b>frisket</b> ▭ on a shape to skip one pull (${L.fBudget} on the bench).`;
+  else if (L.glaze && sel < 0) s = `Carve the shapes that are finished, mask the ones that must skip, then pick the next glaze. ${3 - passes.length} pull${passes.length === 2 ? '' : 's'} left.`;
   else if (!passes.length && !strokes) s = L.untraced ? `<b>Untraced block:</b> no pencil lines from here on. Read the commission, decide which shapes stay <b>paper</b>, and carve them.${L.spare ? ' One tin on the bench does not belong in this print.' : ''}` : '<b>Step 1:</b> carve away everything that should stay <b>paper</b>. The Region tool clears one shape per tap.';
   else if (sel < 0) s = passes.length ? `Carve what should <b>stay as it is now</b>, then pick the next ink.` : 'Then pick an ink below. Its swatch shows: now | after.';
   else s = `Pull <b>${L.inks[sel].n}</b> when ready. Pulling makes your cuts permanent (undo ends).`;
-  $('step').innerHTML = s;
+  $('step').innerHTML = s; chart();
+}
+// the glaze chart: the commission's colours above, every stack your glazes can make below (pulled glazes and the one in hand)
+function chart() {
+  const el = $('chart'); if (!L.glaze || !T || finished) { el.style.display = 'none'; return; } el.style.display = '';
+  const want = [...new Set(T.regions.filter(r => r.n > 60).map(r => r.s))].map(st => stateColor(st, R / 2, [0, 0, 0]));
+  const mine = passes.slice(); if (sel >= 0 && !usedK.has(sel)) mine.push(sel);
+  const make = []; for (let m = 1; m < 1 << mine.length; m++) { const o = PAPER.slice(); mine.forEach((k, b) => { if (m >> b & 1) over(o, L.inks[k], R / 2, o); }); make.push({ o, n: mine.filter((_, b) => m >> b & 1).map(k => L.inks[k].n).join(' + ') }); }
+  const hit = c => make.some(m => dE(m.o, c) < 7) || dE(PAPER, c) < 7;
+  el.innerHTML = `<div><span class="cl">wanted</span>${want.map(c => `<i class="cs ${hit(c) ? 'ok' : ''}" style="background:${css(c)}"></i>`).join('')}</div><div><span class="cl">yours</span>${make.length ? make.map(m => `<i class="cs" title="${m.n}" style="background:${css(m.o)}"></i>`).join('') : '<em>pick a glaze to see its stacks</em>'}</div>`;
 }
 function renderLevels() {
   const maxOpen = doneCount(), locked = i => i === CLUB ? doneCount() < CLUB_OPEN : i < NLV ? i > maxOpen && !SAVE.best[i] : doneCount() < NLV && !SAVE.best[NLV - 1];
@@ -1012,7 +1085,7 @@ addEventListener('pagehide', () => { if (wipT) { clearTimeout(wipT); wipT = 0; w
 function wipSave() {
   if (!L) return; if (finished || (!strokes && !passes.length)) { if (SAVE.wips[Li]) { delete SAVE.wips[Li]; RH.save('woodcut', SAVE); } return; }
   const c = new Uint8Array(N); for (let i = 0; i < N; i++) c[i] = uncut[i] ? 255 : pt[i];
-  SAVE.wips[Li] = { p: passes.slice(), c: rleEnc(c), s: strokes, r: rTaps, seed: L.prompt ? L.prompt.seed : null, cs: L.club ? L.ckey : null, m: L.studio ? RACK.map(k => k.m).join('') : null };
+  SAVE.wips[Li] = { p: passes.slice(), c: rleEnc(c), s: strokes, r: rTaps, seed: L.prompt ? L.prompt.seed : null, cs: L.club ? L.ckey : null, m: L.studio ? RACK.map(k => k.m).join('') : null, mk: L.glaze ? passLog.map(p => p.m) : null };
   RH.save('woodcut', SAVE);
 }
 function restoreWip() {
@@ -1022,7 +1095,7 @@ function restoreWip() {
     if (w.m) w.m.split('').forEach((m, k) => RACK[k] && (RACK[k].m = m));
     if (L.studio && w.seed != null) load(Li, { quiet: 1, fresh: 1, prompt: makePrompt(w.seed) });
     const c = rleDec(w.c);
-    for (let j = 0; j < w.p.length; j++) { for (let i = 0; i < N; i++) uncut[i] = c[i] > j ? 1 : 0; applyPull(w.p[j]); }
+    for (let j = 0; j < w.p.length; j++) { for (let i = 0; i < N; i++) uncut[i] = c[i] > j ? 1 : 0; masks = new Set(Array.isArray(w.mk) && Array.isArray(w.mk[j]) ? w.mk[j].filter(Number.isInteger) : []); applyPull(w.p[j]); }
     for (let i = 0; i < N; i++) uncut[i] = c[i] === 255 ? 1 : 0;
     strokes = w.s; rTaps = w.r || 0; touched = true; blockDirty = pvDirty = true; hlComp = -2;
     renderTray(); updateHUD(); toast('Welcome back', 'Your half-carved block was waiting on the bench.', 2600);
@@ -1046,14 +1119,24 @@ kick();
 
 // ---------------- debug / test handle ----------------
 window.__wc = {
-  LV, load: (i, o) => load(i, { quiet: 1, fresh: 1, ...o }), makePrompt, CLUB, CLUB_OPEN, genComm, clubPop, clubSet, clubKey, beats, todayStr,
+  LV, load: (i, o) => load(i, { quiet: 1, fresh: 1, ...o }), makePrompt, CLUB, CLUB_OPEN, genComm, clubSet, clubKey, todayStr, GLAZES, planMasks, masksFor, toggleMask, editionScores, ED_N, GPASS, get masks() { return [...masks]; }, get passLog() { return passLog; }, masksUsed,
+  // play a glaze plan: inks = three shelf indices (one per bit), sub = the stack (bitmask) each region should get, ord = pull order of the bits.
+  // Before each pull: carve every shape whose stack is complete, lay friskets on shapes that skip this glaze but need a later one (while friskets last).
+  execPlan(inks, sub, ord) { for (let p = 0; p < 3 && !finished; p++) { const b = ord[p], before = uncut.slice(); let cuts = 0;
+      T.regions.forEach((rg, ri) => { const s2 = sub[ri]; if (!ord.slice(p).some(bb => s2 >> bb & 1) && uncut[rg.px[0]] && carveComp(rg.comp)) cuts++; });
+      T.comps.forEach((c, id) => { if (c.n < 10 && !ord.slice(p).some(bb => c.s >> bb & 1)) carveComp(id); });
+      if (cuts) { undo.push(before); strokes += cuts; }
+      masks = new Set(); T.regions.forEach((rg, ri) => { const s2 = sub[ri]; if (!(s2 >> b & 1) && uncut[rg.px[0]] && masksUsed() < L.fBudget) masks.add(rg.comp); });
+      pull(inks[b], true); }
+    return result; },
+  solveGlaze(ord) { return this.execPlan(L.glaze, T.regions.map(r => r.s), ord || L.bestOrd); },
   get L() { return L; }, get T() { return T; }, get passes() { return passes.slice(); }, get strokes() { return strokes; }, get result() { return result; }, get finished() { return finished; },
   carveRegion: (x, y) => { pendingUndo = uncut.slice(); const n = regionAt(x | 0, y | 0); pendingUndo = null; return n; },
   carveState: s => { let st = 0; const before = uncut.slice(); T.comps.forEach((c, id) => { if (c.s === s && carveComp(id) && c.n >= 10) st++; }); if (st) { undo.push(before); strokes += st; } blockDirty = pvDirty = true; updateHUD(); return st; },
   gouge: (pts, t = 'v') => { const before = uncut.slice(); let n = stamp(pts[0][0], pts[0][1], RAD[t]); for (let k = 1; k < pts.length; k++) n += line(pts[k - 1], pts[k], RAD[t]); if (n) { undo.push(before); strokes++; } blockDirty = true; updateHUD(); return n; },
   lasso: pts => { const before = uncut.slice(), n = lassoFill(pts); if (n) { undo.push(before); strokes++; } updateHUD(); return n; },
   undo: doUndo, pull: (k, animate) => pull(k, !animate), select: k => { sel = k; renderTray(); }, finish, score: () => score().lk, waste,
-  solve(i) { this.load(i); const n = LV[i].need; for (let k = 0; k < n; k++) { this.carveState(k); pull(k, true); } return result; },
+  solve(i) { this.load(i); if (L.glaze) return this.solveGlaze(); const n = LV[i].need; for (let k = 0; k < n; k++) { this.carveState(k); pull(k, true); } return result; },
   blank(i) { this.load(i); return score().lk; },
   naive(i) { this.load(i); for (let k = 0; k < LV[i].need; k++) applyPull(k); return score().lk; },
   // bots: carve every region whose printed colour already matches the commission (what a careful novice does before each pull)

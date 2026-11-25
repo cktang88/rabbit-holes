@@ -439,7 +439,7 @@ function simBook(S, pols, cap0, t0, months, n, key, premAt) {
 function halley(S, extra) {
   const pols = S.pol.map(p => ({ ...vmin(S.voy[p.v]), line: p.line, sh: p.ced ? p.ced.sh : 0 }));
   if (extra) pols.push({ ...vmin(S.voy[extra.v]), line: extra.line, sh: 0 });
-  const res = simBook(S, pols, S.cap + (extra ? extra.prem : 0), S.t, 6, 300, `halley|${S.t}`, false);
+  const res = simBook(S, pols, S.cap + (extra ? extra.prem : 0), S.t, 6, 240, `halley|${S.t}`, false);
   return res.filter(x => x.ruin).length / res.length;
 }
 function yearEnd(S) {
@@ -720,6 +720,7 @@ function yearModal(rec) {
     <p>${money(rec.c0)} → <b>${money(rec.c1)}</b> · lowest ${money(rec.min)}</p>
     <p><b>Your book, in 100 other years</b> (the same lines, fresh weather):</p>${histHTML(rec)}
     <p>Ruined in <b>${rec.ruin}</b> of 100. ${rec.better} ended richer than you did${rec.better > 60 ? ': you were unlucky' : rec.better < 25 ? ': you were lucky' : ''}.</p>
+    <p>Your judgement, with luck removed (each year's typical outcome, compounded): <b>×${judgement(S).toFixed(2)}</b></p>
     <p>${seal(rec.f)} Fortune ${rec.c1 >= rec.c0 ? '+' : ''}${Math.round((rec.c1 / rec.c0 - 1) * 100)}% &nbsp; ${seal(rec.s)} Steadiness &nbsp; ${seal(rec.st)} Standing ${Math.round(rec.prem / rec.c0 * 100)}%</p>
     <div>${rv}</div>`, [{ label: rec.y + 1 > 1703 ? 'Close the books' : `Begin ${rec.y + 1}` }]);
 }
@@ -733,12 +734,12 @@ function shareText() {
   const ys = Object.values(S.yrs).sort((a, b) => a.y - b.y);
   const grid = ys.map(y => (y.f ? '⚓' : '·') + (y.s ? '🕯' : '·') + (y.st ? '⚖' : '·')).join(' ');
   const head = S.mode === 'daily' ? `Underwriter · daily ${daily} (${yr(S.t0)})` : `Underwriter · seed ${S.seed} · ${yr(S.t0)}–${yr(Math.min(S.t, T_END - 1))}`;
-  return `${head}\n${money(START)} → ${money(S.cap)} · ${S.ruins} ruin${S.ruins === 1 ? '' : 's'} · ${ys.reduce((a, y) => a + y.f + y.s + y.st, 0)} seals\n${grid}`;
+  return `${head}\n${money(START)} → ${money(S.cap)} · judgement ×${judgement(S).toFixed(2)} · ${S.ruins} ruin${S.ruins === 1 ? '' : 's'} · ${ys.reduce((a, y) => a + y.f + y.s + y.st, 0)} seals\n${grid}`;
 }
 function shareLink() { return location.href.split('#')[0] + (S.mode === 'daily' ? '#daily=' + daily : '#seed=' + encodeURIComponent(S.seed)); }
 function finalModal() {
   const ys = Object.values(S.yrs), seals = ys.reduce((a, y) => a + y.f + y.s + y.st, 0);
-  RH.modal(`<h2>${S.mode === 'daily' ? 'The daily sitting closed' : 'Your career closed'}</h2><p>${money(START)} → <b>${money(S.cap)}</b> · ${S.ruins} ruin${S.ruins === 1 ? '' : 's'} · ${seals} of ${ys.length * 3} seals.</p>
+  RH.modal(`<h2>${S.mode === 'daily' ? 'The daily sitting closed' : 'Your career closed'}</h2><p>${money(START)} → <b>${money(S.cap)}</b> · ${S.ruins} ruin${S.ruins === 1 ? '' : 's'} · ${seals} of ${ys.length * 3} seals · judgement ×${judgement(S).toFixed(2)}${S.mode === 'career' ? (judgement(S) >= 3 && S.ruins <= 1 ? ' · <b>a Name at Lloyd\'s</b>' : ' (×3 with at most one ruin makes you a Name at Lloyd\'s)') : ''}.</p>
     <p class="dimtxt">Fortune, Steadiness and Standing pull against each other: the richest underwriters are seldom the steadiest.</p><span class="mono">${shareText()}\n${shareLink()}</span>`,
     [{ label: 'Copy', value: 'copy' }, { label: "Today's sitting", value: 'daily' }, { label: 'A new career', value: 'new' }]).then(v => {
       if (v === 'copy') { try { navigator.clipboard.writeText(shareText() + '\n' + shareLink()); RH.toast('Copied'); } catch (e) {} }
@@ -754,7 +755,8 @@ $('shareBtn').onclick = () => RH.modal(`<h2>Share</h2><p>Anyone opening this lin
 $('helpBtn').onclick = () => RH.modal(`<h2>Underwriting at Lloyd's</h2>
   <p>Brokers bring slips. <b>Sign</b> under a voyage for a line (a share of its value). You take the premium at once; if the ship is lost, you pay your whole line.</p>
   <p>Ships in the same sea in the same month share its storms and privateers. Your <b>Book</b> shows where your lines pile up; your <b>Ledger</b> counts every loss the Room has heard of.</p>
-  <p>If your purse goes below nothing you are ruined, and you begin that year again. Each December is reckoned for Fortune, Steadiness and Standing.</p>`);
+  <p>If your purse goes below nothing you are ruined, and you begin that year again. Each December is reckoned for Fortune, Steadiness and Standing.</p>
+  <p>Reach 1703 with a <b>judgement of ×3</b> (your yearly books' typical outcomes, luck removed) and at most one ruin, and you are a Name at Lloyd's.</p>`);
 $('muteBtn').onclick = () => { FX.setMuted(!FX.muted); render(); };
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { tab = b.dataset.tab; FX.sfx('click'); render(); $('pane').scrollTop = 0; });
 addEventListener('keydown', e => {
