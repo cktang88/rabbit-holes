@@ -293,7 +293,7 @@ module.exports = {
       eq(await page.evaluate(() => [__fl.W.seed, __fl.sea.dr.length, __fl.sea.chart.length, __fl.sea.phase, __fl.sea.ci]), [2024, 1, 1, 'calls', 0], 'a reload resumes the world');
       for (let i = 0; i < 3; i++) {
         const c = await page.evaluate(() => { const c = __fl.W.calls[__fl.sea.ci]; return __fl.screenOf(c.best.at[0], c.best.at[1]); });
-        await page.evaluate(() => { const c = __fl.W.calls[__fl.sea.ci]; __fl.lookAt(c.best.at[0], c.best.at[1]); }); await page.waitForTimeout(700);
+        await page.evaluate(() => { const c = __fl.W.calls[__fl.sea.ci]; __fl.lookAt(c.best.at[0], c.best.at[1]); }); await page.waitForFunction(() => !__fl.viewTo, null, { timeout: 20000 }); await page.waitForTimeout(200);
         const xy = await page.evaluate(() => { const c = __fl.W.calls[__fl.sea.ci]; return __fl.screenOf(c.best.at[0], c.best.at[1]); });
         await page.mouse.click(xy[0], xy[1]); ok(await page.evaluate(() => !!__fl.sea.pick), 'a click picks where the ship waits');
         await page.selectOption('#sMonth', String(await page.evaluate(() => Math.max(1, Math.round(__fl.W.calls[__fl.sea.ci].best.t * 12)))));

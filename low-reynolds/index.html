@@ -1017,32 +1017,81 @@ function padOverlay() {
   if (!pSel || $('padBox').classList.contains('min')) return; const w = pad.width, h = pad.height, P = (a, b) => [(a / LIM + 1) / 2 * w, (1 - b / LIM) / 2 * h];
   pg.strokeStyle = `hsl(${pSel.G.hue},80%,62%)`; pg.lineWidth = 2.5 * pd; pg.setLineDash([5 * pd, 4 * pd]); pg.beginPath(); pSel.G.loop.forEach((q, i) => { const [x, y] = P(q[0], q[1]); i ? pg.lineTo(x, y) : pg.moveTo(x, y); }); pg.closePath(); pg.stroke(); pg.setLineDash([]);
 }
+// phase contrast: everything in the sample is near-transparent; what shows is the phase shift, as a dark core wrapped in a
+// bright halo. Sprites are made once; per frame the pond is a handful of drawImage calls and short strokes.
+const PC = (() => {
+  const mk = (n, f) => { const c = document.createElement('canvas'); c.width = c.height = n; f(c.getContext('2d'), n); return c; };
+  const halo = mk(128, (x, n) => { const gr = x.createRadialGradient(64, 64, 20, 64, 64, 64); gr.addColorStop(0, 'rgba(255,255,248,0)'); gr.addColorStop(.42, 'rgba(255,255,248,.55)'); gr.addColorStop(.62, 'rgba(255,255,248,.18)'); gr.addColorStop(1, 'rgba(255,255,248,0)'); x.fillStyle = gr; x.fillRect(0, 0, n, n); });
+  const speck = mk(32, (x, n) => { const gr = x.createRadialGradient(16, 16, 0, 16, 16, 16); gr.addColorStop(0, 'rgba(30,34,28,.9)'); gr.addColorStop(.3, 'rgba(40,44,36,.6)'); gr.addColorStop(.45, 'rgba(255,255,245,.55)'); gr.addColorStop(.75, 'rgba(255,255,245,.1)'); gr.addColorStop(1, 'rgba(255,255,245,0)'); x.fillStyle = gr; x.fillRect(0, 0, n, n); });
+  const field = mk(256, (x, n) => { const gr = x.createRadialGradient(n / 2, n / 2, n * .3, n / 2, n / 2, n / 2); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(.8, 'rgba(0,0,0,.45)'); gr.addColorStop(1, 'rgba(0,0,0,.92)'); x.fillStyle = gr; x.fillRect(0, 0, n, n); });
+  return { halo, speck, field, grains: new Map(), food: document.createElement('canvas') };
+})();
+// a sand grain: an irregular refractile lump, dark-rimmed and bright-haloed, with a glassy interior; drawn once per grain and size
+function grainSprite(gx, gy, R, z) {
+  const key = gx.toFixed(2) + gy.toFixed(2) + '|' + Math.round(z); if (PC.grains.has(key)) return PC.grains.get(key);
+  const n = Math.ceil(R * z * 2 + 24 * dpr), c = document.createElement('canvas'); c.width = c.height = n; const x = c.getContext('2d'), m = n / 2, rr = R * z; let s = Math.floor(gx * 977 + gy * 131) >>> 0; const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+  const k = 14, pts = Array.from({ length: k }, (_, i) => { const a = i / k * Math.PI * 2, r = rr * (.82 + rnd() * .3); return [m + Math.cos(a) * r, m + Math.sin(a) * r]; });
+  const path = () => { x.beginPath(); pts.forEach(([px, py], i) => { const [qx, qy] = pts[(i + 1) % k], mx = (px + qx) / 2, my = (py + qy) / 2; i ? x.quadraticCurveTo(px, py, mx, my) : x.moveTo(mx, my); }); const [px, py] = pts[0], [qx, qy] = pts[1]; x.quadraticCurveTo(px, py, (px + qx) / 2, (py + qy) / 2); x.closePath(); };
+  x.save(); path(); x.shadowColor = 'rgba(255,255,246,.95)'; x.shadowBlur = 9 * dpr; x.lineWidth = 3 * dpr; x.strokeStyle = 'rgba(255,255,246,.8)'; x.stroke(); x.restore(); // the halo
+  const gr = x.createRadialGradient(m - rr * .35, m - rr * .35, rr * .1, m, m, rr * 1.1); gr.addColorStop(0, 'rgba(225,228,214,.95)'); gr.addColorStop(.6, 'rgba(150,154,140,.9)'); gr.addColorStop(1, 'rgba(70,74,64,.95)'); x.fillStyle = gr; path(); x.fill();
+  x.lineWidth = Math.max(1.5, rr * .14); x.strokeStyle = 'rgba(28,30,26,.9)'; x.stroke();
+  for (let i = 0; i < 5; i++) { x.fillStyle = `rgba(255,255,250,${.15 + rnd() * .3})`; x.beginPath(); x.ellipse(m + (rnd() - .5) * rr, m + (rnd() - .5) * rr, rr * (.08 + rnd() * .12), rr * (.04 + rnd() * .06), rnd() * 3, 0, 7); x.fill(); }
+  PC.grains.set(key, c); if (PC.grains.size > 80) PC.grains.delete(PC.grains.keys().next().value); return c;
+}
 function pondRender(now) {
   g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(bgC || background(), 0, 0); bgC.cy = viewCY;
   { const [k, tx, ty] = pzT(); g.setTransform(k, 0, 0, k, tx, ty); }
-  const z = cam.z * dpr, [x0, y0] = toS(0, 0);
-  // the sample chamber, and its food: a faint green haze where the nutrient is
-  g.fillStyle = 'rgba(20,30,24,.18)'; g.fillRect(x0, y0, PW * z, PH * z);
-  if (A_food()) { const F = assay.F; for (let j = 0; j < PH; j++) for (let i = 0; i < PW; i++) { const f = F[j * PW + i]; if (f > .03) { g.fillStyle = `rgba(70,140,60,${Math.min(.55, f * .45)})`; g.fillRect(x0 + i * z, y0 + j * z, z + .5, z + .5); } } }
-  else for (const p of pondP.patches) { const [x, y] = toS(p.x, p.y), gr = g.createRadialGradient(x, y, 0, x, y, p.R * 1.8 * z); gr.addColorStop(0, 'rgba(70,140,60,.45)'); gr.addColorStop(1, 'rgba(70,140,60,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, p.R * 1.8 * z, 0, 7); g.fill(); }
-  g.strokeStyle = 'rgba(240,244,232,.5)'; g.lineWidth = 2 * dpr; g.strokeRect(x0, y0, PW * z, PH * z);
-  // the current: faint streaks, and the outflow edge
-  const dr = pondP.drift; if (dr[0] || dr[1]) { g.strokeStyle = 'rgba(230,240,255,.18)'; g.lineWidth = dpr; const ph = (now / 1000 * Math.hypot(dr[0], dr[1]) * 3) % 1;
-    for (let j = 1; j < PH; j += 3) for (let i = 1; i < PW; i += 4) { const [a, b] = toS(i + dr[0] * ph * 20, j + dr[1] * ph * 20); g.beginPath(); g.moveTo(a, b); g.lineTo(a + dr[0] * 12 * z, b + dr[1] * 12 * z); g.stroke(); }
-    g.fillStyle = 'rgba(179,38,30,.35)'; g.fillRect(x0 - 4 * dpr, y0, 4 * dpr, PH * z); }
-  for (const [ox, oy, r] of pondP.grains) { const [x, y] = toS(ox, oy); g.fillStyle = 'rgba(245,248,240,.5)'; g.beginPath(); g.arc(x, y, r * z + 3 * dpr, 0, 7); g.fill(); g.fillStyle = '#c9cbbf'; g.strokeStyle = '#2b2e2a'; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(x, y, r * z, 0, 7); g.fill(); g.stroke(); }
-  // ciliates: a dark oval with a beating fringe and a mouth
-  for (const c of pondP.cil) { const [x, y] = toS(c.x, c.y), R = 1.1 * z; g.fillStyle = 'rgba(40,46,40,.55)'; g.beginPath(); g.ellipse(x, y, R, R * .7, 0, 0, 7); g.fill();
-    g.strokeStyle = 'rgba(240,244,232,.6)'; g.lineWidth = dpr; for (let a = 0; a < 24; a++) { const t = a / 24 * 6.28, w = Math.sin(now / 90 + a) * .25; g.beginPath(); g.moveTo(x + Math.cos(t) * R, y + Math.sin(t) * R * .7); g.lineTo(x + Math.cos(t + w) * R * 1.25, y + Math.sin(t + w) * R * .9); g.stroke(); }
-    g.fillStyle = '#111'; g.beginPath(); g.arc(x, y, c.R * z * .5, 0, 7); g.fill(); }
-  { const [rx, ry] = toS(pondP.release[0], pondP.release[1]); g.strokeStyle = 'rgba(227,164,58,.7)'; g.setLineDash([4 * dpr, 4 * dpr]); g.beginPath(); g.arc(rx, ry, 1.2 * z, 0, 7); g.stroke(); g.setLineDash([]); }
-  // the cells: each a little three-link body, posed where its stroke has got to
-  if (assay) { const L3 = z * .5; g.lineCap = 'round';
-    for (const c of assay.cells) { const G = c.G, f = c.ph / G.T * G.loop.length, i = f | 0, u = f - i, A_ = G.loop[i % G.loop.length], B_ = G.loop[(i + 1) % G.loop.length], t1 = A_[0] + (B_[0] - A_[0]) * u, t2 = A_[1] + (B_[1] - A_[1]) * u;
+  const z = cam.z * dpr, [x0, y0] = toS(0, 0), pw = PW * z, ph = PH * z;
+  // the counting chamber: slightly brighter glass, its etched rim catching a halo
+  g.fillStyle = 'rgba(255,255,250,.05)'; g.fillRect(x0, y0, pw, ph);
+  // nutrient: a refractile haze, smoothly interpolated (the field is drawn small and scaled up), with bacteria specks in it
+  { const fc = PC.food; if (fc.width !== PW || fc.height !== PH) { fc.width = PW; fc.height = PH; } const fx = fc.getContext('2d'), im = fx.createImageData(PW, PH), F = assay ? assay.F : null;
+    for (let j = 0; j < PH; j++) for (let i = 0; i < PW; i++) { let f = 0; if (F) f = F[j * PW + i]; else for (const p of pondP.patches) f = Math.max(f, Math.max(0, 1 - Math.hypot(i + .5 - p.x, j + .5 - p.y) / (p.R * 1.6))); const o = (j * PW + i) * 4; im.data[o] = 196; im.data[o + 1] = 214; im.data[o + 2] = 170; im.data[o + 3] = Math.min(150, f * 120); }
+    fx.putImageData(im, 0, 0); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high'; g.drawImage(fc, x0, y0, pw, ph);
+    if (F) { const sp = Math.max(3, z * .12); let s = 1234567; const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+      for (let j = 0; j < PH; j++) for (let i = 0; i < PW; i++) { const f = F[j * PW + i]; const n = Math.min(5, Math.floor(f * 4)); for (let q = 0; q < n; q++) { const jx = rnd(), jy = rnd(), wob = Math.sin(now / 700 + q + i) * .08; const [sx, sy] = toS(i + jx + wob, j + jy); g.drawImage(PC.speck, sx - sp, sy - sp, sp * 2, sp * 2); } } } }
+  // the current: drifting motes stream past
+  const dr = pondP.drift; if (dr[0] || dr[1]) { const v = Math.hypot(dr[0], dr[1]), sp = Math.max(2.5, z * .08); for (let q = 0; q < 70; q++) { const u = ((q * .61803 + now / 1000 * v * 2.2) % 1 + 1) % 1, jy = (q * .3819 * 7) % 1, px = dr[0] < 0 ? (1 - u) * PW : u * PW, py = jy * PH + Math.sin(q + now / 900) * .2; const [sx, sy] = toS(px, py); g.globalAlpha = .55; g.drawImage(PC.speck, sx - sp, sy - sp, sp * 2, sp * 2); } g.globalAlpha = 1;
+    g.fillStyle = 'rgba(179,38,30,.28)'; g.fillRect(x0 - 3 * dpr, y0, 3 * dpr, ph); }
+  // chamber rim: a dark etched line with a phase halo either side
+  g.strokeStyle = 'rgba(255,255,248,.35)'; g.lineWidth = 5 * dpr; g.strokeRect(x0, y0, pw, ph); g.strokeStyle = 'rgba(30,34,28,.6)'; g.lineWidth = 1.2 * dpr; g.strokeRect(x0, y0, pw, ph);
+  for (const [gx, gy, r] of pondP.grains) { const sp = grainSprite(gx, gy, r, z), [x, y] = toS(gx, gy); g.drawImage(sp, x - sp.width / 2, y - sp.height / 2); }
+  // ciliates: a translucent slipper of a cell, granular inside, a contractile vacuole, a beating fringe of cilia and a halo
+  for (const c of pondP.cil) { const [x, y] = toS(c.x, c.y), R = 1.15 * z, a0 = (c.x * 3 + c.y) % 6.28;
+    g.save(); g.translate(x, y); g.rotate(a0);
+    g.drawImage(PC.halo, -R * 1.9, -R * 1.45, R * 3.8, R * 2.9);
+    const bg2 = g.createRadialGradient(-R * .2, -R * .15, R * .1, 0, 0, R); bg2.addColorStop(0, 'rgba(170,176,160,.75)'); bg2.addColorStop(.75, 'rgba(110,116,102,.8)'); bg2.addColorStop(1, 'rgba(40,44,38,.9)'); g.fillStyle = bg2; g.beginPath(); g.ellipse(0, 0, R, R * .66, 0, 0, 7); g.fill();
+    g.strokeStyle = 'rgba(25,28,24,.85)'; g.lineWidth = 1.6 * dpr; g.stroke();
+    let s = 77; const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; for (let q = 0; q < 26; q++) { g.fillStyle = `rgba(${rnd() < .5 ? '30,34,28' : '250,250,240'},${.25 + rnd() * .3})`; g.beginPath(); g.arc((rnd() - .5) * R * 1.4, (rnd() - .5) * R * .9, (.03 + rnd() * .05) * R, 0, 7); g.fill(); }
+    const vac = .5 + .5 * Math.sin(now / 900); g.fillStyle = `rgba(250,252,244,${.35 + .4 * vac})`; g.beginPath(); g.arc(R * .45, -R * .1, R * (.1 + .08 * vac), 0, 7); g.fill(); g.strokeStyle = 'rgba(30,34,28,.6)'; g.lineWidth = dpr; g.stroke();
+    g.fillStyle = 'rgba(20,22,18,.85)'; g.beginPath(); g.ellipse(-R * .35, R * .12, R * .22, R * .12, -.4, 0, 7); g.fill(); // the oral groove
+    g.strokeStyle = 'rgba(40,44,38,.55)'; g.lineWidth = .8 * dpr; for (let q = 0; q < 44; q++) { const t = q / 44 * Math.PI * 2, w = Math.sin(now / 70 + q * .7) * .22, ex = Math.cos(t) * R, ey = Math.sin(t) * R * .66; g.beginPath(); g.moveTo(ex, ey); g.lineTo(ex + Math.cos(t + w) * R * .22, ey + Math.sin(t + w) * R * .22); g.stroke(); }
+    g.restore(); }
+  { const [rx, ry] = toS(pondP.release[0], pondP.release[1]); g.strokeStyle = 'rgba(227,164,58,.7)'; g.setLineDash([4 * dpr, 4 * dpr]); g.lineWidth = 1.5 * dpr; g.beginPath(); g.arc(rx, ry, 1.2 * z, 0, 7); g.stroke(); g.setLineDash([]); }
+  // the cells: each a three-link body, posed where its stroke has got to, drawn as a living cell under phase contrast:
+  // a bright halo, a dark membrane, a translucent tinted cytoplasm, a nucleus. Starving cells go pale.
+  if (assay) { const L3 = z * .5, w = Math.max(2.4 * dpr, z * .16); g.lineCap = g.lineJoin = 'round';
+    const P4 = [], pose = c => { const G = c.G, f = c.ph / G.T * G.loop.length, i = f | 0, u = f - i, A_ = G.loop[i % G.loop.length], B_ = G.loop[(i + 1) % G.loop.length], t1 = A_[0] + (B_[0] - A_[0]) * u, t2 = A_[1] + (B_[1] - A_[1]) * u;
       const [x, y] = toS(c.x, c.y), co = Math.cos(c.phi), si = Math.sin(c.phi), hx = co * L3 * .5, hy = si * L3 * .5, a1 = c.phi + Math.PI + t1, a2 = c.phi - t2;
-      g.strokeStyle = `hsla(${G.hue},70%,${c.E < .3 ? 70 : 32}%,.95)`; g.lineWidth = Math.max(1.5 * dpr, z * .09); g.beginPath(); g.moveTo(x - hx + Math.cos(a1) * L3, y - hy + Math.sin(a1) * L3); g.lineTo(x - hx, y - hy); g.lineTo(x + hx, y + hy); g.lineTo(x + hx + Math.cos(a2) * L3, y + hy + Math.sin(a2) * L3); g.stroke();
-      if (c === pSel) { g.strokeStyle = '#e3a43a'; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(x, y, L3 * 1.8, 0, 7); g.stroke(); } } }
-  g.setTransform(1, 0, 0, 1, 0, 0); drawShutter(now);
+      return [x, y, x - hx + Math.cos(a1) * L3, y - hy + Math.sin(a1) * L3, x - hx, y - hy, x + hx, y + hy, x + hx + Math.cos(a2) * L3, y + hy + Math.sin(a2) * L3]; };
+    const line = q => { g.moveTo(q[2], q[3]); g.lineTo(q[4], q[5]); g.lineTo(q[6], q[7]); g.lineTo(q[8], q[9]); };
+    for (const c of assay.cells) P4.push(pose(c));
+    // the body is the middle link, a plump cell; the outer links are its two beating arms. Drawn in batched passes:
+    // halos, then arms, then membranes, then cytoplasm (by colour), then nuclei
+    const ell = (q, f) => { const cx = (q[4] + q[6]) / 2, cy = (q[5] + q[7]) / 2, a = Math.atan2(q[7] - q[5], q[6] - q[4]); g.moveTo(cx + Math.cos(a) * L3 * .62 * f, cy + Math.sin(a) * L3 * .62 * f); g.ellipse(cx, cy, L3 * .62 * f, w * .95 * f, a, 0, 7); };
+    const arms = q => { g.moveTo(q[2], q[3]); g.lineTo(q[4], q[5]); g.moveTo(q[6], q[7]); g.lineTo(q[8], q[9]); };
+    g.fillStyle = 'rgba(255,255,248,.28)'; g.beginPath(); for (const q of P4) ell(q, 1.55); g.fill();
+    g.strokeStyle = 'rgba(255,255,248,.32)'; g.lineWidth = w * 1.1; g.beginPath(); for (const q of P4) arms(q); g.stroke();
+    g.strokeStyle = 'rgba(24,28,22,.8)'; g.lineWidth = w * .32; g.beginPath(); for (const q of P4) arms(q); g.stroke();
+    g.fillStyle = 'rgba(24,28,22,.88)'; g.beginPath(); for (const q of P4) ell(q, 1.08); g.fill();
+    const byHue = new Map(); assay.cells.forEach((c, k) => { const key = `hsla(${c.G.hue},${c.E < .3 ? 20 : 42}%,${c.E < .3 ? 80 : 66}%,.9)`; (byHue.get(key) || byHue.set(key, []).get(key)).push(P4[k]); });
+    for (const [col, qs] of byHue) { g.fillStyle = col; g.beginPath(); for (const q of qs) ell(q, .8); g.fill(); }
+    g.fillStyle = 'rgba(255,255,250,.55)'; g.beginPath(); for (const q of P4) { const cx = (q[4] + q[6]) / 2 - w * .2, cy = (q[5] + q[7]) / 2 - w * .25; g.moveTo(cx + w * .18, cy); g.arc(cx, cy, w * .18, 0, 7); } g.fill(); // a glint of the membrane
+    g.fillStyle = 'rgba(30,34,28,.75)'; g.beginPath(); for (const q of P4) { const cx = (q[4] + q[6]) / 2 + w * .15, cy = (q[5] + q[7]) / 2 + w * .1; g.moveTo(cx + w * .26, cy); g.arc(cx, cy, w * .26, 0, 7); } g.fill();
+    if (pSel) { const k = assay.cells.indexOf(pSel); if (k >= 0) { const q = P4[k]; g.strokeStyle = '#e3a43a'; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(q[0], q[1], L3 * 1.8, 0, 7); g.stroke(); } } }
+  // the eyepiece: the field falls off into black at its edge, on top of everything
+  g.setTransform(1, 0, 0, 1, 0, 0); { const R = Math.hypot(W, H) * .47, cx = W * viewCX, cy = H * viewCY; g.drawImage(PC.field, cx - R, cy - R, R * 2, R * 2); g.fillStyle = '#050505'; g.beginPath(); g.rect(0, 0, W, H); g.arc(cx, cy, R * .995, 0, Math.PI * 2, true); g.fill(); }
+  drawShutter(now);
 }
 const A_food = () => !!assay;
 

@@ -124,38 +124,83 @@ function drawLegend() {
 //  Free junctions slide until three films meet at 120°; junctions merge into pins, split, and flip (T1)
 //  exactly as real films do, so the network can get stuck in a longer local minimum, like real soap.
 // =====================================================================================================
+// Solids between the plates: a wall (a glass slip, segment a→b) or a post (a glass rod, centre c, radius r).
+// A film may end anywhere on a solid; its contact slides freely along it, so at rest the film meets it at 90°.
+// Anything touching the same solid is joined through it for free: solids are roads that cost nothing.
+function solidProj(s, x, y) { // nearest point on the solid's surface, and the outward normal there
+  if (s.t === 'post') { let dx = x - s.c[0], dy = y - s.c[1]; const L = Math.hypot(dx, dy) || 1e-9; dx /= L; dy /= L; return [s.c[0] + dx * s.r, s.c[1] + dy * s.r, dx, dy]; }
+  const ux = s.b[0] - s.a[0], uy = s.b[1] - s.a[1], L2 = ux * ux + uy * uy, t = Math.max(0, Math.min(1, ((x - s.a[0]) * ux + (y - s.a[1]) * uy) / L2)), px = s.a[0] + ux * t, py = s.a[1] + uy * t;
+  let nx = x - px, ny = y - py; const nl = Math.hypot(nx, ny); if (nl > 1e-9) { nx /= nl; ny /= nl; } else { const l = Math.sqrt(L2); nx = -uy / l; ny = ux / l; } return [px, py, nx, ny];
+}
+const solidDist = (s, x, y) => { const p = solidProj(s, x, y); return s.t === 'post' ? Math.hypot(x - s.c[0], y - s.c[1]) - s.r : Math.hypot(x - p[0], y - p[1]); };
+// where segment A→B runs into the solid: [tIn, tOut] along AB (0..1), or null
+function solidHit(s, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  if (s.t === 'post') { const fx = ax - s.c[0], fy = ay - s.c[1], A = dx * dx + dy * dy, B = 2 * (fx * dx + fy * dy), C = fx * fx + fy * fy - s.r * s.r, D = B * B - 4 * A * C; if (D <= 0 || A < 1e-12) return null;
+    const q = Math.sqrt(D), t0 = (-B - q) / (2 * A), t1 = (-B + q) / (2 * A); if (t1 < .002 || t0 > .998 || t1 - t0 < .004) return null; return [Math.max(0, t0), Math.min(1, t1)]; }
+  const ex = s.b[0] - s.a[0], ey = s.b[1] - s.a[1], den = dx * ey - dy * ex; if (Math.abs(den) < 1e-12) return null;
+  const t = ((s.a[0] - ax) * ey - (s.a[1] - ay) * ex) / den, u = ((s.a[0] - ax) * dy - (s.a[1] - ay) * dx) / den;
+  return t > .002 && t < .998 && u >= 0 && u <= 1 ? [t, t] : null;
+}
 class Net {
-  constructor(pins) { this.n = []; this.e = new Set(); pins.forEach(([x, y]) => this.n.push({ x, y, pin: 1, on: 1 })); }
+  constructor(pins, solids = []) { this.n = []; this.e = new Set(); this.adj = []; this.sol = solids; pins.forEach(([x, y]) => this.push({ x, y, pin: 1, on: 1, s: -1 })); }
+  push(p) { this.n.push(p); this.adj.push(new Set()); return this.n.length - 1; }
   key(a, b) { return a < b ? a + ',' + b : b + ',' + a; }
-  link(a, b) { if (a !== b) this.e.add(this.key(a, b)); } unlink(a, b) { this.e.delete(this.key(a, b)); }
-  nb(i) { const o = []; for (const k of this.e) { const [a, b] = k.split(',').map(Number); if (a === i) o.push(b); else if (b === i) o.push(a); } return o; }
-  add(x, y) { this.n.push({ x, y, pin: 0, on: 1 }); return this.n.length - 1; }
+  link(a, b) { if (a !== b) { this.e.add(this.key(a, b)); this.adj[a].add(b); this.adj[b].add(a); } }
+  unlink(a, b) { this.e.delete(this.key(a, b)); this.adj[a].delete(b); this.adj[b].delete(a); }
+  nb(i) { return [...this.adj[i]]; }
+  add(x, y) { return this.push({ x, y, pin: 0, on: 1, s: -1 }); }
+  contact(k, x, y) { const p = solidProj(this.sol[k], x, y); return this.push({ x: p[0], y: p[1], pin: 0, on: 1, s: k }); }
   pins() { return this.n.map((p, i) => [p, i]).filter(([p]) => p.pin).map(([, i]) => i); }
-  // dip: every pin joined to one free point (the star a frame lifted out of the bath tends to start from)
-  // a dip as the film first forms: a random spanning tree of films running pin to pin (lighter ones likelier),
-  // which then relaxes; different dips settle into different local minima, every one shorter than its start
-  static tree(pins, rnd) { const N = new Net(pins), n = pins.length, E = [], amp = rnd() < .25 ? 0 : .6;
-    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) E.push([Math.hypot(pins[i][0] - pins[j][0], pins[i][1] - pins[j][1]) * Math.exp(amp * (rnd() + rnd() + rnd() - 1.5)), i, j]);
-    E.sort((a, b) => a[0] - b[0]); const par = [...Array(n).keys()], f = x => par[x] === x ? x : (par[x] = f(par[x]));
-    for (const [, i, j] of E) { const a = f(i), b = f(j); if (a !== b) { par[a] = b; N.link(i, j); } }
-    // nudge every pin-to-pin film so the splitting rule can act on a symmetric start
-    return N; }
+  isFree(i) { const p = this.n[i]; return p.on && !p.pin && p.s < 0; }
+  // the film as it first forms when the frame is lifted: films join nearest neighbours (a spanning tree over pins, solids
+  // and any pencil marks, where a junction is seeded with a wet needle). jitter > 0 makes a random, real-soap-like dip.
+  // A solid that the tree reaches by one film only is no use as a road, and that film is never born.
+  static build(pins, solids = [], marks = [], rnd = null, jitter = 0) {
+    const N = new Net(pins, solids), P = pins.length, M = marks.length, S = solids.length, pts = [...pins, ...marks], E = [];
+    const w = d => jitter && rnd ? d * Math.exp(jitter * (rnd() + rnd() + rnd() - 1.5)) : d;
+    for (let i = 0; i < P + M; i++) { for (let j = i + 1; j < P + M; j++) E.push([w(Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1])), i, j]);
+      for (let k = 0; k < S; k++) E.push([w(Math.max(0, solidDist(solids[k], pts[i][0], pts[i][1]))), i, P + M + k]); }
+    E.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+    // the film is born along the shortest skeleton: try leaning on every subset of the solids, keep the lightest tree
+    let T = null, TW = Infinity;
+    for (let mask = 0; mask < 1 << S; mask++) {
+      const par = [...Array(P + M + S).keys()], f = x => par[x] === x ? x : (par[x] = f(par[x])), t = [];
+      for (const e of E) { const [, i, j] = e; if (j >= P + M && !(mask >> (j - P - M) & 1)) continue; const a = f(i), b = f(j); if (a !== b) { par[a] = b; t.push(e); } }
+      // prune: solids and marks left as leaves carry nothing
+      for (let ch = true; ch;) { ch = false; const deg = new Map(); t.forEach(([, a, b]) => { deg.set(a, (deg.get(a) || 0) + 1); deg.set(b, (deg.get(b) || 0) + 1); });
+        for (let q = t.length - 1; q >= 0; q--) { const [, a, b] = t[q]; if ([a, b].some(v => v >= P && (deg.get(v) || 0) <= 1)) { t.splice(q, 1); ch = true; break; } } }
+      const W = t.reduce((a, e) => a + e[0], 0); if (W < TW - 1e-9) { TW = W; T = t.map(e => [e[1], e[2]]); }
+    }
+    const id = []; marks.forEach(([x, y], m) => id[P + m] = N.add(x, y)); for (let i = 0; i < P; i++) id[i] = i;
+    for (const [a, b] of T) { if (b >= P + M) { const k = b - P - M; N.link(id[a], N.contact(k, pts[a][0], pts[a][1])); } else N.link(id[a], id[b]); }
+    return N;
+  }
+  static tree(pins, rnd, solids = []) { return Net.build(pins, solids, [], rnd, rnd() < .25 ? 0 : .6); }
   static dip(pins, cx, cy) { const N = new Net(pins), c = N.add(cx, cy); N.pins().forEach(i => N.link(i, c)); return N; }
   length() { let L = 0; for (const k of this.e) { const [a, b] = k.split(',').map(Number); L += Math.hypot(this.n[a].x - this.n[b].x, this.n[a].y - this.n[b].y); } return L; }
   edges() { return [...this.e].map(k => k.split(',').map(Number)); }
   ang(i, j) { return Math.atan2(this.n[j].y - this.n[i].y, this.n[j].x - this.n[i].x); }
   step(k = .02, eps = .012, rnd = Math.random) {
     const n = this.n;
-    // forces: unit tension toward every neighbour
+    // forces: unit tension toward every neighbour. A junction moves along the net pull; a contact slides along its solid.
     for (let i = 0; i < n.length; i++) { const p = n[i]; if (!p.on || p.pin) continue; let fx = 0, fy = 0;
-      for (const j of this.nb(i)) { const dx = n[j].x - p.x, dy = n[j].y - p.y, L = Math.hypot(dx, dy) || 1e-9; fx += dx / L; fy += dy / L; }
-      const f = Math.hypot(fx, fy), lim = Math.min(k, .25 * this.minEdge(i)); if (f > 1e-9) { p.x += fx / Math.max(1, f) * lim; p.y += fy / Math.max(1, f) * lim; } }
+      for (const j of this.adj[i]) { const dx = n[j].x - p.x, dy = n[j].y - p.y, L = Math.hypot(dx, dy) || 1e-9; fx += dx / L; fy += dy / L; }
+      if (p.s >= 0) { const [, , nx, ny] = solidProj(this.sol[p.s], p.x + 0, p.y + 0), q = this.sol[p.s]; let tx = -ny, ty = nx; if (q.t === 'wall') { const L = Math.hypot(q.b[0] - q.a[0], q.b[1] - q.a[1]); tx = (q.b[0] - q.a[0]) / L; ty = (q.b[1] - q.a[1]) / L; }
+        const ft = fx * tx + fy * ty, lim = Math.min(k, .25 * this.minEdge(i)); if (Math.abs(ft) > 1e-9) { const mv = Math.sign(ft) * Math.min(Math.abs(ft), 1) * lim, pr = solidProj(q, p.x + tx * mv + (q.t === 'post' ? nx * 1e-3 : 0), p.y + ty * mv + (q.t === 'post' ? ny * 1e-3 : 0)); p.x = pr[0]; p.y = pr[1]; } continue; }
+      const f = Math.hypot(fx, fy), lim = Math.min(k, .25 * this.minEdge(i)); if (f > 1e-9) { const ox = p.x, oy = p.y; p.x += fx / Math.max(1, f) * lim; p.y += fy / Math.max(1, f) * lim;
+        // a junction that runs into a solid is absorbed by it: each of its films now ends on the solid
+        for (let s = 0; s < this.sol.length; s++) { const so = this.sol[s], h = so.t === 'post' ? (solidDist(so, p.x, p.y) < 0 ? [0] : null) : solidHit(so, ox, oy, p.x, p.y);
+          if (h) { const pr = solidProj(so, ox, oy); for (const j of this.nb(i)) { this.unlink(i, j); this.link(j, this.contact(s, pr[0], pr[1])); } p.on = 0; break; } } } }
     this.fix(eps, rnd);
   }
-  minEdge(i) { let m = 1e9; for (const j of this.nb(i)) m = Math.min(m, Math.hypot(this.n[j].x - this.n[i].x, this.n[j].y - this.n[i].y)); return Math.max(m, .004); }
+  minEdge(i) { let m = 1e9; for (const j of this.adj[i]) m = Math.min(m, Math.hypot(this.n[j].x - this.n[i].x, this.n[j].y - this.n[i].y)); return Math.max(m, .004); }
   fix(eps, rnd) {
     const n = this.n;
     for (let i = 0; i < n.length; i++) { const p = n[i]; if (!p.on) continue; let nb = this.nb(i);
+      if (p.s >= 0) { // a contact holds one film; a second film on the same spot gets its own contact (the solid joins them anyway)
+        if (!nb.length) { p.on = 0; continue; }
+        for (const j of nb.slice(1)) { this.unlink(i, j); const c = this.contact(p.s, p.x + (n[j].x - p.x) * .02, p.y + (n[j].y - p.y) * .02); this.link(j, c); } continue; }
       if (!p.pin && nb.length <= 1) { nb.forEach(j => this.unlink(i, j)); p.on = 0; continue; }
       if (!p.pin && nb.length === 2) { this.unlink(i, nb[0]); this.unlink(i, nb[1]); this.link(nb[0], nb[1]); p.on = 0; continue; }
       // a junction with 4+ films splits: the pair of films with the smallest angle between them peels off
@@ -168,10 +213,15 @@ class Net {
         }
       }
     }
-    // short edges: a free junction touching a pin merges into it; two junctions touching flip (T1)
+    // short edges: a free junction touching a pin merges into it; touching a solid, it is absorbed; two junctions touching flip (T1)
     for (const [a, b] of this.edges()) {
-      if (!n[a].on || !n[b].on) continue;
-      const L = Math.hypot(n[a].x - n[b].x, n[a].y - n[b].y); if (L > eps) continue;
+      if (!n[a].on || !n[b].on || !this.adj[a].has(b)) continue;
+      const L = Math.hypot(n[a].x - n[b].x, n[a].y - n[b].y);
+      if (n[a].s >= 0 || n[b].s >= 0) { // a film from a solid
+        if (n[a].s >= 0 && n[b].s >= 0) { if (n[a].s === n[b].s || L < eps) { this.unlink(a, b); } continue; }
+        if (L > eps) continue; const [C, F] = n[a].s >= 0 ? [a, b] : [b, a]; if (n[F].pin) continue;
+        for (const j of this.nb(F)) { this.unlink(F, j); if (j !== C) this.link(j, this.contact(n[C].s, n[C].x, n[C].y)); } n[F].on = 0; this.unlink(C, F); n[C].on = 0; continue; }
+      if (L > eps) continue;
       if (n[a].pin && n[b].pin) continue;
       if (n[a].pin || n[b].pin) { const [P, F] = n[a].pin ? [a, b] : [b, a]; for (const j of this.nb(F)) { this.unlink(F, j); if (j !== P) this.link(P, j); } n[F].on = 0; continue; }
       const A = this.nb(a).filter(j => j !== b), B = this.nb(b).filter(j => j !== a); if (A.length !== 2 || B.length !== 2) continue;
@@ -184,18 +234,129 @@ class Net {
       n[a].x = mx + c1[0] / l1 * r; n[a].y = my + c1[1] / l1 * r; n[b].x = mx - c1[0] / l1 * r; n[b].y = my - c1[1] / l1 * r;
       g1.forEach(j => this.link(a, j)); g2.forEach(j => this.link(b, j));
     }
+    // a film can't pass through a solid: one that runs into it is cut in two, and both halves end on it
+    if (this.sol.length) for (const [a, b] of this.edges()) { if (!this.adj[a].has(b)) continue;
+      for (let s = 0; s < this.sol.length; s++) { if (n[a].s === s || n[b].s === s) { if (this.sol[s].t !== 'post') continue; }
+        const A = n[a], B = n[b], h = solidHit(this.sol[s], A.x, A.y, B.x, B.y); if (!h) continue;
+        if ((A.s === s && h[0] < .01 && h[1] < .01) || (B.s === s && h[0] > .99)) continue;
+        this.unlink(a, b);
+        if (A.s !== s) this.link(a, this.contact(s, A.x + (B.x - A.x) * h[0], A.y + (B.y - A.y) * h[0]));
+        if (B.s !== s) this.link(b, this.contact(s, A.x + (B.x - A.x) * h[1], A.y + (B.y - A.y) * h[1]));
+        break; } }
   }
   settle(iters = 1500, rnd) { for (let i = 0; i < iters; i++) this.step(.02, .012, rnd); return this; }
-  junctionAngles() { const out = []; this.n.forEach((p, i) => { if (!p.on || p.pin) return; const a = this.nb(i).map(j => this.ang(i, j)).sort((x, y) => x - y);
+  // one step of a lift; true once the film has come to rest (the same rule for the pure solve and the animation)
+  tick(rnd) { this.step(.02, .012, rnd); this._k = (this._k || 0) + 1; const L = this.length(); this._still = Math.abs(L - (this._L ?? 1e9)) < 1e-7 ? (this._still || 0) + 1 : 0; this._L = L;
+    return this._k >= SETTLE || (this._k > 200 && this._still > 30); }
+  rest(rnd) { while (!this.tick(rnd)); return this; }
+  junctionAngles() { const out = []; this.n.forEach((p, i) => { if (!this.isFree(i)) return; const a = this.nb(i).map(j => this.ang(i, j)).sort((x, y) => x - y);
     for (let q = 0; q < a.length; q++) { let d = a[(q + 1) % a.length] - a[q]; if (d <= 0) d += 2 * Math.PI; out.push(d * 180 / Math.PI); } }); return out; }
-  freeCount() { return this.n.filter(p => p.on && !p.pin).length; }
+  // how far each film arriving at a solid is from meeting it square on (degrees; 0 means exactly 90°)
+  contactTilts() { const out = []; this.n.forEach((p, i) => { if (!p.on || p.s < 0) return; const q = this.sol[p.s];
+    if (q.t === 'wall' && (Math.hypot(p.x - q.a[0], p.y - q.a[1]) < 1e-3 || Math.hypot(p.x - q.b[0], p.y - q.b[1]) < 1e-3)) return; // a film may hug the end of a wall at any angle
+    let tx, ty; if (q.t === 'wall') { const L = Math.hypot(q.b[0] - q.a[0], q.b[1] - q.a[1]); tx = (q.b[0] - q.a[0]) / L; ty = (q.b[1] - q.a[1]) / L; } else { const d = Math.hypot(p.x - q.c[0], p.y - q.c[1]) || 1; tx = -(p.y - q.c[1]) / d; ty = (p.x - q.c[0]) / d; }
+    for (const j of this.adj[i]) { const dx = this.n[j].x - p.x, dy = this.n[j].y - p.y, L = Math.hypot(dx, dy) || 1; out.push(90 - Math.acos(Math.min(1, Math.abs(dx * tx + dy * ty) / L)) * 180 / Math.PI); } }); return out; }
+  freeCount() { return this.n.filter((p, i) => this.isFree(i)).length; }
+  // are all the pins joined (through films and solids)?
+  connected() { const n = this.n, S = this.sol.length, par = [...Array(n.length + S).keys()], f = x => par[x] === x ? x : (par[x] = f(par[x])), u = (a, b) => { par[f(a)] = f(b); };
+    for (const [a, b] of this.edges()) u(a, b); n.forEach((p, i) => { if (p.on && p.s >= 0) u(i, n.length + p.s); }); const P = this.pins(); return P.every(i => f(i) === f(P[0])); }
+  junctions() { return this.n.filter((p, i) => this.isFree(i)).map(p => [p.x, p.y]); }
+  clone() { const N = new Net([], this.sol); this.n.forEach(p => N.push({ ...p })); for (const [a, b] of this.edges()) N.link(a, b); return N; }
 }
 // straight roads between towns: the minimum spanning tree (Prim)
 function mst(pts) { const n = pts.length, inT = Array(n).fill(false), d = Array(n).fill(Infinity); d[0] = 0; let L = 0;
   for (let k = 0; k < n; k++) { let u = -1; for (let i = 0; i < n; i++) if (!inT[i] && (u < 0 || d[i] < d[u])) u = i; inT[u] = true; L += d[u];
     for (let v = 0; v < n; v++) if (!inT[v]) d[v] = Math.min(d[v], Math.hypot(pts[u][0] - pts[v][0], pts[u][1] - pts[v][1])); } return L; }
-function soapDip(pins, rnd) { return Net.tree(pins, rnd).settle(1800, rnd); }
+function soapDip(pins, rnd, solids = []) { return Net.tree(pins, rnd, solids).settle(1800, rnd); }
 function bestKnown(pins, seed, tries = 60) { const r = RH.rng(seed); let best = Infinity; for (let t = 0; t < tries; t++) best = Math.min(best, soapDip(pins, r).length()); return best; }
+// one lift of a commission: the film is born from the pencil marks and relaxes; deterministic for the same marks
+const SETTLE = 2000;
+function lift(plate, marks) { return Net.build(plate.pins, plate.solids, marks).rest(RH.rng('lift')); }
+// foresight: how close the marks were to where the junctions came to rest. Unmatched junctions cost up to .5; stray marks cost .5 each
+function foresight(N, marks) { const J = N.junctions(); if (!J.length && !marks.length) return 0; let e = 0, used = new Set();
+  for (const [x, y] of J) { let bd = .5, bi = -1; marks.forEach(([u, v], k) => { const d = Math.hypot(u - x, v - y); if (d < bd) { bd = d; bi = k; } }); e += bd; if (bi >= 0) used.add(bi); }
+  e += .5 * (marks.length - used.size); return e / Math.max(1, J.length); }
+// =====================================================================================================
+//  COMMISSIONS: a ladder of generated plates. Each is a set of pins (towns) and, later, solids (walls and posts).
+//  The player pencils junction marks on the glass and lifts; the film is born from them and relaxes.
+//  Scored three ways: the length the film settles to, how well the marks foresaw its junctions, and the lifts it took.
+// =====================================================================================================
+const NCOMM = 24, TOL = .01; // accepted: within 1% of the shortest network known
+const FOLIOS = [{ from: 0, t: 'Pins' }, { from: 6, t: 'The coast' }, { from: 12, t: 'Posts' }, { from: 18, t: 'Coast and posts' }];
+const CNAMES = ['Four wells', 'Five mills', 'The fork', 'Six hamlets', 'The long valley', 'Seven bells',
+  'Salt marsh', 'Lighthouse road', 'The breakwater', 'Two shores', 'Fishers\' rest', 'The estuary',
+  'The old oak', 'Market cross', 'Two oaks', 'The ponds', 'Standing stones', 'Ring of pillars',
+  'Harbour town', 'Cliff and cairn', 'The causeway', 'Islands', 'Ghent', 'Plateau\'s last plate'];
+const tierOf = id => typeof id === 'number' ? Math.min(3, Math.floor(id / 6)) : null;
+function genPlate(id, c) {
+  const daily = typeof id === 'string', r = RH.rng('soap:' + id + ':' + c), tier = daily ? 1 + r.int(3) : tierOf(id), k = daily ? 0 : id % 6;
+  const nP = daily ? 6 + r.int(3) : [[4, 5, 5, 6, 6, 7], [4, 5, 5, 6, 6, 7], [5, 5, 6, 6, 7, 7], [6, 6, 7, 7, 8, 8]][tier][k], solids = [];
+  const wall = () => { for (let g = 0; g < 40; g++) { const th = r() * Math.PI * 2, d = .55 + r() * .65, nx = Math.cos(th), ny = Math.sin(th), h = Math.sqrt(2.05 * 2.05 - d * d) * (.55 + r() * .4), o = (r() - .5) * .6;
+    const w = { t: 'wall', a: [nx * d - ny * (h + o), ny * d + nx * (h + o)], b: [nx * d + ny * (h - o), ny * d - nx * (h - o)] };
+    if (solids.every(q => q.t === 'post' ? solidDist(w, q.c[0], q.c[1]) > q.r + .5 : !solidHit(q, ...w.a, ...w.b) && Math.min(solidDist(q, ...w.a), solidDist(q, ...w.b)) > .5)) { solids.push(w); return; } } };
+  const post = () => { for (let g = 0; g < 60; g++) { const a = r() * Math.PI * 2, d = Math.sqrt(r()) * 1.25, rr = .2 + r() * .22, cc = [Math.cos(a) * d, Math.sin(a) * d];
+    if (solids.every(o => solidDist(o, cc[0], cc[1]) > rr + .55)) { solids.push({ t: 'post', c: cc, r: rr }); return; } } };
+  if (tier === 1) { wall(); if (k >= 4 && !daily) wall(); }
+  if (tier === 2) { post(); if (k >= 3) post(); if (k >= 5) post(); }
+  if (tier === 3) { wall(); post(); if (k >= 2) post(); }
+  const pins = []; let g = 0;
+  while (pins.length < nP && g++ < 3000) { const a = r() * Math.PI * 2, d = Math.sqrt(r()) * 1.85, p = [Math.cos(a) * d, Math.sin(a) * d];
+    if (pins.every(q => Math.hypot(q[0] - p[0], q[1] - p[1]) > .6) && solids.every(o => solidDist(o, p[0], p[1]) > .32)) pins.push(p); }
+  const q = v => Math.round(v * 1000) / 1000;
+  return { id, tier, pins: pins.map(p => p.map(q)), solids: solids.map(o => o.t === 'post' ? { t: 'post', c: o.c.map(q), r: q(o.r) } : { t: 'wall', a: o.a.map(q), b: o.b.map(q) }) };
+}
+// a daily plate: the first candidate where the obvious film is a trap (a few quick random dips beat it by 2.5%)
+function dailyPlate(day) { let pl;
+  for (let c = 0; c < 12; c++) { pl = genPlate('d:' + day, c); const L0 = lift(pl, []).length(), r = RH.rng('dq' + c); let Lq = L0;
+    for (let t = 0; t < 8; t++) Lq = Math.min(Lq, Net.build(pl.pins, pl.solids, [], r, .7).settle(900, r).length()); if (L0 > Lq * 1.025) break; }
+  pl.name = 'Today\'s commission'; pl.day = day; return pl; }
+function plateFor(id) {
+  if (typeof id === 'string') return dailyPlate(id.replace(/^d:/, ''));
+  if (id === 0) return { id, name: CNAMES[0], pins: [[-1.4, -.62], [1.4, -.62], [1.4, .62], [-1.4, .62]], solids: [], tier: 0, best: 4.9497 };
+  const B = BAKED[id], pl = B ? genPlate(id, B[0]) : genPlate(id, 0); pl.name = CNAMES[id]; if (B) { pl.best = B[1]; pl.hist = B[2]; } return pl;
+}
+// baked by bake() below: [candidate, best length, quantiles of 24 random dips] for each commission
+const BAKED = {};
+const side = (w, p) => Math.sign((w.b[0] - w.a[0]) * (p[1] - w.a[1]) - (w.b[1] - w.a[1]) * (p[0] - w.a[0]));
+// the craft of a surveyor who has learned soap: from a network, try the other way each bridge could lie (a T1 flip), try
+// dropping a junction, and try leaning on a solid; keep whatever is shorter. Every try is one lift.
+function candidates(plate, N) {
+  const J = [], out = [], n = N.n; N.n.forEach((p, i) => { if (N.isFree(i)) J.push(i); }); const base = J.map(i => [n[i].x, n[i].y]);
+  for (const [a, b] of N.edges()) { if (!N.isFree(a) || !N.isFree(b)) continue; const mx = (n[a].x + n[b].x) / 2, my = (n[a].y + n[b].y) / 2, dx = n[b].x - n[a].x, dy = n[b].y - n[a].y, L = Math.hypot(dx, dy) || 1, h = Math.max(L / 2, .1);
+    out.push([...J.filter(i => i !== a && i !== b).map(i => [n[i].x, n[i].y]), [mx - dy / L * h, my + dx / L * h], [mx + dy / L * h, my - dx / L * h]]); }
+  J.forEach((_, q) => out.push(base.filter((_, k) => k !== q)));
+  plate.solids.forEach(so => { [...plate.pins, ...base].forEach(([x, y]) => { const d = solidDist(so, x, y); if (d > .15 && d < 1.3) { const p = solidProj(so, x, y); out.push([...base, [p[0] + p[2] * .15, p[1] + p[3] * .15]]); } }); });
+  // a junction where three pins nearly meet: their Fermat point
+  const P = plate.pins; for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) for (let k = j + 1; k < P.length; k++) {
+    const f = fermat(P[i], P[j], P[k]); if (f && Math.max(...[P[i], P[j], P[k]].map(q => Math.hypot(q[0] - f[0], q[1] - f[1]))) < 1.3 && base.every(m => Math.hypot(m[0] - f[0], m[1] - f[1]) > .25)) out.push([...base, f]); }
+  return out;
+}
+function fermat(A, B, C) { let x = (A[0] + B[0] + C[0]) / 3, y = (A[1] + B[1] + C[1]) / 3; // Weiszfeld
+  for (let i = 0; i < 60; i++) { let sx = 0, sy = 0, sw = 0; for (const q of [A, B, C]) { const d = Math.hypot(q[0] - x, q[1] - y); if (d < 1e-6) return null; sx += q[0] / d; sy += q[1] / d; sw += 1 / d; } x = sx / sw; y = sy / sw; } return [x, y]; }
+function* improveG(plate, marks, budget = 60) {
+  let N = lift(plate, marks), L = N.length(), used = 1; yield;
+  for (let again = true; again && used < budget;) { again = false;
+    for (const c of candidates(plate, N)) { if (used >= budget) break; const M = lift(plate, c); used++; yield; if (M.length() < L - 1e-4) { N = M; L = M.length(); again = true; break; } } }
+  return { N, L, marks: N.junctions(), used };
+}
+const run = g => { for (;;) { const o = g.next(); if (o.done) return o.value; } };
+const improve = (plate, marks, budget) => run(improveG(plate, marks, budget));
+// the shortest network known for a plate: random dips (also the histogram of what soap does by itself), then the craft
+function* bestG(plate, dips = 24) {
+  const r = RH.rng('best:' + plate.id), hist = [], top = [];
+  for (let t = 0; t < dips; t++) { const N = Net.build(plate.pins, plate.solids, [], r, .7).rest(r); hist.push(+N.length().toFixed(4)); top.push(N); yield; }
+  top.sort((a, b) => a.length() - b.length()); let best = Infinity, bm = null;
+  for (const N of [lift(plate, []), ...top.slice(0, 3)]) { const o = yield* improveG(plate, N.junctions(), 50); if (o.L < best) { best = o.L; bm = o.marks; } }
+  hist.sort((a, b) => a - b); return { best: +best.toFixed(4), marks: bm.map(m => m.map(v => +v.toFixed(3))), hist: [0, 3, 6, 9, 12, 15, 18, 21, 23].map(i => hist[i]) };
+}
+const bestFor = plate => run(bestG(plate));
+// (offline) choose, for each commission, the first layout where the nearest-neighbour film misses the best by 2.5–25%,
+// and in folios with solids, where the best network leans on one
+function bake(ids) { const out = {};
+  for (const id of ids) for (let c = 0; c < 60; c++) { const pl = genPlate(id, c), b = bestFor(pl), L0 = lift(pl, []).length(), gap = L0 / b.best - 1;
+    const leans = !pl.solids.length || lift(pl, b.marks).n.some(p => p.on && p.s >= 0);
+    if (gap > .015 && gap < .3 && leans) { out[id] = [c, b.best, b.hist]; break; } }
+  return out; }
 
 // =====================================================================================================
 //  PHYSICS 3. Films in 3D: triangulated patches relaxed by mean-curvature flow (the gradient of area).
@@ -517,17 +678,41 @@ function makePins(pins, opts = {}) {
   F.addPinMesh = (p, i) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, PLATE_H * 2 + .04, 20), steel); m.castShadow = true; m.position.set(p[0], 0, p[1]); stage.add(m);
     const cap = knob(new V3(p[0], PLATE_H + .09, p[1]), brass, .085); stage.add(cap); handles.push({ mesh: cap, kind: 'pin', i, stem: m }); F.pinMeshes.push(m); };
   F.pins.forEach(F.addPinMesh);
-  F.dip = (cx, cy, rnd = Math.random) => { F.net = cx != null ? Net.dip(F.pins, cx, cy) : Net.tree(F.pins, rnd); };
+  F.solids = (opts.solids || []).map(o => JSON.parse(JSON.stringify(o))); F.solidMeshes = [];
+  F.addSolidMesh = o => { let m;
+    if (o.t === 'wall') { const dx = o.b[0] - o.a[0], dz = o.b[1] - o.a[1], L = Math.hypot(dx, dz); m = new THREE.Mesh(new THREE.BoxGeometry(L, PLATE_H * 2, .045), glassSlip); m.position.set((o.a[0] + o.b[0]) / 2, 0, (o.a[1] + o.b[1]) / 2); m.rotation.y = -Math.atan2(dz, dx); }
+    else { m = new THREE.Mesh(new THREE.CylinderGeometry(o.r, o.r, PLATE_H * 2, 64, 1), glassRod); m.position.set(o.c[0], 0, o.c[1]); }
+    m.renderOrder = 4; m.castShadow = true; stage.add(m); F.solidMeshes.push(m); };
+  F.solids.forEach(F.addSolidMesh);
+  // pencil marks on the top plate: where you seed junctions before a lift
+  F.marks = []; F.markMeshes = [];
+  F.setMarks = ms => { F.markMeshes.forEach(m => stage.remove(m)); for (let q = handles.length - 1; q >= 0; q--) if (handles[q].kind === 'mark') handles.splice(q, 1);
+    F.marks = ms.map(m => m.slice()); F.markMeshes = F.marks.map((m, i) => { const g = markMesh(); g.position.set(m[0], PLATE_H + .05, m[1]); stage.add(g); handles.push({ mesh: g, kind: 'mark', i }); return g; }); };
+  // where the junctions came to rest, and a hairline from each to the mark that foresaw it
+  F.land = new THREE.Group(); stage.add(F.land);
+  F.showLanding = (N, marks, ghost) => { F.land.clear(); if (!N) return; const seg = [];
+    for (const [x, y] of N.junctions()) { const r = new THREE.Mesh(ringGeo, ringMat); r.rotation.x = Math.PI / 2; r.position.set(x, PLATE_H + .045, y); F.land.add(r);
+      let bd = .5, bm = null; for (const m of marks) { const d = Math.hypot(m[0] - x, m[1] - y); if (d < bd) { bd = d; bm = m; } } if (bm) seg.push(bm[0], PLATE_H + .047, bm[1], x, PLATE_H + .047, y); }
+    if (seg.length) { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3)); F.land.add(new THREE.LineSegments(g, whiskMat)); }
+    if (ghost) for (const [x, y] of ghost) { const d = knob(new V3(x, PLATE_H + .05, y), ghostMat, .05); d.castShadow = false; F.land.add(d); } };
+  F.dip = (cx, cy, rnd = Math.random) => { F.net = cx != null ? Net.dip(F.pins, cx, cy) : Net.tree(F.pins, rnd, F.solids); };
   if (!opts.empty) F.dip();
-  F.borders = bordersMesh(40); stage.add(F.borders);
+  F.borders = bordersMesh(60); stage.add(F.borders);
   F.sync = () => { const pos = geo.attributes.position.array, nor = geo.attributes.normal.array; let k = 0, b = 0;
-    if (F.net) F.net.n.forEach((p, i) => { if (p.on && !p.pin) b = setBorder(F.borders, b, new V3(p.x, -PLATE_H, p.y), new V3(p.x, PLATE_H, p.y), .012); }); F.borders.count = b; F.borders.instanceMatrix.needsUpdate = true;
+    if (F.net) F.net.n.forEach((p, i) => { if (F.net.isFree(i)) b = setBorder(F.borders, b, new V3(p.x, -PLATE_H, p.y), new V3(p.x, PLATE_H, p.y), .012); }); F.borders.count = b; F.borders.instanceMatrix.needsUpdate = true;
     if (F.net) for (const [a, b] of F.net.edges()) { const A = F.net.n[a], B = F.net.n[b]; const dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, nz = dx / L;
       const v = [[A.x, -PLATE_H, A.y], [B.x, -PLATE_H, B.y], [B.x, PLATE_H, B.y], [A.x, -PLATE_H, A.y], [B.x, PLATE_H, B.y], [A.x, PLATE_H, A.y]];
       for (const q of v) { if (k >= pos.length) break; pos[k] = q[0]; pos[k + 1] = q[1]; pos[k + 2] = q[2]; nor[k] = nx; nor[k + 1] = 0; nor[k + 2] = nz; k += 3; } }
     geo.setDrawRange(0, k / 3); geo.attributes.position.needsUpdate = geo.attributes.normal.needsUpdate = true; };
   return F;
 }
+const glassSlip = new THREE.MeshPhysicalMaterial({ color: 0xcfe6f0, roughness: .12, metalness: 0, transparent: true, opacity: .34, envMapIntensity: 2.6, clearcoat: 1, clearcoatRoughness: .04, depthWrite: false });
+const glassRod = new THREE.MeshPhysicalMaterial({ color: 0xd8ecf4, roughness: .05, metalness: 0, transparent: true, opacity: .3, envMapIntensity: 3, clearcoat: 1, clearcoatRoughness: .02, depthWrite: false });
+const markInk = new THREE.MeshStandardMaterial({ color: 0xf0c98a, emissive: 0x6a3d12, roughness: .5, metalness: .2 });
+const markGeo = new THREE.BoxGeometry(.2, .014, .028);
+function markMesh() { const g = new THREE.Group(); for (const r of [Math.PI / 4, -Math.PI / 4]) { const b = new THREE.Mesh(markGeo, markInk); b.rotation.y = r; g.add(b); } return g; }
+const ringGeo = new THREE.TorusGeometry(.065, .009, 8, 40), ringMat = new THREE.MeshBasicMaterial({ color: 0xffe3a8 });
+const whiskMat = new THREE.LineBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: .8 }), ghostMat = new THREE.MeshBasicMaterial({ color: 0x9fc3e6, transparent: true, opacity: .75 });
 // ---------- figure: tetrahedron / cube frames ----------
 function makeFrame(kind, offsets) {
   clearStage(); const S = kind === 'cube' ? buildCube(mob ? 7 : 9) : buildTetra(mob ? 9 : 11), base = kind === 'cube' ? CUBE : TET, mat = filmMaterial();
@@ -837,7 +1022,7 @@ function boot() {
   requestAnimationFrame(frame);
 }
 boot();
-window.__soap = { filmR, filmRGB, Net, mst, soapDip, bestKnown, buildTetra, buildCube, buildRing, borderAngle, doubleBubble, encode, decode, encodeStr, shareLink, go, act,
+window.__soap = { filmR, filmRGB, Net, mst, plateFor, genPlate, dailyPlate, bake, bestG, lift, bestFor, improve, foresight, candidates, solidProj, solidDist, fermat, NCOMM, TOL, soapDip, bestKnown, buildTetra, buildCube, buildRing, borderAngle, doubleBubble, encode, decode, encodeStr, shareLink, go, act,
   settle: () => { dipNow(true); if (fig.net) fig.net.settle(2000); if (fig.S) fig.S.relax(300); }, spawnPair, blow: () => { if (fig.kind === 'bubbles') fig.blowing = { r: WAND_R * 1.02 }; }, release: () => fig.blowing && release(),
   get fig() { return fig; }, get ch() { return ch; }, get st() { return st; }, SAVE, CH, get dpr() { return dpr; }, get bloomOn() { return bloom && bloom.enabled; }, renderer, ringZ };
 </script>
