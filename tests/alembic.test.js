@@ -96,7 +96,9 @@ module.exports = {
     'saves: junk is cleaned and the save stays small': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => { const A = window.__alembic; const c = A.cleanSave({ codex: { steam: ['2026-01-01', 'water', 'fire'], bogus: [1], glass: 'x' }, done: { mud: '2026-01-02', nope: 1 }, daily: { '2026-01-03': [7, 900], 'evil': 3, '2026-01-04': 5 }, cur: 'zzz' });
         const all = {}; A.ELS.forEach((e, i) => { if (i) all[e[0]] = ['2026-11-25', 'water', 'fire']; }); const big = A.cleanSave({ codex: all, done: Object.fromEntries(A.COMMS.map(c => [c.id, '2026-11-25'])) });
-        return { c, size: JSON.stringify(big).length }; });
+        const o = A.cleanSave({ m: 'office', office: { w: 77, tier: 9, top: 3, cards: [[51, 52, 53, 0], [1, 2], 'x', [51, 0, 999, 0]], seen: ['51,52,53,0', { a: 1 }], left: -5, pd: [51, 3, 'q'], best: { '77-2': 1200, 'bad': 5 }, closed: 1 } }).office;
+        delete c.m; delete c.office; return { c, o: [o.w, o.tier, o.top, o.cards, o.seen, o.left, o.pd, o.best, o.closed], size: JSON.stringify(big).length }; });
+      eq(r.o, [77, 6, 3, [[51, 52, 53, 0]], ['51,52,53,0'], 0, [51], { '77-2': 1200 }, 1], 'office save cleaned');
       eq(r.c, { v: 1, codex: { steam: ['2026-01-01', 'water', 'fire'] }, done: { mud: '2026-01-02' }, daily: { '2026-01-03': [7, 900], '2026-01-04': [5, 0] }, cur: 'mud' }); ok(r.size < 5000, 'save size ' + r.size);
     },
     'daily trays: fixed per date, 12–30 substances possible, a drop budget, and careful small pours find far more than scattered ones': async ({ page, ok, eq }) => {
@@ -181,6 +183,96 @@ module.exports = {
         return { recent, water, overTray, tabsFit: [...document.querySelectorAll('#fams button')].every(vis) }; });
       ok(s.recent >= 7, 'the recent shelf shows a full row: ' + s.recent); ok(s.water.includes('water') && s.water.includes('brine') && !s.water.includes('sand'), 'water shelf ' + s.water);
       eq(s.overTray, false, 'zoom buttons are off the tray'); ok(s.tabsFit, 'every shelf tab and zoom button fits on a phone');
+    },
+    'assay office: a seed always makes the same world, seeds differ, and stranger kinds of law arrive tier by tier': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const O = __alembic.office, sig = w => JSON.stringify([w.laws, w.subs, w.base, w.pats]);
+        const same = sig(O.makeWorld(123, 3)) === sig(O.makeWorld(123, 3)), differ = new Set([1, 2, 3, 4, 5].map(s => sig(O.makeWorld(s, 3)))).size;
+        const kinds = [1, 2, 3, 4, 5, 6].map(t => O.makeWorld(99, t).laws.map(l => l.kind).join(','));
+        const pairsUnique = [1, 2, 3, 4, 5, 6].every(t => [11, 22, 33, 44, 55].every(sd => { const L = O.makeWorld(sd, t).laws; return new Set(L.map(l => [l.a, l.b].sort().join())).size === L.length; }));
+        return { same, differ, kinds, pairsUnique }; });
+      ok(r.same, 'deterministic'); eq(r.differ, 5, 'five seeds, five worlds'); ok(r.pairsUnique, 'no two laws share a pair');
+      eq(r.kinds, ['mix,mix,mix', 'mix,mix,mix,heat', 'mix,mix,mix,heat,cat', 'mix,mix,mix,heat,cat,decay', 'mix,mix,mix,heat,cat,decay,grow', 'mix,mix,mix,heat,cat,decay,grow,eat']);
+    },
+    'assay office: every law can be stamped and every patron paid within budget; a careful scientist solves worlds from observation alone; guessing goes broke': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const A = __alembic, O = A.office, F = O.FIRE, NT = O.NTALL;
+        const run = (a, b, k, p) => { Object.assign(O.bench, { a, b, k: k || 0, p: p == null ? -1 : p }); if (O.runBench() !== 'ok') return null; while (O.trial) O.trialStep(); return O.reveal; };
+        const product = l => l.kind === 'grow' ? l.a : l.kind === 'eat' ? 0 : [l.oa, l.ob].find(x => x > 0 && x !== l.a && x !== l.b);
+        // the oracle knows the laws: each law's own experiment confirms it; then pour for the patrons
+        const oracle = (sd, tier) => { O.startOffice(sd, tier); A.paused = true; const W = O.world;
+          for (const l of W.laws) { const heat = l.a === F, a = heat ? l.b : l.a, b = heat ? F : l.b; run(a, b, l.cat, product(l)); }
+          const s0 = O.officeState(); if (s0.found !== W.laws.length) return { sd, tier, why: 'laws', s0 };
+          for (const p of W.pats) { const l = W.laws.find(l => product(l) === p.t && l.kind !== 'grow'); A.clearTray(); const heat = l.a === F, a = heat ? l.b : l.a, b = heat ? F : l.b;
+            if (l.cat) A.fillRect(l.cat, 50, 296, 149, 299);
+            if (heat) A.fillRect(a, 50, 280, 149, 295); else { const [lo, hi] = W.subs[a].dens < W.subs[b].dens ? [a, b] : [b, a]; A.fillRect(lo, 50, 282, 149, 295); A.fillRect(hi, 50, 268, 149, 281); }   // the lighter below, so they pass through each other
+            for (let rep = 0; rep < 8 && !O.officeState().pats.find(q => q.t === p.t).done; rep++) { if (heat) A.fillRect(F, 50, 280, 149, 285); A.run(150); O.officeCheck(); } }
+          const s = O.officeState(); return { sd, tier, done: s.done, left: A.budgetLeft, s }; };
+        // a scientist: mixes what it has (newest first), names only products nothing stamped explains, tries heat, alone and catalysts only while laws of those kinds remain
+        const scientist = (sd, tier) => { O.startOffice(sd, tier); A.paused = true; const W = O.world; const want = {}; for (const l of W.laws) want[l.kind] = (want[l.kind] || 0) + 1;
+          const left = k => (want[k] || 0) - W.laws.filter(l => l.kind === k && O.cards.some(x => x.st === 'seen' && O.matchLaw(x.c) === l)).length, pairLeft = () => left('mix') + left('grow') + left('eat');
+          const K = [...W.base], tried = new Set(), empty = [], seen = {}; let broke = false; const done = () => O.officeState().found === W.laws.length;
+          const tryOne = (a, b, k) => { tried.add([a, b, k].join()); tried.add([b, a, k].join()); const rv = run(a, b, k); if (!rv) { broke = true; return; }
+            for (const t of rv.got) if (!K.includes(t)) K.push(t);
+            const here = new Set([a, b, k, ...rv.got]), ins = [a, b, k];
+            const expl = new Set(O.cards.filter(x => x.st === 'seen' && (x.c[2] !== x.c[0] && x.c[2] !== x.c[1] || ins.includes(x.c[0]) && ins.includes(x.c[1])) && here.has(x.c[0]) && (x.c[1] === 0 || here.has(x.c[1])) && (!x.c[3] || here.has(x.c[3]))).map(x => x.c[2]));
+            const cands = rv.got.filter((t, i) => !expl.has(t) && rv.n[i] >= 3); if (!rv.got.length && rv.gone.length) cands.push(0);
+            if (left('decay')) for (const t of cands) for (const x of [a, b, ...rv.got]) if (x !== F && x !== 0 && x !== t && x >= O.NREAL) { const key = x + '>' + t; (seen[key] = seen[key] || new Set()).add(ins.join());
+              if (seen[key].size >= 2 && !tried.has(key)) { tried.add(key); if (!run(x, 0, 0, t)) { broke = true; return; } } }
+            for (const t of cands) { if (done()) break; const r2 = run(a, b, k, t); if (!r2) { broke = true; return; } if (r2.ok) break; }
+            if (!rv.got.length && b !== 0 && b !== F) empty.push([a, b]); };
+          for (let g = 0; g < 80 && !done() && !broke; g++) { let did = false;
+            for (let i = K.length - 1; i >= 0 && !did; i--) for (let j = 0; j < K.length && !did; j++) { const a = K[i], b = K[j]; if (a === b || tried.has([a, b, 0].join()) || !pairLeft()) continue; tryOne(a, b, 0); did = true; }
+            if (!did && left('heat')) for (const a of K) { if (tried.has([a, F, 0].join())) continue; tryOne(a, F, 0); did = true; break; }
+            if (!did && left('decay')) for (const a of K.slice().reverse()) { if (tried.has([a, 0, 0].join())) continue; tryOne(a, 0, 0); did = true; break; }
+            const nb = p => W.base.includes(p[0]) + W.base.includes(p[1]);
+            if (!did && left('cat')) for (const [a, b] of empty.slice().sort((p, q) => nb(q) - nb(p))) { for (const k of K) { if (k === a || k === b || tried.has([a, b, k].join())) continue; tryOne(a, b, k); did = true; break; } if (did) break; }
+            if (!did) break; }
+          const s = O.officeState(); return { found: s.found, laws: s.laws, fines: s.fines }; };
+        // guessing: cards made up from what you have, tested blind
+        let x = 9; const R = n => (x = x * 16807 % 2147483647) % n;
+        const guesser = (sd, tier) => { O.startOffice(sd, tier); A.paused = true; const W = O.world, K = [...W.base]; let n = 0;
+          while (n++ < 200) { const a = K[R(K.length)], b = K[R(K.length)], p = W.ids[R(W.ids.length)]; const rv = run(a, b, 0, p); if (!rv) break; for (const t of rv.got) if (!K.includes(t)) K.push(t); }
+          const s = O.officeState(); return { found: s.found, laws: s.laws, fines: s.fines }; };
+        const out = { oracle: [], sci: [], guess: [] };
+        for (let t = 1; t <= 6; t++) out.oracle.push(oracle(100 + t, t));
+        for (const t of [1, 2, 3, 4, 5]) for (const sd of [11, 22]) out.sci.push(scientist(sd, t));
+        for (const t of [1, 3, 5]) for (const sd of [11, 22]) out.guess.push(guesser(sd, t));
+        return out; });
+      ok(r.oracle.every(o => o.done && o.left > 0), 'every law stampable and every patron payable within budget: ' + JSON.stringify(r.oracle.filter(o => !o.done || o.left <= 0)));
+      const sciAll = r.sci.filter(s => s.found === s.laws).length, sciFound = r.sci.reduce((n, s) => n + s.found / s.laws, 0) / r.sci.length, gFound = r.guess.reduce((n, s) => n + s.found / s.laws, 0) / r.guess.length;
+      ok(r.sci.slice(0, 6).every(s => s.found === s.laws), 'a scientist solves every world of tiers 1–3: ' + JSON.stringify(r.sci));
+      ok(sciAll >= 8, `a scientist solves most worlds to tier 5 (${sciAll} of 10)`);
+      ok(gFound < .35 && r.guess.every(g => g.fines >= 5), `blind guesses find little and pay fines: ${gFound.toFixed(2)} of laws found vs ${sciFound.toFixed(2)}: ${JSON.stringify(r.guess)}`);
+    },
+    'assay office UI: one tap runs the first experiment; a prediction hangs as a ghost, then a stamp; confirmed pays, refuted fines; cards and the world survive a reload and a link': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { __alembic.office.startOffice(4242, 2); __alembic.paused = false; });
+      ok(!(await page.isHidden('#bench')), 'the bench shows'); eq(await page.textContent('#bRun').then(t => t.trim().slice(0, 3)), 'Mix', 'wells are filled: one tap');
+      const d0 = await page.evaluate(() => __alembic.budgetLeft);
+      await page.click('#bRun'); await page.waitForFunction(() => !__alembic.office.trial && __alembic.office.lastResult, null, { timeout: 15000 });
+      const res = await page.evaluate(() => [__alembic.office.lastResult.kind, __alembic.office.reveal.got.length, __alembic.budgetLeft, __alembic.office.bench.slot]);
+      eq(res[0], 'mix'); ok(res[1] >= 1, 'the first two samples make something'); eq(d0 - res[2], await page.evaluate(() => 2 * 10 * 10), 'one experiment costs its drops'); eq(res[3], 'p', 'next: predict');
+      // predict what formed: tap the new vial, then Test card; the ghost hangs over the wells while it runs, then the stamp
+      const p = await page.evaluate(() => __alembic.office.reveal.got[0]);
+      await page.click(`.vial[data-t="${p}"]`); ok(/Test card/.test(await page.textContent('#bRun')), 'a prediction turns Mix into Test card');
+      await page.click('#bRun'); ok(await page.evaluate(() => !!__alembic.office.trial && __alembic.office.trial.card[2]), 'the test carries the prediction (the ghost)');
+      await page.waitForFunction(() => !__alembic.office.trial, null, { timeout: 15000 });
+      ok(await page.evaluate(() => document.getElementById('verdict').className.includes('ok') && /CONFIRMED/.test(document.getElementById('verdict').textContent)), 'stamped CONFIRMED');
+      const after = await page.evaluate(() => [__alembic.office.cards.map(c => c.st), __alembic.budgetLeft]); eq(after[0], ['seen']); eq(after[1], res[2] - 200 + 250, 'pays');
+      // a wrong card: the first sample alone makes the second sample (it does not)
+      const f0 = await page.evaluate(() => { const O = __alembic.office, W = O.world; Object.assign(O.bench, { a: W.base[0], b: 0, k: 0, p: W.base[1], slot: 'p' }); O.runBench(); while (O.trial) O.trialStep(); return [O.lastResult.kind, O.officeState().fines, document.getElementById('verdict').textContent]; });
+      eq(f0, ['no', 1, 'REFUTED']);
+      const url = await page.evaluate(() => location.href); ok(/#office=4242-2$/.test(url), 'link ' + url);
+      ok(await page.evaluate(() => localStorage.getItem('rh:alembic').length) < 3000, 'small save');
+      await page.reload(); await page.waitForFunction(() => window.__alembic && __alembic.office.world);
+      eq(await page.evaluate(() => [__alembic.mode, __alembic.office.world.seed, __alembic.office.cards.map(c => c.st), __alembic.office.officeState().fines]), ['office', 4242, ['seen', 'false'], 1], 'the world and its cards come back');
+      const p2 = await page.context().newPage(); await p2.goto(url.replace('4242-2', '777-3')); await p2.waitForFunction(() => window.__alembic && __alembic.office.world);
+      eq(await p2.evaluate(() => [__alembic.office.world.seed, __alembic.office.world.tier, __alembic.office.cards.length]), [777, 3, 0], 'a link opens its world'); await p2.close();
+    },
+    'leaving the office gives the blank substances back: commissions, codex and daily trays are untouched': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const A = __alembic, O = A.office; O.startOffice(5, 6); A.paused = true; const known = O.world.ids.length;
+        A.startCommission('mud'); A.paused = true; let lawsLeft = 0; for (let i = O.NREAL; i < O.NTALL; i++) lawsLeft += 0; 
+        const codex = Object.keys(A.SAVE.codex).filter(k => /^x\d$/.test(k)).length, vials = [...document.querySelectorAll('.vial')].map(v => +v.dataset.t).filter(t => t >= O.NREAL).length;
+        return { known, mode: A.mode, codex, vials, bench: document.getElementById('bench').hidden, NT: A.NT }; });
+      ok(r.known >= 6); eq([r.mode, r.codex, r.vials, r.bench], ['work', 0, 0, true]); eq(r.NT, await page.evaluate(() => __alembic.ELS.length));
     },
     'speed: a full tray steps and draws 60 frames well inside a phone frame budget (best of three, as the machine may be busy)': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const A = window.__alembic, I = A.ID; A.clearTray();

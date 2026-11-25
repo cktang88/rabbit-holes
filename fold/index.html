@@ -328,7 +328,7 @@ function paint(i, t) { if (i < 0 || i >= C.n) return; const old = seq[i]; seq[i]
   hist.push({ seq: old, i }); stale(); SND.paint(seq[i]); SAVE.seen.tap = 1; saveDraft(); renderNote(); }
 function setPos(P) { hist.push({ pos: pos }); pos = P; stale(); saveDraft(); }
 function undo() { const h = hist.pop(); if (!h) return; if (h.pos) pos = h.pos; else seq[h.i] = h.seq; stale(); saveDraft(); renderNote(); }
-function stale() { if (result) { result.stale = true; robustJob++; } peek = -1; anim = null; }
+function stale() { redraw(); if (result) { result.stale = true; robustJob++; } peek = -1; anim = null; }
 let draftT = 0; function saveDraft() { clearTimeout(draftT); draftT = setTimeout(() => { const d = SAVE.drafts[key] || { log: [] }; d.seq = seqStr(); d.pos = pos.map(p => p.slice()); SAVE.drafts[key] = d; persist(); }, 250); }
 const seqStr = (S = seq) => S.map(t => TYPES[t]).join('');
 // Pull: the grabbed bead steps toward the finger; the chain re-lays itself like a rope, the pinned N bead never moves.
@@ -441,7 +441,10 @@ function drawBlock(c, alpha) { const col = BEN.lig[c.t] || BEN.lig.x, s = .86; c
   ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = .02; for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.moveTo(c.x - s / 2, c.y + k * .12); ctx.quadraticCurveTo(c.x, c.y + k * .12 + .05, c.x + s / 2, c.y + k * .12); ctx.stroke(); }
   if (c.t === '+' || c.t === '-') { ctx.fillStyle = '#fff'; ctx.font = '700 .5px "Courier Prime",monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(c.t === '+' ? '+' : '−', c.x, c.y + .02); }
   ctx.globalAlpha = 1; }
+let needDraw = true; const redraw = () => { needDraw = true; };
 function draw() {
+  // redraw only when something changed: an idle bench costs nothing
+  if (!needDraw && !anim && flash <= 0 && !drag) { requestAnimationFrame(draw); return; } needDraw = false;
   const r = cv.getBoundingClientRect(), d = Math.min(2, devicePixelRatio || 1), now = performance.now();
   if (cv.width !== Math.round(r.width * d) || cv.height !== Math.round(r.height * d)) { cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d); }
   ctx.setTransform(d, 0, 0, d, 0, 0); ctx.fillStyle = BEN.paper; ctx.fillRect(0, 0, r.width, r.height); ctx.fillStyle = grainPat(); ctx.fillRect(0, 0, r.width, r.height);
@@ -499,6 +502,7 @@ function reqText(r) { const who = r.lig === 'B' ? 'decoy' : 'target';
   if (r.min != null) return `grip the ${who} at ${PHN[r.pH]}: <b>≥ ${r.min.toFixed(1)}</b>`;
   return r.lig === 'B' ? `ignore the decoy: grip <b>≤ ${r.max.toFixed(1)}</b>` : `let go at ${PHN[r.pH]}: grip <b>≤ ${r.max.toFixed(1)}</b>`; }
 function renderNote() {
+  redraw();
   const i = commIndex(key);
   document.getElementById('cLab').textContent = i >= 0 ? `Commission ${i + 1} of ${COMMS.length}` : key.startsWith('day:') ? 'Daily commission' : 'Open commission';
   document.getElementById('cName').textContent = C.name;
@@ -531,7 +535,7 @@ function renderNote() {
 }
 const robustText = () => !robust || (result && result.stale) ? '·' : robust.frac == null ? `${Math.round(robust.done / robust.total * 100)}%…` : `${robust.frac >= (C.robust || 0) ? '✓' : '✗'} ${Math.round(robust.frac * 100)}%`;
 // three axes that pull against each other; each shows the lab's spread of designs, the machine's mark and yours
-function renderAxes() { const el = document.getElementById('axes'); for (const id of ['robV', 'robB']) { const rv = document.getElementById(id); if (rv) rv.textContent = robustText(); }
+function renderAxes() { redraw(); const el = document.getElementById('axes'); for (const id of ['robV', 'robB']) { const rv = document.getElementById(id); if (rv) rv.textContent = robustText(); }
   if (!result || result.stale) { el.innerHTML = SAVE.done[key] ? axesHTML(null) : ''; return; } el.innerHTML = axesHTML(result); }
 function axesHTML(res) { const best = SAVE.done[key], H = LABH && LABH[key];
   const row = (label, cur, b, lo, hi, fmtv, goodHigh, dist) => { const W = 200, x = (v) => 4 + (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (W - 8); let bars = '';
@@ -571,7 +575,7 @@ function share() { const d = SAVE.done[key]; if (!d) return; const u = new URL(l
 let drag = null;
 const beadAt = (e) => { const [wx, wy] = cam.toWorld(e.clientX, e.clientY); let best = -1, bd = e.pointerType === 'touch' ? .62 : .45; pos.forEach((p, i) => { const d = Math.hypot(p[0] - wx, p[1] - wy); if (d < bd) { bd = d; best = i; } }); return best; };
 function setupInput() {
-  cam = PanZoom(cv, { world: () => bounds(), canPanFrom: (e) => !C || beadAt(e) < 0, min: .4, max: 4, pad: 14, button: false, onChange: () => {} });
+  cam = PanZoom(cv, { world: () => bounds(), canPanFrom: (e) => !C || beadAt(e) < 0, min: .4, max: 4, pad: 14, button: false, onChange: redraw }); window.addEventListener('resize', redraw);
   cv.addEventListener('pointerdown', e => { setBinder(false); if (peek >= 0) { peek = -1; renderNote(); } if (cam.gesturing || busy || anim) return; const i = beadAt(e); if (i < 0) return;
     e.preventDefault(); drag = { i, sx: e.clientX, sy: e.clientY, moved: false, path: [[0, 0]], start: pos }; try { cv.setPointerCapture(e.pointerId); } catch (_) {} });
   cv.addEventListener('pointermove', e => { if (!drag) return; if (cam.gesturing) { if (drag.moved && pos !== drag.start) { hist.push({ pos: drag.start }); saveDraft(); } drag = null; return; }

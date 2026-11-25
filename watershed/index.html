@@ -248,7 +248,7 @@ const WS = (() => {
   function townA(w, t) { let m = 0, lab = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const x = t[0] + dx, y = t[1] + dy; if (x < 0 || y < 0 || x >= W || y >= H) continue; const i = idx(x, y); if (w.A[i] > m) { m = w.A[i]; lab = w.lab[i]; } } return [m, lab]; }
   const RIVER = 18;
   function goalMet(w, G) {
-    if (G.t === 'town') return G.towns.every(t => { const [a, lab] = townA(w, t); return a >= RIVER && (G.sea == null || lab === G.sea + 1); });
+    if (G.t === 'town') return G.towns.every(t => { const [a, lab] = townA(w, t); return a >= (G.minA || RIVER) && (G.sea == null || lab === G.sea + 1); });
     if (G.t === 'share') return shares(w)[G.sea] >= G.min;
     if (G.t === 'dry') { const [a] = townA(w, G.at); return a < 4 && (!G.towns || G.towns.every(t => { const [b, lab] = townA(w, t); return b >= RIVER && (G.sea == null || lab === G.sea + 1); })); }
     return false;
@@ -263,14 +263,24 @@ const WS = (() => {
   }
 
   // ================= the survey's plates =================
-  // each was searched at design time: no agents fails, the stored solution wins, and only a few placements do
+  // each was searched at design time (finder.js): no agents fails, the stored solution wins, and only a few placements do
   const PLATES = [
     { n: 'The Lava Flow', seed: 'lava1', seas: [{ side: 'S', a: .35, b: .6, name: 'Southern Sea' }], townNames: ['Kanab'],
-      story: 'Kanab sits in a dry side valley while the big river runs past over the ridge. A lava flow could change that.',
-      agents: { lava: 1 }, goal: { t: 'town', towns: [[49, 17]] }, par: { t: 0, n: 1 }, sol: [{ t: 'lava', x: 46, y: 13 }] },
+      story: 'Kanab sits on a hillside above the big river, with only a trickle of its own. Lava flows have rerouted rivers in an afternoon.',
+      agents: { lava: 1 }, goal: { t: 'town', towns: [[22, 17]] }, par: { t: 0, n: 1 }, sol: [{ t: 'lava', x: 27, y: 15 }] },
+    { n: 'Soft Ground', seed: 'soft1', seas: [{ side: 'W', a: .4, b: .6, name: 'Western Sea' }, { side: 'E', a: .3, b: .5, name: 'Eastern Sea' }], townNames: ['Moab'],
+      story: 'Moab\'s river runs east. Just over the red dashed divide, a western stream begins. A river on soft rock cuts down fast, and its head creeps uphill into whatever lies beyond.',
+      agents: { shale: 1 }, goal: { t: 'town', towns: [[31, 27]], sea: 0 }, par: { t: 130, n: 1 }, sol: [{ t: 'shale', x: 25, y: 25 }] },
     { n: 'The Fallen Sea', seed: 'fall1', seas: [{ side: 'W', a: .2, b: .4, name: 'Western Sea' }, { side: 'E', a: .55, b: .75, name: 'Eastern Sea' }],
-      story: 'Two rivers share the plateau evenly. When a sea falls, its river has further to drop, and it starts to cut back inland.',
-      agents: { fall: 1, shale: 1 }, goal: { t: 'share', sea: 0, min: .7 }, par: { t: 179, n: 1 }, sol: [{ t: 'fall', sea: 0 }] },
+      story: 'Two rivers share the plateau. Powell called the sea the base level: no river cuts below it. Lower it, and a step in the riverbed starts climbing inland.',
+      agents: { fall: 1, shale: 1 }, goal: { t: 'share', sea: 0, min: .7 }, par: { t: 266, n: 1 }, sol: [{ t: 'fall', sea: 0 }] },
+    { n: 'The Rising Dome', seed: 'rise1', seas: [{ side: 'N', a: .3, b: .5, name: 'Northern Sea' }, { side: 'S', a: .5, b: .7, name: 'Southern Sea' }], townNames: ['Vernal'],
+      story: 'The crust can bulge. Ground that rises sheds water off its flanks, and a divide can be shoved aside before a river notices.',
+      agents: { rise: 1 }, goal: { t: 'town', towns: [[47, 11]], sea: 1 }, par: { t: 16, n: 1 }, sol: [{ t: 'rise', x: 39, y: 7 }] },
+    { n: 'The Hard Cap', seed: 'hard1', seas: [{ side: 'W', a: .4, b: .6, name: 'Western Sea' }, { side: 'E', a: .4, b: .6, name: 'Eastern Sea' }], townNames: ['Green River'],
+      feats: [{ t: 'shale', x1: 30, y1: 4, x2: 30, y2: 31, r: 3, label: 'soft shale beds' }],
+      story: 'A band of soft shale lies just east of the divide. The eastern rivers will eat through it and keep going. Green River must still reach the Western Sea at the end.',
+      agents: { hard: 1 }, goal: { t: 'town', towns: [[24, 27]], sea: 0 }, par: { t: 0, n: 1 }, sol: [{ t: 'hard', x: 31, y: 23 }] },
   ];
 
   // ================= field notes: things the land did =================
@@ -290,14 +300,14 @@ const WS = (() => {
     return {
       step(w) {
         if (w.t % 10) return;
-        let lake = 0, flip = 0; for (let i = 0; i < N; i++) { if (w.sea[i]) continue; if (w.zf[i] > w.z[i] + .1) lake++; if (w.lab[i] !== w0.lab0[i]) flip++; }
+        let lake = 0, flip = 0; for (let i = 0; i < N; i++) { if (w.sea[i]) continue; if (w.zf[i] > w.z[i] + .12 && w.A[i] >= 4) lake++; if (w.lab[i] !== w0.lab0[i]) flip++; }
         if (lake >= 5) hit('lake', `${lake} squares under water at ${(w.t / 100).toFixed(1)} million years.`);
         if (flip >= 25 && P.seas.length > 1) hit('capture', `${flip} squares of land changed sea.`);
         if (flip >= 120 && P.seas.length > 1) hit('divide', `By the end ${flip} squares had changed sides.`);
       },
       done(w) {
         if (agents.some(a => a.t === 'fall')) hit('knick', 'Look at the contours bunch up where the step has climbed to.');
-        let dry = 0; for (let i = 0; i < N; i++) if (!w.sea[i] && w.Amax[i] >= 30 && w.A[i] < 4 && w.zf[i] <= w.z[i] + .05) dry++;
+        let dry = 0; for (let i = 0; i < N; i++) if (!w.sea[i] && w.Amax[i] >= 30 && w.A[i] < 4 && !(w.zf[i] > w.z[i] + .12)) dry++;
         if (dry >= 3) hit('windgap', `${dry} squares of old riverbed are dry.`);
         let gap = 0; for (let i = 0; i < N; i++) if (!w.sea[i] && w.A[i] >= RIVER && rise[i] >= .045) gap++;
         if (gap >= 2) hit('watergap', 'The river still crosses the rising ground.');
@@ -451,7 +461,7 @@ function renderOff(w, Q) {
   contours(w);
   // lakes and rivers
   g.fillStyle = 'rgba(47,93,124,.75)';
-  for (let i = 0; i < N; i++) if (!w.sea[i] && w.zf[i] > w.z[i] + .03) g.fillRect(i % W, (i / W) | 0, 1, 1);
+  g.beginPath(); for (let i = 0; i < N; i++) if (!w.sea[i] && w.zf[i] > w.z[i] + .12 && w.A[i] >= 4) g.rect(i % W - .05, ((i / W) | 0) - .05, 1.1, 1.1); g.fill();
   g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#2f5d7c';
   // rivers: smooth curves through jittered cell centres (midpoint to midpoint, bending at each cell)
   for (let i = 0; i < N; i++) { const A = w.A[i]; if (A < 5 || w.sea[i]) continue; const r = w.rcv[i]; if (r === i) continue; const rr = w.rcv[r];

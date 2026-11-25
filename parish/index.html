@@ -348,8 +348,10 @@ function bigamyPlot(V) {
   const cands = V.P.filter(p => alive(p) && p.sex === 'M' && p.spouse >= 0 && p.spouses.length === 1 && ageOf(p, y) >= 26 && ageOf(p, y) < 46 && !p.hall && !p.heir && p.born > Y0 && alive(V.P[p.spouse]) && V.reg.some(e => e.t === 'B' && e.pid === p.id) && V.reg.some(e => e.t === 'M' && e.groom === p.id));
   if (!cands.length) { V.sec.bigY++; return; }
   // prefer a man with a namesake cousin of about his age
-  const twin = p => V.P.some(o => o !== p && o.sex === 'M' && o.g === p.g && canon(o.s) === canon(p.s) && Math.abs(o.born - p.born) < 7 && o.born > Y0);
-  const m = cands.find(twin) || r.pick(cands), w1 = V.P[m.spouse];
+  // a man with one or two namesakes of about his age: enough doubt to hide behind, not so many the reader drowns
+  const kin = p => V.P.filter(o => o !== p && o.sex === 'M' && o.g === p.g && canon(o.s) === canon(p.s) && Math.abs(o.born - p.born) < 22 && o.born > Y0).length;
+  const scored = cands.map(p => [p, kin(p)]).sort((a, b) => (Math.abs(a[1] - 1.5) - Math.abs(b[1] - 1.5)) || a[0].id - b[0].id);
+  const m = scored[0][0], w1 = V.P[m.spouse];
   const pool = V.P.filter(p => alive(p) && p.sex === 'F' && p.spouse < 0 && !p.spouses.length && ageOf(p, y) >= 19 && ageOf(p, y) < 32);
   const w2 = pool.length ? r.pick(pool) : mk(V, { sex: 'F', g: V.name('F'), s: SUR[r.int(SUR.length - 1)][0], born: y - 22, from: r.pick(PLACES) });
   const e = wed(V, m, w2, y + .3 + r() * .5, { gst: 'bachelor' });
@@ -484,10 +486,10 @@ function candidates(V, key, sealed, showLost, P) {
       push(b, own ? 'main' : 'other', strike, note);
     }
   };
-  if (s.k === 'g') bapCands(e.gg, 'M', e.d - 62, e.d - 14, e.gs, e.d);
-  if (s.k === 'b') bapCands(e.bg, 'F', e.d - 50, e.d - 14, e.bs, e.d);
+  if (s.k === 'g') bapCands(e.gg, 'M', e.d - 56, e.d - 16, e.gs, e.d);
+  if (s.k === 'b') bapCands(e.bg, 'F', e.d - 46, e.d - 16, e.bs, e.d);
   if (s.k === 'd') {
-    const a = e.w.age, cl = CLERKS[e.clerk], tol = a < 1 ? 0 : a < 16 ? 1.2 : cl.round ? 6 : 3.5;
+    const a = e.w.age, cl = CLERKS[e.clerk], tol = a < 1 ? 0 : a < 13 ? 1.2 : cl.round ? 6 : 3.5;
     const lo = a < 1 ? e.d - 1.3 : e.d - a - 1 - tol, hi = a < 1 ? e.d : e.d - a + tol;
     if (e.rel && e.rel.fg) { for (const b of R) if (b.t === 'B' && vis(b) && b.sex === (e.rel.k === 'son' ? 'M' : 'F') && b.g === e.g && b.fg === e.rel.fg && canon(b.fs) === canon(e.rel.fs) && b.d >= lo && b.d <= hi) { const L = life(b.id + ':c'); push(b, 'main', L.bur ? `already buried ${fmtD(L.bur.d)}` : null); } }
     else bapCands(e.g, e.rel ? 'F' : (V.P[e.pid].sex), lo, hi, e.s, e.d);

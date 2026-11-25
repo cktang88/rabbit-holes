@@ -472,7 +472,18 @@ let perlage = null;
 function makePerlage() { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
   g.fillStyle = '#c09d55'; g.fillRect(0, 0, 64, 64);
   for (const [x, y] of [[16, 16], [48, 16], [32, 40], [0, 40], [64, 40], [16, 64], [48, 64], [16, -8], [48, -8]]) { const gr = g.createRadialGradient(x, y, 2, x, y, 20); gr.addColorStop(0, '#d4b464'); gr.addColorStop(.6, '#bb984f'); gr.addColorStop(1, '#c6a458'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, 18, 0, 6.283); g.fill(); }
-  perlage = cx.createPattern(c, 'repeat'); }
+  perlage = c; }
+const plateCv = document.createElement('canvas'); let plateKey = '';
+function paintPlate(q, c, dpr) {
+  if (!perlage) makePerlage();
+  q.setTransform(dpr * cam.k, 0, 0, dpr * cam.k, dpr * cam.x, dpr * cam.y);
+  q.save(); q.beginPath(); q.arc(0, 0, c.R + 4, 0, 6.283); q.fillStyle = '#4a3714'; q.fill();
+  q.beginPath(); q.arc(0, 0, c.R, 0, 6.283); q.save(); q.clip(); q.scale(.25, .25); q.fillStyle = q.createPattern(perlage, 'repeat'); q.fillRect(-c.R * 4, -c.R * 4, c.R * 8, c.R * 8); q.restore();
+  const sh = q.createRadialGradient(-c.R * .3, -c.R * .4, c.R * .1, 0, 0, c.R * 1.05); sh.addColorStop(0, '#fff3'); sh.addColorStop(.7, '#0000'); sh.addColorStop(1, '#0006'); q.fillStyle = sh; q.fill();
+  q.lineWidth = .8; q.strokeStyle = '#6b4f1c'; q.stroke(); q.restore();
+  for (const p of c.pillars) { q.beginPath(); q.arc(p.x, p.y, p.r, 0, 6.283); const g = q.createRadialGradient(p.x - p.r * .3, p.y - p.r * .3, 1, p.x, p.y, p.r); g.addColorStop(0, '#6f8fd8'); g.addColorStop(1, '#14235a'); q.fillStyle = g; q.fill();
+    q.strokeStyle = '#0b1638'; q.lineWidth = .6; q.stroke(); q.beginPath(); q.moveTo(p.x - p.r * .7, p.y); q.lineTo(p.x + p.r * .7, p.y); q.lineWidth = 1.2; q.stroke(); }
+}
 function draw(now) {
   requestAnimationFrame(draw);
   const dt = Math.min(.05, (now - lastT) / 1000); lastT = now;
@@ -481,17 +492,11 @@ function draw(now) {
   // time: the motor turns ~0.3 rev/s; a sweep (when the train first closes) fast-forwards until the slowest hand has gone round
   const slow = Math.min(...R.hands.map(h => h.driven ? Math.abs(h.v) : 1), 1);
   if (sweep > 0) { sweep = Math.max(0, sweep - dt); const k = Math.sin(Math.PI * (1 - sweep / 2.6)); tau += dt * (.3 + k * k * (1 / slow) * .95); } else tau += dt * .3;
-  cx.setTransform(1, 0, 0, 1, 0, 0); cx.clearRect(0, 0, W, Hh);
+  // the plate, pillars and all: painted once per view into its own canvas, then laid down with one blit a frame
+  const pk = [W, Hh, cam.k, cam.x, cam.y, c.R, c.pillars.length, c.id, c.seed].join();
+  if (plateKey !== pk) { plateKey = pk; plateCv.width = W; plateCv.height = Hh; const q = plateCv.getContext('2d'); paintPlate(q, c, dpr); }
+  cx.setTransform(1, 0, 0, 1, 0, 0); cx.clearRect(0, 0, W, Hh); cx.drawImage(plateCv, 0, 0);
   cx.setTransform(dpr * cam.k, 0, 0, dpr * cam.k, dpr * cam.x, dpr * cam.y);
-  if (!perlage) makePerlage();
-  // the plate
-  cx.save(); cx.beginPath(); cx.arc(0, 0, c.R + 4, 0, 6.283); cx.fillStyle = '#4a3714'; cx.fill();
-  cx.beginPath(); cx.arc(0, 0, c.R, 0, 6.283); cx.save(); cx.clip(); cx.scale(.25, .25); cx.fillStyle = perlage; cx.fillRect(-c.R * 4, -c.R * 4, c.R * 8, c.R * 8); cx.restore();
-  const sh = cx.createRadialGradient(-c.R * .3, -c.R * .4, c.R * .1, 0, 0, c.R * 1.05); sh.addColorStop(0, '#fff3'); sh.addColorStop(.7, '#0000'); sh.addColorStop(1, '#0006'); cx.fillStyle = sh; cx.fill();
-  cx.lineWidth = .8; cx.strokeStyle = '#6b4f1c'; cx.stroke(); cx.restore();
-  // pillars: blued screws
-  for (const p of c.pillars) { cx.beginPath(); cx.arc(p.x, p.y, p.r, 0, 6.283); const g = cx.createRadialGradient(p.x - p.r * .3, p.y - p.r * .3, 1, p.x, p.y, p.r); g.addColorStop(0, '#6f8fd8'); g.addColorStop(1, '#14235a'); cx.fillStyle = g; cx.fill();
-    cx.strokeStyle = '#0b1638'; cx.lineWidth = .6; cx.stroke(); cx.beginPath(); cx.moveTo(p.x - p.r * .7, p.y); cx.lineTo(p.x + p.r * .7, p.y); cx.lineWidth = 1.2; cx.stroke(); }
   // dial positions: engraved rings and names
   c.hands.forEach((h, k) => { const ok = R.hands[k].ok; cx.beginPath(); cx.arc(h.x, h.y, 9, 0, 6.283); cx.setLineDash([1.5, 1.5]); cx.strokeStyle = ok ? '#2f6b3a' : '#5a3e12'; cx.lineWidth = .7; cx.stroke(); cx.setLineDash([]);
     cx.font = 'italic 6px "EB Garamond", serif'; cx.fillStyle = '#3a2a0e'; cx.textAlign = 'center'; cx.fillText(h.n, h.x, h.y + Math.max(15, ...D.ax[k + 1].g.map(T => rad(T) + 7)) + (c.hands.some((o, j) => j < k && D2([o.x, o.y], [h.x, h.y]) < .5) ? 7 : 0)); });
@@ -557,6 +562,8 @@ cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', 
 let wasOk = false, settle = null, recordedFor = '';
 function refresh(light) {
   const c = com(), prevH = R ? R.hands.map(h => h.driven) : [];
+  // magnet: a hung wheel being resized clicks into mesh as soon as its rim can reach a neighbour near where it hangs
+  if (light === true && sel.i >= fixedN(c) && D.ax[sel.i] && !D.ax[sel.i].lk) { const A = D.ax[sel.i], b = swing(c, D, sel.i, A.a, .35); if (b) { snd('mesh'); const p = layout(c, D)[sel.i]; flash.push({ x: p[0], y: p[1], r: rad(A.g[A.lk[2]]), t: .6 }); } }
   R = solve(c, D);
   // a hand that has just been caught up by the train: the movement runs, and fast-forwards once
   R.hands.forEach((h, k) => { if (h.driven && !prevH[k]) { snd('run'); sweep = 2.6; const p = R.P[k + 1]; flash.push({ x: p[0], y: p[1], r: 10, t: .8 }); } });
@@ -567,6 +574,7 @@ function refresh(light) {
   if (R.ok && !wasOk) FX.shake(.05);
   wasOk = R.ok;
   if (R.ok) settle = setTimeout(() => { if (dragI < 0 && R.ok) record(); }, 650);
+  if (R.ok && !popT && !guildPopStep(c, 0).done) popT = setTimeout(popTick, 200);
 }
 function renderPlaques() {
   const c = com();
@@ -690,8 +698,8 @@ function renderDrawer() {
 $('listBtn').onclick = () => { renderDrawer(); $('drawer').classList.add('open'); };
 $('drawer').onclick = e => { if (e.target === $('drawer')) $('drawer').classList.remove('open'); };
 let popT = null;
-function popTick() { clearTimeout(popT); const c = com(), st = guildPopStep(c, 25); if (R && (R.ok || S.best[ckey(c)]) && (st.done || st.out.length % 10 === 0)) renderLedger(); if (!st.done) popT = setTimeout(popTick, 30); }
-function open(id) { S.cur = id; if (id === 'guild') GUILD = null; persist(); hist = []; sel = { i: -1, j: 0 }; loadDesign(); wasOk = R.ok; renderBrief(); renderPlaques(); renderEditor(); renderLedger(); cam.fit(); coachCheck(); popT = setTimeout(popTick, 300); }
+function popTick() { clearTimeout(popT); popT = null; const c = com(), st = guildPopStep(c, 12); if (R && (R.ok || S.best[ckey(c)]) && (st.done || st.out.length % 10 === 0)) renderLedger(); if (!st.done) popT = setTimeout(popTick, 28); }
+function open(id) { S.cur = id; if (id === 'guild') GUILD = null; persist(); hist = []; sel = { i: -1, j: 0 }; loadDesign(); wasOk = R.ok; renderBrief(); renderPlaques(); renderEditor(); renderLedger(); cam.fit(); coachCheck(); clearTimeout(popT); popT = null; if (S.best[ckey(com())] || R.ok) popT = setTimeout(popTick, 300); }
 
 // ---------- coach: first commission only ----------
 const COACH = ['Tap the <b>motor</b>\'s ruby jewel, then slide its wheel bigger.', 'Now tap the <b>hand</b>\'s jewel and cut its wheel too, until the rims touch and it turns once in 2 s.'];

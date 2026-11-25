@@ -231,7 +231,7 @@ function shortest(from,to,safe){ const dist=cities.map(()=>1e9), prev=cities.map
 function newCareer(seedIn){
   const seed=Number.isInteger(seedIn)? seedIn : Math.floor(Math.random()*1e9);
   const c={seed, daily:seed===dailySeed()?1:0, day:0, gold:300, at:0, camels:3, guards:0, cargo:GOODS.map(()=>0), cost:GOODS.map(()=>0),
-    book:{}, agents:{}, mail:[], log:[], events:[], contracts:[], done:0, rumors:[], peak:0, scheduled:[], corr:{}, lofts:{}, letters:[], sold:[], phase:1, trips:0};
+    book:{}, agents:{}, mail:[], log:[], events:[], contracts:[], done:0, rumors:[], peak:0, scheduled:[], corr:{}, lofts:{}, letters:[], sold:[], phase:1, trips:0, lies:[]};
   C=c; buildWorld(seed); scheduleEvents(); applyRoads();
   const rr=RH.rng(seed+5); C.rivals=RIVAL_NAMES.map((name,i)=>({name, at:RIVAL_START[i], to:null, book:{}, trust:0.6}));
   for (let d=0; d<60; d++){ C.day=d; for (const c2 of cities) for (let g=0;g<GOODS.length;g++){ c2.drift[g]+=-c2.drift[g]*DRIFT_K+DRIFT_SD*gauss(); } } C.day=0; // markets have been moving before you arrive
@@ -337,16 +337,19 @@ const PHASES=[
   {n:'Correspondents', d:'Hire a correspondent in the city you stand in. Every few days they write, and the letter travels the roads to you.', need:'Make four journeys'},
   {n:'Selling news', d:'Rival houses will buy copies of your letters. They pay now and compete with you later.', need:'Keep three correspondents'},
   {n:'Pigeon lofts', d:'A loft sends letters to any loft within reach in two days. Your network becomes the map.', need:'Sell news to a house'},
-  {n:'Rumours', d:'Sell a house a forged letter. If they find out, they trust you less, pay less, and start forging letters to you.', need:'Sell news to three houses'},
+  {n:'Rumours', d:'Sell a house a forged letter. Big lies and frequent lies are caught more often. A house that catches you tells the others; houses that distrust you stop sharing their news, their loft keepers refuse your pigeons, and they forge letters to you.', need:'Sell news to three houses'},
 ];
 const crow=(a,b)=>{ const [x1,y1]=LONLAT[a],[x2,y2]=LONLAT[b]; return Math.hypot(x1-x2,(y1-y2)*1.2); };
-const loftLinks=()=>{ const ls=Object.keys(C.lofts||{}).map(Number), out=[]; for (let i=0;i<ls.length;i++) for (let j=i+1;j<ls.length;j++) if (crow(ls[i],ls[j])<=PIGEON_RANGE) out.push([ls[i],ls[j]]); return out; };
+// a house's home city: its loft keepers will not carry your pigeons once that house distrusts you
+const RIVAL_HOME=RIVAL_START;
+const loftRefuses=ci=>(C.rivals||[]).some((rv,i)=>RIVAL_HOME[i]===ci && rv.trust<0.3);
+const loftLinks=()=>{ const ls=Object.keys(C.lofts||{}).map(Number).filter(x=>!loftRefuses(x)), out=[]; for (let i=0;i<ls.length;i++) for (let j=i+1;j<ls.length;j++) if (crow(ls[i],ls[j])<=PIGEON_RANGE) out.push([ls[i],ls[j]]); return out; };
 // how a letter gets from one city to another: along the roads with the caravans, or loft to loft by pigeon
 function newsPath(from, to){
-  const n=cities.length, dist=Array(n).fill(1e9), prev=Array(n).fill(null), done=Array(n).fill(false), lofts=Object.keys(C.lofts||{}).map(Number); dist[from]=0;
+  const n=cities.length, dist=Array(n).fill(1e9), prev=Array(n).fill(null), done=Array(n).fill(false), lofts=Object.keys(C.lofts||{}).map(Number).filter(x=>!loftRefuses(x)); dist[from]=0;
   for (;;){ let u=-1, bd=1e9; for (let i=0;i<n;i++) if (!done[i]&&dist[i]<bd){ bd=dist[i]; u=i; } if (u<0||u===to) break; done[u]=true;
     for (const {to:v,r} of neighbors(u)){ if (r.shut) continue; const nd=dist[u]+r.days; if (nd<dist[v]){ dist[v]=nd; prev[v]={u,p:0}; } }
-    if (C.lofts&&C.lofts[u]) for (const v of lofts) if (v!==u && crow(u,v)<=PIGEON_RANGE){ const nd=dist[u]+PIGEON_DAYS; if (nd<dist[v]){ dist[v]=nd; prev[v]={u,p:1}; } } }
+    if (C.lofts&&C.lofts[u]&&lofts.includes(u)) for (const v of lofts) if (v!==u && crow(u,v)<=PIGEON_RANGE){ const nd=dist[u]+PIGEON_DAYS; if (nd<dist[v]){ dist[v]=nd; prev[v]={u,p:1}; } } }
   if (dist[to]>=1e9) return null; const way=[]; let v=to; while (v!==from){ way.unshift([v,dist[v],prev[v].p]); v=prev[v].u; } way.unshift([from,0,0]); return {days:dist[to], way}; }
 const snap=ci=>cities[ci].price.map(x=>Math.round(x*10)/10);
 function sendLetter(from, p, src, fake){ const np=newsPath(from, C.at); if (!np) return; C.letters.push({f:from, s:C.day, a:C.day+Math.max(1,np.days), p, src, fake:fake?1:0, w:np.way}); }
@@ -354,7 +357,8 @@ function lettersTick(){
   const nCorr=Object.keys(C.corr).length; C.gold-=nCorr*CORR_WAGE;
   if (C.day%LETTER_EVERY===0) for (const ci in C.corr) if (!cities[ci].closed && C.letters.filter(l=>l.f===+ci).length<4) sendLetter(+ci, snap(+ci), 'corr'); // a correspondent writes again only when the road is not already full of their letters
   C.letters=C.letters.filter(l=>{ if (l.a>C.day) return true; const cur=C.book[l.f]; if (!cur || cur.day<l.s) C.book[l.f]={day:l.s, p:l.p, src:l.src, fake:l.fake||0}; return false; });
-  // hostile houses forge letters to you
+  // houses that trust you share what they see; hostile houses forge letters to you
+  for (const [i,rv] of (C.rivals||[]).entries()) if (rv.trust>=0.5 && rv.to==null && (C.day+i*5)%12===0 && !cities[rv.at].closed) sendLetter(rv.at, snap(rv.at), i);
   for (const [i,rv] of (C.rivals||[]).entries()) if (rv.trust<0.3 && (C.day+i*7)%30===0){ const ci=rng.int(cities.length), g=rng.int(GOODS.length), p=snap(ci); p[g]=Math.round(Math.max(p[g],usual(ci,g))*2.4*10)/10; sendLetter(ci, p, i, 1); }
   checkLedger();
 }
@@ -378,13 +382,21 @@ function sellNews(i){ const rv=C.rivals[i]; if (!rv || (C.phase||1)<3 || C.day-(
   rv.bought=C.day; rv.trust=Math.min(1, rv.trust+0.05); C.gold+=pay; C.sold.push(i); if (C.sold.length>60) C.sold.shift();
   logIt(`📜 Sold copies of your letters to ${rv.name} for ${pay}g. They will trade on them.`); checkPhase(); if (!headless){ sfx('coin'); persist(); renderAll(); } return pay; }
 // a forged letter: "g is dear in ci". If they believe it, they haul g there; when they arrive and find it a lie, they remember.
-function forge(i, ci, g){ const rv=C.rivals[i]; if (!rv || (C.phase||1)<5 || rv.trust<0.3 || C.day-(rv.bought??-99)<SELL_COOLDOWN) return 0;
-  const claimed=Math.round(Math.max(cities[ci].price[g], usual(ci,g))*2.5*10)/10, pay=Math.round((40+claimed*3)*rv.trust); rv.bought=C.day; C.gold+=pay;
-  const p=(rv.book[ci]? rv.book[ci].p.slice() : snap(ci)); p[g]=claimed; rv.book[ci]={day:C.day, p}; rv.fake={ci, g, claimed}; C.forged=(C.forged||0)+1;
+const LIES=[{n:'A whisper', m:1.5},{n:'A rumour', m:2.5},{n:'A tall tale', m:4}];
+const recentLies=()=>(C.lies||[]).filter(d=>C.day-d<180).length;
+// the chance a house sees through your letter when it arrives: bigger lies and more of them are easier to catch
+const catchChance=(ratio)=>Math.min(0.97, Math.max(0.05, 0.05+0.3*(ratio-1)+0.12*Math.max(0,recentLies()-1)));
+function forge(i, ci, g, size=1){ const rv=C.rivals[i]; if (!rv || (C.phase||1)<5 || rv.trust<0.3 || C.day-(rv.bought??-99)<SELL_COOLDOWN) return 0;
+  const L=LIES[size]||LIES[1], claimed=Math.round(Math.max(cities[ci].price[g], usual(ci,g))*L.m*10)/10, pay=Math.round((40+claimed*3)*rv.trust); rv.bought=C.day; C.gold+=pay;
+  const p=(rv.book[ci]? rv.book[ci].p.slice() : snap(ci)); p[g]=claimed; rv.book[ci]={day:C.day, p}; rv.fake={ci, g, claimed}; C.forged=(C.forged||0)+1; C.lies=(C.lies||[]).filter(d=>C.day-d<180); C.lies.push(C.day);
   logIt(`🖋️ You sold ${rv.name} a letter swearing ${GOODS[g][0].toLowerCase()} fetches ${claimed}g in ${cities[ci].name}. They paid ${pay}g.`); if (!headless){ sfx('coin'); persist(); renderAll(); } return pay; }
 // a rival arrives somewhere: they see the market, hear the neighbours, and find out whether your letter lied
 function rivalArrive(rv, i){ const ci=rv.at; rv.book[ci]={day:C.day, p:snap(ci)}; for (const {to,r} of neighbors(ci)){ const t=rv.book[to]; if (!t || t.day<C.day-r.days) rv.book[to]={day:C.day-r.days, p:priceAt(to,C.day-r.days)}; }
-  if (rv.fake && rv.fake.ci===ci){ const real=cities[ci].price[rv.fake.g]; if (real<rv.fake.claimed*0.7){ rv.trust=Math.max(0, rv.trust*0.4); rv.lies=(rv.lies||0)+1; logIt(`⚖️ ${rv.name} reached ${cities[ci].name} and found your letter was a lie. Their trust in you: ${Math.round(rv.trust*100)}%.`); if (!headless) RH.toast(`⚖️ ${rv.name} caught your lie.`,4000); } rv.fake=null; } }
+  if (rv.fake && rv.fake.ci===ci){ const real=Math.max(0.1,cities[ci].price[rv.fake.g]); if (rng()<catchChance(rv.fake.claimed/real)) burned(rv); rv.fake=null; } }
+// caught: the house trusts you far less, and tells the others
+function burned(rv){ rv.trust=Math.max(0, rv.trust*0.4); rv.lies=(rv.lies||0)+1; for (const o of C.rivals) if (o!==rv) o.trust=Math.max(0, o.trust-0.12);
+  const lost=C.rivals.map((o,i)=>o.trust<0.3&&C.lofts&&C.lofts[RIVAL_HOME[i]]?cities[RIVAL_HOME[i]].name:null).filter(Boolean);
+  logIt(`⚖️ ${rv.name} reached ${cities[rv.at].name} and found your letter was a lie, and told every house on the road. Honour ${honour()}%.${lost.length?` Loft keepers in ${lost.join(', ')} refuse your pigeons.`:''}`); if (!headless) RH.toast(`⚖️ ${rv.name} caught your lie and told the other houses.`,4000); }
 const honour=()=>{ const r=C.rivals||[]; return r.length? Math.round(r.reduce((s,rv)=>s+rv.trust,0)/r.length*100) : 100; };
 
 // ===================== Trading =====================
@@ -586,6 +598,7 @@ function drawCity(c,x,y){
   ctx.restore();
   if (c.closed){ ctx.strokeStyle='#b3402a'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y-4,15,0,7); ctx.stroke(); }
   if (C.corr&&C.corr[c.id]){ ctx.strokeStyle='#1f3a7a'; ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(x-10,y+2); ctx.lineTo(x-10,y-16); ctx.stroke(); ctx.fillStyle='#1f3a7a'; ctx.beginPath(); ctx.moveTo(x-10,y-16); ctx.lineTo(x-3,y-13); ctx.lineTo(x-10,y-10); ctx.fill(); }
+  if (C.lofts&&C.lofts[c.id]&&loftRefuses(c.id)){ ctx.strokeStyle='#b3402a'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x+7,y-24); ctx.lineTo(x+18,y-11); ctx.stroke(); }
   if (C.lofts&&C.lofts[c.id]){ ctx.fillStyle='#f6ecd6'; ctx.strokeStyle='#1f3a7a'; ctx.lineWidth=1.2; ctx.fillRect(x+9,y-22,7,9); ctx.strokeRect(x+9,y-22,7,9); ctx.strokeStyle='#fff'; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(x+8,y-26); ctx.quadraticCurveTo(x+11,y-29,x+13,y-25); ctx.quadraticCurveTo(x+15,y-29,x+18,y-26); ctx.stroke(); }
   const lb=labels[c.id]; if (!lb) return;
   ctx.font=LABEL_FONT(here); ctx.textAlign='left'; ctx.textBaseline='alphabetic'; ctx.lineWidth=3; ctx.strokeStyle='#f1dfb0'; ctx.strokeText(c.name,lb.x,lb.y+lb.h-3); ctx.fillStyle= c.id===hoverC? '#b3402a' : '#2a1a0a'; ctx.fillText(c.name,lb.x,lb.y+lb.h-3);
@@ -707,15 +720,15 @@ function renderHouse(){
   if (ph>=4) h+= C.lofts[C.at]? `<button disabled>Loft in ${here.name} ✓</button>` : `<button id="buildL" class="primary" ${can&&C.gold>=LOFT_COST?'':'disabled'}>Build a loft here (${LOFT_COST}g)</button>`;
   h+=`</div>`;
   if (ph>=3){ h+=`<div class="houses"><b>Rival houses</b> <span class="dim small">trust in you · honour ${honour()}%</span>`+C.rivals.map((rv,i)=>{ const cd=C.day-(rv.bought??-99)<SELL_COOLDOWN, pay=sellPrice_(rv);
-      return `<div class="hs"><span class="hn">${rv.name}</span><span class="tr" title="trust"><i style="width:${Math.round(rv.trust*100)}%"></i></span><button data-sell="${i}" ${cd||!pay?'disabled':''}>${rv.trust<0.3?'Won\'t buy':cd?'Bought lately':`Sell news ${pay}g`}</button>${ph>=5?`<button data-forge="${i}" ${cd||rv.trust<0.3?'disabled':''}>Forge…</button>`:''}</div>`; }).join('')+`</div>`; }
+      return `<div class="hs"><span class="hn">${rv.name} <span class="dim small">${cities[RIVAL_HOME[i]].name}${rv.trust>=0.5?' · shares news':rv.trust<0.3?' · hostile, loft shut':''}</span></span><span class="tr" title="trust"><i style="width:${Math.round(rv.trust*100)}%"></i></span><button data-sell="${i}" ${cd||!pay?'disabled':''}>${rv.trust<0.3?'Won\'t buy':cd?'Bought lately':`Sell news ${pay}g`}</button>${ph>=5?`<button data-forge="${i}" ${cd||rv.trust<0.3?'disabled':''}>Forge…</button>`:''}</div>`; }).join('')+`</div>`; }
   h+=next; el.innerHTML=h; el.className= ph>=4? 'main' : ''; document.getElementById('side').classList.toggle('net', ph>=4);
   document.getElementById('hireC')?.addEventListener('click',hireCorr); document.getElementById('buildL')?.addEventListener('click',buildLoft);
   el.querySelectorAll('[data-sell]').forEach(b=>b.onclick=()=>sellNews(+b.dataset.sell));
   el.querySelectorAll('[data-forge]').forEach(b=>b.onclick=()=>forgeDialog(+b.dataset.forge));
 }
-function forgeDialog(i){ const rv=C.rivals[i]; let ci=C.rivals[i].at===0?22:0, g=8;
-  RH.modal(`<h2>A forged letter</h2><p>Tell ${rv.name} that a good is dear somewhere. If they believe it, they pay for the letter and haul the goods there; when they arrive and see the truth, they will remember.</p><p><label>Good <select id="fgG">${GOODS.map((x,k)=>`<option value="${k}" ${k===g?'selected':''}>${x[0]}</option>`).join('')}</select></label> <label>is dear in <select id="fgC">${cities.map(c=>`<option value="${c.id}" ${c.id===ci?'selected':''}>${c.name}</option>`).join('')}</select></label></p><p class="small dim">They trust you ${Math.round(rv.trust*100)}%.</p>`,[{label:'Cancel',value:0},{label:'Sell the letter',value:1}]).then(v=>{ if (v) forge(i,ci,g); });
-  setTimeout(()=>{ const a=document.getElementById('fgG'), b=document.getElementById('fgC'); if (a) a.onchange=()=>g=+a.value; if (b) b.onchange=()=>ci=+b.value; },0); }
+function forgeDialog(i){ const rv=C.rivals[i]; let ci=C.rivals[i].at===0?22:0, g=8, size=1;
+  RH.modal(`<h2>A forged letter</h2><p>Tell ${rv.name} that a good is dear somewhere. If they believe it, they pay for the letter and haul the goods there; when they arrive and see the truth, they will remember.</p><p><label>Good <select id="fgG">${GOODS.map((x,k)=>`<option value="${k}" ${k===g?'selected':''}>${x[0]}</option>`).join('')}</select></label> <label>is dear in <select id="fgC">${cities.map(c=>`<option value="${c.id}" ${c.id===ci?'selected':''}>${c.name}</option>`).join('')}</select></label></p><p><label>How big a lie <select id="fgS">${LIES.map((x,k)=>`<option value="${k}" ${k===size?'selected':''}>${x.n} (×${x.m})</option>`).join('')}</select></label></p><p class="small dim">They trust you ${Math.round(rv.trust*100)}%. You have lied ${recentLies()} time(s) in the last 180 days; the bigger the lie and the more lies, the likelier they catch it, and a caught house tells the rest.</p>`,[{label:'Cancel',value:0},{label:'Sell the letter',value:1}]).then(v=>{ if (v) forge(i,ci,g,size); });
+  setTimeout(()=>{ const a=document.getElementById('fgG'), b=document.getElementById('fgC'), z=document.getElementById('fgS'); if (a) a.onchange=()=>g=+a.value; if (b) b.onchange=()=>ci=+b.value; if (z) z.onchange=()=>size=+z.value; },0); }
 const srcText=b=> b.src==='corr'? ' · your correspondent' : Number.isInteger(b.src)? ` · a letter from ${C.rivals[b.src].name}` : '';
 function showLedger(){
   const h=`<b>Price book</b> <span class="small dim">what you know, and how old it is</span><div class="bkWrap"><table class="bk"><tr><th>City</th><th>Age</th><th>From</th>${GOODS.map(g=>`<th title="${g[0]}">${g[0].slice(0,3)}</th>`).join('')}</tr>`+Object.entries(C.book).sort((a,b)=>a[0]-b[0]).map(([ci,b])=>`<tr><td>${cities[ci].name}</td><td class="age">${C.day-b.day}d</td><td class="age">${b.src==='corr'?'✒️':Number.isInteger(b.src)?'✉️ '+C.rivals[b.src].name.split(' ').pop():'👁'}</td>${b.p.map(p=>`<td>${Math.round(p)}</td>`).join('')}</tr>`).join('')+'</table></div><hr style="border-color:var(--line)">'+C.log.slice().reverse().map(l=>`<div class="news">${l}</div>`).join('');
@@ -734,6 +747,7 @@ let last=performance.now(); function loop(now){ const dt=Math.min(0.1,(now-last)
 function buildAndRender(){ buildWorld(C.seed); applyRoads(); // replay stored world state
   if (C.prices) cities.forEach((c,i)=>{ c.price=C.prices[i]; c.mod=C.mods[i]; if (C.drifts&&Array.isArray(C.drifts[i])&&C.drifts[i].length===GOODS.length) c.drift=C.drifts[i]; });
   if (!Array.isArray(C.rivals)) C.rivals=RIVAL_NAMES.map((name,i)=>({name, at:RIVAL_START[i], to:null}));
+  if (!Array.isArray(C.lies)) C.lies=[]; C.lies=C.lies.filter(d=>Number.isFinite(d)).slice(-30);
   for (const rv of C.rivals){ if (!isObj(rv.book)) rv.book={}; if (!(rv.trust>=0&&rv.trust<=1)) rv.trust=0.6; }
   traveling=null; plan=null; renderTravel();
   const tv=C.trav; if (tv && Array.isArray(tv.legs) && tv.legs.length && tv.legs.every(i=>routes[i]) && tv.leg<tv.legs.length){ traveling={legs:tv.legs.map(i=>({r:routes[i]})), leg:tv.leg|0, t:Math.min(.999,Math.max(0,+tv.t||0)), dayCount:tv.dayCount|0, encDone:tv.encDone?1:0, enc:isObj(tv.enc)&&ENC[tv.enc.k]? tv.enc : null}; const r=traveling.legs[traveling.leg].r; if (r.a!==C.at&&r.b!==C.at) traveling=null; }
@@ -746,7 +760,7 @@ if (!C || C.ended){ newCareer(hashSeed ?? undefined); }
 else if (hashSeed!=null && hashSeed!==C.seed){ if (C.day===0) newCareer(hashSeed); else setTimeout(()=>RH.modal(`<h2>Another road</h2><p>This link is for a different road. Abandon your career on this one (day ${C.day}) and set out on the new road?</p>`,[{label:'Keep my career',value:0},{label:'Take the new road',value:1}]).then(v=>{ if (v) startRoad(hashSeed); else try { history.replaceState(null,'','#road='+C.seed); } catch(e){} }),600); }
 buildAndRender();
 if (C.day>=CAREER_DAYS) endCareer(); fit(); window.addEventListener('resize',fit); requestAnimationFrame(drawMap); requestAnimationFrame(loop);
-window.__caravan = { renderAll, hireCorr, buildLoft, sellNews, forge, newsPath, freshCities, honour, checkPhase, sellPrice_, newsValue, loftLinks, crow, PHASES, LEDGER_AGE, renderHouse, usual, quote, applyRoads, ROADS, buyCost, suggest, renderMarket, startRoad, dailySeed, hearNews, see, cam, maxBuy,  P0, zoomAt, get zoom(){ return cam.k; }, labelBoxes:()=>labels.slice(),  get headless(){ return headless; }, set headless(v){ headless=v; }, travelNow, starsFor, STAR_AT, GEO, rivalPos, newCareerSeed:(seed)=>{ traveling=null; plan=null; newCareer(seed); }, P, mapSegs:()=>mapBg&&mapBg.segs, get mapBg(){ return mapBg; }, get encountersOn(){ return encountersOn; }, set encountersOn(v){ encountersOn=v; }, ENC, resolveEncounter, maybeEncounter, renderEncounter, coins:()=>coins, get C(){ return C; }, get M(){ return M; }, get cities(){ return cities; }, get routes(){ return routes; }, get traveling(){ return traveling; }, GOODS, CAREER_DAYS, cleanCareer, cleanMeta, shortest, neighbors, trade, tick, planTo, travel, endCareer, netWorth, banditChance, buildAndRender, persist, load, cap };
+window.__caravan = { renderAll, loftRefuses, catchChance, LIES, burned, recentLies, RIVAL_HOME, hireCorr, buildLoft, sellNews, forge, newsPath, freshCities, honour, checkPhase, sellPrice_, newsValue, loftLinks, crow, PHASES, LEDGER_AGE, renderHouse, usual, quote, applyRoads, ROADS, buyCost, suggest, renderMarket, startRoad, dailySeed, hearNews, see, cam, maxBuy,  P0, zoomAt, get zoom(){ return cam.k; }, labelBoxes:()=>labels.slice(),  get headless(){ return headless; }, set headless(v){ headless=v; }, travelNow, starsFor, STAR_AT, GEO, rivalPos, newCareerSeed:(seed)=>{ traveling=null; plan=null; newCareer(seed); }, P, mapSegs:()=>mapBg&&mapBg.segs, get mapBg(){ return mapBg; }, get encountersOn(){ return encountersOn; }, set encountersOn(v){ encountersOn=v; }, ENC, resolveEncounter, maybeEncounter, renderEncounter, coins:()=>coins, get C(){ return C; }, get M(){ return M; }, get cities(){ return cities; }, get routes(){ return routes; }, get traveling(){ return traveling; }, GOODS, CAREER_DAYS, cleanCareer, cleanMeta, shortest, neighbors, trade, tick, planTo, travel, endCareer, netWorth, banditChance, buildAndRender, persist, load, cap };
 if (!M.intro){ M.intro=1; persist(); RH.modal(`<h2>The Caravan</h2><p>Twenty-three cities from Chang'an to Constantinople. Silk is cheap in the east and dear in the west. Everyone knows that, and so do the six rival houses you'll see on the road, so the real money is in knowing <b>what's changed</b>. Markets drift from month to month; rivals buy out one city and flood another.</p><p>Your price book only holds what you've seen with your own eyes, and that goes out of date. News travels along the roads: arriving in a city, you hear its neighbours' prices, already days old. The domes on the map show how old your news is. Wars, plagues and famines change everything. The rumours usually arrive first.</p><p>Silk makes your first fortune. Your second will be made of letters.</p>`,[{label:'Load the camels'}]); }
 </script>
 </body>

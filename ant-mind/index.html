@@ -238,7 +238,7 @@ const AntSim = (() => {
     return best;
   }
   function eachNear(w, x, y, R, fn) { const B = w.bucket, cx = (x / 4) | 0, cy = (y / 4) | 0, k = Math.ceil(R / 4);
-    for (let by = cy - k; by <= cy + k; by++) for (let bx = cx - k; bx <= cx + k; bx++) { if (bx < 0 || by < 0 || bx >= 30 || by >= 19) continue; const L = B[by * 30 + bx]; if (L) for (const o of L) fn(o); } }
+    for (let by = cy - k; by <= cy + k; by++) for (let bx = cx - k; bx <= cx + k; bx++) { if (bx < 0 || by < 0 || bx >= 30 || by >= 19) continue; const L = B[by * 30 + bx]; for (let i = 0; i < L.length; i++) fn(L[i]); } }
   function crowd(w, ant) { let n = 0; eachNear(w, ant.x, ant.y, 3, o => { if (o !== ant && o.team === ant.team && !o.dead && Math.abs(o.x - ant.x) < 3 && Math.abs(o.y - ant.y) < 3) n++; }); return n >= 4; }
   function atNest(w, ant) { const n = w.nests[ant.team]; return Math.abs(ant.x - n.x) < 4 && Math.abs(ant.y - n.y) < 4; }
 
@@ -277,7 +277,8 @@ const AntSim = (() => {
     a.rule = -1; ACT[0](w, a); }
 
   function decay(f, m) { for (let i = 0; i < f.length; i++) { const v = f[i]; if (v > 0.003) f[i] = v * m; else if (v) f[i] = 0; } }
-  function blur(f) { const o = new Float32Array(f.length); for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) { const i = idx(x, y); o[i] = f[i] * 0.5 + (f[i - 1] + f[i + 1] + f[i - W] + f[i + W]) * 0.125; } f.set(o); }
+  let blurTmp = null;
+  function blur(f) { const o = blurTmp && blurTmp.length === f.length ? blurTmp : (blurTmp = new Float32Array(f.length)); o.fill(0); for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) { const i = idx(x, y); o[i] = f[i] * 0.5 + (f[i - 1] + f[i + 1] + f[i - W] + f[i + W]) * 0.125; } f.set(o); }
 
   function step(w, card) {
     if (w.over) return;
@@ -287,7 +288,7 @@ const AntSim = (() => {
     if (w.tick % 4 === 0) blur(w.alarm);
     w.gland = Math.min(1, w.gland + DT / 40);
     // spatial buckets 4x4
-    const B = w.bucket = new Array(30 * 19); for (const a of w.ants) if (!a.dead) { const k = ((a.y / 4) | 0) * 30 + ((a.x / 4) | 0); (B[k] || (B[k] = [])).push(a); }
+    const B = w.bucket || (w.bucket = Array.from({ length: 30 * 19 }, () => [])); for (let k = 0; k < B.length; k++) B[k].length = 0; for (const a of w.ants) if (!a.dead) B[((a.y / 4) | 0) * 30 + ((a.x / 4) | 0)].push(a);
     const cold = S.cold, drain = cold ? 1.15 : 1;
     let upkeep = 0;
     for (const a of w.ants) {
@@ -667,33 +668,46 @@ function renderTerrain(){
   g.save(); g.scale(TS,TS); g.lineCap='round'; for (const rt of roots){ g.strokeStyle='rgba(201,147,63,.38)'; g.lineWidth=rt.w*0.2; g.beginPath(); rt.seg.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y)); g.stroke(); } g.restore();
   terrainDirty=false; }
 const off=document.createElement('canvas'); off.width=W; off.height=H; const octx=off.getContext('2d'); const img=octx.createImageData(W,H);
-function drawAnt(a, base){
-  const s=cell*0.52, col=a.team? '#8a2e1e' : '#120a05', c=Math.cos(a.a), n=Math.sin(a.a);
-  ctx.setTransform(base.a*c, base.a*n, -base.a*n, base.a*c, base.e+base.a*a.x*cell, base.f+base.a*a.y*cell); ctx.fillStyle=col;
-  ctx.beginPath(); ctx.ellipse(-s*1.3,0,s*0.95,s*0.7,0,0,7); ctx.ellipse(0,0,s*0.55,s*0.42,0,0,7); ctx.ellipse(s*1.05,0,s*0.55,s*0.5,0,0,7); ctx.fill();
-  if (legs){ ctx.strokeStyle=col; ctx.lineWidth=Math.max(0.6,s*0.22); const ph=Math.sin(a.x*3+a.y*3)*0.5; ctx.beginPath(); for (const k of [-1,0,1]){ ctx.moveTo(k*s*0.4,0); ctx.lineTo(k*s*0.6+s*ph*.6,-s*1.2); ctx.moveTo(k*s*0.4,0); ctx.lineTo(k*s*0.6-s*ph*.6,s*1.2); } ctx.stroke(); }
-  if (a.carry){ ctx.fillStyle='#f0cf6a'; ctx.beginPath(); ctx.arc(s*1.9,0,s*0.7,0,7); ctx.fill(); }
+// ants are cached sprites (one per look), blitted under a rotation: far cheaper than paths on a phone
+const sprites=new Map(); let spriteCell=0;
+function sprite(team, carry, rule, leg){ const key=team+'|'+carry+'|'+rule+'|'+leg; let sp=sprites.get(key); if (sp) return sp;
+  const dpr=DPR(), s=cell*0.52, R=Math.ceil(s*2.8*dpr)+2; const c=document.createElement('canvas'); c.width=c.height=R*2; const g=c.getContext('2d'); g.translate(R,R); g.scale(dpr,dpr);
+  const col=team? '#8a2e1e' : '#120a05'; g.fillStyle=col;
+  g.beginPath(); g.ellipse(-s*1.3,0,s*0.95,s*0.7,0,0,7); g.ellipse(0,0,s*0.55,s*0.42,0,0,7); g.ellipse(s*1.05,0,s*0.55,s*0.5,0,0,7); g.fill();
+  if (leg>=0){ g.strokeStyle=col; g.lineWidth=Math.max(0.6,s*0.22); const ph=leg?0.45:-0.45; g.beginPath(); for (const k of [-1,0,1]){ g.moveTo(k*s*0.4,0); g.lineTo(k*s*0.6+s*ph*.6,-s*1.2); g.moveTo(k*s*0.4,0); g.lineTo(k*s*0.6-s*ph*.6,s*1.2); } g.stroke(); }
+  if (carry){ g.fillStyle='#f0cf6a'; g.beginPath(); g.arc(s*1.9,0,s*0.7,0,7); g.fill(); }
   // the line of the card this ant is obeying, as a chalk dot on its back
-  if (!a.team && a.rule>=0){ ctx.fillStyle=RC[a.rule]; ctx.beginPath(); ctx.arc(-s*1.3,0,s*0.5,0,7); ctx.fill(); }
+  if (rule>=0){ g.fillStyle=RC[rule]; g.beginPath(); g.arc(-s*1.3,0,s*0.5,0,7); g.fill(); }
+  sp={c, R:R/dpr}; sprites.set(key, sp); return sp; }
+function drawAnt(a, base){
+  if (spriteCell!==cell){ sprites.clear(); spriteCell=cell; }
+  const sp=sprite(a.team, a.carry?1:0, a.team?-1:a.rule, legs? ((a.x*3+a.y*3)|0)&1 : -1), c=Math.cos(a.a), n=Math.sin(a.a), k=base.a;
+  ctx.setTransform(k*c, k*n, -k*n, k*c, base.e+k*a.x*cell, base.f+k*a.y*cell); ctx.drawImage(sp.c, -sp.R, -sp.R, sp.R*2, sp.R*2);
 }
 let legs=true, scentT=0, scentW=null;
-function draw(){
-  if (!w) return; if (terrainDirty) renderTerrain();
-  const nowT=performance.now(); if (nowT-scentT>90 || scentW!==w){ scentT=nowT; scentW=w; paintScent(); }
-  function paintScent(){ const d=img.data, T=w.trail, R2=w.rtrail, A=w.alarm, F=w.food;
+function paintScent(){ const d=img.data, T=w.trail, R2=w.rtrail, A=w.alarm, F=w.food;
   for (let i=0;i<W*H;i++){ const k=i*4; let r=0,g=0,b=0,a=0; const t=Math.min(1,T[i]), rt=Math.min(1,R2[i])*0.6, al=Math.min(1,A[i]);
     if (t>0.02){ r=166; g=232; b=138; a=t*0.85; } if (rt>a){ r=200; g=90; b=70; a=rt*0.7; } if (al>0.05 && al>a*0.8){ r=240; g=138; b=120; a=Math.max(a,al*0.9); }
     if (F[i]>0.05){ r=240; g=200; b=96; a=Math.min(1,0.5+F[i]); }
     d[k]=r; d[k+1]=g; d[k+2]=b; d[k+3]=a*255; }
   octx.putImageData(img,0,0); }
-  const dpr=DPR(); cell=cam.k; ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle='#120b06'; ctx.fillRect(0,0,cv.width,cv.height);
-  ctx.setTransform(dpr,0,0,dpr,dpr*cam.x,dpr*cam.y); ctx.imageSmoothingEnabled=true;
+const bg=document.createElement('canvas'); let bgKey='';
+function paintBg(dpr){ if (bg.width!==cv.width||bg.height!==cv.height){ bg.width=cv.width; bg.height=cv.height; } const g=bg.getContext('2d');
+  g.setTransform(1,0,0,1,0,0); g.fillStyle='#120b06'; g.fillRect(0,0,bg.width,bg.height); g.setTransform(dpr,0,0,dpr,dpr*cam.x,dpr*cam.y); g.imageSmoothingEnabled=true;
   // grass and topsoil above the cross-section
-  ctx.fillStyle='#3d5a2a'; ctx.fillRect(-cell*1.2,-cell*5,W*cell+cell*2.4,cell*2.2); ctx.fillStyle='#5a3c22'; ctx.fillRect(-cell*1.2,-cell*2.8,W*cell+cell*2.4,cell*1.8);
-  ctx.strokeStyle='#6f9a45'; ctx.lineWidth=Math.max(1,cell*0.25); ctx.beginPath(); for (let x=0;x<W;x+=1.3){ const hgt=1.2+((x*7919)%13)/9; ctx.moveTo(x*cell,-cell*4.6); ctx.lineTo((x+0.3)*cell,-cell*(4.6+hgt)); } ctx.stroke();
-  ctx.fillStyle='#4a3020'; ctx.fillRect(-cell*1.2,-cell*1.2,W*cell+cell*2.4,H*cell+cell*2.4); ctx.fillStyle='#1d1209'; ctx.fillRect(-cell*.5,-cell*.5,W*cell+cell,H*cell+cell);
-  ctx.drawImage(terrain,0,0,W*cell,H*cell);
-  ctx.drawImage(off,0,0,W*cell,H*cell);
+  g.fillStyle='#3d5a2a'; g.fillRect(-cell*1.2,-cell*5,W*cell+cell*2.4,cell*2.2); g.fillStyle='#5a3c22'; g.fillRect(-cell*1.2,-cell*2.8,W*cell+cell*2.4,cell*1.8);
+  g.strokeStyle='#6f9a45'; g.lineWidth=Math.max(1,cell*0.25); g.beginPath(); for (let x=0;x<W;x+=1.3){ const hgt=1.2+((x*7919)%13)/9; g.moveTo(x*cell,-cell*4.6); g.lineTo((x+0.3)*cell,-cell*(4.6+hgt)); } g.stroke();
+  g.fillStyle='#4a3020'; g.fillRect(-cell*1.2,-cell*1.2,W*cell+cell*2.4,H*cell+cell*2.4); g.fillStyle='#1d1209'; g.fillRect(-cell*.5,-cell*.5,W*cell+cell,H*cell+cell);
+  g.drawImage(terrain,0,0,W*cell,H*cell);
+  g.drawImage(off,0,0,W*cell,H*cell);
+}
+function draw(){
+  if (!w) return; if (terrainDirty) renderTerrain();
+  const nowT=performance.now(), dpr=DPR(); cell=cam.k; const ck=cam.x+','+cam.y+','+cam.k+','+cv.width+','+cv.height;
+  // terrain and scent are composed into a cached layer at screen resolution, refreshed ten times a second; each frame is one 1:1 blit
+  if (nowT-scentT>95 || scentW!==w || bgKey!==ck || terrainDirty){ scentT=nowT; scentW=w; bgKey=ck; paintScent(); paintBg(dpr); }
+  ctx.setTransform(1,0,0,1,0,0); ctx.drawImage(bg,0,0);
+  ctx.setTransform(dpr,0,0,dpr,dpr*cam.x,dpr*cam.y);
   if (w.raining){ ctx.strokeStyle='rgba(170,200,240,.35)'; ctx.lineWidth=1; const r=RH.rng((performance.now()/80)|0); for (let k=0;k<140;k++){ const x=r()*W*cell, y=r()*H*cell; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-2,y+10); ctx.stroke(); } }
   w.nests.forEach((n,t)=>{ if (t===1 && n.hp<=0) return; const x=n.x*cell, y=n.y*cell, R=cell*3.6;
     ctx.fillStyle=t?'#3a1410':'#160c05'; ctx.beginPath(); ctx.ellipse(x,y,R*1.25,R,0,0,7); ctx.fill(); ctx.strokeStyle=t?'#c0402a':'#c9933f'; ctx.lineWidth=2.5; ctx.stroke();
