@@ -107,11 +107,11 @@
     return placed;
   }
 
-  // Trap a species around (tx, ty): up to 20 animals within 5 tiles are caught and shipped off the island.
+  // Trap a species around (tx, ty): up to 30 animals within 6 tiles are caught and shipped off the island.
   function trap(w, id, tx, ty, rec = true) { const s = IDX[id]; let n = 0;
     for (let k = 0; k < w.n && n < 30; k++) if (w.sp[k] === s && Math.abs(w.x[k] - tx) <= 6 && Math.abs(w.y[k] - ty) <= 6) { w.sp[k] = -1; n++; }
     if (rec) w.actions.push([w.t, '-' + id, tx, ty]); return n; }
-  // Cull: trap whichever animal is most numerous within 5 tiles (up to 20 of it).
+  // Cull: trap whichever animal is most numerous within 5 tiles (up to 30 of it).
   function cull(w, tx, ty, rec = true) { const c = new Array(SP.length).fill(0);
     for (let k = 0; k < w.n; k++) if (w.sp[k] >= 0 && Math.abs(w.x[k] - tx) <= 5 && Math.abs(w.y[k] - ty) <= 5) c[w.sp[k]]++;
     let s = -1; for (let i = 0; i < c.length; i++) if (c[i] && (s < 0 || c[i] > c[s])) s = i; if (s < 0) return 0;
@@ -121,7 +121,7 @@
   function fence(w, tx, ty, rec = true) { let n = 0; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = tx + dx, y = ty + dy; if (x < 0 || y < 0 || x >= GW || y >= GH || dx * dx + dy * dy > 10) continue; const i = y * GW + x; if (w.isl.land[i]) { w.fence[i] = FENCE_T; n++; } }
     if (rec) w.actions.push([w.t, '#fence', tx, ty]); return n; }
   function act(w, a) { const [, id, x, y] = a; return id === '-any' ? cull(w, x, y) : id === '#fence' ? fence(w, x, y) : id[0] === '-' ? trap(w, id.slice(1), x, y) : release(w, id, x, y); }
-  const TOOLS = { '-any': { name: 'Cull', note: 'Trap up to 20 of the most numerous animal near where you tap, and ship them off.' }, '#fence': { name: 'Fence', note: 'Fence off a patch for five years: rabbits, deer and goats cannot get in, so the plants inside recover.' } };
+  const TOOLS = { '-any': { name: 'Cull', note: 'Trap up to 30 of the most numerous animal near where you tap, and ship them off.' }, '#fence': { name: 'Fence', note: 'Fence off a patch for five years: rabbits, deer and goats cannot get in, so the plants inside recover.' } };
   const validId = (id) => typeof id === 'string' && (IDX[id] != null || IDX[id.slice(1)] != null || TOOLS[id] != null);
   // ----- one tick (half a month) -----
   const head = new Int32Array(N), nxt = new Int32Array(MAXA);
