@@ -2,7 +2,7 @@
 // won by a known plan, and its trade-offs must show up in the numbers.
 const plant = async (page, raw) => { await page.addInitScript(raw => localStorage.setItem('rh:watershed', raw), raw); await page.reload(); await page.waitForFunction(() => window.__ws, null, { timeout: 20000 }); };
 // build a site, place a plan, run every year headless, report the numbers
-const run = (page, lv, plan) => page.evaluate(([lv, plan]) => { const W = __ws; W.buildLevel(lv); const refused = W.plan(plan); const s = W.runYears(99);
+const run = (page, lv, plan) => page.evaluate(([lv, plan]) => { const W = __ws; W.forgetPlans(); W.buildLevel(lv); const refused = W.plan(plan); const s = W.runYears(99);
   return { refused, goal: s.goalMet, harvest: s.harvest, floods: s.floods, power: s.power, delta: s.deltaPct, medals: W.SC[lv].medals.filter(([, f]) => f(s)).length }; }, [lv, plan]);
 const FIELDS_MID = [['farm', [62, 75]], ['farm', [62, 88]], ['farm', [62, 101]], ['farm', [84, 75]], ['farm', [84, 86]], ['farm', [50, 80]]];
 const FIELDS_FAR = [['farm', [30, 50]], ['farm', [30, 62]], ['farm', [30, 74]], ['farm', [120, 50]], ['farm', [120, 62]], ['farm', [120, 74]]];
@@ -81,10 +81,10 @@ module.exports = {
         let rk = -1; for (let k = 60 * W.N; k < 70 * W.N; k++) if (W.D[k] > W.D[rk] || rk < 0) rk = k; // the deepest water in rows 60-69 is the river
         const river = W.placeWork('farm', [rk % W.N, (rk / W.N) | 0]), town = W.placeWork('levee', [90, 100], [100, 115]);
         const okField = W.placeWork('farm', [62, 75]), lev = W.placeWork('levee', [84, 94], [110, 95]);
-        const left = W.kitLeft('levee'); W.placeWork('levee', [40, 40], [40, 60]); W.placeWork('levee', [45, 40], [45, 60]); const full = W.placeWork('levee', [50, 40], [50, 60]);
+        const left = W.kitLeft('levee'); let placed = 0, full = null; for (let i = 0; i < 12 && !full; i++) { const r = W.placeWork('levee', [30 + i * 4, 40], [30 + i * 4, 60]); if (typeof r === 'string') full = r; else placed++; }
         while (W.works.length) W.removeWork(W.works.length - 1); let diff = 0; for (let k = 0; k < B0.length; k++) diff = Math.max(diff, Math.abs(W.B[k] - B0[k]));
-        return { river: typeof river, town: typeof town, okField: typeof okField, lev: typeof lev, left, full: typeof full, diff, use: W.USE.reduce((a, b) => a + b, 0) }; });
-      eq([r.river, r.town, r.okField, r.lev, r.full], ['string', 'string', 'object', 'object', 'string']); eq(r.left, 2); eq(r.diff, 0); eq(r.use, 0);
+        return { river: typeof river, town: typeof town, okField: typeof okField, lev: typeof lev, left, placed, full: typeof full, diff, use: W.USE.reduce((a, b) => a + b, 0) }; });
+      eq([r.river, r.town, r.okField, r.lev, r.full], ['string', 'string', 'object', 'object', 'string']); eq(r.left, 5); ok(r.placed >= 1 && r.placed <= 5, 'kit/budget limit ' + r.placed); eq(r.diff, 0); eq(r.use, 0);
     },
     'rounds: the clock stops after a flood year and the inquest names what happened where': async ({ page, ok }) => {
       await page.evaluate(() => { __ws.buildLevel(0); __ws.plan([['farm', [62, 75]], ['levee', [84, 94], [110, 95]]]); __ws.runYears(6); __ws.stepN(450); __ws.setSpeed(3); });

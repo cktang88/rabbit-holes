@@ -821,10 +821,15 @@ function showTags(on) {
   const q = inquest; if (!q) return;
   const mk = (gx, gy, html, cls) => { const e = document.createElement('div'); e.className = 'tag ' + cls; e.innerHTML = html; e.dataset.x = gx; e.dataset.y = gy; document.body.appendChild(e); tagEls.push(e); };
   towns.forEach((t, j) => { const k = t.cells[0]; mk(k % N, (k / N) | 0, q.fl.includes(t.n) ? `${t.n}: flooded ${q.peaks[j].toFixed(1)} m` : `${t.n}: dry`, q.fl.includes(t.n) ? 'bad' : 'good'); });
-  works.forEach((w, i) => { if (w.t !== 'farm' || !w.yr) return; const wk = Math.round((w.yr.weeks || 0) * 30 * 365 / 480 / 7), why = w.yr.drowned > w.yr.n * .3 ? `drowned: ${(w.yr.depth || 0).toFixed(1)} m for ${wk} wk` : w.yr.dry > w.yr.n * .5 ? 'too dry' : w.yr.silt > w.yr.n * .3 ? `+ silt${(w.yr.depth || 0) > .3 ? ` (flooded ${(w.yr.depth).toFixed(1)} m, drained)` : ''}` : w.yr.lost / w.yr.n > .3 ? 'soil lost' : ''; mk(w.a[0], w.a[1], `${Math.round(w.yr.bu)} bu${why ? ' · ' + why : ''}`, /^drowned|soil lost|too dry/.test(why) ? 'bad' : 'good'); });
+  works.forEach((w, i) => { if (w.t !== 'farm' || !w.yr) return; const wk = Math.round((w.yr.weeks || 0) * 30 * 365 / 480 / 7), why = w.yr.drowned > w.yr.n * .3 ? `drowned ${(w.yr.depth || 0).toFixed(1)} m, ${Math.min(wk, 26)}+ wk` : w.yr.dry > w.yr.n * .5 ? 'too dry' : w.yr.silt > w.yr.n * .3 ? `+ silt${(w.yr.depth || 0) > .3 ? ` (flooded ${(w.yr.depth).toFixed(1)} m, drained)` : ''}` : w.yr.lost / w.yr.n > .3 ? 'soil lost' : ''; mk(w.a[0], w.a[1], `${Math.round(w.yr.bu)} bu${why ? ' · ' + why : ''}`, /^drowned|soil lost|too dry/.test(why) ? 'bad' : 'good'); });
   placeTags();
 }
-function placeTags() { for (const e of tagEls) { const [x, y] = __ws.toScreen(+e.dataset.x, +e.dataset.y); e.style.left = x + 'px'; e.style.top = y + 'px'; } }
+// tags are pinned to the model but nudged apart so none hides another
+function placeTags() {
+  const P = tagEls.map(e => { const [x, y] = __ws.toScreen(+e.dataset.x, +e.dataset.y); return { e, x, y, w: e.offsetWidth || 120 }; }).sort((a, b) => a.y - b.y);
+  for (let i = 0; i < P.length; i++) for (let j = 0; j < i; j++) { const a = P[i], b = P[j]; if (Math.abs(a.x - b.x) < (a.w + b.w) / 2 + 4 && a.y - b.y < 24) a.y = b.y + 24; }
+  for (const t of P) { t.e.style.left = t.x + 'px'; t.e.style.top = t.y + 'px'; }
+}
 
 let speed = 0;
 function setSpeed(s) { if (over && s) return; speed = s; document.querySelectorAll('#speed [data-s]').forEach(x => x.classList.toggle('on', +x.dataset.s === s)); $('go').textContent = s ? '▶ Running' : year ? '▶ Next round' : '▶ Run'; if (s) showTags(false); }
@@ -922,7 +927,7 @@ window.__ws = { SC, LV: SC, buildLevel: i => buildLevel(i), stat: () => stat, me
   // run whole years headless (what the game loop does, without drawing)
   stepN: n => { headless = true; for (let i = 0; i < n && !over; i++) step(); headless = false; return yStep; },
   runYears: n => { headless = true; const y1 = year + n; while (year < y1 && !over) step(); headless = false; return measure(); },
-  get stepCost() { return stepCost; }, camPos: () => camera.position.toArray(), get farmDiag() { return farmDiag; } };
+  get stepCost() { return stepCost; }, forgetPlans: () => { SAVE.plans = {}; }, budgetLeft: () => budgetLeft(), camPos: () => camera.position.toArray(), get farmDiag() { return farmDiag; } };
 
 </script>
 </body>

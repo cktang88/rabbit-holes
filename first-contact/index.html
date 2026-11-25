@@ -70,6 +70,14 @@
   .qs{margin-top:22px;border-top:2px dashed #7a8a74;padding-top:12px}
   .qs h3{font-family:"VT323",monospace;font-weight:400;font-size:26px;margin:0 0 10px;color:#1d3a1f}
   .q{background:#fffbea;border:1px solid #b9b49a;padding:12px 14px;margin-bottom:12px;box-shadow:2px 3px 0 #0002}
+  .chart{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+  .chart button{display:flex;flex-direction:column;align-items:center;min-width:44px;min-height:44px;padding:2px 4px;font-size:17px;background:linear-gradient(#fffbe9,#efe4bf);color:var(--ink);text-transform:none;box-shadow:0 2px 0 #b9a56a}
+  .chart button span{display:flex}
+  .chart svg{width:16px;height:16px}
+  .chart svg path,.chart svg circle{stroke:var(--ink);stroke-dasharray:0 3.1;stroke-linecap:round;stroke-width:2.8}
+  .chart svg path.dbase{stroke-dasharray:none;stroke:#8a2a10}
+  .chartNote{margin:0 0 6px;color:#5a5a4a}
+  .q.opt{border-style:dashed;background:#fdf7e2}
   .q.done{background:#eef6e6;border-color:#8ab087}
   .q .prompt{margin-bottom:10px;line-height:1.5;color:var(--ink)}
   .compose{min-height:48px;padding:4px 10px;display:flex;flex-wrap:wrap;gap:2px;align-items:center;
@@ -309,6 +317,15 @@ function picSum(a,b){ let s=''; const dot=(x,y)=>`<circle cx="${x}" cy="${y}" r=
   const grp=(n,x0)=>{ let t=''; for(let i=0;i<n;i++) t+=dot(x0+(i%3)*9, 30+Math.floor(i/3)*9); return t; };
   s+=grp(a,12)+`<text x="50" y="60" fill="#7cf0c8" font-size="18">+</text>`+grp(b,68)+`<text x="104" y="60" fill="#7cf0c8" font-size="18">→</text>`+grp(a+b,128);
   return svg(s); }
+function picDiff(a,c){ let s=''; const dot=(x,y)=>`<circle cx="${x}" cy="${y}" r="3.5" fill="#e8e6df"/>`;
+  for (let i=0;i<a;i++){ const x=14+(i%4)*10, y=26+Math.floor(i/4)*10; s+=dot(x,y); if (i>=a-c) s+=`<path d="M${x-5} ${y-5}L${x+5} ${y+5}M${x+5} ${y-5}L${x-5} ${y+5}" stroke="#ff7a59" stroke-width="2"/>`; }
+  s+=`<text x="70" y="60" fill="#7cf0c8" font-size="18">take away</text>`.replace('take away','−')+`<text x="104" y="60" fill="#7cf0c8" font-size="18">→</text>`;
+  for (let i=0;i<a-c;i++) s+=dot(128+(i%3)*9, 30+Math.floor(i/3)*9);
+  return svg(s); }
+function picTimes(a,c){ let s=''; for (let i=0;i<a;i++) for (let j=0;j<c;j++) s+=`<circle cx="${14+j*9}" cy="${30+i*12}" r="3.5" fill="#e8e6df"/>`;
+  s+=`<text x="70" y="60" fill="#7cf0c8" font-size="16">${a} rows</text>`.replace(`${a} rows`,'×')+`<text x="104" y="60" fill="#7cf0c8" font-size="18">→</text>`;
+  for (let i=0;i<a*c;i++) s+=`<circle cx="${128+(i%3)*9}" cy="${30+Math.floor(i/3)*9}" r="3.5" fill="#e8e6df"/>`;
+  return svg(s); }
 function picAtom(p){ let s=`<circle cx="85" cy="55" r="40" fill="none" stroke="#2a4a5a"/>`; if(p>2) s+=`<circle cx="85" cy="55" r="24" fill="none" stroke="#2a4a5a"/>`;
   for (let i=0;i<p;i++){ const a=i*2.4; const rr=Math.sqrt(i)*3.2; s+=`<circle cx="${85+Math.cos(a)*rr}" cy="${55+Math.sin(a)*rr}" r="3.6" fill="#ff7a59"/>`; }
   for (let i=0;i<p;i++){ const inner = i<2; const R = (p>2&&inner)?24:40; const k = inner? i : i-2; const tot = inner? Math.min(p,2) : p-2; const a=k/tot*Math.PI*2 + (inner?0.4:0); s+=`<circle cx="${85+Math.cos(a)*R}" cy="${55+Math.sin(a)*R}" r="2.6" fill="#6aa8ff"/>`; }
@@ -373,25 +390,29 @@ function buildChapters(){
     for (const n of [b*2, b*2+1, b*3-1]) tx.push(T(picDots(n), num(n)));
     const shown = new Set([0, ...Array.from({length:b+3},(_,i)=>i+1), b*2, b*2+1, b*3-1]);
     const pickNew = (lo, hi, not) => { const c=[]; for (let n=lo;n<=hi;n++) if (!shown.has(n) && n!==not) c.push(n); return c[r.int(c.length)]; };
-    const v1 = pickNew(b*2+2, b*4), v2 = pickNew(b*3+1, b*5, v1);
+    const v1 = pickNew(b+4, b*3) ?? pickNew(b*2+2, b*4), v2 = pickNew(b*2+2, b*3, v1) ?? pickNew(b*3+1, b*5, v1); // on the counting chart (up to 3 bundles)
     C.push({title:'COUNTING', intro:'The first transmission repeats every 41 minutes. Each frame is a picture followed by symbols.', tx, qs:[
       {type:'compose', prompt:`Reply with the number of dots.`, pic:picDots(v1), ans:num(v1), n:v1},
       {type:'compose', prompt:`And this one.`, pic:picDots(v2), ans:num(v2), n:v2},
       {type:'compose', prompt:'Transmit the smallest number that needs <i>two</i> of their symbols.', ans:num(b)},
     ]}); }
-  // 2 Arithmetic
+  // 2 Arithmetic: one idea at a time, every early sum drawn as dots so it can be checked by counting
   { const tx=[]; const eq=(a,op,c,d,ok)=>[...num(a),op,...num(c),'EQUALS',...num(d), ok?'YES':'NO'];
-    tx.push(T(picSum(1,2), eq(1,'PLUS',2,3,1)), T(picSum(2,2), eq(2,'PLUS',2,4,1)), T(picSum(3,1), eq(3,'PLUS',1,4,1)));
-    tx.push(T(picSum(2,2), eq(2,'PLUS',2,5,0)));
-    for (let k=0;k<3;k++){ const a=2+r.int(b*2), c=1+r.int(b*2); tx.push(T(null, eq(a,'PLUS',c,a+c,1))); }
-    for (let k=0;k<3;k++){ const a=b+r.int(b*2), c=1+r.int(b-1); tx.push(T(null, eq(a,'MINUS',c,a-c,1))); }
-    for (let k=0;k<3;k++){ const a=2+r.int(b), c=2+r.int(4); tx.push(T(null, eq(a,'TIMES',c,a*c,1))); }
-    const fa=3+r.int(b), fc=2+r.int(3); tx.push(T(null, eq(fa,'TIMES',fc,fa*fc+1,0)));
-    const qa=b+2+r.int(b*2), qc=b+1+r.int(b*2); const ma=4+r.int(4), mc=3+r.int(4);
-    C.push({title:'ARITHMETIC', intro:'The second signal uses the same number symbols, with some new ones between them.', tx, qs:[
-      {type:'compose', prompt:'Complete their equation:', words:[...num(qa),'PLUS',...num(qc),'EQUALS'], ans:num(qa+qc)},
-      {type:'compose', prompt:'Complete their equation:', words:[...num(ma),'TIMES',...num(mc),'EQUALS'], ans:num(ma*mc)},
-      {type:'compose', prompt:'Is this statement true? Answer the way they would.', words:[...num(ma+1),'MINUS',...num(2),'EQUALS',...num(ma-2)], ans:['NO']},
+    tx.push(T(picSum(1,1), eq(1,'PLUS',1,2,1)), T(picSum(2,1), eq(2,'PLUS',1,3,1)));          // plus and equals (and the mark at the end)
+    tx.push(T(picSum(2,2), eq(2,'PLUS',2,5,0)));                                                       // a wrong one: the picture shows 4
+    tx.push(T(picSum(b-1,1), eq(b-1,'PLUS',1,b,1)), T(picSum(b-1,2), eq(b-1,'PLUS',2,b+1,1)));       // carrying into a second symbol
+    tx.push(T(picDiff(3,1), eq(3,'MINUS',1,2,1)), T(picDiff(b+1,2), eq(b+1,'MINUS',2,b-1,1)));       // minus, then minus across a bundle
+    tx.push(T(picTimes(2,3), eq(2,'TIMES',3,6,1)));                                                  // times
+    const qa=1+r.int(Math.max(1,b-3)), qc=1+r.int(Math.max(1,b-1-qa));          // a small sum, answer on the chart
+    const ca=b-1-r.int(Math.min(2,b-2)), cc=2+r.int(2);                          // a sum that carries
+    const da=4+r.int(3), dc=1+r.int(2);                                          // a false subtraction
+    const ma=b+2+r.int(b*2), mc=b+1+r.int(b*2), ta=4+r.int(4), tb=3+r.int(4);    // master replies
+    C.push({title:'ARITHMETIC', intro:'The second signal uses the same number symbols, with some new ones between them. The pictures show the sums with dots: count them to check what each new symbol does.', tx, qs:[
+      {type:'compose', prompt:'Complete their equation (the picture shows it in dots):', pic:picSum(qa,qc), words:[...num(qa),'PLUS',...num(qc),'EQUALS'], ans:num(qa+qc), n:qa+qc, hint:'Count all the dots on the right of the picture. Write that number the way the counting frames do.'},
+      {type:'compose', prompt:'And this one. It needs two symbols:', pic:picSum(ca,cc), words:[...num(ca),'PLUS',...num(cc),'EQUALS'], ans:num(ca+cc), n:ca+cc, hint:`Count the dots on the right. More than ${b-1}? Then it is one bundle of ${b} and some loose, like the counting frames after ${pad3(b)}.`},
+      {type:'compose', prompt:'Is this statement true? Answer the way they would. (The picture shows what really happens.)', pic:picDiff(da,dc), words:[...num(da),'MINUS',...num(dc),'EQUALS',...num(da-dc+1)], ans:['NO'], hint:'Count the dots left over on the right of the picture and compare with the last number in their sentence. Then find the frame where a sum was wrong: which symbol ends it?'},
+      {type:'compose', optional:true, prompt:'<b>Master (optional):</b> complete their equation. No picture this time.', words:[...num(ma),'PLUS',...num(mc),'EQUALS'], ans:num(ma+mc)},
+      {type:'compose', optional:true, prompt:'<b>Master (optional):</b> and a product.', words:[...num(ta),'TIMES',...num(tb),'EQUALS'], ans:num(ta*tb)},
     ]}); }
   // 3 Matter, or Shapes
   if (L.module==='shapes') { const tx=[];
@@ -494,12 +515,14 @@ const forgiving = id => +String(id).split(':')[0] < 2;
 const lockFor = id => forgiving(id) ? 0 : Math.min(LOCK_MAX, LOCKOUT * (misses[id] || 0));
 const known = w => S.known && S.known[w] ? meaningOf(w) : '';
 const meaningOf = w => /^D\d+$/.test(w) ? w.slice(1) : MEANING[w];
-const glossOf = w => S.notes[w] || S.seti[w] || '';
+const glossOf = w => S.notes[w] || S.seti[w] || known(w) || '';
 function sentenceHTML(ws, cls=''){
   return `<div class="sentence ${cls}">`+ws.map(w=>`<span class="g ${S.known&&S.known[w]?'kn':''}" data-w="${w}">${glyphSVG(w)}<span class="gl">${S.gloss? esc(glossOf(w)) : ''}</span></span>`).join('')+`</div>`;
 }
 const esc=(s)=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-function chapterUnlocked(i){ return i===0 || CH[i-1].qs.every((q,k)=>S.solved[(i-1)+':'+k]); }
+const req = i => CH[i].qs.map((q,k)=>k).filter(k=>!CH[i].qs[k].optional); // optional master replies never block progress
+const chDoneAt = i => req(i).every(k=>S.solved[i+':'+k]);
+function chapterUnlocked(i){ return i===0 || chDoneAt(i-1); }
 function seenUpTo(i){ const set=[]; for (let c=0;c<=i;c++){ for (const t of CH[c].tx) for (const w of t.words) if(!set.includes(w)) set.push(w); for (const q of CH[c].qs) for (const w of (q.words||[])) if(!set.includes(w)) set.push(w); }
   // digits first, in numeric order, so the palette is usable; words keep their order of first appearance
   const isD = w=>/^D\d+$/.test(w);
@@ -509,21 +532,21 @@ function render(){
   const i=S.chapter, ch=CH[i];
   seen = seenUpTo(i);
   const fresh = printed!==i; printed = i;
-  document.getElementById('chapters').innerHTML = CH.map((c,k)=>`<button data-c="${k}" class="${k===i?'cur':''} ${CH[k].qs.every((q,j)=>S.solved[k+':'+j])?'done':''}" ${chapterUnlocked(k)?'':'disabled'} aria-label="Transmission ${k+1}${chStars(k)?`, ${chStars(k)} stars`:''}">${k+1}${chStars(k)?`<i class="cs">${'★'.repeat(chStars(k))}</i>`:''}</button>`).join('');
+  document.getElementById('chapters').innerHTML = CH.map((c,k)=>`<button data-c="${k}" class="${k===i?'cur':''} ${chDoneAt(k)?'done':''}" ${chapterUnlocked(k)?'':'disabled'} aria-label="Transmission ${k+1}${chStars(k)?`, ${chStars(k)} stars`:''}">${k+1}${chStars(k)?`<i class="cs">${'★'.repeat(chStars(k))}</i>`:''}</button>`).join('');
   document.querySelectorAll('#chapters button').forEach(b=>b.onclick=()=>{ S.chapter=+b.dataset.c; persist(); sfx('key'); render(); });
   document.getElementById('species').textContent = `SIGNAL ${String(S.seed).slice(0,4)}-${String(S.seed).slice(4,7)}${S.decoded? ` · ${S.decoded} DECODED`:''}`;
   let h = `<div id="goal" class="goal" role="status" aria-live="polite"></div><div class="sheet"><div class="chapterHead"><h2>TRANSMISSION ${String(i+1).padStart(2,'0')} : ${ch.title}</h2><span class="stamp">${new Date(Date.UTC(2031,2,4+i*9,3,7+i*4)).toISOString().slice(0,16).replace('T',' ')} UT</span></div><p class="intro">${ch.intro}</p>`;
   ch.tx.forEach((t,k)=>{ h += `<div class="tx ${fresh?'printing':''}" data-tx="${k}" style="--i:${k}"><div class="num">${String(k+1).padStart(3,'0')}</div>${t.pic? `<div class="pic">${t.pic}</div>`:''}${sentenceHTML(t.words)}</div>`; });
   h += `<div class="qs"><h3>REPLY</h3>`;
   ch.qs.forEach((q,k)=>{ const id=i+':'+k; const done=S.solved[id];
-    h += `<div class="q ${done?'done':''}" data-q="${k}"><div class="prompt">${q.prompt}</div>`;
+    h += `<div class="q ${done?'done':''} ${q.optional?'opt':''}" data-q="${k}"><div class="prompt">${q.prompt}</div>`;
     if (q.pic) h += `<div class="pic qpic">${q.pic}</div>`;
     if (q.words) h += sentenceHTML(q.words)+'<div style="height:8px"></div>';
     if (done) h += `<div class="fb good">ACK RECEIVED ${sentenceHTML(q.ans)}</div>`;
-    else h += `<div class="compose" data-compose aria-label="Your reply"></div><div class="row ctl"><button data-back aria-label="Delete last symbol">⌫</button><button data-clear>Clear</button><span class="spacer" style="flex:1"></span><button class="primary" data-send>Transmit</button></div><div class="palette" role="group" aria-label="Glyph keyboard">${seen.map(w=>`<button class="g key" data-pw="${w}" title="${esc(glossOf(w))}" aria-label="${esc(glossOf(w)||'glyph')}">${glyphSVG(w)}</button>`).join('')}</div><div class="fb"></div>`;
+    else h += (chartFor(q) ? `<div class="chart" role="group" aria-label="Your counting chart: tap the number to reply">${chartFor(q).map(n=>`<button data-num="${n}" title="${n}">${n}<span>${num(n).map(w=>glyphSVG(w)).join('')}</span></button>`).join('')}</div><div class="small dim chartNote">Tap the number on your counting chart, or spell it on the glyph keys below.</div>` : '') + `<div class="compose" data-compose aria-label="Your reply"></div><div class="row ctl"><button data-back aria-label="Delete last symbol">⌫</button><button data-clear>Clear</button><span class="spacer" style="flex:1"></span><button class="primary" data-send>Transmit</button></div><div class="palette" role="group" aria-label="Glyph keyboard">${seen.map(w=>`<button class="g key" data-pw="${w}" title="${esc(glossOf(w))}" aria-label="${esc(glossOf(w)||'glyph')}">${glyphSVG(w)}</button>`).join('')}</div><div class="fb"></div>`;
     h += `</div>`; });
   h += `</div>`;
-  if (ch.qs.every((q,k)=>S.solved[i+':'+k]) && i<CH.length-1) h += `<div class="next"><button class="primary" id="nextCh">Receive transmission ${i+2}</button></div>`;
+  if (chDoneAt(i) && i<CH.length-1) h += `<div class="next"><button class="primary" id="nextCh">Receive transmission ${i+2}</button></div>`;
   h += `</div>`;
   const feed=document.getElementById('feed'); feed.innerHTML=h;
   if (fresh) chatter(ch.tx.length);
@@ -540,6 +563,7 @@ function render(){
     jam();
     qel.querySelectorAll('[data-pw]').forEach(p=> p.onclick=()=>{ comp.push(p.dataset.pw); sfx('key'); draw(); });
     qel.querySelector('[data-back]').onclick=()=>{ comp.pop(); sfx('key'); draw(); };
+    qel.querySelectorAll('[data-num]').forEach(b=>b.onclick=()=>{ comp.length=0; comp.push(...num(+b.dataset.num)); draw(); sfx('key'); send.onclick(); });
     qel.querySelector('[data-clear]').onclick=()=>{ comp.length=0; draw(); };
     send.onclick=()=>{
       if (Date.now()<(lockUntil[id]||0) || !comp.length) return;
@@ -562,14 +586,17 @@ function transmit(id, comp){
 }
 // stars for a decoded transmission: every missed reply costs (no misses ★★★, up to two ★★)
 const chMisses = i => CH[i].qs.reduce((a,q,k)=>a+((S.miss||{})[i+':'+k]||0),0) + ((S.hints||{})[i]||0); // a SETI hint counts as a miss
-const chStars = i => CH[i].qs.every((q,k)=>S.solved[i+':'+k]) ? (i<2 || chMisses(i)===0?3:chMisses(i)<=2?2:1) : 0;
-const allSolved = ()=> CH.every((c,i)=>c.qs.every((q,k)=>S.solved[i+':'+k]));
+const chStars = i => chDoneAt(i) ? (i<2 || chMisses(i)===0?3:chMisses(i)<=2?2:1) : 0;
+const digitsKnown = () => Array.from({length:LANG.base},(_,d)=>'D'+d).every(w=>S.known&&S.known[w]);
+const ansValue = ws => (LANG.littleEndian? [...ws].reverse() : ws).reduce((v,w)=>v*LANG.base+ +w.slice(1),0);
+const chartFor = q => digitsKnown() && q.ans.every(w=>/^D\d+$/.test(w)) && ansValue(q.ans)<=LANG.base*3 ? Array.from({length:LANG.base*3+1},(_,n)=>n) : null;
+const allSolved = ()=> CH.every((c,i)=>chDoneAt(i));
 // Every acknowledged reply confirms the symbols it used: their cards on the corkboard get the meaning typed in.
 function confirmWords(ws){ S.known ||= {}; const fresh=ws.filter(w=>!S.known[w]); fresh.forEach(w=>S.known[w]=1); return fresh; }
 function solve(id, final){ if (S.solved[id]) return; S.solved[id]=1; delete drafts[id]; setTimeout(coachTick, 0);
   const [ci,k]=id.split(':').map(Number), q=CH[ci].qs[k]; const newly=confirmWords(q.ans);
   persist(); RH.toast(`ACK. Reply received.${newly.length?` ${newly.length} symbol${newly.length>1?'s':''} confirmed.`:''}`); render();
-  const chDone = CH[S.chapter].qs.every((q,k)=>S.solved[S.chapter+':'+k]);
+  const chDone = ci===S.chapter && chDoneAt(ci) && !q.optional;
   if (chDone) { const g=gradeNotes([...new Set(CH[S.chapter].tx.flatMap(t=>t.words))]); persist(); setTimeout(()=>rosetta(g), 400); }
   if (allSolved() && !S.ended){ S.ended=1; persist(); setTimeout(ending, chDone? 2600 : 500); }
   else if (final) setTimeout(()=>RH.toast('They are waiting for the rest of your replies to this transmission.'),700);
@@ -624,29 +651,29 @@ const TUT = [
     hint:()=>'Frame 002 is the second frame. Its symbol is printed to the right of the picture.', done:()=>coach.tapped },
   { goal:()=>`That symbol's card is open in the lexicon. <b>Pencil what it means</b>: type the number of dots, then press Enter.`, hl:()=>['tx:1','card:D1'],
     hint:()=>'Frame 002 has one dot. Type 1.', done:()=>!!(S.known&&S.known.D1) },
-  { goal:()=>`Confirmed: it means 1. Now <b>name every single symbol</b> the same way. Frames 001 to ${pad3(LANG.base)} show 0 to ${LANG.base-1} dots. <span class="prog">${named()} of ${LANG.base} named</span>`, hl:()=>tutDigits().filter(w=>!S.known[w]).slice(0,1).map(w=>'tx:'+(+w.slice(1))),
-    hint:()=>{ const w=tutDigits().find(w=>!S.known[w]); return w? `Frame ${pad3(+w.slice(1)+1)} still needs a name. Count its dots (frame 001 has none: zero), tap its symbol and pencil the number.` : ''; }, done:()=>named()===LANG.base },
+  { goal:()=>`Confirmed: it means 1. Now <b>name the symbols for 2 and 3</b> the same way: tap the symbol in the highlighted frame and pencil its number. <span class="prog">${['D2','D3'].filter(w=>S.known[w]).length} of 2</span>`, hl:()=>['D2','D3'].filter(w=>!S.known[w]).slice(0,1).map(w=>'tx:'+(+w.slice(1))),
+    hint:()=>{ const w=['D2','D3'].find(w=>!S.known[w]); return w? `Frame ${pad3(+w.slice(1)+1)}: count its dots, tap its symbol and pencil the number.` : ''; }, done:()=>!!(S.known.D2&&S.known.D3), after:()=>{ for (const w of tutDigits()){ (S.known ||= {})[w]=1; if (!S.notes[w]) S.notes[w]=String(+w.slice(1)); } RH.toast(`You've got the pattern. The SETI team pencilled in the rest of the single symbols, 0 to ${LANG.base-1}.`, 4200); } },
   { goal:()=>`They have no single symbol for ${LANG.base}. Frame ${pad3(LANG.base+1)} shows ${LANG.base} dots <b>boxed as one bundle</b> and uses <b>two</b> symbols. Compare the frames below: which symbol counts the bundles, and which counts the loose dots?`, strip:true, button:'I see how they count',
     hint:()=>`Like our 10: one bundle of ten and nothing loose. Their ${LANG.base} is "one bundle, zero loose".`, done:()=>coach.seen },
-  { goal:()=>`<b>Reply to question 1.</b> Count the bundles of ${LANG.base} and the loose dots, then type their number on the glyph keys (bundles first, like the frames) and press <b>Transmit</b>.`, hl:()=>['q:0'],
+  { goal:()=>`<b>Reply to question 1.</b> Count the bundles of ${LANG.base} and the loose dots, then tap that number on your <b>counting chart</b>. (You can also spell it on the glyph keys and press Transmit.)`, hl:()=>['q:0'],
     hint:()=>bundleHint(CH[0].qs[0].n), done:()=>!!S.solved['0:0'] },
   { goal:()=>`Well done: they understood you. <b>Question 2</b> is yours alone.`, hl:()=>['q:1'], hint:()=>bundleHint(CH[0].qs[1].n), done:()=>!!S.solved['0:1'] },
-  { goal:()=>`Last one: <b>which number first needs two of their symbols?</b> Type it and transmit.`, hl:()=>['q:2'], hint:()=>`Look at frame ${pad3(LANG.base+1)}: the first frame with two symbols.`, done:()=>!!S.solved['0:2'] },
+  { goal:()=>`Last one: <b>which number first needs two of their symbols?</b> Tap it on your counting chart.`, hl:()=>['q:2'], hint:()=>`Look at frame ${pad3(LANG.base+1)}: the first frame with two symbols.`, done:()=>!!S.solved['0:2'] },
 ];
 const TUT_END = TUT.length;
 const coach = { tapped:false, seen:false };
-function bundleHint(n){ const b=LANG.base, g=Math.floor(n/b), r=n%b; return `${n} dots = ${g} bundle${g===1?'':'s'} of ${b} and ${r} loose. Write the symbol for ${g}, then the symbol for ${r}: frame ${pad3(g*b+Math.min(r,3)+1)} is written the same way.`; }
+function bundleHint(n){ const b=LANG.base, g=Math.floor(n/b), r=n%b; return `Count the boxed bundles (${b} dots each) and the loose dots: ${g} bundle${g===1?'':'s'} and ${r} loose. That is ${g}×${b}+${r}. Tap it on your counting chart.`; }
 const tutOn = () => S.chapter===0 && S.tut < TUT_END;
 function coachTick(){
-  let moved=false; while (tutOn() && TUT[S.tut].done()) { S.tut++; moved=true; }
-  if (moved){ persist(); sfx('send'); } applyCoach();
+  let moved=false; while (tutOn() && TUT[S.tut].done()) { const st=TUT[S.tut]; if (st.after) st.after(); S.tut++; moved=true; }
+  if (moved){ persist(); sfx('send'); render(); return; } applyCoach();
 }
 function goalText(){
   if (tutOn()) return TUT[S.tut].goal();
-  const i=S.chapter, ch=CH[i], k=ch.qs.findIndex((q,j)=>!S.solved[i+':'+j]);
-  if (k<0) return i<CH.length-1 ? `Transmission ${i+1} decoded. <b>Receive transmission ${i+2}</b> at the bottom of the printout.` : 'All transmissions answered.';
+  const i=S.chapter, ch=CH[i], k=req(i).find(j=>!S.solved[i+':'+j]) ?? -1;
+  if (k<0) return (ch.qs.some((q,j)=>q.optional&&!S.solved[i+':'+j]) ? 'Optional master replies are waiting below, for extra credit. ' : '') + (i<CH.length-1 ? `Transmission ${i+1} decoded. <b>Receive transmission ${i+2}</b> at the bottom of the printout.` : 'All transmissions answered.');
   const plain=ch.qs[k].prompt.replace(/<[^>]+>/g,'');
-  return `<b>Reply ${k+1} of ${ch.qs.length}:</b> ${plain} <span class="dim">Read the frames, pencil guesses on the cards, use SETI hint if you're stuck.</span>`;
+  return `<b>Reply ${k+1} of ${req(i).length}:</b> ${plain} <span class="dim">Read the frames, pencil guesses on the cards, use SETI hint if you're stuck.</span>`;
 }
 function applyCoach(){
   const g=document.getElementById('goal'); if (!g) return;
@@ -672,6 +699,8 @@ function tutCheckNote(w){
 // SETI hints point at evidence instead of handing over meanings. Asking again about the same symbol reveals it (which costs from transmission 3 on).
 function evidenceHint(){
   const i=S.chapter, ch=CH[i], open=ch.qs.find((q,k)=>!S.solved[i+':'+k]);
+  S.evid ||= {}; const ok=open&&open.hint&&!S.evid['q:'+i+':'+ch.qs.indexOf(open)];
+  if (ok){ S.evid['q:'+i+':'+ch.qs.indexOf(open)]=1; persist(); document.querySelector(`#feed .q[data-q="${ch.qs.indexOf(open)}"]`)?.scrollIntoView({block:'center'}); return RH.toast('SETI: '+open.hint, 8000); }
   const want=[...new Set([...(open?open.ans:[]), ...ch.tx.flatMap(t=>t.words)])].filter(w=>!(S.known&&S.known[w]) && !S.seti[w]);
   if (!want.length) return RH.toast('Nothing left to hint here.');
   S.evid ||= {};

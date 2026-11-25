@@ -92,7 +92,7 @@ module.exports = {
       ok(all.solver.every(x => x === 3), 'the solver should get 3 stars');
       ok(all.english.filter(x => x === 3).length / all.english.length < .5, 'English grammar should usually cost stars: ' + all.english);
     },
-    'newcomer: a first-timer following the GOAL prompts clears transmission 1 (desktop and phone)': async ({ page, ok }) => {
+    'newcomer: a first-timer following the GOAL prompts clears transmissions 1 and 2 in under 30 actions (desktop and phone)': async ({ page, ok }) => {
       for (const touch of [false, true]) {
         const ctx = await page.context().browser().newContext(touch ? { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } : { viewport: { width: 1280, height: 800 } });
         const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
@@ -101,9 +101,11 @@ module.exports = {
         await p.locator('.modal-bg button').last().click();
         ok(/Tap the symbol/.test(await p.locator('#goal').textContent()), 'first goal');
         const base = await p.evaluate(() => window.__fc.LANG.base); ok([8, 10, 12].includes(base), 'first species base ' + base);
-        const r = await newcomer(p, loc => touch ? loc.tap() : loc.click());
-        ok(r.done && r.tut === 7, 'newcomer stuck: ' + JSON.stringify(r) + ' goal: ' + await p.locator('#goal').textContent());
-        ok(r.actions < 45, 'too many actions: ' + r.actions);
+        const r = await newcomer(p, loc => touch ? loc.tap() : loc.click(), 2);
+        const st = await p.evaluate(() => ({ t1: [0, 1, 2].every(k => window.__fc.S.solved['0:' + k]), t2: [0, 1, 2].every(k => window.__fc.S.solved['1:' + k]), tut: window.__fc.S.tut }));
+        ok(st.t1 && st.tut === 7, 'newcomer stuck in transmission 1: ' + JSON.stringify(st) + ' goal: ' + await p.locator('#goal').textContent());
+        ok(st.t2, 'newcomer stuck in transmission 2: ' + await p.locator('#goal').textContent());
+        ok(r.actions < 30, 'too many actions: ' + r.actions);
         ok(await p.evaluate(() => Object.keys(window.__fc.S.miss || {}).length === 0), 'transmission 1 should not count misses');
         ok(!errs.length, errs.join());
         await ctx.close();
@@ -167,11 +169,12 @@ module.exports = {
       ok(await page.evaluate(() => !!window.__fc.S.solved['2:0']), 'right answer after the jam');
       eq(await page.evaluate(() => window.__fc.lockFor('0:0')), 0, 'transmission 1 never jams');
     },
-    'replies confirm the symbols they used; no English is printed for glyphs the player never annotated': async ({ page, ok, eq }) => {
+    'replies confirm the symbols they used; only confirmed or annotated glyphs get a gloss': async ({ page, ok, eq }) => {
       await closeModals(page);
-      const r = await page.evaluate(() => { const fc = window.__fc, q = fc.CH[0].qs[0]; fc.solve('0:0');
-        return { conf: q.ans.every(w => fc.S.known[w]), gl: [...document.querySelectorAll('#feed .g[data-w] .gl')].map(e => e.textContent).filter(Boolean).length }; });
-      ok(r.conf, 'reply symbols not confirmed'); eq(r.gl, 0, 'glosses printed without notes');
+      const r = await page.evaluate(() => { const fc = window.__fc, q = fc.CH[0].qs[0]; fc.S.tut = 7; fc.solve('0:0');
+        const gl = [...document.querySelectorAll('#feed .g[data-w]')].filter(e => e.querySelector('.gl').textContent);
+        return { conf: q.ans.every(w => fc.S.known[w]), stray: gl.filter(e => !fc.S.known[e.dataset.w] && !fc.S.notes[e.dataset.w]).length, some: gl.length }; });
+      ok(r.conf, 'reply symbols not confirmed'); eq(r.stray, 0, 'glosses printed for glyphs neither confirmed nor annotated'); ok(r.some > 0, 'confirmed glyphs should show their meaning');
     },
     'decoding a transmission grades pencilled guesses: right ones confirmed, wrong ones marked, blanks left alone': async ({ page, ok, eq }) => {
       const seed = await page.evaluate(() => { for (let i = 1; ; i++) if (window.__fc.buildLanguage(i * 31).base >= 8) return i * 31; });
