@@ -78,6 +78,7 @@
   #works{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px;font-size:12px}#works .none{color:var(--ink2);font-style:italic}
   #works .wk{font:600 13px "Barlow Condensed";letter-spacing:.03em;background:#efe6cf;border:1px solid #8c7b58;padding:2px 7px;cursor:pointer;min-height:28px}
   #works .wk:hover{background:#ffd99a}
+  #skRow{display:none;gap:5px;margin-top:6px;flex-wrap:wrap}body.sketch #skRow{display:flex}body.sketch .key,body.sketch #years,body.sketch .yrl{display:none}
   .key{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:8px;font:500 12px "Barlow Condensed";letter-spacing:.05em;color:var(--ink2);text-transform:uppercase}
   .key i{display:inline-block;width:11px;height:11px;margin-right:4px;vertical-align:-1px}
   .tool b{font-size:20px;font-weight:400;line-height:1}
@@ -108,6 +109,7 @@
   @media (max-width:760px){
     #board{top:6px;left:6px;right:6px;width:auto;padding:18px 6px 6px}#board::before{top:-6px;width:80px;margin-left:-40px;height:20px}
     #sheet{padding:6px 9px;max-height:40vh}#lvName{font-size:21px}#goal{font-size:12.5px;line-height:1.3}.place{margin-top:2px;font-size:11px}
+    body.sketch:not(.brief) #skRow{display:none}
     #briefBtn{display:inline-block}body.playing:not(.brief) #goal{display:none}#first,.wl,#works,.key{display:none}body.brief #first,body.brief .wl,body.brief #works,body.brief .key{display:block}body.brief #works{display:flex}#hint{display:none}
     #score{font-size:13.5px;margin-top:4px}#years{height:18px;margin-top:4px}#years i.s3{height:18px}#years i.s2{height:13px}
     #tools{bottom:6px;left:6px;transform:none;padding:4px;gap:3px;max-width:calc(100vw - 12px)}.tool{width:46px;height:50px;font-size:16px}.tool span{font-size:10.5px}
@@ -127,6 +129,7 @@
   <div class="hrow"><a class="home" href="../index.html">← Rabbit Holes</a><span><button id="briefBtn" aria-expanded="false">Brief</button><button id="lvBtn">Sites</button></span></div>
   <div class="place" id="place"></div><div id="lvName">Watershed</div>
   <div id="goal"></div><div id="first"></div>
+  <div id="skRow"><button class="mini" id="skToday">Today's</button><button class="mini" id="skNew">New seed</button><button class="mini" id="skShare">Share link</button></div>
   <table id="score"></table>
   <div id="years"></div><div class="yrl"><span id="yr0"></span><span id="yrNow"></span><span id="yr1"></span></div>
   <div id="inq" role="status"></div>
@@ -209,7 +212,10 @@ const SC = [
     gen: (x, y, n) => { const h = 30 * fbm(n, x * 2, y * 2, 6) + 18 * Math.pow(1 - y, 1.5) + 8; return [h, h - 2.2]; },
     kit: { farm: 40, forest: 40, levee: 40, dam: 6, cut: 40 }, budget: 400,
     goal: 'No goal and no budget. Farm it, forest it, dam it and watch a few centuries of consequences.', first: '' },
+  { id: 'sketch', n: 'River Sketch', place: 'Daily · endless seeds', sketch: 1 },
 ];
+const CAMP = SC.filter(s => !s.free && !s.sketch).length, SKI = SC.findIndex(s => s.sketch); // medal sites; the sketch
+let SKSEED = null, SKPEND = null; // the sketch seed in play, and a shared design waiting to be drawn
 // fill the numbers into each goal sentence
 for (const s of SC) if (s.want) s.goal = s.goal.replace(/\{(\w+)\}/g, (_, k) => s.want[k].toLocaleString('en'));
 
@@ -217,13 +223,15 @@ for (const s of SC) if (s.want) s.goal = s.goal.replace(/\{(\w+)\}/g, (_, k) => 
 function cleanSave(raw) {
   const s = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}, medals = {};
   // v2 saves belonged to the old ten landscapes; nothing carries over except having played
-  if (s.v === 3 && s.medals && typeof s.medals === 'object') for (const k in s.medals) if (/^\d+$/.test(k) && +k < SC.length - 1 && Number.isInteger(s.medals[k]) && s.medals[k] > 0) medals[k] = Math.min(3, s.medals[k]);
+  if (s.v === 3 && s.medals && typeof s.medals === 'object') for (const k in s.medals) if (/^\d+$/.test(k) && +k < CAMP && Number.isInteger(s.medals[k]) && s.medals[k] > 0) medals[k] = Math.min(3, s.medals[k]);
   const plans = {}; if (s.v === 3 && s.plans && typeof s.plans === 'object') for (const k in s.plans) { const P = s.plans[k];
     if (/^\d+$/.test(k) && +k < SC.length && Array.isArray(P) && P.length <= 60 && P.every(w => Array.isArray(w) && WORKS[w[0]] && [w[1], w[2]].every(p => Array.isArray(p) && p.length === 2 && p.every(v => Number.isFinite(v) && v >= 0 && v < N)))) plans[k] = P; }
-  return { v: 3, medals, plans, cur: s.v === 3 && Number.isInteger(s.cur) && s.cur >= 0 && s.cur < SC.length ? s.cur : 0, intro: s.intro ? 1 : 0 };
+  const sk = {}; if (s.sk && typeof s.sk === 'object') for (const k of Object.keys(s.sk).slice(-20)) { const e = s.sk[k];
+    if (/^[a-z0-9]{1,12}$/.test(k) && Array.isArray(e) && Number.isInteger(e[0]) && e[0] >= 0 && e[0] < 1e6 && typeof e[1] === 'string' && e[1].length <= 1500 && /^[A-Za-z0-9_.-]*$/.test(e[1])) sk[k] = [e[0], e[1]]; }
+  return { v: 3, medals, plans, sk, cur: s.v === 3 && Number.isInteger(s.cur) && s.cur >= 0 && s.cur < SC.length ? s.cur : 0, intro: s.intro ? 1 : 0 };
 }
 const SAVE = cleanSave(RH.load('watershed', null));
-const persist = () => { RH.save('watershed', SAVE); RH.progress('watershed', Object.values(SAVE.medals).reduce((a, m) => a + m, 0) / (3 * (SC.length - 1))); };
+const persist = () => { RH.save('watershed', SAVE); RH.progress('watershed', Object.values(SAVE.medals).reduce((a, m) => a + m, 0) / (3 * CAMP)); };
 let L = null, cur = 0, tool = 'view', springs = [], towns = [], stat = {}, over = false, works = [], inquest = null;
 // per-cell land use: 1 farm, 2 forest; erosion and rain multipliers follow from it
 const YDUR = new Uint8Array(NN), USE = new Uint8Array(NN), FH = new Float32Array(NN), FDEP = new Float32Array(NN), YMAX = new Float32Array(NN), INB = new Uint8Array(NN);
@@ -234,7 +242,7 @@ const yearLen = y => L.storm(y) ? YEAR_STEPS : CALM_STEPS;
 let farmDiag = {};
 
 function buildLevel(i) {
-  cur = i; SAVE.cur = i; persist(); L = SC[i]; over = false; springs = []; simT = 0; thermalTick = 0; seaInWindow.length = 0; seaInflowStep = 0; stepped = false; works = []; inquest = null; farmCells = [];
+  cur = i; SAVE.cur = i; if (SC[i].sketch) { SKSEED = SKSEED || SAVE.skSeed || todaySeed(); SAVE.skSeed = SKSEED; } persist(); L = SC[i].sketch ? sketchSite(SKSEED) : SC[i]; over = false; springs = []; simT = 0; thermalTick = 0; seaInWindow.length = 0; seaInflowStep = 0; stepped = false; works = []; inquest = null; farmCells = [];
   year = 0; yStep = 0; harvest = 0; power = 0; history = []; lastYield = 0;
   NOERODE.fill(0); NOSCULPT.fill(0); RAISED.fill(0); USE.fill(0); YDUR.fill(0); WORKOF.fill(-1); FH.fill(0); FDEP.fill(0); YMAX.fill(0); INB.fill(0);
   K.evap = L.evap ?? .0015; // drier sites lose shallow water faster
@@ -254,15 +262,17 @@ function buildLevel(i) {
   // the channel the rivers settled into (and one cell either side) keeps its water; everywhere else floods soak away
   for (let k = N; k < NN - N; k++) if (D[k] > .05) CHAN[k] = CHAN[k - 1] = CHAN[k + 1] = CHAN[k - N] = CHAN[k + N] = 1;
   B0.set(B); SEA.fill(0); floodSea();
+  if (L.sketch) L.towns = [{ n: 'Village', at: skVillage() }];
   towns = (L.towns || []).map(t => ({ n: t.n, cells: t.at.map(([x, y]) => Math.round(y * (N - 1)) * N + Math.round(x * (N - 1))), floods: 0, wet: false, flood: [], peak: 0 }));
   for (const t of towns) for (const k of t.cells) { const hx = k % N, hy = (k / N) | 0; for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) if (dx * dx + dy * dy <= 16) NOSCULPT[(hy + dy) * N + hx + dx] = 1; }
   // inherited works from an earlier decade
   if (L.inherit != null) { for (const [t, a, b] of SAVE.plans[L.inherit] || L.defaultPlan) { const w = placeWork(t, a, b, true); if (typeof w === 'object') w.old = 1; } }
   deltaLand0 = Math.max(1, deltaLand()); cap0 = L.dam ? L.dam.cap : 1;
+  if (L.sketch) skStart();
   stat = {}; measure(); buildMarkers(); renderUI(); updateGeometry(true);
-  $('lvName').textContent = L.n; $('place').textContent = L.place; $('goal').innerHTML = L.goal; $('first').innerHTML = L.first || '';
+  $('lvName').textContent = L.n; $('place').textContent = L.place; $('goal').innerHTML = L.goal; $('first').innerHTML = L.first || ''; document.body.classList.toggle('sketch', !!L.sketch);
   $('report').classList.remove('on'); $('levels').classList.remove('open'); document.body.classList.remove('playing', 'brief');
-  setTool('view'); /* start in Look: the first drag turns the model instead of spending a piece */ setSpeed(0); renderScore(); renderYears(); renderWorks(); showTags(false);
+  setTool(L.sketch ? 'valley' : 'view'); /* start in Look: the first drag turns the model instead of spending a piece; a sketch starts with the pencil, since strokes cost nothing to undo */ setSpeed(0); renderScore(); renderYears(); renderWorks(); showTags(false);
   frameCam(); resize();
 }
 // ================= works: a small kit of pieces =================
@@ -351,6 +361,92 @@ function deltaLand() { if (!L.coastY) return 0; let n = 0; for (let y = Math.rou
 function siltIn() { if (!L.dam) return 0; let v = 0; for (let k = 0; k < NN; k++) if (INB[k] === 2) { const d = B[k] - B0[k]; if (d > 0) v += d; } return v; }
 function capacity() { return L.dam ? Math.max(0, cap0 - siltIn()) : 0; }
 
+// ================= River Sketch: draw the land, then watch the river carve it =================
+// A seeded plaster slab with a spring at the top, flags to run the river through and a village to keep dry.
+// You sculpt valleys, ridges and hard rock; the same erosion model then runs a dozen years, two spring floods
+// included, and does what it does with your drawing. Any drawing that works passes; the score is plaster moved.
+const rng = str => { let h = 1779033703 ^ str.length; for (let i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = h << 13 | h >>> 19; }
+  return () => { h = Math.imul(h ^ h >>> 16, 2246822507); h = Math.imul(h ^ h >>> 13, 3266489909); h ^= h >>> 16; return (h >>> 0) / 4294967296; }; };
+const todaySeed = () => { const d = new Date(); return 'd' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0'); };
+const SKQ = 2.5, SKA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'; // strokes snap to a 2.5-cell grid: one character per coordinate
+const SKT = { valley: { n: 'Valley', icon: '∨', amt: -1.6, r: 3.6, tip: 'Drag to carve a valley 1.6 m deep. Water runs down it, and the river deepens it, or leaves it.' },
+  ridge: { n: 'Ridge', icon: '∧', amt: 2.4, r: 3.2, tip: 'Drag to raise a ridge 2.4 m high. Water turns along it until it finds a way round.' },
+  rock: { n: 'Rock', icon: '◆', amt: 0, r: 2.6, tip: 'Drag to paint hard rock. The river can barely cut it, so it holds a bend or a waterfall where you put it.' } };
+const SKL = { valley: 'v', ridge: 'r', rock: 'k' }, SKR = { v: 'valley', r: 'ridge', k: 'rock' };
+function sketchSite(seed) {
+  const R = rng('sk' + seed), daily = /^d\d{8}$/.test(seed);
+  const sx = .3 + R() * .4, ng = 2 + (R() < .6 ? 1 : 0), side = R() < .5 ? -1 : 1, bumps = [];
+  for (let i = 0; i < 5; i++) bumps.push([.12 + R() * .76, .15 + R() * .65, .05 + R() * .07, (R() < .7 ? 1 : -1) * (1.5 + R() * 2.5)]);
+  const gates = []; for (let i = 0; i < ng; i++) { const gy = ng === 3 ? [.3, .52, .74][i] : [.36, .66][i], off = (.17 + R() * .11) * (i % 2 ? -side : side); gates.push([Math.max(.12, Math.min(.88, sx + off)), gy]); }
+  const gen = (x, y, n) => { let h = 3.5 + 24 * Math.pow(1 - y, 1.1) + 2.2 * fbm(n, x * 3, y * 3) - 4.5 * sm(.84, 1, y) + 2.5 * Math.pow(Math.abs(x - .5) * 2, 3);
+    for (const [bx, by, br, bh] of bumps) { const d2 = ((x - bx) ** 2 + (y - by) ** 2) / (br * br); if (d2 < 9) h += bh * Math.exp(-d2); }
+    return [h, h - 3]; };
+  const label = daily ? 'Daily sketch · ' + seed.slice(1, 5) + '-' + seed.slice(5, 7) + '-' + seed.slice(7) : 'Sketch · seed ' + seed;
+  return { id: 'sketch', sketch: 1, seed, n: 'River Sketch', place: label, years: 12, sea: 3, gen, springs: [[sx, .04, SKP.q]], stormY: 0, storm: () => 0, rain: 0, spin: 0,
+    pulse: y => y === 5 || y === 9 ? SKP.flood : 1, emax: SKP.emax, erodeScale: SKP.es, evap: SKP.evap, inf: SKP.inf, gates, kit: { valley: 1, ridge: 1, rock: 1 }, budget: 0, towns: [],
+    goal: `Shape the land so the river runs through <b>${ng} flags</b> and reaches the sea, while the <b>village</b> stays dry, through two spring floods. Use as little plaster as you can.`,
+    first: 'Pick <b>Valley</b> and drag from the spring through the flags. Then press ▶ and watch what the river makes of it.' };
+}
+const SKP = { q: 2, flood: 2.6, emax: .002, es: .5, evap: .0005, inf: 0 }; // tuning knobs (tests read them)
+const SK = { strokes: [], cost: 0, base: null, baseR: null, wmap: new Float32Array(NN), cur: null, ran: false, samples: 0, late: 0, gateHits: [], seaHits: 0, wet: 0, par: 0 };
+// one brush segment of the current stroke: each cell moves to the stroke's strongest touch, never more (lingering does not dig deeper)
+function skSeg(t, a, b) {
+  const T = SKT[t], r = T.r, W = SK.wmap; let cost = 0;
+  const [x0, y0] = a, [x1, y1] = b, l2 = Math.max(1e-6, (x1 - x0) ** 2 + (y1 - y0) ** 2);
+  for (let y = Math.max(1, Math.floor(Math.min(y0, y1) - r)); y <= Math.min(N - 2, Math.ceil(Math.max(y0, y1) + r)); y++) for (let x = Math.max(1, Math.floor(Math.min(x0, x1) - r)); x <= Math.min(N - 2, Math.ceil(Math.max(x0, x1) + r)); x++) {
+    const k = y * N + x; if (NOSCULPT[k]) continue;
+    const u = Math.max(0, Math.min(1, ((x - x0) * (x1 - x0) + (y - y0) * (y1 - y0)) / l2)), dx = x - (x0 + u * (x1 - x0)), dy = y - (y0 + u * (y1 - y0)), d = Math.sqrt(dx * dx + dy * dy);
+    if (d >= r) continue; const w = .5 + .5 * Math.cos(Math.PI * d / r); if (w <= W[k]) continue;
+    if (t === 'rock') { if (W[k] < .4 && w >= .4) { HARD[k] = .04; ROCK[k] = B[k]; cost += 1.2; } }
+    else { let dh = (w - W[k]) * T.amt; if (B[k] + dh < seaLevel - 1) dh = Math.min(0, seaLevel - 1 - B[k]); B[k] += dh; if (dh < 0 && ROCK[k] > B[k]) ROCK[k] = B[k]; cost += Math.abs(dh); }
+    W[k] = w;
+  }
+  return cost;
+}
+function skStroke(t, pts) { SK.wmap.fill(0); let c = 0; if (pts.length === 1) c += skSeg(t, pts[0], pts[0]); for (let i = 1; i < pts.length; i++) c += skSeg(t, pts[i - 1], pts[i]); return c; }
+// the land as drawn: the seeded slab plus every stroke, in order. Running the river again always starts from here.
+function skRebuild() {
+  B.set(SK.base); ROCK.set(SK.baseR); HARD.fill(1); SK.cost = 0;
+  for (const s of SK.strokes) SK.cost += skStroke(s.t, s.p.map(([x, y]) => [x * SKQ, y * SKQ]));
+  skResetRun(); geomDirty = true;
+}
+function skResetRun() {
+  D.fill(0); SED.fill(0); SED2.fill(0); FL.fill(0); FR.fill(0); FT.fill(0); FB.fill(0); U.fill(0); V.fill(0); DEP.fill(0);
+  year = 0; yStep = 0; history = []; over = false; simT = 0; thermalTick = 0; SK.ran = false; SK.samples = SK.late = SK.seaHits = SK.wet = 0; SK.gateHits = L.gates.map(() => 0); SK.liveGates = L.gates.map(() => false); seaInflowStep = 0; inquest = null; for (const t of towns) { t.floods = 0; t.wet = false; t.flood = []; t.peak = 0; }
+  SEA.fill(0); floodSea(); B0.set(B); measure();
+}
+// a shareable design: seed, then strokes as a tool letter and snapped coordinates
+const skEncode = () => SK.strokes.map(s => SKL[s.t] + s.p.map(([x, y]) => SKA[x] + SKA[y]).join('')).join('.');
+function skDecode(str) {
+  const out = []; for (const part of String(str || '').split('.')) { const t = SKR[part[0]], p = [];
+    if (!t) continue; for (let i = 1; i + 1 < part.length; i += 2) { const x = SKA.indexOf(part[i]), y = SKA.indexOf(part[i + 1]); if (x < 0 || y < 0) { p.length = 0; break; } p.push([x, y]); }
+    if (p.length && p.length <= 200) out.push({ t, p }); if (out.length >= 60) break; }
+  return out;
+}
+// sampled every 30 steps while the river runs: which flags it flows through, whether the village stays dry, whether it reaches the sea
+function skSample() {
+  SK.samples++; const late = year >= L.years * 2 / 3; if (late) SK.late++;
+  L.gates.forEach(([gx, gy], i) => { const cx = Math.round(gx * (N - 1)), cy = Math.round(gy * (N - 1)); let hit = false;
+    for (let dy = -4; dy <= 4 && !hit; dy++) for (let dx = -4; dx <= 4; dx++) { const k = (cy + dy) * N + cx + dx; if (dx * dx + dy * dy <= 16 && D[k] > .12 && U[k] * U[k] + V[k] * V[k] > .01) { hit = true; break; } }
+    SK.liveGates[i] = hit; if (hit && late) SK.gateHits[i]++; });
+  if (late && seaInflowStep > .5) SK.seaHits++;
+  for (const t of towns) for (const k of t.cells) if (D[k] > .3) { if (!t.wet) t.floods++; t.wet = true; SK.wet++; }
+}
+SK.liveGates = [];
+function skStat() {
+  const n = Math.max(1, SK.late), gates = SK.gateHits.filter(h => h / n >= .5).length;
+  return { gates, ng: L.gates.length, dry: SK.wet === 0, sea: SK.seaHits / n >= .5, plaster: Math.round(SK.cost), ran: year >= L.years };
+}
+// the village sits just below the course between the first two flags: where a river that spills out of its valley goes
+function skVillage() {
+  const C = skCourse(), [a, b] = [C[1], C[2]], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1; let nx = -dy / l, ny = dx / l; if (ny < 0) { nx = -nx; ny = -ny; }
+  const vx = Math.round(Math.max(8, Math.min(N - 9, (a[0] + b[0]) / 2 + nx * 11))), vy = Math.round((a[1] + b[1]) / 2 + ny * 11);
+  return [[vx, vy], [vx + 2, vy - 2], [vx - 2, vy + 2]].map(([x, y]) => [x / (N - 1), y / (N - 1)]);
+}
+// the obvious course: spring, each flag in turn, then straight down to the sea
+function skCourse() { const k = springs[0].k, P = [[k % N, (k / N) | 0], ...L.gates.map(([x, y]) => [x * (N - 1), y * (N - 1)])]; P.push([P[P.length - 1][0], N * .95]); return P; }
+function segDist(x, y, P) { let d = 1e9; for (let i = 1; i < P.length; i++) { const [x0, y0] = P[i - 1], [x1, y1] = P[i], l2 = Math.max(1e-6, (x1 - x0) ** 2 + (y1 - y0) ** 2), u = Math.max(0, Math.min(1, ((x - x0) * (x1 - x0) + (y - y0) * (y1 - y0)) / l2)); d = Math.min(d, Math.hypot(x - x0 - u * (x1 - x0), y - y0 - u * (y1 - y0))); } return d; }
+
 // ================= erosion step (virtual pipe model, Mei et al. 2007) =================
 // Hot loops are written flat (no closures, no per-cell allocations, no Math.hypot) since they run 120-1000x a second.
 let simT = 0, spinning = false, headless = false;
@@ -359,7 +455,7 @@ function step() {
   const dt = DT, gdt = G * dt, n1 = N - 1;
   simT += dt; stepped = true; simSteps++;
   const st = spinning ? 0 : stormNow();
-  for (let i = 0; i < springs.length; i++) { const s = springs[i], a = 5 / 9 * dt * (s.q || 1); for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) D[s.k + dy * N + dx] += a;
+  for (let i = 0; i < springs.length; i++) { const s = springs[i], a = 5 / 9 * dt * (s.q || 1) * (L.pulse && !spinning ? L.pulse(year) : 1); for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) D[s.k + dy * N + dx] += a;
  }
   if (st) { const ymax = (N * L.stormY) | 0, a = L.rain * st * dt, gr = L.grass ? a * .75 : a; for (let k = 0; k < ymax * N; k++) D[k] += USE[k] === 2 ? a * .35 : USE[k] === 1 ? a : gr; } // ground cover sets the runoff: fields shed all of it, grass keeps some, forest most
   flux(dt, gdt, n1);
@@ -375,6 +471,7 @@ function tick() {
     for (const t of towns) for (const k of t.cells) { if (D[k] > t.peak) t.peak = D[k]; if (D[k] > .4) t.wet = true; }
     for (const k of farmCells) { if (D[k] > YMAX[k]) YMAX[k] = D[k]; if (D[k] > .5) YDUR[k]++; }
   }
+  if (L.sketch && yStep % 30 === 0) skSample();
   if (yStep >= yearLen(year)) endYear();
 }
 function endYear() {
@@ -407,6 +504,7 @@ function endYear() {
   history.push({ y: lastYield, fl, res, dl, storm: L.storm(year), peaks });
   year++; yStep = 0; measure(); renderScore(); renderYears();
   if (fl.length) { snd.flood(); FX.shake(.3); }
+  if (L.sketch && !headless && L.pulse(year) > 1 && year < L.years) msg('Spring flood: the river runs high this year.', 2600);
   snd.season();
   if (!L.free && year >= L.years) { finish(); return; }
   // a round ends after each flood year: the clock stops and the inquest explains what happened where
@@ -474,12 +572,12 @@ function waterStep(dt, n1) {
 function advect(dt) {
   const B_ = B, D_ = D, U_ = U, V_ = V, S_ = SED, S2 = SED2, SEA_ = SEA, N_ = N, sl = seaLevel;
   // sediment advection (semi-Lagrangian) fused with evaporation; the sea holds its level
-  const ev = 1 - K.evap, hi = N - 1.001;
+  const ev = 1 - K.evap, hi = N - 1.001, inf = L.inf ?? INF;
   for (let y = 0; y < N_; y++) {
     const row = y * N_;
     for (let x = 0; x < N_; x++) {
       const k = row + x, u = U_[k], v = V_[k];
-      if (SEA_[k]) { const w = sl - B_[k]; D_[k] = w > 0 ? w : 0; U_[k] = u * .5; V_[k] = v * .5; } else { let d = D_[k] * ev; if (d < 2.5 && !CHAN[k] && u * u + v * v < .02) d -= INF; D_[k] = d < 1e-6 ? 0 : d; } // still flood water soaks in and dries out over the following weeks; the running river does not
+      if (SEA_[k]) { const w = sl - B_[k]; D_[k] = w > 0 ? w : 0; U_[k] = u * .5; V_[k] = v * .5; } else { let d = D_[k] * ev; if (d < 2.5 && !CHAN[k] && u * u + v * v < .02) d -= inf; D_[k] = d < 1e-6 ? 0 : d; } // still flood water soaks in and dries out over the following weeks; the running river does not
       if (u === 0 && v === 0) { S2[k] = S_[k]; continue; }
       let sx = x - u * dt, sy = y - v * dt;
       if (sx < 0) sx = 0; else if (sx > hi) sx = hi; if (sy < 0) sy = 0; else if (sy > hi) sy = hi;
@@ -526,13 +624,15 @@ function measure() {
   if (W.cap != null) ok.cap = capPct >= W.cap;
   if (W.power != null) ok.power = stat.power >= W.power;
   if (W.delta != null) ok.delta = deltaPct >= W.delta;
-  stat.ok = ok; stat.goalMet = Object.values(ok).length > 0 && Object.values(ok).every(Boolean);
+  if (L.sketch) { Object.assign(stat, skStat()); ok.gates = stat.gates === stat.ng; ok.dry = stat.dry; ok.sea = stat.sea; }
+  stat.ok = ok; stat.goalMet = Object.values(ok).length > 0 && Object.values(ok).every(Boolean) && (!L.sketch || stat.ran);
   return stat;
 }
 function countUse(u) { let n = 0; for (let k = 0; k < NN; k++) if (USE[k] === u) n++; return n; }
 function finish() {
   over = true; setSpeed(0); measure();
   const got = L.medals.map(([label, f]) => [label, !!f(stat)]), n = got.filter(g => g[1]).length;
+  if (L.sketch) { skFinish(got, n); return; }
   if (n > (SAVE.medals[cur] || 0)) SAVE.medals[cur] = n;
   if (n) SAVE.plans[cur] = works.map(w => [w.t, w.a.map(Math.round), w.b.map(Math.round)]); // what you built carries into the next decade
   persist(); renderUI();
@@ -684,6 +784,7 @@ function buildMarkers() {
     g.position.set(k % N - N / 2, 0, ((k / N) | 0) - N / 2); g.userData = { k, house: 1 }; scene.add(g); markerMeshes.push(g);
   }
   springs.forEach(addSpringMesh);
+  if (L.sketch) skFlags();
 }
 const springMat = new THREE.MeshStandardMaterial({ color: '#8fe3ff', emissive: '#3fb6ff', emissiveIntensity: 1.2, roughness: .3 });
 function addSpringMesh(s) { for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) NOERODE[s.k + dy * N + dx] = 1; const m = new THREE.Mesh(springGeo, springMat); m.userData = { k: s.k, lift: .6, spring: 1 }; m.position.set(s.k % N - N / 2, B[s.k] * VS + .6, ((s.k / N) | 0) - N / 2); m.castShadow = true; scene.add(m); markerMeshes.push(m); }
@@ -695,10 +796,11 @@ const ring = new THREE.LineLoop(ringGeo, new THREE.LineBasicMaterial({ color: '#
 ring.frustumCulled = false; ring.renderOrder = 5; ring.visible = false; scene.add(ring);
 const hover = { on: false, x: 0, y: 0 };
 function updateRing() {
-  ring.visible = hover.on && tool !== 'view' && !over; if (!ring.visible) return;
+  ring.visible = hover.on && tool !== 'view' && (!over || L.sketch); if (!ring.visible) return;
   // preview of the piece: a square field, a round forest, or the line being dragged
   const P = [];
-  if (WORKS[tool].drag) { const a = drag.on ? drag.a : [hover.x, hover.y], b = [hover.x, hover.y]; let len = Math.hypot(b[0] - a[0], b[1] - a[1]), mx = WORKS[tool].max, f = len > mx ? mx / len : 1; const e = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]; for (let i = 0; i < RINGN; i++) { const t = i < RINGN / 2 ? i / (RINGN / 2 - 1) : 1 - (i - RINGN / 2) / (RINGN / 2 - 1); P.push([a[0] + (e[0] - a[0]) * t, a[1] + (e[1] - a[1]) * t]); } }
+  if (SKT[tool]) { for (let i = 0; i < RINGN; i++) { const a = i / RINGN * Math.PI * 2; P.push([hover.x + Math.cos(a) * SKT[tool].r, hover.y + Math.sin(a) * SKT[tool].r]); } }
+  else if (WORKS[tool].drag) { const a = drag.on ? drag.a : [hover.x, hover.y], b = [hover.x, hover.y]; let len = Math.hypot(b[0] - a[0], b[1] - a[1]), mx = WORKS[tool].max, f = len > mx ? mx / len : 1; const e = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]; for (let i = 0; i < RINGN; i++) { const t = i < RINGN / 2 ? i / (RINGN / 2 - 1) : 1 - (i - RINGN / 2) / (RINGN / 2 - 1); P.push([a[0] + (e[0] - a[0]) * t, a[1] + (e[1] - a[1]) * t]); } }
   else if (tool === 'farm') { for (let i = 0; i < RINGN; i++) { const s = i / RINGN * 4, side = s | 0, f = s - side, c = [[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]]; P.push([hover.x + c[side][0] + (c[side + 1][0] - c[side][0]) * f, hover.y + c[side][1] + (c[side + 1][1] - c[side][1]) * f]); } }
   else for (let i = 0; i < RINGN; i++) { const a = i / RINGN * Math.PI * 2; P.push([hover.x + Math.cos(a) * 7, hover.y + Math.sin(a) * 7]); }
   P.forEach(([gx, gy], i) => { ringPos[i * 3] = gx - N / 2; ringPos[i * 3 + 2] = gy - N / 2; ringPos[i * 3 + 1] = (hHere(gx - N / 2, gy - N / 2) + .6) * VS; });
@@ -738,10 +840,23 @@ function pickGround(e) {
 }
 function msg(text, ms = 1800) { const m = $('msg'); m.textContent = text; m.classList.add('on'); clearTimeout(msg.h); msg.h = setTimeout(() => m.classList.remove('on'), ms); }
 const drag = { on: false, a: null, b: null };
+// drawing: points snap to the stroke grid; the land moves under the finger, then the whole drawing is replayed so a shared link rebuilds it exactly
+function skDown(g) {
+  if (SK.ran || year || yStep) { skRebuild(); setSpeed(0); $('report').classList.remove('on'); msg('Back to your drawing. Press ▶ to run the river again.', 2000); }
+  const q = [Math.round(g[0] / SKQ), Math.round(g[1] / SKQ)].map(v => Math.max(0, Math.min(63, v)));
+  SK.cur = { t: tool, p: [q] }; SK.wmap.fill(0); SK.cost += skSeg(tool, [q[0] * SKQ, q[1] * SKQ], [q[0] * SKQ, q[1] * SKQ]); geomDirty = true; snd.pencil();
+}
+function skMove(g) {
+  const p = SK.cur.p, l = p[p.length - 1], q = [Math.round(g[0] / SKQ), Math.round(g[1] / SKQ)].map(v => Math.max(0, Math.min(63, v)));
+  if (q[0] === l[0] && q[1] === l[1] || p.length >= 200) return;
+  p.push(q); SK.cost += skSeg(SK.cur.t, [l[0] * SKQ, l[1] * SKQ], [q[0] * SKQ, q[1] * SKQ]); geomDirty = true; if (p.length % 4 === 0) renderScore();
+}
+function skUp() { SK.strokes.push(SK.cur); SK.cur = null; if (SK.strokes.length > 60) SK.strokes.shift(); skChanged(); snd.plaster(); }
 canvas.addEventListener('pointerdown', e => {
   $('levels').classList.remove('open');
-  if (e.button !== 0 || tool === 'view' || over) return;
+  if (e.button !== 0 || tool === 'view' || (over && !L.sketch)) return;
   const g = pickGround(e); if (!g) return;
+  if (L.sketch) { skDown(g); canvas.setPointerCapture(e.pointerId); $('hint').style.opacity = 0; document.body.classList.add('playing'); document.body.classList.remove('brief'); hover.on = true; hover.x = g[0]; hover.y = g[1]; hoverMoved = true; return; }
   $('hint').style.opacity = 0; document.body.classList.add('playing'); document.body.classList.remove('brief'); showTags(false);
   drag.on = true; drag.a = g; drag.b = g; drag.sx = e.clientX; drag.sy = e.clientY; hover.on = true; hover.x = g[0]; hover.y = g[1]; canvas.setPointerCapture(e.pointerId);
 });
@@ -749,46 +864,56 @@ let lastPick = 0;
 canvas.addEventListener('pointermove', e => {
   if (!drag.on && tool === 'view') return;
   const now = performance.now(); if (!drag.on && now - lastPick < 30) return; lastPick = now; // hover picking is throttled
-  const g = pickGround(e); hover.on = !!g; hoverMoved = true; if (g) { hover.x = g[0]; hover.y = g[1]; if (drag.on) drag.b = g; }
+  const g = pickGround(e); hover.on = !!g; hoverMoved = true; if (g) { hover.x = g[0]; hover.y = g[1]; if (drag.on) drag.b = g; if (SK.cur) skMove(g); }
 });
 canvas.addEventListener('pointerleave', () => { if (!drag.on) hover.on = false; hoverMoved = true; });
 canvas.addEventListener('pointerup', e => {
+  if (SK.cur) { const g = pickGround(e); if (g) skMove(g); skUp(); return; }
   if (!drag.on) return; drag.on = false;
   // fields and forests are placed by a tap; a finger that slid away was not a tap
   if (!WORKS[tool].drag && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 14) { msg('Tap to place a ' + WORKS[tool].n.toLowerCase() + ' (pick Look, or use two fingers, to turn the model).', 2200); return; }
   const g = pickGround(e) || drag.b, r = placeWork(tool, drag.a, WORKS[tool].drag ? g : drag.a);
   if (typeof r === 'string') { snd.fail(); msg(r, 2200); } else { WORKS[tool].drag ? snd.plaster() : snd.pencil(); renderWorks(); renderUI(); }
 });
-addEventListener('pointercancel', () => { drag.on = false; });
+addEventListener('pointercancel', () => { drag.on = false; if (SK.cur) skUp(); });
 
 // ================= UI =================
 const TOOLS = { view: ['◎', 'Look', 'Turn and zoom the model'] };
 for (const k in WORKS) TOOLS[k] = [WORKS[k].icon, WORKS[k].n, WORKS[k].tip];
-function setTool(t) { tool = t; controls.mouseButtons.LEFT = t === 'view' ? THREE.MOUSE.ROTATE : null; controls.touches.ONE = t === 'view' ? THREE.TOUCH.ROTATE : null; renderUI(); if (t !== 'view' && WORKS[t]) $('hint').textContent = WORKS[t].tip; }
+for (const k in SKT) TOOLS[k] = [SKT[k].icon, SKT[k].n, SKT[k].tip];
+function setTool(t) { tool = t; controls.mouseButtons.LEFT = t === 'view' ? THREE.MOUSE.ROTATE : null; controls.touches.ONE = t === 'view' ? THREE.TOUCH.ROTATE : null; renderUI(); const T = WORKS[t] || SKT[t]; if (t !== 'view' && T) $('hint').textContent = T.tip; }
 function renderUI() {
   const tl = ['view', ...Object.keys(L.kit)];
   $('tools').innerHTML = tl.map(k => { const [ic, n, tip] = TOOLS[k];
-    const badge = k !== 'view' ? `<i class="n">$${COST[k]}M</i>` : '';
-    return `<button class="tool ${tool === k ? 'on' : ''}" data-t="${k}" title="${tip}" aria-pressed="${tool === k}" ${k !== 'view' && kitLeft(k) <= 0 ? 'data-empty="1"' : ''}>${badge}<b>${ic}</b><span>${n}</span></button>`; }).join('')
+    const badge = k !== 'view' && !L.sketch ? `<i class="n">$${COST[k]}M</i>` : '';
+    return `<button class="tool ${tool === k ? 'on' : ''}" data-t="${k}" title="${tip}" aria-pressed="${tool === k}" ${k !== 'view' && !L.sketch && kitLeft(k) <= 0 ? 'data-empty="1"' : ''}>${badge}<b>${ic}</b><span>${n}</span></button>`; }).join('')
     + `<button class="tool" id="undo" title="Remove the last piece (Ctrl+Z)"><b>↶</b><span>Undo</span></button>`;
   $('tools').querySelectorAll('.tool[data-t]').forEach(b => b.onclick = () => { snd.key(); setTool(b.dataset.t); });
-  $('undo').onclick = doUndo; $('undo').disabled = !works.length || over; if ($('budget')) $('budget').textContent = `$${budgetLeft()}M of $${L.budget}M left`;
+  $('undo').onclick = doUndo; $('undo').disabled = L.sketch ? !SK.strokes.length : !works.length || over; if ($('budget') && !L.sketch) $('budget').textContent = `$${budgetLeft()}M of $${L.budget}M left`;
   $('levels').innerHTML = '<h4>Survey sites</h4>' + SC.map((l, i) => { const m = SAVE.medals[i] || 0;
-    return `<div class="lv ${i === cur ? 'cur' : ''} ${i > maxOpen() && i !== SC.length - 1 ? 'lock' : ''}" data-i="${i}" tabindex="0"><span>${l.n}<small>${l.place}</small></span><span class="medals">${l.free ? '' : '●'.repeat(m) + '○'.repeat(3 - m)}</span></div>`; }).join('');
+    return `<div class="lv ${i === cur ? 'cur' : ''} ${i > maxOpen() && i < CAMP ? 'lock' : ''}" data-i="${i}" tabindex="0"><span>${l.n}<small>${l.place}</small></span><span class="medals">${l.sketch ? '✎' : l.free ? '' : '●'.repeat(m) + '○'.repeat(3 - m)}</span></div>`; }).join('');
   $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { if (el.classList.contains('lock')) return; snd.key(); buildLevel(+el.dataset.i); });
   $('lvBtn').textContent = `Sites ${cur + 1}/${SC.length}`;
 }
 // the list of placed pieces on the clipboard, each removable
 function renderWorks() {
+  if (L.sketch) { skWorks(); return; }
   $('budget').textContent = `$${budgetLeft()}M of $${L.budget}M left`;
   $('works').innerHTML = works.length ? works.map((w, i) => `<button class="wk" data-i="${i}" title="Remove this ${WORKS[w.t].n.toLowerCase()}">${WORKS[w.t].icon} ${WORKS[w.t].n} ${i + 1}${w.old ? ' (old)' : ''}${w.yr ? ` · ${w.t === 'farm' ? Math.round(w.yr.bu) + ' bu' : ''}` : ''} ✕</button>`).join('') : '<span class="none">No works yet. Pick a piece below and place it on the model.</span>';
   $('works').querySelectorAll('.wk').forEach(b => b.onclick = () => { if (removeWork(+b.dataset.i)) { snd.plaster(); renderWorks(); renderUI(); } });
 }
 // a site opens once the one before has at least one medal; the sandbox is always open
-const maxOpen = () => { let m = 0; while (m < SC.length - 2 && SAVE.medals[m]) m++; return m; };
+const maxOpen = () => { let m = 0; while (m < CAMP - 1 && SAVE.medals[m]) m++; return m; };
 function renderScore() {
   const W = L.want || {}, S = stat, rows = [];
   const row = (label, v, t, ok) => rows.push(`<tr class="${ok == null ? '' : ok ? 'good' : 'bad'}"><td>${label}</td><td class="v">${v}</td><td class="t">${t}</td><td class="ok">${ok == null ? '' : ok ? '✓' : '✗'}</td></tr>`);
+  if (L.sketch) { const live = SK.liveGates.filter(Boolean).length, b = SAVE.sk[SKSEED];
+    row('Plaster used (m³)', Math.round(SK.cost), 'par ' + SK.par, year || SK.ran ? S.plaster <= SK.par : null);
+    row('Flags the river runs', year >= L.years * 2 / 3 || over ? S.gates + ' / ' + S.ng : (yStep || year ? live : 0) + ' / ' + S.ng, 'all', year || yStep ? (over ? S.ok.gates : live === S.ng) : null);
+    row('Village', towns[0] && towns[0].floods ? 'flooded' : 'dry', 'dry', year || yStep ? S.dry : null);
+    row('Reaches the sea', year >= L.years * 2 / 3 || over ? (S.sea ? 'yes' : 'no') : seaInflowStep > .5 ? 'yes' : '…', 'yes', year >= L.years * 2 / 3 || over ? S.sea : null);
+    if (b) row('Your best here', b[0] + ' m³', '', null);
+    $('score').innerHTML = rows.join(''); return; }
   if (L.kit.farm) row('Harvest (bu)', S.harvest.toLocaleString('en') + (lastYield ? ` <small>+${lastYield}</small>` : ''), W.harvest != null ? '≥ ' + W.harvest.toLocaleString('en') : '', W.harvest != null ? S.ok.harvest : null);
   // from year 2, a projection: at this pace, where will you end up?
   const pace = (v, last) => Math.round(v + last * Math.max(0, L.years - year));
@@ -807,7 +932,62 @@ function renderYears() {
   $('years').innerHTML = cells.join('');
   $('yr0').textContent = 'Year ' + (from + 1); $('yrNow').textContent = over ? 'Done' : year ? `Year ${year + 1}` : 'Planning'; $('yr1').textContent = L.free ? '' : 'Year ' + L.years;
 }
-function doUndo() { if (over || !works.length) return; removeWork(works.length - 1); snd.plaster(); renderWorks(); renderUI(); }
+function doUndo() { if (L.sketch) { if (!SK.strokes.length) return; SK.strokes.pop(); skChanged(); snd.plaster(); return; } if (over || !works.length) return; removeWork(works.length - 1); snd.plaster(); renderWorks(); renderUI(); }
+
+// ================= River Sketch: the clipboard side =================
+// the surveyor's own course: one valley from the spring through each flag to the sea, stepping round the village.
+// It works on every seed (the tests check), and what it costs is the par you try to beat.
+function skBot() {
+  const C = skCourse(), v = towns[0].cells[0], vx = v % N, vy = (v / N) | 0, P = [C[0]];
+  for (let i = 1; i < C.length; i++) { const a = P[P.length - 1], b = C[i];
+    if (segDist(vx, vy, [a, b]) < 10) { const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1; let nx = -dy / l, ny = dx / l; if ((vx - a[0]) * nx + (vy - a[1]) * ny > 0) { nx = -nx; ny = -ny; }
+      const u = Math.max(0, Math.min(1, ((vx - a[0]) * dx + (vy - a[1]) * dy) / (l * l))); P.push([vx + nx * 12, vy + ny * 12]); void u; }
+    P.push(b); }
+  const pts = []; for (let i = 1; i < P.length; i++) { const [x0, y0] = P[i - 1], [x1, y1] = P[i], n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / SKQ));
+    for (let j = i === 1 ? 0 : 1; j <= n; j++) { const q = [Math.round((x0 + (x1 - x0) * j / n) / SKQ), Math.round((y0 + (y1 - y0) * j / n) / SKQ)].map(c => Math.max(0, Math.min(63, c))), l = pts[pts.length - 1]; if (!l || l[0] !== q[0] || l[1] !== q[1]) pts.push(q); } }
+  return [{ t: 'valley', p: pts.slice(0, 200) }];
+}
+function skStart() {
+  SK.base = B.slice(); SK.baseR = ROCK.slice();
+  SK.strokes = skBot(); skRebuild(); SK.par = Math.round(SK.cost / 10) * 10; const gold = Math.round(SK.par * .55 / 10) * 10;
+  L.medals = [['The river runs the course', S => S.goalMet], [`At or under par: ${SK.par} m³`, S => S.goalMet && S.plaster <= SK.par], [`A master's line: ${gold} m³`, S => S.goalMet && S.plaster <= gold]];
+  SK.strokes = SKPEND || []; SKPEND = null; skRebuild(); skHash();
+}
+function skHash() { if (!L || !L.sketch) return; try { history.replaceState(null, '', '#sketch=' + SKSEED + (SK.strokes.length ? '~' + skEncode() : '')); } catch (e) {} }
+function skChanged() { skRebuild(); renderWorks(); renderUI(); renderScore(); skHash(); skFlagCols(); }
+function skWorks() {
+  $('budget').textContent = `${SK.strokes.length} stroke${SK.strokes.length === 1 ? '' : 's'} · ${Math.round(SK.cost)} m³ of plaster`;
+  $('works').innerHTML = SK.strokes.length ? SK.strokes.map((s, i) => `<button class="wk" data-i="${i}" title="Remove this stroke">${SKT[s.t].icon} ${SKT[s.t].n} ${i + 1} ✕</button>`).join('') : '<span class="none">Nothing drawn yet. Drag on the model to carve a valley.</span>';
+  $('works').querySelectorAll('.wk').forEach(b => b.onclick = () => { SK.strokes.splice(+b.dataset.i, 1); skChanged(); snd.plaster(); });
+}
+// little survey flags on the model: orange until the river runs through, then green
+const flagGeo = new THREE.CylinderGeometry(.22, .22, 7, 6), penGeo = new THREE.BoxGeometry(3, 1.6, .2); SK.mats = [];
+function skFlags() {
+  SK.mats = L.gates.map((g, i) => { const m = new THREE.MeshStandardMaterial({ color: '#e0782a', roughness: .6 }), grp = new THREE.Group(), pole = new THREE.Mesh(flagGeo, houseMat), pen = new THREE.Mesh(penGeo, m), k = Math.round(g[1] * (N - 1)) * N + Math.round(g[0] * (N - 1));
+    pole.position.y = 3.5; pen.position.set(1.5, 6.2, 0); pole.castShadow = pen.castShadow = true; grp.add(pole, pen); grp.position.set(k % N - N / 2, B[k] * VS, ((k / N) | 0) - N / 2); grp.userData = { k }; scene.add(grp); markerMeshes.push(grp); return m; });
+  skFlagCols();
+}
+function skFlagCols() { SK.mats.forEach((m, i) => m.color.set(SK.liveGates[i] ? '#4f9a3a' : '#e0782a')); needDraw = true; }
+function skFinish(got, n) {
+  const best = SAVE.sk[SKSEED], S = stat; let rec = false;
+  if (S.goalMet && (!best || S.plaster < best[0])) { SAVE.sk[SKSEED] = [S.plaster, skEncode()]; rec = true; const ks = Object.keys(SAVE.sk); if (ks.length > 20) delete SAVE.sk[ks[0]]; }
+  persist(); renderUI(); renderScore();
+  const K = ['bronze', 'silver', ''], b = SAVE.sk[SKSEED];
+  $('report').innerHTML = `<h2>${S.goalMet ? 'The river ran your course' : 'The river went its own way'}</h2><div class="place">${L.place} · after ${L.years} years</div>
+    <ul>${got.map(([label, ok], j) => `<li class="${ok ? '' : 'no'}"><span class="medal ${ok ? K[j] + ' drop' : 'none'}" style="animation-delay:${.25 + j * .35}s">${j + 1}</span>${label}</li>`).join('')}</ul>
+    <div>Flags it ran through: <b>${S.gates} of ${S.ng}</b><br>Village: <b>${S.dry ? 'dry' : 'flooded'}</b><br>Reached the sea: <b>${S.sea ? 'yes' : 'no'}</b><br>Plaster: <b>${S.plaster} m³</b> (par ${SK.par})${b ? `<br>Your best on this seed: <b>${b[0]} m³</b>${rec ? ' · new best' : ''}` : ''}</div>
+    <div class="row"><button id="skEdit">Edit drawing</button><button id="skShare2">Share link</button><button class="primary" id="skNew2">New seed →</button></div>`;
+  $('report').classList.add('on');
+  $('skEdit').onclick = () => { snd.key(); $('report').classList.remove('on'); skRebuild(); renderScore(); skFlagCols(); setSpeed(0); };
+  $('skShare2').onclick = skShare; $('skNew2').onclick = () => skGo(Math.random().toString(36).slice(2, 7));
+  if (n) { celebrate(n); [0, 1, 2].slice(0, n).forEach(j => setTimeout(snd.medal, 250 + j * 350)); } else snd.flood();
+}
+function skGo(seed) { snd.key(); SKSEED = seed; SKPEND = null; buildLevel(SKI); }
+function skShare() { skHash(); const u = location.href; snd.key();
+  (navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(u) : Promise.reject()).then(() => msg('Link copied. Whoever opens it gets this seed and your drawing.', 2400), () => msg(u, 5000)); }
+$('skToday').onclick = () => skGo(todaySeed());
+$('skNew').onclick = () => skGo(Math.random().toString(36).slice(2, 7));
+$('skShare').onclick = skShare;
 
 // ================= the inquest: after each flood, what happened where =================
 // Tags float over the model at each town and field; a card on the clipboard says it in words.
@@ -841,7 +1021,7 @@ function placeTags() {
 }
 
 let speed = 0;
-function setSpeed(s) { if (over && s) return; speed = s; document.querySelectorAll('#speed [data-s]').forEach(x => x.classList.toggle('on', +x.dataset.s === s)); $('go').textContent = s ? '▶ Running' : year ? '▶ Next round' : '▶ Run'; if (s) showTags(false); }
+function setSpeed(s) { if (over && s && L && L.sketch) { skRebuild(); $('report').classList.remove('on'); } else if (over && s) return; if (s && L && L.sketch) SK.ran = true; speed = s; document.querySelectorAll('#speed [data-s]').forEach(x => x.classList.toggle('on', +x.dataset.s === s)); $('go').textContent = s ? '▶ Running' : L && L.sketch ? (year || yStep ? '▶ Go on' : '▶ Run river') : year ? '▶ Next round' : '▶ Run'; if (s) showTags(false); }
 document.querySelectorAll('#speed [data-s]').forEach(b => b.onclick = () => { setSpeed(+b.dataset.s); snd.key(); if (speed) { document.body.classList.add('playing'); $('hint').style.opacity = 0; } });
 $('mute').onclick = () => { FX.setMuted(!FX.muted); $('mute').style.opacity = FX.muted ? .4 : 1; };
 $('mute').style.opacity = FX.muted ? .4 : 1;
@@ -928,7 +1108,7 @@ function loop(now) {
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; } else if (!raf) { last = performance.now(); raf = requestAnimationFrame(loop); } });
 
-buildLevel(Math.min(SAVE.cur ?? 0, SC.length - 1));
+{ const m = /^#sketch=([a-z0-9]{1,12})(?:~([A-Za-z0-9_.-]*))?$/.exec(location.hash); if (m) { SKSEED = m[1]; SKPEND = m[2] != null ? skDecode(m[2]) : null; buildLevel(SKI); } else buildLevel(Math.min(SAVE.cur ?? 0, SC.length - 1)); }
 resize();
 raf = requestAnimationFrame(loop);
 if (!SAVE.intro) { SAVE.intro = 1; persist(); }
@@ -944,7 +1124,9 @@ window.__ws = { SC, LV: SC, buildLevel: i => buildLevel(i), stat: () => stat, me
   // run whole years headless (what the game loop does, without drawing)
   stepN: n => { headless = true; for (let i = 0; i < n && !over; i++) step(); headless = false; return yStep; },
   runYears: n => { headless = true; const y1 = year + n; while (year < y1 && !over) step(); headless = false; return measure(); },
-  get stepCost() { return stepCost; }, get drawCount() { return drawCount; }, PERF, forgetPlans: () => { SAVE.plans = {}; }, budgetLeft: () => budgetLeft(), camPos: () => camera.position.toArray(), get farmDiag() { return farmDiag; } };
+  get stepCost() { return stepCost; }, view: (el, az, d) => { L.cam = { el, az, d, t: [0, 0, 0] }; frameCam(); needDraw = true; }, SK, SKP, SKI, sketchSite, skBot, skEncode, skDecode, skStroke, skRebuild, skCourse, todaySeed, get seed() { return SKSEED; },
+  sketch: (seed, design) => { SKSEED = seed; SKPEND = design != null ? skDecode(design) : null; buildLevel(SKI); return SK.par; },
+  draw: (t, pts) => { SK.strokes.push({ t, p: pts.map(([x, y]) => [Math.round(x / SKQ), Math.round(y / SKQ)]) }); skChanged(); return Math.round(SK.cost); }, skStat, SAVE, get drawCount() { return drawCount; }, PERF, forgetPlans: () => { SAVE.plans = {}; }, budgetLeft: () => budgetLeft(), camPos: () => camera.position.toArray(), get farmDiag() { return farmDiag; } };
 
 </script>
 </body>

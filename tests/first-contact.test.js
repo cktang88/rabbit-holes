@@ -1,6 +1,7 @@
 // First Contact: decode a generated alien language. Logic via window.__fc.
 const { fcBot } = require('./first-contact.bots.js');
 const { newcomer } = require('./first-contact.newcomer.js');
+const { ctBot } = require('./first-contact.ct.js');
 const closeModals = page => page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
 const withSave = async (page, save) => { await page.addInitScript(s => localStorage.setItem('rh:fc', s), typeof save === 'string' ? save : JSON.stringify(save)); await page.reload(); await page.waitForTimeout(500); };
 // compose an answer by clicking palette glyphs in question k of the current chapter
@@ -248,6 +249,81 @@ module.exports = {
       await page.evaluate(() => { const fc = window.__fc; fc.solve('0:0'); });
       const v = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub'))['first-contact']);
       ok(v > 0 && v < 1, 'progress ' + v);
+    },
+    'open channel: contacts are generated the same way from the same seed, and differently from others': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const fc = window.__fc, sig = C => JSON.stringify([C.L.base, C.L.order, C.L.littleEndian, C.L.plural, C.items, C.val, C.tx.map(t => t.words), C.hs.ans, C.par]);
+        const a = sig(fc.genContact('L4', 4)), b = sig(fc.genContact('L4', 4)), others = new Set(); for (let i = 1; i <= 20; i++) others.add(sig(fc.genContact('r' + i, 5)));
+        return { same: a === b, distinct: others.size, today: fc.ctToday(), lv: fc.ctLevel(fc.ctToday()) }; });
+      ok(r.same, 'same seed differs'); eq(r.distinct, 20); ok(/^d\d{8}$/.test(r.today) && r.lv === 5, JSON.stringify(r));
+    },
+    'open channel: every contact on every rung is solvable from what it shows, and their answers are true': async ({ page, eq }) => {
+      const bad = await page.evaluate(() => { const fc = window.__fc, out = [];
+        for (let d = 1; d <= 9; d++) for (let i = 1; i <= 12; i++) { const C = fc.genContact('r' + (i * 31 + d), d); C.idx = fc.ctIndex(C.L);
+          const shown = new Set([...C.tx.flatMap(t => t.words), ...C.hs.words]), id = d + '/' + i;
+          for (const w of C.hs.ans) if (!shown.has(w)) out.push(id + ' handshake needs ' + w);
+          for (const it of C.items) { const q = fc.ctQuestion(C, it); for (const w of q) if (!shown.has(w) && !/^D\d+$/.test(w)) out.push(id + ' ' + it + ' needs ' + w);
+            const rep = fc.ctReply(C, q); if (rep.kind !== 'answer' || rep.val !== C.val[it]) out.push(id + ' ' + it + ' answered ' + rep.kind + ' ' + rep.val); }
+          if (C.d < 4 && C.L.littleEndian) out.push(id + ' little-endian too early');
+          if (C.par > C.items.length + 2) out.push(id + ' par ' + C.par);
+          // garbage is not understood; a false statement gets NO
+          if (fc.ctReply(C, ['D1', 'D1', 'D1']).kind !== 'huh') out.push(id + ' garbage parsed');
+        }
+        return out; });
+      eq(bad, []);
+    },
+    'open channel difficulty: competent questioning makes par; English grammar and random play need far more round trips': async ({ page, ok }) => {
+      const res = { competent: [], english: [], random: [] };
+      for (const seed of ['L2', 'L3', 'L5', 'L7', 'r11', 'r12', 'r13', 'r14']) for (const pol of Object.keys(res)) {
+        res[pol].push(await page.evaluate(([s, p, f]) => { localStorage.removeItem('rh:fcx'); window.__fc.X.cur = null; return eval('(' + f + ')')(s, p); }, [seed, pol, ctBot.toString()]));
+      }
+      const avg = a => a.reduce((s, r) => s + r.t / r.par, 0) / a.length;
+      ok(res.competent.every(r => r.done && r.t === r.par), 'competent ' + JSON.stringify(res.competent));
+      ok(res.random.every(r => r.done) && avg(res.random) > 3, 'random ' + avg(res.random).toFixed(2));
+      ok(avg(res.english) > 1.6 && avg(res.english) < avg(res.random), 'english ' + avg(res.english).toFixed(2));
+      console.log('      round trips / par: competent 1.00, english', avg(res.english).toFixed(2), 'random', avg(res.random).toFixed(2));
+    },
+    'open channel UI: unlocks after transmission 1; answer, ask and file by clicking; stars, ladder, save and share link': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      ok(await page.locator('#ctBtn').isHidden(), 'open channel visible before transmission 1');
+      await page.evaluate(() => { const fc = window.__fc; for (let k = 0; k < 3; k++) fc.solve('0:' + k); fc.render(); });
+      await closeModals(page); ok(await page.locator('#ctBtn').isVisible(), 'open channel button missing');
+      await page.click('#ctBtn'); await page.locator('.modal-bg button', { hasText: 'Ladder contact 1' }).click(); await page.waitForTimeout(300);
+      const C = await page.evaluate(() => { const C = window.__fc.CT; return { ans: C.hs.ans, items: C.items, val: C.val, q: C.items.map(i => window.__fc.ctQuestion(C, i)), par: C.par }; });
+      const type = async (sel, ws) => { const q = page.locator(sel); for (const w of ws) await q.locator(`[data-pw="${w}"]`).click(); await q.locator('[data-send]').click(); await page.waitForTimeout(150); };
+      await type('.q.ct[data-ct="hs"]', ['D0']); ok((await page.textContent('.q.ct .fb')).includes('NO ACK'), 'wrong handshake accepted');
+      await type('.q.ct[data-ct="hs"]', C.ans); ok(await page.locator('.q.ct[data-ct="ask"]').count() === 1, 'channel did not open');
+      await type('.q.ct[data-ct="ask"]', C.q[0]); eq(await page.locator('.ex').count(), 1);
+      await page.fill(`.dos[data-item="${C.items[0]}"] input`, String(C.val[C.items[0]] + 1)); await page.click(`.dos[data-item="${C.items[0]}"] [data-file]`);
+      eq(await page.evaluate(() => window.__fc.X.cur.t), 4);
+      for (let k = 0; k < C.items.length; k++) { if (k) await type('.q.ct[data-ct="ask"]', C.q[k]);
+        await page.fill(`.dos[data-item="${C.items[k]}"] input`, String(C.val[C.items[k]])); await page.click(`.dos[data-item="${C.items[k]}"] [data-file]`); await page.waitForTimeout(100); }
+      const st = await page.evaluate(() => ({ done: window.__fc.X.cur.done, n: window.__fc.X.n, best: window.__fc.X.best.L1, hash: location.hash, codex: Object.keys(window.__fc.X.codex).length }));
+      ok(st.done && st.n === 2 && st.best === C.par + 2 && st.hash === '#contact=L1' && st.codex >= 5, JSON.stringify(st));
+      ok(await page.locator('#ctNext').isVisible(), 'no next-contact button');
+      const saved = await page.evaluate(() => localStorage.getItem('rh:fcx'));
+      ok(saved.length < 50000, 'save size ' + saved.length);
+      // a shared link opens the same contact for a stranger, skipping the campaign intro
+      const ctx = await page.context().browser().newContext(); const p2 = await ctx.newPage(); const errs = []; p2.on('pageerror', e => errs.push(e.message));
+      await p2.goto(page.url().split('#')[0] + '#contact=r4242:6'); await p2.waitForTimeout(800);
+      const o = await p2.evaluate(() => ({ mode: window.__fc.MODE, seed: window.__fc.CT.seed, d: window.__fc.CT.d, modal: document.querySelectorAll('.modal-bg').length }));
+      eq(o, { mode: 'ct', seed: 'r4242', d: 6, modal: 0 }); eq(errs, []);
+      await p2.click('#ctBack'); eq(await p2.evaluate(() => window.__fc.MODE), 'camp'); await ctx.close();
+    },
+    'open channel: corrupted channel saves load safely': async ({ page, eq, ok }) => {
+      await page.addInitScript(() => localStorage.setItem('rh:fcx', JSON.stringify({ n: 'x', best: [], cur: { seed: '<b>', log: 5 } }))); await page.reload(); await page.waitForTimeout(400);
+      const x = await page.evaluate(() => window.__fc.X); eq(x.n, 1); eq(x.cur, null);
+      const y = await page.evaluate(() => window.__fc.ctClean({ n: 3, cur: { seed: 'L3', d: 3, log: [{ s: ['D1'], r: ['Q'] }, 7], t: 4, hs: 1 } }));
+      ok(y.n === 3 && y.cur.log.length === 1 && y.cur.t === 4 && y.cur.hs === 1, JSON.stringify(y));
+    },
+    'touch: the open channel works by tapping on a phone, with no sideways scroll': async ({ page, ok }) => {
+      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }); const p = await ctx.newPage();
+      await p.goto(page.url().split('#')[0] + '#contact=L1'); await p.waitForTimeout(900);
+      const ans = await p.evaluate(() => window.__fc.CT.hs.ans);
+      for (const w of ans) await p.locator(`.q.ct [data-pw="${w}"]`).tap();
+      await p.locator('.q.ct [data-send]').tap(); await p.waitForTimeout(200);
+      ok(await p.evaluate(() => window.__fc.X.cur.hs === 1), 'handshake by taps failed');
+      const m = await p.evaluate(() => ({ w: document.documentElement.scrollWidth, f: parseFloat(getComputedStyle(document.querySelector('.dos input')).fontSize), menu: !document.getElementById('ctBtn').hidden }));
+      ok(m.w <= 392 && m.f >= 16 && m.menu, JSON.stringify(m)); await ctx.close();
     },
     'touch: the intro dialog button is on screen without scrolling, portrait and landscape': async ({ page, ok }) => {
       for (const vp of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {

@@ -705,9 +705,14 @@ let hot = performance.now(), idleT = 0; controls.addEventListener('change', () =
 let last = performance.now(), tallyT = 0, duckDirty = true, drawnN = -1;
 const cen = new THREE.Vector3(), tmpV = new THREE.Vector3();
 document.addEventListener('visibilitychange', () => { last = performance.now(); });
+// dynamic resolution: if a rendered frame holds up the next one by more than ~30 ms (a slow or software GPU
+// filling a 3x phone screen), step the pixel ratio down towards 1. It only ever steps down, so it never flickers.
+let pr = Math.min(devicePixelRatio, MOBILE ? 1.5 : 2), lastRender = 0, slowN = 0, fastN = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   if (document.hidden) return;
+  if (lastRender) { const lag = now - lastRender; lastRender = 0; if (lag > 30) slowN++; else fastN++;
+    if (slowN >= 6 && slowN > fastN && pr > 1) { pr = Math.max(1, pr - .25); renderer.setPixelRatio(pr); resize(); slowN = fastN = 0; } else if (slowN + fastN >= 40) slowN = fastN = 0; }
   const dt0 = Math.min(.05, (now - last) / 1000); last = now;
   // when nothing is being dragged or played back, the globe only needs a fresh picture 20 times a second: the
   // tracers drift slowly, and phones get their battery back. Playback, camera moves and follow run at full rate.
@@ -727,7 +732,7 @@ function frame(now) {
     if (n && cen.lengthSq() > 1e-6) { globe.localToWorld(cen); const dist = camera.position.length(); tmpV.copy(cen).normalize().multiplyScalar(dist); camera.position.lerp(tmpV, 1 - Math.exp(-dt * 1.5)).setLength(dist); }
   }
   tallyT += dt; if (tallyT > .2) { tallyT = 0; const S = stats(); renderTally(S); check(S); layout(); }
-  controls.update(); meridian.quaternion.copy(camera.quaternion).multiply(ringQ); meridianEdge.quaternion.copy(meridian.quaternion); renderer.render(scene, camera);
+  controls.update(); meridian.quaternion.copy(camera.quaternion).multiply(ringQ); meridianEdge.quaternion.copy(meridian.quaternion); renderer.render(scene, camera); lastRender = performance.now();
 }
 // after a miss: how close it was and where the ducks went instead, so the next drop is an informed guess
 function failHint(S) {
@@ -742,7 +747,7 @@ function grade(S) {
   if (L.stars && L.score) { const v = L.score(S)[0]; return v >= L.stars[2] ? 3 : v >= L.stars[1] ? 2 : 1; }
   return 3;
 }
-function logAttempt(S, st) { attempts.push({ ll: lastDrop, rot, score: L.score ? L.score(S)[0] : L.bet ? (S.first ? REG[S.first].n : '—') : '', stars: st || 0 }); }
+function logAttempt(S, st) { attempts.push({ ll: lastDrop, rot, score: L.score ? L.score(S)[0] : L.bet ? (S.first ? REG[S.first].n : '—') : '', stars: st || 0 }); renderTally(S); }
 // the goal is met: the voyage is passed, but it keeps running to the end for more stars (unless it's an all-or-nothing voyage)
 function win(S) {
   won = true; if (L.bet) renderBets(); SAVE.done[SAVE.cur] = 1; persist(); renderGoal(); renderLevels();

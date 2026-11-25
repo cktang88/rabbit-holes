@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Alembic</title>
+<link rel="stylesheet" href="../shared/common.css">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Uncial+Antiqua&display=swap" rel="stylesheet">
+<style>
+  /* An alchemist's manuscript: the tray is a ruled vellum leaf in a gilt and vermilion border, the vials stand
+     in a row beneath it, the book of commissions and the codex are pages written in iron-gall ink with red rubrics. */
+  :root{--vel:#eadcbc;--vel2:#dcc9a0;--ink:#2a1d12;--ink2:#5b4632;--verm:#b0301c;--gold:#c79a3a;--gold2:#8a6420;--lapis:#2d4b86;--desk:#1f1610;--desk2:#2c2017}
+  html,body{height:100%;margin:0;overflow:hidden}
+  body{font-family:"EB Garamond",Georgia,serif;color:var(--vel);display:flex;flex-direction:column;height:100dvh;
+    background:radial-gradient(ellipse at 50% 30%,rgba(255,196,120,.13),transparent 60%),repeating-linear-gradient(92deg,rgba(0,0,0,.18) 0 2px,transparent 2px 9px),linear-gradient(#2c2017,#1a120c)}
+  header{display:flex;align-items:center;gap:10px;padding:6px 12px;flex-wrap:wrap}
+  header a.home{color:#d9c49a;text-decoration:none;font-size:14px}
+  h1{font:400 26px/1 "Uncial Antiqua",serif;margin:0;color:#e9c46a;text-shadow:0 1px 0 #000,0 0 12px rgba(233,196,106,.25);letter-spacing:.02em}
+  h1 .r{color:#e0553a}
+  .sp{flex:1}
+  button{font:600 15px "EB Garamond",Georgia,serif;color:var(--ink);background:linear-gradient(#efe0bd,#d9c393);border:1px solid #7a5a2a;border-radius:2px;padding:6px 12px;cursor:pointer;min-height:36px;box-shadow:0 2px 0 #5a3d18,inset 0 1px 0 #fff6;letter-spacing:.02em}
+  button:hover{background:linear-gradient(#f6e9c8,#e2cc9c)} button:active{transform:translateY(1px);box-shadow:0 1px 0 #5a3d18}
+  button.rub{color:#fff3df;background:linear-gradient(#c2432a,#8f2414);border-color:#5e160b}
+  #goal{margin:0 12px 6px;padding:5px 12px;background:linear-gradient(#ecdfc1,#dccaa2);color:var(--ink);border:1px solid #8a6a3a;box-shadow:0 3px 10px #0007;font-size:16px;line-height:1.25;display:flex;align-items:center;gap:10px;min-height:28px}
+  #goal .cap{font:400 22px/1 "Uncial Antiqua",serif;color:var(--verm);float:left}
+  #goal .txt{flex:1} #goal .txt i{color:var(--ink2)}
+  #goal .pg{min-width:84px;text-align:right;font-variant-numeric:tabular-nums;color:var(--verm);font-weight:600}
+  #goal .bar{height:3px;background:#0002;margin-top:3px} #goal .bar b{display:block;height:100%;width:0;background:var(--verm);transition:width .3s}
+  #desk{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding:0 8px 8px}
+  #trayWrap{flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center;position:relative}
+  #frame{position:relative;padding:9px;background:
+    repeating-linear-gradient(45deg,#b0301c 0 6px,#c79a3a 6px 12px,#2d4b86 12px 18px,#c79a3a 18px 24px);box-shadow:0 10px 30px #000c,0 0 0 2px #3a2614}
+  #frame::before{content:"";position:absolute;inset:5px;border:1px solid #2a1d12aa;pointer-events:none}
+  canvas#tray{display:block;image-rendering:pixelated;image-rendering:crisp-edges;touch-action:none;cursor:crosshair;background:#eadcbc}
+  #seal{position:absolute;left:50%;top:42%;width:150px;height:150px;margin:-75px 0 0 -75px;pointer-events:none;opacity:0;transform:scale(2.2) rotate(-25deg)}
+  #seal.on{animation:press 2.6s ease-out forwards}
+  @keyframes press{0%{opacity:0;transform:scale(2.2) rotate(-25deg)}18%{opacity:1;transform:scale(.92) rotate(-8deg)}26%{transform:scale(1.02) rotate(-8deg)}80%{opacity:1;transform:scale(1) rotate(-8deg)}100%{opacity:0;transform:scale(1) rotate(-8deg)}}
+  #vials{display:flex;gap:4px;overflow-x:auto;overflow-y:hidden;max-width:100%;padding:4px 4px 2px;touch-action:pan-x;scrollbar-width:thin;flex:none}
+  .vial{flex:none;width:50px;height:62px;padding:0;background:none;border:0;box-shadow:none;position:relative;color:#e8d7b2;font:italic 400 12px/1 "EB Garamond",serif;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-height:0}
+  .vial:hover{background:none} .vial .fl{position:absolute;left:50%;top:5px;width:30px;height:38px;margin-left:-15px;border-radius:7px 7px 15px 15px/6px 6px 18px 18px;
+    background:linear-gradient(90deg,rgba(255,255,255,.35),transparent 35%,transparent 70%,rgba(0,0,0,.2)),linear-gradient(transparent 28%,var(--c) 28%);border:1.5px solid rgba(240,230,210,.8);box-shadow:inset 0 -4px 6px rgba(0,0,0,.25)}
+  .vial .fl::before{content:"";position:absolute;left:8px;top:-7px;width:11px;height:8px;border:1.5px solid rgba(240,230,210,.8);border-bottom:0;background:#6b4a2a}
+  .vial span{position:relative;white-space:nowrap;max-width:50px;overflow:hidden;text-overflow:ellipsis}
+  .vial.on .fl{border-color:#ffd77a;box-shadow:0 0 0 2px #e9c46a,0 0 12px #e9c46a88,inset 0 -4px 6px rgba(0,0,0,.25)} .vial.on span{color:#ffd77a}
+  .vial.fresh .fl{animation:fresh 1.2s ease-out 2}
+  @keyframes fresh{50%{box-shadow:0 0 0 3px #e0553a,0 0 18px #e0553a}}
+  .vial.scrape .fl{background:linear-gradient(135deg,transparent 40%,#d8c8a8 40% 60%,transparent 60%);border-style:dashed}
+  #book{position:fixed;inset:0;z-index:50;background:#000a;display:none;align-items:center;justify-content:center}
+  #book.on{display:flex}
+  #leaf{width:min(860px,96vw);max-height:92dvh;overflow:auto;color:var(--ink);padding:18px 26px 22px;
+    background:radial-gradient(ellipse at 20% 10%,rgba(255,255,255,.35),transparent 50%),radial-gradient(ellipse at 90% 100%,rgba(120,80,30,.18),transparent 55%),linear-gradient(#efe3c6,#e1cfa6);box-shadow:0 20px 50px #000,inset 0 0 40px rgba(120,80,30,.25);border:1px solid #6b4a22}
+  #leaf h2{font:400 26px "Uncial Antiqua",serif;color:var(--verm);margin:0 0 4px}
+  #leaf h3{font:400 18px "Uncial Antiqua",serif;color:var(--lapis);margin:14px 0 6px;border-bottom:1px solid #8a6a3a66}
+  #tabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 4px} #tabs button.on{background:linear-gradient(#c2432a,#8f2414);color:#fff3df}
+  .com{display:grid;grid-template-columns:34px 1fr auto;gap:2px 10px;align-items:center;padding:6px 4px;border-bottom:1px dotted #8a6a3a88}
+  .com .n{font:400 22px "Uncial Antiqua",serif;color:var(--verm);text-align:center}
+  .com.locked{opacity:.55} .com .need{font-size:13px;color:var(--ink2);font-style:italic}
+  .com .st{font-size:13px;color:var(--ink2)} .com.done .n{color:#2d6b3a}
+  .cx{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px 14px}
+  .el{display:grid;grid-template-columns:22px 1fr;gap:0 8px;align-items:start;font-size:14px;line-height:1.2;padding:3px 0}
+  .el .sw{width:20px;height:20px;border-radius:50% 45% 55% 40%;border:1px solid #2a1d1288;margin-top:2px}
+  .el b{font-weight:600} .el small{display:block;color:var(--ink2);font-style:italic;font-size:12.5px}
+  .el.unk{color:#8a7658} .el.unk .sw{background:repeating-linear-gradient(45deg,#c9b48a 0 3px,#dccaa2 3px 6px)}
+  .note{font-style:italic;color:var(--ink2);font-size:14.5px}
+  .toast-wrap{bottom:auto;top:76px}
+  .toast{background:linear-gradient(#efe3c6,#ddc99f);color:var(--ink);border:1px solid #8a6a3a;border-radius:1px;font:16px "EB Garamond",serif;box-shadow:0 6px 18px #000a}
+  .toast b{color:var(--verm)}
+  .modal{background:linear-gradient(#efe3c6,#e1cfa6);color:var(--ink);border:1px solid #6b4a22;border-radius:2px;font:17px/1.4 "EB Garamond",serif}
+  .modal h2{font:400 26px "Uncial Antiqua",serif;color:var(--verm)}
+  .modal .modal-actions{background:#e6d6b2}
+  @media (max-width:640px){
+    header{padding:4px 8px;gap:6px} h1{font-size:21px} header button{padding:4px 8px;font-size:14px}
+    #goal{margin:0 6px 4px;font-size:14px;padding:4px 8px} #goal .cap{font-size:18px}
+    .vial{width:44px;height:58px} .vial .fl{width:26px;height:34px;margin-left:-13px} .vial span{max-width:44px}
+    #leaf{padding:12px 14px}
+  }
+  /* small landscape phones: vials in a column beside the tray */
+  @media (max-height:500px) and (min-width:560px){
+    header{padding:2px 8px} h1{font-size:18px} #goal{margin:0 8px 3px;font-size:13px;min-height:0;padding:2px 8px}
+    #desk{flex-direction:row;align-items:stretch} #vials{flex-direction:row;flex-wrap:wrap;align-content:flex-start;overflow-y:auto;overflow-x:hidden;width:200px;touch-action:pan-y}
+    .vial{width:44px;height:54px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <a class="home" href="../index.html">← Rabbit Holes</a>
+  <h1><span class="r">A</span>lembic</h1>
+  <span class="sp"></span>
+  <button id="pauseBtn" title="Pause or run the tray (space)">Pause</button>
+  <button id="clearBtn" title="Empty the tray">Clear</button>
+  <button id="bookBtn" class="rub" title="Commissions, codex, daily tray, sandbox">Book</button>
+</header>
+<div id="goal" aria-live="polite"><div class="txt"></div><div class="pg"></div></div>
+<main id="desk" data-play>
+  <div id="trayWrap"><div id="frame"><canvas id="tray" width="200" height="300" aria-label="The tray: drag to pour"></canvas>
+    <svg id="seal" viewBox="0 0 150 150" aria-hidden="true"><defs><radialGradient id="wx" cx=".4" cy=".35"><stop offset="0" stop-color="#d8442c"/><stop offset=".7" stop-color="#9c1f12"/><stop offset="1" stop-color="#6a120a"/></radialGradient></defs>
+      <path d="M75 6 C98 4 112 18 128 26 C142 44 146 60 143 78 C146 100 132 118 116 130 C98 144 80 146 62 142 C40 140 22 128 12 108 C2 88 6 66 12 48 C20 28 44 8 75 6Z" fill="url(#wx)"/>
+      <circle cx="75" cy="75" r="46" fill="none" stroke="#f3b9a0" stroke-opacity=".5" stroke-width="3"/>
+      <text x="75" y="70" text-anchor="middle" font-family="Uncial Antiqua" font-size="17" fill="#ffd9c4" fill-opacity=".9">OPUS</text>
+      <text x="75" y="92" text-anchor="middle" font-family="Uncial Antiqua" font-size="14" fill="#ffd9c4" fill-opacity=".9">PERFECTUM</text></svg>
+  </div></div>
+  <div id="vials" role="toolbar" aria-label="Vials"></div>
+</main>
+<div id="book" role="dialog" aria-label="The book"><div id="leaf"></div></div>
+<script src="../shared/common.js"></script>
+<script src="../shared/fx.js"></script>
+<script>
+'use strict';
+// ===================== The elements =====================
+// kind: 1 powder, 2 liquid, 3 gas, 4 solid, 5 flame. dens orders what sinks through what.
+const POW=1, LIQ=2, GAS=3, SOL=4, FLM=5;
+const ELS=[
+ ['empty','Nothing',0,0,['#eadcbc'],''],
+ ['sand','Sand',POW,16,['#d6b062','#cca356','#e0be76','#c69b4e'],'Quartz grains. Heat them and they run together into glass.'],
+ ['water','Water',LIQ,10,['#4c7cad','#5585b5','#4775a4'],'The universal solvent of the old books. It wets, dissolves, quenches and feeds.'],
+ ['fire','Fire',FLM,0,['#f4a63a','#e8742a','#f7c95a','#d9521f'],'Not a substance at all but a happening: things combining with the air, fast.'],
+ ['earth','Earth',POW,15,['#7a5a3a','#6d5034','#85633f'],'Soil and ore together. Wet it, fire it, melt it.'],
+ ['plant','Plant',SOL,5,['#5f8a3a','#6b9842','#557d34'],'Drinks water and climbs toward the light. Old growth turns to wood.'],
+ ['oil','Oil',LIQ,8,['#3e2c15','#48341b','#352610'],'Plants buried deep, out of the air, turn slowly to oil. It floats, and it burns.'],
+ ['salt','Salt',POW,14,['#f4f1e8','#e6e2d6','#fbf9f2'],'Left behind when brine is boiled dry. It melts ice and kills plants.'],
+ ['stone','Stone',SOL,30,['#7d7b74','#8a877f','#706e68'],'Lava that cooled slowly in the air.'],
+ ['steam','Steam',GAS,3,['#fbfdff','#f1f6fa','#ffffff'],'Water made air. It rises, cools and rains back down: nothing is lost.'],
+ ['smoke','Smoke',GAS,4,['#8b8478','#9a9386','#7c766b'],'What a fire leaves in the air.'],
+ ['glass','Glass',SOL,30,['#a9d6d0','#94cbc4','#c0e4df'],'Sand fused by fire. Nothing eats it, not even vitriol.'],
+ ['mud','Mud',POW,17,['#5a4030','#4f382a','#634636'],'Wet earth. Seeds wake in it; fire turns it to brick.'],
+ ['brick','Brick',SOL,30,['#a24a2e','#b0553a','#933f26'],'Fired mud. The first artificial stone.'],
+ ['ash','Ash',POW,4,['#b5aea2','#a59e93','#c3bcb0'],'What burnt plants leave. Steep it in water for lye; it feeds flowers.'],
+ ['lye','Lye',LIQ,10.5,['#c7c27a','#bdb76e','#d1cc86'],'Water steeped through ash. Boil it for salt of tartar; mix it with oil for soap.'],
+ ['wood','Wood',SOL,6,['#7a4b26','#6c4120','#86552c'],'Old plant, hardened. Burns long; smothered, it chars.'],
+ ['charcoal','Charcoal',POW,7,['#2b2622','#352f29','#231f1b'],'Charred wood. Light it and it glows as embers, far hotter than flame.'],
+ ['ember','Embers',POW,7,['#c2361b','#e0582a','#a52a14','#f07a30'],'Glowing charcoal. Hot enough to melt earth and sand.'],
+ ['lava','Lava',LIQ,25,['#e0541e','#f07a2a','#c83a14','#f59a3a'],'Molten earth. Cools to stone in air, to obsidian in water.'],
+ ['obsidian','Obsidian',SOL,30,['#231d2b','#2d2536','#1b1622'],'Lava quenched so fast it had no time to crystallise: natural glass.'],
+ ['brine','Brine',LIQ,11,['#6f98a6','#7aa3b0','#6690a0'],'Salt water. Rusts iron ten times faster than fresh.'],
+ ['iron','Iron',POW,40,['#5d6066','#686b72','#53565c'],'Won from molten earth by charcoal, as in a bloomery. Rusts in water.'],
+ ['rust','Rust',POW,20,['#9b4f2a','#a85b33','#8c4423'],'Iron returning to earth.'],
+ ['wax','Wax',SOL,6,['#efe0a8','#e6d595','#f5e9bd'],'Earth wax: oil thickened by clay. Burns slowly, one drop at a time.'],
+ ['soap','Soap',POW,9,['#e8d9e6','#dccbd9','#f1e6ef'],'Oil and lye joined. Water turns it to froth.'],
+ ['foam','Froth',GAS,6,['#fffdf8','#f7f2ea','#ffffff'],'Soap bubbles. They rise a little and burst.'],
+ ['seed','Seed',POW,6,['#8a6b2e','#7c5f27','#977636'],'Dropped by flowers. Falls, floats, and sprouts in mud.'],
+ ['flower','Flower',SOL,5,['#c43a5a','#d65a78','#b02e4c','#e6c24a'],'A plant fed with ash, in the open air.'],
+ ['essence','Essence',LIQ,8.5,['#e48aa6','#ea9bb4','#dc7a99'],'Attar: steam drawn through flowers carries their oil away.'],
+ ['nitre','Nitre',POW,14,['#ebe7f2','#dcd6e8','#f4f1f8'],'Saltpetre, which grows where ash rots in wet earth. Dissolving it chills water to ice.'],
+ ['sulfur','Sulfur',POW,13,['#e6cc2e','#d9bd22','#efd94e'],'Brimstone, left where steam meets lava. Burns blue into choking fume.'],
+ ['gunpowder','Gunpowder',POW,14,['#3a3a40','#45454c','#2f2f35'],'Nitre and charcoal, quickened by sulfur.'],
+ ['pyrite','Fool\'s gold',POW,30,['#c9a640','#b8952f','#d9b852'],'Iron and sulfur. Every alchemist made it; none made the real thing.'],
+ ['coal','Coal',POW,12,['#1c1a18','#262320','#141210'],'Wood buried out of the air for ages.'],
+ ['ice','Ice',SOL,9,['#d4ecf4','#c2e2ee','#e4f4f8'],'Water chilled by dissolving nitre. Melts in the open, fast by fire.'],
+ ['snow','Snow',POW,3,['#fbfbf7','#eef2f2','#ffffff'],'Steam frozen straight from the air onto ice.'],
+ ['moss','Moss',SOL,5,['#4f6b2a','#5a7a31','#455e24'],'A plant that has learnt to live on stone.'],
+ ['tar','Tar',LIQ,12,['#1e1a16','#28221c','#16130f'],'Oil soaked into sand: thick, slow and smoky.'],
+ ['steel','Steel',POW,40,['#9aa3ad','#a8b1ba','#8b949e'],'Iron that has taken in charcoal from the embers. It hardly rusts.'],
+ ['fume','Brimstone fume',GAS,5,['#d2d48c','#c6ca7c','#dadd9c'],'Burning sulfur\'s choking air. It withers plants; steam turns it to vitriol.'],
+ ['vitriol','Oil of vitriol',LIQ,13,['#9fc23a','#aecf4a','#90b22c'],'Sulfuric acid. Eats stone, iron and wood; only glass will hold it.'],
+ ['copperas','Green vitriol',POW,15,['#4fae8a','#5cbb96','#43a07d'],'Iron eaten by vitriol. Roast it and the vitriol comes back out.'],
+ ['hydrogen','Inflammable air',GAS,1,['#efe4f6','#f4ecf8','#e8dcf0'],'Cavendish\'s gas from iron and acid. Lighter than anything; it bangs.'],
+];
+const NT=ELS.length, ID={}; ELS.forEach((e,i)=>ID[e[0]]=i);
+const KIND=new Uint8Array(NT), DENS=new Float32Array(NT);
+ELS.forEach((e,i)=>{ KIND[i]=e[2]; DENS[i]=e[3]; });
+const E_=ID; const {sand:SAND,water:WATER,fire:FIRE,earth:EARTH,plant:PLANT,oil:OIL,salt:SALT,stone:STONE,steam:STEAM,smoke:SMOKE,glass:GLASS,mud:MUD,brick:BRICK,ash:ASH,lye:LYE,wood:WOOD,charcoal:CHAR,ember:EMBER,lava:LAVA,obsidian:OBS,brine:BRINE,iron:IRON,rust:RUST,wax:WAX,soap:SOAP,foam:FOAM,seed:SEED,flower:FLOWER,essence:ESS,nitre:NITRE,sulfur:SULF,gunpowder:GUN,pyrite:PYR,coal:COAL,ice:ICE,snow:SNOW,moss:MOSS,tar:TAR,steel:STEEL,fume:FUME,vitriol:VIT,copperas:COPP,hydrogen:HYD}=ID;
+const VISC=new Float32Array(NT).fill(1); VISC[LAVA]=.45; VISC[TAR]=.15; VISC[VIT]=.9; VISC[OIL]=.95;
+const DISP=new Uint8Array(NT).fill(3); DISP[LAVA]=1; DISP[TAR]=1; DISP[OIL]=2;
+const ORGANIC=new Uint8Array(NT); for (const t of [PLANT,WOOD,FLOWER,SEED,MOSS]) ORGANIC[t]=1;
+const HARD=new Uint8Array(NT); for (const t of [STONE,GLASS,BRICK,OBS,IRON,STEEL,PYR]) HARD[t]=1;
+const FLICKER=new Uint8Array(NT); for (const t of [FIRE,EMBER,LAVA]) FLICKER[t]=1;
+const FIRELIFE=new Uint8Array(NT).fill(30); FIRELIFE[WOOD]=120; FIRELIFE[WAX]=170; FIRELIFE[TAR]=140; FIRELIFE[OIL]=45; FIRELIFE[PLANT]=40; FIRELIFE[COAL]=90; FIRELIFE[EMBER]=22;
+
+// ===================== The reactions: local rules between neighbours =====================
+// [A, B, A becomes, B becomes, chance per frame per neighbour, condition]. -1 keeps; an array picks one at random.
+const K=-1, UPC=1, SULFC=2, BLAST6=3, BLAST4=4, DRINK=5;
+const RULES=[
+ [WATER,EARTH,[WATER,WATER,0,0],MUD,.06],[WATER,SALT,BRINE,BRINE,.1],[WATER,NITRE,ICE,BRINE,.06],[WATER,ASH,K,LYE,.05],
+ [WATER,IRON,K,RUST,.0008],[WATER,SOAP,FOAM,K,.06],[WATER,SNOW,K,WATER,.003],[WATER,FUME,VIT,0,.1],[WATER,VIT,STEAM,K,.01],
+ [FIRE,WATER,SMOKE,STEAM,.35],[FIRE,SAND,K,GLASS,.03],[FIRE,PLANT,K,FIRE,.25],[FIRE,WOOD,K,[FIRE,FIRE,FIRE,CHAR],.04],[FIRE,OIL,K,FIRE,.5],
+ [FIRE,MUD,K,BRICK,.012],[FIRE,ICE,K,WATER,.2],[FIRE,SNOW,K,WATER,.5],[FIRE,LYE,K,[SALT,STEAM,STEAM,SALT],.04],[FIRE,BRINE,K,[SALT,STEAM,STEAM,STEAM],.04],
+ [FIRE,GUN,K,K,1,BLAST6],[FIRE,HYD,K,K,1,BLAST4],[FIRE,SULF,K,FUME,.05],[FIRE,COAL,K,EMBER,.02],[FIRE,CHAR,K,EMBER,.06],[FIRE,WAX,K,FIRE,.03],
+ [FIRE,TAR,K,[FIRE,FIRE,FIRE,SMOKE],.012],[FIRE,ESS,K,FIRE,.4],[FIRE,SEED,K,FIRE,.3],[FIRE,FLOWER,K,FIRE,.25],[FIRE,MOSS,K,FIRE,.06],[FIRE,FOAM,K,0,.3],
+ [FIRE,NITRE,K,FIRE,.1],[FIRE,COPP,K,[VIT,FUME,RUST,RUST],.02],[FIRE,PYR,K,[FUME,RUST,FUME,RUST],.008],
+ [EMBER,EARTH,K,LAVA,.012],[EMBER,SAND,K,GLASS,.03],[EMBER,WATER,CHAR,STEAM,.3],[EMBER,IRON,K,STEEL,.006],[EMBER,MUD,K,BRICK,.02],[EMBER,PLANT,K,FIRE,.2],
+ [EMBER,WOOD,K,FIRE,.04],[EMBER,OIL,K,FIRE,.4],[EMBER,CHAR,K,EMBER,.01],[EMBER,COAL,K,EMBER,.01],[EMBER,ICE,K,WATER,.2],[EMBER,SNOW,K,WATER,.5],
+ [EMBER,GUN,K,K,1,BLAST6],[EMBER,HYD,K,K,1,BLAST4],[EMBER,WAX,K,FIRE,.03],[EMBER,SULF,K,FUME,.05],[EMBER,STONE,K,LAVA,.002],
+ [LAVA,WATER,OBS,STEAM,.5],[LAVA,BRINE,OBS,[STEAM,SALT],.4],[LAVA,0,STONE,K,.0015],[LAVA,STONE,STONE,K,.0002],[LAVA,SAND,K,GLASS,.05],
+ ...[PLANT,WOOD,OIL,SEED,FLOWER,WAX,TAR,MOSS,ESS].map(b=>[LAVA,b,K,FIRE,.3]),[LAVA,ICE,K,WATER,.4],[LAVA,SNOW,K,STEAM,.5],[LAVA,CHAR,IRON,SMOKE,.03],
+ [LAVA,STEAM,K,SULF,.004],[LAVA,GUN,K,K,1,BLAST6],[LAVA,HYD,K,K,1,BLAST4],[LAVA,COAL,K,EMBER,.05],[LAVA,MUD,K,BRICK,.03],
+ [OIL,LYE,SOAP,SOAP,.05],[OIL,MUD,WAX,K,.012],[OIL,SAND,TAR,K,.002],
+ [MUD,ASH,NITRE,K,.004],[MUD,0,K,PLANT,.0005,UPC],
+ [PLANT,WATER,K,PLANT,.03,DRINK],[PLANT,ASH,FLOWER,0,.01],[PLANT,STONE,K,MOSS,.002],[PLANT,BRINE,ASH,K,.02],[PLANT,SALT,ASH,K,.02],[PLANT,FUME,ASH,0,.1],
+ [SEED,MUD,PLANT,K,.02],[SEED,EARTH,PLANT,K,.004],
+ [SALT,ICE,BRINE,BRINE,.05],[ICE,0,WATER,K,.0004],[SNOW,0,WATER,K,.0002],
+ [STEAM,ICE,SNOW,K,.1],[STEAM,FLOWER,K,ESS,.02],[STEAM,FUME,VIT,VIT,.05],
+ [NITRE,CHAR,GUN,GUN,.06,SULFC],[SULF,IRON,0,PYR,.012],
+ [VIT,IRON,HYD,COPP,.05],[VIT,STONE,[VIT,0,0,0],0,.01],[VIT,EARTH,K,0,.005],[VIT,MUD,K,0,.005],[VIT,PLANT,K,CHAR,.05],[VIT,WOOD,K,CHAR,.05],
+ [VIT,STEEL,K,COPP,.002],[VIT,RUST,K,COPP,.02],[VIT,BRICK,K,SAND,.001],
+ [BRINE,IRON,K,RUST,.008],[BRINE,PLANT,K,ASH,.01],[MOSS,STONE,K,MOSS,.0006],[FUME,PLANT,K,ASH,.1],
+];
+// what slow changes of state make on their own (for the codex and for planning daily trays)
+const SPECIAL=[[PLANT,WOOD,'old plants, grown thick, turn to wood'],[PLANT,OIL,'plants buried out of the air'],[WOOD,COAL,'wood buried out of the air'],[PLANT,FLOWER,'a watered plant in the open'],[FLOWER,SEED,'flowers drop them'],[FIRE,SMOKE,'any fire'],[FIRE,ASH,'burnt plants or wood'],[EMBER,ASH,'spent embers'],[STEAM,WATER,'steam that cools']];
+const RP=new Float32Array(NT*NT), RC=new Uint8Array(NT*NT), RA=new Int16Array(NT*NT*4).fill(-1), RB=new Int16Array(NT*NT*4).fill(-1), HASRX=new Uint8Array(NT);
+for (const [a,b,oa,ob,p,c] of RULES){ const k=a*NT+b; RP[k]=p; RC[k]=c||0; HASRX[a]=1; for (let r=0;r<4;r++){ RA[k*4+r]=Array.isArray(oa)?oa[r%oa.length]:oa; RB[k*4+r]=Array.isArray(ob)?ob[r%ob.length]:ob; } }
+
+// ===================== The tray =====================
+const W=200, H=300, NC=W*H;
+const T=new Uint8Array(NC), L=new Uint16Array(NC), S=new Uint8Array(NC), C=new Uint8Array(NC);
+const DX=[0,0,-1,1,-1,1,-1,1], DY=[-1,1,0,0,-1,-1,1,1];
+let seed=1, tick=0, stamp=0;
+const rnd=()=>{ seed^=seed<<13; seed^=seed>>>17; seed^=seed<<5; return seed>>>0; };
+const rf=()=>rnd()*2.3283064365386963e-10;
+const made=new Int32Array(NT), poured=new Int32Array(NT), cnt=new Int32Array(NT);
+let KNOWN=new Uint8Array(NT);            // what may be poured right now
+let onFound=null;                       // (type, parentA, parentB) when something new appears
+const st={ blasts:0, gunBlasts:0, firePeak:0, flameRun:0, forest:0, pouredSinceFire:0, firePoured:0 };
+function life(t,src){
+  switch(t){ case FIRE: return FIRELIFE[src]+(rnd()&31); case STEAM: return 260+(rnd()&255); case SMOKE: return 90+(rnd()&127); case FUME: return 380+(rnd()&255);
+    case HYD: return 700+(rnd()&255); case FOAM: return 160+(rnd()&127); case EMBER: return 800+(rnd()&511); case PLANT: return 200; }
+  return 0;
+}
+function make(i,t,a,b){ T[i]=t; L[i]=life(t,a); S[i]=(rnd()&127)|(t===FIRE&&ORGANIC[a]?128:0); C[i]=stamp; made[t]++; if (!KNOWN[t]) { KNOWN[t]=1; if (onFound) onFound(t,a,b); } }
+function swap(i,j){ const t=T[i]; T[i]=T[j]; T[j]=t; const l=L[i]; L[i]=L[j]; L[j]=l; const s=S[i]; S[i]=S[j]; S[j]=s; C[i]=C[j]=stamp; }
+const FLUID=new Uint8Array(NT); for (let t=0;t<NT;t++) FLUID[t]=(KIND[t]===LIQ||KIND[t]===GAS||KIND[t]===FLM)?1:0;
+const fluid=(b)=>FLUID[b]===1;
+function movePow(i,x,y,t){
+  if (y>=H-1) return i;
+  const j=i+W, b=T[j];
+  if (b===0 || (fluid(b) && DENS[b]<DENS[t] && (KIND[b]!==LIQ || rf()<.55))){ swap(i,j); return j; }
+  if (t===MUD && rf()<.75) return i;
+  const d=(rnd()&1)?1:-1;
+  let nx=x+d; if (nx>=0 && nx<W){ const k=j+d, b2=T[k], sd=T[i+d]; if ((b2===0 || (fluid(b2) && DENS[b2]<DENS[t])) && (sd===0 || fluid(sd))){ swap(i,k); return k; } }
+  nx=x-d; if (nx>=0 && nx<W){ const k=j-d, b2=T[k], sd=T[i-d]; if ((b2===0 || (fluid(b2) && DENS[b2]<DENS[t])) && (sd===0 || fluid(sd))){ swap(i,k); return k; } }
+  return i;
+}
+function moveLiq(i,x,y,t){
+  if (VISC[t]<1 && rf()>VISC[t]) return i;
+  if (y<H-1){ const j=i+W, b=T[j];
+    if (b===0 || (fluid(b) && DENS[b]<DENS[t] && (KIND[b]!==LIQ || rf()<.5))){ swap(i,j); return j; }
+    const d=(rnd()&1)?1:-1;
+    let nx=x+d; if (nx>=0 && nx<W && T[j+d]===0){ const sd=T[i+d]; if (sd===0 || KIND[sd]===GAS){ swap(i,j+d); return j+d; } }
+    nx=x-d; if (nx>=0 && nx<W && T[j-d]===0){ const sd=T[i-d]; if (sd===0 || KIND[sd]===GAS){ swap(i,j-d); return j-d; } } }
+  const dir=(rnd()&1)?1:-1; let tgt=-1;
+  for (let d=1; d<=DISP[t]; d++){ const nx=x+dir*d; if (nx<0||nx>=W) break; const k=i+dir*d; if (T[k]===0) tgt=k; else break; }
+  if (tgt>=0){ swap(i,tgt); return tgt; }
+  return i;
+}
+function moveGas(i,x,y,t){
+  if (rf()<.3){ const nx=x+((rnd()&1)?1:-1); if (nx>=0&&nx<W&&T[i+nx-x]===0){ swap(i,i+nx-x); return i+nx-x; } }
+  if (y>0){ const j=i-W, b=T[j];
+    if (b===0 || (KIND[b]===GAS && DENS[b]>DENS[t]) || (KIND[b]===LIQ && rf()<.35)){ swap(i,j); return j; }
+    const d=(rnd()&1)?1:-1;
+    let nx=x+d; if (nx>=0 && nx<W && T[j+d]===0 && T[i+d]===0){ swap(i,j+d); return j+d; }
+    nx=x-d; if (nx>=0 && nx<W && T[j-d]===0 && T[i-d]===0){ swap(i,j-d); return j-d; } }
+  return i;
+}
+function buried(i,x,y){ for (let d=0;d<8;d++){ const nx=x+DX[d], ny=y+DY[d]; if (nx<0||nx>=W||ny<0||ny>=H) continue; const k=KIND[T[ny*W+nx]]; if (k!==POW && k!==SOL) return false; } return true; }
+function near(x,y,t){ for (let d=0;d<8;d++){ const nx=x+DX[d], ny=y+DY[d]; if (nx>=0&&nx<W&&ny>=0&&ny<H&&T[ny*W+nx]===t) return true; } return false; }
+function special(p,t){
+  const x=p%W, y=(p/W)|0;
+  switch(t){
+    case FIRE: {
+      if (L[p]<=1){ if ((S[p]&128) && rf()<.35) make(p,ASH,FIRE,0); else if (rf()<.4) make(p,SMOKE,FIRE,0); else { T[p]=0; } return; }
+      L[p]--;
+      if (y>0 && y<H-1 && T[p+W]===0 && T[p-W]===0 && rf()<.5){ swap(p,p-W); return; }
+      if (y>0 && T[p-W]===0 && rf()<.012) make(p-W,SMOKE,FIRE,0);
+      return; }
+    case STEAM: if (L[p]<=3){ make(p,WATER,STEAM,0); return; } L[p]-= (y===0||T[p-W]!==0)? 3 : 1; return;
+    case SMOKE: case FUME: case HYD: case FOAM: if (L[p]<=1){ T[p]=0; return; } L[p]--; return;
+    case EMBER: if (L[p]<=1){ make(p,ASH,EMBER,0); return; } L[p]--; if (y>0 && T[p-W]===0 && rf()<.01) make(p-W,FIRE,EMBER,0); return;
+    case PLANT: {
+      const h=L[p];
+      if (h>40 && rf()<.02){ const d=[0,4,5][rnd()%3], nx=x+DX[d], ny=y+DY[d]; if (nx>=0&&nx<W&&ny>=0&&T[ny*W+nx]===0){ const j=ny*W+nx; make(j,PLANT,PLANT,0); L[j]=h-30; L[p]=h-10; } }
+      else if (h>0 && (rnd()&31)===0) L[p]=h-1;
+      const r=rf();
+      if (r<.002){ if (y>0 && y<H-1){ const bl=T[p+W], ab=T[p-W]; if ((bl===PLANT||bl===WOOD||bl===EARTH||bl===MUD) && (ab===PLANT||ab===WOOD)) make(p,WOOD,PLANT,0); } }
+      else if (r<.005){ if (buried(p,x,y)) make(p,OIL,PLANT,0); }
+      else if (r<.0065 && h>120 && y>0 && T[p-W]===0) make(p,FLOWER,PLANT,0);
+      return; }
+    case WOOD: if (rf()<.001 && buried(p,x,y)) make(p,COAL,WOOD,0); return;
+    case FLOWER: if (rf()<.002 && y<H-1){ const k=p+W+((rnd()%3)-1); if (k<NC && T[k]===0 && Math.abs(k%W-x)<=1) make(k,SEED,FLOWER,0); } return;
+  }
+}
+const HASSPEC=new Uint8Array(NT); for (const t of [FIRE,STEAM,SMOKE,FUME,HYD,FOAM,EMBER,PLANT,WOOD,FLOWER]) HASSPEC[t]=1;
+function react(p,t){
+  const x=p%W, y=(p/W)|0, d=rnd()&7, nx=x+DX[d], ny=y+DY[d];
+  if (nx<0||nx>=W||ny<0||ny>=H) return;
+  const j=ny*W+nx, b=T[j], k=t*NT+b, pr=RP[k];
+  if (!pr || rf()>=pr) return;
+  const c=RC[k];
+  if (c){ if (c===UPC && d!==0) return; if (c===SULFC && !near(x,y,SULF)) return;
+    if (c===BLAST6||c===BLAST4){ explode(nx,ny,c===BLAST6?7:4, b===GUN); return; } }
+  const r=rnd()&3, oa=RA[k*4+r], ob=RB[k*4+r];
+  if (ob>=0 && ob!==b) make(j,ob,b,t);
+  if (oa>=0 && oa!==t) make(p,oa,t,b);
+  if (c===DRINK) L[p]=255;
+}
+function explode(cx,cy,r,gun){
+  st.blasts++; if (gun) st.gunBlasts++; blastQ.push([cx,cy,r]);
+  for (let dy=-r; dy<=r; dy++) for (let dx=-r; dx<=r; dx++){ const d2=dx*dx+dy*dy; if (d2>r*r) continue; const x=cx+dx, y=cy+dy; if (x<0||x>=W||y<0||y>=H) continue;
+    const j=y*W+x, t=T[j];
+    if (HARD[t]){ if (t===GLASS && d2*4<r*r) make(j,SAND,GLASS,0); continue; }
+    if (t===GUN || t===HYD){ make(j,FIRE,t,0); L[j]=2; continue; }
+    if (t===WATER){ make(j,STEAM,WATER,0); continue; }
+    if (t===0){ const q=rf(); if (q<.5) make(j,FIRE,0,0); else if (q<.75) make(j,SMOKE,FIRE,0); continue; }
+    if (rf()<.45) make(j,FIRE,t,0);
+  }
+}
+const blastQ=[];
+function step(){
+  tick++; stamp=(tick&255)||1;
+  for (let y=H-1; y>=0; y--){
+    const rev=((tick+y)&1)===1, row=y*W;
+    for (let q=0; q<W; q++){
+      const x=rev? W-1-q : q, i=row+x, t=T[i];
+      if (t===0 || C[i]===stamp) continue;
+      C[i]=stamp;
+      const k=KIND[t]; let p=i;
+      if (k===POW) p=movePow(i,x,y,t); else if (k===LIQ) p=moveLiq(i,x,y,t); else if (k===GAS) p=moveGas(i,x,y,t);
+      if (HASSPEC[t]){ special(p,t); if (T[p]!==t) continue; }
+      if (HASRX[t]) react(p,t);
+    }
+  }
+  if ((tick&3)===0) census();
+}
+// counts and the running measures that commissions read
+function census(){
+  cnt.fill(0); for (let i=0;i<NC;i++) cnt[T[i]]++;
+  const f=cnt[FIRE]; st.firePeak=Math.max(st.firePeak,f);
+  st.flameRun = (f>=1 && f<=14)? st.flameRun+4 : 0;
+  const green=cnt[PLANT]+cnt[WOOD]+cnt[FLOWER]+cnt[MOSS];
+  if (f>=80) st.forest = green>=150 && st.forest!==-1 ? 1 : -1;
+}
+function clearTray(){ T.fill(0); L.fill(0); S.fill(0); C.fill(0); made.fill(0); poured.fill(0); cnt.fill(0); Object.assign(st,{blasts:0,gunBlasts:0,firePeak:0,flameRun:0,forest:0,pouredSinceFire:0,firePoured:0}); blastQ.length=0; }
+// pour: fill empty cells in a disc (solids fill solid; others sprinkle). Scrape (type 0) empties.
+function pourAt(t,cx,cy,r){
+  for (let dy=-r; dy<=r; dy++) for (let dx=-r; dx<=r; dx++){ if (dx*dx+dy*dy>r*r+r) continue; const x=cx+dx, y=cy+dy; if (x<0||x>=W||y<0||y>=H) continue; const i=y*W+x;
+    if (t===0){ T[i]=0; continue; }
+    if (T[i]!==0) continue;
+    if (KIND[t]!==SOL && rf()>.42) continue;
+    T[i]=t; L[i]=life(t,t); S[i]=rnd()&127; poured[t]++;
+    if (t===FIRE) st.flameRun=0; if (ORGANIC[t]) st.pouredSinceFire++;
+  }
+}
+function fillRect(t,x0,y0,x1,y1){ for (let y=Math.max(0,y0); y<=Math.min(H-1,y1); y++) for (let x=Math.max(0,x0); x<=Math.min(W-1,x1); x++){ const i=y*W+x; if (t===0||T[i]===0){ T[i]=t; L[i]=t?life(t,t):0; S[i]=rnd()&127; if (t) poured[t]++; if (t===FIRE) st.flameRun=0; if (ORGANIC[t]) st.pouredSinceFire++; } } }
+
+// is a body of liquid held by glass? every drop rests on glass or on the same liquid, and its sides touch only glass or liquid
+function held(liq, wall=GLASS){
+  const seen=new Uint8Array(NC); let best=0; const q=new Int32Array(NC);
+  for (let s=0;s<NC;s++){ if (T[s]!==liq || seen[s]) continue;
+    let h=0,n=0,ok=true; q[n++]=s; seen[s]=1;
+    while (h<n){ const i=q[h++], x=i%W, y=(i/W)|0;
+      for (const [dx,dy] of [[0,1],[-1,0],[1,0],[0,-1]]){ const nx=x+dx, ny=y+dy;
+        if (nx<0||nx>=W||ny>=H){ if (dy>=0) ok=false; continue; } if (ny<0) continue;
+        const j=ny*W+nx, b=T[j];
+        if (b===liq){ if (!seen[j]){ seen[j]=1; q[n++]=j; } continue; }
+        if (dy===-1) continue;
+        if (b!==wall) ok=false; } }
+    if (ok) best=Math.max(best,n); }
+  return best;
+}
+function peakOf(types){ for (let y=0;y<H;y++) for (let x=0;x<W;x++) if (types.includes(T[y*W+x])) return H-y; return 0; }
+function lavaHigh(rowLimit){ let n=0; for (let i=0;i<rowLimit*W;i++) if (T[i]===LAVA) n++; return n; }
+
+// ===================== Commissions: each one a measurable state of the tray =====================
+const COMMS=[
+ {id:'mud', n:'Mud for the floor', g:'Make 80 mud from earth and water.', needs:[EARTH,WATER], f:()=>[made[MUD],80]},
+ {id:'steam', n:'A window of steam', g:'Have 60 steam in the air at once.', needs:[WATER,FIRE], f:()=>[poured[STEAM]?0:cnt[STEAM],60]},
+ {id:'glass', n:'Glassblower\'s apprentice', g:'Make 40 glass.', needs:[SAND,FIRE], f:()=>[made[GLASS],40]},
+ {id:'sprout', n:'First sprout', g:'Grow 150 plant without pouring any.', needs:[EARTH,WATER], f:()=>[poured[PLANT]?0:cnt[PLANT],150]},
+ {id:'vessel', n:'A vessel that holds water', g:'Hold 40 water in glass: no drop may touch anything else.', needs:[GLASS,WATER], f:()=>[held(WATER),40]},
+ {id:'brick', n:'Brickworks', g:'Fire 100 brick.', needs:[MUD,FIRE], f:()=>[made[BRICK],100]},
+ {id:'charcoal', n:'The charcoal burner', g:'Make 30 charcoal.', needs:[WOOD,FIRE], f:()=>[made[CHAR],30]},
+ {id:'tartar', n:'Salt of tartar', g:'Boil 30 salt out of lye or brine.', needs:[ASH,WATER,FIRE], f:()=>[made[SALT],30]},
+ {id:'forest', n:'A forest that survives a fire', g:'Keep 150 green alive through a fire of 80 flames, then let it burn out.', needs:[PLANT,FIRE], f:()=>{ const g=cnt[PLANT]+cnt[WOOD]+cnt[FLOWER]+cnt[MOSS]; return [st.forest===1 && cnt[FIRE]===0 ? g : (st.forest===1? Math.min(g,149) : 0),150]; }},
+ {id:'lava', n:'Melt the earth', g:'Make 60 lava with embers (no lava poured).', needs:[EMBER,EARTH], f:()=>[poured[LAVA]?0:made[LAVA],60]},
+ {id:'obsidian', n:'Obsidian, no lava spent', g:'Make 50 obsidian without pouring lava.', needs:[EMBER,EARTH,WATER], f:()=>[poured[LAVA]?0:made[OBS],50]},
+ {id:'candle', n:'A candle', g:'Keep a small flame (1–14 fire) alight for 30 seconds without adding fire.', needs:[WAX,FIRE], f:()=>[Math.floor(st.flameRun/60),30]},
+ {id:'volcano', n:'Build a volcano', g:'Lava on a stone peak at least 150 tall: 40 lava above the halfway line.', needs:[STONE,LAVA], f:()=>[peakOf([STONE,OBS])>=150? lavaHigh(H/2) : 0,40]},
+ {id:'iron', n:'The bloomery', g:'Win 25 iron from molten earth and charcoal.', needs:[CHAR,EARTH,EMBER], f:()=>[poured[IRON]?0:made[IRON],25]},
+ {id:'rust', n:'Rust never sleeps', g:'Make 40 rust.', needs:[IRON,WATER], f:()=>[made[RUST],40]},
+ {id:'froth', n:'The soap-boiler\'s froth', g:'Have 60 froth at once.', needs:[OIL,LYE,WATER], f:()=>[cnt[FOAM],60]},
+ {id:'attar', n:'Attar of roses', g:'Distil 25 essence from flowers.', needs:[FLOWER,WATER,FIRE], f:()=>[made[ESS],25]},
+ {id:'snow', n:'Snow in summer', g:'Have 50 snow in the tray at once (none poured).', needs:[NITRE,WATER,FIRE], f:()=>[poured[SNOW]?0:cnt[SNOW],50]},
+ {id:'acid', n:'Vitriol kept in glass', g:'Hold 30 oil of vitriol in glass.', needs:[VIT,GLASS], f:()=>[held(VIT),30]},
+ {id:'air', n:'Inflammable air', g:'Have 50 inflammable air at once.', needs:[IRON,VIT], f:()=>[cnt[HYD],50]},
+ {id:'plot', n:'The gunpowder plot', g:'Set off 3 blasts of gunpowder you made yourself.', needs:[NITRE,CHAR,SULF,FIRE], f:()=>[poured[GUN]?0:st.gunBlasts,3]},
+ {id:'fool', n:'Fool\'s gold', g:'Make 40 fool\'s gold.', needs:[IRON,SULF], f:()=>[made[PYR],40]},
+];
+const comById=Object.fromEntries(COMMS.map(c=>[c.id,c]));
+function progressOf(c){ census(); const [v,need]=c.f(); return [Math.min(v,need),need]; }
+
+// ===================== Save =====================
+const today=()=>new Date().toISOString().slice(0,10);
+const START=[SAND,WATER,FIRE,EARTH];
+let SAVE=cleanSave(RH.load('alembic',null));
+function cleanSave(s){
+  const o={v:1, codex:{}, done:{}, daily:{}, cur:'mud'};
+  if (!s || typeof s!=='object') return o;
+  if (s.codex && typeof s.codex==='object') for (const [k,v] of Object.entries(s.codex)) if (ID[k]>0 && Array.isArray(v)) o.codex[k]=[String(v[0]||'').slice(0,10), ID[v[1]]>=0?v[1]:'', ID[v[2]]>=0?v[2]:''];
+  if (s.done && typeof s.done==='object') for (const [k,v] of Object.entries(s.done)) if (comById[k]) o.done[k]=String(v).slice(0,10);
+  if (s.daily && typeof s.daily==='object') for (const [k,v] of Object.entries(s.daily).slice(-60)) if (/^\d{4}-\d\d-\d\d$|^mix:/.test(k) && Number.isFinite(+v)) o.daily[k.slice(0,40)]=Math.max(0,Math.min(99,+v|0));
+  if (comById[s.cur]) o.cur=s.cur;
+  return o;
+}
+const persist=()=>RH.save('alembic',SAVE);
+const knownGlobal=()=>{ const k=new Uint8Array(NT); for (const t of START) k[t]=1; for (const key in SAVE.codex) k[ID[key]]=1; return k; };
+
+// ===================== Daily trays: four vials, how many substances can you make? =====================
+function closure(pal){
+  const have=new Uint8Array(NT); have[0]=1; for (const t of pal) have[t]=1;
+  for (let changed=true; changed;){ changed=false;
+    for (const [a,b,oa,ob] of RULES){ if (!have[a]||!have[b]) continue; for (const o of [].concat(oa,ob)) if (o>0 && !have[o]){ have[o]=1; changed=true; } }
+    for (const [a,o] of SPECIAL) if (have[a] && !have[o]){ have[o]=1; changed=true; }
+    if (have[FIRE]&&!have[SMOKE]){ have[SMOKE]=1; changed=true; } }
+  have[0]=0; return have;
+}
+const POOL=[SAND,WATER,FIRE,EARTH,PLANT,OIL,SALT,STONE,ASH,IRON,SULF,NITRE,ICE,CHAR,MUD,LYE,WAX,SEED];
+function dailyFor(key){
+  const r=RH.rng('alembic:'+key);
+  for (let tries=0; tries<200; tries++){
+    const pal=r.shuffle(POOL.slice()).slice(0,4); const cl=closure(pal); let n=0; for (let t=1;t<NT;t++) if (cl[t] && !pal.includes(t)) n++;
+    if (n>=9 && n<=30) return {key, pal, possible:n, seed:RH.hashStr('tray:'+key)|1};
+  }
+  return {key, pal:START.slice(), possible:0, seed:7};
+}
+
+// ===================== Modes =====================
+let mode='work', com=null, daily=null, sel=SAND, paused=false, dailyMade=new Set();
+function setKnown(k){ KNOWN=k; renderVials(); }
+function startCommission(id){
+  com=comById[id]||COMMS[0]; mode='work'; daily=null; SAVE.cur=com.id; persist();
+  clearTray(); seed=RH.hashStr('com:'+com.id)|1; setKnown(knownGlobal()); if (!KNOWN[sel]) sel=com.needs.find(t=>KNOWN[t])||SAND; renderVials(); updGoal(true);
+}
+function startDaily(key){
+  mode='daily'; com=null; daily=dailyFor(key); clearTray(); seed=daily.seed; dailyMade=new Set();
+  const k=new Uint8Array(NT); for (const t of daily.pal) k[t]=1; setKnown(k); sel=daily.pal[0]; renderVials(); updGoal(true);
+}
+function startSandbox(cells){
+  mode='sandbox'; com=null; daily=null; clearTray(); seed=RH.hashStr('sandbox')|1; if (cells) decodeTray(cells); setKnown(knownGlobal()); renderVials(); updGoal(true);
+}
+function dailyScore(){ return dailyMade.size; }
+
+// discovery: a new substance appears in the tray
+onFound=(t,a,b)=>{
+  const key=ELS[t][0]; const firstEver=!SAVE.codex[key] && !START.includes(t);
+  if (mode==='daily' && !daily.pal.includes(t)) dailyMade.add(t);
+  if (firstEver){ SAVE.codex[key]=[today(), ELS[a]?ELS[a][0]:'', ELS[b]&&b?ELS[b][0]:'']; persist(); }
+  fresh.add(t); foundQ.push([t,a,b,firstEver]);
+};
+const fresh=new Set(), foundQ=[];
+function recipeText(t,a,b){ const A=ELS[a]&&a?ELS[a][1].toLowerCase():'', B=ELS[b]&&b?ELS[b][1].toLowerCase():''; return A&&B? `${A} + ${B}` : A? `from ${A}` : 'by itself'; }
+
+// ===================== Drawing: typed array into ImageData, one putImageData per frame =====================
+const cv=document.getElementById('tray'), ctx=cv.getContext('2d',{alpha:false});
+const img=ctx.createImageData(W,H), PIX=new Uint32Array(img.data.buffer);
+const PAL=new Uint32Array(NT*8), BG=new Uint32Array(NC);
+const rgb=(h)=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+const pack=(r,g,b)=>(255<<24)|(b<<16)|(g<<8)|r;
+ELS.forEach((e,t)=>{ for (let v=0;v<8;v++){ const [r,g,b]=rgb(e[4][v%e[4].length]); const j=((v*37)%9)-4; PAL[t*8+v]=pack(Math.max(0,Math.min(255,r+j)),Math.max(0,Math.min(255,g+j)),Math.max(0,Math.min(255,b+j))); } });
+(function vellum(){ const r=RH.rng(9);
+  for (let y=0;y<H;y++) for (let x=0;x<W;x++){ const n=(r()-.5)*10, edge=Math.min(x,y,W-1-x,H-1-y), dark=edge<10?(10-edge)*1.6:0, rule=(y%12===0 && x>6 && x<W-6)?10:0;
+    BG[y*W+x]=pack(Math.max(0,234+n-dark-rule)|0, Math.max(0,220+n-dark-rule*.9)|0, Math.max(0,188+n-dark-rule*.6)|0); } })();
+function render(){
+  for (let i=0;i<NC;i++){ const t=T[i]; PIX[i]= t===0? BG[i] : PAL[t*8+((FLICKER[t]? S[i]+(tick>>2) : S[i])&7)]; }
+  ctx.putImageData(img,0,0);
+}
+
+// ===================== UI =====================
+const $=(id)=>document.getElementById(id);
+function renderVials(){
+  const v=$('vials'); const list=[0]; for (let t=1;t<NT;t++) if (KNOWN[t]) list.push(t);
+  v.innerHTML=list.map(t=> t===0? `<button class="vial scrape${sel===0?' on':''}" data-t="0" title="Scrape: empty cells"><i class="fl"></i><span>scrape</span></button>`
+    : `<button class="vial${sel===t?' on':''}${fresh.has(t)?' fresh':''}" data-t="${t}" title="${ELS[t][1]}" style="--c:${ELS[t][4][0]}"><i class="fl"></i><span>${ELS[t][1].replace('Oil of vitriol','Vitriol').replace('Inflammable air','Infl. air').replace('Brimstone fume','Fume').replace('Green vitriol','Copperas')}</span></button>`).join('');
+}
+$('vials').addEventListener('click', e=>{ const b=e.target.closest('.vial'); if (!b) return; sel=+b.dataset.t; fresh.delete(sel); renderVials(); FX.sfx('tick'); });
+let lastGoal='';
+function updGoal(force){
+  let txt='', pg='';
+  if (mode==='work' && com){ const n=COMMS.indexOf(com)+1; const [v,need]=progressOf(com);
+    txt=`<span class="cap">${roman(n)}</span> <b>${com.n}.</b> ${com.g}`; pg=SAVE.done[com.id]? 'sealed ✓' : `${v} / ${need}`; }
+  else if (mode==='daily'){ txt=`<span class="cap">☉</span> <b>Daily tray ${daily.key.replace('mix:','· ')}.</b> From ${daily.pal.map(t=>ELS[t][1].toLowerCase()).join(', ')}: make as many new substances as you can.`; pg=`${dailyScore()} / ${daily.possible}`; }
+  else { txt=`<span class="cap">✠</span> <b>Sandbox.</b> <i>Every vial you have found. Share the tray from the Book.</i>`; pg=''; }
+  const key=txt+pg; if (!force && key===lastGoal) return; lastGoal=key;
+  $('goal').querySelector('.txt').innerHTML=txt; $('goal').querySelector('.pg').textContent=pg;
+}
+const roman=(n)=>['','I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX','XXI','XXII','XXIII'][n]||String(n);
+function checkWin(){
+  if (mode==='daily'){ const k=daily.key, s=dailyScore(); if (s>(SAVE.daily[k]||0)){ SAVE.daily[k]=s; persist(); } return; }
+  if (mode!=='work' || !com || SAVE.done[com.id]) return;
+  const [v,need]=progressOf(com); if (v<need) return;
+  SAVE.done[com.id]=today(); persist(); FX.sfx('win'); const s=$('seal'); s.classList.remove('on'); void s.offsetWidth; s.classList.add('on');
+  RH.progress('alembic', Object.keys(SAVE.done).length/COMMS.length);
+  setTimeout(()=>{ const nx=nextCommission(); RH.toast(nx? `Sealed: <b>${com.n}</b>. Next in the Book: ${nx.n}.` : `Sealed: <b>${com.n}</b>.`, 4200); }, 1200);
+}
+function available(c){ const k=knownGlobal(); return c.needs.every(t=>k[t]); }
+function nextCommission(){ return COMMS.find(c=>!SAVE.done[c.id] && available(c)); }
+
+// pouring by dragging
+let pointer=null, lastCell=null;
+const cellAt=(e)=>{ const r=cv.getBoundingClientRect(); return [Math.floor((e.clientX-r.left)/r.width*W), Math.floor((e.clientY-r.top)/r.height*H)]; };
+cv.addEventListener('pointerdown', e=>{ e.preventDefault(); try{ cv.setPointerCapture(e.pointerId); }catch(_){} pointer=cellAt(e); lastCell=null; FX.sfx('pop'); });
+cv.addEventListener('pointermove', e=>{ if (pointer) pointer=cellAt(e); });
+const up=()=>{ pointer=null; lastCell=null; };
+window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up); window.addEventListener('blur', up);
+function pourFrame(){
+  if (!pointer || (sel!==0 && !KNOWN[sel])) return;
+  const r= sel===0? 4 : KIND[sel]===SOL? 2 : 4;
+  const [x1,y1]=pointer, [x0,y0]=lastCell||pointer; const n=Math.max(1,Math.ceil(Math.hypot(x1-x0,y1-y0)/2));
+  for (let k=1;k<=n;k++) pourAt(sel, Math.round(x0+(x1-x0)*k/n), Math.round(y0+(y1-y0)*k/n), r);
+  lastCell=pointer;
+}
+$('pauseBtn').onclick=()=>{ paused=!paused; $('pauseBtn').textContent=paused?'Run':'Pause'; };
+$('clearBtn').onclick=()=>{ const keep={...poured}; clearTray(); FX.sfx('whoosh'); updGoal(true); };
+window.addEventListener('keydown', e=>{ if (e.target.tagName==='INPUT') return; if (e.code==='Space'){ e.preventDefault(); $('pauseBtn').click(); } if (e.key==='Escape') closeBook(); });
+
+// the tray keeps a 2:3 page; it fills whatever room the desk leaves
+function fitTray(){
+  const wrap=$('trayWrap').getBoundingClientRect(); const pad=20; const s=Math.max(.5, Math.min((wrap.width-pad)/W, (wrap.height-pad)/H));
+  cv.style.width=Math.floor(W*s)+'px'; cv.style.height=Math.floor(H*s)+'px';
+}
+addEventListener('resize', fitTray);
+
+// ===================== The Book =====================
+let tab='comms';
+function openBook(t){ tab=t||tab; $('book').classList.add('on'); drawBook(); }
+function closeBook(){ $('book').classList.remove('on'); }
+$('bookBtn').onclick=()=>openBook();
+$('book').addEventListener('click', e=>{ if (e.target.id==='book') closeBook(); });
+function drawBook(){
+  const kg=knownGlobal(); let nk=0; for (let t=1;t<NT;t++) nk+=kg[t];
+  let h=`<div style="display:flex;align-items:center;gap:8px"><h2 style="flex:1">The Book</h2><button id="bkClose">Close</button></div>
+    <div id="tabs">${[['comms','Commissions'],['codex','Codex · '+nk+'/'+(NT-1)],['daily','Daily tray'],['sandbox','Sandbox']].map(([k,n])=>`<button data-tab="${k}" class="${tab===k?'on':''}">${n}</button>`).join('')}</div>`;
+  if (tab==='comms'){
+    h+=`<p class="note">Each commission is a state of the tray to reach. New ones open as you find the substances they need. ${Object.keys(SAVE.done).length} of ${COMMS.length} sealed.</p>`;
+    COMMS.forEach((c,i)=>{ const av=available(c), dn=SAVE.done[c.id];
+      h+=`<div class="com${av?'':' locked'}${dn?' done':''}"><div class="n">${roman(i+1)}</div><div><b>${c.n}.</b> ${av? c.g : '<span class="need">Needs '+c.needs.map(t=>kg[t]?ELS[t][1].toLowerCase():'<i>an unknown substance</i>').join(', ')+'.</span>'}
+        ${dn?`<div class="st">Sealed ${dn}</div>`:''}</div><div>${av?`<button data-com="${c.id}">${dn?'Again':'Begin'}</button>`:''}</div></div>`; });
+  } else if (tab==='codex'){
+    const reach=closure(START.concat(Object.keys(SAVE.codex).map(k=>ID[k]))); let can=0, hunch=null;
+    for (let t=1;t<NT;t++) if (!kg[t] && reach[t]){ can++; if (!hunch){ const r=RULES.find(([a,b,oa,ob])=>kg[a]&&(b===0||kg[b])&&[].concat(oa,ob).includes(t)); const sp=SPECIAL.find(([a,o])=>o===t&&kg[a]); hunch= r? `try ${ELS[r[0]][1].toLowerCase()} with ${r[1]? ELS[r[1]][1].toLowerCase() : 'open air'}` : sp? `watch ${ELS[sp[0]][1].toLowerCase()}: ${sp[2]}` : null; } }
+    h+=`<p class="note">${nk} of ${NT-1} substances found. ${can? `${can} more can be made from what you have${hunch? `. A hunch: ${hunch}.`:'.'}` : 'Find more and the rest will follow.'}</p><div class="cx">`;
+    for (let t=1;t<NT;t++){ const key=ELS[t][0], c=SAVE.codex[key];
+      if (kg[t]) h+=`<div class="el"><i class="sw" style="background:${ELS[t][4][0]}"></i><div><b>${ELS[t][1]}</b>${c?` <small>first made by you ${c[0]}${c[1]?', '+recipeText(ID[c[1]],ID[c[2]]||0):''}</small>`:' <small>in the first four vials</small>'}<small>${ELS[t][5]}</small></div></div>`;
+      else h+=`<div class="el unk"><i class="sw"></i><div><b>???</b><small>${reach[t]?'within reach':'not yet within reach'}</small></div></div>`; }
+    h+='</div>';
+  } else if (tab==='daily'){
+    const d=dailyFor(today());
+    h+=`<p class="note">One tray a day, the same for everyone: four vials and nothing else. Anything you make in it becomes pourable there. Score: how many new substances you make. Today's vials: <b>${d.pal.map(t=>ELS[t][1]).join(', ')}</b>; ${d.possible} are possible.</p>
+      <p>Your best today: <b>${SAVE.daily[d.key]||0}</b>. <button data-daily="${d.key}">Open today's tray</button></p>
+      <p class="note">A tray of your own: any word makes a seed. <input id="mixIn" maxlength="24" placeholder="a word" style="font:16px 'EB Garamond';padding:5px;width:140px"> <button id="mixBtn">Open</button></p>`;
+    const past=Object.entries(SAVE.daily).filter(([k])=>!k.startsWith('mix:')).slice(-7).reverse();
+    if (past.length) h+=`<h3>Past days</h3><p>${past.map(([k,v])=>`${k}: ${v}`).join(' · ')}</p>`;
+  } else {
+    h+=`<p class="note">Every vial you have found, no goal. Build, burn and flood as you like, then send the tray to someone: the link carries every grain.</p>
+      <p><button data-sandbox="1">Open the sandbox</button> <button id="shareBtn"${mode==='sandbox'?'':' disabled'}>Copy a link to this tray</button></p><p class="note" id="shareOut"></p>`;
+  }
+  $('leaf').innerHTML=h;
+}
+$('leaf').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if (!b) return;
+  if (b.id==='bkClose') return closeBook();
+  if (b.dataset.tab){ tab=b.dataset.tab; drawBook(); return; }
+  if (b.dataset.com){ startCommission(b.dataset.com); history.replaceState(null,'',location.pathname); closeBook(); return; }
+  if (b.dataset.daily){ startDaily(b.dataset.daily); history.replaceState(null,'',location.pathname+'#daily='+b.dataset.daily); closeBook(); return; }
+  if (b.id==='mixBtn'){ const w=($('mixIn').value||'').trim().toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,24)||'aqua'; startDaily('mix:'+w); history.replaceState(null,'',location.pathname+'#mix='+w); closeBook(); return; }
+  if (b.dataset.sandbox){ startSandbox(); history.replaceState(null,'',location.pathname); closeBook(); return; }
+  if (b.id==='shareBtn'){ const url=location.origin+location.pathname+'#tray='+encodeTray(); history.replaceState(null,'',url); try{ navigator.clipboard.writeText(url); }catch(_){}
+    $('shareOut').textContent=`Link copied (${(url.length/1024).toFixed(1)} KB). It is also in the address bar.`; }
+});
+
+// trays as links: run-length coded types, base64url
+function encodeTray(){
+  const out=[]; let i=0;
+  while (i<NC){ const t=T[i]; let n=1; while (i+n<NC && T[i+n]===t && n<16383) n++; out.push(t); if (n<128) out.push(n); else out.push(128|(n>>8), n&255); i+=n; }
+  let s=''; const u=new Uint8Array(out); for (let k=0;k<u.length;k+=8192) s+=String.fromCharCode.apply(null,u.subarray(k,k+8192));
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function decodeTray(str){
+  try { const b=atob(str.replace(/-/g,'+').replace(/_/g,'/')); let i=0,k=0;
+    while (k<b.length && i<NC){ const t=b.charCodeAt(k++); let n=b.charCodeAt(k++); if (n&128) n=((n&127)<<8)|b.charCodeAt(k++); if (!(t<NT)) return false; for (let m=0;m<n&&i<NC;m++,i++){ T[i]=t; L[i]=life(t,t); S[i]=rnd()&127; } }
+    for (let t=1;t<NT;t++) if (cnt[t]) {} return true;
+  } catch(e){ return false; }
+}
+
+// ===================== Main loop =====================
+let lastFrame=performance.now(), slow=0;
+function frame(now){
+  requestAnimationFrame(frame);
+  if (!$('book').classList.contains('on') && !paused){ pourFrame(); step(); }
+  render(); lastFrame=now;
+  while (foundQ.length){ const [t,a,b,first]=foundQ.shift(); RH.toast(`${first?'First made by you':'New here'}: <b>${ELS[t][1]}</b> <i>(${recipeText(t,a,b)})</i>`, 3200); FX.sfx('chime', t); renderVials(); }
+  while (blastQ.length){ blastQ.shift(); FX.sfx('boom'); FX.shake(.25); }
+  if ((tick%15)===0){ updGoal(); checkWin(); }
+}
+
+// ===================== Start =====================
+function boot(){
+  fitTray(); const h=decodeURIComponent(location.hash.slice(1));
+  if (h.startsWith('tray=')) startSandbox(h.slice(5));
+  else if (h==='daily') startDaily(today());
+  else if (h.startsWith('daily=') && /^\d{4}-\d\d-\d\d$/.test(h.slice(6))) startDaily(h.slice(6));
+  else if (h.startsWith('mix=')) startDaily('mix:'+h.slice(4).replace(/[^a-z0-9-]/gi,'').slice(0,24).toLowerCase());
+  else startCommission(SAVE.done[SAVE.cur] ? (nextCommission()||comById[SAVE.cur]).id : SAVE.cur);
+  requestAnimationFrame(()=>{ fitTray(); requestAnimationFrame(frame); });
+  if (!Object.keys(SAVE.codex).length && !Object.keys(SAVE.done).length && !h)
+    RH.modal(`<h2>Alembic</h2><p>Four vials: sand, water, fire and earth. <b>Pick a vial, then drag on the tray to pour.</b></p><p>Things that touch can change each other. Whatever appears in the tray goes into a new vial, and into your codex.</p><p>The line above the tray is your commission.</p>`,[{label:'Begin'}]);
+}
+window.__alembic={ W,H,NT,ELS,ID,T,L,S,RULES,COMMS,st,made,poured,cnt,
+  get seed(){ return seed; }, set seed(v){ seed=(v|0)||1; }, get tick(){ return tick; }, get KNOWN(){ return KNOWN; }, get mode(){ return mode; }, get com(){ return com; }, get daily(){ return daily; }, get SAVE(){ return SAVE; }, get sel(){ return sel; }, set sel(v){ sel=v; },
+  set paused(v){ paused=v; }, step, run(n){ for (let k=0;k<n;k++) step(); census(); }, clearTray, pourAt, fillRect, held, peakOf, census, progressOf, render, closure, dailyFor, dailyScore, cleanSave, encodeTray, decodeTray,
+  startCommission, startDaily, startSandbox, checkWin, knownGlobal, explode, comById, fitTray, nextCommission };
+boot();
+</script>
+</body>
+</html>
