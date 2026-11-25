@@ -309,20 +309,26 @@ function netWorth(){ let w=C.gold + C.camels*25; const c=cities[C.at]; for (let 
 
 // ===================== Travel =====================
 const riskOf=legs=>1-legs.reduce((s,l)=>s*(1-banditChance(l.r)),1);
-function planTo(to){ if (to===C.at){ plan=null; renderTravel(); return; } const p=shortest(C.at,to); if (!p){ plan={to, none:true}; renderTravel(); return; }
-  const s=shortest(C.at,to,true); plan={to, ...p, safe: s && riskOf(p.legs)>0.005 && s.legs.map(l=>routes.indexOf(l.r)).join()!==p.legs.map(l=>routes.indexOf(l.r)).join()? s : null}; renderTravel(); }
+function planTo(to){ if (to===C.at){ plan=null; renderTravel(); return; } if (!shortest(C.at,to)){ plan={to, none:true}; renderTravel(); return; }
+  const r=route(to); plan={to, ...r.path, detour:r.detour, fast:r.fast}; renderTravel(); }
+// The caravan master picks the road: through bandit country only when what you carry is worth less than the days a detour costs.
+// (Tested as a player choice, a fast/safe toggle changed a strong trader's fortune by under 6%: not a decision worth asking for.)
+function route(to){ const f=shortest(C.at,to); if (!f) return {path:null}; const s=shortest(C.at,to,true), risk=riskOf(f.legs);
+  if (!s || risk<0.005 || s.days===f.days) return {path:f};
+  const cargo=C.cargo.reduce((a,q,g)=>a+q*cities[C.at].price[g],0), perDay=Math.max(5,netWorth()*0.004);
+  return risk*0.5*cargo > (s.days-f.days)*perDay ? {path:s, detour:s.days-f.days, fast:f} : {path:f}; }
 function renderTravel(){
   const box=document.getElementById('travelBox'); if (!plan){ box.style.display='none'; return; } box.style.display='block';
   const c=cities[plan.to];
   if (plan.none){ box.innerHTML=`<b>${c.name}</b><br>No open route.`; return; }
   const risk=riskOf(plan.legs), info=C.book[plan.to]?`<span class="age">Price news is ${C.day-C.book[plan.to].day} days old</span>`:'<span class="age">You know nothing of its markets.</span>';
-  box.innerHTML=`<b>${c.name}</b>${c.closed?' <span class="dn">(gates shut)</span>':''}<br>${info}<div class="roads"><button class="primary" id="goFast">${plan.safe?'Fast road':'Set out'}: ${plan.days} days${risk>0.005?` · bandits ${Math.round(risk*100)}%`:' · safe'}</button>${plan.safe?`<button class="primary" id="goSafe">Safe road: ${plan.safe.days} days</button>`:''}<button id="cancelBtn">Cancel</button></div>${risk>0.005?`<span class="small dim">Bandits take half the cargo (never your purse): the more you carry, the more the safe road is worth.</span>`:''}`;
-  document.getElementById('goFast').onclick=()=>travel(); document.getElementById('goSafe')?.addEventListener('click',()=>travel(true)); document.getElementById('cancelBtn').onclick=()=>{ plan=null; renderTravel(); };
+  box.innerHTML=`<b>${c.name}</b>${c.closed?' <span class="dn">(gates shut)</span>':''}<br>${plan.days} days${risk>0.005?` · <span class="dn">bandits ${Math.round(risk*100)}%</span>`:''}${plan.detour?`<br><span class="small">Your caravan master takes the long way round (+${plan.detour} days): the short road crosses bandit country and you carry too much to risk it.</span>`:risk>0.005?`<br><span class="small">Through bandit country: if robbed, you lose half the cargo. Your load is light enough to chance it.</span>`:''}<br>${info}<div class="roads"><button class="primary" id="goBtn">Set out</button><button id="cancelBtn">Cancel</button></div>`;
+  document.getElementById('goBtn').onclick=()=>travel(); document.getElementById('cancelBtn').onclick=()=>{ plan=null; renderTravel(); };
 }
 function banditChance(r){ return r.danger; }
 function rob(){ for (let g=0;g<GOODS.length;g++) C.cargo[g]=Math.floor(C.cargo[g]*0.5); }
-function travel(safe){
-  if (!plan||plan.none) return; const legs=(safe&&plan.safe? plan.safe.legs : plan.legs).slice(); plan=null; renderTravel();
+function travel(){
+  if (!plan||plan.none) return; const legs=plan.legs.slice(); plan=null; renderTravel();
   traveling={legs, leg:0, t:0, from:C.at}; sfx('bell');
 }
 // ===================== Encounters on the road =====================
@@ -369,8 +375,8 @@ function stepTravel(dt){
     renderAll(); persist();
   }
 }
-function travelNow(to, safe){
-  const p=(safe&&shortest(C.at,to,true))||shortest(C.at,to); if (!p) return false;
+function travelNow(to){
+  const p=route(to).path; if (!p) return false;
   for (const l of p.legs){ for (let d=0; d<l.r.days; d++){ tick(); deliverNews(); processPigeons(); if (C.day>=CAREER_DAYS) return 'end'; }
     const nx=l.r.a===C.at? l.r.b : l.r.a;
     if (rng()<banditChance(l.r)) rob();

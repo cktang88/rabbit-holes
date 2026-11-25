@@ -158,7 +158,7 @@ module.exports = {
       ok(hit[2] > 0 && Math.hypot(hit[0] - want[0], hit[1] - want[1]) < 1.5, 'painted under the cursor: ' + JSON.stringify({ hit, want, z }));
       const p = await page.evaluate(async () => { const A = window.__ant, cv = document.getElementById('cv'); A.scent.forage.fill(0); A.cam.fit(); const k0 = A.cam.k;
         const ev = (t, id, x, y, tgt = cv) => tgt.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch', isPrimary: id === 1 }));
-        ev('pointerdown', 1, 300, 300); ev('pointerdown', 2, 360, 300); ev('pointermove', 1, 260, 300); ev('pointermove', 2, 400, 300); await new Promise(r => setTimeout(r, 90)); ev('pointermove', 1, 250, 300); ev('pointerup', 1, 250, 300, window); ev('pointerup', 2, 400, 300, window);
+        ev('pointerdown', 1, 300, 300); ev('pointerdown', 2, 360, 300); ev('pointermove', 1, 260, 300); ev('pointermove', 2, 400, 300); await new Promise(r => setTimeout(r, 90)); ev('pointermove', 1, 250, 300); ev('pointerup', 1, 250, 300); ev('pointerup', 2, 400, 300);
         let n = 0; for (const v of A.scent.forage) if (v > 0) n++; const zoomed = A.cam.k / k0;
         document.querySelector('.pz-fit').click(); await new Promise(r => setTimeout(r, 400)); const rc = cv.getBoundingClientRect(), a = A.toScreen(0, 0), b = A.toScreen(A.W, A.H);
         return { painted: n, zoomed, fit: [Math.min(a[0], b[0]) >= rc.left - 1, Math.min(a[1], b[1]) >= rc.top - 1, Math.max(a[0], b[0]) <= rc.right + 1, Math.max(a[1], b[1]) <= rc.bottom + 1] }; });
@@ -174,7 +174,7 @@ module.exports = {
     'no map is unwinnable: encoded strategies win the hardest maps (Spider Season, Two Fronts, First Frost, Siege, The Long Winter), where idle play fails': async ({ page, ok }) => {
       await page.addScriptTag({ content: BOT });
       // strategy = trail strength / evaporation / wandering / % soldiers hatched [/ 0 = no scout trails]
-      const plan = { 9: 'chem:200/40/20/60/0', 13: 'chem:150/40/20/80', 15: 'chem:150/90/50/0', 17: 'chem:200/40/20/80', 19: 'chem:150/80/50/40' };
+      const plan = { 9: 'chem:200/40/20/60/0', 13: 'chem:150/40/20/80', 15: 'chem:150/90/50/0', 17: 'chem:150/40/20/80', 19: 'chem:150/80/50/40' };
       const r = await page.evaluate((plan) => { const out = []; for (const [mi, pol] of Object.entries(plan)) { window.__ant.SAVE.stars = {}; const w = window.__antbot(+mi, pol); window.__ant.SAVE.stars = {}; const idle = window.__antbot(+mi, 'idle'); out.push([+mi, w.won, idle.won && idle.stars > 1]); } return out; }, plan);
       for (const [mi, won, idleGood] of r) { ok(won, `map ${mi + 1}: the encoded strategy should win`); ok(!idleGood, `map ${mi + 1}: idle play should not win well`); }
     },

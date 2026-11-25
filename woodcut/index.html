@@ -44,6 +44,7 @@
   .pz-bar button{min-width:36px!important;min-height:36px!important;border:0;border-radius:2px;color:var(--sumi);font:600 18px Fraunces,Georgia,serif!important;opacity:.95!important;cursor:pointer;
     background:linear-gradient(var(--washi),var(--washi2));box-shadow:inset 0 0 0 1.5px var(--ver),0 3px 8px -3px rgba(0,0,0,.7)}
   .pz-bar button:hover{opacity:1!important}
+  @media (max-width:899px){.pz-bar{top:auto!important;bottom:calc(var(--trayH,190px) + 8px)!important}} /* phones: the zoom buttons sit above the tray, clear of the level card */
   .tb{border:0;color:var(--ink);font:600 13px Spectral,Georgia,serif;border-radius:2px;padding:6px 10px;cursor:pointer;display:flex;gap:6px;align-items:center;white-space:nowrap;
     background:linear-gradient(#f4ecda,#e2d3b4);box-shadow:0 2px 0 #2b190c,inset 0 0 0 1px rgba(42,29,18,.25)}
   .tb:hover{background:linear-gradient(#fbf5e6,#ebdfc4)}
@@ -131,6 +132,7 @@
     #toast{width:min(380px,52vw);left:auto;right:8px;transform:none}
     #toast.on{transform:none}
   }
+  #toast .hist{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px} #toast .hist>span{flex:1 1 180px;min-width:0} #toast .hist svg{max-width:100%;display:block}
 </style>
 </head>
 <body>
@@ -356,6 +358,61 @@ const RACK = [I('Cream white', '#f5eedb'), I('Yellow', '#f1d24c', 't'), I('Coral
 LV.push({ n: 'Free Studio', studio: true, paper: CREAM, inks: RACK, story: 'No commission. Carve freely, reuse any ink, and tap a selected ink again to switch it between <b>opaque</b> and <b>transparent</b>. Use <b>Prompt</b> for a random subject.', fact: 'Signed and added to your gallery.', layers: null });
 const NLV = 20;
 
+
+// ---------------- the Print Club: endless generated commissions, ranked ----------------
+// After the campaign, the hours are here: a ladder of commissions generated from a seed (plus one daily commission everyone
+// shares), each a new scene with its own inks to order. Any print at 85% likeness with no missed shape is delivered; then the
+// club ranks it against 80 members on likeness and on cuts, Opus Magnum style. Beat 90% of them on a measure to earn its mark.
+const CLUB = NLV + 1, CLUB_OPEN = 5, CLUB_N = 80, RACK_M = RACK.map(k => k.m);
+LV.push({ n: 'The Print Club', club: true, paper: CREAM, inks: [], layers: [], story: '', fact: 'Print clubs of the 1920s and 30s sent each member an edition of the year\'s chosen block; members compared impressions jealously.' });
+const SUBJ = ['house', 'tree', 'boat', 'lighthouse', 'mountains', 'cat', 'sunflowers'];
+function genComm(seed, lv) {
+  const r = RH.rng('club:' + seed), n = seed.startsWith('daily:') ? 4 : Math.min(5, 3 + Math.floor((lv - 1) / 3)), subj = r.pick(SUBJ), night = r() < .35;
+  const ord = r.shuffle([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]).slice(0, n).sort((a, b) => lightness(RACK[b]) - lightness(RACK[a]));
+  const inks = ord.map(k => ({ ...RACK[k], m: RACK_M[k] })), top = n, mid = Math.max(2, n - 1), lo = Math.min(2, n), rr = (a, b) => a + r.int(b - a + 1);
+  const hz = rr(140, 176), sx = rr(40, 216), sy = rr(34, 70), sr = rr(14, 24), hx = rr(40, 200);
+  const L = [[night ? top : 1, ALL], [night ? 1 : 0, c => C(c, sx, sy, sr)], [lo, c => P(c, `M0 ${hz} Q${hx} ${hz - rr(30, 60)} 256 ${hz - rr(0, 20)} L256 256 L0 256Z`)],
+    [mid, c => P(c, `M0 ${hz + 46} Q128 ${hz + rr(14, 34)} 256 ${hz + rr(36, 56)} L256 256 L0 256Z`)]];
+  if (night) L.push([0, c => { for (let k = 0; k < 5; k++) C(c, rr(10, 246), rr(10, hz - 60), 2.5); }]);
+  const ox = rr(70, 170), oy = hz + rr(-6, 10), ob = night ? (n >= 4 ? n - 2 : 1) : top, li = night && ob !== 1 ? 1 : 0; // at night the subject must not vanish into the sky
+  if (subj === 'house') L.push([ob, c => { Q(c, ox, oy - 44, 64, 50); P(c, `M${ox - 8} ${oy - 44} L${ox + 32} ${oy - 80} L${ox + 72} ${oy - 44}Z`); }], [li, c => { Q(c, ox + 10, oy - 32, 12, 12); Q(c, ox + 42, oy - 32, 12, 12); }], [lo, c => Q(c, ox + 26, oy - 18, 12, 24)]);
+  if (subj === 'tree') L.push([ob, c => Q(c, ox + 22, oy - 70, 10, 80)], [mid, c => C(c, ox + 27, oy - 84, 36)], [lo, c => { C(c, ox + 12, oy - 96, 8); C(c, ox + 40, oy - 76, 7); }]);
+  if (subj === 'boat') L.push([ob, c => P(c, `M${ox - 30} ${oy + 30} L${ox + 60} ${oy + 30} L${ox + 46} ${oy + 46} L${ox - 16} ${oy + 46}Z`)], [0, c => P(c, `M${ox + 12} ${oy - 30} L${ox + 12} ${oy + 26} L${ox + 46} ${oy + 26}Z`)], [lo, c => { S(c, `M${ox - 50} ${oy + 58} L${ox - 20} ${oy + 58}`, 3); S(c, `M${ox + 70} ${oy + 64} L${ox + 100} ${oy + 64}`, 3); }]);
+  if (subj === 'lighthouse') L.push([0, c => P(c, `M${ox} ${oy + 10} L${ox + 6} ${oy - 90} L${ox + 26} ${oy - 90} L${ox + 32} ${oy + 10}Z`)], [ob, c => { Q(c, ox + 2, oy - 40, 28, 14); Q(c, ox + 5, oy - 76, 22, 12); }], [ob === 1 ? 0 : 1, c => Q(c, ox + 6, oy - 104, 20, 14)], [ob, c => P(c, `M${ox + 2} ${oy - 103} L${ox + 16} ${oy - 118} L${ox + 30} ${oy - 103}Z`)]);
+  if (subj === 'mountains') L.push([mid, c => P(c, `M${ox - 70} ${oy + 4} L${ox} ${oy - 90} L${ox + 70} ${oy + 4}Z`)], [0, c => P(c, `M${ox - 18} ${oy - 66} L${ox} ${oy - 90} L${ox + 18} ${oy - 66} L${ox + 8} ${oy - 72} L${ox} ${oy - 64} L${ox - 8} ${oy - 72}Z`)], [ob, c => { for (const d of [-40, 40]) P(c, `M${ox + d - 8} ${oy + 30} L${ox + d} ${oy - 4} L${ox + d + 8} ${oy + 30}Z`); }]);
+  if (subj === 'cat') L.push([ob, c => { E(c, ox + 30, oy - 10, 34, 24); C(c, ox + 60, oy - 40, 18); P(c, `M${ox + 48} ${oy - 52} L${ox + 50} ${oy - 70} L${ox + 60} ${oy - 56}Z`); P(c, `M${ox + 62} ${oy - 56} L${ox + 72} ${oy - 70} L${ox + 74} ${oy - 52}Z`); S(c, `M${ox} ${oy - 4} Q${ox - 30} ${oy - 20} ${ox - 20} ${oy - 50}`, 7); }], [ob === 1 ? 0 : 1, c => { C(c, ox + 54, oy - 42, 3); C(c, ox + 66, oy - 42, 3); }]);
+  if (subj === 'sunflowers') L.push(...[0, 1, 2].map(k => [mid, c => S(c, `M${ox - 30 + k * 34} ${oy + 30} L${ox - 30 + k * 34} ${oy - 50 + k * 12}`, 4)]), ...[0, 1, 2].map(k => [1, c => C(c, ox - 30 + k * 34, oy - 54 + k * 12, 16)]), ...[0, 1, 2].map(k => [ob, c => C(c, ox - 30 + k * 34, oy - 54 + k * 12, 6)]));
+  const names = { house: 'a house', tree: 'a lone tree', boat: 'a boat', lighthouse: 'a lighthouse', mountains: 'mountains', cat: 'a cat on the hill', sunflowers: 'sunflowers' };
+  return { name: names[subj] + (night ? ' at night' : ''), inks, need: n, layers: L, seed, lv };
+}
+const clubKey = () => SAVE.club.seed + ':' + SAVE.club.lv;
+const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+// the club members, modelled region by region: each carves a region at the right moment with probability p (their care),
+// otherwise one pull early or late; gouge users take several strokes per region. Likeness is scored as score() scores it.
+const clubPops = new Map();
+function clubPop() {
+  const key = clubKey(); if (clubPops.has(key)) return clubPops.get(key);
+  const r = RH.rng('club-members:' + key), n = L.need, o = [0, 0, 0], col = [];
+  for (let st = 0; st <= n; st++) { stateColor(st, R / 2, o); const lb = []; lab(o[0], o[1], o[2], lb, 0); col.push(lb); }
+  const sc = (c, s) => clamp(1 - (Math.hypot(col[c][0] - col[s][0], col[c][1] - col[s][1], col[c][2] - col[s][2]) - 4) / 16, 0, 1);
+  const wsum = T.regions.reduce((a, g) => a + g.w, 0), raw = cs => T.regions.reduce((a, g, k) => a + g.w * sc(cs[k], g.s), 0) / wsum, raw0 = raw(T.regions.map(() => 0)), out = [];
+  for (let m = 0; m < CLUB_N; m++) { const p = .5 + .42 * r(), gouge = r() < .5; let cuts = 0;
+    const cs = T.regions.map(g => { let c = g.s; if (r() > p) c = clamp(g.s + (g.s === n ? -1 : g.s === 0 ? 1 : r() < .5 ? -1 : 1), 0, n); if (c < n) cuts += gouge ? 1 + Math.floor(r() * Math.min(5, g.n / 900)) : 1; return c; });
+    out.push({ lk: clamp((raw(cs) - raw0) / (1 - raw0), 0, 1), cuts: cuts + r.int(4) }); }
+  clubPops.set(key, out); if (clubPops.size > 6) clubPops.delete(clubPops.keys().next().value); return out; }
+const beats = (v, arr, higher) => arr.length ? arr.reduce((a, x) => a + ((higher ? v > x : v < x) ? 1 : v === x ? .5 : 0), 0) / arr.length : 0;
+function histSVG(vals, you, fmt) {
+  const W = 200, H = 46, n = 12, lo = Math.min(...vals, you), hi = Math.max(...vals, you) + 1e-9, cnt = Array(n).fill(0); vals.forEach(v => cnt[Math.min(n - 1, Math.floor((v - lo) / (hi - lo) * n))]++);
+  const mx = Math.max(...cnt), X = v => 4 + (v - lo) / (hi - lo) * (W - 8), bw = (W - 8) / n;
+  return `<svg viewBox="0 0 ${W} ${H + 12}" width="200" height="58">${cnt.map((c, i) => `<rect x="${4 + i * bw + 1}" y="${H - c / mx * (H - 4)}" width="${bw - 2}" height="${c / mx * (H - 4)}" fill="currentColor" opacity=".35"/>`).join('')}<line x1="${X(you)}" x2="${X(you)}" y1="0" y2="${H}" stroke="#c8402a" stroke-width="2.5"/><text x="3" y="${H + 11}" font-size="10" fill="currentColor">${fmt(lo)}</text><text x="${W - 3}" y="${H + 11}" font-size="10" text-anchor="end" fill="currentColor">${fmt(hi)}</text></svg>`;
+}
+function clubResult(r) { // rank, record, and describe a delivered club print
+  const pop = clubPop(), lk = Math.round(r.lk * 1000) / 1000, bl = beats(lk, pop.map(x => x.lk), true), bc = beats(r.strokes, pop.map(x => x.cuts), false), marks = (bl >= .9) + (bc >= .9);
+  if (r.pass) { const k = clubKey(), b = SAVE.club.best[k], first = !b; SAVE.club.best[k] = { lk: Math.max(lk, b ? b.lk : 0), c: Math.min(r.strokes, b ? b.c : 1e9), m: Math.max(marks, b ? b.m : 0) };
+    if (first) SAVE.club.n++; const ks = Object.keys(SAVE.club.best); if (ks.length > 30) delete SAVE.club.best[ks[0]]; persist(); }
+  return { pop, bl, bc, marks };
+}
+function clubSet(seed, lv) { SAVE.club.seed = String(seed).slice(0, 40); SAVE.club.lv = lv; persist(); }
 const FACTS = ['The block is carved mirror-reversed so the print reads the right way. We flip it for you.', 'A baren is a flat pad of coiled bamboo sheath; rubbing it presses the paper into the inked block.',
   'Kento marks (an L at one corner, a bar along one edge) are carved into the block margin so every sheet lands in the same place.', 'Picasso made dozens of reduction linocuts with Hidalgo Arnéra in Vallauris from 1958.',
   'Reduction prints are nicknamed "suicide prints": once the last colour is pulled, the block cannot print earlier states again.', 'Transparent inks are ink mixed with extender: the colour of what lies beneath shows through.',
@@ -379,6 +436,8 @@ const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const SAVE = (v => isObj(v) ? v : {})(RH.load('woodcut', {}));
 SAVE.best = isObj(SAVE.best) ? SAVE.best : {}; for (const k in SAVE.best) if (!isObj(SAVE.best[k]) || !isFinite(SAVE.best[k].lk)) delete SAVE.best[k];
 SAVE.ed = isFinite(SAVE.ed) ? +SAVE.ed : 0; SAVE.wips = isObj(SAVE.wips) ? SAVE.wips : {};
+{ const c = isObj(SAVE.club) ? SAVE.club : {}, best = {}; for (const k in (isObj(c.best) ? c.best : {})) { const b = c.best[k]; if (isObj(b) && isFinite(b.lk) && isFinite(b.c)) best[String(k).slice(0, 60)] = { lk: +b.lk, c: b.c | 0, m: Math.min(2, Math.max(0, b.m | 0)) }; }
+  SAVE.club = { seed: typeof c.seed === 'string' && c.seed ? c.seed.slice(0, 40) : Math.random().toString(36).slice(2, 8), lv: Math.max(1, Math.min(999, c.lv | 0)), lad: Math.max(1, Math.min(999, c.lad | 0)), n: Math.max(0, c.n | 0), best }; }
 let GAL = (v => Array.isArray(v) ? v.filter(e => isObj(e) && typeof e.d === 'string') : [])(RH.load('woodcut-gal', []));
 const doneCount = () => Object.keys(SAVE.best).filter(k => +k < NLV && SAVE.best[k].lk >= PASS).length;
 const persist = () => { RH.save('woodcut', SAVE); RH.progress('woodcut', doneCount() / NLV); };
@@ -449,6 +508,8 @@ function load(i, opts = {}) {
   { const se = document.getElementById('seal'); if (se) se.classList.remove('on'); }
   if (wipT) { clearTimeout(wipT); wipT = 0; if (L) wipSave(); } // the last stroke on the old block must not be lost
   hideToast(); anchor = null; Li = i; L = LV[i]; SAVE.cur = i; persist();
+  if (L.club) { const cm = genComm(SAVE.club.seed, SAVE.club.lv), daily = SAVE.club.seed.startsWith('daily:');
+    Object.assign(L, { ckey: clubKey(), inks: cm.inks, need: cm.need, layers: cm.layers, comm: cm, story: `Print Club, ${daily ? 'today\'s commission' : 'commission ' + SAVE.club.lv}: <b>${cm.name}</b>, in ${cm.need} inks, untraced. Deliver it at 85% likeness, then see how the club's ${CLUB_N} members did.` }); }
   PAPER = lin(L.paper); ORDER = L.studio ? (opts.prompt ? opts.prompt.order : RACK.map((_, k) => k)) : L.inks.slice(0, L.need).map((_, k) => k);
   if (L.studio) { L.inks = RACK; T = opts.prompt ? buildTarget(opts.prompt.layers) : null; L.prompt = opts.prompt || null; }
   else T = buildTarget(L.layers);
@@ -610,7 +671,8 @@ function finish() {
   const img = diffCtx.createImageData(R, R);
   if (T) T.regions.forEach((r, ri) => { if (sc.rs[ri] >= .8) return; for (let i = 0; i < N; i++) if (T.comp[i] === r.comp) { img.data[i * 4] = 255; img.data[i * 4 + 1] = 40; img.data[i * 4 + 2] = 40; img.data[i * 4 + 3] = 150; } });
   diffCtx.putImageData(img, 0, 0);
-  if (pass) { const b = SAVE.best[Li]; if (!b || sc.lk > b.lk || stars > (b.st || 0)) SAVE.best[Li] = { lk: Math.max(sc.lk, b ? b.lk : 0), st: Math.max(stars, b ? b.st || 0 : 0) }; }
+  if (pass && !L.club) { const b = SAVE.best[Li]; if (!b || sc.lk > b.lk || stars > (b.st || 0)) SAVE.best[Li] = { lk: Math.max(sc.lk, b ? b.lk : 0), st: Math.max(stars, b ? b.st || 0 : 0) }; }
+  if (L.club) result.club = clubResult(result);
   persist(); saveGallery();
   hanko = null; // the DOM seal (pressSeal) is the stamp now
   const ok = L.studio || pass;
@@ -636,12 +698,17 @@ function pressSeal() { // the red hanko comes down on the finished sheet with a 
 function saveGallery() {
   try {
     const c = mk(112, 112), x = c.getContext('2d'); x.drawImage(printCv, 0, 0, 112, 112);
-    GAL.unshift({ t: L.n, d: c.toDataURL('image/jpeg', .68), lk: T ? Math.round(result.lk * 100) : null, n: result.ed });
+    GAL.unshift({ t: L.club ? L.comm.name : L.n, d: c.toDataURL('image/jpeg', .68), lk: T ? Math.round(result.lk * 100) : null, n: result.ed });
     GAL = GAL.slice(0, 24); RH.save('woodcut-gal', GAL);
   } catch (e) {}
 }
 const starStr = n => '★'.repeat(n) + '☆'.repeat(3 - n);
 function showResult() {
+  if (L.club) { const r = result, c = r.club, pct = x => Math.round(x * 100) + '%';
+    const big = `${pct(r.lk)} likeness · ${r.strokes} cuts · ${r.pass ? 'delivered' : '<span class="nostar">not yet</span>'}`;
+    const small = r.pass ? `<span class="hist"><span>Likeness: better than <b>${pct(c.bl)}</b> of the club${c.bl >= .9 ? ' ✦' : ''}<br>${histSVG(c.pop.map(x => x.lk), r.lk, v => pct(v))}</span><span>Cuts: fewer than <b>${pct(c.bc)}</b>${c.bc >= .9 ? ' ✦' : ''}<br>${histSVG(c.pop.map(x => x.cuts), r.strokes, v => Math.round(v))}</span></span>`
+      : `<b>Not quite:</b> ${r.lk < PASS ? `you need ${PASS * 100}% likeness.` : `${r.miss} detail${r.miss > 1 ? 's' : ''} printed the wrong colour.`} ${r.hints.join('; ')}`;
+    return toast(big, small, 60000, `<div class="btns"><button class="tb" data-a="retry">Retry</button>${r.pass ? '<button class="tb pull" data-a="cnext">Next commission →</button>' : ''}${SAVE.club.seed.startsWith('daily:') ? '' : '<button class="tb" data-a="cdaily">Today\'s</button>'}<button class="tb" data-a="cshare">Share</button></div>`); }
   const r = result, nxt = Li < NLV - 1 && r.pass ? '<button class="tb pull" data-a="next">Next print →</button>' : Li === NLV - 1 && r.pass ? '<button class="tb pull" data-a="studio">Open the studio →</button>' : '';
   const big = L.studio ? `Edition no. ${r.ed} signed` + (T ? ` · ${Math.round(r.lk * 100)}% likeness` : '') : `${Math.round(r.lk * 100)}% likeness · ${r.passes}/${r.par} passes · ${r.pass ? `<span class="stars">${starStr(r.stars)}</span>` : '<span class="nostar">not yet</span>'}`; // stars only for a passed print
   const small = L.studio ? L.fact + ' Your block is now nearly empty: a souvenir.' : (r.pass ? '' : `<b>Not quite:</b> ${r.lk < PASS ? `you need ${PASS * 100}% likeness to move on.` : `${r.miss} detail${r.miss > 1 ? 's' : ''} printed the wrong colour: every shape has to be right.`} Toggle the diff to see which regions missed.<br>${r.hints && r.hints.length ? r.hints.map(h => '• ' + h).join('<br>') + '<br>' : ''}`) + `Strokes ${r.strokes} (par ${r.parStrokes}) · waste ${Math.round(r.waste * 100)}% · edition no. ${r.ed}<br>${L.fact}`;
@@ -658,6 +725,7 @@ const paperRect = () => PR;
 function layout() {
   dpr = FX.fit(cv, 2); W = cv.width; H = cv.height; mobile = innerWidth < 900; const land = mobile && innerHeight < 520 && innerWidth > innerHeight;
   const hud = $('hud').getBoundingClientRect(), tray = $('tray').getBoundingClientRect(), w = innerWidth;
+  document.documentElement.style.setProperty('--trayH', Math.round(innerHeight - tray.top) + 'px');
   let b, p, t;
   if (land) { // target, block and print in a row beside the left-hand slip
     const l = hud.right + 10, r = w - 8, top = 22, bot = tray.top - 22, s = Math.max(80, Math.min(bot - top, (r - l - 24) / 2.62)), x0 = l + (r - l - s * 2.62 - 24) / 2, y0 = top + (bot - top - s) / 2;
@@ -898,8 +966,8 @@ function updateHUD() {
   $('step').innerHTML = s;
 }
 function renderLevels() {
-  const maxOpen = doneCount(), locked = i => i < NLV ? i > maxOpen && !SAVE.best[i] : doneCount() < NLV && !SAVE.best[NLV - 1];
-  $('lvSel').innerHTML = LV.map((l, i) => { const b = SAVE.best[i]; return `<option value="${i}" ${i === Li ? 'selected' : ''} ${locked(i) ? 'disabled' : ''}>${i < NLV ? i + 1 + '. ' : ''}${l.n}${b && b.lk >= PASS ? ' ' + starStr(b.st || 0) : locked(i) ? ' 🔒' : ''}</option>`; }).join('');
+  const maxOpen = doneCount(), locked = i => i === CLUB ? doneCount() < CLUB_OPEN : i < NLV ? i > maxOpen && !SAVE.best[i] : doneCount() < NLV && !SAVE.best[NLV - 1];
+  $('lvSel').innerHTML = LV.map((l, i) => { const b = SAVE.best[i]; return `<option value="${i}" ${i === Li ? 'selected' : ''} ${locked(i) ? 'disabled' : ''}>${i < NLV ? i + 1 + '. ' : i === CLUB ? '∞ ' : ''}${l.n}${i === CLUB ? (locked(i) ? ` 🔒 (after ${CLUB_OPEN} prints)` : ` · ${SAVE.club.n} delivered`) : ''}${i !== CLUB && b && b.lk >= PASS ? ' ' + starStr(b.st || 0) : locked(i) ? ' 🔒' : ''}</option>`; }).join('');
   $('gal').textContent = `Gallery (${GAL.length})`;
 }
 $('lvSel').onchange = () => { FX.sfx('click'); load(+$('lvSel').value); };
@@ -909,7 +977,10 @@ function toast(big, small, ms = 6000, extra = '') {
   const t = $('toast'); t.innerHTML = `<span class="x" aria-label="Dismiss">✕</span>` + big + (small ? `<small>${small}</small>` : '') + extra; t.classList.add('on');
   t.querySelector('.x').onclick = hideToast;
   t.querySelectorAll('[data-a]').forEach(b => b.onclick = e => { e.stopPropagation(); const a = b.dataset.a; FX.sfx('click');
-    if (a === 'next') load(Li + 1); else if (a === 'studio') load(NLV); else if (a === 'retry') load(Li, { quiet: 1, fresh: 1, prompt: L.prompt }); else if (a === 'diff') { diff = !diff; kick(); } });
+    if (a === 'cnext') { clubSet(Math.random().toString(36).slice(2, 8), SAVE.club.seed.startsWith('daily:') ? Math.max(1, SAVE.club.lad || 1) : SAVE.club.lv + 1); SAVE.club.lad = SAVE.club.lv; load(CLUB, { fresh: 1 }); }
+    else if (a === 'cdaily') { SAVE.club.lad = SAVE.club.lv; clubSet('daily:' + todayStr(), 1); load(CLUB, { fresh: 1 }); }
+    else if (a === 'cshare') { const u = location.origin + location.pathname + '#club=' + encodeURIComponent(clubKey()); try { navigator.clipboard?.writeText(u).catch(() => {}); } catch (e) {} history.replaceState(null, '', '#club=' + encodeURIComponent(clubKey())); toast('Link copied', 'Anyone who opens it gets this commission and this club.', 2400); }
+    else if (a === 'next') load(Li + 1); else if (a === 'studio') load(NLV); else if (a === 'retry') load(Li, { quiet: 1, fresh: 1, prompt: L.prompt }); else if (a === 'diff') { diff = !diff; kick(); } });
   // results on a phone sit over the spent block, not over the HUD
   const res = mobile && extra.includes('data-a="retry"'); t.classList.toggle('res', res); t.style.bottom = res ? (innerHeight - $('tray').getBoundingClientRect().top + 8) + 'px' : '';
   if (mobile && !res) t.style.top = Math.round($('hud').getBoundingClientRect().bottom + 6) + 'px'; else if (!res) t.style.top = ''; // on phones, never cover the level picker
@@ -941,11 +1012,12 @@ addEventListener('pagehide', () => { if (wipT) { clearTimeout(wipT); wipT = 0; w
 function wipSave() {
   if (!L) return; if (finished || (!strokes && !passes.length)) { if (SAVE.wips[Li]) { delete SAVE.wips[Li]; RH.save('woodcut', SAVE); } return; }
   const c = new Uint8Array(N); for (let i = 0; i < N; i++) c[i] = uncut[i] ? 255 : pt[i];
-  SAVE.wips[Li] = { p: passes.slice(), c: rleEnc(c), s: strokes, r: rTaps, seed: L.prompt ? L.prompt.seed : null, m: L.studio ? RACK.map(k => k.m).join('') : null };
+  SAVE.wips[Li] = { p: passes.slice(), c: rleEnc(c), s: strokes, r: rTaps, seed: L.prompt ? L.prompt.seed : null, cs: L.club ? L.ckey : null, m: L.studio ? RACK.map(k => k.m).join('') : null };
   RH.save('woodcut', SAVE);
 }
 function restoreWip() {
   const w = SAVE.wips[Li]; if (!w) return;
+  if (L.club && w.cs !== clubKey()) { delete SAVE.wips[Li]; return; } // a half-carved block from another commission
   try {
     if (w.m) w.m.split('').forEach((m, k) => RACK[k] && (RACK[k].m = m));
     if (L.studio && w.seed != null) load(Li, { quiet: 1, fresh: 1, prompt: makePrompt(w.seed) });
@@ -967,13 +1039,14 @@ function frame(now) {
 document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; } else kick(); });
 addEventListener('resize', () => L && layout());
 // first load: font metrics may shift the HUD, so lay out again once fonts settle
-{ const c = clamp(+SAVE.cur || 0, 0, LV.length - 1), open = c < NLV ? c <= doneCount() || !!SAVE.best[c] : doneCount() >= NLV || !!SAVE.best[NLV - 1]; load(open ? c : Math.min(doneCount(), NLV - 1)); }
+{ const m = location.hash.match(/club=([^&]+)/), hk = m && decodeURIComponent(m[1]).match(/^(.+):(\d+)$/); if (hk && doneCount() >= CLUB_OPEN) { clubSet(hk[1], Math.max(1, Math.min(999, +hk[2]))); SAVE.cur = CLUB; } }
+{ const c = clamp(+SAVE.cur || 0, 0, LV.length - 1), open = c === CLUB ? doneCount() >= CLUB_OPEN : c < NLV ? c <= doneCount() || !!SAVE.best[c] : doneCount() >= NLV || !!SAVE.best[NLV - 1]; load(open ? c : Math.min(doneCount(), NLV - 1)); }
 if (document.fonts) document.fonts.ready.then(() => layout());
 kick();
 
 // ---------------- debug / test handle ----------------
 window.__wc = {
-  LV, load: (i, o) => load(i, { quiet: 1, fresh: 1, ...o }), makePrompt,
+  LV, load: (i, o) => load(i, { quiet: 1, fresh: 1, ...o }), makePrompt, CLUB, CLUB_OPEN, genComm, clubPop, clubSet, clubKey, beats, todayStr,
   get L() { return L; }, get T() { return T; }, get passes() { return passes.slice(); }, get strokes() { return strokes; }, get result() { return result; }, get finished() { return finished; },
   carveRegion: (x, y) => { pendingUndo = uncut.slice(); const n = regionAt(x | 0, y | 0); pendingUndo = null; return n; },
   carveState: s => { let st = 0; const before = uncut.slice(); T.comps.forEach((c, id) => { if (c.s === s && carveComp(id) && c.n >= 10) st++; }); if (st) { undo.push(before); strokes += st; } blockDirty = pvDirty = true; updateHUD(); return st; },

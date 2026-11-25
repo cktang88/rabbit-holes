@@ -163,11 +163,11 @@ module.exports = {
       const [cx, cy] = await page.evaluate(() => __wc.blockToScreen(160, 160));
       await page.mouse.move(cx, cy); for (let i = 0; i < 5; i++) await page.mouse.wheel(0, -300); await page.waitForTimeout(100);
       const k1 = await page.evaluate(() => __wc.cam.k); ok(k1 > k0 * 2, `zoomed ${k0} → ${k1.toFixed(2)}`);
-      // carve a short line at block (40,50)→(46,50), wherever that now is on screen
-      const [ax, ay] = await page.evaluate(() => __wc.blockToScreen(100.5, 120.5)), [bx, by] = await page.evaluate(() => __wc.blockToScreen(118.5, 120.5));
-      eq(await page.evaluate(() => [__wc.uncutAt(109, 120), __wc.uncutAt(109, 60)].map(Boolean)), [true, true], 'uncut before');
+      // carve a short line at block (152,162)→(166,162), wherever that now is on screen
+      const [ax, ay] = await page.evaluate(() => __wc.blockToScreen(152.5, 162.5)), [bx, by] = await page.evaluate(() => __wc.blockToScreen(166.5, 162.5));
+      eq(await page.evaluate(() => [__wc.uncutAt(159, 162), __wc.uncutAt(159, 140)].map(Boolean)), [true, true], 'uncut before');
       await page.mouse.move(ax, ay); await page.mouse.down(); for (let i = 1; i <= 8; i++) await page.mouse.move(ax + (bx - ax) * i / 8, ay + (by - ay) * i / 8); await page.mouse.up(); await page.waitForTimeout(80);
-      eq(await page.evaluate(() => [__wc.uncutAt(109, 120), __wc.uncutAt(109, 60)].map(Boolean)), [false, true], 'the cut is under the finger, nowhere else');
+      eq(await page.evaluate(() => [__wc.uncutAt(159, 162), __wc.uncutAt(159, 140)].map(Boolean)), [false, true], 'the cut is under the finger, nowhere else');
       await page.click('.pz-fit'); await page.waitForTimeout(400); near(await page.evaluate(() => __wc.cam.k), k0, 1e-6, 'fit restores');
     },
     'a two-finger pinch zooms and never carves': async ({ page, ok, eq }) => {
@@ -188,6 +188,55 @@ module.exports = {
         return { B: { x: b.B.x / d, y: b.B.y / d, s: b.B.s / d }, P: { x: b.PR.x / d, y: b.PR.y / d, s: b.PR.s / d }, hb: hud.bottom, tt: tray.top, tw: tray.right }; });
       ok(r.B.x >= 0 && r.B.x + r.B.s <= 390 && r.B.y >= r.hb - 1 && r.B.y + r.B.s <= r.tt + 1, 'block fits ' + JSON.stringify(r));
       ok(r.P.x + r.P.s <= 390 && r.P.y >= r.hb - 1, 'print fits'); ok(r.tt > r.hb, 'tray overlaps hud'); ok(r.tw <= 390, 'tray off-screen');
+    },
+    'Print Club: commissions are deterministic per seed, always solvable, and printing without carving fails': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const W = __wc, out = []; for (let k = 0; k < W.NLV; k++) W.SAVE.best[k] = { lk: .9, st: 3 };
+        const g = (sd, lv) => JSON.stringify(W.genComm(sd, lv), (k, v) => typeof v === 'function' ? v.toString() : v);
+        if (g('x', 3) !== g('x', 3)) out.push('not deterministic'); if (g('x', 3) === g('y', 3)) out.push('seed ignored');
+        for (const sd of ['s1', 's2', 's3', 's4', 'daily:2026-12-01']) for (const lv of [1, 4, 9]) { W.clubSet(sd, lv); const res = W.solve(W.CLUB);
+          if (!res.pass || res.lk < .95) out.push(`${sd}:${lv} solver ${res.lk.toFixed(2)} miss ${res.miss}`);
+          if (W.naive(W.CLUB) >= W.PASS) out.push(`${sd}:${lv} prints without carving`); }
+        return out; });
+      ok(!r.length, r.join('; '));
+    },
+    'Print Club ranking: a careful print beats nine in ten members; sloppy cutting ranks low on cuts': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const W = __wc, res = []; for (let k = 0; k < W.NLV; k++) W.SAVE.best[k] = { lk: .9, st: 3 };
+        for (const sd of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6']) { W.clubSet(sd, 3); const s = W.solve(W.CLUB), pop = W.clubPop();
+          res.push({ lk: W.beats(s.lk, pop.map(x => x.lk), true), cuts: W.beats(s.strokes, pop.map(x => x.cuts), false), hack: W.beats(s.strokes * 3, pop.map(x => x.cuts), false) }); }
+        return res; });
+      const avg = k => r.reduce((a, x) => a + x[k], 0) / r.length;
+      ok(avg('lk') >= .85 && avg('cuts') >= .85, 'the solver should rank near the top: ' + JSON.stringify(r));
+      ok(avg('hack') < .5, 'hacking each shape out in three strokes should rank in the bottom half on cuts: ' + avg('hack'));
+    },
+    'Print Club through the UI: locked until five prints, ranked result, next commission, today\'s, share link; stale work is dropped': async ({ page, ok, eq }) => {
+      ok(await page.evaluate(() => document.querySelector(`#lvSel option[value="${__wc.CLUB}"]`).disabled), 'club open before any prints');
+      await page.evaluate(() => { const W = __wc; for (let k = 0; k < W.CLUB_OPEN; k++) W.SAVE.best[k] = { lk: .9, st: 3 }; W.clubSet('ui', 2); W.load(0); });
+      ok(await page.evaluate(() => !document.querySelector(`#lvSel option[value="${__wc.CLUB}"]`).disabled), 'club still locked after five prints');
+      await page.evaluate(() => { const W = __wc; W.solve(W.CLUB); }); await page.waitForTimeout(200);
+      ok(await page.evaluate(() => document.querySelectorAll('#toast .hist svg').length === 2 && /better than/.test(document.getElementById('toast').textContent)), 'no histograms on the result');
+      eq(await page.evaluate(() => [__wc.SAVE.club.n, Object.keys(__wc.SAVE.club.best)]), [1, ['ui:2']]);
+      await page.click('#toast [data-a="cnext"]'); await page.waitForTimeout(150);
+      ok(await page.evaluate(() => __wc.SAVE.club.lv === 3 && __wc.SAVE.club.seed !== 'ui' && __wc.L.club && !__wc.finished), 'next commission');
+      await page.evaluate(() => { const W = __wc; W.gouge([[100, 100], [140, 100]]); W.wipSave(); W.clubSet('other', 5); W.load(W.CLUB, { fresh: 0 }); });
+      eq(await page.evaluate(() => __wc.strokes), 0, 'a half-carved block from another commission was restored');
+      await page.evaluate(() => { const W = __wc; W.solve(W.CLUB); }); await page.click('#toast [data-a="cdaily"]'); await page.waitForTimeout(150);
+      ok(await page.evaluate(() => __wc.SAVE.club.seed === 'daily:' + __wc.todayStr()), 'today\'s commission');
+      await page.evaluate(() => { const W = __wc; W.solve(W.CLUB); }); await page.click('#toast [data-a="cshare"]'); const h = await page.evaluate(() => location.hash);
+      ok(h.startsWith('#club='), 'no share link');
+      const p2 = await page.context().newPage(); await p2.goto('http://localhost:8765/woodcut/index.html' + h); await ready(p2);
+      ok(await p2.evaluate(() => __wc.L.club && __wc.SAVE.club.seed.startsWith('daily:')), 'the link did not open the commission');
+      ok(await page.evaluate(() => localStorage.getItem('rh:woodcut').length) < 50000, 'save too large');
+    },
+    'Print Club: a cut made while zoomed lands under the finger, and a pinch never carves': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { const W = __wc; for (let k = 0; k < W.CLUB_OPEN; k++) W.SAVE.best[k] = { lk: .9, st: 3 }; W.clubSet('zoom', 1); W.load(W.CLUB); document.querySelector('#tools [data-t="v"]').click(); });
+      const [cx, cy] = await page.evaluate(() => __wc.blockToScreen(160, 160)); await page.mouse.move(cx, cy); for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -300); await page.waitForTimeout(100);
+      const [ax, ay] = await page.evaluate(() => __wc.blockToScreen(120.5, 200.5)), [bx, by] = await page.evaluate(() => __wc.blockToScreen(134.5, 200.5));
+      await page.mouse.move(ax, ay); await page.mouse.down(); for (let i = 1; i <= 8; i++) await page.mouse.move(ax + (bx - ax) * i / 8, ay + (by - ay) * i / 8); await page.mouse.up(); await page.waitForTimeout(80);
+      eq(await page.evaluate(() => [__wc.uncutAt(127, 200), __wc.uncutAt(127, 180)].map(Boolean)), [false, true], 'the cut is under the finger');
+      const s0 = await page.evaluate(() => __wc.strokes);
+      await page.evaluate(() => { const [x, y] = __wc.blockToScreen(200, 120), el = document.getElementById('cv'), ev = (ty, id, px) => el.dispatchEvent(new PointerEvent(ty, { pointerId: id, clientX: px, clientY: y, bubbles: true, pointerType: 'touch', isPrimary: id === 1 }));
+        ev('pointerdown', 1, x); ev('pointerdown', 2, x + 30); for (let i = 1; i <= 6; i++) { ev('pointermove', 1, x - i * 8); ev('pointermove', 2, x + 30 + i * 8); } ev('pointerup', 1, x - 48); ev('pointerup', 2, x + 78); });
+      eq(await page.evaluate(() => __wc.strokes), s0, 'a pinch carved');
     },
   },
 };

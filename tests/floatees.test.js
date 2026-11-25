@@ -175,7 +175,7 @@ module.exports = {
         o.solved = [X.detective(a).solved, X.detective(c).solved];
         // random detectives: twelve hindcasts anywhere, random month and cargo
         let rs = 5, wins = 0; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647;
-        for (const C of [a, c]) for (let k = 0; k < 4; k++) { let best = 99; for (let j = 0; j < C.budget; j++) { const sim = X.sightingsOf(X.hindcast(5 + rnd() * 45, -98 + rnd() * 88, 5, rnd() < .5 ? 6 : 22, 400, 7)).map(q => ({ ...q, t: q.t + Math.floor(rnd() * 12) / 12 })); best = Math.min(best, X.misfit(C.log, sim)); } if (best <= 3) wins++; }
+        const pool = [a, c, ...[79, 80, 81, 82].map(sd => X.genCase(sd, 3))]; o.basins = pool.map(C => C.basin); for (const C of pool) for (let k = 0; k < 2; k++) { let best = 99; for (let j = 0; j < C.budget; j++) { const A = C.area, sim = X.sightingsOf(X.hindcast(A[0] + rnd() * (A[1] - A[0]), A[2] + rnd() * (A[3] - A[2]), C.years || 5, rnd() < .5 ? 6 : 22, 400, 7)).map(q => ({ ...q, t: q.t + Math.floor(rnd() * 12) / 12 })); best = Math.min(best, X.misfit(C.log, sim)); } if (best <= 3) wins++; }
         o.naive = wins;
         // play a run: the true answer solves case 1, scores, and the next file is harder
         X.load(10); X.startCaseFile(501, 1); const C1 = X.level.case; X.caseState.left = C1.budget; X.caseState.month = C1.truthMonth; X.caseState.wnd = C1.windage;
@@ -185,7 +185,7 @@ module.exports = {
         return o; });
       ok(r.det && r.differ, 'deterministic per seed, different across seeds');
       eq(r.solved, [true, true]);
-      ok(r.naive <= 1, 'random hindcasting cracked ' + r.naive + '/8');
+      ok(r.naive <= 2, 'random hindcasting cracked ' + r.naive + '/12 in ' + r.basins); // about 1 in 18 tries by chance, across all three basins
       eq(r.run, [1, true, true, true]); eq(r.next, [2, 502, '#case=502-2']);
     },
     'globe view: + and − dolly, drag turns the globe, wheel zooms, reset returns to the voyage view': async ({ page, ok, near }) => {
@@ -205,14 +205,14 @@ module.exports = {
     'case files run survives a reload: hindcasts spent stay spent, score and case kept; a fresh open resumes; dates follow the spill': async ({ page, eq, ok }) => {
       await unlock(page);
       const a = await page.evaluate(() => { const X = __fl; X.load(10); X.startCaseFile(612, 2); X.load(10); const C = X.level.case;
-        const A = C.area; let lat = (A[0] + A[1]) / 2, lon = -40; X.dropAt(lat, lon); for (let t = 0; t < 5; t += .05) X.step(.05); X.simT = 5; X.check();
+        const A = C.area, lat = (A[0] + A[1]) / 2, lon = (((A[2] + A[3]) / 2 + 540) % 360) - 180; X.dropAt(lat, lon); const Y = X.level.years; for (let t = 0; t < Y; t += .05) X.step(.05); X.simT = Y; X.check();
         X.caseState.month = 3; document.getElementById('cmonth') && document.getElementById('cmonth').onchange({ target: { value: 3 } });
         return { seed: C.seed, rung: C.rung, left: X.caseState.left, budget: C.budget, n: X.caseState.results.length, start: C.start }; });
       ok(a.left === a.budget - 1, 'one hindcast spent ' + JSON.stringify(a));
       await page.evaluate(() => { history.replaceState(null, '', location.pathname); }); await page.reload(); await ready(page);
       const b = await page.evaluate(() => { const X = __fl; return { lvl: !!X.level.endless, seed: X.level.case.seed, rung: X.level.case.rung, left: X.caseState.left, n: X.caseState.results.length, month: X.caseState.month, txt: document.getElementById('goal').textContent }; });
       eq([b.lvl, b.seed, b.rung, b.left, b.n, b.month], [true, a.seed, a.rung, a.left, 1, 3], 'reload with no hash resumes the run');
-      ok(/Hindcasts left: \d+/.test(b.txt) && b.txt.includes('' + a.left), 'table shows the spent budget');
+      ok(/hindcasts left: \d+/i.test(b.txt) && b.txt.includes('' + a.left), 'table shows the spent budget');
       // postcards and the clock never pre-date the spill
       const d = await page.evaluate(() => { const X = __fl, st = X.level.case.start; return [X.dateOf(0), X.dateOf(1.5), st[0]]; });
       ok(+d[0].split(' ')[1] >= d[2] && +d[1].split(' ')[1] >= d[2], 'card dates ' + d);

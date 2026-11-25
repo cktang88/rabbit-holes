@@ -299,9 +299,9 @@ module.exports = {
       const r = await page.evaluate(async () => { const M = window.__map, cv = document.getElementById('chart'), rc = cv.getBoundingClientRect();
         M.cam.zoomAt(rc.left + rc.width / 2, rc.top + rc.height / 2, 2.5); const X = rc.left + rc.width * .4, Y = rc.top + rc.height * .55, want = M.cam.toWorld(X, Y);
         const ev = (t, id, x, y, tgt = cv) => tgt.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch', isPrimary: id === 1 }));
-        M.target = null; ev('pointerdown', 1, X, Y); ev('pointerup', 1, X, Y, window); const tap = M.target && [M.target[0], M.target[1]];
+        M.target = null; ev('pointerdown', 1, X, Y); ev('pointerup', 1, X, Y); const tap = M.target && [M.target[0], M.target[1]];
         await new Promise(r => setTimeout(r, 30)); M.target = null; const k0 = M.cam.k;
-        ev('pointerdown', 1, X, Y); ev('pointerdown', 2, X + 40, Y); ev('pointermove', 1, X - 40, Y); ev('pointermove', 2, X + 80, Y); ev('pointerup', 1, X - 40, Y, window); ev('pointerup', 2, X + 80, Y, window);
+        ev('pointerdown', 1, X, Y); ev('pointerdown', 2, X + 40, Y); ev('pointermove', 1, X - 40, Y); ev('pointermove', 2, X + 80, Y); ev('pointerup', 1, X - 40, Y); ev('pointerup', 2, X + 80, Y);
         const pinchTarget = M.target, ratio = M.cam.k / k0; await new Promise(r => setTimeout(r, 30));
         document.querySelector('.pz-fit').click(); await new Promise(r => setTimeout(r, 400)); const a = M.cam.toScreen(0, 0), b = M.cam.toScreen(1400, 900);
         return { tap, want, pinchTarget, ratio, fit: [a[0] >= rc.left - 1, a[1] >= rc.top - 1, b[0] <= rc.right + 1, b[1] <= rc.bottom + 1], follow: M.follow }; });

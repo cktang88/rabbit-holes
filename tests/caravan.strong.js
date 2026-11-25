@@ -1,6 +1,5 @@
 // A strong trader for Caravan (run in the page), with each surviving decision switchable, for the ablation tests.
 //  qty:       'suggest' buys up to where one more unit stops paying (what the slider suggests) | 'fill' always buys all it can afford
-//  roads:     'smart' weighs the bandit risk of the fast road against the days the safe road costs | 'fast' always | 'safe' always
 function strongTrader(seed, opt) {
   const K = window.__caravan; K.encountersOn = false; K.headless = true; K.newCareerSeed(seed);
   const C = K.C, G = K.GOODS.length, cities = K.cities, upkeep = () => C.camels * 0.05;
@@ -19,15 +18,11 @@ function strongTrader(seed, opt) {
           const v = (prof - p.days * upkeep()) / (p.days + 2); if (!best || v > best.v) best = { v, prof, g, to: d.id, qty, days: p.days }; } }
       return best; };
     const best = plan(null, C.gold);
-    let to, rate = best && best.v > 0 ? best.v : 5;
+    let to;
     if (!best || best.v <= 0) { let sc = null; for (const d of cities) { if (d.id === C.at) continue; const p = sp(d.id); if (!p) continue; const age = C.book[d.id] ? C.day - C.book[d.id].day : 999, v = age / (p.days + 5); if (!sc || v > sc.v) sc = { v, to: d.id }; } to = sc.to; }
     else { to = best.to; K.trade(best.g, best.qty); }
     if (to === C.at) to = K.neighbors(C.at)[0].to;
-    let safe = opt.roads === 'safe';
-    if (opt.roads === 'smart') { const f = K.shortest(C.at, to), s = K.shortest(C.at, to, true);
-      if (f && s) { const risk = 1 - f.legs.reduce((a, l) => a * (1 - l.r.danger), 1), cargo = C.cargo.reduce((a, q, g) => a + q * (C.book[to] ? C.book[to].p[g] : here.price[g]), 0);
-        safe = risk * .5 * cargo > (s.days - f.days) * rate; } }
-    if (K.travelNow(to, safe) === 'end') break;
+    if (K.travelNow(to) === 'end') break;
   }
   for (let g = 0; g < G; g++) if (C.cargo[g] > 0) K.trade(g, -999);
   K.headless = false; return Math.round(K.netWorth());

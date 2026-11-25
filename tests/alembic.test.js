@@ -133,10 +133,10 @@ module.exports = {
         A.cam.zoomAt(rc.left + rc.width / 2, rc.top + rc.height / 2, 3); const k3 = A.cam.k;
         const ev = (t, id, x, y, tgt = cv) => tgt.dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch', isPrimary: id === 1 }));
         const X = rc.left + rc.width * .3, Y = rc.top + rc.height * .6, [wx, wy] = A.cam.toWorld(X, Y);
-        ev('pointerdown', 1, X, Y); await new Promise(r => setTimeout(r, 90)); A.pourFrame(); ev('pointerup', 1, X, Y, window);
+        ev('pointerdown', 1, X, Y); await new Promise(r => setTimeout(r, 90)); A.pourFrame(); ev('pointerup', 1, X, Y);
         let sx = 0, sy = 0, n = 0; for (let i = 0; i < A.T.length; i++) if (A.T[i]) { sx += i % 200; sy += (i / 200) | 0; n++; }
         const placed = [sx / n, sy / n, n]; A.clearTray();
-        ev('pointerdown', 1, X, Y); ev('pointerdown', 2, X + 40, Y); A.pourFrame(); ev('pointermove', 1, X - 30, Y); ev('pointermove', 2, X + 70, Y); await new Promise(r => setTimeout(r, 90)); A.pourFrame(); ev('pointerup', 1, X - 30, Y, window); ev('pointerup', 2, X + 70, Y, window); A.pourFrame();
+        ev('pointerdown', 1, X, Y); ev('pointerdown', 2, X + 40, Y); A.pourFrame(); ev('pointermove', 1, X - 30, Y); ev('pointermove', 2, X + 70, Y); await new Promise(r => setTimeout(r, 90)); A.pourFrame(); ev('pointerup', 1, X - 30, Y); ev('pointerup', 2, X + 70, Y); A.pourFrame();
         let after = 0; for (let i = 0; i < A.T.length; i++) if (A.T[i]) after++;
         const kp = A.cam.k; document.querySelector('.pz-fit').click(); await new Promise(r => setTimeout(r, 400));
         const a = A.cam.toScreen(0, 0), b = A.cam.toScreen(200, 300);
