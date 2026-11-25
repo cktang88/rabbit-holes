@@ -306,7 +306,11 @@ function drawBody(p, x, y, i){
   ctx.fillStyle='#0f3358'; ctx.beginPath(); ctx.arc(x,y,p.rad,0,7); ctx.fill();
   ctx.save(); ctx.clip(); ctx.strokeStyle='rgba(111,211,240,.55)'; ctx.lineWidth=1; for (let k=-p.rad*2;k<p.rad*2;k+=5){ ctx.beginPath(); ctx.moveTo(x+k-p.rad,y-p.rad); ctx.lineTo(x+k+p.rad,y+p.rad); ctx.stroke(); } ctx.restore();
   ctx.strokeStyle= isT? PEN : CY; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,p.rad,0,7); ctx.stroke();
-  if (i===0){ ctx.strokeStyle='rgba(217,236,247,.6)'; ctx.setLineDash([3,4]); ctx.beginPath(); ctx.arc(x,y,p.rad+8,0,7); ctx.stroke(); ctx.setLineDash([]); }
+  if (i===0){ ctx.strokeStyle='rgba(217,236,247,.6)'; ctx.setLineDash([3,4]); ctx.beginPath(); ctx.arc(x,y,p.rad+8,0,7); ctx.stroke(); ctx.setLineDash([]);
+    // Earth's own motion: launching along this arrow adds to its speed
+    const [vx,vy]=bodyVel(p,simT), vm=Math.hypot(vx,vy)||1, ux=vx/vm, uy=vy/vm, ex=x+ux*(p.rad+40), ey=y+uy*(p.rad+40);
+    ctx.strokeStyle='#7be38a'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.moveTo(x+ux*(p.rad+10),y+uy*(p.rad+10)); ctx.lineTo(ex,ey); ctx.stroke(); ctx.beginPath(); ctx.moveTo(ex,ey); ctx.lineTo(ex-ux*9-uy*6,ey-uy*9+ux*6); ctx.lineTo(ex-ux*9+uy*6,ey-uy*9-ux*6); ctx.closePath(); ctx.fillStyle='#7be38a'; ctx.fill();
+    ctx.font='12px "Share Tech Mono",monospace'; ctx.textAlign='center'; txt('EARTH MOVES THIS WAY', ex+ux*14, ey+uy*14+4); }
   if (vi>=0){ ctx.strokeStyle= vi<vis? 'rgba(123,227,138,.8)' : 'rgba(255,138,42,.75)'; ctx.setLineDash([6,5]); ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(x,y,SOI(p),0,7); ctx.stroke(); ctx.setLineDash([]); }
   if (isT){ const rot=performance.now()/2000, R=p.rad+(L.arr||12); ctx.strokeStyle='#d9ecf7'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(x,y,R,0,7); ctx.stroke(); for (let k=0;k<4;k++){ const a=rot+k*Math.PI/2; ctx.beginPath(); ctx.moveTo(x+Math.cos(a)*(R+3),y+Math.sin(a)*(R+3)); ctx.lineTo(x+Math.cos(a)*(R+14),y+Math.sin(a)*(R+14)); ctx.stroke(); } }
   ctx.fillStyle= isT? PEN : 'rgba(217,236,247,.8)'; ctx.font='13px "Share Tech Mono",monospace'; ctx.textAlign='left';
@@ -318,7 +322,10 @@ function draw(){
   const [shx,shy]=FX.shakeOffset(10);
   if (view.rot) ctx.setTransform(0,d*view.s,-d*view.s,0,d*(view.ox+shx+WH*view.s),d*(view.oy+shy)); else ctx.setTransform(d*view.s,0,0,d*view.s,d*(view.ox+shx),d*(view.oy+shy));
   if (!plotBg) plotBg=makeBg(); ctx.drawImage(plotBg,0,0);
-  for (let i=0;i<L.planets.length;i++){ const p=L.planets[i]; ctx.strokeStyle='rgba(111,211,240,.28)'; ctx.setLineDash([3,6]); ctx.lineWidth=1; ctx.beginPath(); ctx.arc(SUN.x,SUN.y,p.r,0,7); ctx.stroke(); ctx.setLineDash([]); }
+  for (let i=0;i<L.planets.length;i++){ const p=L.planets[i]; ctx.strokeStyle='rgba(111,211,240,.28)'; ctx.setLineDash([3,6]); ctx.lineWidth=1; ctx.beginPath(); ctx.arc(SUN.x,SUN.y,p.r,0,7); ctx.stroke(); ctx.setLineDash([]);
+    // which way the planet goes round: chevrons along its orbit, pointing along its motion
+    ctx.strokeStyle='rgba(111,211,240,.6)'; ctx.lineWidth=1.5; for (let k=0;k<4;k++){ const a=p.ph+p.w*simT+0.5+k*Math.PI/2, x=SUN.x+Math.cos(a)*p.r, y=SUN.y+Math.sin(a)*p.r, tx=-Math.sin(a)*Math.sign(p.w), ty=Math.cos(a)*Math.sign(p.w), nx=Math.cos(a), ny=Math.sin(a);
+      ctx.beginPath(); ctx.moveTo(x-tx*6+nx*5,y-ty*6+ny*5); ctx.lineTo(x+tx*4,y+ty*4); ctx.lineTo(x-tx*6-nx*5,y-ty*6-ny*5); ctx.stroke(); } }
   if (L.target<0){ ctx.strokeStyle='rgba(255,138,42,.55)'; ctx.setLineDash([10,8]); ctx.lineWidth=2; ctx.beginPath(); ctx.arc(SUN.x,SUN.y,520,0,7); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=PEN; ctx.font='14px "Share Tech Mono",monospace'; ctx.textAlign='center'; txt('INTERSTELLAR SPACE BEYOND THIS LINE', SUN.x, SUN.y-528); }
   drawSun();
   L.planets.forEach((p,i)=>{ const [x,y]=bodyPos(p,simT); drawBody(p,x,y,i); });
@@ -330,7 +337,7 @@ function draw(){
       const pv=SYSTEMS[L.sys].preview, n=Math.round(pv/DT); ctx.fillStyle=PEN;
       simulate(L, v.ang, v.dv, (x,y,s)=>{ if (s%6===0){ ctx.globalAlpha=1-s/n; ctx.beginPath(); ctx.arc(x,y,2.4,0,7); ctx.fill(); } return s<n; }); ctx.globalAlpha=1;
       // the aim label sits below the probe, clear of the planet's name, and reads the same Δv as the panel
-      ctx.fillStyle='#d9ecf7'; ctx.font='15px "Share Tech Mono",monospace'; ctx.textAlign='center'; txt(aimText(v), px, py+40); updHud(); } }
+      ctx.fillStyle='#d9ecf7'; ctx.font='15px "Share Tech Mono",monospace'; ctx.textAlign='center'; { const [evx,evy]=bodyVel(L.planets[0],simT), em=Math.hypot(evx,evy)||1; txt(aimText(v), px-evx/em*46, py-evy/em*46+4); } updHud(); } }
   ctx.save(); ctx.translate(px,py); ctx.rotate(mode==='aim'?0:Math.atan2(probe.vy,probe.vx)); ctx.strokeStyle='#ffffff'; ctx.fillStyle='#d9ecf7'; ctx.lineWidth=1.5;
   ctx.beginPath(); ctx.arc(-2,0,6,-1.2,1.2); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(10,0); ctx.moveTo(3,-1); ctx.lineTo(3,-9); ctx.stroke(); ctx.fillRect(-1,-2,4,4); ctx.restore();
   if (mode==='fly' && thrusting && dvUsed<L.budget && mouse){ ctx.strokeStyle='#e0472f'; ctx.lineWidth=3; const dx=mouse[0]-px, dy=mouse[1]-py, dd=Math.hypot(dx,dy)||1; ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px-dx/dd*18,py-dy/dd*18); ctx.stroke(); }
