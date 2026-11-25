@@ -175,16 +175,80 @@ const CASES = [
   { n: 'The Bentley Plate', target: [[L(-16, .2, 1), L(-6, .9, 1), L(-14, .5, 2), L(-15, .95, 2)]], master: 1, story: 'The master plate: Bentley\'s favourite, photographed on 4 February 1902. Four cloud layers, unequal times. Many have tried. Fewer balloons, more stars.' },
 ];
 const BALLOONS = 5;
+// ================= DRAW THE FALL =================
+// The flake's fall is a line you draw across Nakaya's diagram. It is resampled into 24 equal steps of temperature and humidity;
+// each step adds its own growth to the crystal (Reiter's automaton for the face, the prism model for the edge), centre first.
+// Tiny changes to the line make very different flakes, and every distinct sequence of habits goes into the codex.
+const STEPS = 24, Q = 99;
+const pathLen = P => { let L = 0; for (let i = 1; i < P.length; i++) L += Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]); return L; };
+const ptTS = ([x, y]) => [TMAX + (TMIN - TMAX) * x, 1 - y]; // diagram coordinates (0..1, y down) -> temperature, humidity
+function resample(P) { // STEPS points equally spaced along the path (a tap is a path of one point)
+  if (!P.length) return []; const L = pathLen(P); if (L < 1e-6) return Array(STEPS).fill(P[0]);
+  const out = []; let seg = 1, acc = 0;
+  for (let k = 0; k < STEPS; k++) { const target = L * k / (STEPS - 1);
+    while (seg < P.length - 1 && acc + Math.hypot(P[seg][0] - P[seg - 1][0], P[seg][1] - P[seg - 1][1]) < target) { acc += Math.hypot(P[seg][0] - P[seg - 1][0], P[seg][1] - P[seg - 1][1]); seg++; }
+    const a = P[seg - 1], b = P[seg], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, t = Math.min(1, Math.max(0, (target - acc) / l)); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
+  return out;
+}
+const pathLayers = P => resample(P).map(p => { const [T, sv] = ptTS(p); return { T: Math.round(T * 4) / 4, s: Math.round(sv * 40) / 40, d: 1 }; });
+// the sequence of habits, centre outwards; passages shorter than two of the 24 steps are too brief to leave a visible ring
+function habitSeq(layers) {
+  const ks = layers.map(l => habit(l.T, l.s)), runs = []; for (const k of ks) { if (runs.length && runs.at(-1).k === k) runs.at(-1).n++; else runs.push({ k, n: 1 }); }
+  const seq = []; for (const r of runs) { if (r.n < 2) continue; if (seq.at(-1) !== r.k) seq.push(r.k); } return seq.length ? seq : [runs.reduce((a, b) => b.n > a.n ? b : a).k];
+}
+const SHORT = { plate: 'plate', sector: 'sectored plate', stellar: 'star', dendrite: 'fern', column: 'column', hollow: 'hollow column', needle: 'needle' };
+function nameOf(seq) {
+  const k = seq.join(',');
+  const SPECIAL = { 'column,plate': 'capped column', 'column,sector': 'capped column', 'hollow,plate': 'capped hollow column', 'plate,dendrite': 'plate with fern tips', 'dendrite,plate': 'fern with plate tips', 'sector,stellar': 'star on a sectored core', 'dendrite,plate,dendrite': 'three seasons', 'needle,hollow': 'needle in a sleeve' };
+  if (SPECIAL[k]) return SPECIAL[k]; if (seq.length === 1) return KNAME[seq[0]];
+  return SHORT[seq.at(-1)] + ' grown on ' + seq.slice(0, -1).reverse().map(x => SHORT[x]).join(' on ');
+}
+// rarity: small regions of the diagram and long histories are rare
+const AREA = (() => { const c = {}; for (let i = 0; i < 60; i++) for (let j = 0; j < 40; j++) { const k = habit(TMAX + (TMIN - TMAX) * (i + .5) / 60, (j + .5) / 40); c[k] = (c[k] || 0) + 1; } for (const k in c) c[k] /= 2400; return c; })();
+function rarity(seq) { const r = seq.reduce((a, k) => a * (1 / AREA[k]), 1) * Math.pow(1.6, seq.length - 1); return r < 6 ? 'common' : r < 40 ? 'uncommon' : r < 400 ? 'rare' : 'legendary'; }
+const encodePath = P => resample(P).map(([x, y]) => Math.round(x * Q).toString(36).padStart(2, '0') + Math.round(y * Q).toString(36).padStart(2, '0')).join('');
+const decodePath = str => { const out = []; for (let i = 0; i + 4 <= str.length && out.length < 200; i += 4) { const x = parseInt(str.slice(i, i + 2), 36) / Q, y = parseInt(str.slice(i + 2, i + 4), 36) / Q; if (x >= 0 && x <= 1 && y >= 0 && y <= 1) out.push([x, y]); } return out; };
+const P2 = (T, sv) => [(T - TMAX) / (TMIN - TMAX), 1 - sv]; // temperature, humidity -> diagram coordinates
+// Commissions from Bentley's correspondents: grow this kind of flake. Any line that grows it passes; stars for using little ink
+// (a short, deliberate fall), with par set by the straight-line route between the regions.
+const COMMS = [
+  { n: 'A plain plate', who: 'a schoolmistress in Jericho, Vermont', text: 'a single solid hexagonal plate for her class', par: [P2(-2, .2)] },
+  { n: 'Six ferns', who: 'a lace-maker in Burlington', text: 'the classic six-armed fern, nothing else', par: [P2(-15, .9)] },
+  { n: 'The needle', who: 'a physician with a microscope', text: 'a single ice needle', par: [P2(-5.5, .85)] },
+  { n: 'Plate with fern tips', who: 'The Monthly Weather Review', text: 'a solid plate at the heart that sprouts ferns at the corners', par: [P2(-14, .2), P2(-14, .95)] },
+  { n: 'The capped column', who: 'a cotton-mill owner', text: 'a column with a plate on each end, like a cotton reel', par: [P2(-7, .2), P2(-11.5, .2)] },
+  { n: 'A star on a sectored core', who: 'a jeweller in Boston', text: 'a sectored plate that grows broad star arms', par: [P2(-20, .5), P2(-20, .9)] },
+  { n: 'Three seasons', who: 'the Vermont Historical Society', text: 'fern, then plate, then fern again, as if the weather changed its mind twice', par: [P2(-15, .9), P2(-15, .2), P2(-15, .9)] },
+  { n: 'The long fall', who: 'the Smithsonian', text: 'a flake that remembers four different clouds: plate, column, plate and finally fern', par: [P2(-2, .2), P2(-7, .2), P2(-13, .2), P2(-15, .3), P2(-15, .9)] },
+];
+COMMS.forEach(c => { c.want = habitSeq(pathLayers(c.par)); c.ink = pathLen(c.par); });
+function judgeComm(c, P) { // stars for a drawn path against a commission: right flake required, then ink against par
+  const seq = habitSeq(pathLayers(P)), ok = seq.join(',') === c.want.join(','); if (!ok) return { ok, seq, stars: 0 };
+  const ink = pathLen(P), slack = ink - c.ink; return { ok, seq, ink, stars: slack <= .05 + c.ink * .15 ? 3 : slack <= .15 + c.ink * .6 ? 2 : 1 };
+}
+// The daily sky: a commission everyone shares for the day, built from a seeded route through two or three clouds.
+function dailyComm(date) {
+  const r = RH.rng('sky:' + date);
+  for (let t = 0; t < 200; t++) { const n = 2 + r.int(2), par = Array.from({ length: n }, () => [r(), r()]), want = habitSeq(pathLayers(par));
+    if (want.length >= 2 && want.length <= 4) return { n: 'The daily sky', who: 'everyone, today', text: 'a ' + nameOf(want), par, want, ink: pathLen(par), daily: date }; }
+}
+const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+let drawPath = [], drawLayers = null, travel = 1, drawing = false, lastJudge = null;
 const targetsOf = c => c.target.map(t => grow(t));
 // ================= state =================
 function cleanSave(raw) {
   const s = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}, done = {}, seen = {};
   if (s.v === 2 && s.done && typeof s.done === 'object') for (const k in s.done) if (/^\d+$/.test(k) && +k < CASES.length && s.done[k] >= 1) done[k] = Math.min(3, s.done[k] | 0);
   if (s.v === 2 && s.seen && typeof s.seen === 'object') for (const k of KINDS) if (s.seen[k]) seen[k] = 1;
-  return { v: 2, done, seen, cur: Number.isInteger(s.cur) && s.cur >= 0 && s.cur < CASES.length ? s.cur : 0, intro: s.v === 2 && s.intro ? 1 : 0 };
+  const codex = {}, comm = {};
+  if (s.v === 2 && s.codex && typeof s.codex === 'object') for (const k in s.codex) { const e = s.codex[k]; if (/^[a-z,]{3,80}$/.test(k) && e && typeof e === 'object' && Object.keys(codex).length < 300) codex[k] = { d: String(e.d || '').slice(0, 10), p: String(e.p || '').slice(0, 120), n: Math.max(1, e.n | 0) }; }
+  if (s.v === 2 && s.comm && typeof s.comm === 'object') for (const k in s.comm) if (/^\d+$/.test(k) && s.comm[k] >= 1) comm[k] = Math.min(3, s.comm[k] | 0);
+  const daily = s.v === 2 && s.daily && typeof s.daily.date === 'string' && Number.isFinite(s.daily.ink) ? { date: s.daily.date.slice(0, 10), ink: s.daily.ink } : null;
+  return { v: 2, done, seen, codex, comm, daily, mode: s.v === 2 && s.mode === 'cases' ? 'cases' : 'draw', tab: s.v === 2 && ['sky', 'comm', 'daily'].includes(s.tab) ? s.tab : 'sky', ci: s.v === 2 && Number.isInteger(s.ci) ? s.ci : 0,
+    cur: Number.isInteger(s.cur) && s.cur >= 0 && s.cur < CASES.length ? s.cur : 0, intro: s.v === 2 && s.intro ? 1 : 0 };
 }
 const SAVE = cleanSave(RH.load('snowfall', null));
-const persist = () => { RH.save('snowfall', SAVE); RH.progress('snowfall', Object.keys(SAVE.done).length / CASES.length); };
+const persist = () => { RH.save('snowfall', SAVE); RH.progress('snowfall', Math.min(1, (Object.keys(SAVE.done).length + Object.keys(SAVE.comm).length) / (CASES.length + COMMS.length))); };
 const isOpen = i => i === 0 || !!SAVE.done[i - 1] || (i === 1 && Object.keys(SAVE.seen).length >= 4);
 let grownLayers = [], cur = isOpen(SAVE.cur) ? SAVE.cur : 0, sounding, sel = 0, used = 0, grown = null, develop = 0, best = 0;
 function startCase(i) {

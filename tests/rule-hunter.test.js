@@ -215,6 +215,34 @@ module.exports = {
       const pts = await page.evaluate(() => { const r = document.getElementById('world').getBoundingClientRect(), d = __rh.dish, sc = d.sq / __rh.W; const f = (x, y) => [r.left + d.x0 + (x + .5) * sc, r.top + d.y0 + (y + .5) * sc]; return [f(70, 80), f(76, 80)]; });
       await touchDrag(cdp, pts[0], pts[1], 12); eq(await page.evaluate(() => { let n = 0; for (let x = 70; x <= 76; x++) n += __rh.grid[80 * __rh.W + x]; return n; }), 7);
     },
+    'breeding: crossing rules is deterministic (same child, name and behaviour) and every daily commission has a known recipe': async ({ page, eq, ok }) => {
+      await dismiss(page);
+      const a = await page.evaluate(() => { const R = __rh; R.running = false; const r = R.breed('B3/S23', 'B3678/S34678', 'cross'); return [r.card.n, r.card.r, r.beh, r.first]; });
+      const p2 = await reopen(page); const b = await p2.evaluate(() => { const R = __rh; R.running = false; const r = R.breed('B3/S23', 'B3678/S34678', 'cross'); return [r.card.n, r.card.r, r.beh, r.first]; }); await p2.close();
+      eq(a, b); eq(a[1], 'B3/S34678'); ok(a[3], 'first found by you');
+      const RECIPES = [[['B3/S23', 'B3678/S34678', 'cross']], [['B3678/S34678', 'B3/S23', 'cross']], [['B3/S23', 'B3678/S34678', 'cross']], [['B3/S23', 'B1357/S1357', 'cross']], [['B3/S23', 'B1357/S1357', 'cross']], [['B3/S23', 'B2/S', 'cross']]];
+      const goals = await page.evaluate((RECIPES) => { const R = __rh; return R.GOALS.map((g, i) => { for (const [x, y, op] of RECIPES[i]) R.breed(x, y, op); return g.t(); }); }, RECIPES);
+      eq(goals, [true, true, true, true, true, true]);
+    },
+    'breeding by real clicks: pick two cards, the child joins the shelf; a childless (no-birth) mix is refused': async ({ page, eq, ok }) => {
+      await dismiss(page); await page.click('.tabs button[data-t="lab"]');
+      await page.click('#p-lab [data-r="B3/S23"]'); await page.click('#p-lab [data-r="B2/S"]');
+      ok(await page.evaluate(() => __rh.shelf().some(x => x.r === 'B3/S')));
+      await page.click('#p-lab [data-op="overlap"]'); await page.click('#p-lab [data-r="B2/S"]'); await page.click('#p-lab [data-r="B3/S12345"]');
+      eq(await page.evaluate(() => __rh.shelf().length), 7, 'B2∩B3 has no births: refused');
+    },
+    'difficulty: naive play fails (breeding)': async ({ page, ok }) => {
+      await dismiss(page);
+      const r = await page.evaluate(() => { const R = __rh; R.running = false; let seed = 7; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) % n; };
+        const reset = () => { for (const k of Object.keys(R.S.species)) delete R.S.species[k]; for (const k of Object.keys(R.S.rules)) delete R.S.rules[k]; R.S.shelf.length = 0; };
+        const score = () => Object.values(R.S.species).filter(s => s.rules.some(rr => R.S.shelf.some(x => x.r === rr))).length + 3 * R.S.shelf.filter(x => R.S.rules[R.parseRule(x.r).b + ':' + R.parseRule(x.r).s]?.beh === 'complex').length;
+        reset(); const ops = ['cross', 'merge', 'overlap']; for (let k = 0; k < 8; k++) { const sh = R.shelf(); R.breed(sh[rnd(sh.length)].r, sh[rnd(sh.length)].r, ops[rnd(3)]); } const naive = score();
+        // competent: keep Life's survival (S23) and borrow births from others; then cross the complex children back with Life
+        reset(); for (const x of ['B36/S23', 'B3678/S34678', 'B3/S12345', 'B1357/S1357', 'B2/S']) R.breed(x, 'B3/S23', 'cross');
+        for (const x of ['B3678/S34678', 'B3/S12345', 'B1357/S1357']) R.breed('B3/S23', x, 'cross'); const comp = score();
+        return { naive, comp }; });
+      ok(r.comp > r.naive * 1.5, `competent ${r.comp} vs naive ${r.naive}`);
+    },
     'phone layout: no horizontal scroll and the dish is visible': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(150);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, w: document.getElementById('world').getBoundingClientRect() }));
