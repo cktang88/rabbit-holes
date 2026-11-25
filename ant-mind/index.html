@@ -526,10 +526,15 @@ function bloom(){ const r=RH.rng(77+mapI), segs=[], n=nests[0];
   const grow=(x,y,a,len,depth,t0)=>{ let px=x,py=y; for (let i=0;i<len;i++){ a+=r.range(-.4,.4); const nx=px+Math.cos(a)*2.4, ny=py+Math.sin(a)*2.4; segs.push([px,py,nx,ny,t0+i*0.035,depth]); px=nx; py=ny;
       if (depth<3 && r()<0.12) grow(px,py,a+r.range(-1.2,1.2),Math.floor(len*0.6),depth+1,t0+i*0.035); } };
   for (let k=0;k<7;k++) grow(n.x,n.y,k/7*Math.PI*2+r()*0.4,26,0,0);
+  segs.sort((p,q)=>p[4]-q[4]); if (segs.length>900) segs.length=900;
   return {t0:performance.now(), segs}; }
-function drawBloom(){ const t=(performance.now()-winFx.t0)/1000; ctx.save(); ctx.lineCap='round'; ctx.globalCompositeOperation='screen';
-  for (const [x1,y1,x2,y2,ts,dp] of winFx.segs){ if (ts>t) continue; const k=Math.min(1,(t-ts)/0.25); ctx.strokeStyle=`rgba(240,207,106,${0.9-dp*0.15})`; ctx.lineWidth=Math.max(1,(4-dp)*cell*0.35); ctx.shadowColor='#f0cf6a'; ctx.shadowBlur=10;
-    ctx.beginPath(); ctx.moveTo(x1*cell,y1*cell); ctx.lineTo((x1+(x2-x1)*k)*cell,(y1+(y2-y1)*k)*cell); ctx.stroke(); }
+function drawBloom(){ const t=(performance.now()-winFx.t0)/1000, cv=ctx.canvas;
+  // Segments are painted once into a cached layer (glow faked with a wide faint pass), so each frame is one blit.
+  if (!winFx.layer || winFx.layer.width!==cv.width || winFx.layer.height!==cv.height){ winFx.layer=document.createElement('canvas'); winFx.layer.width=cv.width; winFx.layer.height=cv.height; winFx.done=0; }
+  const L=winFx.layer.getContext('2d'); L.setTransform(ctx.getTransform()); L.lineCap='round';
+  while (winFx.done<winFx.segs.length && winFx.segs[winFx.done][4]<=t){ const [x1,y1,x2,y2,,dp]=winFx.segs[winFx.done++]; const w=Math.max(1,(4-dp)*cell*0.35);
+    L.beginPath(); L.moveTo(x1*cell,y1*cell); L.lineTo(x2*cell,y2*cell); L.strokeStyle='rgba(240,207,106,0.12)'; L.lineWidth=w*3.5; L.stroke(); L.strokeStyle=`rgba(240,207,106,${0.9-dp*0.15})`; L.lineWidth=w; L.stroke(); }
+  ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.globalCompositeOperation='screen'; ctx.drawImage(winFx.layer,0,0);
   ctx.restore();
   if (t>0.8){ const a=Math.min(1,(t-0.8)/0.6); ctx.save(); ctx.globalAlpha=a; ctx.font=`700 ${Math.round(cell*8)}px Caveat,cursive`; ctx.textAlign='center'; ctx.fillStyle='#efe3c8'; ctx.shadowColor='#000'; ctx.shadowBlur=12; if (rotated){ ctx.translate(W*cell*0.14,H*cell/2); ctx.rotate(-Math.PI/2-0.04); } else { ctx.translate(W*cell/2,H*cell*0.2); ctx.rotate(-0.04); } ctx.fillText('The colony thrives',0,0); ctx.restore(); } }
 // tallies scratched into the wall: one stroke per unit, five to a gate
