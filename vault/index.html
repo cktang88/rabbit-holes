@@ -541,9 +541,36 @@ function renderSide() {
   $('totals').textContent = `${n}/${CAMPAIGN} vaults · ${st}★${S.wire.best ? ' · wire best ' + S.wire.best : ''}`;
 }
 
+function applyWire() { const run = S.wire.run; if (!run) return; Object.assign(V[WIRE], wireDef(run.seed, run.level)); delete S.work[WIRE]; delete S.hints[WIRE]; delete S.variant[WIRE]; delete S.solved[WIRE]; }
+function wireStart(seed, daily) { S.wire.run = { seed: String(seed).slice(0, 40), daily: !!daily, level: 1, agents: 3, tokens: 3, score: 0 }; applyWire(); persist(); openVault(WIRE); }
+function wireAdvance(won) {
+  const run = S.wire.run; if (!run) return;
+  if (won) { run.score++; if (run.score % 3 === 0) run.tokens = Math.min(9, run.tokens + 1); } else run.agents--;
+  run.level++;
+  if (run.agents <= 0) return wireEnd();
+  applyWire(); persist(); openVault(WIRE);
+}
+async function wireEnd() {
+  const run = S.wire.run, best = Math.max(S.wire.best, run.score), daily = run.daily;
+  if (daily) S.wire.daily = { date: run.seed.replace('daily:', ''), score: Math.max(run.score, S.wire.daily?.date === run.seed.replace('daily:', '') ? S.wire.daily.score : 0) };
+  S.wire.best = best; S.wire.run = null; delete S.work[WIRE]; persist();
+  const link = location.origin + location.pathname + '#wire=' + encodeURIComponent(run.seed);
+  await RH.modal(`<h2>Run over</h2><p style="text-align:center;font-size:22px">${run.score} intercept${run.score === 1 ? '' : 's'} broken</p><p class="note" style="text-align:center">Best run: ${best}${daily ? ' · today\'s seed is the same for everyone' : ''}</p><p class="note">Share this run: <span class="mono" style="word-break:break-all">${esc(link)}</span></p>`, [{ label: 'Back to the wire room' }]);
+  openVault(WIRE);
+}
+function wireLobby() {
+  const d = today(), dScore = S.wire.daily?.date === d ? S.wire.daily.score : null;
+  $('center').innerHTML = `<div class="dim small">VII. The Wire Room</div><h2 class="vt">The Wire Room</h2><div class="brief">${ERA_BRIEF[6]}</div>
+    <div class="case"><b>How a run works:</b> intercepts arrive one after another, each a fresh message under a fresh key, growing harder as you go (stacked layers, longer keys, shorter texts). Each has an alarm that starts when you touch the bench. <b>Miss an alarm and you lose an agent;</b> lose three and the run is over. <b>Hints</b> come from a shared pool of tokens (3 to start, one more every third break). Your score is how many intercepts you break.</div>
+    <div class="row" style="margin-top:10px"><button class="primary" id="wNew">📡 New run</button><button id="wDaily">📅 Today's seed (${d})${dScore != null ? ' · your best ' + dScore : ''}</button></div>
+    <p class="note" style="margin-top:8px">Best run so far: <b>${S.wire.best}</b>. A run's link (#wire=…) replays the same intercepts for anyone.</p>`;
+  $('wNew').onclick = () => wireStart(Math.random().toString(36).slice(2, 10));
+  $('wDaily').onclick = () => wireStart('daily:' + d, true);
+}
 function openVault(i) {
   disarm(); seenWords = null; colPick = null; // a half-made column swap must not carry over to another vault
   cur = i; S.cur = i; padSel = null; persist();
+  if (i === WIRE && !S.wire.run) { renderSide(); wireLobby(); return; }
   const v = V[i], w = workOf(i), b = build(i);
   if (!v.pad && !w.stages.length) {
     const intro = (v.intro || []).filter(t => TOOLS[t]);
@@ -557,7 +584,7 @@ function openVault(i) {
   const nh = S.hints[i] || 0, sv = S.solved[i];
   $('center').innerHTML = `
     <div class="row" style="justify-content:space-between;align-items:flex-start">
-      <div><div class="dim small">${['I','II','III','IV','V','VI','VII'][v.e]}. ${ERAS[v.e]} · Vault ${i + 1}</div><h2 class="vt">${sv ? '🔓' : '🔒'} ${v.n}</h2></div>
+      <div><div class="dim small">${['I','II','III','IV','V','VI','VII'][v.e]}. ${ERAS[v.e]} · ${i === WIRE ? `${S.wire.run.daily ? 'Daily run' : 'Run'} · score ${S.wire.run.score} · agents ${'●'.repeat(S.wire.run.agents)}${'○'.repeat(3 - S.wire.run.agents)} · hint tokens ${S.wire.run.tokens}` : 'Vault ' + (i + 1)}</div><h2 class="vt">${sv ? '🔓' : '🔒'} ${v.n}</h2></div>
       <div class="row">${v.alarm && !sv ? `<span class="alarm ${w.armed ? 'live' : ''}" id="alarm" title="When this runs out, the message and its key change">⏰ ${Math.floor(alarmLeft(i) / 60)}:${String(alarmLeft(i) % 60).padStart(2, '0')}${w.armed ? '' : ' · starts when you touch the bench'}</span>` : ''}<span class="pill" id="timer">⏱ ${fmtT(w.time)}</span><button id="hintBtn">💡 Hint (${3 - nh} left)</button>${sv ? '<button id="newMsg" title="Same cipher, new message and key">🔁 New intercept</button>' : ''}</div>
     </div>
     ${V.findIndex(x => x.e === v.e) === i ? `<div class="brief">${ERA_BRIEF[v.e]}</div>` : ''}
@@ -627,6 +654,7 @@ function genWords(row) { // find dictionary-ish words from the generator vocab i
 const hintList = (i, n) => Array.from({ length: n }, (_, k) => `<div class="note" style="margin:4px 0">💡 ${hintText(i, k)}</div>`).join('');
 async function takeHint(i) {
   const n = S.hints[i] || 0; if (n >= 3) return RH.toast('No hints left for this vault.');
+  if (i === WIRE) { const run = S.wire.run; if (!run || run.tokens <= 0) return RH.toast('No hint tokens left in this run.'); run.tokens--; S.hints[i] = n + 1; persist(); openVault(i); return; }
   if (!S.solved[i] && !(await RH.modal(`<h2>Take a hint?</h2><p>Each hint costs a star on this vault (3★ with none, 2★ with one, 1★ with more).</p>`, [{ label: 'Keep trying', value: 0 }, { label: 'Show hint', value: 1 }]))) return;
   S.hints[i] = n + 1; persist(); $('hints').innerHTML = hintList(i, n + 1); $('hintBtn').textContent = `💡 Hint (${2 - n} left)`;
 }
@@ -878,6 +906,7 @@ async function solved(i) {
   SND.stamp(.25); SND.bell(.55); FX.shake?.(.25);
   await new Promise(r => setTimeout(r, 1100));
   if (cur !== i) return;
+  if (i === WIRE) { SND.bell(); RH.toast(`Intercept ${S.wire.run.level} broken.`, 2200); delete S.solved[WIRE]; wireAdvance(true); return; }
   if (b.intel) { // act on what you read: a wrong call costs a star
     const v = V[i], pick = await RH.modal(`<h2>Act on it</h2><p>${v.intel.q}</p><div class="txt" style="font-size:13px;word-break:normal">${plain}</div>`, b.intel.opts.map(o => ({ label: o, value: o })));
     const right = pick === b.intel.ans; S.solved[i].intel = right;
@@ -1038,6 +1067,7 @@ function alarmTick(i) {
   const left = alarmLeft(i), el = $('alarm');
   if (el) { el.textContent = `⏰ ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; el.classList.toggle('hot', left <= 20); }
   if (left <= 20 && left > 0 && left % 5 === 0) SND.clack();
+  if (left === 0 && i === WIRE) { SND.alarm(); RH.toast('Too slow: the line re-keyed and an agent was blown. Next intercept.', 3600); wireAdvance(false); return; }
   if (left === 0) {
     SND.alarm(); FX.shake?.(.5);
     S.variant[i] = (S.variant[i] || 0) + 1; w.alarmT = 0; w.stages = w.stages.map(st => ({ t: st.t, s: DEF[st.t]() })); persist(); openVault(i);
@@ -1052,8 +1082,11 @@ const help = () => RH.modal(`<h2>🔐 The Vault</h2>
   <p class="dim">Hints cost stars. Solved vaults offer a 🔁 new intercept so you can practise a technique again.</p>`, [{ label: 'Pick a lock' }]);
 $('helpBtn').onclick = help;
 if (!S.intro) { S.intro = 1; persist(); help(); }
+if (S.wire.run) Object.assign(V[WIRE], wireDef(S.wire.run.seed, S.wire.run.level)); // resume a run in progress, work and all
 openVault(eraOpen(V[cur].e) ? cur : 0);
-window.__vault = { keyCribs, caseCard, hintText, TOOLS, pullCarbon, intelFor, probable, alarmLeft, alarmTick, V, build, S, workOf, openVault, update, APPLY, isOpenNow, findWords, SETTLE_MS, eraOpen, toolsAt, loadState, get cur() { return cur; } };
+// a #wire=SEED link starts that run (once the Wire Room is open)
+(() => { const m = location.hash.match(/wire=([^&]+)/); if (m && eraOpen(6)) { const seed = decodeURIComponent(m[1]); if (!S.wire.run || S.wire.run.seed !== seed) wireStart(seed, seed.startsWith('daily:')); } })();
+window.__vault = { WIRE, CAMPAIGN, wireDef, wireStart, wireAdvance, applyWire, today, keyCribs, caseCard, hintText, TOOLS, pullCarbon, intelFor, probable, alarmLeft, alarmTick, V, build, S, workOf, openVault, update, APPLY, isOpenNow, findWords, SETTLE_MS, eraOpen, toolsAt, loadState, get cur() { return cur; } };
 
 // phones: level drawer and folding stories
 (() => {

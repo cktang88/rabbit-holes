@@ -682,6 +682,8 @@ const LV = [
   { n: 'One Swing', setup: 'single', start: ['X+360', 'X+360', 'X+360'], moves: { ax: 'X', ang: PM90 }, swings: 1, par: 4,
     story: 'Three full turns of twist, and the stand only lets the loop past <b>once</b>. A swing moves two full turns. Which way should the lamp turn first?', goal: 'One swing only: light the lamp.',
     win: ['Untwist, then swing', 'Turning back one full turn leaves two; one swing clears two. Turning forward leaves four, and one swing is not enough.'] },
+  { n: 'The Course', setup: 'single', kind: 'golf', course: 1, moves: { ax: 'XYZ', ang: PM90 }, holes: [['X+90']],
+    story: 'An endless golf course of orientations. Each hole: turn the lamp to match the ghost, <b>hidden sign included</b>, with only the motors that hole allows. Par comes from a solver. Rounds get harder; there is a new <b>daily course</b> every day, and every course has a seed you can share.', goal: '' },
   { n: 'Sandbox', setup: 'bundle', kind: 'sandbox', moves: { ax: 'XYZ', ang: [-90, 90, 180, 360] }, free: 1,
     story: 'Do anything. Drag the cube, record a routine, share it as a code.', goal: 'No goal. Try to find the shortest sequence that tangles the ribbons for good. (You can\'t.)' },
 ];
@@ -693,7 +695,7 @@ SAVE.cur = Number.isInteger(SAVE.cur) && SAVE.cur >= 0 ? SAVE.cur : 0;
 if (!Array.isArray(SAVE.recSteps)) delete SAVE.recSteps; if (!isObj(SAVE.rec) || !Array.isArray(SAVE.rec.moves)) delete SAVE.rec;
 let loadSeq = 0; // bumped on every level load: delayed wins / hole changes from the previous level must not land on this one
 const sameLevel = fn => { const k = loadSeq; return () => { if (k === loadSeq) fn(); }; };
-const persist = () => { RH.save('belt-trick', SAVE); RH.progress('belt-trick', Object.keys(SAVE.done).filter(k => +k < LV.length - 1).length / (LV.length - 1)); };
+const persist = () => { RH.save('belt-trick', SAVE); const camp = i => LV[i] && !LV[i].free && !LV[i].course; RH.progress('belt-trick', Object.keys(SAVE.done).filter(k => camp(+k)).length / LV.filter((l, i) => camp(i)).length); };
 let L, LI = 0, sel = 0, won = false, intro = false, S = {}, bet = null, golf = null, waiter = null, glitchT = 0, lastMsg = '';
 
 function loadLevel(i, opt = {}) {
@@ -702,6 +704,7 @@ function loadLevel(i, opt = {}) {
   clearWorld(); const cam = (L.setup === 'mech' ? SETUPS.mech(L.kind === 'sat') : SETUPS[L.setup]());
   gj = L.kind === 'gear' ? { k: 0, idler: false, cables: 3, snaps: 0 } : null; if (gj) applyGears();
   bet = L.kind === 'bet' ? { right: 0, tries: 0, phase: 'idle', seq: null } : null;
+  if (L.course) setupCourse(opt);
   golf = L.kind === 'golf' ? { hole: 0, strokes: 0, total: 0, par: 0, results: [] } : null;
   waiter = L.kind === 'waiter' ? { spill: 0, bumpT: 1.5, bump: null, t: 0, started: false, done: false } : null;
   if (golf) setupHole();
@@ -732,7 +735,50 @@ function placeCamera(c) {
 }
 
 // ---------- golf ----------
+// ---------- The Course: seeded generation ----------
+// each hole = a target orientation (a random walk, so the hidden sign is random too) plus a restricted set of motors; par by BFS
+const MOTORS = [{ ax: 'XYZ', ang: [-90, 90], n: 'all quarter turns' }, { ax: 'XYZ', ang: [90], n: 'forward-only motors' }, { ax: 'XY', ang: [-90, 90], n: 'no Z motor' },
+  { ax: 'XZ', ang: [90], n: 'two forward motors' }, { ax: 'YZ', ang: [90, 180], n: 'quarter and half turns, no X' }, { ax: 'XY', ang: [90, 270], n: 'quarter and three-quarter turns' }];
+const gensOfM = m => { const g = []; for (const a of m.ax) for (const d of m.ang) g.push(a + (d > 0 ? '+' : '') + d); return g; };
+function genCourse(seed, diff) {
+  const r = RH.rng(seed >>> 0 || 1), holes = [], moves = [], pars = [];
+  for (let h = 0; h < 9; h++) {
+    const d = diff + h / 3;
+    for (let tries = 0; tries < 60; tries++) {
+      const m = MOTORS[r.int(Math.min(MOTORS.length, 1 + Math.floor(d)))], len = 2 + Math.min(6, Math.floor(d / 1.5)) + r.int(2), walk = [];
+      for (let k = 0; k < len; k++) walk.push(QT[r.int(6)]);
+      if (r() < .5) walk.push('XYZ'[r.int(3)] + '+360'); // flip the hidden sign half the time
+      const tg = qnorm(seqQ(walk)), par = bfsPar([1, 0, 0, 0], gensOfM(m), tg);
+      if (par >= Math.min(2 + Math.floor(d / 2), 6) && par <= 9) { holes.push(walk); moves.push(m); pars.push(par); break; }
+      if (tries === 59) { holes.push(['X+90', 'Y+90']); moves.push(MOTORS[0]); pars.push(2); }
+    }
+  }
+  return { holes, moves, pars };
+}
+const courseSeed = round => 7919 * round + 104729;
+const todaySeed = () => { const d = new Date(); return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); };
+let courseOpt = null;
+function setupCourse(opt) {
+  SAVE.course = isObj(SAVE.course) ? SAVE.course : { round: 1, best: {} }; if (!isObj(SAVE.course.best)) SAVE.course.best = {};
+  const daily = opt.daily || (opt.seed == null && SAVE.course.daily);
+  const seed = opt.seed ?? (daily ? todaySeed() : courseSeed(opt.round || SAVE.course.round || 1)), round = opt.round || SAVE.course.round || 1, diff = daily || opt.seed != null && opt.round == null ? 4 : round;
+  const c = genCourse(seed, diff); L.holes = c.holes; L.holeMoves = c.moves; L.holePars = c.pars; L.moves = c.moves[0];
+  courseOpt = { seed, round, daily: !!daily, diff }; SAVE.course.daily = !!daily;
+  L.goal = daily ? `Daily course ${seed}` : `Round ${round} · seed ${seed}`;
+}
+function finishRound() {
+  const par = golf.results.reduce((a, r) => a + r[1], 0), over = golf.total - par, c = courseOpt, key = String(c.seed), prev = SAVE.course.best[key];
+  if (prev == null || over < prev) SAVE.course.best[key] = over;
+  const keys = Object.keys(SAVE.course.best); if (keys.length > 40) delete SAVE.course.best[keys[0]]; // a compact save
+  if (!c.daily && over <= 6 && c.round >= (SAVE.course.round || 1)) SAVE.course.round = c.round + 1; // within 6 of par opens the next round
+  persist(); golf.done = true; won = true;
+  const medal = over <= 0 ? 'Gold' : over <= 3 ? 'Silver' : over <= 6 ? 'Bronze' : 'No medal';
+  FX.sfx(over <= 3 ? 'win' : 'chime'); burstAll('#f2c879', 80);
+  toast(`${medal} · ${over > 0 ? '+' : ''}${over}`, `${golf.total} strokes against a solver's par of ${par}.${prev != null ? ` Your best on this course: ${prev > 0 ? '+' : ''}${Math.min(prev, over)}.` : ''}${!c.daily && over > 6 ? ' Finish within 6 of par to open the next round.' : ''}<br>Share: #course=${c.seed}`, 7000);
+  renderGoal(); renderCtrl();
+}
 function setupHole() {
+  if (L.course) { L.moves = L.holeMoves[golf.hole]; }
   const h = L.holes[golf.hole]; golf.target = qnorm(seqQ(h)); golf.par = bfsPar([1, 0, 0, 0], gensOf(L), golf.target); golf.strokes = 0; golf.matched = false;
   if (ghost) { scene.remove(ghost); disposeTree(ghost); EXTRA.splice(EXTRA.indexOf(ghost), 1); }
   ghost = homeGhost(OBJ[0], golf.target, signOf(golf.target) === '−' ? '#ff5a6a' : '#5fe8a0');
@@ -805,7 +851,8 @@ function check(ev) {
       golf.matched = true;
       golf.results.push([golf.strokes, golf.par]); golf.total += golf.strokes; FX.sfx('coin'); FX.hitstop(60); burstAll('#7fe8b0', 60);
       toast(golf.strokes <= golf.par ? (golf.strokes < golf.par ? 'Birdie!' : 'Par') : `+${golf.strokes - golf.par}`, `Hole ${golf.hole + 1}: ${golf.strokes} strokes (par ${golf.par})`, 1800);
-      if (golf.hole + 1 >= L.holes.length) { const par = golf.results.reduce((a, r) => a + r[1], 0); setTimeout(sameLevel(() => winLevel(['Clubhouse', `${golf.total} strokes, par ${par}.`], golf.total - par)), 900); }
+      if (golf.hole + 1 >= L.holes.length && L.course) setTimeout(sameLevel(finishRound), 900);
+      else if (golf.hole + 1 >= L.holes.length) { const par = golf.results.reduce((a, r) => a + r[1], 0); setTimeout(sameLevel(() => winLevel(['Clubhouse', `${golf.total} strokes, par ${par}.`], golf.total - par)), 900); }
       else setTimeout(sameLevel(() => { golf.hole++; resetState(); setupHole(); renderGoal(); renderCtrl(); }), 1100);
     } else if (rotAngle(qmul(qinv(golf.target), OBJ[0].q)) < .07) { glitchT = 1; FX.sfx('fail'); msg('Looks right. Wrong sign!'); }
     return;
@@ -837,7 +884,7 @@ function toast(big, small, ms = 5000) { wake(100); const t = $('toast'); t.inner
 const maxOpen = () => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; };
 function renderLevels() {
   const mo = maxOpen();
-  $('levels').innerHTML = '<h4>Levels</h4>' + LV.map((l, i) => `<div class="lv ${i === LI ? 'cur' : ''} ${i > mo && i !== LI && !SAVE.done[i] && !l.free ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><em>${SAVE.done[i] ? '★'.repeat(SAVE.done[i]) : ''}</em></div>`).join('') + (SAVE.done[3] ? '<div class="lv" data-why="1"><span>❓ Why does this happen?</span></div>' : '');
+  $('levels').innerHTML = '<h4>Levels</h4>' + LV.map((l, i) => `<div class="lv ${i === LI ? 'cur' : ''} ${i > mo && i !== LI && !SAVE.done[i] && !l.free && !(l.course && SAVE.done[3]) ? 'lock' : ''}" data-i="${i}"><span>${i + 1}. ${l.n}</span><em>${SAVE.done[i] ? '★'.repeat(SAVE.done[i]) : ''}</em></div>`).join('') + (SAVE.done[3] ? '<div class="lv" data-why="1"><span>❓ Why does this happen?</span></div>' : '');
   $('levels').querySelectorAll('.lv').forEach(el => el.onclick = () => { FX.sfx('click'); $('levels').classList.remove('open'); if (el.dataset.why) return coda(); loadLevel(+el.dataset.i); });
   $('lvbtn').textContent = `☰ ${LI + 1}/${LV.length}`;
 }
@@ -851,7 +898,7 @@ function renderGoal() {
   }
   if (L.par) g += ` <span style="color:#c9c4b4">Par ${L.par}.</span>`;
   if (bet) g = `${L.goal} <b>streak ${bet.right}/3</b>` + (bet.phase === 'watch' ? ' · watch…' : bet.phase === 'bet' ? ' · the cube is home. Will it relax?' : '');
-  if (golf) g = `Hole ${golf.hole + 1}/${L.holes.length} · par ${golf.par} · strokes ${golf.strokes}. Target sign <b style="color:${signOf(golf.target) === '−' ? '#ff9a9a' : '#9af0c0'}">${signOf(golf.target)}</b>`;
+  if (golf) g = `${L.course ? L.goal + ' · ' + L.moves.n + '<br>' : ''}Hole ${golf.hole + 1}/${L.holes.length} · par ${golf.par} · strokes ${golf.strokes}${L.course ? ((o => ` · round ${o > 0 ? '+' : ''}${o}`)(golf.total - golf.results.reduce((a, r) => a + r[1], 0))) : ''}. Target sign <b style="color:${signOf(golf.target) === '−' ? '#ff9a9a' : '#9af0c0'}">${signOf(golf.target)}</b>`;
   $('goal').className = won || SAVE.done[LI] ? 'ok' : ''; $('goal').innerHTML = (won ? '✓ ' : '🎯 ') + g;
 }
 function renderBets() {
@@ -880,13 +927,17 @@ function renderCtrl() {
   if (L.kind !== 'bet') h += '<button class="b" id="rst" title="Reset (Backspace)">↺</button>';
   if (L.moves && !golf && L.kind !== 'sandbox') h += `<span class="info">${userMoves.length}${L.maxMoves ? '/' + L.maxMoves : ''} turns · ${swings}${L.swings != null ? '/' + L.swings : ''} swing${swings === 1 ? '' : 's'}</span>`;
   if (L.kind === 'sandbox') h += `<span class="sep"></span><button class="b ${recording ? 'on' : ''}" id="rec">${recording ? '■ stop' : '● rec'}</button><button class="b" id="play" ${SAVE.rec ? '' : 'disabled'}>▶ play</button><button class="b" id="share">share</button>`;
-  if (won && LI < LV.length - 1) h += `<button class="b on big" id="next">Next →</button>`;
+  if (L.course) h += `<span class="sep"></span>${golf && golf.done && !courseOpt.daily ? `<button class="b on big" id="cNext">Round ${Math.min(courseOpt.round + 1, SAVE.course.round)} →</button>` : ''}<button class="b" id="cDaily">Daily</button><button class="b" id="cRounds">Rounds</button>`;
+  else if (won && LI < LV.length - 1) h += `<button class="b on big" id="next">Next →</button>`;
   c.innerHTML = h; setTimeout(placeGoal, 0);
   c.querySelectorAll('[data-m]').forEach(b => b.onpointerdown = e => { e.preventDefault(); FX.sfx('click'); userMove(b.dataset.m); });
   c.querySelectorAll('[data-sel]').forEach(b => b.onclick = () => { sel = +b.dataset.sel; FX.sfx('tick'); renderCtrl(); });
   if ($('rx')) $('rx').onclick = () => swingLoop();
   if ($('rst')) $('rst').onclick = () => { FX.sfx('pop'); if (golf && golf.matched) return; if (golf && golf.strokes) msg('Ball back on the tee. Strokes still count.'); resetState(); won = won && !L.free ? won : false; };
   if ($('next')) $('next').onclick = () => { FX.sfx('pop'); loadLevel(LI + 1); };
+  if ($('cNext')) $('cNext').onclick = () => { FX.sfx('pop'); loadLevel(LI, { round: Math.min(courseOpt.round + 1, SAVE.course.round) }); };
+  if ($('cDaily')) $('cDaily').onclick = () => { FX.sfx('pop'); loadLevel(LI, { daily: true }); };
+  if ($('cRounds')) $('cRounds').onclick = () => { FX.sfx('pop'); loadLevel(LI, { round: SAVE.course.round || 1 }); };
   if ($('run')) $('run').onclick = () => { if (gj && gearRatio() == null && !MECH.running) { msg('Fit every wheel first'); FX.sfx('fail'); return; } if (MECH.broken || MECH.theta > 0 && !MECH.running) { MECH.phi = MECH.theta = 0; MECH.broken = false; MECH.maxTw = 0; } MECH.running = !MECH.running; FX.sfx(MECH.running ? 'whoosh' : 'click'); renderCtrl(); wake(300); };
   if ($('hold')) { const hb = $('hold'); hb.onpointerdown = e => { e.preventDefault(); setHold(true); }; hb.onpointerup = hb.onpointerleave = hb.onpointercancel = () => setHold(false); }
   if ($('rec')) $('rec').onclick = () => { if (recording) { SAVE.rec = { moves: [...userMoves], steps: recording.length }; SAVE.recSteps = compressRec(recording); recording = null; persist(); toast('', `Recorded ${SAVE.rec.moves.length} moves`, 1500); } else { resetState(); recording = []; userMoves = []; } FX.sfx('click'); renderCtrl(); };
@@ -1150,6 +1201,7 @@ window.__belt = {
   ribbons: () => RIB.map(r => ({ len: r.length(), dmin: r.dmin(), endDot: r.endDot(), flat: r.flat() })),
   swing: k => { const ok = swingLoop(k); relaxNow(); return ok; }, get swings() { return swings; }, lampLevel: () => OBJ[0] && OBJ[0].lamp ? lampLevel(performance.now()) : null,
   get busy() { return busy() || snaps.length > 0 || !!(bet && bet.phase === "watch"); }, get won() { return won; }, get level_() { return LI; }, get par() { return L.par; }, get golf() { return golf; }, get bet() { return bet; }, get mech() { return MECH; }, get waiter() { return waiter; }, get yaw() { return yawAcc / D2R; },
+  genCourse, courseSeed, todaySeed, get course() { return courseOpt && { ...courseOpt, holes: L.holes, pars: L.holePars }; }, COURSE: () => LV.findIndex(l => l.course),
   placeBet, flush: flushQueue, check, enc, decode, get queueN() { return queue.length + (cur ? 1 : 0); }, SAVE, nextBet,
   sim(sec, fn) { const dt = 1 / 60; for (let t = 0; t < sec; t += dt) { fn && fn(t); if (relax.on) stepRelax(dt, 30); if (waiter) stepWaiter(dt); if (MECH) stepMech(dt); stepSnaps(dt); stepQueue(dt); } },
   setRatio: r => setGearB(r), gears: o => { Object.assign(gj, o); applyGears(); return gearRatio(); }, get gj() { return gj && { ...gj }; }, gearRatio: () => gearRatio(), run: () => { MECH.running = true; }, hold: v => { if (v && !MECH.running) MECH.running = true; MECH.hold = v; },
@@ -1163,7 +1215,8 @@ window.__belt = {
 
 // boot
 resize();
-const hash = /#seq=([xyz234\-]+)/.exec(location.hash);
+const hash = /#seq=([xyz234\-]+)/.exec(location.hash), chash = /#course=(\d{1,10})/.exec(location.hash);
+if (chash) loadLevel(LV.findIndex(l => l.course), { seed: +chash[1] }); else
 if (hash) { loadLevel(LV.length - 1); const seq = decode(hash[1]); setTimeout(sameLevel(() => { seq.forEach(t => userMove(t, true)); toast('', 'Playing a shared sequence: ' + seq.join(' · '), 2500); }), 700); }
 else loadLevel(Math.min(SAVE.cur || 0, LV.length - 1) > maxOpen() && !LV[SAVE.cur]?.free ? maxOpen() : Math.min(SAVE.cur || 0, LV.length - 1));
 wake(800);

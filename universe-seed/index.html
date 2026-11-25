@@ -128,6 +128,11 @@
   .hl{padding:6px 8px;margin-bottom:5px;border-left:3px solid #3a3570;background:rgba(10,14,48,.5)} .hl b{display:block;color:#ece3c8} .hl span{font-size:15px;color:#d9cfb2}
   .hl em{font-style:normal;font-size:12px;color:#120d02;background:#e6c36a;padding:0 5px;margin-left:4px}
   .hl.ok{border-left-color:#e6c36a} .hl.weak{border-left-color:#a0782a} .hl.broken{border-left-color:#ff9a8a;background:rgba(120,20,20,.35)} .hl.none{opacity:.45}
+  .mrow{display:flex;justify-content:space-between;gap:8px;font-size:14px;padding:1px 0} .mrow span:first-child{color:#c8bd9c;font-style:italic;flex:1}
+  .mrow .mk{min-width:28px;text-align:right;color:#ffb3a6} .mrow .mk.eq{color:#bfe39a}
+  .mrow .bar{display:inline-block;height:10px;background:#e6c36a;align-self:center;flex:0 0 auto;max-width:50%}
+  .mini i.miss{outline:1px solid #ff9a8a}
+  p.gold{color:#f0d68c} p.bad{color:#ffb3a6}
   .culprit{margin-top:4px;color:#ffd8cf;font-size:15px} .culprit b{display:inline;color:#fff}
   .bangRow{display:flex;gap:8px;margin:10px 0 4px;position:sticky;top:0;z-index:1;padding:6px 0;background:#0b0f30}
   .bangRow .primary{flex:1;font-size:20px;min-height:42px}
@@ -139,7 +144,7 @@
   .chal b{display:block;font-size:17px;color:#f0d68c} .chal span{font-size:14px;color:#c8bd9c;font-style:italic}
   .chal .best{font-size:13px;color:#e6c36a;margin-top:2px}
   .atlas{padding:6px 0;border-bottom:1px solid #e6c36a22;font-size:14px}
-  .atlas .mini{display:flex;gap:2px;margin:3px 0} .atlas .mini i{flex:1;height:6px;background:#2a2860} .atlas .mini i.ok{background:#e6c36a} .atlas .mini i.weak{background:#a0782a} .atlas .mini i.broken{background:#c0473a}
+  .mini{display:flex;gap:2px;margin:3px 0} .mini i{flex:1;height:6px;background:#2a2860} .mini i.ok{background:#e6c36a} .mini i.weak{background:#a0782a} .mini i.broken{background:#c0473a}
   .atlas .laws{color:#a49b84;font-style:italic;font-size:13px}
   .stats{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:15px;padding:8px 10px;border-bottom:1px solid #e6c36a44}
   .stats .k{color:#c8bd9c;font-style:italic} .stats .v{color:#f0d68c;text-align:right}
@@ -158,10 +163,11 @@
   </div>
   <div id="side">
     <div class="stats" id="stats"></div>
-    <div class="tabs"><button data-t="laws" class="on">Laws</button><button data-t="hist">History</button><button data-t="chal">Challenges</button><button data-t="atlas">Atlas</button></div>
+    <div class="tabs"><button data-t="laws" class="on">Laws</button><button data-t="hist">History</button><button data-t="chal">Challenges</button><button data-t="myst">Mystery</button><button data-t="atlas">Atlas</button></div>
     <div class="pane on" id="p-laws"></div>
     <div class="pane" id="p-hist"></div>
     <div class="pane" id="p-chal"></div>
+    <div class="pane" id="p-myst"></div>
     <div class="pane" id="p-atlas"></div>
   </div>
 </main>
@@ -307,6 +313,8 @@ let M = RH.load('us2', null); if (!isObj(M)) M={};
 M.consts=cleanConsts(M.consts); if (!isObj(M.chal)) M.chal={}; for (const k of Object.keys(M.chal)) { const v=M.chal[k]; if (!CHAL.some(c=>c.id===k) || !isObj(v) || !Number.isInteger(v.n) || !Number.isInteger(v.st)) delete M.chal[k]; }
 if (!isObj(M.att)) M.att={}; for (const k of Object.keys(M.att)) if (!CHAL.some(c=>c.id===k) || !Number.isInteger(M.att[k])) delete M.att[k];
 if (M.active!=null && !CHAL.some(c=>c.id===M.active)) M.active=null;
+if (!isObj(M.myst) || typeof M.myst.seed!=='string' || !Array.isArray(M.myst.guesses)) M.myst=null; else M.myst.guesses=M.myst.guesses.slice(0,6).map(cleanConsts);
+if (!isObj(M.mystHist)) M.mystHist={}; if (!Number.isInteger(M.streak)) M.streak=0;
 if (!Array.isArray(M.atlas)) M.atlas=[]; M.atlas=M.atlas.filter(a=>isObj(a) && isObj(a.c) && Array.isArray(a.s)).slice(0,30).map(a=>({...a, c:cleanConsts(a.c)}));
 if (!Number.isInteger(M.bangs) || M.bangs<0) M.bangs=M.atlas.length;
 const persist=()=>{ RH.save('us2', M); RH.progress('universe-seed', Object.keys(M.chal).length/CHAL.length); };
@@ -512,12 +520,60 @@ function renderChal(){
 function renderAtlas(){
   document.getElementById('p-atlas').innerHTML = M.atlas.length? `<p class="small dim">The last universes you made, and where each one broke.</p>`+M.atlas.map(a=>`<div class="atlas"><b>Universe ${a.n}</b> <span class="laws">${lawStr(a.c)}</span><div class="mini">${a.s.map(s=>`<i class="${s}"></i>`).join('')}</div>${a.broke? `<span class="dim">Broke at ${a.broke}</span>` : '<span>Reached minds.</span>'}</div>`).join('') : '<p class="dim">No universes yet. Set the laws and press Bang.</p>';
 }
-function renderAll(){ renderLaws(); renderStats(); renderChal(); renderAtlas(); renderHistory(); renderEra(); }
+// ===================== The mystery universe (a daily seed) =====================
+// Somewhere is a universe with unknown laws. You see what astronomers there would see: which links of the
+// history happened, and the measurements. Set laws, test them, and read the comparison. Six tests.
+const MAX_GUESS=6;
+function seedOf(str){ return RH.hashStr(String(str)); }
+const todayKey=()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+function genMystery(seed){ const r=RH.rng(seedOf('us:'+seed));
+  for (let tries=0; tries<200; tries++){ const c={...OURS}; const k=[1,2,2,3,3,4][r.int(6)]; const keys=r.shuffle(LAWS.map(l=>l.k)).slice(0,k);
+    for (const kk of keys){ const l=LAWS.find(x=>x.k===kk); let j=r.int(l.opts.length-1); if (j>=l.def) j++; c[kk]=j; }
+    const o=simulate(c); if (o.reached>=4) return c; }
+  return {...OURS}; }
+// What astronomers can measure, rounded the way an instrument would
+function observe(c){ const o=simulate(c), v=o.v; const R=(x)=> x==null||!isFinite(x)? null : Number(x.toPrecision(2));
+  return { stages:o.stages.map(s=>s.status), tRec:R(v.tRec), galaxies: v.galaxies? R(v.galaxies) : 0, tau: v.tau!=null? R(v.tau) : null, tLife: o.stages[7].status==='ok'||o.stages[7].status==='weak'? R(v.tLife) : null, crunch: isFinite(v.crunch)? R(v.crunch) : null }; }
+const OBS=[['tRec','Light frees at',fmtT],['galaxies','Galaxies per 100 of ours',x=>x],['tau','A sun-like star lives',fmtT],['tLife','First cells after',fmtT],['crunch','Space recollapses at',fmtT]];
+function compareObs(a,b){ // a = your universe, b = the mystery
+  const rows=OBS.map(([k,n,f])=>{ const x=a[k], y=b[k]; let mark; if (x==null&&y==null) mark='='; else if (x==null||y==null) mark= y==null? 'none' : 'missing'; else mark = Math.abs(x-y)<=Math.abs(y)*0.01? '=' : (y>x? '↑' : '↓'); return {k,n,x:x==null?'—':f(x),y:y==null?'—':f(y),mark}; });
+  const st=b.stages.map((s,i)=>({mine:a.stages[i], theirs:s, same:a.stages[i]===s}));
+  return {rows, st, win: rows.every(r=>r.mark==='=') && st.every(x=>x.same)}; }
+function mystState(){ const seed=M.myst?.seed; if (!seed) return null; return M.myst; }
+function startMystery(seed){ M.myst={seed:String(seed), guesses:[], done:false, won:false}; persist(); renderMyst(); }
+function guessMystery(){ const m=mystState(); if (!m || m.done) return; const target=observe(genMystery(m.seed)); const c={...M.consts}; m.guesses.push(c);
+  const cmp=compareObs(observe(c), target); if (cmp.win){ m.done=true; m.won=true; SND.chord(); } else if (m.guesses.length>=MAX_GUESS){ m.done=true; SND.stage('broken'); } else SND.tick();
+  if (m.done && m.seed===todayKey()){ M.mystHist[m.won? m.guesses.length : 'x']=(M.mystHist[m.won? m.guesses.length : 'x']||0)+1; M.mystDay=m.seed; M.streak = m.won? (M.streak||0)+1 : 0; }
+  persist(); renderMyst(); return cmp; }
+function renderMyst(){
+  const el=document.getElementById('p-myst'); const m=mystState();
+  let h=`<p class="small dim">A universe with unknown laws. You can only see what its astronomers measure. Set laws in the Laws tab, then test them here: arrows say which way the mystery's numbers lie. Match everything in ${MAX_GUESS} tests.</p>
+    <div class="bangRow"><button class="primary" id="mDaily">Today's mystery</button><button id="mNew">A new one</button></div>`;
+  if (m){ const target=observe(genMystery(m.seed));
+    h+=`<div class="chal act"><b>Mystery ${m.seed===todayKey()? 'of '+m.seed : '#'+m.seed}</b><span>Test ${Math.min(m.guesses.length+1,MAX_GUESS)} of ${MAX_GUESS}</span>
+      <div class="mini">${target.stages.map(s=>`<i class="${s}"></i>`).join('')}</div>
+      ${OBS.map(([k,n,f])=>`<div class="mrow"><span>${n}</span><b>${target[k]==null?'—':f(target[k])}</b></div>`).join('')}</div>`;
+    m.guesses.forEach((c,gi)=>{ const cmp=compareObs(observe(c), target);
+      h+=`<div class="atlas"><b>Test ${gi+1}</b> <span class="laws">${lawStr(c)}</span><div class="mini">${cmp.st.map(x=>`<i class="${x.mine} ${x.same?'':'miss'}"></i>`).join('')}</div>
+        ${cmp.rows.map(r=>`<div class="mrow"><span>${r.n}</span><span>${r.x}</span><b class="mk ${r.mark==='='?'eq':''}">${r.mark==='='?'✓':r.mark==='none'?'never happens there':r.mark==='missing'?'happens there':r.mark}</b></div>`).join('')}</div>`; });
+    if (m.done) h+= m.won? `<p class="gold">Found in ${m.guesses.length}. The laws: ${lawStr(genMystery(m.seed))}.</p><button id="mShare">Copy result</button>` : `<p class="bad">Out of tests. The laws were: ${lawStr(genMystery(m.seed))}.</p>`;
+    else h+=`<button class="primary" id="mGuess" style="width:100%;margin-top:6px">Test the laws I've set</button>`;
+  }
+  const hist=M.mystHist||{}; const tot=Object.values(hist).reduce((a,b)=>a+b,0);
+  if (tot) h+=`<div class="tierH" style="margin-top:12px">Your daily record · streak ${M.streak||0}</div>`+[1,2,3,4,5,6,'x'].map(k=>`<div class="mrow"><span>${k==='x'?'missed':k}</span><span class="bar" style="width:${Math.round((hist[k]||0)/tot*100)}%"></span><b>${hist[k]||0}</b></div>`).join('');
+  el.innerHTML=h;
+  document.getElementById('mDaily').onclick=()=>{ if (!M.myst || M.myst.seed!==todayKey()) startMystery(todayKey()); location.hash='u='+todayKey(); };
+  document.getElementById('mNew').onclick=()=>{ const sd=String(Math.floor(Math.random()*1e6)); startMystery(sd); location.hash='u='+sd; };
+  const g=document.getElementById('mGuess'); if (g) g.onclick=()=>guessMystery();
+  const sh=document.getElementById('mShare'); if (sh) sh.onclick=()=>{ const t=`Universe Seed mystery ${m.seed}: ${m.guesses.length}/${MAX_GUESS}\n`+m.guesses.map(c=>compareObs(observe(c),observe(genMystery(m.seed))).st.map(x=>x.same?'🟨':'⬛').join('')).join('\n'); try{ navigator.clipboard.writeText(t); RH.toast('Copied'); }catch(e){} };
+}
+function renderAll(){ renderMyst(); renderLaws(); renderStats(); renderChal(); renderAtlas(); renderHistory(); renderEra(); }
 function showTab(t){ document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x.dataset.t===t)); document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+t)); }
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+b.dataset.t)); });
 document.getElementById('skipBtn').onclick=(e)=>{ e.stopPropagation(); finishRun(); };
 
-window.__us={ renderRibbon, MIN_CHANGES, ALL_COMBOS, starsFor, LAWS, STAGES, CHAL, OURS, simulate, changed, val, bang, finishRun, renderAll, cleanConsts, persist, get M(){ return M; }, get run(){ return run; }, set sel(v){ sel=v; } };
+window.__us={ genMystery, observe, compareObs, startMystery, guessMystery, todayKey, renderRibbon, MIN_CHANGES, ALL_COMBOS, starsFor, LAWS, STAGES, CHAL, OURS, simulate, changed, val, bang, finishRun, renderAll, cleanConsts, persist, get M(){ return M; }, get run(){ return run; }, set sel(v){ sel=v; } };
+{ const mh=location.hash.match(/u=([\w-]{1,20})/); if (mh && (!M.myst || M.myst.seed!==mh[1])) M.myst={seed:mh[1], guesses:[], done:false, won:false}; if (mh) setTimeout(()=>showTab('myst')); }
 resize(); window.addEventListener('resize', resize); renderAll(); requestAnimationFrame(draw);
 setInterval(()=>{ if (run && !run.done) renderRibbon(); }, 250);
 if (!M.intro){ M.intro=1; persist(); RH.modal(`<h2>Universe Seed</h2><p>Six numbers decide what a universe can become: the strength of gravity, dark energy, the fine-structure constant, the strong force, how much matter survived the Big Bang, and how many dimensions space has.</p><p>Set them, then press <b>Bang</b>. The universe runs its history link by link: nucleosynthesis, galaxies, stars, carbon, planets, life, minds. When a link breaks, you'll see the physics that broke it.</p><p>The <b>Challenges</b> ask for strange universes. Most need two laws turned together.</p>`,[{label:'Choose the laws'}]); }
