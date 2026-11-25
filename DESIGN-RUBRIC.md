@@ -107,3 +107,10 @@ Score each 0–2. A total of 16 or more out of 24 suggests multi-hour play. Crit
 - keep sharing state compact enough to fit in a URL hash;
 - let the game progress while the tab is in the background (time-delta catch-up);
 - allow a full restart to cost under 5 seconds.
+
+## House rule: originality (from the owner)
+Every game must bring something genuinely new, not "yet another" tower defense, incremental clicker, falling-sand clone, match-3 or bridge builder.
+- Borrow *what makes those genres sticky* (the rubric above), never their surface mechanic.
+- The test: describe the game in one sentence without naming an existing game or genre. If the sentence still sounds like one, rethink it.
+- Each game's core verb should come from its real-world subject (the physics, history, biology or maths it is about), so the mechanic could only exist for this topic.
+- Prefer a fresh twist a player has never seen: a new verb, a new kind of goal, a surprising simulation, an unusual perspective.
