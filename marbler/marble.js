@@ -72,7 +72,7 @@ function pulls(code, ang, offsets){ const m=[Math.cos(ANG(ang)),Math.sin(ANG(ang
 // ---------------- the commission book: historic papers to reproduce ----------------
 // ground: laid for you. recipe: the master's strokes (the judge's reference). pass: how alike the sheet must be.
 const C=[]; const add=(o)=>C.push(o);
-add({id:'battal', n:'Battal (stone)', era:'Istanbul, 16th c.', t:'The oldest ebru: drops and nothing else. Cover the bath with stones of three inks.', tools:['drop'], inks:[0,1,2], ground:[], recipe:null, judge:'cover', need:.9});
+add({id:'battal', n:'Battal (stone)', era:'Istanbul, 16th c.', t:'The oldest ebru: drops and nothing else. Tap, and hold for bigger stones, until three inks cover three quarters of the bath.', tools:['drop'], inks:[0,1,2], ground:[], recipe:null, judge:'cover', need:.75});
 add({id:'line', n:'A single line', era:'First lesson', t:'Draw the stylus once, straight up through the middle of the bullseye.', tools:['drop','band','stylus'], inks:[0,1,2],
   ground:bullseye(300,200,[0,2,1,2],8,16), recipe:[['s',300,200,6]], need:0.9});
 add({id:'heart', n:'The heart', era:'Ottoman, 17th c.', t:'Two pulls through a bullseye make a heart. Down, then down again beside it.', tools:['drop','band','stylus'], inks:[0,1,2],

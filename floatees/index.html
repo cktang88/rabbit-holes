@@ -388,7 +388,7 @@ function ensureOcean(r, cb) {
   }
   cb && cb(OCEAN[r]);
 }
-function* paintJob(st, r) { while (!baseReady || baseOf !== 'earth') { if (SEA) return; yield; } // a world painted over the base: Earth's texture waits for its own (re-queued on return) yield* paintState(st); if (rot === r && CU === st.U) { globe.material.map = st.tex; globe.material.needsUpdate = true; } }
+function* paintJob(st, r) { while (!baseReady || baseOf !== 'earth') { if (SEA) return; yield; } /* a world is painted over the base: Earth's texture waits for its own (re-queued on return) */ yield* paintState(st); if (rot === r && CU === st.U) { globe.material.map = st.tex; globe.material.needsUpdate = true; } }
 function applyOcean(r) { const st = OCEAN[r]; CU = st.U; CV = st.V; CSP = st.SP; globe.material.map = st.tex || quickTex; globe.material.needsUpdate = true; }
 enqueue({ it: paintBaseGen(), rot: 'base' });
 ensureOcean(1); applyOcean(1);
@@ -674,7 +674,7 @@ const SUF = ['ia', 'a', 'and', 'en', 'is', 'os', 'ura', 'ea', 'ica', 'on'];
 const cap = w => w[0].toUpperCase() + w.slice(1);
 const unitV = (lat, lon) => { const a = lat * Math.PI / 180, b = lon * Math.PI / 180, c = Math.cos(a); return [c * Math.cos(b), c * Math.sin(b), Math.sin(a)]; };
 const arcDeg = (la1, lo1, la2, lo2) => { const a = unitV(la1, lo1), b = unitV(la2, lo2); return Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) * 180 / Math.PI; };
-const SEA_R = 9, SEA_DT = 4.5; // a rescue ship waiting within 9° of where a raft beaches, within 4½ months of when, picks up its crew
+const SEA_R = 16, SEA_DT = 9; // a ship's search: its odds of finding a raft fall off over 16° from where it waits and 9 months from when
 const SPINS = { 1: 'east, like Earth', '-1': 'west, backwards from Earth' };
 function genWorld(seed, rung) {
   seed = seed >>> 0; rung = Math.max(1, Math.min(5, rung | 0));
@@ -702,8 +702,8 @@ function genWorld(seed, rung) {
     const lm = new Uint8Array(64800); for (let k = 0; k < 64800; k++) lm[k] = field[k] > cut ? 1 : 0;
     const spin = rung <= 1 ? 1 : r() < .5 ? -1 : 1, rate = rung <= 2 ? 1 : [.6, 1, 1.7][Math.floor(r() * 3)];
     const wk = rung <= 3 ? 4 * 45 / 42 : [3.4, 4 * 45 / 42, 5.4][Math.floor(r() * 3)], wamp = rung >= 5 && r() < .5 ? -1 : 1;
-    const W = { seed, rung, lm, cid, names, name: cap(SYL[Math.floor(r() * SYL.length)] + SYL[Math.floor(r() * SYL.length)]), rot: spin * rate, spin, rate, wk, wamp, drifters: [8, 7, 6, 6, 5][rung - 1], leeway: rung >= 3, nCalls: rung >= 4 ? 4 : 3 };
-    const ok = withWorld(W, () => { W.st = runGen(solveGen(W.rot)); W.calls = genCalls(W); return W.calls.length === W.nCalls && W.st.vmax > 0; });
+    const W = { seed, rung, lm, cid, names, name: cap(SYL[Math.floor(r() * SYL.length)] + SYL[Math.floor(r() * SYL.length)]), rot: spin * rate, spin, rate, wk, wamp, drifters: [10, 9, 8, 7, 6][rung - 1], leeway: rung >= 3, nCalls: rung >= 4 ? 4 : 3 };
+    const ok = withWorld(W, () => { W.st = runGen(solveGen(W.rot)); CU = W.st.U; CV = W.st.V; CSP = W.st.SP; W.calls = genCalls(W); return W.calls.length === W.nCalls && W.st.vmax > 0; });
     if (ok) return W;
   }
   return null;
@@ -739,12 +739,12 @@ function genCalls(W) {
     if (near || calls.some(c => arcDeg(c.at[0], c.at[1], lat, lon) < 30)) continue;
     const it = W.leeway && r() < .5 ? ITEMS[1] : ITEMS[0], call = { i: calls.length, at: [+lat.toFixed(1), +lon.toFixed(1)], k: it.k, w: it.w };
     const ens = ensemble(W, call), ok = ens.filter(Boolean); if (ok.length < ENS * .7) continue;
-    const best = bestAnswer(ok); if (best.saved < .4 * ENS || best.t < .25) continue; // a call worth answering: most rafts beach, a good ship finds many
+    const best = bestAnswer(ok); if (best.saved < .45 * ENS || best.t < .25 || best.t > 1.6) continue; // a call worth answering: most rafts beach, a good ship finds many
     call.best = { at: best.at, t: +best.t.toFixed(3), saved: best.saved }; calls.push(call);
   }
   return calls;
 }
-const savedBy = (ens, at, t) => ens.filter(l => l && arcDeg(l.lat, l.lon, at[0], at[1]) <= SEA_R && Math.abs(l.t - t) * 12 <= SEA_DT).length;
+const savedBy = (ens, at, t) => ens.reduce((s, l) => s + (l ? Math.max(0, 1 - arcDeg(l.lat, l.lon, at[0], at[1]) / SEA_R) * Math.max(0, 1 - Math.abs(l.t - t) * 12 / SEA_DT) : 0), 0); // each possible future of the raft, weighted by how likely the ship is to find it there
 function bestAnswer(lands) { let best = { saved: -1 }; for (const l of lands) for (const dt of [-2, 0, 2]) { const t = l.t + dt / 12, s = savedBy(lands, [l.lat, l.lon], t); if (s > best.saved) best = { at: [l.lat, l.lon], t, saved: s }; } return best; }
 // your chart, scored against the true currents: along each stroke, does it point the way the water goes, where the water goes fast?
 function chartScore(W, strokes) {
@@ -788,12 +788,14 @@ function seaStart(seed, rung, daily, resume) {
   seaSave(); drawOverlay(); renderGoal(); renderCtrl(); seaFocus(); if (sea.phase === 'calls') seaCallMarker();
 }
 // ---- the globe dresses for the world: its land, its texture, its currents (hidden until the end) ----
-const seaQuick = document.createElement('canvas'); seaQuick.width = 360; seaQuick.height = 180; const seaQuickTex = new THREE.CanvasTexture(seaQuick); seaQuickTex.colorSpace = THREE.SRGBColorSpace;
+const seaQuick = document.createElement('canvas'); seaQuick.width = 720; seaQuick.height = 360; const seaQuickTex = new THREE.CanvasTexture(seaQuick); seaQuickTex.colorSpace = THREE.SRGBColorSpace;
 function enterWorld(nw) {
   if (!OCEAN[1]) ensureOcean(1); // the speed scale comes from the real Earth
   W = nw; swapIn(W); CU = W.st.U; CV = W.st.V; CSP = W.st.SP; rot = W.rot;
   for (let k = jobs.length - 1; k >= 0; k--) if (jobs[k].world || jobs[k].rot === 'base' || String(jobs[k].rot).startsWith('paint')) jobs.splice(k, 1); // stale paint work
-  const g = seaQuick.getContext('2d'), im = g.createImageData(360, 180); for (let k = 0; k < 64800; k++) { const l = W.lm[k], o = k * 4, lat = 90 - (k / 360 | 0) - .5; im.data[o] = l ? 222 : 58 + Math.abs(lat) / 5; im.data[o + 1] = l ? 200 : 104; im.data[o + 2] = l ? 150 : 100; im.data[o + 3] = 255; }
+  const g = seaQuick.getContext('2d'), im = g.createImageData(720, 360); // a quick half-degree picture with soft coasts, while the full one is painted
+  for (let y = 0; y < 360; y++) for (let x = 0; x < 720; x++) { const lat = 90 - (y + .5) / 2, lon = -180 + (x + .5) / 2, f = Math.max(0, Math.min(1, (landFrac(lat, lon) - .5) * 3 + .5)), o = (y * 720 + x) * 4, gr = Math.abs(lat / 15 - Math.round(lat / 15)) < .04 || Math.abs(lon / 15 - Math.round(lon / 15)) < .04 ? .8 : 1;
+    im.data[o] = (58 + Math.abs(lat) / 5 + f * 160) * gr; im.data[o + 1] = (104 + f * 92) * gr; im.data[o + 2] = (100 + f * 46) * gr; im.data[o + 3] = 255; }
   g.putImageData(im, 0, 0); seaQuickTex.needsUpdate = true; globe.material.map = seaQuickTex; globe.material.needsUpdate = true;
   const me = W; enqueue({ rot: 'world', world: 1, it: (function* () { yield* paintBaseGen('w' + me.seed); if (W !== me || baseOf !== 'w' + me.seed) return; const c = document.createElement('canvas'); c.width = TW; c.height = TH; const cx = c.getContext('2d'), id = cx.createImageData(TW, TH); id.data.set(BASE); cx.putImageData(id, 0, 0); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MOBILE ? 2 : 8; me.tex = t; if (W === me && !me.revealed) { globe.material.map = t; globe.material.needsUpdate = true; } })() });
   tracers.visible = false; for (let i = 0; i < NT; i++) respawnTracer(i);
@@ -1192,7 +1194,7 @@ canvas.addEventListener('pointerdown', () => { viewTo = null; }); // grabbing th
 load(sharedCase ? LV.findIndex(l => l.endless) : sharedSea ? LV.findIndex(l => l.seas) : +SAVE.cur || 0); // a shared case link opens that case
 requestAnimationFrame(frame);
 const proj = new THREE.Vector3();
-window.__fl = { genWorld, chartScore, driftPath, ensemble, savedBy, bestAnswer, seaStart, seaTap, seaAnswer, seaNextCall, seaFinish, seaDrifter, withWorld, isLand, get W() { return W; }, get sea() { return sea; }, get SEA() { return SEA; }, dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
+window.__fl = { arcDegX: arcDeg, genWorld, chartScore, driftPath, ensemble, savedBy, bestAnswer, seaStart, seaTap, seaAnswer, seaNextCall, seaFinish, seaDrifter, withWorld, isLand, get W() { return W; }, get sea() { return sea; }, get SEA() { return SEA; }, dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
   screenOf: (lat, lon) => { proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>

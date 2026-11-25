@@ -203,8 +203,8 @@ module.exports = {
           const s0 = O.officeState(); if (s0.found !== W.laws.length) return { sd, tier, why: 'laws', s0 };
           for (const p of W.pats) { const l = W.laws.find(l => product(l) === p.t && l.kind !== 'grow'); A.clearTray(); const heat = l.a === F, a = heat ? l.b : l.a, b = heat ? F : l.b;
             if (l.cat) A.fillRect(l.cat, 50, 296, 149, 299);
-            if (heat) A.fillRect(a, 50, 280, 149, 295); else { const [lo, hi] = W.subs[a].dens < W.subs[b].dens ? [a, b] : [b, a]; A.fillRect(lo, 50, 282, 149, 295); A.fillRect(hi, 50, 268, 149, 281); }   // the lighter below, so they pass through each other
-            for (let rep = 0; rep < 8 && !O.officeState().pats.find(q => q.t === p.t).done; rep++) { if (heat) A.fillRect(F, 50, 280, 149, 285); A.run(150); O.officeCheck(); } }
+            for (let x = 50; x < 150; x += 2) A.fillRect(heat ? a : ((x >> 1) & 1 ? b : a), x, 284, x + 1, 295);
+            for (let rep = 0; rep < 12 && !O.officeState().pats.find(q => q.t === p.t).done; rep++) { if (heat) A.fillRect(F, 50, 280, 149, 285); A.run(150); O.officeCheck(); if (rep % 3 === 2) { A.clearTray(); for (let x = 50; x < 150; x += 2) A.fillRect(heat ? a : ((x >> 1) & 1 ? b : a), x, 284, x + 1, 295); if (l.cat) A.fillRect(l.cat, 50, 296, 149, 299); } } }
           const s = O.officeState(); return { sd, tier, done: s.done, left: A.budgetLeft, s }; };
         // a scientist: mixes what it has (newest first), names only products nothing stamped explains, tries heat, alone and catalysts only while laws of those kinds remain
         const scientist = (sd, tier) => { O.startOffice(sd, tier); A.paused = true; const W = O.world; const want = {}; for (const l of W.laws) want[l.kind] = (want[l.kind] || 0) + 1;

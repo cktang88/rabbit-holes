@@ -281,6 +281,16 @@ const WS = (() => {
       feats: [{ t: 'shale', x1: 30, y1: 4, x2: 30, y2: 31, r: 3, label: 'soft shale beds' }],
       story: 'A band of soft shale lies just east of the divide. The eastern rivers will eat through it and keep going. Green River must still reach the Western Sea at the end.',
       agents: { hard: 1 }, goal: { t: 'town', towns: [[24, 27]], sea: 0 }, par: { t: 0, n: 1 }, sol: [{ t: 'hard', x: 31, y: 23 }] },
+    { n: 'The Dry Valley', seed: 'dry1', seas: [{ side: 'W', a: .5, b: .7, name: 'Western Sea' }, { side: 'E', a: .2, b: .4, name: 'Eastern Sea' }], spotName: 'Escalante Gap',
+      story: 'Powell\'s men found valleys far too big for the creeks in them. Something took their water. Leave Escalante Gap a dry valley.',
+      agents: { shale: 1, fall: 1 }, goal: { t: 'dry', at: [28, 26] }, par: { t: 104, n: 1 }, sol: [{ t: 'shale', x: 34, y: 31 }] },
+    { n: 'The Water Gap', seed: 'gap1', seas: [{ side: 'S', a: .4, b: .6, name: 'Southern Sea' }], townNames: ['Lees Ferry'],
+      feats: [{ t: 'rise', x1: 3, y1: 17, x2: 50, y2: 17, r: 2.5, v: .25, label: 'the Uinta uplift' }],
+      story: 'A range is rising across the rivers\' path. Powell saw the Green River cut straight through the Uintas and guessed the river was there first. Keep the great river flowing past Lees Ferry.',
+      goalText: 'Keep the <b>great river</b> flowing past <b>Lees Ferry</b> to the end.', agents: { shale: 1 }, goal: { t: 'town', towns: [[20, 21]], minA: 164 }, par: { t: 0, n: 1 }, sol: [{ t: 'shale', x: 14, y: 14 }] },
+    { n: 'Three Seas', seed: 'three1', seas: [{ side: 'W', a: .3, b: .5, name: 'Western Sea' }, { side: 'E', a: .5, b: .7, name: 'Eastern Sea' }, { side: 'S', a: .4, b: .55, name: 'Southern Sea' }],
+      story: 'Three rivers, three seas, and a plateau to split between them. Every square one river gains, another loses.',
+      agents: { shale: 1, fall: 1, rise: 1 }, goal: { t: 'share', sea: 2, min: .55 }, par: { t: 187, n: 1 }, sol: [{ t: 'fall', sea: 2 }] },
   ];
 
   // ================= field notes: things the land did =================
@@ -412,7 +422,7 @@ function preview() { let m = 0; for (let i = 0; i < N; i++) if (w0.z[i] > m) m =
 // ---------- the map ----------
 const cv = $('cv'), gMain = cv.getContext('2d'); let g = gMain;
 const off = document.createElement('canvas'), og = off.getContext('2d'); let PXK = 20, offKey = '';
-const cam = PanZoom(cv, { world: () => ({ x: -3.5, y: -3.5, w: W + 7, h: H + 7 }), onChange: () => {}, canPanFrom: e => !agentAt(e.clientX, e.clientY), min: .8, max: 5, pad: 10 });
+const cam = PanZoom(cv, { world: () => ({ x: -3.5, y: -3.5, w: W + 7, h: H + 7 }), onChange: () => {}, canPanFrom: e => !armed && agentAt(e.clientX, e.clientY) < 0, min: .8, max: 5, pad: 10 });
 const tex = document.createElement('canvas'), S = 4; tex.width = W * S; tex.height = H * S; const tg = tex.getContext('2d'), img = tg.createImageData(W * S, H * S);
 const grain = new Float32Array(W * S * H * S); { const R = WS.rng('grain'); for (let i = 0; i < grain.length; i++) grain[i] = R(); }
 // hypsometric tint: lowland sage, buff uplands, sienna heights, chalk peaks
@@ -536,6 +546,7 @@ function spot(t, name, w) { const [a] = WS.townA(w, t), x = t[0] + .5, y = t[1] 
 const fmtT = s => s <= 0 ? 'at once' : s < 100 ? (s * 10) + ',000 years' : (s / 100).toFixed(2) + ' million years';
 function goalText() {
   const G = P.goal || {}, sea = G.sea != null ? P.seas[G.sea].name : null;
+  if (P.goalText) return P.goalText;
   if (G.t === 'town') return (G.towns.length > 1 ? `Bring a river past <b>${P.townNames.join('</b> and <b>')}</b>` : `Bring a river past <b>${(P.townNames || ['the town'])[0]}</b>`) + (sea ? ` and out to the <b>${sea}</b>` : '') + ', and keep it there.';
   if (G.t === 'share') return `Make <b>${Math.round(G.min * 100)}%</b> of the land drain to the <b>${sea}</b>.`;
   if (G.t === 'dry') return `Leave <b>${P.spotName}</b> a dry valley${G.towns ? `, with <b>${P.townNames[0]}</b> still on a river` : ''}.`;
@@ -686,7 +697,7 @@ addEventListener('keydown', e => { if (e.key === 'Escape') { armed = null; hover
 function frame(now) { if (phase === 'run' && run) stepRun(); draw(now); requestAnimationFrame(frame); }
 { const f = fromHash(); open(f ? f[0] : SAVE.cur, f ? f[1] : undefined); }
 requestAnimationFrame(frame);
-window.__ws = { WS, get P() { return P; }, get key() { return key; }, get agents() { return agents; }, get w0() { return w0; }, get phase() { return phase; }, get run() { return run; }, open, place, lift, startRun, backToPlan, SAVE, cleanSave, shareText, cam, hurry() { if (run) run.speed = 1000; }, get frames() { return frames; } };
+window.__ws = { agentAt, cellAt, WS, get P() { return P; }, get key() { return key; }, get agents() { return agents; }, get w0() { return w0; }, get phase() { return phase; }, get run() { return run; }, open, place, lift, startRun, backToPlan, SAVE, cleanSave, shareText, cam, hurry() { if (run) run.speed = 1000; }, get frames() { return frames; } };
 </script>
 </body>
 </html>

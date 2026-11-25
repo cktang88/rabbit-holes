@@ -239,7 +239,7 @@ class Surface {
   area() { const X = this.X, T = this.T; let A = 0; for (let t = 0; t < T.length; t += 3) { const a = T[t] * 3, b = T[t + 1] * 3, c = T[t + 2] * 3;
       const ux = X[b] - X[a], uy = X[b + 1] - X[a + 1], uz = X[b + 2] - X[a + 2], vx = X[c] - X[a], vy = X[c + 1] - X[a + 1], vz = X[c + 2] - X[a + 2];
       A += .5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx); } return A; }
-  relax(iters = 10, c = .22) {
+  relax(iters = 10, c = .12, ts = .35) {
     const X = this.X, T = this.T, G = this.G, NV = this.NV, K = this.Kt, N = K.length;
     for (let it = 0; it < iters; it++) {
       G.fill(0); NV.fill(0);
@@ -260,7 +260,7 @@ class Surface {
           const gn = gx * nx + gy * ny + gz * nz; const nbr = this.nb[i]; let lx = 0, ly = 0, lz = 0;
           for (let q = 0; q < nbr.length; q++) { const j = nbr[q] * 3; lx += X[j]; ly += X[j + 1]; lz += X[j + 2]; }
           lx = lx / nbr.length - X[o]; ly = ly / nbr.length - X[o + 1]; lz = lz / nbr.length - X[o + 2]; const ln = lx * nx + ly * ny + lz * nz;
-          X[o] += -c * gn * nx + .35 * (lx - ln * nx); X[o + 1] += -c * gn * ny + .35 * (ly - ln * ny); X[o + 2] += -c * gn * nz + .35 * (lz - ln * nz);
+          X[o] += -c * gn * nx + ts * (lx - ln * nx); X[o + 1] += -c * gn * ny + ts * (ly - ln * ny); X[o + 2] += -c * gn * nz + ts * (lz - ln * nz);
         } else if (k === 2) { // a Plateau border: pulled by its three films, spaced evenly along itself
           const [p, q] = this.lineNb.get(i), P = p * 3, Q = q * 3; let tx = X[Q] - X[P], ty = X[Q + 1] - X[P + 1], tz = X[Q + 2] - X[P + 2]; const tl = Math.hypot(tx, ty, tz) || 1; tx /= tl; ty /= tl; tz /= tl;
           const gt = gx * tx + gy * ty + gz * tz; gx -= gt * tx; gy -= gt * ty; gz -= gt * tz;
@@ -300,11 +300,20 @@ function ringZ(th, b) { // smooth periodic interpolation of four knob heights at
   const c0 = (b[0] + b[1] + b[2] + b[3]) / 4, c1 = (b[0] - b[2]) / 2, s1 = (b[1] - b[3]) / 2, c2 = (b[0] - b[1] + b[2] - b[3]) / 4;
   return c0 + c1 * Math.cos(th) + s1 * Math.sin(th) + c2 * Math.cos(2 * th);
 }
-function buildRing(rings = 14, seg = 56) {
-  const S = new Surface(); const c = S.vtx(new V3(), 0); const rows = [[c]];
-  for (let r = 1; r <= rings; r++) { const row = []; for (let s = 0; s < seg; s++) { const th = s / seg * Math.PI * 2, rr = r / rings * RING_R; row.push(S.vtx(new V3(rr * Math.cos(th), rr * Math.sin(th), 0), r === rings ? 1 : 0, r === rings ? { th } : null)); } rows.push(row); }
-  const T = []; for (let s = 0; s < seg; s++) T.push(c, rows[1][s], rows[1][(s + 1) % seg]);
-  for (let r = 1; r < rings; r++) for (let s = 0; s < seg; s++) { const a = rows[r][s], b = rows[r][(s + 1) % seg], d = rows[r + 1][s], e = rows[r + 1][(s + 1) % seg]; T.push(a, d, e, a, e, b); }
+function buildRing(R = 12) {
+  // concentric rings of 6r points (near-equilateral triangles, no pinwheel at the centre), zipped together
+  const S = new Surface(), rows = [[S.vtx(new V3(), 0)]];
+  for (let r = 1; r <= R; r++) { const n = 6 * r, row = [], off = r % 2 ? .5 / n : 0;
+    for (let s = 0; s < n; s++) { const th = (s / n + off) * Math.PI * 2, rr = r / R * RING_R; row.push(S.vtx(new V3(rr * Math.cos(th), rr * Math.sin(th), 0), r === R ? 1 : 0, r === R ? { th } : null)); }
+    rows.push(row); }
+  const T = [], angOf = (r, s) => { const n = rows[r].length; return n === 1 ? 0 : ((s % n) / n + (r % 2 ? .5 / n : 0)); };
+  for (let r = 0; r < R; r++) { const A = rows[r], B = rows[r + 1], na = A.length, nb = B.length; let i = 0, j = 0;
+    while (i < na || j < nb) {
+      const ai = r === 0 ? 1e9 : angOf(r, i + 1) + (i + 1 >= na && r % 2 === 0 ? 0 : 0), aiN = r === 0 ? 1e9 : (i + 1) / na + (r % 2 ? .5 / na : 0), bjN = (j + 1) / nb + ((r + 1) % 2 ? .5 / nb : 0);
+      if (j < nb && (i >= na || bjN <= aiN)) { T.push(A[i % na], B[j % nb], B[(j + 1) % nb]); j++; }
+      else { T.push(A[i % na], B[j % nb], A[(i + 1) % na]); i++; }
+      if (r === 0 && j >= nb) break;
+    } }
   S.patches.push(T); S.kind = 'ring'; return S.finish();
 }
 // angle between two films along a Plateau border (for the readout and the tests)
@@ -352,9 +361,12 @@ function makeEnv() {
   const room = new THREE.Mesh(new THREE.SphereGeometry(20, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide, uniforms: {}, vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }',
     fragmentShader: 'varying vec3 vP; void main(){ float h = normalize(vP).y; vec3 c = mix(vec3(.012,.013,.016), vec3(.09,.095,.11), smoothstep(-.2,.9,h)); c += vec3(.05,.04,.03)*smoothstep(.0,-.6,h); gl_FragColor = vec4(c,1.); }' }));
   es.add(room);
-  const box = (w, h, pos, col, k) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(k), side: THREE.DoubleSide })); m.position.copy(pos); m.lookAt(0, 0, 0); es.add(m); };
+  const soft = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); const id = g.createImageData(128, 128);
+    for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) { const u = Math.min(x, 127 - x) / 22, v = Math.min(y, 127 - y) / 22, a = Math.min(1, u) * Math.min(1, v), k = (y * 128 + x) * 4; id.data[k] = id.data[k + 1] = id.data[k + 2] = 255; id.data[k + 3] = 255 * a * a * (3 - 2 * a); }
+    g.putImageData(id, 0, 0); return new THREE.CanvasTexture(c); })();
+  const box = (w, h, pos, col, k) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(k), alphaMap: soft, transparent: true, side: THREE.DoubleSide, depthWrite: false })); m.position.copy(pos); m.lookAt(0, 0, 0); es.add(m); };
   box(9, 6, new V3(-8, 7, 9), 0xfff4e6, 5.5);      // key softbox
-  box(16, 7, new V3(2, 1.5, 15), 0xf4f1ea, 1.9);   // the big diffuser behind the camera that films are seen against
+  box(34, 12, new V3(0, 2, 15), 0xf4f1ea, 1.7);   // the big diffuser behind the camera that films are seen against
   box(3, 7, new V3(9, 0, 13), 0xffffff, 3.2);      // a bright strip in it, for crisp highlights
   box(2.2, 12, new V3(11, 2, 2), 0xe6f0ff, 4.5);   // strip light, right
   box(2.2, 12, new V3(-11, 2, -6), 0xdfe8ff, 2.6); // rim strip, back left
@@ -381,7 +393,9 @@ const dish = new THREE.Group(); scene.add(dish);
 const glassMat = new THREE.MeshPhysicalMaterial({ color: 0xdde8ee, metalness: 0, roughness: .04, transparent: true, opacity: .16, envMapIntensity: 1.6, clearcoat: 1, clearcoatRoughness: .03, depthWrite: false, side: THREE.DoubleSide });
 { const rimG = new THREE.Mesh(new THREE.TorusGeometry(2.55, .025, 12, 128), new THREE.MeshPhysicalMaterial({ color: 0xcfe0e8, roughness: .04, transparent: true, opacity: .35, envMapIntensity: 2, clearcoat: 1 }));
   rimG.rotation.x = Math.PI / 2; rimG.position.y = FLOOR_Y + .28; dish.add(rimG);
-  const wall = new THREE.Mesh(new THREE.CylinderGeometry(2.55, 2.45, .28, 96, 1, true), glassMat); wall.position.y = FLOOR_Y + .14; dish.add(wall);
+  const liquid = new THREE.Mesh(new THREE.CircleGeometry(2.53, 96), new THREE.MeshPhysicalMaterial({ color: 0x06080a, roughness: .02, metalness: 0, ior: 1.36, envMapIntensity: 1.4, clearcoat: 1, clearcoatRoughness: .02 }));
+  liquid.rotation.x = -Math.PI / 2; liquid.position.y = FLOOR_Y + .2; liquid.receiveShadow = true; dish.add(liquid);
+  const wall = new THREE.Mesh(new THREE.CylinderGeometry(2.55, 2.5, .28, 96, 1, true), new THREE.MeshStandardMaterial({ color: 0x1a1d22, roughness: .3, metalness: .2, envMapIntensity: .6, side: THREE.DoubleSide })); wall.position.y = FLOOR_Y + .14; dish.add(wall);
 }
 
 // ---------- the thin-film material ----------
@@ -406,14 +420,19 @@ float snoise(vec3 v){ const vec2 C=vec2(1./6.,1./3.); const vec4 D=vec4(0.,.5,1.
 // stirred by Marangoni plumes (thin, low-tension patches rising) and fine swirls
 float filmD(vec3 p){
   float h = clamp((p.y - uYR.x) / max(.01, uYR.y - uYR.x), 0., 1.);
-  float thin = uAge * (.25 + 1.75 * h * h);
-  float d = 1150. / (1. + thin) + 6.;
-  vec3 q = p * 1.7 + vec3(uSeed, -uTime * .07, uSeed * .7);
+  // stirring: a slow domain warp, stronger near the bottom where the drained liquid churns
+  vec3 q = p * 1.35 + vec3(uSeed, -uTime * .05, uSeed * .7);
   vec3 w = vec3(snoise(q), snoise(q + 17.1), snoise(q + 31.7));
-  float n = snoise(p * 2.6 + w * 1.4 + vec3(0., -uTime * .16, uSeed));
-  d *= 1. + .38 * n * (.45 + .55 * h);
-  d += 90. * snoise(p * 8. + w * 2.4 + vec3(uTime * .2)) * smoothstep(40., 400., d);
-  d = mix(d, 1300. + 200. * n, uFresh);
+  float turb = snoise(p * 3.2 + w * 1.6 + vec3(0., -uTime * .14, uSeed));
+  float hw = h + .07 * w.x + .045 * turb * (1.2 - h);
+  // drainage: a wedge, thick at the bottom; the whole film thins with age, the top fastest
+  float age = uAge * (.35 + 1.4 * hw);
+  float d = (90. + 980. * pow(clamp(1. - hw, 0., 1.), 1.25)) / (1. + age);
+  // Marangoni plumes: patches of thinner film rising from the bottom edge
+  float plume = smoothstep(.35, .9, snoise(vec3(p.x * 2.4 + w.y, p.y * 1.3 - uTime * .22, uSeed + p.z * 2.)));
+  d *= 1. - .45 * plume * (1. - h * .6);
+  d += 35. * snoise(p * 11. + w * 3. + vec3(uTime * .25)) * smoothstep(60., 300., d);
+  d = mix(d, 1100. + 250. * turb, uFresh);
   return max(d, 2.);
 }`;
 function filmMaterial(o = {}) {
@@ -461,7 +480,7 @@ function syncFilm(m) { const S = m.userData.S, a = m.geometry.attributes.positio
 
 // ---------- figure: a bent ring ----------
 function makeRing(bend = [0, 0, 0, 0]) {
-  clearStage(); const S = buildRing(mob ? 11 : 14, mob ? 44 : 56), mat = filmMaterial(); const film = filmMesh(S, mat); stage.add(film);
+  clearStage(); const S = buildRing(mob ? 11 : 14), mat = filmMaterial(); const film = filmMesh(S, mat); stage.add(film);
   const wireGeo = () => { const pts = []; for (let i = 0; i <= 160; i++) pts.push(ringPoint(i / 160 * Math.PI * 2, F.bend)); return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 220, .03, 12, true); };
   const F = { kind: 'ring', S, film, mat, bend: bend.slice(), wire: null, yr: [-RING_R, RING_R] };
   F.rebuild = () => { if (F.wire) { stage.remove(F.wire); F.wire.geometry.dispose(); } F.wire = new THREE.Mesh(wireGeo(), steel); F.wire.castShadow = true; stage.add(F.wire);
@@ -771,14 +790,14 @@ function frame(now) {
     fig.age = (fig.age || 0) + dt;
     const fresh = dipping ? Math.max(0, 1 - (dipT - .5) * 2) : 0;
     if (fig.mat) { const U = fig.mat.userData.U; U.uTime.value = clock.t; U.uAge.value = fig.age / 26; U.uFresh.value = fresh; U.uYR.value.set(fig.yr[0] + stage.position.y, fig.yr[1] + stage.position.y); }
-    if (fig.S) { if (!fig.hidden) fig.S.relax(mob ? 6 : 10); syncFilm(fig.film); if ((fig.kind === 'cube' || fig.kind === 'tetra') && frames % 20 === 0) { const i = [...fig.S.lineNb.keys()][3]; const a = borderAngle(fig.S, i); st.angles = a ? a.map(Math.round).join('°, ') : null; updateReadout(); } }
+    if (fig.S) { if (!fig.hidden) fig.S.relax(mob ? 8 : 14); syncFilm(fig.film); if ((fig.kind === 'cube' || fig.kind === 'tetra') && frames % 20 === 0) { const i = [...fig.S.lineNb.keys()][3]; const a = borderAngle(fig.S, i); st.angles = a ? a.map(Math.round).join('°, ') : null; updateReadout(); } }
     if (fig.kind === 'pins' && fig.net) { for (let k = 0; k < (mob ? 18 : 30); k++) fig.net.step(.012, .012); fig.sync();
       if (frames % 15 === 0) { updateReadout(); if (CH[ch].k === 'roads' && st.stage === 'towns') { const L = fig.net.length(); if (st.lastL && Math.abs(st.lastL - L) < 1e-4 && !st.settled) { st.settled = true; if (L < st.mine - 1e-3) { st.mine = L; if (L <= st.best + .005) { FX.sfx('win'); RH.toast('You matched the best known network.'); } } } st.lastL = L; } } }
     if (fig.kind === 'bubbles') { stepBubbles(dt); fig.wandMat.userData.U.uTime.value = clock.t; fig.wandMat.userData.U.uAge.value = .2; }
     // a film left long enough drains to black at the top and pops; the next dip brings it back
     if (fig.mat && !fig.popped && fig.age > 70 && fig.kind !== 'bubbles') { fig.popped = true; const U = fig.mat.userData.U; U.uPop.value.set(0, fig.yr[1] - .2, 0); st.popT = 0; FX.sfx('pop'); burst(new V3(0, fig.yr[1] - .3, 0), 1); }
     if (fig.popped && fig.mat) { st.popT = (st.popT || 0) + dt; fig.mat.userData.U.uPopR.value = st.popT * 18; if (st.popT > 2.5) dipNow(); }
-    if (legendMark && frames % 10 === 0) { const d = 1150 / (1 + (fig.age / 26) * 2) + 6; legendMark.innerHTML = `<i style="left:${Math.min(100, d / 12)}%"></i>`; }
+    if (legendMark && frames % 10 === 0) { const d = 90 / (1 + (fig.age / 26) * 1.75); legendMark.innerHTML = `<i style="left:${Math.min(100, d / 12)}%"></i>`; }
   }
   stepDrops(dt);
   composer.render();

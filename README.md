@@ -38,7 +38,7 @@ The landing page groups everything by tag. Subjects: Physics, Maths, Simulation,
 | 🔐 | [The Vault](vault/index.html) | A Cold War code office. Break real historical ciphers, from Caesar to reused Soviet one-time pads, with tally sheets, crib-dragging and probable words, then decide what the intercepts mean. | Language & codes, Logic & computing, Real history, Detective work, Brain-burners | an hour+ | ●●○ |
 | ⚓ | [Underwriter](ruin/index.html) | Lloyd's coffee-house, 1688. Sign your name under merchant voyages, haggle the rate, and lay off risk on rivals. One storm in the Channel sinks a dozen of your ships at once, and the average is not your life. | Money & trade, Real history, Maths, Simulation | an hour+ | ●●○ |
 | 🌌 | [Universe Seed](universe-seed/index.html) | Set the six laws of physics, press Bang and watch the causal chain from baryogenesis to minds. Find out exactly which link your universe broke at, then solve challenges by changing as few laws as possible. | Space, Physics, Simulation, Chill sandbox, Strategy | an hour+ | ●○○ |
-| 💧 | [Watershed](watershed/index.html) | A plaster relief model of a river basin and a century of storms. Place fields, levees, dams and forests; every flood ends in an inquest. Levees that save one town drown the next, and dams starve the delta. | Earth & water, Physics, Simulation, Pretty to watch, Chill sandbox | ~20 min | ●○○ |
+| 💧 | [Watershed](watershed/index.html) | Powell's 1875 survey. You never touch the water: lay soft shale, hard sandstone, lava and rising ground, drop a sea, then let three million years of rain carve the land until one river steals another's headwaters. | Earth & water, Physics, Simulation, Emergence, Pretty to watch | rabbit hole | ●●○ |
 
 ## How it was made
 

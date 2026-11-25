@@ -182,6 +182,7 @@ void main(){
     // a breath of bleed: inks feather into their neighbours, mixing as pigments do (densities add)
     vec3 d0=D(s), d1=D(s+vec2(tx,0)), d2=D(s-vec2(tx,0)), d3=D(s+vec2(0,ty)), d4=D(s-vec2(0,ty));
     vec3 dd=d0*.44+(d1+d2+d3+d4)*.14;
+    if (uPeelOn>.5) col*=1.;
     if (uPeelOn>.5 && w.x<uPeel) dd=mix(vec3(${BATH.map(c=>(-Math.log(c)).toFixed(3)).join(',')}), dd, .1);   // the paper took the ink
     vec3 R=exp(-dd);
     // the ink film is a hair thicker than the size: edges between inks catch the light
@@ -200,6 +201,7 @@ void main(){
     // the meniscus line: a bright thread where the skin meets the wood, a soft shade just inside it
     col+=vec3(1.,.9,.7)*smoothstep(2.5,0.,e)*.35; col*=1.-.18*smoothstep(14.,3.,e)*smoothstep(0.,3.,e);
     col*=.92+.12*exp(-dot(q,q)/(420.*420.));
+    if (uPeelOn>.5){ float sh=smoothstep(uPeel+40.,uPeel-30.,w.x)*smoothstep(uPeel-260.,uPeel-40.,w.x); col*=1.-.38*sh; }
   }
   // lamp falloff, a little grain against banding
   col*=.82+.3*exp(-dot(q-vec2(120.,-120.),q-vec2(120.,-120.))/(700.*700.));
@@ -213,12 +215,15 @@ out vec2 vUV; out vec3 vN; out float vZ;
 void main(){
   float x=aUV.x*${TW}., y=aUV.y*${TH}.; float z=0.; vec3 n=vec3(0,0,1);
   float s=uC-x; // the sheet is lifted from its left edge, rolling round a cylinder at x=uC
-  if (s>0.){ float th=s/uR; if (th<3.14159265){ x=uC-uR*sin(th); z=uR*(1.-cos(th)); n=vec3(-sin(th),0.,cos(th)); } else { x=uC+(s-3.14159265*uR); z=2.*uR; n=vec3(0,0,-1); } }
+  // it bends round a cylinder of radius uR, then rises off the bath at a steep lean toward you
+  const float TM=2.45;
+  if (s>0.){ float th=min(s/uR,TM); x=uC-uR*sin(th); z=uR*(1.-cos(th)); n=vec3(-sin(th),0.,cos(th));
+    if (s/uR>TM){ float e=s-uR*TM; x+=-cos(TM)*e; z+=sin(TM)*e; } }
   z+=uLift;
   // the finished sheet, lying print up beside the trough
-  if (uSheet>0.){ float u=uSheet; x=mix(x, ${TW}.-aUV.x*${TW}., u); z=mix(z, 30., u); n=mix(n,vec3(0,0,1),u); }
+  if (uSheet>0.){ float u=uSheet; x=${TW}.-aUV.x*${TW}.; y=aUV.y*${TH}.; z=mix(320., 18., u); n=vec3(0,0,1); }
   vec2 dd= uRot>.5? vec2(${TH}.-y, x) : vec2(x,y); vec2 scr=vec2(uView.x+dd.x*uView.z, uView.w-dd.y*uView.z);
-  vec2 ctr=uRes*.5; float k=1.+z/700.; scr=ctr+(scr-ctr)*k + vec2(-z*.25,-z*.35)*uView.z;
+  vec2 ctr=uRes*.5; float k=1.+z/700.; scr=ctr+(scr-ctr)*k + vec2(-z*.15,z*.06)*uView.z;
   gl_Position=vec4(scr/uRes*2.-1., -z/1000., 1.); vUV=aUV; vN=n; vZ=z;
 }`;
 const FS_PAPER=`#version 300 es
@@ -235,10 +240,11 @@ void main(){
   vec3 Dp=texture(uPrint, vec2(vUV.x,1.-vUV.y)).rgb*4.;
   vec3 bathD=vec3(${BATH.map(c=>(-Math.log(c)).toFixed(3)).join(',')});
   vec3 print=paper*exp(-max(Dp-bathD,0.)*.95*(.92+.16*fib));      // the pigment lifted onto the fibres
-  bool under = !gl_FrontFacing || uSheet>.5;
+  bool under = !gl_FrontFacing || uSheet>0.;
   vec3 c = under ? print : mix(paper, paper*exp(-max(Dp-bathD,0.)*.35), uWet);   // wet ink shows through the back
   float diff=max(dot(n,L),0.);
   c*= .62+.5*diff; c+=pow(max(dot(reflect(-L,n),vec3(0,0,1)),0.),12.)*.06;
+  float edge=min(min(vUV.x,1.-vUV.x)*1.5,min(vUV.y,1.-vUV.y)); c*=.9+.1*smoothstep(0.,.012,edge+(noise(vUV*300.)-.5)*.006);
   o=vec4(tonemap(c*1.15),1.);
 }`;
 let P_INK, P_BATH, P_PAPER, quad, opsTex, inkFB, inkTex, printFB, printTex, paperVAO, paperN=0;
@@ -333,9 +339,9 @@ let lastView='';
 // the peel: the sheet settles (wetting through), then lifts from the left edge and rolls away; then it lies print up
 function peelState(now){ const u=(now-peel.t0)/1000; if (u<.9) return {phase:0, wet:Math.min(1,u/.8), c:-1, lift:(1-Math.min(1,u/.35))*40, sheet:0};
   if (u<3.1){ const v=(u-.9)/2.2, e=v*v*(3-2*v); return {phase:1, wet:1, c:e*(TW+180)-10, lift:0, sheet:0}; }
-  const v=Math.min(1,(u-3.1)/.9), e=v*v*(3-2*v); if (v>=1 && !peel.done){ peel.done=true; setTimeout(afterPeel, 250); } return {phase:2, wet:1, c:-1, lift:0, sheet:e}; }
+  const v=Math.min(1,(u-3.1)/.9), e=1-Math.pow(1-v,3); if (v>=1 && !peel.done){ peel.done=true; setTimeout(afterPeel, 250); } return {phase:2, wet:1, c:9999, lift:0, sheet:Math.max(.001,e)}; }
 function drawPaper(view,W,H,pc){ gl.useProgram(P_PAPER.p); gl.bindVertexArray(paperVAO); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,printFB.t); gl.uniform1i(P_PAPER.u.uPrint,0);
-  gl.uniform4fv(P_PAPER.u.uView,view); gl.uniform1f(P_PAPER.u.uRot, ROT?1:0); gl.uniform2f(P_PAPER.u.uRes,W,H); gl.uniform1f(P_PAPER.u.uC, pc.phase===1? pc.c : -1); gl.uniform1f(P_PAPER.u.uR, 46); gl.uniform1f(P_PAPER.u.uLift, pc.lift); gl.uniform1f(P_PAPER.u.uWet, pc.wet); gl.uniform1f(P_PAPER.u.uSheet, pc.sheet);
+  gl.uniform4fv(P_PAPER.u.uView,view); gl.uniform1f(P_PAPER.u.uRot, ROT?1:0); gl.uniform2f(P_PAPER.u.uRes,W,H); gl.uniform1f(P_PAPER.u.uC, pc.phase===1? pc.c : -1); gl.disable(gl.CULL_FACE); gl.uniform1f(P_PAPER.u.uR, 46); gl.uniform1f(P_PAPER.u.uLift, pc.lift); gl.uniform1f(P_PAPER.u.uWet, pc.wet); gl.uniform1f(P_PAPER.u.uSheet, pc.sheet);
   gl.enable(gl.DEPTH_TEST); gl.clear(gl.DEPTH_BUFFER_BIT); gl.drawElements(gl.TRIANGLES,paperN,gl.UNSIGNED_SHORT,0); gl.disable(gl.DEPTH_TEST); gl.bindVertexArray(null); }
 
 // ======================= Input =======================
@@ -448,7 +454,7 @@ let hashT=0; function setHash(){ clearTimeout(hashT); hashT=setTimeout(()=>{ try
   requestAnimationFrame(()=>{ cam.fit(false); requestAnimationFrame(frame); });
 })();
 window.__mb={ MB, get ops(){ return ops; }, set ops(v){ ops=v; dirty=true; measure(); }, get COM(){ return COM; }, get SAVE(){ return SAVE; }, get likeness(){ return likeness; }, get anim(){ return anim; }, get peel(){ return peel; }, get tool(){ return tool; }, set tool(v){ tool=v; renderTools(); },
-  cam, toW, get ROT(){ return ROT; }, open, push, undo, lay, afterPeel, cleanSave, comOpen, unlocked, freeBath, comById, openShared, gl, inkPass, uploadOps, get inkFB(){ return inkFB; }, printFB:()=>printFB, frameNow:(t)=>frame(t), get dprScale(){ return dprScale; }, set dprScale(v){ dprScale=v; }, settle:()=>{ anim=null; dirty=true; }, get paused(){ return paused; }, set paused(v){ paused=v; }, renderNow:(n=1,t)=>{ for (let i=0;i<n;i++) step(t??performance.now()); gl.finish(); } };
+  cam, toW, get ROT(){ return ROT; }, open, push, undo, lay, afterPeel, cleanSave, comOpen, unlocked, freeBath, comById, openShared, gl, inkPass, uploadOps, get inkFB(){ return inkFB; }, printFB:()=>printFB, frameNow:(t)=>step(t), get dprScale(){ return dprScale; }, set dprScale(v){ dprScale=v; }, settle:()=>{ anim=null; dirty=true; }, get paused(){ return paused; }, set paused(v){ paused=v; }, renderNow:(n=1,t)=>{ for (let i=0;i<n;i++) step(t??performance.now()); gl.finish(); } };
 </script>
 </body>
 </html>

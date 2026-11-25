@@ -33,8 +33,8 @@ module.exports = {
     },
     'a searching surveyor solves plates; a fixed habit does not solve them all': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const { WS } = __ws;
-        const solve = (P, w) => { const kinds = Object.keys(P.agents); for (const t of kinds) { const C = t === 'fall' ? P.seas.map((_, s) => ({ t, sea: s })) : []; if (t !== 'fall') for (let y = 2; y < WS.H - 2; y += 3) for (let x = 2; x < WS.W - 2; x += 3) C.push({ t, x, y });
-          const near = (a) => { const G = P.goal, c = G.towns ? G.towns[0] : G.at; return !c || a.t === 'fall' || Math.hypot(a.x - c[0], a.y - c[1]) < 12; };
+        const solve = (P, w) => { const kinds = Object.keys(P.agents); for (const t of kinds) { const C = t === 'fall' ? P.seas.map((_, s) => ({ t, sea: s })) : []; if (t !== 'fall') for (let y = 1; y < WS.H - 1; y += 2) for (let x = 1; x < WS.W - 1; x += 2) C.push({ t, x, y });
+          const near = (a) => { const G = P.goal, c = G.towns ? G.towns[0] : G.at; return !c || a.t === 'fall' || Math.hypot(a.x - c[0], a.y - c[1]) < 10; };
           for (const a of C.filter(near)) if (WS.simulate(w, P, [a]).ok) return true; } return false; };
         const habit = (P, w) => { const G = P.goal, c = G.towns ? G.towns[0] : G.at || [27, 18], t = Object.keys(P.agents)[0]; return WS.simulate(w, P, [t === 'fall' ? { t, sea: G.sea || 0 } : { t, x: c[0], y: c[1] }]).ok; };
         const one = WS.PLATES.map((P, i) => [i, P]).filter(([, P]) => P.par && P.par.n === 1).slice(0, 4);
@@ -62,10 +62,10 @@ module.exports = {
       ok(ms < 1500, 'simulation took ' + ms);
     },
     'links: #plate=N&a=... opens that plate with those agents; daily plates are dated and differ': async ({ page, ok, eq }) => {
-      await page.evaluate(() => { const s = __ws.SAVE; s.best.p0 = { t: 0, n: 1 }; s.best.p1 = { t: 100, n: 1 }; localStorage.setItem('rh:watershed', JSON.stringify(s)); });
-      await page.goto(page.url().replace(/#.*$/, '') + '#plate=2&a=f0'); await page.reload(); await waitFor(page, () => __ws.w0 && __ws.key === 'p1');
-      eq(await page.evaluate(() => [__ws.key, __ws.agents]), ['p1', [{ t: 'fall', sea: 0 }]]);
-      ok(/#plate=2&a=f0/.test(await page.evaluate(() => __ws.shareText())));
+      await page.evaluate(() => { const s = __ws.SAVE; s.best.p0 = { t: 0, n: 1 }; s.best.p1 = { t: 100, n: 1 }; s.best.p2 = { t: 200, n: 1 }; localStorage.setItem('rh:watershed', JSON.stringify(s)); });
+      await page.goto(page.url().replace(/#.*$/, '') + '#plate=3&a=f0'); await page.reload(); await waitFor(page, () => __ws.w0 && __ws.key === 'p2');
+      eq(await page.evaluate(() => [__ws.key, __ws.agents]), ['p2', [{ t: 'fall', sea: 0 }]]);
+      ok(/#plate=3&a=f0/.test(await page.evaluate(() => __ws.shareText())));
       const d = await page.evaluate(() => { const a = __ws.WS.dailyPlate('2026-01-01'), b = __ws.WS.dailyPlate('2026-01-02'); return [JSON.stringify(a.seas) !== JSON.stringify(b.seas) || a.goal.sea !== b.goal.sea || a.n !== b.n, a.seed]; });
       eq(d, [true, 'daily:2026-01-01']);
       await page.evaluate(() => { location.hash = '#daily=2026-03-04'; }); ok(await waitFor(page, () => __ws.key === 'd2026-03-04' && __ws.w0 && __ws.P.goal.min > 0, 8000), 'daily opens');

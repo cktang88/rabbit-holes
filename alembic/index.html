@@ -79,7 +79,7 @@
   #bench #bRun:disabled{opacity:.55;cursor:default}
   #bench .chip{min-height:32px;padding:2px 8px;font-size:14px}
   #bench .res{font-size:14.5px;line-height:1.25;margin-top:3px;min-height:18px} #bench .res.ok{color:#2d6b3a;font-weight:600} #bench .res.no{color:var(--verm);font-weight:600}
-  .vial.glyph span{font:600 17px/1 "EB Garamond",serif;font-style:normal}
+  .vial.glyph span{font:600 17px/1 "EB Garamond",serif;font-style:normal;overflow:visible}
   #leaf ul.help{margin:4px 0;padding-left:20px;font-size:14.5px} #leaf .card{font-size:18px}
   #verdict{position:absolute;left:50%;top:30%;font:400 34px "Uncial Antiqua",serif;letter-spacing:.06em;padding:4px 16px;border:4px double currentColor;pointer-events:none;opacity:0;transform:translate(-50%,-50%) scale(2) rotate(-12deg)}
   #verdict.ok{color:#2d6b3a;background:#e9f0d6cc} #verdict.no{color:#b0301c;background:#f4dccbcc}
@@ -93,6 +93,7 @@
   @media (max-width:640px){
     header{padding:4px 8px;gap:5px;flex-wrap:nowrap} h1{font-size:20px} header button{padding:3px 7px;font-size:14px}
     #goal{margin:0 6px 4px;font-size:14px;padding:4px 8px} #goal .cap{font-size:18px}
+    #goal .wide{display:none}
     #bench{margin:0 6px 4px;padding:3px 6px} #bench .slot{min-width:44px;padding:2px 5px} #bench .row{gap:3px} #bench #bRun{min-width:70px} #verdict{font-size:26px}
     .vial{width:44px;height:58px} .vial .fl{width:26px;height:34px;margin-left:-13px} .vial span{max-width:44px}
     #fams{gap:2px} #fams button{font-size:12px;padding:2px 5px} #fams .pz-bar{margin-left:3px;gap:2px} #fams .pz-bar button{min-width:30px;padding:0}
@@ -232,6 +233,7 @@ const RULES=[
 ];
 // what slow changes of state make on their own (for the codex and for planning daily trays)
 const SPECIAL=[[PLANT,WOOD,'old plants, grown thick, turn to wood'],[PLANT,OIL,'plants buried out of the air'],[WOOD,COAL,'wood buried out of the air'],[PLANT,FLOWER,'a watered plant in the open'],[FLOWER,SEED,'flowers drop them'],[FIRE,SMOKE,'any fire'],[FIRE,ASH,'burnt plants or wood'],[EMBER,ASH,'spent embers'],[STEAM,WATER,'steam that cools']];
+const WMADE=new Int32Array(NT);   // how much of each unknown substance a world has made, in all its trays
 const RCAT=new Int16Array(NT*NT), FIRED=new Uint8Array(NT*NT), TF=new Uint8Array(NT*NT);   // catalysts, and which laws have fired (ever / in this test)
 const RP=new Float32Array(NT*NT), RC=new Uint8Array(NT*NT), RA=new Int16Array(NT*NT*4).fill(-1), RB=new Int16Array(NT*NT*4).fill(-1), HASRX=new Uint8Array(NT);
 for (const [a,b,oa,ob,p,c] of RULES){ const k=a*NT+b; RP[k]=p; RC[k]=c||0; HASRX[a]=1; for (let r=0;r<4;r++){ RA[k*4+r]=Array.isArray(oa)?oa[r%oa.length]:oa; RB[k*4+r]=Array.isArray(ob)?ob[r%ob.length]:ob; } }
@@ -252,7 +254,7 @@ function life(t,src){
     case HYD: return 700+(rnd()&255); case FOAM: return 160+(rnd()&127); case EMBER: return 800+(rnd()&511); case PLANT: return 200; }
   return 0;
 }
-function make(i,t,a,b){ T[i]=t; L[i]=life(t,a); S[i]=(rnd()&63)|(t===FIRE&&ORGANIC[a]?128:0); C[i]=stamp; if (!t){ L[i]=0; return; } made[t]++; if (!KNOWN[t]) { KNOWN[t]=1; if (onFound) onFound(t,a,b); } }
+function make(i,t,a,b){ T[i]=t; L[i]=life(t,a); S[i]=(rnd()&63)|(t===FIRE&&ORGANIC[a]?128:0); C[i]=stamp; if (!t){ L[i]=0; return; } made[t]++; if (t>=NREAL) WMADE[t]++; if (!KNOWN[t]) { KNOWN[t]=1; if (onFound) onFound(t,a,b); } }
 function swap(i,j){ const t=T[i]; T[i]=T[j]; T[j]=t; const l=L[i]; L[i]=L[j]; L[j]=l; const s=S[i]; S[i]=S[j]; S[j]=s; C[i]=C[j]=stamp; }
 const FLUID=new Uint8Array(NT); for (let t=0;t<NT;t++) FLUID[t]=(KIND[t]===LIQ||KIND[t]===GAS||KIND[t]===FLM)?1:0;
 const fluid=(b)=>FLUID[b]===1;
@@ -458,7 +460,7 @@ const today=()=>new Date().toISOString().slice(0,10);
 const START=[SAND,WATER,FIRE,EARTH];
 let SAVE=cleanSave(RH.load('alembic',null));
 function cleanSave(s){
-  const o={v:1, codex:{}, done:{}, daily:{}, cur:'mud', m:'work', office:{ w:0, tier:1, top:1, worlds:0, cards:[], seen:[], left:5000, fines:0, pd:[], made:[], best:{}, closed:0 }};
+  const o={v:1, codex:{}, done:{}, daily:{}, cur:'mud', m:'work', office:{ w:0, tier:1, top:1, worlds:0, cards:[], seen:[], left:5000, fines:0, pd:[], made:[], wm:[], best:{}, closed:0 }};
   if (!s || typeof s!=='object') return o;
   if (s.codex && typeof s.codex==='object') for (const [k,v] of Object.entries(s.codex)) if (ID[k]>0 && ID[k]<NREAL && Array.isArray(v)) o.codex[k]=[String(v[0]||'').slice(0,10), ID[v[1]]>=0?v[1]:'', ID[v[2]]>=0?v[2]:''];
   if (s.done && typeof s.done==='object') for (const [k,v] of Object.entries(s.done)) if (comById[k]) o.done[k]=String(v).slice(0,10);
@@ -470,6 +472,7 @@ function cleanSave(s){
   if (f && typeof f==='object'){ const O=o.office; O.w=n(f.w,0,4294967295); O.tier=n(f.tier,1,6); O.top=n(f.top,1,6); O.worlds=n(f.worlds,0,1e6); O.closed=f.closed?1:0; O.left=n(f.left,0,1e7); O.fines=n(f.fines,0,1e4);
     if (Array.isArray(f.cards)) O.cards=f.cards.filter(c=>Array.isArray(c) && c.length===4 && c.every(isT)).slice(-60);
     if (Array.isArray(f.seen)) O.seen=f.seen.filter(x=>typeof x==='string' && /^[\d,]{1,20}$/.test(x)).slice(-60);
+    if (Array.isArray(f.wm)) O.wm=f.wm.slice(0,2).map(v=>n(v,0,1e6));
     for (const k of ['pd','made']) if (Array.isArray(f[k])) O[k]=f[k].filter(x=>Number.isInteger(x) && x>=NREAL && x<NT).slice(0,8);
     if (f.best && typeof f.best==='object') for (const [k,v] of Object.entries(f.best).slice(-40)) if (/^\d{1,10}-[1-6]$/.test(k)) O.best[k]=n(v,0,1e7); }
   return o;
@@ -592,7 +595,7 @@ function updGoal(force){
   if (mode==='work' && com){ const n=COMMS.indexOf(com)+1; const [v,need]=progressOf(com);
     txt=`<span class="cap">${roman(n)}</span> <b>${com.n}.</b> ${com.g}`; pg=SAVE.done[com.id]? 'sealed ✓' : `${v} / ${need}${com.unit?' '+com.unit:''}`; }
   else if (mode==='daily'){ txt=`<span class="cap">☉</span> <b>Daily tray ${daily.key.replace('mix:','· ')}.</b> From ${daily.pal.map(t=>ELS[t][1].toLowerCase()).join(', ')}: make as many new substances as you can with ${DAILY_DROPS.toLocaleString()} drops. Plan each pour: what you make can be poured too.`; pg=`${dailyScore()} / ${daily.possible} · ${Math.max(0,budgetLeft).toLocaleString()} drops left`; }
-  else if (mode==='office' && world){ const s=officeState(); txt=`<span class="cap">⚖</span> <b>The Assay Office · world ${world.seed}, tier ${world.tier}.</b> <i>Find this matter's laws and file them on cards.</i>`; pg=`${s.found} / ${s.laws} laws · ${Math.max(0,budgetLeft).toLocaleString()} drops`; }
+  else if (mode==='office' && world){ const s=officeState(); txt=`<span class="cap">⚖</span> <b>Assay Office</b> · world ${world.seed}, tier ${world.tier}<span class="wide"> · <i>find this matter's laws and file them on cards</i></span>`; pg=`${s.found} / ${s.laws} laws · ${Math.max(0,budgetLeft).toLocaleString()} drops`; }
   else { txt=`<span class="cap">✠</span> <b>Sandbox.</b> <i>Every vial you have found. Share the tray from the Book.</i>`; pg=''; }
   const key=txt+pg; if (!force && key===lastGoal) return; lastGoal=key;
   $('goal').querySelector('.txt').innerHTML=txt; $('goal').querySelector('.pg').textContent=pg;
@@ -732,9 +735,11 @@ function makeWorld(wseed, tier){
   if (tier>=4){ const src=pick([p0,p1,p2]), to=pick(base); add(src,0,to,K,.0012+r()*.0012,'decay'); }
   if (tier>=5){ const q=pickPair(prods.slice(0,pi), base); if (q) add(q[0],q[1],K,q[0],.03+r()*.03,'grow'); }
   if (tier>=6){ const q=pickPair(prods.slice(0,pi), prods.slice(0,pi).concat(base)); if (q) add(q[0],q[1],K,0,.04+r()*.04,'eat'); }
+  // gases drift off before they can meet anything: whatever takes part in a law is a powder or a liquid
+  for (const l of laws) for (const x of [l.a,l.b,l.cat]) if (x>=NREAL && subs[x].kind===GAS){ subs[x].kind=LIQ; subs[x].dens=8+r()*6; }
   const used=new Set([...base]); for (const l of laws) for (const x of [l.a,l.b,l.oa,l.ob,l.cat]) if (x>=NREAL) used.add(x);
   // patrons: the deepest product in bulk, and something made only by heat or a catalyst
-  const pats=[{ t:p2, n:120 }]; const hc=laws.filter(l=>l.kind==='heat'||l.kind==='cat').pop(); if (hc){ const t=hc.kind==='heat'?hc.ob:hc.oa; if (t!==p2) pats.push({ t, n:80 }); }
+  const pats=[{ t:p2, n:200 }]; const hc=laws.filter(l=>l.kind==='heat'||l.kind==='cat').pop(); if (hc){ const t=hc.kind==='heat'?hc.ob:hc.oa; if (t!==p2) pats.push({ t, n:120 }); }
   return { seed:wseed, tier, base, subs, laws, ids:[...used], pats };
 }
 // install a world into the engine's tables (and only touch the unknown substances' rows and columns)
@@ -760,13 +765,13 @@ function runBench(){
   if (budgetLeft<benchCost()) return 'poor';
   clearTray(); TF.fill(0); reveal=null; const xa=W/2-BLK, xb=W/2, top=bench.k? H-BLK-4 : H-BLK, bot=bench.k? H-5 : H-1;
   if (bench.k) fillRect(bench.k, xa, H-4, xb+BLK-1, H-1);
-  if (bench.b===FIRE){ fillRect(bench.a, xa, top, xb+BLK-1, bot); const keep=budgetLeft; fillRect(FIRE, xa, top-5, xb+BLK-1, top-1); budgetLeft=keep; }
+  if (bench.b===FIRE){ const keep=budgetLeft; for (let x=xa+1; x<xb+BLK; x+=3) fillRect(FIRE, x, top, x, bot); budgetLeft=keep; fillRect(bench.a, xa, top, xb+BLK-1, bot); }   // heat: flames threaded through the sample, free
   else if (bench.b===0) fillRect(bench.a, xa, top, xb+BLK-1, bot);
   else for (let x=xa; x<xb+BLK; x+=2) fillRect(((x-xa)>>1)&1? bench.b : bench.a, x, top, x+1, bot);   // the wells pour in, striped together
   trial={ card: bench.p>=0? [bench.a, bench.b, bench.p, bench.k] : null, t:0, before: made.slice(), ins:[...new Set([bench.a,bench.b,bench.k].filter(t=>t>=NREAL))], put: poured.slice() }; paused=false; $('pauseBtn').textContent='Pause';
   FX.sfx('pop'); lastResult=null; renderBench(); focusBench(); return 'ok';
 }
-function focusBench(){ if (!cam.touched) cam.frame({ x:W/2-46, y:H-62, w:92, h:70 }, 350); }
+function focusBench(){ cam.frame({ x:W/2-40, y:H-58, w:80, h:62 }, 350); cam.touched=true; }   // look at the wells; ⤢ shows the whole tray
 function trialStep(){ // two extra steps a frame on top of the tray's own: a test takes a little over two seconds
   if (!trial) return; step(); step(); trial.t+=3;
   if (trial.t>=TEST_STEPS) finishTrial();
@@ -801,11 +806,11 @@ function renderBench(){
     + `<button id="bRun" class="rub" ${ready&&!trial?'':'disabled'}>${trial? '…' : bench.p>=0? 'Test card' : 'Mix'}<small>${cost}</small></button>`
     + chips.map(([v,l])=>`<button class="chip" data-v="${v}">${l}</button>`).join('') + `</div><div class="res ${lastResult&&!trial?lastResult.kind:''}">${msg}</div>`;
   el.querySelectorAll('[data-slot]').forEach(b=>b.onclick=()=>{ if (trial) return; bench.slot=b.dataset.slot; FX.sfx('tick'); renderBench(); });
-  el.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ if (trial) return; bench[bench.slot]=+b.dataset.v; lastResult=null; bench.slot=nextSlot(bench.slot); FX.sfx('tick'); renderBench(); });
+  el.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ if (trial) return; bench[bench.slot]=+b.dataset.v; lastResult=null; reveal=null; bench.slot=nextSlot(bench.slot); FX.sfx('tick'); renderBench(); });
   $('bRun').onclick=()=>{ const r=runBench(); if (r==='poor') RH.toast(`Not enough drops for that experiment (${cost}).`,2000); };
 }
 function benchPick(t){ if (mode!=='office' || !world || trial || !(t>0)) return; const s=bench.slot; if (t===FIRE && s!=='b') return;
-  bench[s]=t; lastResult=null; bench.slot= s==='p'? 'p' : nextSlot(s); renderBench(); }
+  bench[s]=t; lastResult=null; reveal=null; bench.slot= s==='p'? 'p' : nextSlot(s); renderBench(); }
 // the ghost: before a test, the predicted product hangs over the wells, faint and pulsing; during it, it stays; after it,
 // the answer: what formed, under what you said, with a tick or a cross
 function drawGhost(){
@@ -831,7 +836,7 @@ function kindsLine(){ const c={}; for (const l of world.laws){ const k=KINDNAME[
 const lawsFound=()=>world.laws.filter(l=>cards.some(x=>x.st==='seen' && matchLaw(x.c)===l)).length;
 const glyph=t=>t===0?'∅':t===FIRE?'🔥':ELS[t][1];
 function cardText(c){ const [a,b,p,k]=c; return `${glyph(a)} ${b===0?'alone':b===FIRE?'+ heat':'+ '+glyph(b)} → ${p===0?'nothing':glyph(p)}${k?` (near ${glyph(k)})`:''}`; }
-const patHave=t=>Math.min(cnt[t]||0, made[t]||0);   // cells made in this tray (poured ones do not count)
+const patHave=t=>WMADE[t];   // made in any tray of this world (poured cells do not count)
 function officeState(){ if (!world) return null; const pd=SAVE.office.pd||[], pats=world.pats.map(p=>({ ...p, have:patHave(p.t), done: pd.includes(p.t) }));
   return { laws:world.laws.length, found:lawsFound(), pats, left: budgetLeft, fines, done: lawsFound()===world.laws.length && pats.every(p=>p.done) }; }
 function startOffice(wseed, tier, keep){
@@ -839,14 +844,15 @@ function startOffice(wseed, tier, keep){
   world=makeWorld(wseed, tier); installWorld(world); clearTray(); seed=(RH.hashStr('office:'+wseed)|1); FIRED.fill(0); fresh.clear();
   const S=SAVE.office, same= keep && S.w===world.seed && S.tier===world.tier;
   if (same){ const seen=new Set(S.seen); cards=S.cards.map(c=>({ c:c.slice(0,4), st: seen.has(c.slice(0,4).join()) && matchLaw(c)? 'seen' : 'false' })); budgetLeft=S.left; fines=S.fines; }
-  else { cards=[]; budgetLeft=dropsFor(world.tier); fines=0; Object.assign(SAVE.office,{ w:world.seed, tier:world.tier, cards:[], seen:[], left:budgetLeft, fines:0, pd:[], made:[], closed:0 }); }
+  WMADE.fill(0); if (same) world.pats.forEach((p,i)=>WMADE[p.t]=S.wm[i]||0);
+  else { cards=[]; budgetLeft=dropsFor(world.tier); fines=0; Object.assign(SAVE.office,{ w:world.seed, tier:world.tier, cards:[], seen:[], left:budgetLeft, fines:0, pd:[], made:[], wm:[], closed:0 }); }
   SAVE.m='office'; const k=new Uint8Array(NT); k[FIRE]=world.tier>=2?1:0; for (const t of world.base) k[t]=1; if (same) for (const t of S.made) if (world.ids.includes(t)) k[t]=1;
   Object.assign(bench,{ a:world.base[0], b:world.base[1], k:0, p:-1, slot:'p' }); if (cards.length) bench.slot='a';
   setKnown(k); sel=world.base[0]; fam='Recent'; renderVials(); renderBench(); updGoal(true); persist();
   requestAnimationFrame(()=>{ cam.fit(false); focusBench(); });
   try{ history.replaceState(null,'',location.pathname+'#office='+world.seed+'-'+world.tier); }catch(_){}
 }
-function saveOffice(){ if (!world) return; const S=SAVE.office; S.cards=cards.map(x=>x.c); S.seen=cards.filter(x=>x.st==='seen').map(x=>x.c.join()); S.left=budgetLeft; S.fines=fines; S.made=[]; for (let t=NREAL;t<NT;t++) if (KNOWN[t]) S.made.push(t); persist(); }
+function saveOffice(){ if (!world) return; const S=SAVE.office; S.cards=cards.map(x=>x.c); S.seen=cards.filter(x=>x.st==='seen').map(x=>x.c.join()); S.left=budgetLeft; S.fines=fines; S.wm=world.pats.map(p=>WMADE[p.t]); S.made=[]; for (let t=NREAL;t<NT;t++) if (KNOWN[t]) S.made.push(t); persist(); }
 function officeCheck(){
   if (mode!=='office' || !world) return; const pd=SAVE.office.pd;
   for (const p of world.pats) if (!pd.includes(p.t) && patHave(p.t)>=p.n){ pd.push(p.t); FX.sfx('win'); RH.toast(`A patron takes ${p.n} cells of <b>${glyph(p.t)}</b> and pays <b>${PATRON_PAY} drops</b>.`,3200); budgetLeft+=PATRON_PAY; saveOffice(); }
@@ -867,7 +873,7 @@ function drawOffice(){
   if (world && mode==='office'){ const s=officeState();
     h+=`<p>World <b>${world.seed}</b>, tier ${world.tier}. <b>${s.found}</b> of <b>${s.laws}</b> laws stamped · <b>${budgetLeft.toLocaleString()}</b> drops.</p><p class="note">Laws by kind: ${kindsLine()}</p><ul class="help">${OFFICE_HELP.slice(0,1+Math.min(world.tier,5)).map(x=>`<li>${x}</li>`).join('')}</ul>`;
     h+=`<h3>Cards</h3>${cards.length? cards.map(x=>`<div class="com ${x.st==='seen'?'done':''}"><div class="n">${x.st==='seen'?'✓':'✗'}</div><div class="card">${cardText(x.c)}</div><div class="st">${x.st==='seen'?'stamped':'refuted'}</div></div>`).join('') : '<p class="note">None yet.</p>'}`;
-    h+=`<h3>Patrons</h3>${s.pats.map(p=>`<div class="com ${p.done?'done':''}"><div class="n">${p.done?'✓':'☉'}</div><div>${p.n} cells of <b>${KNOWN[p.t]?glyph(p.t):'a substance you have not seen yet'}</b>, made in one tray (poured cells do not count). Pays ${PATRON_PAY}.</div><div class="st">${p.done?'paid':`${Math.min(p.have,p.n)} / ${p.n}`}</div></div>`).join('')}`;
+    h+=`<h3>Patrons</h3>${s.pats.map(p=>`<div class="com ${p.done?'done':''}"><div class="n">${p.done?'✓':'☉'}</div><div>${p.n} cells of <b>${KNOWN[p.t]?glyph(p.t):'a substance you have not seen yet'}</b>, made, in all your trays in this world (poured cells do not count). Pays ${PATRON_PAY}.</div><div class="st">${p.done?'paid':`${Math.min(p.have,p.n)} / ${p.n}`}</div></div>`).join('')}`;
     const best=SAVE.office.best[world.seed+'-'+world.tier]; h+=`<p class="note">Your best close for this world: ${best!=null? best.toLocaleString()+' drops' : 'not yet'}.</p>`; }
   h+=`<p><button data-office="new" class="rub">A new world · tier ${top}</button> <button data-office="day">Today's world · tier ${day.tier}</button>${world&&mode==='office'?' <button data-office="restart">Start this world over</button> <button data-office="share">Copy a link to this world</button>':''}</p><p class="note" id="officeOut">${SAVE.office.worlds? `${SAVE.office.worlds} world${SAVE.office.worlds>1?'s':''} written down.` : ''}</p>`;
   return h;
