@@ -23,12 +23,11 @@ const RH_TAGLIST = [
   { id: 'detective', g: 'vibe', name: 'Detective work', em: '🔎', hue: 265, blurb: 'Gather clues, form a theory, prove it.' },
   { id: 'strategy', g: 'vibe', name: 'Strategy', em: '♟️', hue: 15, blurb: 'Balance resources over a long game.' },
   { id: 'sandbox', g: 'vibe', name: 'Chill sandbox', em: '🏖️', hue: 175, blurb: 'No pressure: play and see what happens.' },
-  { id: 'quick', g: 'vibe', name: 'Quick hits', em: '⚡', hue: 55, blurb: 'A satisfying session in about 20 minutes.' },
   { id: 'brain-burner', g: 'vibe', name: 'Brain-burners', em: '🔥', hue: 5, blurb: 'Hard. Bring coffee.' },
 ];
 const RH_CATALOG = [
   // round 4
-  { id: 'woodcut', look: { f: "'Spectral',serif", bg: "linear-gradient(160deg,#f3ead8,#e4d6bb)", ink: "#2a1f14", ac: "#b5322a" }, k: 'print printmaking linocut picasso carving ink colour', em: '🪵', t: 'Reduction Woodcut', round: 4, time: 'rabbit-hole', diff: 2, tags: ['art', 'history', 'build', 'pretty', 'quick'],
+  { id: 'woodcut', look: { f: "'Spectral',serif", bg: "linear-gradient(160deg,#f3ead8,#e4d6bb)", ink: "#2a1f14", ac: "#b5322a" }, k: 'print printmaking linocut picasso carving ink colour', em: '🪵', t: 'Reduction Woodcut', round: 4, time: 'rabbit-hole', diff: 2, tags: ['art', 'history', 'build', 'pretty'],
     d: 'One block, every colour. Carve, ink, pull, then carve the same block again; every cut is forever. Then the hidden second game: clients want colours you do not own, so you plan which glazes stack on which shapes to make six colours from three pulls, with paper friskets that make the edition drift.' },
   { id: 'lock-flight', look: { f: "'Rye',serif", bg: "linear-gradient(160deg,#1f4a35,#16382a)", ink: "#f3e7c9", ac: "#d4473a" }, k: 'canal mania lock locks boat tunnel aqueduct reservoir water engineering 1790s build route', em: '⛴️', t: 'Canal Mania', round: 4, time: 'rabbit-hole', diff: 2, tags: ['earth', 'simulation', 'economics', 'history', 'build', 'strategy'],
     d: "You hold a fixed store of rainwater on a hill, and every boat over the top pours a lockful downhill for good. Seventy years of canal mania: dam streams, pair boats, pump with the coal you carry — then the railways come." },
@@ -55,7 +54,7 @@ const RH_CATALOG = [
     d: '28,800 bath toys fell into the Pacific in 1992. Drop ducks on a 3D globe whose currents come from real ocean physics, then work backwards from beach sightings to find where a spill happened.' },
   { id: 'chladni', look: { f: "'Cormorant Garamond',serif", bg: "linear-gradient(160deg,#3a2a17,#271b0e)", ink: "#f1dfb6", ac: "#d6a648" }, k: 'vibration sand plate resonance sound', em: '〰️', t: "Sand Score", round: 3, time: 'rabbit-hole', diff: 1, tags: ['light-sound', 'physics', 'art', 'pretty', 'sandbox'],
     d: "Compose a melody that herds sand. Each note shakes the plate into a pattern and the grains creep to its still lines, so order and length matter. Draw rings, letters and ships in sand; then saw and drill the plate for new notes." },
-  { id: 'polarizer', look: { f: "'Share Tech Mono',monospace", bg: "linear-gradient(160deg,#16181b,#0b0c0e)", ink: "#d7dde3", ac: "#ff3b2f" }, k: 'quantum photon light polarisation bomb', em: '💡', t: "Sealed Boxes", round: 3, time: 'rabbit-hole', diff: 2, tags: ['physics', 'light-sound', 'wait-what', 'quick'],
+  { id: 'polarizer', look: { f: "'Share Tech Mono',monospace", bg: "linear-gradient(160deg,#16181b,#0b0c0e)", ink: "#d7dde3", ac: "#ff3b2f" }, k: 'quantum photon light polarisation bomb', em: '💡', t: "Sealed Boxes", round: 3, time: 'rabbit-hole', diff: 2, tags: ['physics', 'light-sound', 'wait-what'],
     d: "Clients post you sealed optics boxes. Fire single photons through probes you build, watch which detector clicks, and sign your name to what's inside: filters, wave plates, phase delays — and bombs you must certify without ever touching." },
   // round 2
   { id: 'vault', look: { f: "'Special Elite',monospace", bg: "linear-gradient(160deg,#e6d3a3,#d2bc85)", ink: "#1e1a12", ac: "#b3261e" }, k: 'cipher code codes enigma cryptography caesar vigenere spy', em: '🔐', t: "The Listening Post", round: 2, time: 'rabbit-hole', diff: 2, tags: ['language', 'logic', 'history', 'detective', 'brain-burner'],
@@ -97,7 +96,7 @@ function RH_similar(id, n = 3) {
   const a = RH_CATALOG.find(x => x.id === id); if (!a) return [];
   const name = t => RH_TAGLIST.find(g => g.id === t).name.toLowerCase();
   return RH_CATALOG.filter(b => b.id !== id).map(b => {
-    const shared = b.tags.filter(t => a.tags.includes(t) && t !== 'quick');
+    const shared = b.tags.filter(t => a.tags.includes(t));
     return { ...b, s: shared.length * 2 + (b.time === a.time ? .5 : 0) + (b.diff === a.diff ? .3 : 0), why: shared.length ? 'Also ' + shared.slice(0, 2).map(name).join(' · ') : 'A change of scene' };
   }).sort((x, y) => y.s - x.s).slice(0, n);
 }

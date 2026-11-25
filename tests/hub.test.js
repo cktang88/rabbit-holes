@@ -42,16 +42,15 @@ module.exports = {
       eq(ids, await page.evaluate(() => RH_CATALOG.filter(x => x.tags.includes('detective')).map(x => x.id).sort()));
     },
     'tag on a card filters to that tag; search narrows; no-match message': async ({ page, ok }) => {
-      await page.click('#vibes [data-tag="quick"]');
-      // click the maths tag on whichever quick-hit card carries one (the catalogue changes as games are replaced)
+      // click the maths tag on whichever card carries one (the catalogue changes as games are replaced)
       await page.click('article.card .t[data-tag="maths"]');
       const ids = [...new Set((await cards(page)).map(c => c[0]))];
       const maths = await page.evaluate(() => RH_CATALOG.filter(x => x.tags.includes('maths')).map(x => x.id));
-      ok(ids.length > 2 && ids.every(id => maths.includes(id)) && ids.includes('ruin') && !ids.includes('caravan'), ids.join());
+      ok(ids.length > 2 && ids.every(id => maths.includes(id)), ids.join());
       await page.fill('#q', 'zzzz-nothing'); await page.waitForTimeout(300);
       ok(await page.isVisible('.empty'));
-      await page.click('#tags [data-clear]'); await page.fill('#q', 'bee'); await page.waitForTimeout(300);
-      const b = [...new Set((await cards(page)).map(c => c[0]))]; ok(b.includes('island'), 'bee should find the island: ' + b);
+      await page.click('#tags [data-clear]'); await page.fill('#q', 'wolves'); await page.waitForTimeout(300);
+      const b = [...new Set((await cards(page)).map(c => c[0]))]; ok(b.includes('island'), 'wolves should find the island: ' + b);
     },
     'search finds by words in description': async ({ page, eq }) => {
       await page.fill('#q', 'gravity'); await page.waitForTimeout(300);

@@ -367,14 +367,14 @@ scene.background = new THREE.Color(0x0b0c10); scene.fog = new THREE.Fog(0x0b0c10
 function makeEnv(lightTable) {
   const es = new THREE.Scene();
   const room = new THREE.Mesh(new THREE.SphereGeometry(20, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide, uniforms: {}, vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }',
-    fragmentShader: 'varying vec3 vP; void main(){ float h = normalize(vP).y; vec3 c = mix(vec3(.012,.013,.016), vec3(.09,.095,.11), smoothstep(-.2,.9,h)); c += vec3(.05,.04,.03)*smoothstep(.0,-.6,h); gl_FragColor = vec4(c,1.); }' }));
-  es.add(room);
+    fragmentShader: 'varying vec3 vP; void main(){ float h = normalize(vP).y; vec3 c = mix(vec3(.012,.013,.016), vec3(.09,.095,.11), smoothstep(-.2,.9,h)); c += vec3(.05,.04,.03)*smoothstep(.0,-.6,h); gl_FragColor = vec4(c,1.); }', depthWrite: false }));
+  room.renderOrder = -1; es.add(room);
   const soft = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); const id = g.createImageData(128, 128);
     for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) { const u = Math.min(x, 127 - x) / 40, v = Math.min(y, 127 - y) / 40, a = Math.min(1, u) * Math.min(1, v), k = (y * 128 + x) * 4; id.data[k] = id.data[k + 1] = id.data[k + 2] = 255; id.data[k + 3] = 255 * a * a * (3 - 2 * a); }
     g.putImageData(id, 0, 0); return new THREE.CanvasTexture(c); })();
   const box = (w, h, pos, col, k) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(k), alphaMap: soft, transparent: true, side: THREE.DoubleSide, depthWrite: false })); m.position.copy(pos); m.lookAt(0, 0, 0); es.add(m); };
-  box(9, 6, new V3(-8, 7, 9), 0xfff4e6, 5.5);      // key softbox
-  box(60, 26, new V3(0, 3, 15), 0xf4f1ea, 2.0);   // the big diffuser behind the camera that films are seen against
+  box(9, 6, new V3(-8, 7, 9), 0xfff4e6, 4.5);      // key softbox
+  box(60, 26, new V3(0, 3, 15), 0xf4f1ea, 3.6);   // the big diffuser behind the camera that films are seen against
   box(3, 7, new V3(9, 0, 13), 0xffffff, 3.2);      // a bright strip in it, for crisp highlights
   box(2.2, 12, new V3(11, 2, 2), 0xe6f0ff, 4.5);   // strip light, right
   box(2.2, 12, new V3(-11, 2, -6), 0xdfe8ff, 2.6); // rim strip, back left
@@ -410,7 +410,7 @@ const glassMat = new THREE.MeshPhysicalMaterial({ color: 0xdde8ee, metalness: 0,
 // ---------- the thin-film material ----------
 const FILM_GLSL = `
 uniform float uTime, uAge, uSeed, uPopR, uClipMode, uClipR, uClipX, uFresh;
-uniform vec2 uYR; uniform vec3 uPop, uClipC;
+uniform vec2 uYR; uniform vec3 uPop, uClipC, uClipN;
 varying vec3 vWPos;
 vec3 m289(vec3 x){return x-floor(x*(1./289.))*289.;} vec4 m289(vec4 x){return x-floor(x*(1./289.))*289.;}
 vec4 perm(vec4 x){return m289(((x*34.)+1.)*x);} vec4 tis(vec4 r){return 1.79284291400159-.85373472095314*r;}
@@ -448,7 +448,7 @@ function filmMaterial(o = {}) {
   const m = new THREE.MeshPhysicalMaterial({ color: 0x000000, metalness: 0, roughness: .03, ior: 1.0, iridescence: 1, iridescenceIOR: N_FILM, iridescenceThicknessRange: [0, 1200],
     envMapIntensity: o.env ?? 2.6, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, specularIntensity: 1 });
   const U = { uTime: { value: 0 }, uAge: { value: 0 }, uSeed: { value: Math.random() * 50 }, uYR: { value: new THREE.Vector2(-1, 1) }, uPop: { value: new V3() }, uPopR: { value: 0 },
-    uClipMode: { value: 0 }, uClipC: { value: new V3() }, uClipR: { value: 0 }, uClipX: { value: 0 }, uFresh: { value: 0 } };
+    uClipMode: { value: 0 }, uClipC: { value: new V3() }, uClipN: { value: new V3(1, 0, 0) }, uClipR: { value: 0 }, uClipX: { value: 0 }, uFresh: { value: 0 } };
   m.userData.U = U;
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, U);
@@ -457,7 +457,7 @@ function filmMaterial(o = {}) {
       .replace('void main() {', `void main() {
         if (uClipMode > .5 && uClipMode < 1.5 && distance(vWPos, uClipC) < uClipR) discard;
         if (uClipMode > 1.5 && uClipMode < 2.5 && distance(vWPos, uClipC) > uClipR) discard;
-        if (uClipMode > 2.5 && vWPos.x < uClipX) discard;
+        if (uClipMode > 2.5 && dot(vWPos - uClipC, uClipN) < 0.) discard;
         if (uPopR > 0. && distance(vWPos, uPop) < uPopR) discard;
         float filmThick = filmD(vWPos);`)
       .replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\nmaterial.iridescenceThickness = filmThick;');
@@ -487,6 +487,12 @@ function filmMesh(S, mat) {
 function syncFilm(m) { const S = m.userData.S, a = m.geometry.attributes.position, X = S.X, R = S.rmap; for (let k = 0; k < R.length; k++) { const i = R[k] * 3; a.array[k * 3] = X[i]; a.array[k * 3 + 1] = X[i + 1]; a.array[k * 3 + 2] = X[i + 2]; }
   a.needsUpdate = true; m.geometry.computeVertexNormals(); m.geometry.computeBoundingSphere(); }
 
+// ---------- Plateau borders: the thin liquid channels where three films meet ----------
+const borderMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: .04, metalness: 0, transparent: true, opacity: .42, envMapIntensity: 2.4, clearcoat: 1, depthWrite: false });
+const cylGeo = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true);
+function bordersMesh(max) { const m = new THREE.InstancedMesh(cylGeo, borderMat, max); m.count = 0; m.frustumCulled = false; m.renderOrder = 3; return m; }
+const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new V3(), _up = new V3(0, 1, 0), _d = new V3(), _mid = new V3();
+function setBorder(m, k, a, b, r) { _d.subVectors(b, a); const L = _d.length(); if (L < 1e-6) return k; _q.setFromUnitVectors(_up, _d.divideScalar(L)); _mid.addVectors(a, b).multiplyScalar(.5); _s.set(r, L, r); _m4.compose(_mid, _q, _s); m.setMatrixAt(k, _m4); return k + 1; }
 // ---------- figure: a bent ring ----------
 function makeRing(bend = [0, 0, 0, 0]) {
   clearStage(); const S = buildRing(mob ? 11 : 14), mat = filmMaterial(); const film = filmMesh(S, mat); stage.add(film);
@@ -514,7 +520,9 @@ function makePins(pins, opts = {}) {
   F.pins.forEach(F.addPinMesh);
   F.dip = (cx, cy, rnd = Math.random) => { F.net = cx != null ? Net.dip(F.pins, cx, cy) : Net.tree(F.pins, rnd); };
   if (!opts.empty) F.dip();
-  F.sync = () => { const pos = geo.attributes.position.array, nor = geo.attributes.normal.array; let k = 0;
+  F.borders = bordersMesh(40); stage.add(F.borders);
+  F.sync = () => { const pos = geo.attributes.position.array, nor = geo.attributes.normal.array; let k = 0, b = 0;
+    if (F.net) F.net.n.forEach((p, i) => { if (p.on && !p.pin) b = setBorder(F.borders, b, new V3(p.x, -PLATE_H, p.y), new V3(p.x, PLATE_H, p.y), .012); }); F.borders.count = b; F.borders.instanceMatrix.needsUpdate = true;
     if (F.net) for (const [a, b] of F.net.edges()) { const A = F.net.n[a], B = F.net.n[b]; const dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, nz = dx / L;
       const v = [[A.x, -PLATE_H, A.y], [B.x, -PLATE_H, B.y], [B.x, PLATE_H, B.y], [A.x, -PLATE_H, A.y], [B.x, PLATE_H, B.y], [A.x, PLATE_H, A.y]];
       for (const q of v) { if (k >= pos.length) break; pos[k] = q[0]; pos[k + 1] = q[1]; pos[k + 2] = q[2]; nor[k] = nx; nor[k + 1] = 0; nor[k + 2] = nz; k += 3; } }
@@ -532,15 +540,18 @@ function makeFrame(kind, offsets) {
     S.setWire((i, w) => S.get(w.a).lerp(S.get(w.b), w.t)); handles.forEach(h => h.mesh.position.copy(F.corner(h.i)));
     const ys = base.map((_, i) => F.corner(i).y); F.yr = [Math.min(...ys), Math.max(...ys)]; };
   base.forEach((p, i) => { const m = knob(p, brass, .085); stage.add(m); handles.push({ mesh: m, kind: 'corner', i }); });
+  F.lines = [...S.edgeMap.values()].filter(arr => S.Kt[arr[1]] === 2 || (arr.length === 2 && S.Kt[arr[0]] !== 1 && S.Kt[arr[1]] !== 1));
+  F.borders = bordersMesh(F.lines.reduce((a, l) => a + l.length, 0)); stage.add(F.borders);
+  F.syncBorders = () => { let k = 0; for (const l of F.lines) for (let q = 0; q + 1 < l.length; q++) k = setBorder(F.borders, k, S.get(l[q]), S.get(l[q + 1]), .007); F.borders.count = k; F.borders.instanceMatrix.needsUpdate = true; F.borders.visible = !F.hidden && F.film.visible; };
   F.rebuild(); return F;
 }
 // ---------- figure: bubbles from a wand ----------
-const WAND = new V3(-1.9, .15, 0), WAND_R = .42;
+const WAND = new V3(-1.7, .15, .2), WAND_R = .42, WAND_A = new V3(1, 0, .75).normalize();
 function makeBubbles() {
   clearStage(); const F = { kind: 'bubbles', bubbles: [], blowing: null, walls: [] };
-  const wand = new THREE.Mesh(new THREE.TorusGeometry(WAND_R, .03, 14, 80), steel); wand.rotation.y = Math.PI / 2; wand.position.copy(WAND); wand.castShadow = true; stage.add(wand);
+  const wand = new THREE.Mesh(new THREE.TorusGeometry(WAND_R, .03, 14, 80), steel); wand.quaternion.setFromUnitVectors(new V3(0, 0, 1), WAND_A); wand.position.copy(WAND); wand.castShadow = true; stage.add(wand);
   stage.add(tube(WAND.clone().add(new V3(0, -WAND_R, 0)), WAND.clone().add(new V3(-.2, -1.75, .1)), .03));
-  const mat = filmMaterial(); F.wandFilm = new THREE.Mesh(new THREE.CircleGeometry(WAND_R, 64), mat); F.wandFilm.rotation.y = Math.PI / 2; F.wandFilm.position.copy(WAND); F.wandFilm.renderOrder = 2; stage.add(F.wandFilm);
+  const mat = filmMaterial(); F.wandFilm = new THREE.Mesh(new THREE.CircleGeometry(WAND_R, 64), mat); F.wandFilm.quaternion.setFromUnitVectors(new V3(0, 0, 1), WAND_A); F.wandFilm.position.copy(WAND); F.wandFilm.renderOrder = 2; stage.add(F.wandFilm);
   F.wandMat = mat; mat.userData.U.uYR.value.set(WAND.y - WAND_R, WAND.y + WAND_R);
   return F;
 }
@@ -565,7 +576,7 @@ const card = document.getElementById('card'), nav = document.getElementById('nav
 function renderNav() { nav.innerHTML = CH.map((c, i) => `<button data-c="${i}" class="${i === ch ? 'on' : ''} ${SAVE.seen.includes(i) ? 'seen' : ''}" title="${c.t}">${c.n}</button>`).join(''); }
 nav.onclick = e => { const b = e.target.closest('[data-c]'); if (b) go(+b.dataset.c); };
 const camGoal = { p: new V3(2.6, .9, 6.4), t: new V3(0, .1, 0) };
-function setCam(p, t, snap) { camGoal.p.copy(p); camGoal.t.copy(t); if (snap) { camera.position.copy(p); controls.target.copy(t); } }
+function setCam(p, t, snap) { const Z = innerWidth / innerHeight < .8 ? 1.5 : innerWidth / innerHeight < 1.2 ? 1.15 : 1; p = t.clone().add(p.clone().sub(t).multiplyScalar(Z)); camGoal.p.copy(p); camGoal.t.copy(t); if (snap) { camera.position.copy(p); controls.target.copy(t); } }
 const OPT_SVG = {
   x: '<svg viewBox="0 0 34 34"><g stroke="currentColor" stroke-width="1.6" fill="none"><path d="M5 5L29 29M29 5L5 29"/></g><g fill="currentColor"><circle cx="5" cy="5" r="2.4"/><circle cx="29" cy="5" r="2.4"/><circle cx="5" cy="29" r="2.4"/><circle cx="29" cy="29" r="2.4"/></g></svg>',
   ring: '<svg viewBox="0 0 34 34"><g stroke="currentColor" stroke-width="1.6" fill="none"><rect x="10" y="10" width="14" height="14"/><path d="M5 5L10 10M29 5L24 10M5 29L10 24M29 29L24 24"/></g><g fill="currentColor"><circle cx="5" cy="5" r="2.4"/><circle cx="29" cy="5" r="2.4"/><circle cx="5" cy="29" r="2.4"/><circle cx="29" cy="29" r="2.4"/></g></svg>',
@@ -592,7 +603,7 @@ function go(i, opts = {}) {
   if (k === 'three') { fig = makePins([[-1.2, -.75], [1.3, -.55], [.05, 1.25]], { empty: true }); setCam(new V3(0, 3.3, 5.4), new V3(0, -.35, 0), opts.snap); }
   if (k === 'roads') { st.stage = SAVE.preds.square ? 'towns' : 'square'; if (st.stage === 'square') fig = makePins([[-1, -1], [1, -1], [1, 1], [-1, 1]], { empty: true }); else townsSetup(); setCam(new V3(0, 3.6, 5.6), new V3(0, -.35, 0), opts.snap); }
   if (k === 'frames') { st.kind = 'cube'; fig = makeFrame('cube'); fig.hidden = !SAVE.preds.cube; fig.film.visible = !fig.hidden; setCam(new V3(3.4, 2.4, 5.8), new V3(0, -.1, 0), opts.snap); }
-  if (k === 'bubbles') { fig = makeBubbles(); setCam(new V3(0, .6, 7.4), new V3(0, .2, 0), opts.snap); }
+  if (k === 'bubbles') { fig = makeBubbles(); setCam(new V3(.4, .7, 7.4), new V3(0, .2, 0), opts.snap); }
   if (k === 'sandbox') sandbox(opts.share);
   dipNow(true); text();
 }
@@ -662,7 +673,7 @@ function reveal(id, k) {
   if (id === 'wall') { text(); spawnPair(); }
 }
 // ---------- the dip: sink the figure into the dish, then lift it out with a fresh, thick film ----------
-function dipNow(instant) { dipping = instant ? 0 : 1; dipT = 0; if (fig) { fig.age = 0; if (fig.mat) { fig.mat.userData.U.uSeed.value = Math.random() * 50; fig.mat.userData.U.uPopR.value = 0; } fig.popped = false; if (fig.film && !fig.hidden) fig.film.visible = true; } if (!instant) FX.sfx('whoosh'); }
+function dipNow(instant) { dipping = instant ? 0 : 1; dipT = 0; if (instant) stage.position.y = 0; if (fig) { fig.age = 0; if (fig.mat) { fig.mat.userData.U.uSeed.value = Math.random() * 50; fig.mat.userData.U.uPopR.value = 0; } fig.popped = false; if (fig.film && !fig.hidden) fig.film.visible = true; } if (!instant) FX.sfx('whoosh'); }
 // ---------- share links ----------
 function encode() {
   const r2 = x => Math.round(x * 100) / 100;
@@ -726,17 +737,17 @@ function guess(p) {
 // ---------- bubbles ----------
 function release() {
   const b = fig.blowing; fig.blowing = null; if (b.r < WAND_R * 1.15) { fig.wandFilm.visible = true; return; }
-  const off = Math.sqrt(b.r * b.r - WAND_R * WAND_R), c = WAND.clone().add(new V3(off, 0, 0));
+  const off = Math.sqrt(b.r * b.r - WAND_R * WAND_R), c = WAND.clone().addScaledVector(WAND_A, off);
   if (fig.cap) { stage.remove(fig.cap.m); fig.cap = null; }
-  newBubble(fig, c, b.r, new V3(.55 + Math.random() * .25, .12 + Math.random() * .1, (Math.random() - .5) * .3)); FX.sfx('pop'); fig.wandFilm.visible = true; fig.wandMat.userData.U.uSeed.value = Math.random() * 50;
+  newBubble(fig, c, b.r, WAND_A.clone().multiplyScalar(.6 + Math.random() * .25).add(new V3(0, .12 + Math.random() * .1, (Math.random() - .5) * .2))); FX.sfx('pop'); fig.wandFilm.visible = true; fig.wandMat.userData.U.uSeed.value = Math.random() * 50;
 }
 function spawnPair() { if (fig.kind !== 'bubbles') return; newBubble(fig, new V3(-1.2, .3, 0), .85, new V3(.35, 0, 0)); newBubble(fig, new V3(1.4, .25, .02), .52, new V3(-.4, 0, 0)); }
 function popBubble(b) { if (b.pop) return; b.pop = 1e-3; b.mat.userData.U.uPop.value.copy(b.c).add(new V3(0, b.r, 0)); FX.sfx('pop'); burst(b.c.clone().add(new V3(0, b.r * .7, 0)), b.r); if (b.mate) { const o = b.mate; o.mate = null; o.mat.userData.U.uClipMode.value = 0; } if (b.wall) { stage.remove(b.wall); b.wall = null; } }
 function stepBubbles(dt) {
   const F = fig, B = F.bubbles;
-  if (F.blowing) { F.blowing.t += dt; F.blowing.r = Math.min(1.05, F.blowing.r + dt * .55); const r = F.blowing.r, off = Math.sqrt(r * r - WAND_R * WAND_R);
+  if (F.blowing) { const now = performance.now() / 1000; F.blowing.t0 = F.blowing.t0 || now; F.blowing.r = Math.min(1.05, WAND_R * 1.02 + (now - F.blowing.t0) * .5); const r = F.blowing.r, off = Math.sqrt(r * r - WAND_R * WAND_R);
     if (!F.cap) { const mat = filmMaterial(); const m = new THREE.Mesh(sphereGeo, mat); m.renderOrder = 2; stage.add(m); F.cap = { m, mat }; mat.userData.U.uClipMode.value = 3; }
-    F.cap.m.position.copy(WAND).add(new V3(off, 0, 0)); F.cap.m.scale.setScalar(r); F.cap.mat.userData.U.uClipX.value = WAND.x; F.cap.mat.userData.U.uYR.value.set(WAND.y - r, WAND.y + r); F.cap.mat.userData.U.uTime.value = clock.t;
+    F.cap.m.position.copy(WAND).addScaledVector(WAND_A, off); F.cap.m.scale.setScalar(r); F.cap.mat.userData.U.uClipC.value.copy(WAND); F.cap.mat.userData.U.uClipN.value.copy(WAND_A); F.cap.mat.userData.U.uYR.value.set(WAND.y - r, WAND.y + r); F.cap.mat.userData.U.uTime.value = clock.t;
     F.wandFilm.visible = false; if (r >= 1.05) release(); }
   else if (F.cap) { stage.remove(F.cap.m); F.cap = null; }
   for (const b of B) {
@@ -799,7 +810,7 @@ function frame(now) {
     fig.age = (fig.age || 0) + dt;
     const fresh = dipping ? Math.max(0, 1 - (dipT - .5) * 2) : 0;
     if (fig.mat) { const U = fig.mat.userData.U; U.uTime.value = clock.t; U.uAge.value = fig.age / 26; U.uFresh.value = fresh; U.uYR.value.set(fig.yr[0] + stage.position.y, fig.yr[1] + stage.position.y); }
-    if (fig.S) { if (!fig.hidden) fig.S.relax(mob ? 8 : 14); syncFilm(fig.film); if ((fig.kind === 'cube' || fig.kind === 'tetra') && frames % 20 === 0) { const i = [...fig.S.lineNb.keys()][3]; const a = borderAngle(fig.S, i); st.angles = a ? a.map(Math.round).join('°, ') : null; updateReadout(); } }
+    if (fig.S) { if (!fig.hidden) fig.S.relax(mob ? 8 : 14); syncFilm(fig.film); if (fig.syncBorders) fig.syncBorders(); if ((fig.kind === 'cube' || fig.kind === 'tetra') && frames % 20 === 0) { const i = [...fig.S.lineNb.keys()][3]; const a = borderAngle(fig.S, i); st.angles = a ? a.map(Math.round).join('°, ') : null; updateReadout(); } }
     if (fig.kind === 'pins' && fig.net) { for (let k = 0; k < (mob ? 18 : 30); k++) fig.net.step(.012, .012); fig.sync();
       if (frames % 15 === 0) { updateReadout(); if (CH[ch].k === 'roads' && st.stage === 'towns') { const L = fig.net.length(); if (st.lastL && Math.abs(st.lastL - L) < 1e-4 && !st.settled) { st.settled = true; if (L < st.mine - 1e-3) { st.mine = L; if (L <= st.best + .005) { FX.sfx('win'); RH.toast('You matched the best known network.'); } } } st.lastL = L; } } }
     if (fig.kind === 'bubbles') { stepBubbles(dt); fig.wandMat.userData.U.uTime.value = clock.t; fig.wandMat.userData.U.uAge.value = .2; }
@@ -828,6 +839,7 @@ function boot() {
 }
 boot();
 window.__soap = { filmR, filmRGB, Net, mst, soapDip, bestKnown, buildTetra, buildCube, buildRing, borderAngle, doubleBubble, encode, decode, encodeStr, shareLink, go, act,
+  spawnPair, blow: () => { if (fig.kind === 'bubbles') fig.blowing = { r: WAND_R * 1.02 }; }, release: () => fig.blowing && release(),
   get fig() { return fig; }, get ch() { return ch; }, get st() { return st; }, SAVE, CH, get dpr() { return dpr; }, get bloomOn() { return bloom && bloom.enabled; }, renderer, ringZ };
 </script>
 </body>

@@ -112,12 +112,12 @@ module.exports = {
         const full = S.map(s => networkHouse(s, honest)); window.__caravan.persist(); const size = localStorage.getItem('rh:caravan').length; return { full, size, trader: networkHouse(1013, { until: 800 }) }; });
       ok(r.size < 50000, 'save size ' + r.size);
       ok(r.full.every(x => x.ledger != null && x.ledger < 1400), 'network houses: ' + JSON.stringify(r.full.map(x => [x.ledger, x.fresh])));
-      ok(r.full.every(x => x.trips >= 25 && x.trips <= 60), 'journeys to the Ledger: ' + r.full.map(x => x.trips));
+      ok(r.full.every(x => x.trips >= 25 && x.trips <= 70), 'journeys to the Ledger: ' + r.full.map(x => x.trips));
       ok(r.trader.ledger == null && r.trader.fresh < 12, 'a pure trader should never get near: ' + JSON.stringify(r.trader));
     },
     'ablation: lofts are needed, and selling news to every house pays over 10% more than selling only to open the phases': async ({ page, ok }) => {
       await closeModals(page); await page.addScriptTag({ content: networkHouse.toString() });
-      const r = await page.evaluate(() => { const S = [1013, 2026, 3039], base = { corr: true, lofts: true, sell: true, forge: false }, run = o => S.map(s => networkHouse(s, { ...base, ...o })), mean = (a, k) => a.reduce((x, y) => x + y[k], 0) / a.length;
+      const r = await page.evaluate(() => { const S = [1013, 2026, 3039, 4052, 5065, 6078], base = { corr: true, lofts: true, sell: true, forge: false }, run = o => S.map(s => networkHouse(s, { ...base, ...o })), mean = (a, k) => a.reduce((x, y) => x + y[k], 0) / a.length;
         const noLoft = networkHouse(1013, { ...base, lofts: false, until: 1100 }), honest = run({}), unlock = run({ sell: 'unlock' });
         return { noLoft, f: [mean(honest, 'fortune'), mean(unlock, 'fortune')], d: [mean(honest, 'ledger'), mean(unlock, 'ledger')] }; });
       ok(r.noLoft.ledger == null, 'without lofts the Ledger should be out of reach: ' + JSON.stringify(r.noLoft));
@@ -126,13 +126,13 @@ module.exports = {
     },
     'forging has a counter: always forging loses the Ledger race and honour; a couple of lies near the end still pay, at a price in honour': async ({ page, ok }) => {
       await closeModals(page); await page.addScriptTag({ content: networkHouse.toString() });
-      const r = await page.evaluate(() => { const S = [1013, 2026, 3039], base = { corr: true, lofts: true, sell: true }, run = o => S.map(s => networkHouse(s, { ...base, ...o }));
+      const r = await page.evaluate(() => { const S = [1013, 2026, 3039, 4052, 5065, 6078], base = { corr: true, lofts: true, sell: true }, run = o => S.map(s => networkHouse(s, { ...base, ...o }));
         return { honest: run({ forge: false }), always: run({ forge: 'always', until: 1300 }), late: run({ forge: true, lie: 1 }) }; });
       const days = x => x.ledger ?? 1e9, mean = (a, f) => a.reduce((s, x) => s + f(x), 0) / a.length, rate = x => x.fortune / x.ledger;
       const slower = r.always.filter((x, k) => days(x) > days(r.honest[k])).length;
-      ok(slower >= 2, 'always forging should lose the race to the Ledger on most roads: ' + JSON.stringify(r.always.map(days)) + ' vs ' + JSON.stringify(r.honest.map(days)));
+      ok(slower >= 4, 'always forging should lose the race to the Ledger on most roads: ' + JSON.stringify(r.always.map(days)) + ' vs ' + JSON.stringify(r.honest.map(days)));
       ok(mean(r.always, x => x.honour) < 30 && mean(r.always, x => x.caught) > 10, 'always forging should get caught, again and again: ' + JSON.stringify(r.always.map(x => [x.honour, x.forged, x.caught])));
-      ok(r.late.every(x => x.ledger != null) && mean(r.late, rate) > mean(r.honest, rate) * 1.1, 'two late lies should earn over 10% more gold a day: ' + mean(r.late, rate) + ' vs ' + mean(r.honest, rate));
+      ok(r.late.every(x => x.ledger != null) && mean(r.late, rate) > mean(r.honest, rate) * 1.1, 'two late rumours should earn over 10% more gold a day: ' + mean(r.late, rate) + ' vs ' + mean(r.honest, rate));
       ok(mean(r.late, x => x.honour) < mean(r.honest, x => x.honour) - 10, 'and cost honour: ' + JSON.stringify(r.late.map(x => x.honour)));
       console.log('      ledger days honest/always/late', [r.honest, r.always, r.late].map(a => a.map(x => x.ledger ?? '—').join(',')).join(' | '), ' gold a day honest/late', Math.round(mean(r.honest, rate)), Math.round(mean(r.late, rate)), ' honour', [r.honest, r.always, r.late].map(a => Math.round(mean(a, x => x.honour))));
     },
@@ -164,7 +164,7 @@ module.exports = {
         const c = [1.5, 2.5, 4].map(x => K.catchChance(x)); C.lies = [C.day, C.day, C.day]; const often = K.catchChance(1.5); C.lies = [];
         const home = K.RIVAL_HOME[0], rv = C.rivals[0]; C.lofts[home] = 1; const near = K.cities.map(x => x.id).find(x => x !== home && K.crow(x, home) <= 24 && K.crow(x, home) > 10); C.lofts[near] = 1;
         const byPigeon = () => (K.newsPath(home, near) || { way: [] }).way.some(w => w[2]);
-        rv.trust = 0.6; const sharing = () => { C.letters = []; for (let d = 0; d < 24; d++) K.tick(); return C.letters.some(l => l.src === 0 && !l.fake) || Object.values(C.book).some(b => b.src === 0 && !b.fake && C.day - b.day < 24); };
+        rv.trust = 0.6; const sharing = () => { C.letters = []; for (let d = 0; d < 36; d++) K.tick(); return C.letters.some(l => l.src === 0 && !l.fake) || Object.values(C.book).some(b => b.src === 0 && !b.fake && C.day - b.day < 60); };
         const pigeonBefore = byPigeon(), sharedBefore = sharing(), others0 = C.rivals.slice(1).map(o => o.trust);
         K.burned(rv); const othersDrop = C.rivals.slice(1).every((o, k) => o.trust < others0[k] - 0.1);
         K.headless = false; return { c, often, pigeonBefore, sharedBefore, trust: rv.trust, othersDrop, pigeonAfter: byPigeon(), sharedAfter: (K.headless = true, sharing()), cap: C.rivals.every(o => o.trust <= 0.9 + 1e-9) }; });

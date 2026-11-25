@@ -45,6 +45,7 @@
     background:var(--grain),repeating-linear-gradient(90deg,rgba(255,255,255,.06) 0 1px,transparent 1px 5px),linear-gradient(#d9b467,#a67e32 55%,#86621f);border:1px solid #5a4014}
   #ctrl .sep{width:1px;height:24px;background:rgba(60,40,10,.4)}
   #clock{font:700 15px "Courier Prime",monospace;padding:2px 10px;color:#f6e7b8;background:#1b140b;border-radius:2px;box-shadow:inset 0 2px 4px #000;font-variant-numeric:tabular-nums}
+  @media (min-width:861px){ #ctrl{flex-wrap:nowrap} }
   #ctrl select{font:700 12px 'Courier Prime',monospace;background:#f3ead2;color:#2c1e08;border:1px solid #6b5228;border-radius:3px;padding:4px 6px;min-height:30px}
   #ctrl .hint{font-size:12px;color:#2c1e08;padding:0 4px;font-style:italic}
   /* the tally is a typed field report */
@@ -318,21 +319,52 @@ function landSmooth(lat, lon) { // smooth (C²) interpolation of the 1° land ma
 function landFrac(lat, lon) { const y = 90 - lat - .5, x = lon + 180 - .5, j0 = Math.max(0, Math.min(178, Math.floor(y))), i0 = Math.floor(x), fx = x - i0, fy = Math.max(0, Math.min(1, y - j0)), ia = ((i0 % 360) + 360) % 360, ib = (ia + 1) % 360; return (land1(ia, j0) * (1 - fx) + land1(ib, j0) * fx) * (1 - fy) + (land1(ia, j0 + 1) * (1 - fx) + land1(ib, j0 + 1) * fx) * fy; }
 // base layer: land colours, plus each ocean pixel's own base colour and grid cell (filled once)
 const BASE = new Uint8ClampedArray(TW * TH * 4); let OPIX = null, OGRID = null, baseReady = false, baseOf = 'earth';
+// relief: a signed distance from the coast on the 1° grid (+ inland, − out to sea), roughened with noise. Inland it
+// becomes height (hill-shaded, sage lowlands to umber uplands to snow), out at sea depth (pale shallows to deep blue)
+function reliefField(lm) {
+  const D = new Float32Array(64800).fill(1e9), q = new Int32Array(64800 * 2); let h = 0, t = 0;
+  const nb = k => { const j = k / 360 | 0, i = k % 360; return [j * 360 + (i + 1) % 360, j * 360 + (i + 359) % 360, j > 0 ? k - 360 : -1, j < 179 ? k + 360 : -1]; };
+  for (let k = 0; k < 64800; k++) for (const n of nb(k)) if (n >= 0 && lm[n] !== lm[k]) { D[k] = .5; q[t++] = k; break; }
+  while (h < t) { const k = q[h++]; for (const n of nb(k)) if (n >= 0 && lm[n] === lm[k] && D[n] > D[k] + 1) { D[n] = D[k] + 1; q[t++] = n; } }
+  const F = new Float32Array(64800);
+  for (let k = 0; k < 64800; k++) { const lat = 90 - (k / 360 | 0) - .5, lon = k % 360 - 180 + .5, v = unitV3(lat, lon);
+    let nz = 0, a = 1, f = 3; for (let o = 0; o < 4; o++) { nz += a * Math.sin(v[0] * f * 1.7 + v[1] * f * 2.3 + 1.3 * o) * Math.sin(v[1] * f * 1.9 - v[2] * f * 2.1 + .7 * o) * Math.sin(v[2] * f * 2.6 + v[0] * f * 1.1 + 2.1 * o); a *= .55; f *= 2.1; }
+    const d = Math.min(D[k], 40); F[k] = lm[k] ? d * (.75 + .6 * nz) + Math.max(0, nz) * 4 : -d * (.8 + .3 * nz); }
+  const T = new Float32Array(64800); // three passes of a 3×3 blur, keeping the coastline where it is
+  for (let pass = 0; pass < 3; pass++) { for (let j = 0; j < 180; j++) for (let i = 0; i < 360; i++) { let a = 0, n = 0; for (let dj = -1; dj <= 1; dj++) { const jj = j + dj; if (jj < 0 || jj > 179) continue; for (let di = -1; di <= 1; di++) { a += F[jj * 360 + (i + di + 360) % 360]; n++; } } T[j * 360 + i] = a / n; }
+    for (let k = 0; k < 64800; k++) F[k] = lm[k] ? Math.max(.3, T[k]) : Math.min(-.3, T[k]); }
+  return F;
+}
+const unitV3 = (lat, lon) => { const a = lat * Math.PI / 180, b = lon * Math.PI / 180, c = Math.cos(a); return [c * Math.cos(b), c * Math.sin(b), Math.sin(a)]; };
+const relAt = (F, lat, lon) => { const y = Math.max(0, Math.min(178.999, 90 - lat - .5)), x = lon + 180 - .5, j = Math.floor(y), i0 = Math.floor(x), fx = x - i0, fy = y - j, ia = ((i0 % 360) + 360) % 360, ib = (ia + 1) % 360;
+  return (F[j * 360 + ia] * (1 - fx) + F[j * 360 + ib] * fx) * (1 - fy) + (F[j * 360 + 360 + ia] * (1 - fx) + F[j * 360 + 360 + ib] * fx) * fy; };
+const mix3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const LAND_RAMP = [[0, [158, 168, 112]], [.18, [186, 178, 118]], [.42, [204, 176, 120]], [.68, [160, 122, 84]], [.86, [128, 98, 74]], [1, [236, 230, 216]]];
+const SEA_RAMP = [[0, [104, 170, 156]], [.15, [62, 128, 128]], [.45, [36, 88, 104]], [1, [18, 50, 72]]];
+const ramp = (R, t) => { for (let k = 1; k < R.length; k++) if (t <= R[k][0]) return mix3(R[k - 1][1], R[k][1], (t - R[k - 1][0]) / (R[k][0] - R[k - 1][0])); return R[R.length - 1][1]; };
+let baseMaps = {}; // bump and roughness textures, per painted base
 function* paintBaseGen(tag = 'earth') {
-  baseReady = false; const isLand0 = LM;
-  const opix = new Int32Array(TW * TH), ogrid = new Uint16Array(TW * TH); let no = 0;
+  baseReady = false; const isLand0 = LM, F = reliefField(LM); yield;
+  const opix = new Int32Array(TW * TH), ogrid = new Uint16Array(TW * TH); let no = 0; const e1 = 1 / TS;
+  // the smooth coastline's B-spline weights are separable: work them out once per column and once per row
+  const XI = new Int16Array(TW * 4), XW = new Float32Array(TW * 4);
+  for (let x = 0; x < TW; x++) { const xx = (x + .5) / TS - .5, i0 = Math.floor(xx); for (let d = -1; d <= 2; d++) { XI[x * 4 + d + 1] = (((i0 + d) % 360) + 360) % 360; XW[x * 4 + d + 1] = BS(xx - (i0 + d)); } }
+  const YI = new Int32Array(4), YW = new Float32Array(4);
   for (let y = 0; y < TH; y++) {
+    { const yy = (y + .5) / TS - .5, j0 = Math.floor(yy); for (let d = -1; d <= 2; d++) { YI[d + 1] = Math.max(0, Math.min(179, j0 + d)) * 360; YW[d + 1] = BS(yy - (j0 + d)); } }
     for (let x = 0; x < TW; x++) {
-      const lat = 90 - (y + .5) / TS, lon = -180 + (x + .5) / TS, o = (y * TW + x) * 4, lf = Math.min(1, landSmooth(lat, lon) / 1.5 * 1.25);
+      let ls = 0; for (let a = 0; a < 4; a++) { const r = YI[a], wy = YW[a]; let row = 0; for (let b = 0; b < 4; b++) row += LM[r + XI[x * 4 + b]] * XW[x * 4 + b]; ls += row * wy; }
+      const lat = 90 - (y + .5) / TS, lon = -180 + (x + .5) / TS, o = (y * TW + x) * 4, lf = Math.min(1, ls * 1.25), f = relAt(F, lat, lon);
       if (lf > .5) {
         const n = (Math.sin(lon * .37) * Math.cos(lat * .41) + Math.sin(lon * .11 + lat * .23)) * .25 + .5, dry = Math.min(1, Math.exp(-Math.pow((Math.abs(lat) - 24) / 10, 2)) * (.3 + n)), ice = Math.max(0, Math.min(1, (Math.abs(lat) - 62) / 8));
-        // an old globe's land: parchment with pastel washes (ochre deserts, sage lowlands), ice in cream
-        const r = 198 + 32 * dry, g = 196 + 10 * dry - n * 10, b = 146 - 12 * dry + n * 10;
-        BASE[o] = r + (242 - r) * ice - n * 10; BASE[o + 1] = g + (238 - g) * ice - n * 8; BASE[o + 2] = b + (224 - b) * ice - n * 6; BASE[o + 3] = 255;
+        // hill shading from the relief's slope, lit from the north-west like an engraved map
+        const gx = (relAt(F, lat, lon + e1 * 2) - relAt(F, lat, lon - e1 * 2)) / Math.max(.3, Math.cos(lat * Math.PI / 180)), gy = relAt(F, lat + e1 * 2, lon) - relAt(F, lat - e1 * 2, lon), sh = Math.max(.62, Math.min(1.25, 1 + (-gx * .55 + gy * .55) * .22));
+        const el = Math.max(0, Math.min(1, f / 26)), c0 = ramp(LAND_RAMP, el), c1 = mix3(c0, [222, 190, 128], dry * .45 * (1 - el)), c = mix3(c1, [242, 238, 226], ice);
+        BASE[o] = c[0] * sh; BASE[o + 1] = c[1] * sh; BASE[o + 2] = c[2] * sh * .97; BASE[o + 3] = 255;
       } else {
-        const coast = Math.max(0, 1 - Math.abs(lf - .5) * 6) * .9, polar = Math.abs(lat) / 90; // pale shallows along the shore
-        // varnished sea: teal yellowed by old lacquer, paler in the shallows
-        BASE[o] = 52 + polar * 18 + coast * 70; BASE[o + 1] = 96 + polar * 16 + coast * 70; BASE[o + 2] = 100 + polar * 10 + coast * 40; BASE[o + 3] = 255;
+        const coast = Math.max(0, 1 - Math.abs(lf - .5) * 6) * .9, dp = Math.max(0, Math.min(1, -f / 18)), iso = Math.abs(dp * 6 - Math.round(dp * 6)) < .035 && dp > .08 ? .9 : 1; // depth contours, like a sounding chart
+        const c = ramp(SEA_RAMP, dp), polar = Math.abs(lat) / 90;
+        BASE[o] = (c[0] + polar * 14 + coast * 60) * iso; BASE[o + 1] = (c[1] + polar * 12 + coast * 62) * iso; BASE[o + 2] = (c[2] + polar * 10 + coast * 38) * iso; BASE[o + 3] = 255;
         opix[no] = o; ogrid[no] = Math.min(GH - 1, (y / TH * GH) | 0) * GW + Math.min(GW - 1, (x / TW * GW) | 0); no++;
       }
     }
@@ -344,9 +376,19 @@ function* paintBaseGen(tag = 'earth') {
     const heavy = Math.abs(lat) < w * 1.5 || Math.abs(Math.abs(lat) - 23.44) < w;
     if (dl < w || dn < w || heavy) { const o = (y * TW + x) * 4, k = heavy ? .55 : .75; BASE[o] *= k; BASE[o + 1] *= k * .97; BASE[o + 2] *= k * .9; }
   }
+  yield;
+  // relief for the lamp: land stands proud of the glossy sea, and the sea is lacquer-smooth while the land is matte
+  const BW = TW >> 1, BH = TH >> 1, bc = document.createElement('canvas'), rc = document.createElement('canvas'); bc.width = rc.width = BW; bc.height = rc.height = BH;
+  const bi = bc.getContext('2d').createImageData(BW, BH), ri = rc.getContext('2d').createImageData(BW, BH);
+  for (let y = 0; y < BH; y++) for (let x = 0; x < BW; x++) { const lat = 90 - (y + .5) / BH * 180, lon = -180 + (x + .5) / BW * 360, f = relAt(F, lat, lon), o = (y * BW + x) * 4, land = f > 0;
+    const ls = Math.min(1, Math.max(0, (landSmooth(lat, lon) / 1.5 * 1.25 - .35) * 3)), hgt = 112 + ls * (6 + Math.min(130, Math.max(0, f) * 4.5)); bi.data[o] = bi.data[o + 1] = bi.data[o + 2] = hgt; bi.data[o + 3] = 255;
+    ri.data[o] = ri.data[o + 2] = 0; ri.data[o + 1] = 80 + ls * 130; ri.data[o + 3] = 255; }
+  bc.getContext('2d').putImageData(bi, 0, 0); rc.getContext('2d').putImageData(ri, 0, 0);
   if (LM !== isLand0) return; // the world changed under us: this base is stale
-  OPIX = opix.slice(0, no); OGRID = ogrid.slice(0, no); baseOf = tag; baseReady = true;
+  baseMaps[tag] = { bump: new THREE.CanvasTexture(bc), rough: new THREE.CanvasTexture(rc) };
+  OPIX = opix.slice(0, no); OGRID = ogrid.slice(0, no); baseOf = tag; baseReady = true; useMaps(tag);
 }
+function useMaps(tag) { const m = baseMaps[tag], M = globe.material; if (!m) return; M.bumpMap = m.bump; M.bumpScale = 1.6; M.roughnessMap = m.rough; M.roughness = 1; M.needsUpdate = true; }
 function* paintState(st) { // brighten the ocean where the current runs fast; ~10× cheaper than repainting from scratch
   const c = document.createElement('canvas'); c.width = TW; c.height = TH; const g = c.getContext('2d'), im = g.createImageData(TW, TH), d = im.data;
   d.set(BASE); const k = 2.2 * VS / 260; yield;
@@ -398,29 +440,40 @@ setTimeout(() => { ensureOcean(0); ensureOcean(-1); }, 2500);
 
 // matches three.js SphereGeometry's texture wrap: u = (lon + 180) / 360 runs round from the -x axis
 const toXYZ = (lat, lon, r = 1.004, out = []) => { const a = lat * Math.PI / 180, u = (lon + 180) / 360 * Math.PI * 2, ca = Math.cos(a); out[0] = -r * ca * Math.cos(u); out[1] = r * Math.sin(a); out[2] = r * ca * Math.sin(u); return out; };
-// current tracers: glowing streaks that flow with the computed currents
-const NT = MOBILE ? 2500 : 5000, tr = { lat: new Float32Array(NT), lon: new Float32Array(NT), age: new Float32Array(NT) };
-const trGeo = new THREE.BufferGeometry(), trPos = new Float32Array(NT * 3), trCol = new Float32Array(NT * 3);
+// current streamlines: comet-tailed streaks that flow with the computed currents, brighter and warmer where the water runs fast
+const NT = MOBILE ? 1400 : 3000, TL = 16, tr = { lat: new Float32Array(NT), lon: new Float32Array(NT), age: new Float32Array(NT), sp: new Float32Array(NT), hist: new Float32Array(NT * TL * 3) };
+const trGeo = new THREE.BufferGeometry(), trPos = new Float32Array(NT * (TL - 1) * 6), trCol = new Float32Array(NT * (TL - 1) * 6);
 trGeo.setAttribute('position', new THREE.BufferAttribute(trPos, 3)); trGeo.setAttribute('color', new THREE.BufferAttribute(trCol, 3));
-const trMat = new THREE.PointsMaterial({ size: .016, vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
-const tracers = new THREE.Points(trGeo, trMat);
+const trMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
+const tracers = new THREE.LineSegments(trGeo, trMat);
 globe.add(tracers);
-function respawnTracer(i) { let lat, lon; do { lat = Math.asin(Math.random() * 2 - 1) * 180 / Math.PI; lon = Math.random() * 360 - 180; } while (isLand(lat, lon) || Math.abs(lat) > 78); tr.lat[i] = lat; tr.lon[i] = lon; tr.age[i] = Math.random() * 3; }
+function respawnTracer(i) { let lat, lon; do { lat = Math.asin(Math.random() * 2 - 1) * 180 / Math.PI; lon = Math.random() * 360 - 180; } while (isLand(lat, lon) || Math.abs(lat) > 78); tr.lat[i] = lat; tr.lon[i] = lon; tr.age[i] = 1 + Math.random() * 3; toXYZ(lat, lon, 1.003, XYZ0); for (let k = 0; k < TL; k++) tr.hist.set(XYZ0, (i * TL + k) * 3); }
+const XYZ0 = [0, 0, 0];
 for (let i = 0; i < NT; i++) respawnTracer(i);
-const camL = new THREE.Vector3(), XYZ = [0, 0, 0];
+const camL = new THREE.Vector3(), XYZ = [0, 0, 0]; let trTick = 0;
 function moveTracers(dt) {
   if (!CU) return;
   camL.copy(camera.position); globe.worldToLocal(camL); camL.normalize();
+  trTick += dt; const push = trTick > 1 / 24; if (push) trTick = 0; // the tail keeps a point every 1/24 s: over half a second of motion
+  const H = tr.hist, P = trPos, Cc = trCol, seg = (TL - 1) * 6;
   for (let i = 0; i < NT; i++) {
-    // the far side of the globe can't be seen: just let those streaks age
-    if (trPos[i * 3] * camL.x + trPos[i * 3 + 1] * camL.y + trPos[i * 3 + 2] * camL.z < -.3) { tr.age[i] -= dt; if (tr.age[i] < 0) respawnTracer(i); else continue; }
+    const hb = i * TL * 3;
+    // the far side of the globe can't be seen: just let those streaks age, and hide them
+    if (H[hb] * camL.x + H[hb + 1] * camL.y + H[hb + 2] * camL.z < -.25) { tr.age[i] -= dt; if (tr.age[i] < 0) respawnTracer(i); Cc.fill(0, i * seg, i * seg + seg); continue; }
     const v = vel(tr.lat[i], tr.lon[i]), u = v[0], w = v[1], c = Math.max(.15, Math.cos(tr.lat[i] * Math.PI / 180));
     tr.lat[i] += w * dt * .06; tr.lon[i] += u * dt * .06 / c; tr.age[i] -= dt;
     if (tr.lon[i] > 180) tr.lon[i] -= 360; if (tr.lon[i] < -180) tr.lon[i] += 360;
-    if (tr.age[i] < 0 || isLand(tr.lat[i], tr.lon[i]) || Math.abs(tr.lat[i]) > 80) respawnTracer(i);
-    toXYZ(tr.lat[i], tr.lon[i], 1.003, XYZ); trPos[i * 3] = XYZ[0]; trPos[i * 3 + 1] = XYZ[1]; trPos[i * 3 + 2] = XYZ[2];
-    const s = Math.min(1, Math.hypot(u, w) / 90), fade = Math.min(1, tr.age[i]) * (.25 + s * .9) * Math.max(0, Math.min(1, (80 - Math.abs(tr.lat[i])) / 14)); // fade out towards the poles: no hard ring where tracers stop
-    trCol[i * 3] = fade * .95; trCol[i * 3 + 1] = fade * .88; trCol[i * 3 + 2] = fade * .7; // cream ink streaks
+    if (tr.age[i] < 0 || isLand(tr.lat[i], tr.lon[i]) || Math.abs(tr.lat[i]) > 80) { respawnTracer(i); Cc.fill(0, i * seg, i * seg + seg); continue; }
+    if (push) H.copyWithin(hb + 3, hb, hb + (TL - 1) * 3);
+    toXYZ(tr.lat[i], tr.lon[i], 1.003, XYZ); H[hb] = XYZ[0]; H[hb + 1] = XYZ[1]; H[hb + 2] = XYZ[2];
+    const s = tr.sp[i] = tr.sp[i] + (Math.min(1, Math.hypot(u, w) / 90) - tr.sp[i]) * .2, life = Math.min(1, tr.age[i], (4 - tr.age[i]) * 2) * Math.max(0, Math.min(1, (80 - Math.abs(tr.lat[i])) / 14)); // fade in, fade out, and towards the poles
+    // slow water: a faint pearl thread; fast water: a bright gold-white comet
+    const r0 = .42 + s * .9, g0 = .4 + s * .62, b0 = .3 + s * .12, base = life * (.3 + s * 1.1);
+    for (let k = 0; k < TL - 1; k++) {
+      const o = i * seg + k * 6, a = hb + k * 3, f0 = base * (1 - k / (TL - 1)), f1 = base * (1 - (k + 1) / (TL - 1));
+      P[o] = H[a]; P[o + 1] = H[a + 1]; P[o + 2] = H[a + 2]; P[o + 3] = H[a + 3]; P[o + 4] = H[a + 4]; P[o + 5] = H[a + 5];
+      Cc[o] = r0 * f0; Cc[o + 1] = g0 * f0; Cc[o + 2] = b0 * f0; Cc[o + 3] = r0 * f1; Cc[o + 4] = g0 * f1; Cc[o + 5] = b0 * f1;
+    }
   }
   trGeo.attributes.position.needsUpdate = trGeo.attributes.color.needsUpdate = true;
 }
@@ -797,7 +850,7 @@ function enterWorld(nw) {
   const g = seaQuick.getContext('2d'), im = g.createImageData(720, 360); // a quick half-degree picture with soft coasts, while the full one is painted
   for (let y = 0; y < 360; y++) for (let x = 0; x < 720; x++) { const lat = 90 - (y + .5) / 2, lon = -180 + (x + .5) / 2, f = Math.max(0, Math.min(1, (landFrac(lat, lon) - .5) * 3 + .5)), o = (y * 720 + x) * 4, gr = Math.abs(lat / 15 - Math.round(lat / 15)) < .04 || Math.abs(lon / 15 - Math.round(lon / 15)) < .04 ? .8 : 1;
     im.data[o] = (58 + Math.abs(lat) / 5 + f * 160) * gr; im.data[o + 1] = (104 + f * 92) * gr; im.data[o + 2] = (100 + f * 46) * gr; im.data[o + 3] = 255; }
-  g.putImageData(im, 0, 0); seaQuickTex.needsUpdate = true; globe.material.map = seaQuickTex; globe.material.needsUpdate = true;
+  g.putImageData(im, 0, 0); seaQuickTex.needsUpdate = true; globe.material.map = seaQuickTex; globe.material.bumpMap = globe.material.roughnessMap = null; globe.material.roughness = .6; globe.material.needsUpdate = true;
   const me = W; enqueue({ rot: 'world', world: 1, it: (function* () { yield* paintBaseGen('w' + me.seed); if (W !== me || baseOf !== 'w' + me.seed) return; const c = document.createElement('canvas'); c.width = TW; c.height = TH; const cx = c.getContext('2d'), id = cx.createImageData(TW, TH); id.data.set(BASE); cx.putImageData(id, 0, 0); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MOBILE ? 2 : 8; me.tex = t; if (W === me && !me.revealed) { globe.material.map = t; globe.material.needsUpdate = true; } })() });
   tracers.visible = false; for (let i = 0; i < NT; i++) respawnTracer(i);
   seaGeoReset();
@@ -807,7 +860,7 @@ function leaveWorld() {
   for (let k = jobs.length - 1; k >= 0; k--) if (jobs[k].world) jobs.splice(k, 1);
   enqueue({ it: paintBaseGen(), rot: 'base' }, true); for (const r in OCEAN) if (!OCEAN[r].tex) enqueue({ rot: 'paint' + r, it: paintJob(OCEAN[r], +r) });
   tracers.visible = true; for (let i = 0; i < NT; i++) respawnTracer(i); seaGeoReset(); overlay.visible = false;
-  rot = 1; applyOcean(1);
+  rot = 1; applyOcean(1); useMaps('earth');
 }
 // ---- what you see: drifter fixes, the call marker, your chart and (at the end) the true currents ----
 const SDN = 12 * 49, sdGeo = new THREE.BufferGeometry(), sdPos = new Float32Array(SDN * 3), sdCol = new Float32Array(SDN * 3);
@@ -847,10 +900,7 @@ function ovStroke(g, pts, col, wdt, head) {
 function drawOverlay() {
   const g = ovC.getContext('2d'); g.clearRect(0, 0, OVW, OVW / 2); const k = OVW / 2048;
   if (sea && W) {
-    if (W.revealed) withWorld(W, () => { const V = [0, 0]; // the true currents, in red ink: an arrow every 6°, longer where faster
-      for (let la = -72; la <= 72; la += 6) for (let lo = -177; lo < 180; lo += 6) { if (isLand(la, lo)) continue; vel(la, lo, V); const sp = Math.hypot(V[0], V[1]); if (sp < 2) continue; const L2 = Math.min(5, 1.2 + sp / 25), c = Math.cos(la * Math.PI / 180);
-        ovStroke(g, [[la - V[1] / sp * L2 / 2, lo - V[0] / sp * L2 / 2 / c], [la + V[1] / sp * L2 / 2, lo + V[0] / sp * L2 / 2 / c]], `rgba(196,40,26,${Math.min(.9, .35 + sp / 80)})`, 2.4 * k, true); } });
-    for (const s of sea.chart) ovStroke(g, s, 'rgba(24,36,70,.88)', 4.5 * k, true);
+    for (const s of sea.chart) { ovStroke(g, s, 'rgba(250,240,210,.55)', 8 * k, false); ovStroke(g, s, 'rgba(20,28,60,.92)', 4.5 * k, true); }
     if (sea.cur && sea.cur.length > 1) ovStroke(g, sea.cur, 'rgba(24,36,70,.6)', 4.5 * k, false);
   }
   ovTex.needsUpdate = true; overlay.visible = !!(sea && W);
@@ -884,7 +934,7 @@ function seaFinish(quiet) {
   sea.phase = 'done'; sea.rev = null; W.revealed = true; const cs = chartScore(W, sea.chart), crew = sea.answers.reduce((s, a) => s + (a ? a.saved : 0), 0), spare = Math.max(0, W.drifters - sea.dr.length);
   sea.score = { chart: cs, crew, spare, total: crew * 10 + cs.pts + spare * 10 };
   if (!quiet) { sea.total += sea.score.total; sea.n++; if (sea.daily) SAVE.daily['s' + W.seed] = Math.max(SAVE.daily['s' + W.seed] || 0, sea.score.total); SAVE.done[SAVE.cur] = 1; }
-  // the true currents: painted on the sea, streaming in the tracers, and drawn as red arrows over your chart
+  // the true currents: painted on the sea and streaming over it, under your inked chart
   tracers.visible = true; const me = W; enqueue({ rot: 'wreveal', world: 1, it: (function* () { while (!baseReady || baseOf !== 'w' + me.seed) { if (W !== me) return; yield; } const st = { SP: me.st.SP }; yield* paintState(st); if (W === me) { globe.material.map = st.tex; globe.material.needsUpdate = true; } })() });
   seaCallMarker(); seaGeo(); drawOverlay(); seaSave(); renderGoal(); renderLevels(); renderCtrl();
   if (!quiet) { FX.sfx('win'); seaReport(); }
@@ -893,7 +943,7 @@ function seaReport() {
   const S = sea.score, c = S.chart;
   $('report').innerHTML = `<div class="chip" style="position:relative;padding:14px 18px;font-size:13px;line-height:1.55;max-width:min(420px,88vw)"><div style="font:400 20px 'Special Elite';margin-bottom:4px">${W.name || 'World'} charted</div>`
     + `Crew rescued <b>${S.crew}</b> of ${CREW * W.calls.length} (×10) · chart <b>${c.pts}</b> (points the right way ${Math.round(Math.max(0, c.acc) * 100)}%, covers ${Math.round(c.cov * 100)}% of the fast water) · spare drifters <b>${S.spare}</b> (×10)<br>World score <b>${S.total}</b>${sea.daily ? '' : ` · run <b>${sea.total}</b> over ${sea.n} world${sea.n === 1 ? '' : 's'}`}`
-    + `<div style="margin-top:6px;color:#5a4a30">Red arrows: the true currents. Blue: yours. Where they disagree is where your reading of this planet went wrong.</div>`
+    + `<div style="margin-top:6px;color:#5a4a30">The streaming gold is the true current; the ink arrows are yours. Where they disagree is where your reading of this planet went wrong.</div>`
     + `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="b on" id="snext">${sea.daily ? 'Endless run' : 'Next world ▸'}</button><button class="b" id="sclose">Look at the chart</button></div></div>`;
   $('report').classList.add('on'); setTimeout(() => FX.sfx('stamp'), 600);
   $('snext').onclick = () => { hideReport(); seaNext(); }; $('sclose').onclick = hideReport;
@@ -925,7 +975,7 @@ function renderSea() { // the card tells the story; the brass bar below the glob
   if (p === 'survey') h += `<div style="margin-top:6px">» <b>Survey.</b> ${MOBILE ? 'Tap' : 'Click'} the sea to drop a radio drifter: it reports where it is every month for four years. <b>${left}</b> of ${W.drifters} left. Then <b>draw your chart</b> (✎): arrows the way the water goes. The distress calls come when you open the radio.</div>` + (W.rung <= 2 ? `<div style="margin-top:4px;color:#5a4a30">Physics you already know: each basin's fastest current runs along its western shore on a planet spinning like Earth, and along its eastern shore on a backwards one (voyages 4 and 5).</div>` : '');
   if (p === 'calls') { const a = sea.answers[sea.ci], it = ITEMS.find(x => x.k === c.k);
     h += `<div style="margin-top:6px">» <b>Mayday ${sea.ci + 1} of ${W.calls.length}:</b> ${it.n}, adrift at <b>${fmtLL(c.at)}</b> (red dot), ${CREW} aboard. ${a ? `<b>${a.saved}</b> of ${CREW} picked up.` : `Where will it beach, and when? ${MOBILE ? 'Tap' : 'Click'} the coast where your ship should wait${sea.pick ? ` (now ${fmtLL(sea.pick)})` : ''}, set the month and send it.`}</div>`; }
-  if (p === 'done') { const S = sea.score; h += `<div style="margin-top:6px">✓ Charted. Rescued <b>${S.crew}</b>, chart <b>${S.chart.pts}</b>, spare drifters <b>${S.spare}</b>: world score <b>${S.total}</b>. Red arrows are the true currents, blue ones yours.</div>`; }
+  if (p === 'done') { const S = sea.score; h += `<div style="margin-top:6px">✓ Charted. Rescued <b>${S.crew}</b>, chart <b>${S.chart.pts}</b>, spare drifters <b>${S.spare}</b>: world score <b>${S.total}</b>. The gold streams are the true currents, the ink arrows yours.</div>`; }
   h += `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="b" id="sDaily">Daily world</button><button class="b" id="sNew">New run</button><button class="b" id="sShare">Share</button></div>`;
   $('goal').className = ''; $('goal').innerHTML = h;
   $('sDaily').onclick = () => { FX.sfx('click'); seaStart(todaySeed() % 1000000, 3, true); };

@@ -20,7 +20,8 @@
   main{flex:1;display:flex;min-height:0}
   #stage{flex:1;position:relative;min-width:0;min-height:0;background:radial-gradient(ellipse at 50% 40%,#4a3118,#25170b 75%);touch-action:none}
   #view{position:absolute;inset:0;touch-action:none}
-  #cv{position:absolute;inset:0;width:100%;height:100%;display:block}
+  #cv,#ov{position:absolute;inset:0;width:100%;height:100%;display:block}
+  #ov{pointer-events:none}
   #panel{width:360px;overflow:auto;padding:10px 12px 14px;border-left:2px solid #120b05;
     background:var(--grain),repeating-linear-gradient(90deg,transparent 0 31px,rgba(110,80,40,.07) 31px 32px),linear-gradient(175deg,#f3e8cd,#e4d3ab)}
   .b{border:1px solid #5a4018;background:linear-gradient(#e6c47c,#b18636 55%,#94701f);color:#2a1a06;font:600 16px "Cormorant Garamond",Georgia,serif;border-radius:2px;padding:4px 11px;cursor:pointer;
@@ -84,7 +85,7 @@
 <body>
 <div class="top"><a class="home" href="../index.html">← Rabbit Holes</a><h1>Chladni <i>· a score for sand</i></h1><span class="sp"></span><button class="b" id="listBtn">Commissions</button><button class="b" id="helpBtn" aria-label="How to play">?</button></div>
 <main>
-  <section id="stage" data-play><div id="view"><canvas id="cv"></canvas></div></section>
+  <section id="stage" data-play><div id="view"><canvas id="cv"></canvas><canvas id="ov"></canvas></div></section>
   <aside id="panel">
     <div id="comm"><canvas id="tgt" width="192" height="192" title="Hold to lay the target over the plate"></canvas><div style="min-width:0"><h2 id="cTitle"></h2><div id="cText"></div><div id="meter"></div></div></div>
     <div class="lbl"><span>Your score</span><span class="note" id="scoreNote"></span></div>
@@ -225,15 +226,15 @@ function sandStart(pl, start, n) {
 }
 // one step of a note: drift down the slope of u², plus a kick as big as the local motion; into a hole and the grain is gone
 function sandStep(s, pl, F, r) {
-  if (F.dead) return; const { sx, sy, lost, n } = s, { u, gx, gy } = F, out = pl.outline, mask = pl.mask;
+  if (F.dead) { if (s.amp) s.amp.fill(0); return; } const { sx, sy, lost, n } = s, { u, gx, gy } = F, hi = s.hi, out = hi ? hi.out : pl.outline, mask = hi ? hi.mask : pl.mask, MS = hi ? hi.S : G;
   for (let i = 0; i < n; i++) { if (lost[i]) continue;
     const x = sx[i], y = sy[i], fx = x * G - .5, fy = y * G - .5, i0 = Math.max(0, Math.min(G - 2, Math.floor(fx))), j0 = Math.max(0, Math.min(G - 2, Math.floor(fy))), ax = Math.min(1, Math.max(0, fx - i0)), ay = Math.min(1, Math.max(0, fy - j0)), c = j0 * G + i0;
     const bl = A => (A[c] * (1 - ax) + A[c + 1] * ax) * (1 - ay) + (A[c + G] * (1 - ax) + A[c + G + 1] * ax) * ay;
-    const amp = Math.abs(bl(u)), jx = (r() - .5) * KJIT * amp, jy = (r() - .5) * KJIT * amp;
+    const amp = Math.abs(bl(u)); if (s.amp) s.amp[i] = amp; const jx = (r() - .5) * KJIT * amp, jy = (r() - .5) * KJIT * amp;
     let vx = -KDRIFT * bl(gx), vy = -KDRIFT * bl(gy); const vm = Math.hypot(vx, vy); if (vm > VMAX) { vx *= VMAX / vm; vy *= VMAX / vm; }
     let nx = x + vx + jx, ny = y + vy + jy;
     nx = Math.min(.9995, Math.max(.0005, nx)); ny = Math.min(.9995, Math.max(.0005, ny));
-    const cc = Math.floor(ny * G) * G + Math.floor(nx * G);
+    const cc = Math.floor(ny * MS) * MS + Math.floor(nx * MS);
     if (!out[cc]) continue; // the outline's edge: the grain stays put
     if (!mask[cc]) { lost[i] = 1; continue; } // a hole: it falls through
     sx[i] = nx; sy[i] = ny; }
@@ -324,7 +325,7 @@ function openComm(c) {
   sc.notes = sc.notes.filter(([k]) => k < curPlate().modes.length);
   tool = null; preview = null; lastMatch = null; playing = null; resetSand(); botsLater(c); persist(); renderPanel(); drawTarget(); requestDraw();
 }
-const resetSand = () => { sand = sandStart(curPlate(), C.start, NS); };
+const resetSand = () => { sand = sandStart(curPlate(), C.start, NS); if (typeof resetVis === 'function' && cv) resetVis(); };
 const saveScore = () => { SAVE.scores[C.id] = JSON.parse(JSON.stringify(sc)); persist(); };
 
 // ---------- audio ----------
@@ -334,16 +335,23 @@ const tone = (f, beats = .6) => FX.tone({ f, type: 'sine', dur: Math.max(.15, be
 function play() {
   if (!sc.notes.length) return RH.toast('Add a note first: tap one below.');
   resetSand(); const pl = curPlate(), r = RH.rng('shake:' + NS);
-  const steps = []; sc.notes.forEach(([k, d], ni) => { const F = fieldOf(pl, k, sc.finger); for (let t = 0, T = Math.round(d * BEAT_STEPS); t < T; t++) steps.push([F, ni, t === 0 ? pl.modes[k].hz : 0, d]); });
-  playing = { steps, i: 0, t0: performance.now(), r, pl }; preview = null; renderScore(); requestDraw();
+  const steps = []; sc.notes.forEach(([k, d], ni) => { const F = fieldOf(pl, k, sc.finger); for (let t = 0, T = Math.round(d * BEAT_STEPS); t < T; t++) steps.push([F, ni, t === 0 ? pl.modes[k].hz : 0, d, k]); });
+  playing = { steps, i: 0, t0: performance.now(), r, pl }; preview = null; note.amp = 0; renderScore(); requestDraw();
 }
 function tickPlay(now) {
   const P = playing; if (!P) return;
   const want = Math.min(P.steps.length, Math.floor((now - P.t0) / BEAT_MS * BEAT_STEPS));
-  while (P.i < want) { const [F, ni, f, d] = P.steps[P.i]; if (f) { tone(f, d); P.ni = ni; renderScore(); } sandStep(sand, P.pl, F, P.r); P.i++; }
+  while (P.i < want) { const [F, ni, f, d, k] = P.steps[P.i];
+    if (f) { tone(f, d); FX.tone({ f: f / 2, type: 'triangle', dur: Math.max(.2, d * BEAT_MS / 1000 + .25), vol: .06, attack: .03 }); P.ni = ni; renderScore(); noteOn(F, k, f); }
+    sandStep(sand, P.pl, F, P.r); sandStep(vis, P.pl, F, vis.r); P.i++; dirtyH = true; }
   if (P.i >= P.steps.length) { playing = null; finished(); }
 }
+function noteOn(F, k, f) { // what the plate does while a note sounds: the field for the ripple and the glow, and the hop rate
+  note.k = k; note.amp = F.dead ? .15 : 1; note.w = 2 * Math.PI * (10 + f / 60);
+  if (glOK) { const b = new Uint8Array(G * G); for (let c = 0; c < b.length; c++) b[c] = Math.round(127.5 + 127.5 * F.u[c]); upload(texU, G, G, b); }
+}
 async function finished() {
+  if (slow > 20) { VN = Math.max(6000, Math.round(VN * .7)); slow = 0; } // too slow on this device: fewer grains next time
   const m = matchOf(C, sand), n = sc.notes.length, st = stars(C, m, n), prev = SAVE.done[C.id]; lastMatch = m; saveScore(); renderScore();
   if (st && (!prev || st > prev.stars || (st === prev.stars && m > prev.match))) {
     SAVE.done[C.id] = { stars: Math.max(st, prev?.stars || 0), match: Math.max(m, prev?.match || 0), notes: prev ? Math.min(prev.notes, n) : n };
@@ -388,51 +396,225 @@ function renderPanel() {
   renderScore();
 }
 
-// ---------- canvas ----------
-const cv = $('cv'), g = cv.getContext('2d'), stage = $('view');
+// ---------- canvas: a WebGL bench (walnut, a lathe-brushed brass plate on a centre clamp, the bow on its edge, lit sand) ----------
+// The score is judged on the 2,400-grain sample (`sand`) the rest of the game uses; what you SEE is a far larger heap (`vis`,
+// 14–36k grains) poured from the same start and pushed by the same fields, drawn as lit grains over a height field of the piles.
+const cv = $('cv'), ov = $('ov'), og = ov.getContext('2d'), stage = $('view');
 let W = 1, H = 1, dpr = 1, need = true;
 const cam = PanZoom(stage, { world: () => ({ x: -.02, y: -.16, w: 1.04, h: 1.18 }), onChange: () => requestDraw(), canPanFrom: () => !tool, min: .8, max: 6, pad: 10, button: true });
-function resize() { dpr = Math.min(2, devicePixelRatio || 1); const r = stage.getBoundingClientRect(); W = r.width; H = r.height; cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); if (!cam.touched) cam.fit(); requestDraw(); }
 const requestDraw = () => { need = true; };
-let plateC = null, plateCKey = '';
-function plateImage(pl) { // brass with a little grain, and nothing where the plate is cut away
-  if (plateCKey === pl.key) return plateC; const S = 256, c = document.createElement('canvas'); c.width = c.height = S; const x = c.getContext('2d'), im = x.createImageData(S, S), r = RH.rng('brass');
-  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const o = (j * S + i) * 4, n = (r() - .5) * 14 + Math.sin(i * .09 + j * .02) * 6; im.data.set([150 + n, 108 + n * .8, 48 + n * .5, 255], o); }
-  x.putImageData(im, 0, 0); x.globalCompositeOperation = 'destination-in'; x.beginPath(); SHAPES[pl.shape].polys.forEach(P => { P.forEach(([px, py], k) => k ? x.lineTo(px * S, py * S) : x.moveTo(px * S, py * S)); x.closePath(); }); x.fill();
-  x.globalCompositeOperation = 'destination-out'; pl.holes.forEach(([hx, hy]) => { x.beginPath(); x.arc(hx * S, hy * S, HOLE_R * S, 0, 7); x.fill(); });
-  plateC = c; plateCKey = pl.key; return c;
+const PHONE = Math.min(screen.width, screen.height) < 600 || matchMedia('(pointer:coarse)').matches;
+let VN = PHONE ? 14000 : 36000, vis = null, note = { amp: 0, w: 0, k: -1, t0: 0, end: 0 }, frameMs = 16, slow = 0;
+const HIRES = {};
+function hiresOf(pl) { // the visible sand stops at the true outline, not at the coarse grid the score uses
+  if (HIRES[pl.key]) return HIRES[pl.key]; const S = 256, out = new Uint8Array(S * S), mask = new Uint8Array(S * S), polys = SHAPES[pl.shape].polys;
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const x = (i + .5) / S, y = (j + .5) / S, k = j * S + i; if (polys.some(P => inPoly(P, x, y))) { out[k] = 1; if (!pl.holes.some(([hx, hy]) => (x - hx) ** 2 + (y - hy) ** 2 < HOLE_R * HOLE_R)) mask[k] = 1; } }
+  return (HIRES[pl.key] = { S, out, mask });
 }
-function draw(now) {
-  tickPlay(now);
-  if (!need && !playing) return requestAnimationFrame(draw); need = false;
-  g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
-  const k = cam.k, pl = curPlate();
-  g.setTransform(dpr * k, 0, 0, dpr * k, dpr * cam.x, dpr * cam.y);
-  g.shadowColor = 'rgba(0,0,0,.7)'; g.shadowBlur = 20 * k * dpr / k; g.imageSmoothingEnabled = true; g.drawImage(plateImage(pl), 0, 0, 1, 1); g.shadowBlur = 0;
-  // the field of the note you just touched: faint nodal lines and arrows showing where it pushes sand
+const resetVis = () => { vis = sandStart(curPlate(), C.start, VN); vis.hi = hiresOf(curPlate()); vis.amp = new Float32Array(VN); vis.r = RH.rng('vis'); dirtyH = true; };
+// ----- GL setup -----
+const gl = cv.getContext('webgl2', { antialias: true, premultipliedAlpha: false });
+function sh(type, src) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs) { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); const u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); for (let i = 0; i < n; i++) { const a = gl.getActiveUniform(p, i); u[a.name] = gl.getUniformLocation(p, a.name); } return { p, u }; }
+const COMMON = `#version 300 es
+precision highp float;
+uniform vec3 uCam; uniform vec2 uRes; uniform float uDpr;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f); return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
+float fbm(vec2 p){ float a = .5, s = 0.; for (int i = 0; i < 5; i++) { s += a * vnoise(p); p *= 2.03; a *= .5; } return s; }
+`;
+const PLATE_FS = COMMON + `
+uniform sampler2D tSDF, tH, tU, tT; uniform float uTime, uAmp, uW, uGhost, uClamp, uHasU;
+out vec4 o;
+const vec3 L = normalize(vec3(-.45, -.6, .66));
+float sdf(vec2 w){ vec2 q = abs(w - .5) - .5; float box = length(max(q, 0.)); float s = (texture(tSDF, clamp(w, 0., 1.)).r - .5) / 4.; return box > 0. ? min(s, 0.) - box : s; }
+vec3 wood(vec2 w){ // dark walnut, long grain running across the bench
+  vec2 p = vec2(w.x * 1.2, w.y * 7.); float g = fbm(p * vec2(1., 3.) + fbm(p * .7) * 2.);
+  float rings = .5 + .5 * sin((w.y * 38. + g * 6.));
+  vec3 a = vec3(.13, .075, .04), b = vec3(.26, .15, .075);
+  return mix(a, b, .55 * g + .25 * rings) * (.85 + .3 * vnoise(w * vec2(3., 160.)));
+}
+void main(){
+  vec2 css = vec2(gl_FragCoord.x, uRes.y * uDpr - gl_FragCoord.y) / uDpr; vec2 w = (css - uCam.xy) / uCam.z; float px = 1. / uCam.z;
+  float d = sdf(w);
+  // the bench, with the plate's soft shadow (and the light seen through drilled holes)
+  vec3 bench = wood(w); float sh = smoothstep(-.06, .01, sdf(w - vec2(-.022, -.03)));
+  bench *= 1. - .62 * sh; bench *= .75 + .35 * smoothstep(1.4, .2, length(w - vec2(.45, .4)));
+  if (d < 0.) { float aa = smoothstep(0., -1.2 * px, d); o = vec4(bench, 1.); if (aa > .999) return; }
+  // bevelled edge: the normal tips over in the last 1.4% of the plate
+  float bw = .014, e = clamp(d / bw, 0., 1.);
+  vec2 gr = vec2(sdf(w + vec2(px, 0)) - sdf(w - vec2(px, 0)), sdf(w + vec2(0, px)) - sdf(w - vec2(0, px))); gr = length(gr) > 0. ? normalize(gr) : vec2(0.);
+  vec3 n = normalize(vec3(-gr * (1. - e) * 1.6, 1.));
+  // the vibrating plate: a standing-wave ripple tilts the surface, strongest where the mode moves most
+  float u = uHasU > .5 ? texture(tU, w).r * 2. - 1. : 0.;
+  if (uAmp > 0.) { float du = .02; vec2 gu = vec2(texture(tU, w + vec2(du, 0)).r - texture(tU, w - vec2(du, 0)).r, texture(tU, w + vec2(0, du)).r - texture(tU, w - vec2(0, du)).r) / du;
+    n = normalize(n + vec3(-gu * .05 * uAmp * sin(uTime * uW), 0.)); }
+  // brushed brass, turned on a lathe: the brushing runs in circles round the centre
+  vec2 rc = w - .5; float r = length(rc); vec2 T = r > 1e-4 ? vec2(-rc.y, rc.x) / r : vec2(1, 0);
+  float streak = vnoise(vec2(r * 900., 0.)) * .6 + vnoise(vec2(r * 2600., atan(rc.y, rc.x) * 2.)) * .4;
+  vec3 base = mix(vec3(.62, .43, .17), vec3(.83, .62, .3), streak * .5 + fbm(w * 6.) * .5);
+  base *= .9 + .15 * fbm(w * 40. + 3.); // patina
+  vec3 V = vec3(0, 0, 1), Hh = normalize(L + V);
+  float TH = dot(vec3(T, 0.), Hh), aniso = pow(sqrt(max(0., 1. - TH * TH)), 90.) * (.55 + .45 * streak);
+  float diff = max(0., dot(n, L)), spec = pow(max(0., dot(n, Hh)), 60.);
+  vec3 env = mix(vec3(.18, .12, .07), vec3(.95, .85, .62), smoothstep(-.4, .9, -n.y * .6 + .3 - (w.y - .5) * .4));
+  vec3 col = base * (.28 + .62 * diff) + base * env * .45 + vec3(1., .86, .6) * (aniso * .55 + spec * .5);
+  col *= mix(1., .55, (1. - e) * smoothstep(0., .5, gr.x + gr.y)); // the bevel's shaded side
+  // the centre clamp: a domed brass stud with a dark collar
+  float cd = length(rc);
+  if (uClamp > .5 && cd < .046) { float s = clamp(cd / .03, 0., 1.); vec3 cn = normalize(vec3(rc / .03 * .9 * step(cd, .03), max(.15, sqrt(max(0., 1. - s * s)))));
+    vec3 stud = vec3(.55, .4, .2) * (.25 + .8 * max(0., dot(cn, L))) + vec3(1., .9, .7) * pow(max(0., dot(cn, Hh)), 40.) * .9;
+    col = cd < .03 ? stud : mix(col * .45, col, smoothstep(.034, .046, cd)); }
+  // the engraved ghost of the commission: hatching where its sand lies, cut into the brass
+  float tg = texture(tT, w).r;
+  if (uGhost > 0. && tg > .05) { float hatch = smoothstep(.35, .5, abs(fract((w.x + w.y) * 150.) - .5)); float a = smoothstep(.05, .3, tg) * uGhost;
+    float rim = smoothstep(.04, .0, abs(tg - .12)) * uGhost;
+    col = mix(col, col * vec3(.3, .18, .08), a * hatch * .85 + rim * .6); col += vec3(1., .8, .5) * a * (1. - hatch) * .06; }
+  // the glow along the nodal lines while a note sounds
+  if (uAmp > 0.) { float nl = exp(-u * u / .004); col += vec3(1., .72, .32) * nl * uAmp * (.18 + .07 * sin(uTime * 9.)); }
+  // sand piles: a height field from the grains, lit, with contact shadows down-light
+  float h = texture(tH, w).r, hx = texture(tH, w + vec2(.004, 0)).r - texture(tH, w - vec2(.004, 0)).r, hy = texture(tH, w + vec2(0, .004)).r - texture(tH, w - vec2(0, .004)).r;
+  float hs = texture(tH, w - L.xy * .007).r; col *= 1. - .45 * smoothstep(.0, .25, hs - h);
+  if (h > .02) { vec3 sn = normalize(vec3(-hx * 3.2, -hy * 3.2, 1.)); float g = vnoise(w * 900.);
+    vec3 sandC = mix(vec3(.88, .76, .55), vec3(1., .93, .78), g) * (.42 + .62 * max(0., dot(sn, L))) + pow(max(0., dot(sn, Hh)), 20.) * .12;
+    col = mix(col, sandC, smoothstep(.02, .16, h)); }
+  float aa = smoothstep(0., 1.2 * px, d);
+  o = vec4(mix(bench, col, aa), 1.);
+}`;
+const QUAD_VS = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0, 1); }`;
+const GRAIN_VS = COMMON + `
+in vec2 aPos; in float aAmp, aSeed; uniform float uTime, uAmp, uW, uSize, uShadow;
+out float vSeed, vHop;
+void main(){
+  float hop = uShadow > .5 ? 0. : uAmp * aAmp * .009 * abs(sin(uTime * uW * .5 + aSeed * 37.));
+  vec2 w = aPos + (uShadow > .5 ? vec2(.0012, .0016) : vec2(0., -hop));
+  vec2 css = w * uCam.z + uCam.xy; vec2 clip = css / uRes * 2. - 1.;
+  gl_Position = vec4(clip.x, -clip.y, 0, 1);
+  gl_PointSize = uSize * (.65 + .7 * fract(aSeed * 13.7)) * (1. + hop * 60.);
+  vSeed = aSeed; vHop = hop;
+}`;
+const GRAIN_FS = `#version 300 es
+precision highp float; in float vSeed, vHop; uniform float uShadow; out vec4 o;
+void main(){ vec2 c = gl_PointCoord * 2. - 1.; float r2 = dot(c, c); if (r2 > 1.) discard;
+  if (uShadow > .5) { o = vec4(.05, .03, .01, .28 * (1. - r2)); return; }
+  vec3 n = vec3(c.x, c.y, sqrt(1. - r2)); vec3 L = normalize(vec3(-.45, -.6, .66));
+  vec3 tint = mix(vec3(1., .93, .77), vec3(.86, .72, .5), fract(vSeed * 7.3)); if (fract(vSeed * 3.1) > .93) tint = vec3(.55, .5, .45);
+  float l = .35 + .75 * max(0., dot(n, L)) + .35 * pow(max(0., dot(n, normalize(L + vec3(0, 0, 1)))), 30.);
+  o = vec4(tint * l * (1. + vHop * 25.), 1. - vHop * 18.); }`;
+let P = null, G2 = null, bufPos, bufAmp, bufSeed, vao, quad, texSDF, texH, texU, texT, Hbuf, Hgrid, dirtyH = true, sdfKey = '', tKey = '';
+const HS = 160;
+function glInit() {
+  P = prog(QUAD_VS, PLATE_FS); G2 = prog(GRAIN_VS, GRAIN_FS);
+  quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  bufPos = gl.createBuffer(); bufAmp = gl.createBuffer(); bufSeed = gl.createBuffer();
+  const tex = (w, h) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array(w * h)); return t; };
+  texSDF = tex(256, 256); texH = tex(HS, HS); texU = tex(G, G); texT = tex(HS, HS); Hbuf = new Uint8Array(HS * HS); Hgrid = new Float32Array(HS * HS);
+}
+const upload = (t, w, h, data) => { gl.bindTexture(gl.TEXTURE_2D, t); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.UNSIGNED_BYTE, data); };
+function sdfOf(pl) { // signed distance to the outline and the holes, by a two-pass chamfer transform on a 256 grid
+  const S = 256, inside = new Uint8Array(S * S), polys = SHAPES[pl.shape].polys;
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const x = (i + .5) / S, y = (j + .5) / S; inside[j * S + i] = polys.some(P => inPoly(P, x, y)) && !pl.holes.some(([hx, hy]) => (x - hx) ** 2 + (y - hy) ** 2 < HOLE_R * HOLE_R) ? 1 : 0; }
+  const dist = val => { const D = new Float32Array(S * S); for (let k = 0; k < S * S; k++) D[k] = inside[k] === val ? 0 : 1e9;
+    for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) { const k = j * S + i; if (i) D[k] = Math.min(D[k], D[k - 1] + 1); if (j) D[k] = Math.min(D[k], D[k - S] + 1); if (i && j) D[k] = Math.min(D[k], D[k - S - 1] + 1.414); if (j && i < S - 1) D[k] = Math.min(D[k], D[k - S + 1] + 1.414); }
+    for (let j = S - 1; j >= 0; j--) for (let i = S - 1; i >= 0; i--) { const k = j * S + i; if (i < S - 1) D[k] = Math.min(D[k], D[k + 1] + 1); if (j < S - 1) D[k] = Math.min(D[k], D[k + S] + 1); if (i < S - 1 && j < S - 1) D[k] = Math.min(D[k], D[k + S + 1] + 1.414); if (j < S - 1 && i) D[k] = Math.min(D[k], D[k + S - 1] + 1.414); }
+    return D; };
+  const din = dist(0), dout = dist(1), out = new Uint8Array(S * S);
+  for (let k = 0; k < S * S; k++) { let d = inside[k] ? din[k] / S : -dout[k] / S; if (inside[k] && (k % S === 0 || k % S === S - 1 || k < S || k >= S * S - S)) d = Math.min(d, .5 / S); out[k] = Math.max(0, Math.min(255, Math.round((.5 + d * 4) * 255))); }
+  return out;
+}
+function heightOf(s, out) { // grains → a pile height field (only the piles: an even dusting stays individual grains)
+  const N = HS, g = Hgrid; g.fill(0); const lost = s.lost; let alive = 0;
+  for (let i = 0; i < s.n; i++) { if (lost[i]) continue; alive++; g[Math.min(N - 1, s.sy[i] * N | 0) * N + Math.min(N - 1, s.sx[i] * N | 0)]++; }
+  const t = new Float32Array(N * N);
+  for (let pass = 0; pass < 2; pass++) { for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { let a = 0; for (let d = -1; d <= 1; d++) a += g[j * N + Math.min(N - 1, Math.max(0, i + d))]; t[j * N + i] = a / 3; }
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { let a = 0; for (let d = -1; d <= 1; d++) a += t[Math.min(N - 1, Math.max(0, j + d)) * N + i]; g[j * N + i] = a / 3; } }
+  const mean = Math.max(1e-3, alive / (N * N) * 1.3);
+  for (let k = 0; k < N * N; k++) out[k] = Math.max(0, Math.min(255, Math.round(255 * (1 - Math.exp(-Math.max(0, g[k] / mean - 1.6) / 4)))));
+  return out;
+}
+const SEEDS = {}; const seedsFor = n => SEEDS[n] ||= (() => { const r = RH.rng('grain-looks'), a = new Float32Array(n); for (let i = 0; i < n; i++) a[i] = r(); return a; })();
+function resize() { dpr = Math.min(PHONE ? 2 : 2, devicePixelRatio || 1); const r = stage.getBoundingClientRect(); W = r.width; H = r.height; for (const c of [cv, ov]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); } if (!cam.touched) cam.fit(); requestDraw(); }
+function bowPath(pl) { // the bow rests on the plate's right-hand edge, about a third of the way down
+  let ex = .5; const j = Math.floor(.38 * G); for (let i = G - 1; i >= 0; i--) if (pl.outline[j * G + i]) { ex = (i + 1) / G; break; }
+  const d = [1, -.42], dl = Math.hypot(...d), u = [d[0] / dl, d[1] / dl], n = [-u[1], u[0]], C0 = [ex - .004, .4];
+  return { C0, u, n, a: [C0[0] - u[0] * .05, C0[1] - u[1] * .05], b: [C0[0] + u[0] * .78, C0[1] + u[1] * .78] };
+}
+function drawOverlay(pl) {
+  const k = cam.k; og.setTransform(dpr, 0, 0, dpr, 0, 0); og.clearRect(0, 0, W, H); og.setTransform(dpr * k, 0, 0, dpr * k, dpr * cam.x, dpr * cam.y);
+  // the bow: a pernambuco stick, a ribbon of white horsehair, an ebony frog with a pearl eye
+  const B = bowPath(pl), off = (p, s) => [p[0] + B.n[0] * s, p[1] + B.n[1] * s], lw = 1 / k;
+  og.lineCap = 'round';
+  og.strokeStyle = 'rgba(0,0,0,.35)'; og.lineWidth = .02; og.beginPath(); og.moveTo(...off([B.a[0] + .02, B.a[1] + .03], .012)); og.lineTo(...off([B.b[0] + .02, B.b[1] + .03], .012)); og.stroke();
+  const hair = og.createLinearGradient(...off(B.C0, -.005), ...off(B.C0, .005)); hair.addColorStop(0, '#d9d2bd'); hair.addColorStop(.5, '#fbf7ea'); hair.addColorStop(1, '#bfb69d');
+  og.strokeStyle = hair; og.lineWidth = .009; og.beginPath(); og.moveTo(...B.a); og.lineTo(...B.b); og.stroke();
+  const st = og.createLinearGradient(...off(B.C0, .012), ...off(B.C0, .026)); st.addColorStop(0, '#2a120a'); st.addColorStop(.45, '#8a4a26'); st.addColorStop(1, '#3a180b');
+  og.strokeStyle = st; og.lineWidth = .011; og.beginPath(); og.moveTo(...off(B.a, .022)); og.quadraticCurveTo(...off(B.C0, .028), ...off(B.b, .02)); og.stroke();
+  const fr = off(B.b, .012); og.save(); og.translate(...fr); og.rotate(Math.atan2(B.u[1], B.u[0])); og.fillStyle = '#120a06'; og.fillRect(-.05, -.016, .07, .03); og.fillStyle = '#e9eef5'; og.beginPath(); og.arc(-.015, 0, .005, 0, 7); og.fill(); og.fillStyle = '#c9a25a'; og.fillRect(.018, -.016, .006, .03); og.restore();
+  const tip = off(B.a, .016); og.fillStyle = '#efe6d2'; og.beginPath(); og.arc(...tip, .009, 0, 7); og.fill();
+  // the field of the note you just touched: its nodal lines and arrows showing where it pushes sand
   if (preview != null && !playing) {
-    const F = fieldOf(pl, preview, sc.finger); g.fillStyle = 'rgba(40,20,5,.35)';
-    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const c = j * G + i; if (pl.mask[c] && Math.abs(F.u[c]) < .06) g.fillRect(i / G, j / G, 1 / G, 1 / G); }
-    if (!F.dead) { g.strokeStyle = 'rgba(70,30,5,.75)'; g.lineWidth = 2.2 / (k || 1); g.beginPath(); const N = 13;
+    const F = fieldOf(pl, preview, sc.finger); og.fillStyle = 'rgba(30,14,4,.32)';
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const c = j * G + i; if (pl.mask[c] && Math.abs(F.u[c]) < .06) og.fillRect(i / G, j / G, 1 / G, 1 / G); }
+    if (!F.dead) { og.strokeStyle = 'rgba(40,16,4,.8)'; og.lineWidth = 2.2 / k; og.beginPath(); const N = 13;
       for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const x = (i + .5) / N, y = (j + .5) / N, c = Math.floor(y * G) * G + Math.floor(x * G); if (!pl.mask[c]) continue; let vx = -F.gx[c], vy = -F.gy[c]; const m = Math.hypot(vx, vy); if (m < .3) continue; const L = Math.min(.032, .006 * Math.sqrt(m)); vx /= m; vy /= m;
-        g.moveTo(x - vx * L, y - vy * L); g.lineTo(x + vx * L, y + vy * L); g.lineTo(x + vx * L * .2 - vy * L * .5, y + vy * L * .2 + vx * L * .5); }
-      g.stroke(); }
+        og.moveTo(x - vx * L, y - vy * L); og.lineTo(x + vx * L, y + vy * L); og.lineTo(x + vx * L * .2 - vy * L * .5, y + vy * L * .2 + vx * L * .5); }
+      og.stroke(); }
   }
-  // sand
-  g.fillStyle = '#f7ecd0'; const s = 1.6 / (k * 1) / Math.max(1, Math.min(W, H) / 700) / 1.2, sx = sand.sx, sy = sand.sy, lost = sand.lost, ps = Math.max(2.2 / k, .0035);
-  for (let i = 0; i < sand.n; i++) if (!lost[i]) g.fillRect(sx[i] - ps / 2, sy[i] - ps / 2, ps, ps);
-  if (ghost) { const T = GHOST[C.id] ||= perform(cfgOf(C), C.ref, 900); g.fillStyle = 'rgba(168,40,20,.7)'; for (let i = 0; i < T.n; i++) if (!T.lost[i]) g.fillRect(T.sx[i] - ps / 2, T.sy[i] - ps / 2, ps, ps); }
-  // the finger and holes
-  if (sc.finger) { const [fx, fy] = sc.finger; g.fillStyle = 'rgba(230,190,160,.9)'; g.strokeStyle = '#3b2a18'; g.lineWidth = 2 / k; g.beginPath(); g.ellipse(fx, fy, .03, .04, 0, 0, 7); g.fill(); g.stroke(); }
-  sc.holes.forEach(([hx, hy]) => { g.strokeStyle = 'rgba(255,220,150,.6)'; g.lineWidth = 1.5 / k; g.beginPath(); g.arc(hx, hy, HOLE_R, 0, 7); g.stroke(); });
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // the finger: a fingertip pressing the plate, with its shadow
+  if (sc.finger) { const [fx, fy] = sc.finger; og.fillStyle = 'rgba(0,0,0,.35)'; og.beginPath(); og.ellipse(fx + .012, fy + .016, .03, .04, -.3, 0, 7); og.fill();
+    const fg = og.createRadialGradient(fx - .01, fy - .014, .004, fx, fy, .045); fg.addColorStop(0, '#f6d6c0'); fg.addColorStop(.7, '#d9a184'); fg.addColorStop(1, '#a86e55');
+    og.fillStyle = fg; og.beginPath(); og.ellipse(fx, fy, .028, .038, -.3, 0, 7); og.fill(); og.strokeStyle = 'rgba(255,240,230,.7)'; og.lineWidth = lw; og.beginPath(); og.ellipse(fx, fy - .012, .014, .01, -.3, 3.6, 5.9); og.stroke(); }
+  // holes: a bright rim where the drill cut
+  sc.holes.forEach(([hx, hy]) => { og.strokeStyle = 'rgba(255,226,160,.75)'; og.lineWidth = 1.4 / k; og.beginPath(); og.arc(hx, hy, HOLE_R, Math.PI * .9, Math.PI * 1.9); og.stroke(); });
+}
+let t0 = performance.now(), lastT = 0;
+function draw(now) {
+  const dt = now - (lastT || now); lastT = now; tickPlay(now);
+  const sounding = note.amp > .001 || playing; if (!need && !sounding) return requestAnimationFrame(draw); need = false;
+  frameMs = frameMs * .9 + Math.min(100, dt) * .1;
+  if (playing && frameMs > 24 && VN > 6000) slow++; else slow = Math.max(0, slow - 1);
+  const pl = curPlate();
+  if (!glOK) { drawFlat(pl); return requestAnimationFrame(draw); }
+  if (sdfKey !== pl.key) { upload(texSDF, 256, 256, sdfOf(pl)); sdfKey = pl.key; }
+  const tk = C.id + '|' + C.ref.length; if (tKey !== tk) { upload(texT, HS, HS, heightOf(GHOST[C.id] ||= perform(cfgOf(C), C.ref, 9000), new Uint8Array(HS * HS))); tKey = tk; }
+  if (dirtyH) { upload(texH, HS, HS, heightOf(vis, Hbuf)); dirtyH = false; }
+  if (!playing) note.amp *= Math.pow(.88, dt / 16);
+  gl.viewport(0, 0, cv.width, cv.height); gl.disable(gl.BLEND);
+  gl.useProgram(P.p); const u = P.u, T = (now - t0) / 1000;
+  gl.uniform3f(u.uCam, cam.x, cam.y, cam.k); gl.uniform2f(u.uRes, W, H); gl.uniform1f(u.uDpr, dpr); gl.uniform1f(u.uTime, T); gl.uniform1f(u.uAmp, Math.min(1, note.amp)); gl.uniform1f(u.uW, note.w);
+  gl.uniform1f(u.uGhost, ghost ? 1 : .7); gl.uniform1f(u.uClamp, pl.shape === 'square' && !pl.holes.some(([x, y]) => Math.hypot(x - .5, y - .5) < .12) ? 1 : 0); gl.uniform1f(u.uHasU, note.k >= 0 ? 1 : 0);
+  [[texSDF, 'tSDF'], [texH, 'tH'], [texU, 'tU'], [texT, 'tT']].forEach(([t, n], i) => { gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, t); gl.uniform1i(u[n], i); });
+  const pa = gl.getAttribLocation(P.p, 'p'); gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.enableVertexAttribArray(pa); gl.vertexAttribPointer(pa, 2, gl.FLOAT, false, 0, 0); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); gl.disableVertexAttribArray(pa);
+  // grains: contact shadows, then lit grains that hop while the plate sings
+  const n = vis.n, xy = new Float32Array(n * 2), amp = vis.amp; let m = 0;
+  for (let i = 0; i < n; i++) if (!vis.lost[i]) { xy[2 * m] = vis.sx[i]; xy[2 * m + 1] = vis.sy[i]; m++; }
+  gl.useProgram(G2.p); const g = G2.u; gl.uniform3f(g.uCam, cam.x, cam.y, cam.k); gl.uniform2f(g.uRes, W, H); gl.uniform1f(g.uDpr, dpr); gl.uniform1f(g.uTime, T); gl.uniform1f(g.uAmp, Math.min(1, note.amp)); gl.uniform1f(g.uW, note.w);
+  gl.uniform1f(g.uSize, Math.max(1.3, Math.min(3.2, cam.k * .0024)) * dpr);
+  const bind = (buf, data, name, size) => { const loc = gl.getAttribLocation(G2.p, name); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0); return loc; };
+  const ampC = new Float32Array(m), seed = new Float32Array(m), S0 = seedsFor(n); let q = 0; for (let i = 0; i < n; i++) if (!vis.lost[i]) { ampC[q] = amp[i]; seed[q] = S0[i]; q++; }
+  const l1 = bind(bufPos, xy.subarray(0, 2 * m), 'aPos', 2), l2 = bind(bufAmp, ampC, 'aAmp', 1), l3 = bind(bufSeed, seed, 'aSeed', 1);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.uniform1f(g.uShadow, 1); gl.drawArrays(gl.POINTS, 0, m); gl.uniform1f(g.uShadow, 0); gl.drawArrays(gl.POINTS, 0, m);
+  [l1, l2, l3].forEach(l => gl.disableVertexAttribArray(l));
+  drawOverlay(pl);
   requestAnimationFrame(draw);
 }
-function drawTarget() { // the commission's picture, drawn by its hidden score
-  const t = $('tgt'), x = t.getContext('2d'), T = perform(cfgOf(C), C.ref, NS), pl = plateOf(C.shape, C.holes || []);
-  x.setTransform(1, 0, 0, 1, 0, 0); x.fillStyle = '#25170b'; x.fillRect(0, 0, 192, 192); x.drawImage(plateImage(pl), 0, 0, 192, 192); plateCKey = '';
-  x.fillStyle = '#f7ecd0'; for (let i = 0; i < T.n; i++) if (!T.lost[i]) x.fillRect(T.sx[i] * 192 - 1, T.sy[i] * 192 - 1, 2, 2);
+function drawFlat(pl) { // no WebGL: the plain drawing, so the game still works
+  const k = cam.k; og.setTransform(dpr, 0, 0, dpr, 0, 0); og.clearRect(0, 0, W, H); og.fillStyle = '#2a1a0d'; og.fillRect(0, 0, W, H);
+  og.setTransform(dpr * k, 0, 0, dpr * k, dpr * cam.x, dpr * cam.y); og.fillStyle = '#9a6e30'; og.beginPath(); SHAPES[pl.shape].polys.forEach(P => { P.forEach(([x, y], i) => i ? og.lineTo(x, y) : og.moveTo(x, y)); og.closePath(); }); og.fill();
+  og.fillStyle = '#f7ecd0'; const ps = Math.max(1.6 / k, .002); for (let i = 0; i < vis.n; i++) if (!vis.lost[i]) og.fillRect(vis.sx[i] - ps / 2, vis.sy[i] - ps / 2, ps, ps);
 }
+function drawTarget() { // the commission's picture, drawn by its hidden score, as a small engraving
+  const t = $('tgt'), x = t.getContext('2d'), T = perform(cfgOf(C), C.ref, 6000), pl = plateOf(C.shape, C.holes || []);
+  x.setTransform(1, 0, 0, 1, 0, 0); x.fillStyle = '#2a1a0d'; x.fillRect(0, 0, 192, 192);
+  const gr = x.createLinearGradient(0, 0, 192, 192); gr.addColorStop(0, '#d9b36a'); gr.addColorStop(.5, '#a87a34'); gr.addColorStop(1, '#7b5a24');
+  x.fillStyle = gr; x.beginPath(); SHAPES[pl.shape].polys.forEach(P => { P.forEach(([px, py], k) => k ? x.lineTo(px * 192, py * 192) : x.moveTo(px * 192, py * 192)); x.closePath(); }); x.fill();
+  x.fillStyle = '#2a1a0d'; (C.holes || []).forEach(([hx, hy]) => { x.beginPath(); x.arc(hx * 192, hy * 192, HOLE_R * 192, 0, 7); x.fill(); });
+  x.fillStyle = 'rgba(60,34,12,.55)'; for (let i = 0; i < T.n; i++) if (!T.lost[i]) x.fillRect(T.sx[i] * 192 + .6, T.sy[i] * 192 + .8, 1.3, 1.3);
+  x.fillStyle = '#fbf3dc'; for (let i = 0; i < T.n; i++) if (!T.lost[i]) x.fillRect(T.sx[i] * 192, T.sy[i] * 192, 1.2, 1.2);
+}
+let glOK = false; if (gl) try { glInit(); glOK = true; } catch (e) { console.warn('WebGL setup failed; plain drawing', e); }
 // taps on the plate: place / lift the finger, drill / fill a hole
 stage.addEventListener('pointerup', e => {
   if (!tool || cam.gesturing || playing) return; const [x, y] = cam.toWorld(e.clientX, e.clientY); if (x < 0 || y < 0 || x > 1 || y > 1) return;
@@ -467,7 +649,7 @@ function share() { const link = location.origin + location.pathname + '#score=' 
   if (s) SAVE.scores[c.id] = s;
   openComm(c); })();
 resize(); requestAnimationFrame(draw);
-window.__ch = { COMMS, SQ, plateOf, fieldOf, perform, matchOf, density, similarity, apprentices, workshop, stars, openComm, play, share, get C() { return C; }, get sc() { return sc; }, get sand() { return sand; }, get playing() { return playing; }, get cam() { return cam; }, SAVE, NS, BEAT_MS, BEAT_STEPS, okScore, set tool(t) { tool = t; } };
+window.__ch = { gfx: () => ({ gl: glOK, VN, frameMs: Math.round(frameMs), grains: vis.n }), COMMS, SQ, plateOf, fieldOf, perform, matchOf, density, similarity, apprentices, workshop, stars, openComm, play, share, get C() { return C; }, get sc() { return sc; }, get sand() { return sand; }, get playing() { return playing; }, get cam() { return cam; }, SAVE, NS, BEAT_MS, BEAT_STEPS, okScore, set tool(t) { tool = t; } };
 </script>
 </body>
 </html>

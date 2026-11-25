@@ -354,7 +354,7 @@ function newsPath(from, to){
     if (C.lofts&&C.lofts[u]&&lofts.includes(u)) for (const v of lofts) if (v!==u && crow(u,v)<=PIGEON_RANGE){ const nd=dist[u]+PIGEON_DAYS; if (nd<dist[v]){ dist[v]=nd; prev[v]={u,p:1}; } } }
   if (dist[to]>=1e9) return null; const way=[]; let v=to; while (v!==from){ way.unshift([v,dist[v],prev[v].p]); v=prev[v].u; } way.unshift([from,0,0]); return {days:dist[to], way}; }
 const snap=ci=>cities[ci].price.map(x=>Math.round(x*10)/10);
-function sendLetter(from, p, src, fake){ const np=newsPath(from, C.at); if (!np) return; C.letters.push({f:from, s:C.day, a:C.day+Math.max(1,np.days), p, src, fake:fake?1:0, w:np.way}); }
+function sendLetter(from, p, src, fake, seen){ const np=newsPath(from, C.at); if (!np) return; C.letters.push({f:from, s:seen??C.day, ...(seen!=null?{t:C.day}:{}), a:C.day+Math.max(1,np.days), p, src, fake:fake?1:0, w:np.way}); }
 function lettersTick(){
   const nCorr=Object.keys(C.corr).length; C.gold-=nCorr*CORR_WAGE;
   if (C.day%LETTER_EVERY===0) for (const ci in C.corr) if (!cities[ci].closed && C.letters.filter(l=>l.f===+ci).length<4) sendLetter(+ci, snap(+ci), 'corr'); // a correspondent writes again only when the road is not already full of their letters
@@ -363,7 +363,7 @@ function lettersTick(){
   // grudges fade: half a year without a lie and houses slowly come round (never past where they started)
   if (C.day%10===0 && !(C.lies||[]).some(d=>C.day-d<180)) for (const rv of (C.rivals||[])) if (rv.trust<Math.min(0.6,trustCap())) rv.trust=Math.min(0.6, trustCap(), rv.trust+0.02);
   // houses that trust you share what they see; hostile houses forge letters to you
-  for (const [i,rv] of (C.rivals||[]).entries()) if (rv.trust>=0.5 && rv.to==null && (C.day+i*5)%12===0 && !cities[rv.at].closed) sendLetter(rv.at, snap(rv.at), i);
+  for (const [i,rv] of (C.rivals||[]).entries()) if (rv.trust>=0.5 && (C.day+i*5)%12===0){ const b=rv.book[rv.at]; if (b && C.day-b.day<20) sendLetter(rv.at, b.p.slice(), i, 0, b.day); }
   for (const [i,rv] of (C.rivals||[]).entries()) if (rv.trust<0.3 && (C.day+i*7)%30===0){ const ci=rng.int(cities.length), g=rng.int(GOODS.length), p=snap(ci); p[g]=Math.round(Math.max(p[g],usual(ci,g))*2.4*10)/10; sendLetter(ci, p, i, 1); }
   checkLedger();
 }
@@ -641,7 +641,7 @@ function coinBurst(profit){ if (headless) return;
 }
 // letters on the move: a brown dot rides the road with the caravans, a white one flies between lofts
 function drawLetters(){ if (!C.letters) return; const t=C.day+(traveling? Math.min(.99,(traveling.t*legDaysNow())%1) : 0);
-  for (const l of C.letters){ const e=t-l.s; let k=1; while (k<l.w.length && l.w[k][1]<e) k++; if (k>=l.w.length) continue;
+  for (const l of C.letters){ const e=t-(l.t??l.s); let k=1; while (k<l.w.length && l.w[k][1]<e) k++; if (k>=l.w.length) continue;
     const [a,da]=l.w[k-1], [b,db,pig]=l.w[k], f=Math.max(0,Math.min(1,(e-da)/Math.max(.01,db-da))), [x1,y1]=P(cities[a]), [x2,y2]=P(cities[b]), x=x1+(x2-x1)*f, y=y1+(y2-y1)*f-(pig?18*Math.sin(Math.PI*f)+6:2);
     ctx.beginPath(); ctx.arc(x,y,pig?3.2:2.6,0,7); ctx.fillStyle=pig?'#ffffff':'#6a3a12'; ctx.fill(); ctx.lineWidth=1; ctx.strokeStyle=pig?'#1f3a7a':'#f1dfb0'; ctx.stroke(); } }
 const legDaysNow=()=>traveling? traveling.legs[traveling.leg].r.days : 1;

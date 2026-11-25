@@ -24,6 +24,7 @@
   main{flex:1;display:flex;min-height:0}
   #sky{flex:1;position:relative;min-width:0;overflow:hidden;touch-action:none}
   #sky canvas{position:absolute;inset:0;width:100%;height:100%}
+  #gl{pointer-events:none}
   #cap{position:absolute;left:14px;top:10px;right:14px;pointer-events:none}
   #cap .t{font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:#e6c36a}
   #cap .n{font-weight:300;font-size:30px;color:#f6e3a1;text-shadow:0 2px 18px #000;line-height:1.1}
@@ -106,7 +107,7 @@
 <body>
 <div class="topbar"><a class="home" href="../index.html">← Rabbit Holes</a><h1>Universe Seed</h1><span class="spacer"></span><span id="meta"></span><button id="helpBtn" aria-label="What is this?">?</button></div>
 <main>
-  <div id="sky" data-play><canvas id="cv"></canvas>
+  <div id="sky" data-play><canvas id="gl" aria-hidden="true"></canvas><canvas id="cv"></canvas>
     <div id="cap"><div class="t" id="capT"></div><div class="n" id="capN"></div><div class="f" id="capF"></div></div>
     <div id="skyBtns"><button id="backTree" style="display:none">◀ the tree</button></div>
     <div id="why"></div>
@@ -527,6 +528,47 @@ function finishCosmos() {
   RH.modal(`<h2>${C.over.why === 'dark' ? 'The multiverse went dark' : 'Twenty-four generations'}</h2><p>${start}, after ${C.gen} generations.</p><p class="big">${'✦'.repeat(st)}${'·'.repeat(3 - st)}</p><p style="text-align:center"><b>${C.mindsGen}</b> minds-generations (par ${C.start.par}) · <b>${C.born}</b> universes born</p><p class="small" style="color:#c8bd9c">${C.over.why === 'dark' ? 'Every branch stopped making black holes, and so stopped having children. A lineage needs black holes to go on at all.' : st >= 2 ? 'Minds rode along with the black holes. Try a harder start, or today’s cosmos.' : 'The black holes won the frontier. Shelter minds that also make black holes, and prune the factories before they fill it.'}</p>`,
     [{ label: 'Share', value: 's' }, { label: 'Another cosmos', value: 'n' }]).then(v => { if (v === 's') share(); else newCosmosDialog(); });
 }
+
+// ===================== The nebula: a WebGL ink-wash behind the tree =====================
+// Domain-warped fractal noise, lit in indigo, violet and gold, drifting slowly; it brightens where the frontier's minds
+// are (passed in as up to eight glowing points). Drawn at reduced resolution and blurred by the upscale, which is free.
+const NEB = (() => {
+  const c = document.getElementById('gl'); let g = null;
+  try { g = c.getContext('webgl', { premultipliedAlpha: false, antialias: false }); } catch (e) {}
+  if (!g) return null;
+  const vs = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+  const fs = `precision mediump float;uniform vec2 R;uniform float T;uniform vec3 P[8];uniform vec3 Q[8];
+  float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+  float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x),f.y);}
+  float fb(vec2 p){float v=0.,a=.5;mat2 m=mat2(1.6,1.2,-1.2,1.6);for(int i=0;i<4;i++){v+=a*n(p);p=m*p;a*=.5;}return v;}
+  void main(){vec2 uv=(gl_FragCoord.xy-.5*R)/min(R.x,R.y);float t=T*.02;
+    vec2 q=vec2(fb(uv*1.7+t),fb(uv*1.7-t+3.1));vec2 r=vec2(fb(uv*2.2+2.*q+vec2(1.7,9.2)+t*.7),fb(uv*2.2+2.*q+vec2(8.3,2.8)-t*.5));
+    float f=fb(uv*1.9+2.6*r);
+    vec3 col=mix(vec3(.02,.025,.09),vec3(.16,.08,.34),clamp(f*f*2.2,0.,1.));
+    col=mix(col,vec3(.42,.2,.55),clamp(length(q)*.55-.18,0.,1.)*.55);
+    col=mix(col,vec3(.95,.72,.36),pow(clamp(r.x*f*1.3,0.,1.),3.)*.7);col+=vec3(.9,.45,.3)*pow(clamp(q.y*f*1.4,0.,1.),5.)*.35;
+    col+=vec3(.05,.07,.16)*pow(f,3.)*2.;
+    for(int i=0;i<8;i++){vec2 d=gl_FragCoord.xy-P[i].xy;float k=P[i].z;if(k>0.){col+=Q[i]*k*exp(-dot(d,d)/(k*k*900.))*.55*(.7+.6*f);}}
+    float s=pow(h(floor(gl_FragCoord.xy*.5)),400.)*1.5;col+=vec3(s);
+    float v=1.-.55*dot(uv*.8,uv*.8);col*=v;gl_FragColor=vec4(col,1.);}`;
+  const sh = (t, src) => { const o = g.createShader(t); g.shaderSource(o, src); g.compileShader(o); return o; };
+  const pr = g.createProgram(); g.attachShader(pr, sh(g.VERTEX_SHADER, vs)); g.attachShader(pr, sh(g.FRAGMENT_SHADER, fs)); g.linkProgram(pr);
+  if (!g.getProgramParameter(pr, g.LINK_STATUS)) return null;
+  g.useProgram(pr); const b = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, b); g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), g.STATIC_DRAW);
+  const loc = g.getAttribLocation(pr, 'p'); g.enableVertexAttribArray(loc); g.vertexAttribPointer(loc, 2, g.FLOAT, false, 0, 0);
+  const uR = g.getUniformLocation(pr, 'R'), uT = g.getUniformLocation(pr, 'T'), uP = g.getUniformLocation(pr, 'P'), uQ = g.getUniformLocation(pr, 'Q');
+  const SCALE = .4, pts = new Float32Array(24), cols = new Float32Array(24); let last = 0;
+  return {
+    draw(now, lights, force) {
+      if (now - last < 60 && !force) return; last = now; // the nebula drifts slowly: about 16 fps is plenty, and saves a phone's battery
+      const w = Math.max(1, cv.clientWidth * SCALE | 0), h = Math.max(1, cv.clientHeight * SCALE | 0);
+      if (c.width !== w || c.height !== h) { c.width = w; c.height = h; g.viewport(0, 0, w, h); }
+      pts.fill(0); cols.fill(0);
+      (lights || []).slice(0, 8).forEach((L, i) => { pts[i * 3] = L.x * SCALE; pts[i * 3 + 1] = h - L.y * SCALE; pts[i * 3 + 2] = L.k * SCALE; cols.set(L.c, i * 3); });
+      g.uniform2f(uR, w, h); g.uniform1f(uT, now / 1000); g.uniform3fv(uP, pts); g.uniform3fv(uQ, cols); g.drawArrays(g.TRIANGLES, 0, 3);
+    } };
+})();
+
 // ===================== The tree =====================
 const cv = $('cv'), ctx = cv.getContext('2d'); let W = 0, H = 0, DPR = 1, bgStars = [];
 let pos = {}, R0 = 34, DR = 30, bloom = 0;
@@ -556,9 +598,9 @@ function resize() { const r = cv.getBoundingClientRect(); W = r.width; H = r.hei
 function drawTreeLayer(g0, now) {
   const ctx = g0;
   const C = cos, t = now / 1000;
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.fillStyle = '#05071c'; ctx.fillRect(0, 0, W, H);
-  ctx.globalAlpha = .55; ctx.drawImage(nebulaFor(3, true), 0, 0, W, H); ctx.globalAlpha = 1;
-  for (const s of bgStars) { ctx.fillStyle = `rgba(255,240,210,${.25 + .2 * Math.sin(s.tw)})`; ctx.fillRect(s.x, s.y, s.s, s.s); }
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (NEB) ctx.clearRect(0, 0, W, H); else { ctx.fillStyle = '#05071c'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = .55; ctx.drawImage(nebulaFor(3, true), 0, 0, W, H); ctx.globalAlpha = 1; }
+  if (!NEB) for (const s of bgStars) { ctx.fillStyle = `rgba(255,240,210,${.25 + .2 * Math.sin(s.tw)})`; ctx.fillRect(s.x, s.y, s.s, s.s); }
   ctx.setTransform(DPR * cam.k, 0, 0, DPR * cam.k, DPR * cam.x, DPR * cam.y);
   const k = cam.k, front = new Set(C.frontier), grow = Math.min(1, (now - bloom) / 900);
   // rings of the generations, faint; the frontier's ring in gold
@@ -579,8 +621,13 @@ function drawTreeLayer(g0, now) {
   // the universes
   for (const u of C.U) { const [x, y] = xy(u.id), fr = front.has(u.id), col = KINDS[u.kind].col, live = alive.has(u.id) || fr;
     const r = (fr ? 4.5 : 2.6) + Math.min(5, u.raw) * (fr ? 1.1 : .5), rr = fr ? r * (.4 + .6 * grow) : r;
-    ctx.globalAlpha = live ? 1 : .35;
+    ctx.globalAlpha = live ? 1 : .35; ctx.globalCompositeOperation = 'lighter';
     const g = ctx.createRadialGradient(x, y, 0, x, y, rr * 2.6); g.addColorStop(0, col); g.addColorStop(.35, col + '88'); g.addColorStop(1, col + '00'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, rr * 2.6, 0, 7); ctx.fill();
+    if (fr && u.kind !== 'dark') { // a hot core with diffraction spikes, as a telescope sees a bright star
+      const L = rr * (2.6 + u.raw * .5); ctx.lineWidth = .9 / k;
+      for (const [dx, dy] of [[1, 0], [0, 1]]) { const sg = ctx.createLinearGradient(x - dx * L, y - dy * L, x + dx * L, y + dy * L); sg.addColorStop(0, col + '00'); sg.addColorStop(.5, '#fffaf0'); sg.addColorStop(1, col + '00'); ctx.strokeStyle = sg; ctx.beginPath(); ctx.moveTo(x - dx * L, y - dy * L); ctx.lineTo(x + dx * L, y + dy * L); ctx.stroke(); }
+      ctx.fillStyle = '#fffdf6'; ctx.beginPath(); ctx.arc(x, y, Math.max(1.1 / k, rr * .32), 0, 7); ctx.fill(); }
+    ctx.globalCompositeOperation = 'source-over';
     if (u.kind === 'factory') { ctx.fillStyle = '#05030f'; ctx.beginPath(); ctx.arc(x, y, rr * .7, 0, 7); ctx.fill(); }
     if (u.sheltered) { ctx.strokeStyle = '#f6e3a1'; ctx.lineWidth = 1.2 / k; ctx.beginPath(); ctx.arc(x, y, rr * 1.9, 0, 7); ctx.stroke(); }
     if (u.id === sel) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.6 / k; ctx.setLineDash([3 / k, 2 / k]); ctx.beginPath(); ctx.arc(x, y, rr * 2.4 + 2, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
@@ -596,7 +643,9 @@ function drawTree(now) {
   const growing = now - bloom < 950, key = [W, H, DPR, cam.x.toFixed(1), cam.y.toFixed(1), cam.k.toFixed(4), cos.gen, cos.U.length, sel, cos.seed].join(',');
   if (layer.width !== cv.width || layer.height !== cv.height) { layer.width = cv.width; layer.height = cv.height; layerKey = ''; }
   if (growing || key !== layerKey) { drawTreeLayer(lctx, now); layerKey = growing ? '' : key; }
-  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(layer, 0, 0);
+  if (NEB) { const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
+    NEB.draw(now, cos.frontier.map(id => { const u = cos.U[id], [x, y] = xy(id); return { x: x * cam.k + cam.x, y: y * cam.k + cam.y, k: (u.kind === 'dark' ? 0 : 1.2 + Math.min(5, u.raw) * .5) * Math.min(2.2, cam.k * 1.2), c: hex(KINDS[u.kind].col) }; }), key !== layerKey); }
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height); ctx.drawImage(layer, 0, 0);
   ctx.setTransform(DPR * cam.k, 0, 0, DPR * cam.k, DPR * cam.x, DPR * cam.y);
   const t = now / 1000; ctx.fillStyle = '#fff6d0';
   for (const id of cos.frontier) { const u = cos.U[id]; if (u.kind !== 'minds') continue; const [x, y] = xy(id), rr = 4.5 + Math.min(5, u.raw) * 1.1;
