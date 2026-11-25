@@ -16,7 +16,7 @@ function parishBot(E, seed, name, budget) {
   const done = () => secretsOut() === 4;
   const curate = () => { const n = Object.keys(D.sealed).length; if (n >= E.CURATE_AT && n - curated >= 6) { E.curateFile(V, D, tr()); curated = n; acts++; } };
   // letters: the reader looks first at what the letters name (the visible targets), and at entries those lead to
-  const letterKeys = () => { const ks = []; for (const L of V.letters) L.targets.forEach((k, i) => { const st = L.steps[i] || {}; if (!st.hidden && st.from == null) ks.push(k); }); return ks; };
+  const letterKeys = () => { const ks = []; for (const L of V.letters.filter(L => !E.letterDone(L, D.sealed)).slice(0, 3)) L.targets.forEach((k, i) => { const st = L.steps[i] || {}; if (!st.hidden && st.from == null) ks.push(k); }); return ks; };
   const fit = (k, c) => { const s = V.slotOf[k], e = R[s.e], x = R[c.id]; if (s.k === 'g') return Math.abs(e.d - x.d - 27); if (s.k === 'b') return Math.abs(e.d - x.d - 24); if (s.k === 'd') return Math.abs(e.d - x.d - e.w.age); return Math.abs(e.d - x.d - 6); };
   if (name === 'random') {
     const open = () => V.slots.filter(s => visible(s) && !(s.key in D.sealed));
@@ -38,7 +38,7 @@ function parishBot(E, seed, name, budget) {
       if (D.pins.length >= E.MAXPINS) { while (D.pins.length) { E.deskUnpin(V, D, D.pins[0][0]); acts++; } }
     }
   } else { // the adaptive reader
-    const tried = {}; let probe = null, ver = '', P = null, sureQ = [], order = [];
+    const tried = {}; let probe = null, nearList = [], ver = '', P = null, sureQ = [], order = [];
     const certain = k => {
       const s = V.slotOf[k], c = cands(k, P).filter(x => !x.strike);
       if (!c.length) return !tr() && Math.abs(R[s.e].y - V.lost) < 50 ? undefined : null;
@@ -52,18 +52,21 @@ function parishBot(E, seed, name, budget) {
     };
     while (acts < budget && !done()) {
       const v = Object.keys(D.sealed).length + ':' + D.ver;
-      if (v !== ver) { ver = v; P = E.persons(V, D.sealed); const nr = near(); order = [...new Set([...nr, ...V.slots.map(s => s.key)])].filter(k => !(k in D.sealed) && visible(V.slotOf[k])); sureQ = order.map(k => [k, certain(k)]).filter(x => x[1] !== undefined); }
+      if (v !== ver) { ver = v; P = E.persons(V, D.sealed); const nr = near(); nearList = nr; order = [...new Set([...nr, ...V.slots.map(s => s.key)])].filter(k => !(k in D.sealed) && visible(V.slotOf[k])); sureQ = order.map(k => [k, certain(k)]).filter(x => x[1] !== undefined); }
       if (probe) { if (!(probe[0] in D.sealed)) { (tried[probe[0]] ||= []).push(probe[1]); E.deskUnpin(V, D, probe[0]); acts++; } probe = null; continue; }
       if (D.pins.length >= E.MAXPINS) { const p = D.pins[0]; (tried[p[0]] ||= []).push(p[1]); E.deskUnpin(V, D, p[0]); acts++; continue; }
       if (D.pins.length < 2) { const nx = sureQ.find(x => !(x[0] in D.sealed) && !pinned(x[0])); if (nx) { E.deskPin(V, D, nx[0], nx[1]); acts++; continue; } }
       // two sure threads wait on the cushion: a third pin tests a doubtful one, and the seal (or its absence) is the answer
-      let best = null;
-      for (const k of order) { if (k in D.sealed || pinned(k)) continue; if (sureQ.some(x => x[0] === k)) continue; const o = options(k); if (o.length) { best = [k, o[0]]; break; } }
+      // the most constrained doubtful slot near the open letters (fewest live options) is tested first
+      let best = null, bn = 1e9; const sureSet = new Set(sureQ.map(x => x[0]));
+      for (const k of nearList) { if (k in D.sealed || pinned(k) || sureSet.has(k) || !visible(V.slotOf[k])) continue; const o = options(k); if (o.length && o.length < bn) { bn = o.length; best = [k, o[0]]; if (bn === 1) break; } }
+      if (!best) for (const k of order) { if (k in D.sealed || pinned(k) || sureSet.has(k)) continue; const o = options(k); if (o.length) { best = [k, o[0]]; break; } }
       if (!best) { const nx = sureQ.find(x => !(x[0] in D.sealed) && !pinned(x[0])); if (!nx) break; E.deskPin(V, D, nx[0], nx[1]); acts++; continue; }
       const before = Object.keys(D.sealed).length; E.deskPin(V, D, best[0], best[1]); acts++;
       if (Object.keys(D.sealed).length === before && D.pins.length >= 3) probe = best;
     }
   }
+  if (typeof process !== 'undefined' && process.env.PDEBUG) for (const x of V.secrets) if (!E.secretOut(V, x, D.sealed)) { const ks = x.atLeast ? x.many : [...x.need, ...(x.any || []).slice(0, 2)]; console.log(' missing', x.k, ks.map(k => { const s = V.slotOf[k], e = R[s.e]; return `${k}${k in D.sealed ? '[S]' : ''} ${e.t}${e.y} truth=${s.truth} cands=${JSON.stringify(E.candidates(V, k, D.sealed, true).map(c => c.id + (c.strike ? 'x' : '') + (c.other ? 'o' : '')))}`; }).join(' | ')); }
   return { secrets: secretsOut(), seals: Object.keys(D.sealed).length, cut: D.cut, acts, letters: V.letters.filter(L => E.letterDone(L, D.sealed)).length, slots: V.slots.length };
 }
 if (typeof module !== 'undefined') module.exports = { parishBot };

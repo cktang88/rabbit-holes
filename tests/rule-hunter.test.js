@@ -40,6 +40,12 @@ module.exports = {
       const r = await page.evaluate(() => __rh.PZ.map(pz => { const g = LAW.parse(pz.ghost), c = LAW.check(pz, g); const tight = pz.par <= 2 ? LAW.search(pz, pz.par - 1).length === 0 : true; return [pz.id, !!c && c.flips === pz.par, tight, !LAW.check(pz, LAW.parse(pz.start))]; }));
       ok(r.length >= 16, r.length + ' laws'); for (const [id, a, b, c] of r) { ok(a, id + ' ghost obeys at par'); ok(b, id + ' par is the minimum'); ok(c, id + ' the start does not already obey'); }
     },
+    'lawmaker difficulty: five random guesses at par rarely obey; a systematic search always does': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { let naive = 0, plan = 0, n = 0; for (const pz of __rh.PZ) { if (pz.par > 2) continue; n++; const st = LAW.parse(pz.start); const SW = []; for (let i = 1; i < 9; i++) SW.push(['b', i]); for (let i = 0; i < 9; i++) SW.push(['s', i]);
+          let hit = false; for (let g = 0; g < 5 && !hit; g++) { const r = { ...st }, used = new Set(); let k = 0; while (used.size < pz.par && k++ < 99) { const j = (Math.imul(g * 7919 + used.size * 131 + n * 17, 2654435761) >>> 0) % SW.length; if (used.has(j)) continue; used.add(j); r[SW[j][0]] ^= 1 << SW[j][1]; } if (LAW.check(pz, r)) hit = true; }
+          if (hit) naive++; if (LAW.search(pz, pz.par).length) plan++; } return { naive, plan, n }; });
+      ok(r.plan === r.n, `search solves ${r.plan}/${r.n}`); ok(r.naive <= r.n * .35, `random guessing solves ${r.naive}/${r.n}`);
+    },
     'lawmaker: the axes pull against each other (fewest switches, fewest laws, fastest are often different rules)': async ({ page, ok }) => {
       const r = await page.evaluate(() => __rh.PZ.filter(p => p.par <= 2).map(pz => { const sols = LAW.search(pz, pz.par + 1); const minF = Math.min(...sols.map(s => s.flips)), minL = Math.min(...sols.map(s => s.laws)), minG = Math.min(...sols.map(s => s.gen));
         const all3 = sols.some(s => s.flips === minF && s.laws === minL && (pz.target === 'box' || s.gen === minG)); return [pz.id, !all3]; }));
