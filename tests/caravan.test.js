@@ -43,6 +43,16 @@ module.exports = {
         await ctx.close();
       }
     },
+    'first career: a first job names a city that wants silk; "max" keeps a fifth of the gold; selling there completes it': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      ok(await page.locator('#p-market .job').isVisible(), 'no first-job banner');
+      const r = await page.evaluate(() => { const K = window.__caravan, C = K.C, fj = C.firstJob, g0 = C.gold;
+        document.querySelector('[data-b="8:999"]').click(); const spent = g0 - C.gold;
+        K.encountersOn = false; K.travelNow(fj.to); K.trade(8, -999);
+        return { wants: K.cities[fj.to].dem.includes(8), spentFrac: spent / g0, bought: C.cargo[8] === 0, done: !!C.firstJob.done }; });
+      ok(r.wants, 'target city should want silk'); ok(r.spentFrac > .5 && r.spentFrac <= .8 + 1e-9, 'max spent ' + r.spentFrac); ok(r.done, 'selling silk there should finish the first job');
+      await page.evaluate(() => window.__caravan.buildAndRender()); eq(await page.locator('#p-market .job').count(), 0, 'banner should go');
+    },
     'difficulty: naive play fails; a greedy trader wins; 3 stars needs better information; information pays': async ({ page, ok }) => {
       await closeModals(page); await page.addScriptTag({ content: caravanBot.toString() });
       const r = await page.evaluate(() => { const K = window.__caravan, w = {};

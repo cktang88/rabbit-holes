@@ -45,6 +45,7 @@
   .up{color:var(--good);font-weight:700} .dn{color:var(--bad)}
   .age{font-size:12px;color:var(--dim);font-style:italic}
   .news{font-size:15px;line-height:1.45;padding:5px 0;border-bottom:1px solid #c9ad7a88}
+  .job{font-size:15px;line-height:1.4;padding:8px 10px;margin:-2px 0 10px;background:#fbf1da;border:2px solid var(--verm);box-shadow:inset 0 0 0 2px #f6dc8a}
   .ctr{font-size:15px;padding:8px 10px;border:1px solid #8a6a3a;margin-bottom:8px;background:#fbf3df;box-shadow:2px 2px 0 #c9ad7a}
   #side hr{border:0;border-top:1px solid #8a6a3a!important}
   #side .small.dim,#side .dim{color:var(--dim)!important}
@@ -201,6 +202,7 @@ function newCareer(seedIn){
   for (const c2 of cities) c2.price=c2.price.map((p,g)=>p*Math.exp(c2.drift[g]));
   see(0); if (M.perks.book) for (const {to} of neighbors(0)) see(to);
   if (M.perks.agent) C.agents[cities.length>>1]={since:0};
+  if (!M.careers){ let best=null; for (const d of cities) if (d.dem.includes(8)){ const p=shortest(0,d.id); if (p&&(!best||p.days<best.days)) best={to:d.id, days:p.days}; } if (best) C.firstJob={g:8, to:best.to, days:best.days}; }
   logIt(`Year 1. You set out from ${cities[0].name} with ${C.gold} gold and ${C.camels} camels.`); persist();
 }
 function scheduleEvents(){
@@ -272,12 +274,14 @@ const load=()=>C.cargo.reduce((a,b)=>a+b,0);
 const cap=()=>C.camels*CAMEL_CAP;
 function buyPrice(g){ return cities[C.at].price[g]*1.03; }
 function sellPrice(g){ return cities[C.at].price[g]*0.97; }
+// "max" buys as much as fits, but keeps a fifth of your gold back for upkeep on the road
+const maxBuy = g => Math.max(0, Math.floor(C.gold*0.8/buyPrice(g)));
 function trade(g, qty){
   const c=cities[C.at]; if (traveling || c.closed || !(qty===qty) || !qty) return;
   if (qty>0){ qty=Math.min(qty, Math.floor(cap()-load()+1e-9)); let spent=0, n=0; for (; n<qty; n++){ const p=buyPrice(g); if (C.gold<p) break; C.gold-=p; spent+=p; c.price[g]*=1.004; } if (n){ C.cost[g]=(C.cost[g]*C.cargo[g]+spent)/(C.cargo[g]+n); C.cargo[g]+=n; } }
   else { const want=-qty; qty=Math.min(want, Math.floor(C.cargo[g]+1e-9)); let got=0; for (let n=0;n<qty;n++){ const p=sellPrice(g); C.gold+=p; got+=p; c.price[g]*=0.996; } C.cargo[g]-=qty;
     // perishables leave fractions behind (9.6 tea): selling everything sells the fraction too, so no unsellable ghost cargo is left taking up space
-    if (want>=C.cargo[g]+qty-1e-9 && C.cargo[g]>0){ const p=sellPrice(g)*C.cargo[g]; C.gold+=p; got+=p; qty+=C.cargo[g]; C.cargo[g]=0; } if (qty) { const profit=got-C.cost[g]*qty; if (C.cost[g]>0 && profit>5) coinBurst(profit); if (Math.abs(profit)>50) logIt(`Sold ${qty} ${GOODS[g][0].toLowerCase()} in ${c.name} for ${Math.round(got)}g (${profit>=0?'+':''}${Math.round(profit)}).`); } if (C.cargo[g]<0.01){ C.cargo[g]=0; C.cost[g]=0; } }
+    if (want>=C.cargo[g]+qty-1e-9 && C.cargo[g]>0){ const p=sellPrice(g)*C.cargo[g]; C.gold+=p; got+=p; qty+=C.cargo[g]; C.cargo[g]=0; } if (qty) { const profit=got-C.cost[g]*qty; if (C.cost[g]>0 && profit>5) coinBurst(profit); if (C.firstJob&&!C.firstJob.done&&g===C.firstJob.g&&C.at===C.firstJob.to){ C.firstJob.done=1; setTimeout(()=>RH.toast(`First job done: ${profit>=0?'+':''}${Math.round(profit)}g. From here on, you choose: the Information tab buys you fresher prices.`,6000),300); } if (Math.abs(profit)>50) logIt(`Sold ${qty} ${GOODS[g][0].toLowerCase()} in ${c.name} for ${Math.round(got)}g (${profit>=0?'+':''}${Math.round(profit)}).`); } if (C.cargo[g]<0.01){ C.cargo[g]=0; C.cost[g]=0; } }
   see(C.at); netWorth(); if (!headless){ persist(); renderAll(); }
 }
 function netWorth(){ let w=C.gold + C.camels*25; const c=cities[C.at]; for (let g=0;g<GOODS.length;g++) w+=C.cargo[g]*c.price[g]*0.9; C.peak=Math.max(C.peak,w); return w; }
@@ -498,6 +502,7 @@ function drawMap(){
   for (const c of cities){ const [x,y]=P(c); drawCity(c,x,y); }
   let cx, cy, dir=1; if (traveling){ const L=traveling.legs[traveling.leg]; const from=cities[C.at], to=cities[L.r.a===C.at?L.r.b:L.r.a]; const [x1,y1]=P(from),[x2,y2]=P(to); cx=x1+(x2-x1)*traveling.t; cy=y1+(y2-y1)*traveling.t; dir=x2>=x1?1:-1; } else { [cx,cy]=P(cities[C.at]); cx+=16; cy+=4; }
   for (const rv of (C.rivals||[])){ const [rx,ry]=rivalPos(rv); ctx.save(); ctx.globalAlpha=.75; ctx.fillStyle='#4a3a5a'; for (let k=0;k<2;k++){ ctx.beginPath(); ctx.ellipse(rx-k*9,ry-4,4.5,2.6,0,0,7); ctx.fill(); ctx.beginPath(); ctx.ellipse(rx-k*9-1,ry-6.5,2.4,2,0,Math.PI,0); ctx.fill(); } ctx.fillStyle='#1f3a7a'; ctx.fillRect(rx-1,ry-16,1.2,10); ctx.fillStyle='#6a2a6a'; ctx.beginPath(); ctx.moveTo(rx+.2,ry-16); ctx.lineTo(rx+7,ry-13.5); ctx.lineTo(rx+.2,ry-11); ctx.fill(); ctx.restore(); }
+  if (C.firstJob&&!C.firstJob.done){ const [jx,jy]=P(cities[C.firstJob.to]), t=(performance.now()/900)%1; ctx.strokeStyle=`rgba(179,64,42,${1-t})`; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(jx,jy-4,14+t*16,0,7); ctx.stroke(); }
   drawCamels(cx,cy,dir);
   for (let i=coins.length-1;i>=0;i--){ const o=coins[i]; o.age+=dt; if (o.age>o.life){ coins.splice(i,1); continue; } o.vy+=420*dt; o.x+=o.vx*dt; o.y+=o.vy*dt; const w=Math.abs(Math.cos(o.spin+o.age*12))*4+.8;
     ctx.globalAlpha=Math.min(1,(o.life-o.age)*3); ctx.fillStyle='#e8c050'; ctx.strokeStyle='#8a6a10'; ctx.lineWidth=1; ctx.beginPath(); ctx.ellipse(o.x,o.y,w,4.5,0,0,7); ctx.fill(); ctx.stroke(); }
@@ -531,7 +536,9 @@ document.getElementById('zOut').onclick=()=>{ const r=cv.getBoundingClientRect()
 function bestKnown(g){ let best=null; for (const ci in C.book){ if (+ci===C.at) continue; const b=C.book[ci]; const p=b.p[g]*0.97; if (!best||p>best.p) best={ci:+ci,p,age:C.day-b.day}; } return best; }
 function renderMarket(){
   const c=cities[C.at];
-  let h=`<div class="row" style="justify-content:space-between"><b style="font-size:16px">${c.name}</b><span class="small dim">makes ${c.prod.map(g=>GOODS[g][0]).join(', ')} · wants ${c.dem.map(g=>GOODS[g][0]).join(', ')}</span></div>`;
+  const fj=C.firstJob&&!C.firstJob.done? C.firstJob : null;
+  let h=fj? `<div class="job" role="status"><b>Your first job.</b> ${C.at===fj.to? `You're in <b>${cities[fj.to].name}</b>: sell your silk here (the <i>all</i> button on the Silk row).` : `Silk is cheap in ${cities[0].name}. Buy some (<i>max</i> keeps a fifth of your gold for the road), then click <b>${cities[fj.to].name}</b> on the map (it's ringed: ${fj.days} days) and set out. It wants silk.`}</div>` : '';
+  h+=`<div class="row" style="justify-content:space-between"><b style="font-size:16px">${c.name}</b><span class="small dim">makes ${c.prod.map(g=>GOODS[g][0]).join(', ')} · wants ${c.dem.map(g=>GOODS[g][0]).join(', ')}</span></div>`;
   if (traveling) h+=`<p class="dim">On the road…</p>`;
   else if (c.closed) h+=`<p class="dn">The gates are shut. Nobody is trading.</p>`;
   else {
@@ -539,11 +546,11 @@ function renderMarket(){
     GOODS.forEach((gd,g)=>{ const b=bestKnown(g); const sp=sellPrice(g), bp=buyPrice(g); const margin=b? b.p-bp : 0;
       h+=`<tr><td>${gd[0]}${gd[2]?' <span class="age">perishes</span>':''}</td><td>${bp.toFixed(1)}</td><td>${sp.toFixed(1)}</td><td>${C.cargo[g]?Math.floor(C.cargo[g])+(C.cost[g]?` <span class="age">@${C.cost[g].toFixed(1)}</span>`:''):''}</td>
       <td>${b?`<span class="${margin>0?'up':'dn'}">${b.p.toFixed(1)}</span> ${cities[b.ci].name} <span class="age">${b.age}d old</span>`:'<span class="age">—</span>'}</td>
-      <td style="white-space:nowrap"><button data-b="${g}:1">+1</button><button data-b="${g}:10">+10</button><button data-b="${g}:999">max</button> <button data-b="${g}:-10">−10</button><button data-b="${g}:-999">all</button></td></tr>`; });
+      <td style="white-space:nowrap"><button data-b="${g}:1">+1</button><button data-b="${g}:10">+10</button><button data-b="${g}:999" title="As much as fits, keeping a fifth of your gold for the road">max</button> <button data-b="${g}:-10">−10</button><button data-b="${g}:-999">all</button></td></tr>`; });
     h+=`</table><div class="small dim" style="margin-top:6px">Your buying pushes prices up and your selling pushes them down. Big trades move the market.</div>`;
   }
   const el=document.getElementById('p-market'); el.innerHTML=h;
-  el.querySelectorAll('[data-b]').forEach(b=>b.onclick=()=>{ const [g,q]=b.dataset.b.split(':').map(Number); trade(g,q); });
+  el.querySelectorAll('[data-b]').forEach(b=>b.onclick=()=>{ const [g,q]=b.dataset.b.split(':').map(Number); trade(g, q===999? maxBuy(g) : q); });
 }
 function renderInfo(){
   const c=cities[C.at]; let h=`<b>Tavern</b><div class="small dim">Rumours cost 3g. Some are true.</div><button id="rumBtn" ${traveling||C.gold<3?'disabled':''}>🍺 Buy a round and listen</button>`;
@@ -596,7 +603,7 @@ setInterval(persist, 5000);
 if (!C || C.ended){ newCareer(); }
 buildAndRender();
 if (C.day>=CAREER_DAYS) endCareer(); fit(); window.addEventListener('resize',fit); requestAnimationFrame(drawMap); requestAnimationFrame(loop);
-window.__caravan = { P0, zoomAt, get zoom(){ return zoom; }, labelBoxes:()=>labels.slice(),  get headless(){ return headless; }, set headless(v){ headless=v; }, travelNow, starsFor, STAR_AT, GEO, rivalPos, newCareerSeed:(seed)=>{ traveling=null; plan=null; newCareer(seed); }, P, mapSegs:()=>mapBg&&mapBg.segs, get mapBg(){ return mapBg; }, get encountersOn(){ return encountersOn; }, set encountersOn(v){ encountersOn=v; }, ENC, resolveEncounter, maybeEncounter, renderEncounter, coins:()=>coins, get C(){ return C; }, get M(){ return M; }, get cities(){ return cities; }, get routes(){ return routes; }, get traveling(){ return traveling; }, GOODS, CAREER_DAYS, cleanCareer, cleanMeta, shortest, neighbors, trade, tick, planTo, travel, deliver, checkContracts, endCareer, netWorth, banditChance, buildAndRender, persist, load, cap };
+window.__caravan = { maxBuy,  P0, zoomAt, get zoom(){ return zoom; }, labelBoxes:()=>labels.slice(),  get headless(){ return headless; }, set headless(v){ headless=v; }, travelNow, starsFor, STAR_AT, GEO, rivalPos, newCareerSeed:(seed)=>{ traveling=null; plan=null; newCareer(seed); }, P, mapSegs:()=>mapBg&&mapBg.segs, get mapBg(){ return mapBg; }, get encountersOn(){ return encountersOn; }, set encountersOn(v){ encountersOn=v; }, ENC, resolveEncounter, maybeEncounter, renderEncounter, coins:()=>coins, get C(){ return C; }, get M(){ return M; }, get cities(){ return cities; }, get routes(){ return routes; }, get traveling(){ return traveling; }, GOODS, CAREER_DAYS, cleanCareer, cleanMeta, shortest, neighbors, trade, tick, planTo, travel, deliver, checkContracts, endCareer, netWorth, banditChance, buildAndRender, persist, load, cap };
 if (!M.intro){ M.intro=1; persist(); RH.modal(`<h2>The Caravan</h2><p>Twenty-three cities from Chang'an to Constantinople. Silk is cheap in the east and dear in the west. Everyone knows that, and so do the six rival houses you'll see on the road, so the real money is in knowing <b>what's changed</b>. Markets drift from month to month; rivals buy out one city and flood another.</p><p>Your price book only holds what you've seen with your own eyes, and that goes out of date. Pigeons, paid agents and tavern gossip all buy you fresher information. Wars, plagues and famines change everything. The rumours usually arrive first.</p><p>You have three years. Make your house rich.</p>`,[{label:'Load the camels'}]); }
 </script>
 </body>
