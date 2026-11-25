@@ -160,7 +160,7 @@ function simulate(lv, parts) {
       else if (t === 'det' || t === 'bomb') {
         const k = c.id || (x + ',' + y), e = (hits[k] ||= { h: [0, 0], v: [0, 0], c, segs: [] });
         e.h = cadd(e.h, b.h); e.v = cadd(e.v, b.v); e.segs.push(si); // amplitudes arriving at the same detector add up (they interfere)
-      } else go(b.d, b.h, b.v);
+      } else if (t === 'post') { /* a clamp from someone else's experiment: the beam stops on it */ } else go(b.d, b.h, b.v);
     }
     q = nq;
   }
@@ -218,8 +218,124 @@ const LV = [
     lesson: 'The quantum Zeno effect: with N passes a live bomb survives with probability cos²ᴺ(90°/N), which goes to 1 as N grows. Measurement can protect as well as disturb.' },
   { n: 'Lab Sandbox', sources: [S0(1, 4)], fixed: [P('det', 13, 4, 0, 0, { id: 'D1' }), P('det', 13, 7, 0, 0, { id: 'D2' }), P('det', 7, 8, 0, 0, { id: 'D3' })], tray: { pol: 4, hwp: 3, bs: 2, pbs: 2, mirror: 6, phase: 2, bomb: 1 }, free: 1, fire: 1,
     story: 'Everything in the drawer. Build your own experiments.', goal: 'No goal.', test: () => false, lesson: '' },
+  { n: 'Optics Workshop', job: 1, openAfter: 3, sources: [S0(1, 4)], fixed: [], tray: {}, story: '', goal: '', test: () => false, lesson: '' },
 ];
 
+// ================= the optics workshop: generated commissions =================
+// A client wants light split a certain way between their detectors. Any arrangement that delivers it passes; it is
+// then judged on what it costs, how much table it takes and how many parts. Each job is built by first assembling a
+// hidden reference instrument from random parts (so every job is solvable), then measuring what it delivers.
+const PRICE = { pol: 5, mirror: 10, bs: 20, phase: 30, pbs: 40, hwp: 60 };
+const RUNG = [null,
+  { ops: { pol: 3, mirror: 2 }, maxDet: 1, posts: 2, ops0: 1, mz: 0, name: 'attenuator' },
+  { ops: { pol: 2, hwp: 2, mirror: 2, pbs: 3 }, maxDet: 2, posts: 3, ops0: 2, mz: 0, name: 'splitter' },
+  { ops: { pol: 2, hwp: 3, mirror: 2, pbs: 3 }, maxDet: 3, posts: 4, ops0: 3, mz: 0, name: 'three-way splitter' },
+  { ops: { pol: 1, mirror: 2 }, maxDet: 2, posts: 3, ops0: 1, mz: 1, name: 'interferometer' },
+  { ops: { pol: 2, hwp: 2, mirror: 2, pbs: 1 }, maxDet: 3, posts: 5, ops0: 2, mz: 1, name: 'labelled interferometer' },
+  { ops: { pol: 2, hwp: 2, mirror: 2, pbs: 2 }, maxDet: 3, posts: 6, ops0: 3, mz: .5, name: 'instrument' },
+  { ops: { pol: 2, hwp: 2, mirror: 3, pbs: 2 }, maxDet: 4, posts: 8, ops0: 3, mz: .5, name: 'instrument' }];
+const JOBMAX = RUNG.length - 1;
+function genJob(seed, rung) {
+  rung = Math.max(1, Math.min(JOBMAX, rung | 0)); seed = seed >>> 0;
+  for (let attempt = 0; attempt < 300; attempt++) { const J = tryJob(RH.rng((seed * 7919 + rung * 104729 + attempt * 31337) >>> 0), rung); if (J) { J.seed = seed; J.rung = rung; J.attempt = attempt; return J; } }
+  return null;
+}
+function tryJob(rnd, rung) {
+  const C = RUNG[rung], ri = (a, b) => a + Math.floor(rnd() * (b - a + 1)), pick = a => a[Math.floor(rnd() * a.length)];
+  const used = new Set(), K = (x, y) => x + ',' + y, inB = (x, y) => x >= 0 && y >= 0 && x < GW && y < GH, free = (x, y) => inB(x, y) && !used.has(K(x, y));
+  const sy = ri(1, GH - 2), src = { x: 1, y: sy, d: 0, pol: pick([0, 15, 30, 45, 60, 75, 90]) }; used.add(K(0, sy)); used.add(K(1, sy));
+  const ref = [], dets = []; let open = 1, ops = 0, mzDone = !(rnd() < C.mz);
+  const ang = () => ri(1, 35) * 5;
+  const mOf = (din, dout) => reflect(din, 0) === dout ? 0 : 1;
+  const walk = (x, y, d, n) => { for (let k = 0; k < n; k++) { x += DIRS[d][0]; y += DIRS[d][1]; if (!free(x, y)) return null; used.add(K(x, y)); } return [x, y]; };
+  function grow(x, y, d, depth) {
+    const p = walk(x, y, d, ri(0, 2)); if (!p) return false; [x, y] = p;
+    const cx = x + DIRS[d][0], cy = y + DIRS[d][1]; if (!free(cx, cy)) return false; used.add(K(cx, cy));
+    if (!mzDone && depth === 0) { mzDone = true; return mz(cx, cy, d, depth); }
+    let op = 'det';
+    if (ops < C.ops0 + 2 && depth < 5 && !(ops >= C.ops0 && rnd() < .45)) {
+      const w = Object.entries(C.ops).filter(([t]) => t !== 'pbs' || dets.length + open + 1 <= C.maxDet); let tot = 0; for (const [, v] of w) tot += v; let r = rnd() * tot; for (const [t, v] of w) { r -= v; if (r <= 0) { op = t; break; } }
+    }
+    if (op === 'det') { dets.push(P('det', cx, cy, 0, 0, { id: 'D' + (dets.length + 1) })); open--; return true; }
+    ops++;
+    if (op === 'mirror') { const m = ri(0, 1); ref.push(P('mirror', cx, cy, 0, m)); return grow(cx, cy, reflect(d, m), depth + 1); }
+    if (op === 'pol' || op === 'hwp') { ref.push(P(op, cx, cy, ang(), 1)); return grow(cx, cy, d, depth + 1); }
+    if (op === 'pbs') { const m = ri(0, 1); ref.push(P('pbs', cx, cy, 0, m)); open++; return grow(cx, cy, d, depth + 1) && grow(cx, cy, reflect(d, m), depth + 1); }
+    return false;
+  }
+  // a Mach–Zehnder: half mirror, two arms round a rectangle, a phase plate (and sometimes a wave plate) in the arms, half mirror
+  function mz(bx, by, d, depth) {
+    const m = ri(0, 1), dp = reflect(d, m), a = ri(2, 4), b = ri(2, 3), at = (k, dd, x0 = bx, y0 = by) => [x0 + DIRS[dd][0] * k, y0 + DIRS[dd][1] * k];
+    const M1 = at(a, d), M2 = at(b, dp), B2 = at(b, dp, ...M1), arm1 = [], arm2 = [];
+    for (let k = 1; k < a; k++) arm1.push(at(k, d)); for (let k = 1; k < b; k++) arm1.push(at(k, dp, ...M1));
+    for (let k = 1; k < b; k++) arm2.push(at(k, dp)); for (let k = 1; k < a; k++) arm2.push(at(k, d, ...M2));
+    for (const [x, y] of [M1, M2, B2, ...arm1, ...arm2]) { if (!free(x, y)) return false; used.add(K(x, y)); }
+    ref.push(P('bs', bx, by, 0, m), P('mirror', ...M1, 0, mOf(d, dp)), P('mirror', ...M2, 0, mOf(dp, d)), P('bs', ...B2, 0, m));
+    const ph = pick(arm1.concat(arm2)); ref.push(P('phase', ph[0], ph[1], pick([45, 90, 135, 180, 225, 270, 315]), 1));
+    if (rung >= 5 && rnd() < .6) { const rest = (arm1.includes(ph) ? arm2 : arm1); const q = pick(rest); ref.push(P('hwp', q[0], q[1], pick([10, 15, 20, 25, 30, 35, 40]), 1)); }
+    open++; ops += 2;
+    return grow(...B2, d, depth + 1) && grow(...B2, dp, depth + 1);
+  }
+  if (!grow(1, sy, 0, 0) || open !== 0 || !dets.length) return null;
+  const lv = { sources: [src], fixed: dets }, H = simulate(lv, ref).hits, targets = {};
+  let dark = 0, live = 0;
+  for (const D of dets) { const t = H[D.id]?.p || 0; targets[D.id] = +t.toFixed(3); if (t < .005) dark++; else if (t >= .06) live++; else return null; }
+  if (!live || dark > (rung >= 4 ? 1 : 0) || (rung >= 6 && dets.length < 2)) return null;
+  if (dets.length === 1 && (targets.D1 > .92)) return null; // a single detector wants an actual cut in the light
+  const job = { sources: [src], fixed: dets.slice(), targets, ref, tol: .02, kind: ref.some(p => p.t === 'bs') ? (dets.length > 2 ? 'interferometer with a third port' : 'interferometer') : ['attenuator', 'two-way splitter', 'three-way splitter', 'four-way splitter'][dets.length - 1] };
+  const pass = parts => { const h = simulate(job, parts).hits; return dets.every(D => Math.abs((h[D.id]?.p || 0) - targets[D.id]) <= job.tol); };
+  if (pass([])) return null; // the bare table must not already do it
+  if (pass(ref.map(p => ({ ...p, a: p.t === 'phase' ? 90 : 0 })))) return null; // nor the parts at their fresh angles
+  // posts: other experiments' clamps bolted to the table, never on the reference beam
+  const nPost = C.posts + ri(0, 2); for (let k = 0; k < 200 && job.fixed.length < dets.length + nPost; k++) { const x = ri(0, GW - 1), y = ri(0, GH - 1); if (free(x, y)) { used.add(K(x, y)); job.fixed.push(P('post', x, y, 0, 0, { lock: 1 })); } }
+  const tray = {}; for (const p of ref) tray[p.t] = (tray[p.t] || 0) + 1; tray.mirror = (tray.mirror || 0) + 2; tray.pol = (tray.pol || 0) + 1; if (rung >= 2 && !tray.hwp) tray.hwp = 1;
+  job.tray = tray; job.par = jobMetrics(job, ref); return job;
+}
+// what an arrangement costs: money, table (cells the light crosses) and parts
+function jobMetrics(lv, parts) {
+  const R = simulate(lv, parts), cells = new Set(); for (const s of R.segs) if (s.p > .003 && s.x1 >= 0 && s.y1 >= 0 && s.x1 < GW && s.y1 < GH) cells.add(s.x1 + ',' + s.y1);
+  return { cost: parts.reduce((a, p) => a + (PRICE[p.t] || 0), 0), table: cells.size, parts: parts.length };
+}
+const jobPass = (J, H) => J.fixed.every(D => D.t !== 'det' || Math.abs((H[D.id] || 0) - J.targets[D.id]) <= J.tol);
+const dayNum = () => { const d = new Date(); return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate(); };
+const sharedJob = /job=\d+-\d/.test(location.hash);
+let job = null;
+function wsSave() { const S = obj(SAVE.ws); return { seed: Number.isInteger(S.seed) && S.seed >= 0 ? S.seed : 1, rung: Number.isInteger(S.rung) && S.rung >= 1 && S.rung <= JOBMAX ? S.rung : 1, d: S.d ? 1 : 0, top: Math.max(0, Math.min(JOBMAX, S.top | 0)), best: obj(S.best), daily: obj(S.daily) }; }
+function jobLevel(base) {
+  const h = /job=(\d+)-(\d)/.exec(location.hash), S = wsSave();
+  if (!job) job = h ? genJob(+h[1], +h[2]) : genJob(S.seed, S.rung);
+  if (job.daily == null) job.daily = !h && !!S.d;
+  SAVE.ws = { ...S, seed: job.seed, rung: job.rung, d: job.daily ? 1 : 0 };
+  try { history.replaceState(null, '', '#job=' + job.seed + '-' + job.rung); } catch (e) {}
+  const t = Object.entries(job.targets).map(([k, v]) => `<b>${k}</b> ${Math.round(v * 100)}%`).join(' · ');
+  return { ...base, sources: job.sources, fixed: job.fixed, tray: job.tray, test: H => jobPass(job, H),
+    story: `A client wants a <b>${job.kind}</b>. Deliver exactly the light they ask for at each detector. Any arrangement that does it is paid; the workshop then compares your bill, the table you took and your parts count with our own reference build. Grey clamps belong to other experiments.`,
+    goal: `${job.daily ? '<b>Daily job</b>' : `Job <b>${job.seed}</b> · grade ${job.rung}/${JOBMAX}`}: ${t} (each ±${Math.round(job.tol * 100)}).` };
+}
+function jobBest() { const S = wsSave(); return S.best[job.seed + '-' + job.rung] || null; }
+const better = (m, b) => !b || m.cost < b[0] || m.table < b[1] || m.parts < b[2];
+function jobStars(m) { const P = job.par; return 1 + (m.cost <= P.cost ? 1 : 0) + (m.cost <= P.cost && m.table <= P.table ? 1 : 0); }
+function jobSolved(H) {
+  const m = jobMetrics(L, parts), S = wsSave(), key = job.seed + '-' + job.rung, b = S.best[key], first = !b;
+  if (!better(m, b)) return;
+  S.best[key] = [Math.min(m.cost, b ? b[0] : 1e9), Math.min(m.table, b ? b[1] : 1e9), Math.min(m.parts, b ? b[2] : 1e9)];
+  const ks = Object.keys(S.best); while (ks.length > 60) delete S.best[ks.shift()];
+  if (job.daily) { const prev = S.daily[dayNum()]; if (!prev || m.cost < prev) S.daily[dayNum()] = m.cost; const kd = Object.keys(S.daily).sort(); while (kd.length > 30) delete S.daily[kd.shift()]; }
+  S.top = Math.max(S.top, job.rung); SAVE.ws = { ...S, seed: job.seed, rung: job.rung, d: job.daily ? 1 : 0 }; persist();
+  const st = jobStars(m), P = job.par; won = true; FX.sfx('win'); celeb = performance.now();
+  const cmp = (v, p, unit = '') => `<b>${unit}${v}</b> <span style="color:#6b6556">(ref ${unit}${p})</span>`;
+  toast((first ? '✓ Delivered ' : 'Better build ') + `<span style="color:#a8321e">${stars(st)}</span>`, `Bill ${cmp(m.cost, P.cost, '$')} · table ${cmp(m.table, P.table)} cells · parts ${cmp(m.parts, P.parts)}. ★★ at or under the reference bill, ★★★ also on table. Keep improving it, or take the next job.`, 12000,
+    `<div><button class="b" id="tjob">${job.daily ? 'Endless jobs →' : 'Next job →'}</button></div>`);
+  $('tjob').onclick = e => { e.stopPropagation(); nextJob(); };
+  renderGoal();
+}
+function openJob(seed, rung, daily) { job = genJob(seed, rung); job.daily = !!daily; load(LV.findIndex(l => l.job)); }
+function nextJob() { const S = wsSave(); FX.sfx('click'); if (job.daily) openJob((Math.random() * 1e6) | 0, Math.max(1, S.top), false); else openJob(job.seed + 1, Math.min(JOBMAX, job.rung + 1), false); }
+const jobNow = () => { const m = jobMetrics(L, parts), P = job.par; return `Now: $${m.cost} · ${m.table} cells · ${m.parts} parts <span style="color:#6b6556">· ref $${P.cost} · ${P.table} · ${P.parts}</span>`; };
+function jobRow() {
+  if (!L.job) return ''; const b = jobBest(), m = jobMetrics(L, parts), P = job.par;
+  return `<div style="margin-top:6px;font-size:12px"><span id="jobNow">${jobNow()}</span>${b ? `<br>Your best: $${b[0]} · ${b[1]} · ${b[2]}` : ''}</div><div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap"><button class="b ghost" id="jNew">New job</button><button class="b ghost" id="jDaily">Daily</button><button class="b ghost" id="jShare">Share</button></div>`;
+}
 // ================= sound: a lab, not an arcade =================
 // relay clacks, bolts seating into tapped holes, and Geiger-tube clicks from the detectors
 const SND = {
@@ -236,10 +352,11 @@ const SND = {
 // ================= state =================
 const obj = v => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 const SAVE = obj(RH.load('polarizer', {})); SAVE.done = obj(SAVE.done); SAVE.stars = obj(SAVE.stars); // tolerate corrupted / hand-edited saves
-for (const k in SAVE.done) if (!(+k >= 0 && +k < LV.length - 1)) delete SAVE.done[k];
-const persist = () => { RH.save('polarizer', SAVE); RH.progress('polarizer', Object.keys(SAVE.done).length / (LV.length - 1)); };
-const maxOpen = () => { let m = 0; while (m < LV.length - 1 && SAVE.done[m]) m++; return m; };
-const isOpen = i => Number.isInteger(i) && i >= 0 && i < LV.length && (i <= maxOpen() || SAVE.done[i] || LV[i].free);
+const NCAMP = LV.filter(l => !l.free && !l.job).length;
+for (const k in SAVE.done) if (!(+k >= 0 && +k < NCAMP)) delete SAVE.done[k];
+const persist = () => { RH.save('polarizer', SAVE); RH.progress('polarizer', Object.keys(SAVE.done).length / NCAMP); };
+const maxOpen = () => { let m = 0; while (m < NCAMP && SAVE.done[m]) m++; return m; };
+const isOpen = i => Number.isInteger(i) && i >= 0 && i < LV.length && (i <= maxOpen() || SAVE.done[i] || LV[i].free || (LV[i].job && (SAVE.done[LV[i].openAfter] || sharedJob)));
 let L, parts = [], sel = null, tool = null, Rz, fires = {}, flashes = [], photons = [], won = false, need = true;
 const timers = new Set();
 const $ = id => document.getElementById(id);
@@ -249,10 +366,10 @@ function load(i) {
   if (!isOpen(i)) i = maxOpen();
   cancelShots(); hideToast(); clearTimeout(settleH); settleH = 0; holding = false;
   crate = null;
-  SAVE.cur = i; persist(); L = LV[i]; parts = []; sel = null; tool = null; fires = {}; flashes = []; photons = []; won = false;
+  SAVE.cur = i; L = LV[i].job ? jobLevel(LV[i]) : LV[i]; persist(); parts = []; sel = null; tool = null; fires = {}; flashes = []; photons = []; won = false;
   $('title').textContent = L.n; $('story').innerHTML = L.story; renderGoal(); renderLevels(); renderTray(); showSel(); recompute();
 }
-function recompute() { Rz = simulate(L, parts); need = true; }
+function recompute() { Rz = simulate(L, parts); need = true; if (L.job && $('jobNow')) $('jobNow').innerHTML = jobNow(); }
 const used = t => parts.filter(p => p.t === t).length;
 
 // ================= drawing =================
@@ -380,6 +497,9 @@ function drawPart(p, now, ghost) {
     g.fillStyle = pulse ? '#fff6d0' : hit > .01 ? `rgba(255,150,40,${.35 + hit * .6})` : '#4a3a26'; if (pulse || hit > .01) { g.shadowColor = '#ffb23a'; g.shadowBlur = (pulse ? 18 : 6 + hit * 10) * dpr; }
     g.beginPath(); g.arc(s * .78, s * .82, s * .14, 0, 7); g.fill(); g.shadowBlur = 0;
     if (fires[p.id]) { g.fillStyle = '#ffb23a'; g.font = `${Math.max(9, s * .4)}px "Share Tech Mono", monospace`; g.fillText(String(fires[p.id]).padStart(3, '0') + ' CTS', 0, s * 1.45); }
+  } else if (p.t === 'post') { // someone else's post clamp: a black pillar with a socket-head cap
+    g.shadowColor = 'rgba(0,0,0,.7)'; g.shadowBlur = 8 * dpr; g.shadowOffsetY = 3 * dpr; const pg2 = g.createRadialGradient(-s * .2, -s * .2, 0, 0, 0, s * .7); pg2.addColorStop(0, '#5a5e62'); pg2.addColorStop(1, '#141516'); g.fillStyle = pg2; g.beginPath(); g.arc(0, 0, s * .62, 0, 7); g.fill(); g.shadowColor = 'transparent';
+    bolt(g, 0, 0, s * .3); g.fillStyle = 'rgba(233,228,214,.35)'; g.font = `${Math.max(7, s * .26)}px "Share Tech Mono", monospace`; g.textAlign = 'center'; g.fillText('IN USE', 0, s * .95);
   } else if (p.t === 'bomb') {
     g.shadowColor = 'rgba(0,0,0,.7)'; g.shadowBlur = 8 * dpr; const bg2 = g.createRadialGradient(-s * .3, -s * .3, 0, 0, 0, s * .9); bg2.addColorStop(0, '#5b4a40'); bg2.addColorStop(1, '#170f0c'); g.fillStyle = bg2; g.beginPath(); g.arc(0, 0, s * .9, 0, 7); g.fill(); g.shadowBlur = 0;
     g.strokeStyle = '#ff3b2a'; g.lineWidth = 2 * dpr; g.setLineDash([3 * dpr, 3 * dpr]); g.beginPath(); g.arc(0, 0, s * .9, 0, 7); g.stroke(); g.setLineDash([]);
@@ -530,7 +650,7 @@ const SETTLE = 1000; let settleH = 0, holding = false, sliding = false;
 const hitsNow = () => { const H = {}; for (const k in Rz.hits) H[k] = Rz.hits[k].p; return H; };
 function settle() {
   clearTimeout(settleH); settleH = 0;
-  const H0 = hitsNow(), pass = !L.free && !L.crate && L.test(H0, fires) && (!won || (L.grade && L.grade(H0) > (SAVE.stars[SAVE.cur] || 0)));
+  const H0 = hitsNow(), pass = !L.free && !L.crate && L.test(H0, fires) && (!won || (L.grade && L.grade(H0) > (SAVE.stars[SAVE.cur] || 0)) || (L.job && better(jobMetrics(L, parts), jobBest())));
   if (pass !== holding) { holding = pass; $('goal').classList.toggle('hold', pass); }
   if (pass) settleH = setTimeout(() => { settleH = 0; if (!sliding) { holding = false; $('goal').classList.remove('hold'); check(); } }, SETTLE);
 }
@@ -639,13 +759,17 @@ function renderTray() {
   fit();
 }
 const stars = n => '★'.repeat(n) + '☆'.repeat(3 - n);
-const nextBtn = () => SAVE.cur < LV.length - 1 && SAVE.done[SAVE.cur] ? `<button class="b" data-next>Next experiment →</button>` : '';
+const nextBtn = () => SAVE.cur < NCAMP - 1 && SAVE.done[SAVE.cur] ? `<button class="b" data-next>Next experiment →</button>` : '';
 const goNext = () => { FX.sfx('click'); load(SAVE.cur + 1); };
 function renderGoal() {
   const ok = SAVE.done[SAVE.cur], st = SAVE.stars[SAVE.cur];
   $('goal').className = (ok ? 'ok' : '') + (holding ? ' hold' : '');
   $('goal').innerHTML = (ok ? '✓ ' : '▸ ') + L.goal + (st ? ` <span style="color:#ffd27a">${stars(st)}</span>` : '') + (tool || ok || L.crate ? '' : '<br><span style="color:#6b6556;font-size:12px">Drag a part from the drawer onto any hole. Twist a mount by its knurled ring; drag its middle to move it, or off the board to remove it.</span>') + (nextBtn() ? '<br>' + nextBtn() : '');
   $('goal').querySelectorAll('[data-next]').forEach(b => b.onclick = goNext);
+  if (L && L.job) { $('goal').insertAdjacentHTML('beforeend', jobRow());
+    $('jNew').onclick = () => { FX.sfx('click'); openJob((Math.random() * 1e6) | 0, Math.max(1, wsSave().top || 1), false); };
+    $('jDaily').onclick = () => { FX.sfx('click'); openJob(dayNum() % 1000000, 5, true); };
+    $('jShare').onclick = () => { const u = location.href.split('#')[0] + '#job=' + job.seed + '-' + job.rung; try { navigator.clipboard.writeText(u); } catch (e) {} toast('Job link copied', u, 3000); }; }
   if (L) fit();
 }
 function renderLevels() {
@@ -665,6 +789,7 @@ $('toast').onclick = hideToast;
 $('storyT').onclick = () => { const on = $('hud').classList.toggle('story'); $('storyT').setAttribute('aria-expanded', on); $('storyT').textContent = on ? 'Hide' : 'Notes'; fit(); };
 function check() {
   if (L.free || L.crate) return;
+  if (L.job) { const H = hitsNow(); if (L.test(H)) jobSolved(H); return; }
   const H = {}; for (const k in Rz.hits) H[k] = Rz.hits[k].p;
   if (won) { if (L.grade && L.test(H, fires)) { const g = L.grade(H); if (g > (SAVE.stars[SAVE.cur] || 0)) { SAVE.stars[SAVE.cur] = g; persist(); FX.sfx('win'); celeb = performance.now(); toast('Better: ' + stars(g), '', 3000); renderGoal(); renderLevels(); } } return; }
   if (L.test(H, fires)) {
@@ -695,7 +820,7 @@ cam = PanZoom(cv, { onChange: () => { need = true; clearTimeout(bakeT); bakeT = 
   cam.fit = goFit; } // the fitted view is the layout's own: Fit eases back to it
 load(+SAVE.cur || 0);
 raf = requestAnimationFrame(frame);
-window.__pz = { LV, load, simulate, addPart: (t, x, y, a = 0, m = 1) => { if (occupied(x, y)) return null; const p = P(t, x, y, a, m); parts.push(p); recompute(); renderTray(); check(); return p; }, setAngle: (p, a) => { p.a = a; recompute(); check(); }, hits: () => Rz.hits, fire, get fires() { return fires; }, get parts() { return parts; }, get won() { return won; }, select: p => { sel = p; showSel(); }, setAngleUI: a => setAngle(a), get holding() { return holding; }, get crate() { return crate; }, newCrate, crateFire, crateStamp, crateSeed: sd => { crateRng = RH.rng(sd); }, SAVE, screenOf: (x, y) => { const [px, py] = C(x, y), [sx, sy] = cam.toScreen(px / dpr, py / dpr); return [sx, sy, cell / dpr * cam.k]; }, get cam() { return cam; }, get tool() { return tool; }, setTool: t => { tool = t; renderTray(); }, get celeb() { return celeb; } };
+window.__pz = { genJob, jobMetrics, jobPass, openJob, get job() { return job; }, PRICE, LV, load, simulate, addPart: (t, x, y, a = 0, m = 1) => { if (occupied(x, y)) return null; const p = P(t, x, y, a, m); parts.push(p); recompute(); renderTray(); check(); return p; }, setAngle: (p, a) => { p.a = a; recompute(); check(); }, hits: () => Rz.hits, fire, get fires() { return fires; }, get parts() { return parts; }, get won() { return won; }, select: p => { sel = p; showSel(); }, setAngleUI: a => setAngle(a), get holding() { return holding; }, get crate() { return crate; }, newCrate, crateFire, crateStamp, crateSeed: sd => { crateRng = RH.rng(sd); }, SAVE, screenOf: (x, y) => { const [px, py] = C(x, y), [sx, sy] = cam.toScreen(px / dpr, py / dpr); return [sx, sy, cell / dpr * cam.k]; }, get cam() { return cam; }, get tool() { return tool; }, setTool: t => { tool = t; renderTray(); }, get celeb() { return celeb; } };
 </script>
 </body>
 </html>
