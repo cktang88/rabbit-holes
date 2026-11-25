@@ -40,6 +40,19 @@ module.exports = {
       const r = await page.evaluate(() => __rh.PZ.map(pz => { const g = LAW.parse(pz.ghost), c = LAW.check(pz, g); const tight = pz.par <= 2 ? LAW.search(pz, pz.par - 1).length === 0 : true; return [pz.id, !!c && c.flips === pz.par, tight, !LAW.check(pz, LAW.parse(pz.start))]; }));
       ok(r.length >= 16, r.length + ' laws'); for (const [id, a, b, c] of r) { ok(a, id + ' ghost obeys at par'); ok(b, id + ' par is the minimum'); ok(c, id + ' the start does not already obey'); }
     },
+    'lawmaker ladder: after the hand-made laws, generated laws never run out; par climbs, new targets and two-object seeds appear': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const L = __rh.PZ.filter(p => p.n0); return { n: L.length, ok: L.every(pz => { const c = LAW.check(pz, LAW.parse(pz.ghost)); return c && c.flips === pz.par; }), pars: L.map(p => p.par), targets: [...new Set(L.map(p => p.target))], kinds: [...new Set(L.map(p => p.kind))], order: L.every((p, i) => !i || p.n0 > L[i - 1].n0) }; });
+      ok(r.n >= 20, r.n + ' generated laws ready at once'); ok(r.ok, 'every generated law obeys its ghost at par'); ok(r.order);
+      ok(r.pars[0] === 2 && Math.max(...r.pars) >= 3 && r.pars.every((p, i) => !i || p >= r.pars[i - 1]), 'par climbs: ' + r.pars); ok(r.targets.includes('pair'), 'new targets: ' + r.targets); ok(r.kinds.includes('two gliders') || r.kinds.includes('a glider and a block'), 'two-object seeds: ' + r.kinds);
+      const w = await page.evaluate(() => new Promise((res) => { const src = `importScripts(${JSON.stringify(new URL('law.js', location.href).href)}); onmessage = (e) => postMessage(LAW.ladder(e.data));`; const wk = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' }))); wk.onmessage = (e) => res(JSON.stringify(e.data) === JSON.stringify(__rh.PZ.find(p => p.n0 === 1))); wk.postMessage(1); }));
+      ok(w, 'a background worker drafts exactly the same law from its number');
+    },
+    'lawmaker shelf: every solved law goes on the shelf, and later laws can start from it (switches still count from the law\'s own start)': async ({ page, ok, eq }) => {
+      await page.click('#lwBits button[data-k="s"][data-i="2"]'); await page.waitForTimeout(200); eq(await page.evaluate(() => __rh.S.lawShelf), ['B3/S23']);
+      await page.click('#lwNext'); ok(await page.isVisible('#lwShelf'), 'the shelf button'); await page.click('#lwShelf'); await page.click('#lwRes [data-sh="B3/S23"]'); await page.waitForTimeout(200);
+      const r = await page.evaluate(() => ({ rule: LAW.ruleStr(__rh.LM.rule), res: document.getElementById('lwRes').textContent, f: __rh.S.law.hold && __rh.S.law.hold.f }));
+      eq(r.rule, 'B3/S23'); ok(/from your shelf law B3\/S23/.test(r.res), r.res); eq(r.f, 1, 'one switch from the law\'s own start (B3/S2)');
+    },
     'lawmaker difficulty: five random guesses at par rarely obey; a systematic search always does': async ({ page, ok }) => {
       const r = await page.evaluate(() => { let naive = 0, plan = 0, n = 0; for (const pz of __rh.PZ) { if (pz.par > 2) continue; n++; const st = LAW.parse(pz.start); const SW = []; for (let i = 1; i < 9; i++) SW.push(['b', i]); for (let i = 0; i < 9; i++) SW.push(['s', i]);
           let hit = false; for (let g = 0; g < 5 && !hit; g++) { const r = { ...st }, used = new Set(); let k = 0; while (used.size < pz.par && k++ < 99) { const j = (Math.imul(g * 7919 + used.size * 131 + n * 17, 2654435761) >>> 0) % SW.length; if (used.has(j)) continue; used.add(j); r[SW[j][0]] ^= 1 << SW[j][1]; } if (LAW.check(pz, r)) hit = true; }

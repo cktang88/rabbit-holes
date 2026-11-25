@@ -8,7 +8,7 @@ const TW=600, TH=400;              // the tray, in bath units
 const MAXOPS=480;
 // Ottoman and Victorian pigments: [name, reflectance rgb 0..1]
 const INKS=[
-  ['Indigo',[0.16,0.22,0.42]], ['Madder',[0.66,0.18,0.14]], ['Ochre',[0.82,0.60,0.24]], ['Verdigris',[0.30,0.52,0.46]],
+  ['Indigo',[0.16,0.22,0.42]], ['Madder',[0.58,0.17,0.14]], ['Ochre',[0.80,0.62,0.30]], ['Verdigris',[0.30,0.52,0.46]],
   ['Lamp black',[0.11,0.10,0.10]], ['Rose',[0.84,0.56,0.54]], ['Chalk',[0.94,0.92,0.86]], ['Saffron',[0.90,0.72,0.22]],
   ['Prussian',[0.12,0.27,0.38]], ['Umber',[0.40,0.27,0.17]],
 ];
@@ -72,11 +72,11 @@ function pulls(code, ang, offsets){ const m=[Math.cos(ANG(ang)),Math.sin(ANG(ang
 // ---------------- the commission book: historic papers to reproduce ----------------
 // ground: laid for you. recipe: the master's strokes (the judge's reference). pass: how alike the sheet must be.
 const C=[]; const add=(o)=>C.push(o);
-add({id:'battal', n:'Battal (stone)', era:'Istanbul, 16th c.', t:'The oldest ebru: drops and nothing else. Tap, and hold for bigger stones, until three inks cover three quarters of the bath.', tools:['drop'], inks:[0,1,2], ground:[], recipe:null, judge:'cover', need:.75});
-add({id:'line', n:'A single line', era:'First lesson', t:'Draw the stylus once, straight up through the middle of the bullseye.', tools:['drop','band','stylus'], inks:[0,1,2],
-  ground:bullseye(300,200,[0,2,1,2],8,16), recipe:[['s',300,200,6]], need:0.9});
+add({id:'line', n:'A single line', era:'First lesson', hint:'drag down through the rings', hintTurned:'drag right to left through the rings', t:'Draw the stylus once through the middle of the rings, the way the hint says.', tools:['drop','band','stylus'], inks:[0,1,2,9],
+  ground:stoneGround([0,1,2,9],'line',150).concat(bullseye(300,200,[0,2,1,6,2,9],12,22)), recipe:[['s',300,200,6]], need:0.9});
 add({id:'heart', n:'The heart', era:'Ottoman, 17th c.', t:'Two pulls through a bullseye make a heart. Down, then down again beside it.', tools:['drop','band','stylus'], inks:[0,1,2],
-  ground:bullseye(300,220,[1,2,0,2],8,15), recipe:[['s',300,220,18]], need:0.9});
+  ground:stoneGround([0,2,1,9],'heart',150).concat(bullseye(300,200,[1,2,0,6],12,22)), recipe:[['s',300,200,18]], need:0.9});
+add({id:'battal', n:'Battal (stone)', era:'Istanbul, 16th c.', t:'The oldest ebru: drops and nothing else. Tap, and hold for bigger stones, until three inks cover three quarters of the bath.', tools:['drop'], inks:[0,1,2], ground:[], recipe:null, judge:'cover', need:.75});
 add({id:'gelgit', n:'Gel-git', era:'Turkish "come-go"', t:'Rake the striped ground one way, then back between the first tines.', tools:['drop','band','stylus','rake'], inks:[0,1,2,3],
   ground:stripesGround([0,2,1,3]), recipe:[['k',300,200,6],['k',337.5,200,18]], need:0.85});
 add({id:'nonpareil', n:'Nonpareil', era:'England, 18th c.', t:'Gel-git, then a fine comb drawn across it. The commonest bookbinder\'s paper.', tools:['drop','band','stylus','rake','comb'], inks:[0,1,2,3],
@@ -84,13 +84,13 @@ add({id:'nonpareil', n:'Nonpareil', era:'England, 18th c.', t:'Gel-git, then a f
 add({id:'restore1', n:'The restorer', era:'A damaged sheet', t:'Someone combed this ground. Comb it back. Stokes flow runs backwards exactly.', tools:['drop','band','stylus','rake','comb'], inks:[0,1,2,3],
   ground:stripesGround([0,2,1,3]).concat([['c',300,200,6]]), recipe:[['c',300,200,18]], target:'ground', need:0.95});
 add({id:'wave', n:'Spanish wave', era:'Spain, 17th c.', t:'Stone ground, then a wave rocked across it.', tools:['drop','band','stylus','rake','comb','wave'], inks:[1,2,4,6],
-  ground:stoneGround([1,2,4,6],'wave',70), recipe:[['w',300,200,0]], need:0.85});
+  ground:stoneGround([1,2,4,6],'wave',150), recipe:[['w',300,200,0]], need:0.85});
 add({id:'peacock', n:'Peacock', era:'Bookbinders, 19th c.', t:'Gel-git, a wave across it, then a fine comb: the eyes of the peacock.', tools:['drop','band','stylus','rake','comb','wave'], inks:[0,2,3,5],
   ground:columnsGround([0,2,3,5]), recipe:[['k',300,200,0],['k',300,237.5,12],['w',300,200,6],['c',300,200,0]], need:0.8});
 add({id:'tulip', n:'Turkish tulip', era:'Hatip ebru, 18th c.', t:'A tall bullseye pulled up at the bottom and pinched at the top. Three strokes.', tools:['drop','band','stylus','swirl'], inks:[1,3,2,5],
   ground:bullseye(300,160,[3,1,5,1,2],6,18).concat(bullseye(300,260,[1,5,1],3,12)), recipe:[['s',300,120,6],['s',287.5,300,18],['s',312.5,300,18]], need:0.85});
 add({id:'snail', n:'Snail', era:'Shell papers, France', t:'A turn of the stylus about the centre of the stone ground.', tools:['drop','band','stylus','rake','comb','wave','swirl'], inks:[0,2,6,8],
-  ground:stoneGround([0,2,6,8],'snail',70), recipe:[['o',300,200,1]], need:0.85});
+  ground:stoneGround([0,2,6,8],'snail',150), recipe:[['o',300,200,1]], need:0.85});
 add({id:'bouquet', n:'Bouquet', era:'Victorian, 1860s', t:'Gel-git, a comb, then a wave and a comb back: flowers in rows.', tools:['drop','band','stylus','rake','comb','wave','swirl'], inks:[1,3,5,7],
   ground:stripesGround([1,3,5,7]), recipe:[['k',300,200,6],['k',337.5,200,18],['c',300,200,0],['w',300,200,6],['c',312.5,200,12]], need:0.8});
 add({id:'restore2', n:'The second restorer', era:'A badly damaged sheet', t:'Raked, waved and swirled. Undo all three, in the right order.', tools:['drop','band','stylus','rake','comb','wave','swirl'], inks:[0,2,1,3],

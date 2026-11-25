@@ -1,139 +1,118 @@
-// Universe Seed: six laws → a simulated causal history; challenges need combinations of laws; stars reward elegance.
-async function reopen(page) { const p2 = await page.context().newPage(); const errs = []; p2.on('pageerror', e => errs.push(e.message)); await p2.goto(page.url()); await p2.waitForTimeout(300); p2.errs = errs; return p2; }
-const dismiss = (page) => page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
-const idx = (X, k, v) => X.LAWS.find(l => l.k === k).opts.findIndex(o => o[1] === v);
-
+// Universe Seed: a family tree of universes. Every black hole buds a child universe with one law nudged a notch; the
+// player shelters or prunes one universe per generation and tries to keep minds alive while selection favours black holes.
+const { usPolicy, usPlay } = require('./universe-seed.bots.js');
+const dismiss = page => page.evaluate(() => { document.querySelectorAll('.modal-bg').forEach(m => m.remove()); if (window.__us.view === 'watch') window.__us.closeWatch(); });
+const X = `({ newCosmos: __us.newCosmos, stepGen: __us.stepGen, judge: __us.judge, variants: __us.variants, canShelter: __us.canShelter, STARTS: __us.STARTS, rng: RH.rng, starsOf: __us.starsOf })`;
 module.exports = {
   page: 'universe-seed/index.html',
   tests: {
-    'data: six laws all adjustable from the start; nine links; every challenge is achievable': async ({ page, eq, ok }) => {
+    'the rules: black holes decide the children; dark universes have none; factories out-breed minds; the first universe always buds': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const U = __us, J = c => U.judge(c);
+        const ours = J({ G: 2, L: 2, a: 1, s: 1, m: 1, D: 1 }), fac = J({ G: 4, L: 2, a: 1, s: 1, m: 1, D: 1 }), dark = J({ G: 0, L: 2, a: 1, s: 1, m: 1, D: 1 }), hot = J({ G: 3, L: 2, a: 1, s: 1, m: 1, D: 1 });
+        const C = U.newCosmos(5, U.STARTS[0]); U.stepGen(C, null);
+        return { ours: [ours.kind, ours.raw], fac: [fac.kind, fac.raw], dark: [dark.kind, dark.raw], hot: [hot.kind, hot.raw], first: C.frontier.length, laws: U.LAWS.length }; });
+      eq(r.ours[0], 'minds'); eq(r.fac[0], 'factory'); eq(r.dark, ['dark', 0]); eq(r.hot[0], 'stars');
+      ok(r.fac[1] > r.hot[1] && r.hot[1] > r.ours[1], 'selection should favour black holes over minds: ' + JSON.stringify(r));
+      ok(r.first >= 2, 'the first universe buds'); eq(r.laws, 6);
+    },
+    'children: one notch down, one notch up in the drift law, then a copy; shelter puts a copy first; twelve shelters, never twice running in a lineage': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const U = __us, C = U.newCosmos(7, U.STARTS[0]); U.stepGen(C, null);
+        const u = C.U[C.frontier[0]], ks = U.kidsOf(C, u, false), sh = U.kidsOf(C, u, true), d = u.drift;
+        const first = { down: ks[0][d] !== u.c[d] || ks[1][d] !== u.c[d], copyFirstWhenSheltered: JSON.stringify(sh[0]) === JSON.stringify(u.c) };
+        U.stepGen(C, { t: 's', id: u.id }); const kid = C.frontier.find(id => C.U[id].parent === u.id);
+        const left = C.shelters; const D = U.newCosmos(8, U.STARTS[0]); let n = 0; for (let g = 0; g < 20; g++) { const id = D.frontier.find(i => U.canShelter(D, i)); if (id != null) n++; U.stepGen(D, id != null ? { t: 's', id } : null); }
+        return { ...first, sheltered: u.sheltered === 1, kidCan: kid != null ? U.canShelter(C, kid) : null, otherCan: C.frontier.filter(id => C.U[id].parent !== u.id).every(id => U.canShelter(C, id)), left, used: n, after: D.shelters }; });
+      ok(r.down, 'children vary'); ok(r.copyFirstWhenSheltered, 'shelter: a faithful copy first'); ok(r.sheltered);
+      eq(r.kidCan, false, 'the child of a sheltered universe must stand alone'); ok(r.otherCan, 'other lineages may be sheltered');
+      eq(r.left, 11); eq([r.used, r.after], [12, 0], 'only twelve shelters');
+    },
+    'the laws thaw one at a time, starting with the one this start gets wrong': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const U = __us; return U.STARTS.map((s, i) => { const C = U.newCosmos(1, s); return [U.thawed(C, 1).join(''), U.thawed(C, 4).length, U.thawed(C, 8).length, U.thawed(C, 99).length, U.thawOrder(C)[0] === s.first]; }); });
+      for (const x of r) { eq(x[0].length, 1); eq([x[1], x[2], x[3], x[4]], [2, 3, 6, true]); }
+    },
+    'a cosmos is deterministic: the same seed and interventions give the same tree, and a link replays it': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const U = __us; const a = U.replay(42, 3, 's0-p1s2--s0'), b = U.replay(42, 3, 's0-p1s2--s0'), c = U.replay(43, 3, 's0-p1s2--s0');
+        const sig = C => JSON.stringify(C.U.map(u => [u.parent, u.c, u.kind, u.drift])); return [sig(a) === sig(b), sig(a) === sig(c), a.gen, a.mindsGen === b.mindsGen]; });
+      eq(r, [true, false, 7, true]);
+      await page.goto(page.url().replace(/#.*/, '') + '#c=42.3:s0-p1s2--s0'); await page.reload(); await page.waitForTimeout(700);
+      eq(await page.evaluate(() => [__us.cos.seed, __us.cos.gen, __us.cos.start.n === __us.STARTS[3].n]), [42, 7, true]);
+    },
+    'difficulty: idle and random never reach par; fixed strategies fail some seeds; an adaptive gardener reaches par in most': async ({ page, ok }) => {
+      await page.addScriptTag({ content: usPolicy.toString() + usPlay.toString() });
+      const r = await page.evaluate(new Function(`const X = ${X}; const o = {}; for (const n of ['idle', 'random', 'pruneBH', 'shelterMinds', 'adaptive']) o[n] = Array.from({ length: 48 }, (_, i) => usPlay(X, i + 1, n, i % 8)); return o;`));
+      const win = a => a.filter(x => x.stars >= 2).length;
+      ok(win(r.idle) <= 3 && win(r.random) <= 3, `naive play should fail: idle ${win(r.idle)}, random ${win(r.random)}`);
+      ok(win(r.adaptive) >= 40, 'adaptive gardener should reach par in most cosmoses: ' + win(r.adaptive) + '/48');
+      for (const n of ['pruneBH', 'shelterMinds']) ok(win(r[n]) < 48, n + ' should not win every seed');
+      for (const n of ['pruneBH', 'shelterMinds']) ok(win(r[n]) <= 36, `${n} is a fixed rule and should fail often: ${win(r[n])}/48`);
+      ok(r.random.some(x => x.dark), 'careless pruning can make the multiverse go dark');
+    },
+    'two taps a generation: tap a universe card, tap Shelter, and the next generation buds': async ({ page, ok, eq }) => {
       await dismiss(page);
-      const r = await page.evaluate(() => ({ laws: document.querySelectorAll('#p-laws .law').length, opts: document.querySelectorAll('#p-laws [data-k]').length, st: __us.STAGES.length, chal: __us.CHAL.length, min: __us.MIN_CHANGES }));
-      eq(r.laws, 6); eq(r.opts, 24); eq(r.st, 9); eq(Object.keys(r.min).length, r.chal, 'every challenge has a solution');
+      const g0 = await page.evaluate(() => __us.cos.gen);
+      await page.click('#letB'); eq(await page.evaluate(() => __us.cos.gen), g0 + 1, 'let it bud');
+      await page.click('#front .card >> nth=0'); await page.click('#shB');
+      eq(await page.evaluate(() => [__us.cos.gen, __us.cos.U.some(u => u.sheltered)]), [g0 + 2, true]);
+      await page.click('#front .card >> nth=1'); await page.click('#prB');
+      ok(await page.evaluate(() => __us.cos.U.some(u => u.fate === 'pruned')), 'pruned');
+      const txt = await page.textContent('#front'); ok(/varies/.test(txt) && /buds/.test(txt), 'cards say what they vary and what they bud');
+      ok(await page.evaluate(() => [...document.querySelectorAll('#front .card .ln')].every(e => e.textContent.length > 8)), 'every card has a cause line');
     },
-    'our laws run all nine links to minds; famous fine-tuning arguments break the right link': async ({ page, eq }) => {
-      const r = await page.evaluate(() => { const X = __us; const at = (o) => o.broke ? o.broke.name : 'none'; const set = (ch) => { const c = { ...X.OURS }; for (const [k, v] of Object.entries(ch)) c[k] = X.LAWS.find(l => l.k === k).opts.findIndex(o => o[1] === v); return X.simulate(c); };
-        return { ours: at(X.simulate(X.OURS)), weakG: at(set({ G: 0.1 })), bigL: at(set({ L: 10 })), d4: at(set({ D: 4 })), d2: at(set({ D: 2 })), s09: at(set({ s: 0.9 })), a40: at(set({ a: 40 })), s12: at(set({ s: 1.2 })), bh: at(set({ G: 10 })), g3: at(set({ G: 3 })) }; });
-      eq(r, { ours: "none", weakG: "Galaxies", bigL: 'Galaxies', d4: 'Planets', d2: 'Life', s09: 'Carbon', a40: 'Carbon', s12: 'Carbon', bh: 'First stars', g3: 'Life' });
-    },
-    'every link explains itself; broken histories stop at the broken link': async ({ page, ok }) => {
-      const bad = await page.evaluate(() => { const X = __us, bad = []; for (const c of X.ALL_COMBOS.filter((_, i) => i % 37 === 0)) { const o = X.simulate(c); let seenBroken = false;
-          for (const s of o.stages) { if (seenBroken && s.status !== 'none') bad.push('after broken'); if (s.status === 'broken') seenBroken = true; if (s.status !== 'none' && !(s.why && s.why.length > 20)) bad.push('no reason'); } } return bad; });
-      ok(!bad.length, bad.slice(0, 3).join(','));
-    },
-    'trade-offs: stronger gravity shortens stars; sticky chemistry speeds life; more matter beats dark energy': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const X = __us; const sim = (ch) => { const c = { ...X.OURS }; for (const [k, v] of Object.entries(ch)) c[k] = X.LAWS.find(l => l.k === k).opts.findIndex(o => o[1] === v); return X.simulate(c); };
-        return { tau1: sim({}).v.tau, tau3: sim({ G: 3 }).v.tau, life137: sim({}).v.tLife, life80: sim({ a: 80 }).v.tLife, heavyFix: sim({ G: 3, a: 80 }).stages[7].status, darkAlone: sim({ L: 3 }).broke && sim({ L: 3 }).broke.name, darkFix: sim({ L: 3, m: -8 }).stages[8].status }; });
-      ok(r.tau3 < r.tau1 / 5); ok(r.life80 < r.life137); ok(r.heavyFix !== 'broken' && r.heavyFix !== 'none'); ok(r.darkAlone); ok(r.darkFix === 'ok');
-    },
-    'Bang plays the history link by link, Skip jumps to the end, ribbon and why-line explain each link': async ({ page, eq, ok }) => {
+    'watching one universe replays its history link by link (the original stage pictures), then back to the tree': async ({ page, ok, eq }) => {
       await dismiss(page);
-      await page.click('#p-laws [data-k="D"][data-j="2"]'); await page.click('#bangBtn'); await page.waitForTimeout(100);
-      ok(await page.isVisible('#skipBtn')); await page.waitForTimeout(2500);
-      eq(await page.evaluate(() => __us.run.idx), 1);
-      await page.click('#skipBtn'); eq(await page.evaluate(() => [__us.run.done, __us.run.o.broke.name]), [true, 'Planets']);
-      ok(/stable orbits/.test(await page.textContent('#why')), await page.textContent('#why'));
-      eq(await page.locator('#ribbon button.broken').count(), 1); eq(await page.locator('#ribbon button.ok').count(), 6);
-      await page.click('#ribbon button[data-i="4"]'); ok(/sun-like star lives/.test(await page.textContent('#why')));
-      ok(/Universe 1/.test(await page.textContent('#p-atlas')));
+      await page.click('#front .card >> nth=0'); await page.click('#wB');
+      eq(await page.evaluate(() => __us.view), 'watch'); await page.waitForTimeout(1700);
+      ok((await page.textContent('#why')).length > 10, 'why-line explains the link');
+      await page.click('#backTree'); eq(await page.evaluate(() => __us.view), 'tree');
     },
-    'measurements are only shown for universes you have run, not the laws you are about to try': async ({ page, ok }) => {
+    'discoveries and the argument are earned by seeing them happen, and kept': async ({ page, ok }) => {
       await dismiss(page);
-      ok(/Bang a universe/.test(await page.textContent('#stats')));
-      await page.click('#p-laws [data-k="G"][data-j="3"]'); ok(!/billion/.test(await page.textContent('#stats')), 'no preview of the next universe');
-      await page.click('#bangBtn'); await page.click('#skipBtn'); ok(/A sun-like star lives/.test(await page.textContent('#stats')));
+      await page.evaluate(() => { for (let i = 0; i < 8; i++) __us.act(null); });
+      const s = await page.evaluate(() => ({ p: Object.keys(__us.S.props), c: Object.keys(__us.S.codex) }));
+      ok(s.p.includes('I') && s.p.includes('II'), 'propositions I and II: ' + s.p); ok(s.c.length >= 2, 'discoveries: ' + s.c);
+      ok(/Every black hole buds/.test(await page.textContent('#p-props')));
     },
-    'challenges: take one on, attempts are counted, stars depend on elegance and attempts': async ({ page, eq }) => {
+    'saves: reload resumes the tree; corrupt saves load safely; finishing records the cosmos': async ({ page, ok, eq }) => {
       await dismiss(page);
-      await page.click('.tabs button[data-t="chal"]'); await page.click('[data-take="heavy"]');
-      await page.click('.tabs button[data-t="laws"]');
-      await page.click('#p-laws [data-k="G"][data-j="3"]'); await page.click('#bangBtn'); await page.click('#skipBtn'); // fails: stars burn out
-      eq(await page.evaluate(() => [__us.M.chal.heavy, __us.M.att.heavy]), [undefined, 1]);
-      await page.click('.tabs button[data-t="laws"]'); await page.click('#p-laws [data-k="a"][data-j="2"]'); await page.click('#bangBtn'); await page.click('#skipBtn');
-      eq(await page.evaluate(() => [__us.M.chal.heavy, __us.M.active]), [{ n: 2, st: 3 }, null]);
-      eq(await page.evaluate(() => [__us.starsFor('heavy', 2, 5), __us.starsFor('heavy', 3, 1), __us.starsFor('heavy', 4, 1), __us.starsFor('heavy', 2, 0)]), [2, 2, 1, 2]);
-      eq(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub'))['universe-seed']), 1 / 14);
+      await page.evaluate(() => { __us.act(null); __us.sel = __us.cos.frontier[0]; __us.act('s'); });
+      const a = await page.evaluate(() => [__us.cos.seed, __us.cos.gen, __us.cos.mindsGen]);
+      await page.reload(); await page.waitForTimeout(700); await dismiss(page);
+      eq(await page.evaluate(() => [__us.cos.seed, __us.cos.gen, __us.cos.mindsGen]), a);
+      const c = await page.evaluate(() => { const f = __us.cleanSave; return [f(null).cur, f({ v: 3, cur: { seed: 1, acts: 'zz' } }).cur, f({ v: 3, cur: { seed: 1, acts: 's1-' }, codex: { minds: 1, bogus: 1 }, runs: [{ minds: 'x' }, { minds: 5, seed: 2, start: 'A' }] })]; });
+      eq(c[0], null); eq(c[1], null); eq(c[2].cur.acts, 's1-'); eq(Object.keys(c[2].codex), ['minds']); eq(c[2].runs.length, 1);
+      await page.evaluate(() => localStorage.setItem('rh:us3', '{"v":3,"cur":{"seed":"x"},"runs":7}')); await page.reload(); await page.waitForTimeout(700);
+      ok(await page.evaluate(() => !!__us.cos), 'corrupt save still loads');
+      await dismiss(page); await page.evaluate(() => { while (!__us.cos.over) __us.act(null); }); await page.waitForTimeout(1000);
+      ok(await page.evaluate(() => __us.S.runs.length === 1 && /generations|dark/i.test(document.querySelector('.modal')?.textContent || '')), 'cosmos recorded with an end card');
     },
-    'law cards explain in plain words, with "in our universe / at this setting" on hover, and live previews': async ({ page, ok, eq }) => {
+    'share and daily: the share line is a strip of minds per generation and a replay link; today\'s cosmos is stable': async ({ page, ok, eq }) => {
       await dismiss(page);
-      eq(await page.locator('#p-laws canvas.prev').count(), 6);
-      ok(/A sun lives about 10 billion years/.test(await page.textContent('[data-cmp="G"]')));
-      await page.hover('#p-laws [data-k="G"][data-j="4"]'); const t = await page.textContent('[data-cmp="G"]'); ok(/In our universe/.test(t) && /black hole/.test(t), t);
-      ok(await page.evaluate(() => { const c = document.querySelector('canvas.prev[data-prev="G"]').getContext('2d').getImageData(0, 0, 96, 60).data; let n = 0; for (let i = 0; i < c.length; i += 4) if (c[i] > 150) n++; return n > 10; }), 'preview drawn');
+      await page.evaluate(() => { for (let i = 0; i < 5; i++) __us.act(null); window.__copied = null; navigator.clipboard.writeText = t => { window.__copied = t; return Promise.resolve(); }; });
+      await page.evaluate(() => { while (!__us.cos.over) __us.act(null); }); await page.waitForTimeout(900);
+      await page.click('.modal button:has-text("Share")'); await page.waitForTimeout(100);
+      const t = await page.evaluate(() => window.__copied); ok(/minds-generations/.test(t) && /#c=\d+/.test(t) && t.split('\n')[2].length >= 20, t);
+      await page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
+      await page.click('.tabs button[data-t="runs"]'); await page.click('#dayB');
+      const d = await page.evaluate(() => [__us.cos.seed, __us.cos.gen, document.getElementById('capT').textContent]);
+      ok(/today/.test(d[2]) && d[1] === 0, JSON.stringify(d));
     },
-    'first experiment walks through changing one law; History names the culprit of a broken link': async ({ page, ok, eq }) => {
-      await dismiss(page);
-      ok(await page.isVisible('.tut')); ok(await page.isVisible('#p-laws [data-k="G"][data-j="1"].pulse'));
-      await page.click('#p-laws [data-k="G"][data-j="1"]'); await page.click('#bangBtn'); await page.click('#skipBtn');
-      ok(await page.evaluate(() => !!__us.M.chal.first)); ok(await page.isVisible('#p-hist'), 'History tab opens after the bang');
-      ok(/Gravity 0\.3× → a sun-like star lives/.test(await page.textContent('#p-hist')));
-      await page.click('.tabs button[data-t="laws"]'); eq(await page.isVisible('.tut'), false);
-      await page.click('#p-laws [data-k="G"][data-j="4"]'); await page.click('#bangBtn'); await page.click('#skipBtn');
-      ok(/Culprit: Gravity 10×/.test(await page.textContent('#p-hist .hl.broken')), await page.textContent('#p-hist .hl.broken'));
+    'phone: no sideways scroll, the tree pans and pinches, the act bar stays in reach, two taps by touch': async ({ page, ok, eq }) => {
+      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }); const p = await ctx.newPage();
+      const errs = []; p.on('pageerror', e => errs.push(e.message));
+      await p.goto(page.url()); await p.waitForTimeout(900); await p.evaluate(() => { document.querySelectorAll('.modal-bg').forEach(m => m.remove()); if (__us.view === 'watch') __us.closeWatch(); });
+      ok(await p.evaluate(() => document.documentElement.scrollWidth <= 392), 'overflow');
+      await p.locator('#letB').tap(); await p.locator('#front .card').first().tap();
+      const bar = await p.evaluate(() => { const r = document.getElementById('shB').getBoundingClientRect(); return r.bottom <= innerHeight && r.top >= 0; }); ok(bar, 'shelter button on screen');
+      await p.locator('#shB').tap(); eq(await p.evaluate(() => __us.cos.gen), 2);
+      ok(await p.locator('.pz-bar button').first().isVisible(), 'zoom buttons');
+      ok(!errs.length, errs[0]); await ctx.close();
     },
-    'difficulty: naive play fails': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const X = __us; const late = X.CHAL.slice(-4); let seed = 1; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) % n; };
-        const play = (policy, ch, runs) => { let good = 0; for (let k = 0; k < runs; k++) { let st = 0; for (let att = 1; att <= 3; att++) { const c = policy(ch, att); const o = X.simulate(c); if (ch.t(o, c)) { st = X.starsFor(ch.id, o.changed, att); break; } } if (st >= 2) good++; } return good / runs; };
-        const randomBot = () => Object.fromEntries(X.LAWS.map(l => [l.k, rnd(l.opts.length)]));
-        const idleBot = () => ({ ...X.OURS });
-        const NAME = { heavy: { G: 3 }, diproton: { s: 1.05 }, tuned: { G: 3, L: 3 }, alien: { G: 3, L: 3, a: 300, s: 1.2, m: -12, D: 4 } };
-        const set = (ch) => { const c = { ...X.OURS }; for (const [k, v] of Object.entries(ch)) c[k] = X.LAWS.find(l => l.k === k).opts.findIndex(o => o[1] === v); return c; };
-        const obviousBot = (ch) => set(NAME[ch.id] || {});
-        const KNOWN = { heavy: { G: 3, a: 80 }, diproton: { s: 1.05, a: 80 }, tuned: { L: 3, m: -8 }, alien: { G: 3, L: 0, a: 80, s: 1.05, m: -8, D: 2 } };
-        const competent = (ch) => set(KNOWN[ch.id]);
-        // a competent-but-simple player: tries the obvious law first, then walks one more law at a time
-        const walker = (ch, att) => { const c = obviousBot(ch); if (att === 1) return c; const keys = ['a', 'm', 'L']; c[keys[att - 2]] = (c[keys[att - 2]] + 1) % X.LAWS.find(l => l.k === keys[att - 2]).opts.length; return c; };
-        const out = { random: 0, idle: 0, obvious: 0, competent: 0, walker3: 0 };
-        for (const ch of late) { out.random += play(randomBot, ch, 40) / late.length; out.idle += play(idleBot, ch, 1) / late.length; out.obvious += play(obviousBot, ch, 1) / late.length;
-          const c = competent(ch); const o = X.simulate(c); if (ch.t(o, c)) out.competent += 1 / late.length;
-          for (let att = 1; att <= 3; att++) { const c2 = walker(ch, att); const o2 = X.simulate(c2); if (ch.t(o2, c2)) { if (X.starsFor(ch.id, o2.changed, att) === 3) out.walker3 += 1 / late.length; break; } } }
-        return out; });
-      ok(r.random <= 0.2, 'random bot ≥2★ rate ' + r.random); ok(r.idle <= 0.2, 'idle ' + r.idle); ok(r.obvious <= 0.2, 'obvious ' + r.obvious);
-      ok(r.competent === 1, 'competent policy wins all late challenges'); ok(r.walker3 < 1, 'simple walker does not 3★ everything: ' + r.walker3);
-    },
-    'mystery: deterministic per seed, always solvable, and arrows point the right way': async ({ eq, ok, page }) => {
-      const r = await page.evaluate(() => { const X = __us; const a = JSON.stringify(X.genMystery('abc')), b = JSON.stringify(X.genMystery('abc')), c = JSON.stringify(X.genMystery('abd'));
-        let solvable = 0, interesting = 0; for (let i = 0; i < 40; i++) { const t = X.genMystery('s' + i); if (X.compareObs(X.observe(t), X.observe(t)).win) solvable++; if (X.simulate(t).reached >= 4) interesting++; }
-        const t = X.genMystery('s1'); const g = { ...t }; g.G = 2; const cmp = X.compareObs(X.observe(g), X.observe(t));
-        return { same: a === b, differ: a !== c, solvable, interesting, rows: cmp.rows.length }; });
-      ok(r.same && r.differ); eq(r.solvable, 40); eq(r.interesting, 40); eq(r.rows, 5);
-    },
-    'mystery by real clicks: set laws, test, see the comparison; the daily record and streak update': async ({ page, ok, eq }) => {
-      await dismiss(page);
-      await page.click('.tabs button[data-t="myst"]'); await page.click('#mDaily');
-      const day = await page.evaluate(() => __us.todayKey()); eq(await page.evaluate(() => __us.M.myst.seed), day);
-      await page.click('#mGuess'); ok(/Test 1/.test(await page.textContent('#p-myst')));
-      const t = await page.evaluate(() => __us.genMystery(__us.todayKey()));
-      await page.evaluate((t) => { __us.M.consts = { ...t }; }, t); await page.click('#mGuess');
-      ok(await page.evaluate(() => __us.M.myst.won)); ok(/Found in 2/.test(await page.textContent('#p-myst')));
-      eq(await page.evaluate(() => [__us.M.mystHist[2], __us.M.streak]), [1, 1]);
-      ok(await page.evaluate(() => location.hash.includes('u=')));
-    },
-    'difficulty: naive play fails (mystery)': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const X = __us; const obs = new Map(X.ALL_COMBOS.map(c => [c, X.observe(c)])); const fb = (g, tO) => JSON.stringify(X.compareObs(X.observe(g), tO));
-        let seed = 3; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) % n; }; let naive = 0, idle = 0, comp = 0; const N = 40;
-        for (let s = 0; s < N; s++) { const tO = X.observe(X.genMystery('n' + s));
-          for (let g = 0; g < 6; g++) if (X.compareObs(X.observe(X.ALL_COMBOS[rnd(X.ALL_COMBOS.length)]), tO).win) { naive++; break; }
-          if (X.compareObs(X.observe(X.OURS), tO).win) idle++;
-          let cands = X.ALL_COMBOS.slice(), g = { ...X.OURS }, k; for (k = 1; k <= 6; k++) { if (X.compareObs(X.observe(g), tO).win) break; const f = fb(g, tO); cands = cands.filter(c => fb(g, obs.get(c)) === f); g = cands[0]; } if (k <= 6) comp++; }
-        return { naive: naive / N, idle: idle / N, comp: comp / N }; });
-      ok(r.naive <= .1, 'random guesses win ' + r.naive); ok(r.idle === 0); ok(r.comp >= .95, 'deduction wins ' + r.comp);
-    },
-    'corrupted saves are repaired': async ({ page, eq }) => {
-      for (const raw of ['null', '"x"', '{"consts":{"G":99,"a":-1},"chal":{"heavy":"x","zzz":{"n":1,"st":3}},"atlas":[5,{"c":{},"s":[]}],"active":"nope"}']) {
-        await page.evaluate((raw) => localStorage.setItem('rh:us2', raw), raw); const p2 = await reopen(page);
-        const st = await p2.evaluate(() => ({ g: __us.M.consts.G, chal: Object.keys(__us.M.chal).length, a: __us.M.active ?? null }));
-        eq(p2.errs, [], raw); eq(st, { g: 2, chal: 0, a: null }); await p2.close();
-      }
-    },
-    'save/load round-trip of laws, challenges and atlas': async ({ page, eq }) => {
-      await dismiss(page); await page.click('#p-laws [data-k="D"][data-j="0"]'); await page.click('#bangBtn'); await page.click('#skipBtn');
-      const p2 = await reopen(page); eq(await p2.evaluate(() => [__us.M.consts.D, __us.M.atlas.length, !!__us.M.chal.flat]), [0, 1, true]); await p2.close();
-    },
-    'phone layout: no horizontal scroll, sky visible, law buttons big enough': async ({ page, ok }) => {
-      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(150);
-      const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, sky: document.getElementById('sky').getBoundingClientRect(), b: Math.min(...[...document.querySelectorAll('#p-laws button')].map(b => b.getBoundingClientRect().height)) }));
-      ok(r.sw <= 390, 'scrollWidth ' + r.sw); ok(r.sky.height >= 300); ok(r.b >= 32, 'button ' + r.b);
+    'performance: the tree draws at phone frame rates with a full cosmos': async ({ page, ok }) => {
+      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true }); const p = await ctx.newPage();
+      await p.goto(page.url()); await p.waitForTimeout(700); await p.evaluate(() => { document.querySelectorAll('.modal-bg').forEach(m => m.remove()); if (__us.view === 'watch') __us.closeWatch(); for (let i = 0; i < 23; i++) __us.act(null); });
+      const cdp = await ctx.newCDPSession(p); await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+      const ms = await p.evaluate(() => new Promise(res => { const t = []; let last = performance.now(); const f = now => { t.push(now - last); last = now; if (t.length < 90) requestAnimationFrame(f); else res(t.slice(10).sort((a, b) => a - b)[Math.floor(t.length * .5)]); }; requestAnimationFrame(f); }));
+      ok(ms < 20, 'median frame ' + ms.toFixed(1) + 'ms at 4x CPU throttle'); await ctx.close();
     },
   },
 };

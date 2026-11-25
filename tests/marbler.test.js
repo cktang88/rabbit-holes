@@ -52,10 +52,10 @@ module.exports = {
       eq(await page.evaluate(() => [window.__mb.MB.decode('%%%'), window.__mb.MB.decode(btoa('x;9:1:2'))?.ops.length]), [null, 0]);
     },
     'laying the paper judges the sheet, records the best, saves it and opens the next commission': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(async () => { const g = window.__mb, M = g.MB; const c = M.COMMISSIONS.find(c => c.id === 'line'); g.open(c, c.recipe); const open0 = g.comOpen(3);
+      const r = await page.evaluate(async () => { const g = window.__mb, M = g.MB; const c = M.COMMISSIONS.find(c => c.id === 'line'); g.open(c, c.recipe); const open0 = g.comOpen(2);
         g.afterPeel(); await new Promise(r => setTimeout(r, 50)); const txt = document.querySelector('.modal')?.textContent || ''; document.querySelectorAll('.modal-bg').forEach(m => m.remove());
-        return { txt, best: g.SAVE.best.line, done: g.SAVE.done.line, sheets: g.SAVE.sheets.length, open0, open1: g.comOpen(3), tools: g.unlocked().tools }; });
-      ok(/100% alike in 1 strokes|in <b>1/.test(r.txt) || r.txt.includes('1 strokes') || r.txt.includes('100%'), r.txt.slice(0, 80)); eq(r.best, 1); ok(r.done >= .99); eq(r.sheets, 1); eq([r.open0, r.open1], [false, true]); ok(r.tools.includes('rake'), 'the next tools unlock: ' + r.tools);
+        return { txt, best: g.SAVE.best.line, done: g.SAVE.done.line, sheets: g.SAVE.sheets.length, open0, open1: g.comOpen(2), tools: g.unlocked().tools }; });
+      ok(/100% alike in 1 strokes|in <b>1/.test(r.txt) || r.txt.includes('1 strokes') || r.txt.includes('100%'), r.txt.slice(0, 80)); eq(r.best, 1); ok(r.done >= .99); eq(r.sheets, 1); eq([r.open0, r.open1], [false, true]); ok(r.tools.includes('stylus') && r.tools.includes('drop'), 'tools: ' + r.tools);
     },
     'save export and import round-trip; junk is cleaned': async ({ page, eq }) => {
       const r = await page.evaluate(() => { const g = window.__mb; const s = g.cleanSave({ done: { line: 1, nope: 1 }, best: { line: 3, 'daily:2026-11-25': 4, x: 1 }, sheets: ['abc', 5], daily: { '2026-11-25': '90% in 4', bad: 1 } });

@@ -123,6 +123,7 @@
   /* the book */
   .bnav{display:flex;gap:6px;align-items:center;justify-content:center;flex-wrap:wrap;margin-bottom:8px}
   .bnav select{font-family:"IM Fell English",serif;font-size:17px;background:#f1e6ca;color:var(--ink);border:1px solid var(--fade);min-height:34px}
+  .sparkkey{text-align:center;font-size:13px;color:#c7b48a;font-style:italic;margin:-4px 0 8px}
   #spark{display:block;width:100%;max-width:820px;height:46px;margin:0 auto 8px;cursor:pointer}
   .page{max-width:820px;margin:0 auto;padding:16px 22px 22px 36px;background:linear-gradient(90deg,#00000038,transparent 30px),radial-gradient(ellipse at 50% 40%,transparent 55%,#8a5a2a33),var(--fibre),var(--grain),linear-gradient(#efe3c3,#e3d1a6);color:var(--ink);box-shadow:0 14px 40px #000c,-3px 0 0 #6b4a2a,-6px 0 0 #3b2414}
   .page h3{font-weight:400;text-align:center;font-size:30px;margin:0;font-family:"Pinyon Script",cursive;color:#3a2412}
@@ -141,7 +142,7 @@
   .toast{font-family:"IM Fell English",Georgia,serif;font-size:16px;color:var(--ink);background:var(--fibre),linear-gradient(#f3e9cf,#e3d1a6);border:0;border-radius:1px;box-shadow:0 6px 18px #000c;transform:rotate(-.6deg)}
   .modal-bg{background:radial-gradient(ellipse at 50% 30%,#2a1a0a99,#000d)}
   .modal{color:var(--ink);background:var(--fibre),var(--grain),linear-gradient(#f3e9cf,#e3d1a6);border:0;border-radius:2px;box-shadow:0 20px 60px #000;font-size:17px;line-height:1.5;max-height:82vh;max-height:82dvh}
-  .modal .modal-actions{background:#ecdfbf!important;background-color:#ecdfbf!important}
+  .modal .modal-actions{background:linear-gradient(#e9dbb800,#e9dbb8 35%)!important;background-color:transparent!important}
   .modal h2{font-family:"Pinyon Script",cursive;font-weight:400;font-size:36px;margin:0 0 6px;color:#3a2412}
   .modal .dim,.modal .small{color:var(--fade)}
   .modal .big{text-align:center;color:var(--wax);font-size:30px;font-family:"IM Fell English SC",serif;margin:4px 0}
@@ -733,6 +734,9 @@ function renderSlip() {
   if (G.focus == null) { el.innerHTML = `<div class="hint">Choose a letter, and one of the entries it asks about.</div>`; return; }
   const e = V.reg[G.focus], cl = CLERKS[e.clerk];
   let h = `<div class="crumbs">${G.hist.length ? '<button id="backB">◀ back</button>' : ''}<button id="toBook">Open the book at ${e.y}</button><span class="where">${TY[e.t]} · ${fmtD(e.d)}</span></div>`;
+  const forL = V.letters.find(L => !G.answered.includes(L.i) && L.targets.some((k, i) => { if ((L.steps[i] || {}).hidden && !(k in G.sealed)) return false; const kk = stepKey(L, i); return kk && V.slotOf[kk].e === e.id; }));
+  if (forL) h += `<div class="hint" style="margin:0 auto 8px">For the letter: <b>${forL.title}</b></div>`;
+  if (nSeals() < 3) h += `<div class="hint" style="margin:0 auto 8px">Pin the entry that names the same person. Tap an entry\u2019s words to read it. <b>Whenever three pinned threads are true, they are sealed</b>, and the pins come back.</div>`;
   if (G.pins.length >= MAXPINS) h += `<div class="jam">All six pins are in, and fewer than three of them are true. At least one thread is wrong: take it out.</div>`;
   h += `<div class="focus paper"><div class="ehead"><span><b>${TY[e.t]}</b> · ${fmtD(e.d)}</span><span>in the hand of ${cl.name}${e.lost ? ' · from the bishop’s transcript' : ''}</span></div><div class="etext">${etext(e)}</div>`;
   for (const k of e.sl || []) {
@@ -809,7 +813,7 @@ function openBook(y) { bookY = Math.max(Y0, Math.min(Y1, y)); document.body.clas
 function knots(e) { return (e.sl || []).map(k => k in G.sealed ? '<span class="s">◉</span>' : pinOf(k) ? '<span class="p">●</span>' : '○').join(''); }
 function renderBook() {
   const y = bookY, cl = clerkOf(y), lost = y >= V.lost && y <= V.lost + 1 && !transcript();
-  let h = `<div class="bnav"><button id="clsB">◀ the slip</button><button id="pyB" aria-label="Previous year">‹ ${y - 1}</button><select id="ysel" aria-label="Year">${Array.from({ length: Y1 - Y0 + 1 }, (_, i) => `<option ${Y0 + i === y ? 'selected' : ''}>${Y0 + i}</option>`).join('')}</select><button id="nyB" aria-label="Next year">${y + 1} ›</button></div><canvas id="spark" aria-label="Entries per year: baptisms, weddings, burials"></canvas>`;
+  let h = `<div class="bnav"><button id="clsB">◀ the slip</button><button id="pyB" aria-label="Previous year">‹ ${y - 1}</button><select id="ysel" aria-label="Year">${Array.from({ length: Y1 - Y0 + 1 }, (_, i) => `<option ${Y0 + i === y ? 'selected' : ''}>${Y0 + i}</option>`).join('')}</select><button id="nyB" aria-label="Next year">${y + 1} ›</button></div><canvas id="spark" aria-label="Entries per year: baptisms, weddings, burials"></canvas><div class="sparkkey"><span style="color:#d8c69c">\u25A0 baptisms</span> <span style="color:#9aba6a">\u25A0 weddings</span> <span style="color:#c0473a">\u25A0 burials</span> \u00B7 tap a year</div>`;
   h += `<div class="page"><h3>${V.village} · ${y}</h3><div class="hand">in the hand of ${cl.name}, who ${cl.habit}</div>`;
   if (lost) h += `<div class="lost">The leaves for ${V.lost}–${V.lost + 1} are missing. Damp, by the look of the binding. (The bishop kept a copy, if he could be asked…)</div>`;
   else {
@@ -833,7 +837,7 @@ function drawSpark() {
     if (!transcript() && Y0 + i >= V.lost && Y0 + i <= V.lost + 1) { c.fillStyle = '#5a3d2288'; c.fillRect(x, 0, bw, H); continue; }
     const hb = o.B / mx * H * .48, hd = o.D / mx * H * .48, hm = o.M * 2 / mx * H * .48;
     c.fillStyle = '#d8c69c'; c.fillRect(x + bw * .1, H / 2 - hb, bw * .8, hb); c.fillStyle = '#8e1b17'; c.fillRect(x + bw * .1, H / 2, bw * .8, hd); c.fillStyle = '#6a8a3a'; c.fillRect(x + bw * .3, H / 2 - hm, bw * .4, hm); }
-  c.fillStyle = '#c7b48a'; c.font = `${11 * d}px "IM Fell English", serif`; c.fillText('baptisms', 4 * d, 11 * d); c.fillText('burials', 4 * d, H - 3 * d); c.fillStyle = '#9aba6a'; c.fillText('weddings', 64 * d, 11 * d);
+
   cv.onclick = ev => { const r = cv.getBoundingClientRect(); bookY = Y0 + Math.floor((ev.clientX - r.left) / r.width * n); renderBook(); };
 }
 // ================= tabs, help, sharing, the end =================

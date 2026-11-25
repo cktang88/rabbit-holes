@@ -14,6 +14,30 @@ const voyage = (page, lv, lat, lon, opts = {}) => page.evaluate(async ([lv, lat,
   const S = X.stats(); return { won: X.won, resolved: X.resolved, S: { uk: S.regions.uk, eu: S.regions.europe + S.regions.uk, patch: S.patch, lap: S.maxLap, first: S.first } };
 }, [lv, lat, lon, SEED, opts.rot]);
 
+// Uncharted Seas players: an oracle (the true answer), a drifter probe (spend a drifter at the raft), a careful chart reader
+// (spread the drifters, learn the currents from their monthly fixes, follow them from the raft), and a naive guess (nearest coast, next month)
+const SEA_BOTS = () => { window.seaBots = (X, seeds, rung) => {
+  const res = [];
+  for (const sd of seeds) {
+    const W = X.genWorld(sd, rung); if (!W) { res.push(null); continue; }
+    const o = { sd, calls: W.calls.length, oracle: 0, careful: 0, naive: 0, drift: 0 };
+    X.withWorld(W, () => {
+      // careful: spread the drifters over the open sea, learn velocities from their monthly fixes
+      const samp = [], spots = []; const r = RH.rng(sd);
+      for (let t = 0; t < 400 && spots.length < W.drifters - 1; t++) { const la = (r() - .5) * 110, lo = r() * 360 - 180; if (X.isLand(la, lo) || spots.some(s => Math.hypot(s[0] - la, (s[1] - lo) * .7) < 25)) continue; spots.push([la, lo]); }
+      spots.forEach((s, i) => { const d = X.driftPath(s[0], s[1], 4, 3, W.seed * 131 + i * 17 + 1); for (let k = 1; k < d.path.length; k++) { const [t0, a0, b0] = d.path[k - 1], [t1, a1, b1] = d.path[k], dt = t1 - t0; if (dt <= 0) continue; const db = ((b1 - b0 + 540) % 360) - 180; samp.push([(a0 + a1) / 2, b0 + db / 2, db * Math.cos((a0 + a1) / 2 * Math.PI / 180) / dt, (a1 - a0) / dt]); } });
+      const est = (la, lo) => { const c = Math.cos(la * Math.PI / 180), near = samp.map(s => [Math.hypot(s[0] - la, (((s[1] - lo + 540) % 360) - 180) * c), s]).sort((p, q) => p[0] - q[0]).slice(0, 4); let u = 0, v = 0, w = 0; for (const [d, s] of near) { const k = 1 / (d + 1); u += s[2] * k; v += s[3] * k; w += k; } return w ? [u / w, v / w] : [0, 0]; };
+      const predict = (c) => { let la = c.at[0], lo = c.at[1]; for (let t = 0; t < 3; t += 1 / 48) { const [u, v] = est(la, lo); la += v / 48; lo += u / 48 / Math.max(.2, Math.cos(la * Math.PI / 180)); lo = ((lo + 540) % 360) - 180; if (X.isLand(la, lo) || Math.abs(la) > 82) return { at: [la, lo], t }; } return { at: nearestCoast({ at: [la, lo] }), t: 2 }; };
+      const nearestCoast = c => { for (let d = 1; d < 60; d++) for (let a = 0; a < 16; a++) { const la = c.at[0] + d * Math.sin(a / 16 * 6.283), lo = c.at[1] + d * Math.cos(a / 16 * 6.283) / Math.max(.3, Math.cos(c.at[0] * Math.PI / 180)); if (X.isLand(la, lo)) return [la, lo]; } return c.at; };
+      for (const c of W.calls) { const ens = X.ensemble(W, c); o.oracle += X.savedBy(ens, c.best.at, c.best.t);
+        const p = predict(c); if (p) o.careful += X.savedBy(ens, p.at, Math.max(1, Math.round(p.t * 12)) / 12);
+        o.naive += X.savedBy(ens, nearestCoast(c), 1);
+        const d = X.driftPath(c.at[0], c.at[1], 3, c.w, 999 + c.i); if (d.land) o.drift += X.savedBy(ens, [d.land.lat, d.land.lon], Math.max(1, Math.round(d.land.t * 12)) / 12); }
+    });
+    res.push(o);
+  }
+  return res; }; };
+
 module.exports = {
   page: 'floatees/index.html',
   ready,
@@ -217,6 +241,69 @@ module.exports = {
       const d = await page.evaluate(() => { const X = __fl, st = X.level.case.start; return [X.dateOf(0), X.dateOf(1.5), st[0]]; });
       ok(+d[0].split(' ')[1] >= d[2] && +d[1].split(' ')[1] >= d[2], 'card dates ' + d);
       ok(/APR/.test(d[0]), 'the chosen spill month dates the cards: ' + d[0]);
+    },
+    'uncharted seas: worlds are generated per seed from the same physics; western intensification follows each world\'s spin': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = __fl, o = { same: true, differ: true, west: [], east: [] };
+        const key = W => W.lm.reduce((a, v, k) => (a * 31 + v * (k % 97 + 1)) % 1000000007, 7) + ':' + W.st.vmax.toFixed(6) + ':' + JSON.stringify(W.calls.map(c => c.at)) + W.rot + W.names;
+        const k1 = key(X.genWorld(4242, 3)); o.same = k1 === key(X.genWorld(4242, 3)); o.differ = k1 !== key(X.genWorld(4243, 3));
+        // where in each basin is the water fastest? fraction of the way across, from its western shore, weighted by speed
+        for (let sd = 1; o.west.length < 3 || o.east.length < 3; sd++) { if (sd > 60) break; const W = X.genWorld(sd * 37, 2); if (!W) continue;
+          const f = X.withWorld(W, () => { let num = 0, den = 0; const V = [0, 0];
+            for (let la = -50; la <= 50; la += 2) { if (Math.abs(la) < 12) continue; const row = []; for (let lo = -180; lo < 180; lo += 1) row.push(X.isLand(la, lo));
+              for (let i = 0; i < 360; i++) { if (row[i]) continue; let w = 0, e = 0; while (w < 360 && !row[(i - w - 1 + 720) % 360]) w++; while (e < 360 && !row[(i + e + 1) % 360]) e++; if (w + e > 300 || w + e < 20) continue; X.vel(la, -180 + i, V); const sp = Math.hypot(V[0], V[1]) ** 2; num += sp * w / (w + e); den += sp; } }
+            return num / den; });
+          (W.spin > 0 ? o.west : o.east).push(+f.toFixed(3)); }
+        return o; });
+      ok(r.same && r.differ, 'same seed, same world; another seed, another world');
+      ok(r.west.every(f => f < .45), 'spinning like Earth: the fast water hugs the western shores ' + r.west);
+      ok(r.east.every(f => f > .55), 'spinning backwards: it hugs the eastern shores ' + r.east);
+    },
+    'uncharted seas, difficulty: the true answer beats a drifter probe, which beats a careful chart reader, who beats a guess': async ({ page, ok }) => {
+      await page.evaluate(SEA_BOTS);
+      const r = await page.evaluate(() => [1, 3].map(rg => { const res = seaBots(__fl, [11, 22, 33, 44], rg), sum = k => res.reduce((a, x) => a + (x ? x[k] : 0), 0); return { rg, n: sum('calls') * 40, oracle: sum('oracle'), probe: sum('drift'), careful: sum('careful'), naive: sum('naive'), ok: res.every(Boolean) }; }));
+      for (const x of r) { ok(x.ok, 'every world generated');
+        ok(x.oracle > .5 * x.n, `rung ${x.rg}: a perfect answer finds most crews (${(x.oracle / x.n * 100).toFixed(0)}%)`);
+        ok(x.oracle > x.probe && x.probe > x.careful && x.careful > 1.8 * x.naive, `rung ${x.rg}: oracle ${x.oracle.toFixed(0)} > probe ${x.probe.toFixed(0)} > careful ${x.careful.toFixed(0)} > naive ${x.naive.toFixed(0)}`); }
+      console.log('      seas, crew found per 100 [rung, oracle, probe, careful, naive]: ' + JSON.stringify(r.map(x => [x.rg, ...['oracle', 'probe', 'careful', 'naive'].map(k => Math.round(x[k] / x.n * 100))])));
+    },
+    'uncharted seas: a chart is scored against the true flow (along it scores high, against it and at random score low)': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = __fl, W = X.genWorld(9090, 2);
+        const along = X.withWorld(W, () => { const out = [], V = [0, 0]; for (let la = -54; la <= 54; la += 12) for (let lo = -174; lo < 180; lo += 24) { if (X.isLand(la, lo)) continue; let a = la, o = lo; const st = [[a, o]]; for (let k = 0; k < 10; k++) { X.vel(a, o, V); const sp = Math.hypot(V[0], V[1]); if (sp < 1) break; a += V[1] / sp * 1.6; o += V[0] / sp * 1.6 / Math.cos(a * Math.PI / 180); if (X.isLand(a, o)) break; st.push([a, o]); } if (st.length > 3) out.push(st); } return out; });
+        let s = 3; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+        const random = along.map(st => { const a = (rnd() - .5) * 100, o = rnd() * 360 - 180, h = rnd() * 6.28; return Array.from({ length: 8 }, (_, k) => [a + Math.sin(h) * k * 1.6, o + Math.cos(h) * k * 1.6]); });
+        return { along: X.chartScore(W, along), against: X.chartScore(W, along.map(st => st.slice().reverse())), random: X.chartScore(W, random), none: X.chartScore(W, []) }; });
+      ok(r.along.pts >= 80 && r.along.acc > .9, 'along the currents: ' + JSON.stringify(r.along)); ok(r.against.pts === 0, 'against them: ' + r.against.pts);
+      ok(r.random.pts < 30, 'random arrows: ' + r.random.pts); ok(r.none.pts === 0, 'no chart: 0');
+    },
+    'uncharted seas, played with the mouse: drop drifters, draw an arrow, answer every call, see the truth; reload resumes; leaving restores Earth': async ({ page, ok, eq }) => {
+      const gulf = () => page.evaluate(() => { const v = __fl.vel(36, -72); return Math.hypot(v[0], v[1]); }); const g0 = await gulf();
+      await page.evaluate(() => { localStorage.removeItem('rh:floatees'); __fl.seaStart(2024, 1, false); __fl.load(__fl.LV.findIndex(l => l.seas)); });
+      const W0 = await page.evaluate(() => [__fl.W.seed, __fl.W.rung]); eq(W0, [2024, 1], 'the world on the globe');
+      // a click on open sea at the screen centre drops a drifter (find a sea pixel near the centre)
+      const spot = await page.evaluate(() => { for (let r = 0; r < 200; r += 10) for (let a = 0; a < 6.28; a += .5) { const x = innerWidth / 2 + r * Math.cos(a), y = innerHeight / 2 + r * Math.sin(a), e = { clientX: x, clientY: y }; const ll = __fl.latLonAtXY(x, y); if (ll && !__fl.isLand(ll[0], ll[1]) && !__fl.isLand(ll[0] + 4, ll[1]) && !__fl.isLand(ll[0], ll[1] + 4)) return [x, y]; } return null; });
+      ok(spot, 'found open sea on screen'); await page.mouse.click(spot[0], spot[1]); eq(await page.evaluate(() => __fl.sea.dr.length), 1, 'a click drops a drifter');
+      await page.waitForTimeout(800); ok(await page.evaluate(() => __fl.sea.dr[0].shown > 3), 'the drifter reports in, month by month');
+      // draw: the globe must not turn while you draw
+      await page.click('#sDraw'); const cam0 = await page.evaluate(() => __fl.camPos);
+      await page.mouse.move(spot[0] - 40, spot[1]); await page.mouse.down(); for (let k = 1; k <= 10; k++) await page.mouse.move(spot[0] - 40 + k * 8, spot[1] - k * 2); await page.mouse.up();
+      eq(await page.evaluate(() => __fl.sea.chart.length), 1, 'a drag in draw mode makes an arrow'); eq(await page.evaluate(() => __fl.camPos), cam0, 'and does not turn the globe');
+      await page.click('#sDraw'); await page.click('#sRadio'); eq(await page.evaluate(() => __fl.sea.phase), 'calls', 'the radio opens');
+      // reload mid-voyage: same world, same drifter, same arrow, same call
+      await page.evaluate(() => { history.replaceState(null, '', location.pathname); }); await page.reload(); await page.waitForFunction(() => window.__fl && __fl.ready2 && __fl.W, null, { timeout: 60000 });
+      eq(await page.evaluate(() => [__fl.W.seed, __fl.sea.dr.length, __fl.sea.chart.length, __fl.sea.phase, __fl.sea.ci]), [2024, 1, 1, 'calls', 0], 'a reload resumes the world');
+      for (let i = 0; i < 3; i++) {
+        const c = await page.evaluate(() => { const c = __fl.W.calls[__fl.sea.ci]; return __fl.screenOf(c.best.at[0], c.best.at[1]); });
+        await page.evaluate(() => { const c = __fl.W.calls[__fl.sea.ci]; __fl.lookAt(c.best.at[0], c.best.at[1]); }); await page.waitForTimeout(700);
+        const xy = await page.evaluate(() => { const c = __fl.W.calls[__fl.sea.ci]; return __fl.screenOf(c.best.at[0], c.best.at[1]); });
+        await page.mouse.click(xy[0], xy[1]); ok(await page.evaluate(() => !!__fl.sea.pick), 'a click picks where the ship waits');
+        await page.selectOption('#sMonth', String(await page.evaluate(() => Math.max(1, Math.round(__fl.W.calls[__fl.sea.ci].best.t * 12)))));
+        await page.click('#sSend'); ok(await page.evaluate(i => __fl.sea.answers[i] && __fl.sea.answers[i].saved >= 3, i), 'a good answer rescues crew: ' + await page.evaluate(i => JSON.stringify(__fl.sea.answers[i]), i));
+        await page.click('#sNextC');
+      }
+      const end = await page.evaluate(() => ({ ph: __fl.sea.phase, sc: __fl.sea.score, rev: __fl.W.revealed, n: __fl.sea.n }));
+      eq([end.ph, end.rev, end.n], ['done', true, 1], 'the voyage ends with the truth shown'); ok(end.sc.total > 0 && end.sc.crew >= 9, 'scored: ' + JSON.stringify(end.sc));
+      await page.click('#snext'); eq(await page.evaluate(() => [__fl.W.seed, __fl.W.rung, __fl.sea.phase]), [2025, 2, 'survey'], 'a good voyage moves on to a harder world');
+      await page.evaluate(() => __fl.load(1)); eq(await page.evaluate(() => __fl.SEA), null, 'leaving: Earth is back'); const g1 = await gulf(); ok(Math.abs(g1 - g0) < 1e-9, `the Gulf Stream is Earth's again (${g0} vs ${g1})`);
     },
     'corrupted / odd saves load without errors': async ({ page, eq }) => {
       const u = page.url(); await page.goto('about:blank'); // stop the first globe rendering while the others load

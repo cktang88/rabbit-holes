@@ -45,6 +45,7 @@
     background:var(--grain),repeating-linear-gradient(90deg,rgba(255,255,255,.06) 0 1px,transparent 1px 5px),linear-gradient(#d9b467,#a67e32 55%,#86621f);border:1px solid #5a4014}
   #ctrl .sep{width:1px;height:24px;background:rgba(60,40,10,.4)}
   #clock{font:700 15px "Courier Prime",monospace;padding:2px 10px;color:#f6e7b8;background:#1b140b;border-radius:2px;box-shadow:inset 0 2px 4px #000;font-variant-numeric:tabular-nums}
+  #ctrl select{font:700 12px 'Courier Prime',monospace;background:#f3ead2;color:#2c1e08;border:1px solid #6b5228;border-radius:3px;padding:4px 6px;min-height:30px}
   #ctrl .hint{font-size:12px;color:#2c1e08;padding:0 4px;font-style:italic}
   /* the tally is a typed field report */
   #tally{bottom:16px;right:16px;padding:12px 14px;width:244px;font-size:12.5px;line-height:1.55;background:var(--grain),repeating-linear-gradient(transparent 0 19px,rgba(31,53,80,.14) 19px 20px),linear-gradient(#f5efde,#e9dfc4)}
@@ -264,12 +265,12 @@ const LV = [
     goal: 'Match the logbook within <b>3 months</b> average error, with at most <b>12 hindcasts</b>. ★★ within 2, ★★★ within 1.2.' },
   { n: 'Open Ocean', years: Infinity, free: 1, physics: 1,
     story: 'A sandbox. Drop ducks anywhere, change the planet, and watch for decades.', goal: 'No goal. Have fun.', win: () => false },
-  { n: 'Uncharted Seas', years: Infinity, seas: 1, focus: [20, 0],
-    story: 'A new world every time: its own continents, its own spin, its own winds, and the same physics as Earth. Nobody has charted its seas. Read the currents from what your drifters report, <b>draw the chart</b>, then use it to answer the distress calls. At the end the true currents are laid over your chart.',
-    goal: 'Chart the world, rescue the crews.', win: () => false },
   { n: 'Case Files', years: 5, focus: [30, -50], endless: 1, openAfter: 6, case: null,
     story: 'The beachcomber network never sleeps. Every case file is a new spill somewhere in the North Atlantic, the North Pacific or the South Atlantic, generated from the same current model. Solve one and the next is harder: first you must also find <b>when</b>, then <b>what</b> was spilled (ducks ride the wind, sneakers don\'t), then with less computer time. Run out of hindcasts on any case and the run is over.',
     goal: 'Solve as many cases in a row as you can.', win: () => false },
+  { n: 'Uncharted Seas', years: Infinity, seas: 1, focus: [20, 0],
+    story: 'A new world every time: its own continents, its own spin, its own winds, and the same physics as Earth. Nobody has charted its seas. Read the currents from what your drifters report, <b>draw the chart</b>, then use it to answer the distress calls. At the end the true currents are laid over your chart.',
+    goal: 'Chart the world, rescue the crews.', win: () => false },
 ];
 
 // ================= sound =================
@@ -811,18 +812,18 @@ function leaveWorld() {
 // ---- what you see: drifter fixes, the call marker, your chart and (at the end) the true currents ----
 const SDN = 12 * 49, sdGeo = new THREE.BufferGeometry(), sdPos = new Float32Array(SDN * 3), sdCol = new Float32Array(SDN * 3);
 sdGeo.setAttribute('position', new THREE.BufferAttribute(sdPos, 3)); sdGeo.setAttribute('color', new THREE.BufferAttribute(sdCol, 3)); sdGeo.setDrawRange(0, 0);
-const seaDots = new THREE.Points(sdGeo, new THREE.PointsMaterial({ size: .022, map: dot(.45, .7), vertexColors: true, transparent: true, depthWrite: false })); globe.add(seaDots);
+const seaDots = new THREE.Points(sdGeo, new THREE.PointsMaterial({ size: .07, map: dot(.45, .7), vertexColors: true, transparent: true, depthWrite: false })); globe.add(seaDots);
 const slGeo = new THREE.BufferGeometry(), slPos = new Float32Array(SDN * 6), slCol = new Float32Array(SDN * 6); slGeo.setAttribute('position', new THREE.BufferAttribute(slPos, 3)); slGeo.setAttribute('color', new THREE.BufferAttribute(slCol, 3)); slGeo.setDrawRange(0, 0);
 const seaLines = new THREE.LineSegments(slGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: .85, depthWrite: false })); globe.add(seaLines);
 const callGeo = new THREE.BufferGeometry(); callGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3)); callGeo.setDrawRange(0, 0);
-const callPts = new THREE.Points(callGeo, new THREE.PointsMaterial({ size: .1, map: dot(.3, .55), color: '#e0321c', transparent: true, depthWrite: false })); globe.add(callPts);
+const callPts = new THREE.Points(callGeo, new THREE.PointsMaterial({ size: .3, map: (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); g.lineWidth = 6; g.strokeStyle = '#ff3a1c'; g.beginPath(); g.arc(32, 32, 24, 0, 7); g.stroke(); g.fillStyle = '#ff3a1c'; g.beginPath(); g.arc(32, 32, 8, 0, 7); g.fill(); g.strokeStyle = '#fff4d8'; g.lineWidth = 2; g.beginPath(); g.arc(32, 32, 29, 0, 7); g.stroke(); return new THREE.CanvasTexture(c); })(), transparent: true, depthWrite: false })); globe.add(callPts); // a target ring: the mayday, and where your ship waits
 const HUES = [[1, .82, .2], [.55, .9, 1], [1, .5, .75], [.6, 1, .55], [1, .62, .3], [.8, .7, 1], [1, 1, .6], [.4, .8, .8], [1, .4, .4], [.9, .9, .9], [.7, .5, .3], [.5, .6, 1]];
 function seaGeoReset() { sdGeo.setDrawRange(0, 0); slGeo.setDrawRange(0, 0); callGeo.setDrawRange(0, 0); }
 function seaGeo() { // drifter fixes as dots (a bigger one where it beached), joined by faint lines
   let n = 0, m = 0;
   if (sea && W) sea.dr.forEach((d, i) => { const hu = HUES[i % HUES.length], k = Math.min(d.path.length, d.shown | 0);
     for (let q = 0; q < k && n < SDN; q++) { const [, la, lo] = d.path[q]; toXYZ(la, lo, 1.009, XYZ); sdPos.set(XYZ, n * 3); const f = q === 0 ? 1.2 : .85; sdCol.set([hu[0] * f, hu[1] * f, hu[2] * f], n * 3); n++;
-      if (q && m < SDN) { const [, a0, o0] = d.path[q - 1]; if (Math.abs(lo - o0) < 30) { toXYZ(a0, o0, 1.008, XYZ); slPos.set(XYZ, m * 6); toXYZ(la, lo, 1.008, XYZ); slPos.set(XYZ, m * 6 + 3); slCol.set([...hu, ...hu].map(v => v * .7), m * 6); m++; } } } });
+      if (q && m < SDN) { const [, a0, o0] = d.path[q - 1]; if (Math.abs(lo - o0) < 30) { toXYZ(a0, o0, 1.008, XYZ); slPos.set(XYZ, m * 6); toXYZ(la, lo, 1.008, XYZ); slPos.set(XYZ, m * 6 + 3); slCol.set([...hu, ...hu], m * 6); m++; } } } });
   if (sea && sea.rev) for (const l of sea.rev) if (l && n < SDN) { toXYZ(l.lat, l.lon, 1.01, XYZ); sdPos.set(XYZ, n * 3); sdCol.set([1, .25, .2], n * 3); n++; }
   sdGeo.setDrawRange(0, n); slGeo.setDrawRange(0, m * 2); sdGeo.attributes.position.needsUpdate = sdGeo.attributes.color.needsUpdate = slGeo.attributes.position.needsUpdate = slGeo.attributes.color.needsUpdate = true;
 }
@@ -911,34 +912,41 @@ function seaPointer(e, kind) {
 }
 function seaFrame(dt) { // drifters report in, a month every ~70 ms
   if (!sea || !W) return; let ch = false; const now = performance.now();
+  if (callGeo.drawRange.count) { callPts.material.size = .5 + .1 * Math.sin(now / 260); hot = now; } // the mayday pulses
   for (const d of sea.dr) if (d.shown < d.path.length) { const n = 1 + Math.floor((now - d.t0) / 70); if (n !== d.shown) { d.shown = n; ch = true; if (n >= d.path.length) { FX.sfx(d.land ? 'chime' : 'pop'); renderTally(stats()); } } }
   if (ch) { seaGeo(); hot = now; }
 }
 function seaWindText() { const w = W, e = w.wamp > 0; const band = Math.round(180 / Math.PI * Math.PI / 2 / w.wk);
   return `Winds: ${e ? 'easterly trades' : 'westerly trades'} from the equator to ${band}°, ${e ? 'westerlies' : 'easterlies'} to ${band * 2}°, ${e ? 'easterlies' : 'westerlies'} to ${Math.min(90, band * 3)}°.`; }
-function renderSea() {
-  const p = sea.phase, used = sea.dr.length, left = W.drifters - used, c = W.calls[sea.ci];
+function renderSea() { // the card tells the story; the brass bar below the globe holds what you do next
+  const p = sea.phase, left = W.drifters - sea.dr.length, c = W.calls[sea.ci];
   let h = `<div class="cleft">World <b>${W.seed}</b> · rung ${W.rung}/5${sea.daily ? ' · <b>daily world</b>' : ` · run ${sea.total} over ${sea.n}`} · best ${+(SAVE.sea && SAVE.sea.best) || 0}</div>`
     + `<div style="margin-top:4px">This planet spins <b>${SPINS[W.spin]}</b>${W.rate !== 1 ? `, ${W.rate > 1 ? 'faster' : 'slower'} than Earth (a ${Math.round(24 / W.rate)}-hour day)` : ''}. ${W.rung >= 3 ? seaWindText() : ''}</div>`;
-  if (p === 'survey') h += `<div style="margin-top:6px">» <b>Survey.</b> ${MOBILE ? 'Tap' : 'Click'} the sea to drop a radio drifter: it reports its position every month for four years. Drifters left: <b>${left}</b> of ${W.drifters}. Then <b>draw your chart</b> (✎): arrows the way the water goes. Distress calls come in when you open the radio.</div>`
-    + `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="b on" id="sRadio">Open the radio ▸</button></div>`;
+  if (p === 'survey') h += `<div style="margin-top:6px">» <b>Survey.</b> ${MOBILE ? 'Tap' : 'Click'} the sea to drop a radio drifter: it reports where it is every month for four years. <b>${left}</b> of ${W.drifters} left. Then <b>draw your chart</b> (✎): arrows the way the water goes. The distress calls come when you open the radio.</div>` + (W.rung <= 2 ? `<div style="margin-top:4px;color:#5a4a30">Physics you already know: each basin's fastest current runs along its western shore on a planet spinning like Earth, and along its eastern shore on a backwards one (voyages 4 and 5).</div>` : '');
   if (p === 'calls') { const a = sea.answers[sea.ci], it = ITEMS.find(x => x.k === c.k);
-    h += `<div style="margin-top:6px">» <b>Mayday ${sea.ci + 1} of ${W.calls.length}:</b> ${it.n} adrift at <b>${fmtLL(c.at)}</b> (red dot), ${CREW} aboard. Where will it beach, and when? ${a ? '' : `${MOBILE ? 'Tap' : 'Click'} the coast where your ship should wait.`}</div>`;
-    if (!a) h += `<label class="dial">Ship waits there after <select id="sMonth">${Array.from({ length: 36 }, (_, k) => `<option value="${k + 1}" ${k + 1 === sea.month ? 'selected' : ''}>${k + 1} month${k ? 's' : ''}</option>`).join('')}</select></label>`
-      + `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="b on" id="sSend" ${sea.pick ? '' : 'disabled'}>Send the ship${sea.pick ? ` to ${fmtLL(sea.pick)}` : ''}</button><button class="b" id="sProbe" ${left ? '' : 'disabled'}>Drop a drifter beside it (${left} left)</button></div>`;
-    else h += `<div style="margin-top:6px"><b>${a.saved}</b> of ${CREW} picked up. <button class="b on" id="sNextC">${sea.ci < W.calls.length - 1 ? 'Next call ▸' : 'See the true currents ▸'}</button></div>`; }
-  if (p === 'done') { const S = sea.score; h += `<div style="margin-top:6px">✓ Charted. Rescued <b>${S.crew}</b>, chart <b>${S.chart.pts}</b>, spare drifters <b>${S.spare}</b>: world score <b>${S.total}</b>. Red arrows are the true currents.</div><div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="b on" id="sNextW">${sea.daily ? 'Endless run' : 'Next world ▸'}</button></div>`; }
+    h += `<div style="margin-top:6px">» <b>Mayday ${sea.ci + 1} of ${W.calls.length}:</b> ${it.n}, adrift at <b>${fmtLL(c.at)}</b> (red dot), ${CREW} aboard. ${a ? `<b>${a.saved}</b> of ${CREW} picked up.` : `Where will it beach, and when? ${MOBILE ? 'Tap' : 'Click'} the coast where your ship should wait${sea.pick ? ` (now ${fmtLL(sea.pick)})` : ''}, set the month and send it.`}</div>`; }
+  if (p === 'done') { const S = sea.score; h += `<div style="margin-top:6px">✓ Charted. Rescued <b>${S.crew}</b>, chart <b>${S.chart.pts}</b>, spare drifters <b>${S.spare}</b>: world score <b>${S.total}</b>. Red arrows are the true currents, blue ones yours.</div>`; }
   h += `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="b" id="sDaily">Daily world</button><button class="b" id="sNew">New run</button><button class="b" id="sShare">Share</button></div>`;
   $('goal').className = ''; $('goal').innerHTML = h;
-  if ($('sRadio')) $('sRadio').onclick = () => { if (!sea.chart.length && !sea.warned) { sea.warned = 1; toast('No chart yet', 'Draw one first (✎), or press again to answer the calls from memory.', 3000); return; } sea.phase = 'calls'; sea.ci = 0; sea.pick = null; seaCallMarker(); seaFocus(); seaSave(); renderGoal(); FX.sfx('chime'); };
+  $('sDaily').onclick = () => { FX.sfx('click'); seaStart(todaySeed() % 1000000, 3, true); };
+  $('sNew').onclick = () => { FX.sfx('click'); sea = null; seaStart((Math.random() * 1e6) | 0, 1, false); };
+  $('sShare').onclick = () => { const u = location.href.split('#')[0] + '#sea=' + W.seed + '-' + W.rung; try { navigator.clipboard.writeText(u); } catch (e) {} toast('World link copied', u, 3000); };
+  renderCtrl();
+}
+function seaActions() {
+  const p = sea.phase, left = W.drifters - sea.dr.length, a = sea.answers[sea.ci];
+  if (p === 'survey') return `<button class="b on" id="sRadio">Open the radio ▸</button>`;
+  if (p === 'calls' && !a) return `<select id="sMonth" aria-label="Months until the ship waits there">${Array.from({ length: 36 }, (_, k) => `<option value="${k + 1}" ${k + 1 === sea.month ? 'selected' : ''}>in ${k + 1} mo</option>`).join('')}</select><button class="b on" id="sSend" ${sea.pick ? '' : 'disabled'}>Send the ship</button><button class="b" id="sProbe" ${left ? '' : 'disabled'} title="Drop a drifter beside the raft (${left} left)">Probe (${left})</button>`;
+  if (p === 'calls') return `<button class="b on" id="sNextC">${sea.ci < W.calls.length - 1 ? 'Next call ▸' : 'The true currents ▸'}</button>`;
+  return `<button class="b on" id="sNextW">${sea.daily ? 'Endless run ▸' : 'Next world ▸'}</button>`;
+}
+function wireSea() {
+  if ($('sRadio')) $('sRadio').onclick = () => { if (!sea.chart.length && !sea.warned) { sea.warned = 1; toast('No chart yet', 'Draw one first (✎), or press again to answer the calls from memory.', 3000); return; } sea.phase = 'calls'; sea.ci = 0; sea.pick = null; sea.draw = false; controls.enabled = true; seaCallMarker(); seaFocus(); seaSave(); renderGoal(); FX.sfx('chime'); };
   if ($('sMonth')) $('sMonth').onchange = e => { sea.month = +e.target.value; FX.sfx('click'); };
   if ($('sSend')) $('sSend').onclick = seaAnswer;
   if ($('sProbe')) $('sProbe').onclick = () => { const c2 = W.calls[sea.ci]; seaDrifter(c2.at[0], c2.at[1]); renderGoal(); };
   if ($('sNextC')) $('sNextC').onclick = seaNextCall;
   if ($('sNextW')) $('sNextW').onclick = seaNext;
-  $('sDaily').onclick = () => { FX.sfx('click'); seaStart(todaySeed() % 1000000, 3, true); };
-  $('sNew').onclick = () => { FX.sfx('click'); sea = null; seaStart((Math.random() * 1e6) | 0, 1, false); };
-  $('sShare').onclick = () => { const u = location.href.split('#')[0] + '#sea=' + W.seed + '-' + W.rung; try { navigator.clipboard.writeText(u); } catch (e) {} toast('World link copied', u, 3000); };
 }
 function seaTally() {
   const rows = sea.dr.map((d, i) => { const hu = HUES[i % HUES.length].map(v => Math.round(v * 200)).join(','); return `<div class="r"><span style="color:rgb(${hu})">● drifter ${i + 1}</span><b>${d.shown < d.path.length ? 'reporting…' : d.land ? `${d.land.c}, ${Math.round(d.land.t * 12)} mo` : 'still at sea'}</b></div>`; }).join('');
@@ -1005,7 +1013,8 @@ const goNext = () => { if (SAVE.cur < LV.length - 1) { FX.sfx('click'); load(SAV
 $('next').onclick = goNext;
 function renderCtrl() {
   if (L.seas) { const d = sea && sea.draw;
-    $('ctrl').innerHTML = `<span class="hint">${d ? 'Drag along the sea to draw an arrow' : sea && sea.phase === 'calls' ? `${MOBILE ? 'Tap' : 'Click'} where the ship should wait` : `${MOBILE ? 'Tap' : 'Click'} the sea to drop a drifter`}</span><span class="sep"></span><button class="b ${d ? 'on' : ''}" id="sDraw" aria-pressed="${!!d}">✎ ${d ? 'Drawing' : 'Draw'}</button><button class="b" id="sUndo" ${sea && sea.chart.length && sea.phase !== 'done' ? '' : 'disabled'}>↶ Undo</button><button class="b" id="sClear" ${sea && sea.chart.length && sea.phase !== 'done' ? '' : 'disabled'}>Clear</button><span id="clock"></span>`;
+    $('ctrl').innerHTML = `<span class="hint">${d ? 'Drag along the sea to draw an arrow' : sea && sea.phase === 'calls' ? `${MOBILE ? 'Tap' : 'Click'} where the ship should wait` : `${MOBILE ? 'Tap' : 'Click'} the sea to drop a drifter`}</span><span class="sep"></span><button class="b ${d ? 'on' : ''}" id="sDraw" aria-pressed="${!!d}">✎ ${d ? 'Drawing' : 'Draw'}</button><button class="b" id="sUndo" ${sea && sea.chart.length && sea.phase !== 'done' ? '' : 'disabled'}>↶ Undo</button><button class="b" id="sClear" ${sea && sea.chart.length && sea.phase !== 'done' ? '' : 'disabled'}>Clear</button><span class="sep"></span>${sea && W ? seaActions() : ''}<span id="clock"></span>`;
+    wireSea();
     $('sDraw').onclick = () => { if (!sea || sea.phase === 'done') return; sea.draw = !sea.draw; controls.enabled = !sea.draw; FX.sfx('click'); renderCtrl(); };
     $('sUndo').onclick = () => { sea.chart.pop(); seaSave(); drawOverlay(); renderCtrl(); renderTally(stats()); FX.sfx('pop'); };
     $('sClear').onclick = () => { sea.chart = []; seaSave(); drawOverlay(); renderCtrl(); renderTally(stats()); FX.sfx('pop'); };
@@ -1194,7 +1203,7 @@ canvas.addEventListener('pointerdown', () => { viewTo = null; }); // grabbing th
 load(sharedCase ? LV.findIndex(l => l.endless) : sharedSea ? LV.findIndex(l => l.seas) : +SAVE.cur || 0); // a shared case link opens that case
 requestAnimationFrame(frame);
 const proj = new THREE.Vector3();
-window.__fl = { arcDegX: arcDeg, genWorld, chartScore, driftPath, ensemble, savedBy, bestAnswer, seaStart, seaTap, seaAnswer, seaNextCall, seaFinish, seaDrifter, withWorld, isLand, get W() { return W; }, get sea() { return sea; }, get SEA() { return SEA; }, dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
+window.__fl = { latLonAtXY: (x, y) => latLonAt({ clientX: x, clientY: y }), lookAt: (la, lo) => { L.focus = [la + 12, lo]; homeView(true); }, genWorld, chartScore, driftPath, ensemble, savedBy, bestAnswer, seaStart, seaTap, seaAnswer, seaNextCall, seaFinish, seaDrifter, withWorld, isLand, get W() { return W; }, get sea() { return sea; }, get SEA() { return SEA; }, dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
   screenOf: (lat, lon) => { proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>

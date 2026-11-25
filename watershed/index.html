@@ -141,7 +141,7 @@
 const WS = (() => {
   'use strict';
   const W = 54, H = 36, N = W * H;
-  const M = .5, DT = 1, D = .012; let KF = .04; const UB = .018;          // area exponent, step (10 kyr), creep
+  const M = .5, DT = 1, D = .012; let KF = .04; const UB = .018; let FALL = 2;          // area exponent, step (10 kyr), creep
   const SQ2 = Math.SQRT2;
   const DX = [1, -1, 0, 0, 1, 1, -1, -1], DY = [0, 0, 1, -1, 1, -1, 1, -1], DL = [1, 1, 1, 1, SQ2, SQ2, SQ2, SQ2];
   function hash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
@@ -236,7 +236,7 @@ const WS = (() => {
   function nearestSea(w, x, y) { let b = 0, bd = 1e9; for (let i = 0; i < N; i++) if (w.sea[i]) { const d = Math.hypot(i % W - x, ((i / W) | 0) - y); if (d < bd) { bd = d; b = w.sea[i] - 1; } } return b; }
   function applyAgents(w, list) {
     for (const a of list) {
-      if (a.t === 'fall') { const s = a.sea != null ? a.sea : nearestSea(w, a.x, a.y); w.base[s] -= 5; continue; }
+      if (a.t === 'fall') { const s = a.sea != null ? a.sea : nearestSea(w, a.x, a.y); w.base[s] -= FALL; continue; }
       const r = AGENTS[a.t].r;
       for (let i = 0; i < N; i++) { const x = i % W, y = (i / W) | 0, dd = Math.hypot(x - a.x, y - a.y); if (dd >= r + 1.2 || w.sea[i]) continue; const f = dd < r ? 1 : (r + 1.2 - dd) / 1.2;
         if (a.t === 'shale') w.K[i] *= 1 + 3 * f; else if (a.t === 'hard') w.K[i] *= 1 - .8 * f; else if (a.t === 'rise') w.U[i] += .09 * f;
@@ -351,7 +351,7 @@ const WS = (() => {
   // share of land draining to each outlet
   function shares(w) { const s = new Float64Array(w.base.length + 1); let land = 0; for (let i = 0; i < N; i++) if (!w.sea[i]) { s[w.lab[i]]++; land++; } return Array.from(s.slice(1), v => v / land); }
 
-  return { NOTES, watcher, encodeAgents, decodeAgents, dailyPlate, openPlate, nearestSea, PLATES, AGENTS, genWorld, cloneWorld, applyAgents, simulate, goalMet, goalValue, townA, featAmt, edgeCells, RIVER, setKF: v => { KF = v; }, W, H, N, rng, hash, noise, fbm, makeWorld, route, step, shares, idx };
+  return { setFall: v => { FALL = v; }, NOTES, watcher, encodeAgents, decodeAgents, dailyPlate, openPlate, nearestSea, PLATES, AGENTS, genWorld, cloneWorld, applyAgents, simulate, goalMet, goalValue, townA, featAmt, edgeCells, RIVER, setKF: v => { KF = v; }, W, H, N, rng, hash, noise, fbm, makeWorld, route, step, shares, idx };
 })();
 // ENGINE END
 
@@ -602,7 +602,7 @@ function place(t, x, y) {
   const a = t === 'fall' ? { t, sea: WS.nearestSea(w0, x, y) } : { t, x: cx, y: cy };
   if (t === 'fall' && agents.some(b => b.t === 'fall' && b.sea === a.sea)) { RH.toast('That sea has already fallen.'); armed = null; renderTray(); return; }
   agents.push(a); armed = null; snd.place(); FX.shake(.1); afterChange();
-  if (t === 'fall') RH.toast(`The ${P.seas[a.sea].name} falls 100 m.`);
+  if (t === 'fall') RH.toast(`The ${P.seas[a.sea].name} falls 80 m.`);
 }
 function lift(i) { agents.splice(i, 1); snd.lift(); afterChange(); }
 function afterChange() { SAVE.placed[key] = WS.encodeAgents(agents); persist(); preview(); renderTray(); renderMemo(); }

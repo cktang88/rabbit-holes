@@ -132,6 +132,14 @@ class Net {
   add(x, y) { this.n.push({ x, y, pin: 0, on: 1 }); return this.n.length - 1; }
   pins() { return this.n.map((p, i) => [p, i]).filter(([p]) => p.pin).map(([, i]) => i); }
   // dip: every pin joined to one free point (the star a frame lifted out of the bath tends to start from)
+  // a dip as the film first forms: a random spanning tree of films running pin to pin (lighter ones likelier),
+  // which then relaxes; different dips settle into different local minima, every one shorter than its start
+  static tree(pins, rnd) { const N = new Net(pins), n = pins.length, E = [], amp = rnd() < .25 ? 0 : .6;
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) E.push([Math.hypot(pins[i][0] - pins[j][0], pins[i][1] - pins[j][1]) * Math.exp(amp * (rnd() + rnd() + rnd() - 1.5)), i, j]);
+    E.sort((a, b) => a[0] - b[0]); const par = [...Array(n).keys()], f = x => par[x] === x ? x : (par[x] = f(par[x]));
+    for (const [, i, j] of E) { const a = f(i), b = f(j); if (a !== b) { par[a] = b; N.link(i, j); } }
+    // nudge every pin-to-pin film so the splitting rule can act on a symmetric start
+    return N; }
   static dip(pins, cx, cy) { const N = new Net(pins), c = N.add(cx, cy); N.pins().forEach(i => N.link(i, c)); return N; }
   length() { let L = 0; for (const k of this.e) { const [a, b] = k.split(',').map(Number); L += Math.hypot(this.n[a].x - this.n[b].x, this.n[a].y - this.n[b].y); } return L; }
   edges() { return [...this.e].map(k => k.split(',').map(Number)); }
@@ -186,7 +194,7 @@ class Net {
 function mst(pts) { const n = pts.length, inT = Array(n).fill(false), d = Array(n).fill(Infinity); d[0] = 0; let L = 0;
   for (let k = 0; k < n; k++) { let u = -1; for (let i = 0; i < n; i++) if (!inT[i] && (u < 0 || d[i] < d[u])) u = i; inT[u] = true; L += d[u];
     for (let v = 0; v < n; v++) if (!inT[v]) d[v] = Math.min(d[v], Math.hypot(pts[u][0] - pts[v][0], pts[u][1] - pts[v][1])); } return L; }
-function soapDip(pins, rnd) { const c = pins.reduce((a, p) => [a[0] + p[0] / pins.length, a[1] + p[1] / pins.length], [0, 0]); return Net.dip(pins, c[0] + (rnd() - .5) * 1.4, c[1] + (rnd() - .5) * 1.4).settle(1800, rnd); }
+function soapDip(pins, rnd) { return Net.tree(pins, rnd).settle(1800, rnd); }
 function bestKnown(pins, seed, tries = 60) { const r = RH.rng(seed); let best = Infinity; for (let t = 0; t < tries; t++) best = Math.min(best, soapDip(pins, r).length()); return best; }
 
 // =====================================================================================================
@@ -235,7 +243,7 @@ class Surface {
     const map = [], idx = []; this.patches.forEach(T => { const loc = new Map(); for (const g of T) { if (!loc.has(g)) { loc.set(g, map.length); map.push(g); } idx.push(loc.get(g)); } });
     this.rmap = Uint32Array.from(map); this.ridx = idx; return this;
   }
-  setWire(fn) { for (let i = 0; i < this.W.length; i++) { const w = this.W[i]; if (this.Kt[i] !== 1) continue; const p = fn(i, w); this.X[i * 3] = p.x; this.X[i * 3 + 1] = p.y; this.X[i * 3 + 2] = p.z; } }
+  setWire(fn) { for (let i = 0; i < this.W.length; i++) { const w = this.W[i]; if (this.Kt[i] !== 1 || !w) continue; const p = fn(i, w); this.X[i * 3] = p.x; this.X[i * 3 + 1] = p.y; this.X[i * 3 + 2] = p.z; } }
   area() { const X = this.X, T = this.T; let A = 0; for (let t = 0; t < T.length; t += 3) { const a = T[t] * 3, b = T[t + 1] * 3, c = T[t + 2] * 3;
       const ux = X[b] - X[a], uy = X[b + 1] - X[a + 1], uz = X[b + 2] - X[a + 2], vx = X[c] - X[a], vy = X[c + 1] - X[a + 1], vz = X[c + 2] - X[a + 2];
       A += .5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx); } return A; }
@@ -344,37 +352,38 @@ function doubleBubble(r1, r2) {
 //  is driven per pixel by drainage under gravity and Marangoni swirls.
 // =====================================================================================================
 const cv = document.getElementById('gl');
-const HQ = /[?&]hq/.test(location.search);
+const HQ = /[?&]hq/.test(location.search), LITE = /[?&]lite/.test(location.search); // lite: tiny render for automated tests on software GL
 const mob = matchMedia('(pointer:coarse)').matches || innerWidth < 760;
 let renderer, ok3d = true;
 try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, powerPreference: 'high-performance' }); } catch (e) { ok3d = false; }
 const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(32, 1, .05, 80);
-let composer, bloom, dpr = Math.min(devicePixelRatio || 1, mob ? 1.6 : 2);
+let composer, bloom, dpr = LITE ? .25 : Math.min(devicePixelRatio || 1, mob ? 1.6 : 2);
 if (ok3d) {
   renderer.setPixelRatio(dpr); renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05; renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 }
 scene.background = new THREE.Color(0x0b0c10); scene.fog = new THREE.Fog(0x0b0c10, 9, 24);
 // the studio environment the films and steel reflect: dark room, big softboxes, a warm bounce card
-function makeEnv() {
+function makeEnv(lightTable) {
   const es = new THREE.Scene();
   const room = new THREE.Mesh(new THREE.SphereGeometry(20, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide, uniforms: {}, vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }',
     fragmentShader: 'varying vec3 vP; void main(){ float h = normalize(vP).y; vec3 c = mix(vec3(.012,.013,.016), vec3(.09,.095,.11), smoothstep(-.2,.9,h)); c += vec3(.05,.04,.03)*smoothstep(.0,-.6,h); gl_FragColor = vec4(c,1.); }' }));
   es.add(room);
   const soft = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); const id = g.createImageData(128, 128);
-    for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) { const u = Math.min(x, 127 - x) / 22, v = Math.min(y, 127 - y) / 22, a = Math.min(1, u) * Math.min(1, v), k = (y * 128 + x) * 4; id.data[k] = id.data[k + 1] = id.data[k + 2] = 255; id.data[k + 3] = 255 * a * a * (3 - 2 * a); }
+    for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) { const u = Math.min(x, 127 - x) / 40, v = Math.min(y, 127 - y) / 40, a = Math.min(1, u) * Math.min(1, v), k = (y * 128 + x) * 4; id.data[k] = id.data[k + 1] = id.data[k + 2] = 255; id.data[k + 3] = 255 * a * a * (3 - 2 * a); }
     g.putImageData(id, 0, 0); return new THREE.CanvasTexture(c); })();
   const box = (w, h, pos, col, k) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(k), alphaMap: soft, transparent: true, side: THREE.DoubleSide, depthWrite: false })); m.position.copy(pos); m.lookAt(0, 0, 0); es.add(m); };
   box(9, 6, new V3(-8, 7, 9), 0xfff4e6, 5.5);      // key softbox
-  box(34, 12, new V3(0, 2, 15), 0xf4f1ea, 1.7);   // the big diffuser behind the camera that films are seen against
+  box(60, 26, new V3(0, 3, 15), 0xf4f1ea, 2.0);   // the big diffuser behind the camera that films are seen against
   box(3, 7, new V3(9, 0, 13), 0xffffff, 3.2);      // a bright strip in it, for crisp highlights
   box(2.2, 12, new V3(11, 2, 2), 0xe6f0ff, 4.5);   // strip light, right
   box(2.2, 12, new V3(-11, 2, -6), 0xdfe8ff, 2.6); // rim strip, back left
   box(10, 10, new V3(0, 14, 0), 0xffffff, 2.2);    // overhead
   box(14, 3, new V3(0, -5, 10), 0xffb070, 1.1);    // warm bounce from the floor
+  if (lightTable) { box(26, 26, new V3(0, -9, 0), 0xf6f2ea, 2.4); box(10, 10, new V3(6, -7, 6), 0xffffff, 2.6); }
   const pm = new THREE.PMREMGenerator(renderer); const rt = pm.fromScene(es, .03); pm.dispose(); return rt.texture;
 }
-if (ok3d) scene.environment = makeEnv();
+let tableEnv = null; if (ok3d) { scene.environment = makeEnv(); tableEnv = makeEnv(true); }
 // floor, spotlight pool, back glow
 const FLOOR_Y = -1.72;
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x24262b, roughness: .78, metalness: 0, envMapIntensity: .35 }));
@@ -487,23 +496,23 @@ function makeRing(bend = [0, 0, 0, 0]) {
     S.setWire((i, w) => ringPoint(w.th, F.bend)); handles.forEach(h => h.mesh.position.copy(ringPoint(h.i * Math.PI / 2, F.bend))); };
   for (let k = 0; k < 4; k++) { const m = knob(ringPoint(k * Math.PI / 2, bend)); stage.add(m); handles.push({ mesh: m, kind: 'bend', i: k }); }
   // the wire's handle stem down into the dish
-  F.stem = tube(new V3(0, -RING_R, 0), new V3(0, -RING_R - .9, 0), .03); stage.add(F.stem);
   F.rebuild(); S.relax(250); syncFilm(film); return F;
 }
 // ---------- figure: pins between glass plates ----------
 const PLATE_H = .55, PLATE_R = 2.2;
 function makePins(pins, opts = {}) {
   clearStage();
-  const top = new THREE.Mesh(new THREE.CylinderGeometry(PLATE_R, PLATE_R, .04, 96), glassMat), bot = top.clone(); top.position.y = PLATE_H + .02; bot.position.y = -PLATE_H - .02; stage.add(top, bot);
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(PLATE_R, PLATE_R, .04, 96), new THREE.MeshPhysicalMaterial({ color: 0xdde8ee, roughness: .03, transparent: true, opacity: .05, envMapIntensity: .5, depthWrite: false }));
+  const bot = new THREE.Mesh(new THREE.CylinderGeometry(PLATE_R, PLATE_R, .04, 96), new THREE.MeshPhysicalMaterial({ color: 0x0b0d10, roughness: .08, metalness: 0, clearcoat: 1, clearcoatRoughness: .05, envMapIntensity: .7 }));
+  bot.receiveShadow = true; top.position.y = PLATE_H + .02; bot.position.y = -PLATE_H - .02; stage.add(top, bot);
   for (const y of [PLATE_H + .02, -PLATE_H - .02]) { const e = new THREE.Mesh(new THREE.TorusGeometry(PLATE_R, .012, 8, 120), new THREE.MeshPhysicalMaterial({ color: 0xe8f4ff, roughness: .02, envMapIntensity: 3, transparent: true, opacity: .55, clearcoat: 1 })); e.rotation.x = Math.PI / 2; e.position.y = y; stage.add(e); }
-  const mat = filmMaterial({ env: 3.0 }); const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(80 * 6 * 3 * 4), 3)); geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(80 * 6 * 3 * 4), 3));
+  const mat = filmMaterial({ env: 2.4 }); mat.envMap = tableEnv; const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(80 * 6 * 3 * 4), 3)); geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(80 * 6 * 3 * 4), 3));
   geo.setDrawRange(0, 0); const film = new THREE.Mesh(geo, mat); film.frustumCulled = false; film.renderOrder = 2; stage.add(film);
   const F = { kind: 'pins', pins: pins.map(p => p.slice()), film, mat, yr: [-PLATE_H, PLATE_H], net: null, pinMeshes: [], guess: null };
   F.addPinMesh = (p, i) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, PLATE_H * 2 + .04, 20), steel); m.castShadow = true; m.position.set(p[0], 0, p[1]); stage.add(m);
     const cap = knob(new V3(p[0], PLATE_H + .09, p[1]), brass, .085); stage.add(cap); handles.push({ mesh: cap, kind: 'pin', i, stem: m }); F.pinMeshes.push(m); };
   F.pins.forEach(F.addPinMesh);
-  F.dip = (cx, cy, rnd = Math.random) => { const c = F.pins.reduce((a, p) => [a[0] + p[0] / F.pins.length, a[1] + p[1] / F.pins.length], [0, 0]);
-    F.net = Net.dip(F.pins, cx ?? c[0] + (rnd() - .5) * 1.2, cy ?? c[1] + (rnd() - .5) * 1.2); };
+  F.dip = (cx, cy, rnd = Math.random) => { F.net = cx != null ? Net.dip(F.pins, cx, cy) : Net.tree(F.pins, rnd); };
   if (!opts.empty) F.dip();
   F.sync = () => { const pos = geo.attributes.position.array, nor = geo.attributes.normal.array; let k = 0;
     if (F.net) for (const [a, b] of F.net.edges()) { const A = F.net.n[a], B = F.net.n[b]; const dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, nz = dx / L;
@@ -580,8 +589,8 @@ function go(i, opts = {}) {
   ch = Math.max(0, Math.min(CH.length - 1, i)); SAVE.ch = ch; if (!SAVE.seen.includes(ch)) SAVE.seen.push(ch); persist(); renderNav(); st = {};
   const k = CH[ch].k; if (!opts.snap) FX.sfx('whoosh');
   if (k === 'ring') { fig = makeRing(opts.bend || [0, 0, 0, 0]); setCam(new V3(2.4, .8, 6.2), new V3(0, -.05, 0), opts.snap); }
-  if (k === 'three') { fig = makePins([[-1.2, -.75], [1.3, -.55], [.05, 1.25]], { empty: true }); setCam(new V3(0, 5.2, 4.2), new V3(0, -.2, .15), opts.snap); }
-  if (k === 'roads') { st.stage = SAVE.preds.square ? 'towns' : 'square'; if (st.stage === 'square') fig = makePins([[-1, -1], [1, -1], [1, 1], [-1, 1]], { empty: true }); else townsSetup(); setCam(new V3(0, 5.6, 4.3), new V3(0, -.2, .2), opts.snap); }
+  if (k === 'three') { fig = makePins([[-1.2, -.75], [1.3, -.55], [.05, 1.25]], { empty: true }); setCam(new V3(0, 3.3, 5.4), new V3(0, -.35, 0), opts.snap); }
+  if (k === 'roads') { st.stage = SAVE.preds.square ? 'towns' : 'square'; if (st.stage === 'square') fig = makePins([[-1, -1], [1, -1], [1, 1], [-1, 1]], { empty: true }); else townsSetup(); setCam(new V3(0, 3.6, 5.6), new V3(0, -.35, 0), opts.snap); }
   if (k === 'frames') { st.kind = 'cube'; fig = makeFrame('cube'); fig.hidden = !SAVE.preds.cube; fig.film.visible = !fig.hidden; setCam(new V3(3.4, 2.4, 5.8), new V3(0, -.1, 0), opts.snap); }
   if (k === 'bubbles') { fig = makeBubbles(); setCam(new V3(0, .6, 7.4), new V3(0, .2, 0), opts.snap); }
   if (k === 'sandbox') sandbox(opts.share);
@@ -605,7 +614,7 @@ function text() {
   if (k === 'roads') {
     if (st.stage === 'square') h += SAVE.preds.square ? '' : predictHTML('square', 'Four pins at the corners of a square. What will the film do?', [['x', 'Cross in the middle'], ['ring', 'Ring round the middle'], ['h', 'Two junctions and a bridge', 1]]);
     if (st.stage === 'square' && SAVE.preds.square) h += `<p>The cross is unstable: four films can't balance at one point, so it splits into two 120° junctions with a bridge. The bridge can lie either way, and the dip decides which.</p><div class="row"><button data-act="dip">Dip again</button><button data-act="towns" class="go">Six towns →</button></div>`;
-    if (st.stage === 'towns') h += `<p>Six towns, one dip: the film is a road network joining them all, shorter than any straight roads between towns. But soap settles on <i>a</i> short answer, not always <i>the</i> shortest. Dip again until you match the best.</p>
+    if (st.stage === 'towns') h += `<p>Six towns, one dip: the film is a road network joining them all, usually shorter than straight roads between the towns. But soap settles on <i>a</i> short answer, not always <i>the</i> shortest, and sometimes on a worse one. Dip again until you match the best.</p>
       <div class="read" id="readout"></div><div class="row"><button data-act="dip" class="go">Lift &amp; dip again</button><button data-act="newtowns">New towns</button><button data-act="next">Next plate →</button></div>`;
   }
   if (k === 'frames') {
@@ -644,7 +653,7 @@ function act(a) {
   if (a === 'share') return share();
 }
 function camFor(kind) {
-  if (kind === 'ring') setCam(new V3(2.4, .8, 6.2), new V3(0, -.05, 0)); else if (kind === 'pins') setCam(new V3(0, 5.6, 4.3), new V3(0, -.2, .2));
+  if (kind === 'ring') setCam(new V3(2.4, .8, 6.2), new V3(0, -.05, 0)); else if (kind === 'pins') setCam(new V3(0, 3.6, 5.6), new V3(0, -.35, 0));
   else if (kind === 'bubbles') setCam(new V3(0, .6, 7.4), new V3(0, .2, 0)); else setCam(new V3(3.4, 2.4, 5.8), new V3(0, -.1, 0));
 }
 function reveal(id, k) {
@@ -781,7 +790,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(.05, (now - last) / 1000); last = now; clock.t += dt; frames++;
   // quality tier: if the phone struggles, render fewer pixels and drop the bloom
-  if (!HQ && frames > 30 && frames < 400) { slow = slow * .95 + (dt > .024 ? 1 : 0) * .05; if (slow > .5 && (dpr > 1 || bloom.enabled)) { if (bloom.enabled) bloom.enabled = false; else dpr = Math.max(1, dpr - .35); resize(); slow = 0; } }
+  if (!HQ && !LITE && frames > 30 && frames < 400) { slow = slow * .95 + (dt > .024 ? 1 : 0) * .05; if (slow > .5 && (dpr > 1 || bloom.enabled)) { if (bloom.enabled) bloom.enabled = false; else dpr = Math.max(1, dpr - .35); resize(); slow = 0; } }
   camera.position.lerp(camGoal.p, drag ? 0 : .045); controls.target.lerp(camGoal.t, .06); if (camera.position.distanceTo(camGoal.p) < .05) camGoal.p.copy(camera.position);
   controls.update();
   if (fig) {
@@ -807,10 +816,11 @@ function frame(now) {
 function boot() {
   if (!ok3d) { card.innerHTML = '<h2>Soap needs WebGL</h2><p>Your browser could not start 3D graphics.</p>'; return; }
   composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: mob ? 0 : 4 }));
-  composer.addPass(new RenderPass(scene, camera)); bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .32, .55, .82); bloom.enabled = !mob; composer.addPass(bloom); composer.addPass(new OutputPass());
+  composer.addPass(new RenderPass(scene, camera)); bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .32, .55, .82); bloom.enabled = !mob && !LITE; if (LITE) renderer.shadowMap.enabled = false; composer.addPass(bloom); composer.addPass(new OutputPass());
   resize(); addEventListener('resize', resize); drawLegend();
   const m = location.hash.match(/frame=([^&]+)/), sh = m && decode(m[1]);
   if (sh) { ch = CH.length - 1; go(ch, { share: sh, snap: true }); } else go(SAVE.ch, { snap: true });
+  addEventListener('hashchange', () => { const m2 = location.hash.match(/frame=([^&]+)/), s2 = m2 && decode(m2[1]); if (s2) go(CH.length - 1, { share: s2 }); });
   document.getElementById('shareBtn').onclick = share;
   document.getElementById('muteBtn').onclick = e => { FX.setMuted(!FX.muted); e.target.textContent = FX.muted ? '♪̸' : '♪'; };
   addEventListener('keydown', e => { if (e.key === 'ArrowRight') go(ch + 1); if (e.key === 'ArrowLeft') go(ch - 1); if (e.key === ' ') { e.preventDefault(); act('dip'); } });

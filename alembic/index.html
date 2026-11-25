@@ -516,7 +516,7 @@ function startSandbox(cells){
   leaveOffice(); mode='sandbox'; com=null; daily=null; budgetLeft=Infinity; clearTray(); seed=RH.hashStr('sandbox')|1; if (cells) decodeTray(cells); setKnown(knownGlobal()); renderVials(); updGoal(true);
 }
 // leaving the office: the blank substances go back to having no laws
-function leaveOffice(){ if (SAVE.m==='office'){ SAVE.m='work'; } trial=null; reveal=null; if (world){ world=null; installWorld({ subs:{}, laws:[] }); } }
+function leaveOffice(){ if (SAVE.m==='office'){ SAVE.m='work'; } trial=null; reveal=null; $('bench').hidden=true; if (world){ world=null; installWorld({ subs:{}, laws:[] }); } }
 function dailyScore(){ return dailyMade.size; }
 const dropsUsed=()=>{ let n=0; for (let t=1;t<NT;t++) n+=poured[t]; return n; };
 // a better daily: more substances, or as many with fewer drops poured
@@ -650,7 +650,7 @@ function drawBook(){
   let h=`<div style="display:flex;align-items:center;gap:8px"><h2 style="flex:1">The Book</h2><button id="bkClose">Close</button></div>
     <div id="tabs">${[['comms','Commissions'],['codex','Codex · '+nk+'/'+(NREAL-1)],['office','Assay Office'],['daily','Daily tray'],['sandbox','Sandbox']].map(([k,n])=>`<button data-tab="${k}" class="${tab===k?'on':''}">${n}</button>`).join('')}</div>`;
   if (tab==='comms'){
-    h+=`<p class="note">Each commission is a state of the tray to reach. New ones open as you find the substances they need. ${Object.keys(SAVE.done).length} of ${COMMS.length} sealed.</p>`;
+    h+=`<p class="note">Each commission is a state of the tray to reach. New ones open as you find the substances they need. ${Object.keys(SAVE.done).length} of ${COMMS.length} sealed.</p><p class="note">When you want matter nobody has described, try the <b>Assay Office</b>: <button data-office="${SAVE.office.w?'resume':'new'}">${SAVE.office.w?'Back to your world':'Open it'}</button></p>`;
     COMMS.forEach((c,i)=>{ const av=available(c), dn=SAVE.done[c.id];
       h+=`<div class="com${av?'':' locked'}${dn?' done':''}"><div class="n">${roman(i+1)}</div><div><b>${c.n}.</b> ${av? c.g : '<span class="need">Needs '+c.needs.map(t=>kg[t]?ELS[t][1].toLowerCase():'<i>an unknown substance</i>').join(', ')+'.</span>'}
         ${dn?`<div class="st">Sealed ${dn}</div>`:''}</div><div>${av?`<button data-com="${c.id}">${dn?'Again':'Begin'}</button>`:''}</div></div>`; });
@@ -715,7 +715,7 @@ function decodeTray(str){
 // that decays by itself; one that grows into another; one that eats another. The same cellular engine runs them.
 // Experiments cost drops. File each law on a card: predict, then test. The office stamps a card only if the tray shows
 // that law at work during the test, and pays for it; a card the tray refutes is fined. Patrons pay for products in bulk.
-const GLYPHS=['◐','▲','✶','◆','⬣','✚','☾','≋'], CATC=6, OFFICE_DROPS=5000, dropsFor=t=>3000+1000*t, FALSE_FINE=400, STAMP_PAY=250, PATRON_PAY=800;
+const GLYPHS=['◎','▲','✶','◆','⬣','✚','☾','≋'], CATC=6, OFFICE_DROPS=5000, dropsFor=t=>3000+1000*t, FALSE_FINE=400, STAMP_PAY=250, PATRON_PAY=800;
 let world=null, cards=[], fines=0;
 function makeWorld(wseed, tier){
   tier=Math.max(1,Math.min(6,tier|0)); const r=RH.rng('office:'+wseed+':'+tier), pick=a=>a[Math.floor(r()*a.length)];
@@ -764,6 +764,7 @@ function runBench(){
   if (!world || trial) return 'busy'; if (!bench.a || bench.b<0) return 'incomplete';
   if (budgetLeft<benchCost()) return 'poor';
   clearTray(); TF.fill(0); reveal=null; const xa=W/2-BLK, xb=W/2, top=bench.k? H-BLK-4 : H-BLK, bot=bench.k? H-5 : H-1;
+  { const keep=budgetLeft; fillRect(GLASS, xa-2, H-BLK-12, xa-1, H-1); fillRect(GLASS, xb+BLK, H-BLK-12, xb+BLK+1, H-1); budgetLeft=keep; }   // a glass cup holds the wells (free)
   if (bench.k) fillRect(bench.k, xa, H-4, xb+BLK-1, H-1);
   if (bench.b===FIRE){ const keep=budgetLeft; for (let x=xa+1; x<xb+BLK; x+=3) fillRect(FIRE, x, top, x, bot); budgetLeft=keep; fillRect(bench.a, xa, top, xb+BLK-1, bot); }   // heat: flames threaded through the sample, free
   else if (bench.b===0) fillRect(bench.a, xa, top, xb+BLK-1, bot);
@@ -873,7 +874,7 @@ function drawOffice(){
   if (world && mode==='office'){ const s=officeState();
     h+=`<p>World <b>${world.seed}</b>, tier ${world.tier}. <b>${s.found}</b> of <b>${s.laws}</b> laws stamped · <b>${budgetLeft.toLocaleString()}</b> drops.</p><p class="note">Laws by kind: ${kindsLine()}</p><ul class="help">${OFFICE_HELP.slice(0,1+Math.min(world.tier,5)).map(x=>`<li>${x}</li>`).join('')}</ul>`;
     h+=`<h3>Cards</h3>${cards.length? cards.map(x=>`<div class="com ${x.st==='seen'?'done':''}"><div class="n">${x.st==='seen'?'✓':'✗'}</div><div class="card">${cardText(x.c)}</div><div class="st">${x.st==='seen'?'stamped':'refuted'}</div></div>`).join('') : '<p class="note">None yet.</p>'}`;
-    h+=`<h3>Patrons</h3>${s.pats.map(p=>`<div class="com ${p.done?'done':''}"><div class="n">${p.done?'✓':'☉'}</div><div>${p.n} cells of <b>${KNOWN[p.t]?glyph(p.t):'a substance you have not seen yet'}</b>, made, in all your trays in this world (poured cells do not count). Pays ${PATRON_PAY}.</div><div class="st">${p.done?'paid':`${Math.min(p.have,p.n)} / ${p.n}`}</div></div>`).join('')}`;
+    h+=`<h3>Patrons</h3>${s.pats.map(p=>`<div class="com ${p.done?'done':''}"><div class="n">${p.done?'✓':'☉'}</div><div>${p.n} cells of <b>${KNOWN[p.t]?glyph(p.t):'something not yet seen'}</b>, made in this world (pouring it does not count). Pays ${PATRON_PAY}.</div><div class="st">${p.done?'paid':`${Math.min(p.have,p.n)} / ${p.n}`}</div></div>`).join('')}`;
     const best=SAVE.office.best[world.seed+'-'+world.tier]; h+=`<p class="note">Your best close for this world: ${best!=null? best.toLocaleString()+' drops' : 'not yet'}.</p>`; }
   h+=`<p><button data-office="new" class="rub">A new world · tier ${top}</button> <button data-office="day">Today's world · tier ${day.tier}</button>${world&&mode==='office'?' <button data-office="restart">Start this world over</button> <button data-office="share">Copy a link to this world</button>':''}</p><p class="note" id="officeOut">${SAVE.office.worlds? `${SAVE.office.worlds} world${SAVE.office.worlds>1?'s':''} written down.` : ''}</p>`;
   return h;

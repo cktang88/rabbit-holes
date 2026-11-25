@@ -36,7 +36,8 @@
   #genbar{padding:8px 12px 6px;border-bottom:1px solid #e6c36a33}
   #genbar .g{display:flex;justify-content:space-between;align-items:baseline}
   #genbar .g b{font-weight:300;font-size:24px;color:#f6e3a1}
-  #genbar .g span{font-style:italic;color:#c8bd9c;font-size:15px}
+  #genbar .g span{font-style:italic;color:#c8bd9c;font-size:15px;text-align:right}
+  #genbar .g .shl{font-size:13px;color:#f6e3a1;font-weight:400;letter-spacing:1px;font-style:normal;white-space:nowrap}
   .laws{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
   .laws button{font-size:13.5px;padding:1px 8px;min-height:28px;font-weight:600}
   .laws button.frozen{opacity:.38;font-weight:400;font-style:italic}
@@ -96,6 +97,8 @@
     .card{min-height:64px;padding:5px 6px}
     .card .ln{font-size:13px}
     .pane{flex:none;min-height:40vh}
+    #act{position:sticky;bottom:0;z-index:3;background:#0b0f30;border-top:1px solid #e6c36a55;padding-top:6px;box-shadow:0 -6px 14px #0009}
+    .card .ln{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
   }
   @media (max-height:520px) and (min-width:600px){ #side{width:360px;overflow:auto} .pane{flex:none;min-height:200px} #cap .f{display:none} }
 </style>
@@ -334,19 +337,19 @@ function judge(c) {
   return (JUDGED[key] = { o, raw, kind });
 }
 // the laws thaw one at a time, so a reader meets them one by one
-const THAW = ['G', 'L', 'a', 's', 'm', 'D'], THAW_EVERY = 4, GENS = 24, CAP = 8;
+const THAW = ['G', 'L', 'a', 's', 'm', 'D'], THAW_EVERY = 4, GENS = 24, CAP = 8, SHELTERS = 12; // twelve shelters to spend in a cosmos
 const thawOrder = C => [C.start.first, ...THAW.filter(k => k !== C.start.first)];
 const thawed = (C, gen) => thawOrder(C).slice(0, Math.min(THAW.length, 1 + Math.floor(gen / THAW_EVERY)));
 // starting universes: each seed begins somewhere different
 const STARTS = [
-  { n: 'A universe like ours', c: { G: 2, L: 2, a: 1, s: 1, m: 1, D: 1 }, first: 'G', par: 90 },
-  { n: 'A dim, patient universe', c: { G: 1, L: 2, a: 1, s: 1, m: 1, D: 1 }, first: 'G', par: 80 },
-  { n: 'A universe of black holes', c: { G: 4, L: 2, a: 1, s: 1, m: 1, D: 1 }, first: 'G', par: 65 },
-  { n: 'A hot, hasty universe', c: { G: 3, L: 2, a: 1, s: 1, m: 1, D: 1 }, first: 'G', par: 90 },
-  { n: 'A universe that falls back in', c: { G: 2, L: 0, a: 1, s: 1, m: 1, D: 1 }, first: 'L', par: 105 },
-  { n: 'Flatland', c: { G: 2, L: 2, a: 1, s: 1, m: 1, D: 0 }, first: 'D', par: 65 },
+  { n: 'A universe like ours', c: { G: 2, L: 2, a: 1, s: 1, m: 1, D: 1 }, first: 'G', par: 85 },
+  { n: 'A dim, patient universe', c: { G: 1, L: 2, a: 1, s: 1, m: 1, D: 1 }, first: 'G', par: 70 },
+  { n: 'A universe of black holes', c: { G: 4, L: 2, a: 1, s: 1, m: 1, D: 1 }, first: 'G', par: 75 },
+  { n: 'A hot, hasty universe', c: { G: 3, L: 2, a: 1, s: 1, m: 1, D: 1 }, first: 'G', par: 85 },
+  { n: 'A universe that falls back in', c: { G: 2, L: 0, a: 1, s: 1, m: 1, D: 1 }, first: 'L', par: 95 },
+  { n: 'Flatland', c: { G: 2, L: 2, a: 1, s: 1, m: 1, D: 0 }, first: 'D', par: 60 },
   { n: 'A universe of feeble bonds', c: { G: 2, L: 2, a: 0, s: 1, m: 1, D: 1 }, first: 'a', par: 75 },
-  { n: 'A diproton universe', c: { G: 2, L: 2, a: 1, s: 2, m: 1, D: 1 }, first: 's', par: 60 },
+  { n: 'A diproton universe', c: { G: 2, L: 2, a: 1, s: 2, m: 1, D: 1 }, first: 's', par: 50 },
 ];
 const startOf = seed => STARTS[RH.hashStr('start:' + seed) % STARTS.length];
 // each universe carries a 'drift': the one law its children may vary, chosen when it is born and shown to the reader
@@ -354,7 +357,7 @@ function mkU(C, c, gen, parent, mut, r) { const j = judge(c), laws = thawed(C, g
 // the two ways a child can differ: one notch down or up in its parent's drift law (at the ends, both go the one way)
 function variants(u) { const l = LAWS.find(x => x.k === u.drift), j = u.c[u.drift], out = []; for (const d of [-1, 1]) { let t = j + d; if (t < 0 || t >= l.opts.length) t = j - d; out.push({ ...u.c, [u.drift]: t }); } return out; }
 function newCosmos(seed, start) {
-  const C = { seed, gen: 0, U: [], frontier: [], born: 1, log: [], mindsGen: 0, acts: [], over: null, start: start || startOf(seed) };
+  const C = { seed, gen: 0, shelters: SHELTERS, U: [], frontier: [], born: 1, log: [], mindsGen: 0, acts: [], over: null, start: start || startOf(seed) };
   const u = mkU(C, C.start.c, 0, -1, null, null); C.frontier = [u.id]; C.mindsGen = u.kind === 'minds' ? 1 : 0;
   return C;
 }
@@ -365,7 +368,7 @@ function stepGen(C, act) {
   C.acts.push(act ? act.t + act.id : '-');
   let shelter = null;
   // a lineage cannot be sheltered two generations running: the child of a sheltered universe must stand alone
-  if (act && C.frontier.includes(act.id)) { const u = C.U[act.id]; if (act.t === 'p') { u.fate = 'pruned'; } if (act.t === 's' && canShelter(C, u.id)) { shelter = u.id; u.sheltered = 1; } }
+  if (act && C.frontier.includes(act.id)) { const u = C.U[act.id]; if (act.t === 'p') { u.fate = 'pruned'; } if (act.t === 's' && canShelter(C, u.id)) { shelter = u.id; u.sheltered = 1; C.shelters--; } }
   C.lastShelter = shelter;
   const kids = [];
   for (const u of F) {
@@ -399,7 +402,7 @@ function stepGen(C, act) {
   if (!C.frontier.length) C.over = { why: 'dark', gen: C.gen };
   else if (C.gen >= GENS) C.over = { why: 'time', gen: C.gen };
 }
-const canShelter = (C, id) => C.U[id].parent < 0 || C.U[id].parent !== C.lastShelter;
+const canShelter = (C, id) => C.shelters > 0 && (C.U[id].parent < 0 || C.U[id].parent !== C.lastShelter);
 // stars: alive after 24 generations; minds-generations at par for its start; and thirty more
 const starsOf = C => (C.over && C.over.why === 'dark') || !C.over ? 0 : 1 + (C.mindsGen >= C.start.par ? 1 : 0) + (C.mindsGen >= C.start.par + 30 ? 1 : 0);
 // what a universe will bud if left alone (or sheltered): its children's laws, in order
@@ -550,11 +553,12 @@ function setupCam() {
 }
 function resize() { const r = cv.getBoundingClientRect(); W = r.width; H = r.height; DPR = Math.min(2, devicePixelRatio || 1); cv.width = Math.max(1, W * DPR | 0); cv.height = Math.max(1, H * DPR | 0);
   bgStars = [...Array(260)].map(() => ({ x: Math.random() * W, y: Math.random() * H, s: Math.random() * 1.3 + .2, tw: Math.random() * 6 })); neb = {}; if (cam) cam.fit(); }
-function drawTree(now) {
+function drawTreeLayer(g0, now) {
+  const ctx = g0;
   const C = cos, t = now / 1000;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.fillStyle = '#05071c'; ctx.fillRect(0, 0, W, H);
   ctx.globalAlpha = .55; ctx.drawImage(nebulaFor(3, true), 0, 0, W, H); ctx.globalAlpha = 1;
-  for (const s of bgStars) { ctx.fillStyle = `rgba(255,240,210,${.25 + .2 * Math.sin(t + s.tw)})`; ctx.fillRect(s.x, s.y, s.s, s.s); }
+  for (const s of bgStars) { ctx.fillStyle = `rgba(255,240,210,${.25 + .2 * Math.sin(s.tw)})`; ctx.fillRect(s.x, s.y, s.s, s.s); }
   ctx.setTransform(DPR * cam.k, 0, 0, DPR * cam.k, DPR * cam.x, DPR * cam.y);
   const k = cam.k, front = new Set(C.frontier), grow = Math.min(1, (now - bloom) / 900);
   // rings of the generations, faint; the frontier's ring in gold
@@ -563,8 +567,11 @@ function drawTree(now) {
   const alive = new Set(); for (const id of C.frontier) { let u = C.U[id]; while (u) { alive.add(u.id); u = C.U[u.parent]; } }
   for (const u of C.U) { if (u.parent < 0) continue; const [x0, y0] = xy(u.parent), [x1, y1] = xy(u.id), live = alive.has(u.id), fr = front.has(u.id), gg = fr ? grow : 1;
     ctx.strokeStyle = live ? (u.mut ? 'rgba(246,227,161,.75)' : 'rgba(230,195,106,.55)') : 'rgba(140,130,190,.18)'; ctx.lineWidth = (live ? 1.6 : .8) / k;
-    const pm = pos[u.parent], mr = (pm.r + pos[u.id].r) / 2, xm = Math.cos(pos[u.id].a) * mr, ym = Math.sin(pos[u.id].a) * mr;
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(xm, ym, x0 + (x1 - x0) * gg, y0 + (y1 - y0) * gg); ctx.stroke(); }
+    // a dendrogram thread: out from the parent along its ray, round the arc, and out to the child
+    const pa = pos[u.parent].a, ca = pos[u.id].a, rm = pos[u.parent].r + DR * .5, ae = pa + (ca - pa) * gg;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(Math.cos(pa) * rm, Math.sin(pa) * rm);
+    if (Math.abs(ae - pa) > 1e-4) ctx.arc(0, 0, rm, pa, ae, ae < pa);
+    ctx.lineTo(Math.cos(ae) * (rm + (pos[u.id].r - rm) * gg), Math.sin(ae) * (rm + (pos[u.id].r - rm) * gg)); ctx.stroke(); }
   // children lost to the dark beyond the frontier's cap, and pruned branches: short stubs
   for (const u of C.U) { if (!u.lostKids && u.fate !== 'pruned') continue; const [x, y] = xy(u.id), a = pos[u.id].a;
     if (u.fate === 'pruned') { ctx.strokeStyle = 'rgba(255,154,138,.7)'; ctx.lineWidth = 1.4 / k; const s = 4; ctx.beginPath(); ctx.moveTo(x - s, y - s); ctx.lineTo(x + s, y + s); ctx.moveTo(x + s, y - s); ctx.lineTo(x - s, y + s); ctx.stroke(); }
@@ -575,13 +582,25 @@ function drawTree(now) {
     ctx.globalAlpha = live ? 1 : .35;
     const g = ctx.createRadialGradient(x, y, 0, x, y, rr * 2.6); g.addColorStop(0, col); g.addColorStop(.35, col + '88'); g.addColorStop(1, col + '00'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, rr * 2.6, 0, 7); ctx.fill();
     if (u.kind === 'factory') { ctx.fillStyle = '#05030f'; ctx.beginPath(); ctx.arc(x, y, rr * .7, 0, 7); ctx.fill(); }
-    if (u.kind === 'minds' && fr) { for (let i = 0; i < 5; i++) { const aa = t * .6 + i * 1.256; ctx.fillStyle = '#fff6d0'; ctx.fillRect(x + Math.cos(aa) * rr * 1.6 - .6, y + Math.sin(aa) * rr * 1.6 - .6, 1.2, 1.2); } }
     if (u.sheltered) { ctx.strokeStyle = '#f6e3a1'; ctx.lineWidth = 1.2 / k; ctx.beginPath(); ctx.arc(x, y, rr * 1.9, 0, 7); ctx.stroke(); }
     if (u.id === sel) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.6 / k; ctx.setLineDash([3 / k, 2 / k]); ctx.beginPath(); ctx.arc(x, y, rr * 2.4 + 2, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
     ctx.globalAlpha = 1; }
   // labels on the frontier
   ctx.font = `italic ${13 / k}px "Cormorant Garamond", serif`; ctx.textAlign = 'center';
   for (const id of C.frontier) { const u = C.U[id], [x, y] = xy(id), a = pos[id].a; ctx.fillStyle = '#f3e7c4'; ctx.fillText(String(C.frontier.indexOf(id) + 1), x + Math.cos(a) * 18 / k * 1.2, y + Math.sin(a) * 18 / k * 1.2 + 4 / k); }
+}
+// the tree is painted to a cached layer, repainted only when it changes (a generation, a tap, the camera);
+// each frame blits it and adds the few moving things: the minds' orbiting sparks
+const layer = document.createElement('canvas'), lctx = layer.getContext('2d'); let layerKey = '';
+function drawTree(now) {
+  const growing = now - bloom < 950, key = [W, H, DPR, cam.x.toFixed(1), cam.y.toFixed(1), cam.k.toFixed(4), cos.gen, cos.U.length, sel, cos.seed].join(',');
+  if (layer.width !== cv.width || layer.height !== cv.height) { layer.width = cv.width; layer.height = cv.height; layerKey = ''; }
+  if (growing || key !== layerKey) { drawTreeLayer(lctx, now); layerKey = growing ? '' : key; }
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(layer, 0, 0);
+  ctx.setTransform(DPR * cam.k, 0, 0, DPR * cam.k, DPR * cam.x, DPR * cam.y);
+  const t = now / 1000; ctx.fillStyle = '#fff6d0';
+  for (const id of cos.frontier) { const u = cos.U[id]; if (u.kind !== 'minds') continue; const [x, y] = xy(id), rr = 4.5 + Math.min(5, u.raw) * 1.1;
+    for (let i = 0; i < 5; i++) { const aa = t * .6 + i * 1.256; ctx.fillRect(x + Math.cos(aa) * rr * 1.6 - .6 / cam.k, y + Math.sin(aa) * rr * 1.6 - .6 / cam.k, 1.4 / cam.k, 1.4 / cam.k); } }
 }
 // ===================== Watching one universe's history (the original Bang view) =====================
 let run = null; const STEP_MS = 1500;
@@ -609,7 +628,7 @@ const SND = { gong(v = 1) { FX.tone({ f: 98, type: 'sine', dur: 3, vol: .2 * v, 
   dark() { FX.tone({ f: 82, f2: 41, type: 'sine', dur: 2.4, vol: .2 }); } };
 // ===================== Panels =====================
 function render() { renderTop(); renderCap(); renderGen(); renderFront(); renderAct(); renderProps(); renderCodex(); renderRuns(); }
-function renderTop() { $('meta').innerHTML = `gen <b>${cos.gen}</b>/${GENS} · <b>${cos.mindsGen}</b> ✦`; }
+function renderTop() { $('meta').innerHTML = `gen <b>${cos.gen}</b>/${GENS} · <b>${cos.mindsGen}</b>/${cos.start.par} ✦`; }
 function renderCap() {
   if (view === 'watch') { const u = run.u; $('capT').textContent = `universe ${u.id} · generation ${u.gen}`; $('capN').textContent = KIND_WORD[u.kind]; $('capF').textContent = Object.keys(OURS).filter(k => u.c[k] !== OURS[k]).map(k => lawShort(k, u.c[k])).join(' · ') || 'our laws'; return; }
   $('capT').textContent = curDaily ? `today’s cosmos · ${curDaily}` : `cosmos ${cos.seed}`;
@@ -618,7 +637,7 @@ function renderCap() {
 }
 function renderGen() {
   const th = thawed(cos, cos.gen + 1);
-  $('genbar').innerHTML = `<div class="g"><b>Generation ${cos.gen}</b><span>${cos.frontier.length} universes in view · ${cos.born} born</span></div><div class="laws">${thawOrder(cos).map(k => { const l = LAWS.find(x => x.k === k), on = th.includes(k); return `<button class="${on ? '' : 'frozen'} ${k === justThawed ? 'new' : ''}" data-law="${k}" title="${l.d}">${on ? '' : '❄ '}${l.short}</button>`; }).join('')}</div>`;
+  $('genbar').innerHTML = `<div class="g"><b>Generation ${cos.gen}</b><span>${cos.frontier.length} in view · ${cos.born} born · <b class="shl" title="Shelters left in this cosmos">${'\u2727'.repeat(cos.shelters)}${cos.shelters ? '' : 'no shelters left'}</b></span></div><div class="laws">${thawOrder(cos).map(k => { const l = LAWS.find(x => x.k === k), on = th.includes(k); return `<button class="${on ? '' : 'frozen'} ${k === justThawed ? 'new' : ''}" data-law="${k}" title="${l.d}">${on ? '' : '❄ '}${l.short}</button>`; }).join('')}</div>`;
   $('genbar').querySelectorAll('[data-law]').forEach(b => b.onclick = () => { const l = LAWS.find(x => x.k === b.dataset.law), on = th.includes(l.k), at = thawOrder(cos).indexOf(l.k) * THAW_EVERY; RH.modal(`<h2>${l.n}</h2><p>${l.d}</p><p><b>Up:</b> ${l.up}</p><p><b>Down:</b> ${l.down}</p><p class="small" style="color:#c8bd9c">${on ? 'In play: a child universe may get this law one notch up or down.' : `Frozen until generation ${at}. Until then children keep their parent’s value.`}</p>`); });
   justThawed = null;
 }
@@ -632,10 +651,10 @@ function renderAct() {
   const el = $('act');
   if (cos.over) { el.innerHTML = `<button class="primary" id="againB">Another cosmos</button><button id="shareB">Share</button>`; $('againB').onclick = newCosmosDialog; $('shareB').onclick = share; return; }
   if (view === 'watch') { el.innerHTML = `<button id="bk2">◀ back to the tree</button>`; $('bk2').onclick = closeWatch; return; }
-  if (sel == null) { el.innerHTML = `<span class="hint">${cos.gen === 0 ? 'Tap a universe, then shelter or prune it.' : 'One intervention per generation.'}</span><button id="letB" class="${cos.gen === 0 ? 'primary' : ''}">Let it bud ▶</button>`; $('letB').onclick = () => act(null); return; }
+  if (sel == null) { el.innerHTML = `<span class="hint">${cos.gen === 0 ? 'Tap a universe, then prune or shelter it.' : 'One intervention per generation.'}</span><button id="letB" class="${cos.gen === 0 ? 'primary' : ''}">Let it bud ▶</button>`; $('letB').onclick = () => act(null); return; }
   const u = cos.U[sel], i = cos.frontier.indexOf(sel) + 1;
   const can = canShelter(cos, sel);
-  el.innerHTML = `<button class="primary" id="shB" ${can ? '' : 'disabled'} title="${can ? 'Its children are kept first, and the first is a faithful copy' : 'Its parent was sheltered last generation: this lineage must stand alone'}">Shelter ${i} <span style="font-weight:400">${can ? kidIcons(kidsOf(cos, u, true)) : '(rested)'}</span></button><button id="prB" title="It buds no children">Prune ${i}</button><button id="wB" title="Watch its history, link by link">Watch</button>`;
+  el.innerHTML = `<button class="primary" id="shB" ${can ? '' : 'disabled'} title="${can ? 'Its children are kept first, and the first is a faithful copy. Uses one of your shelters.' : cos.shelters ? 'Its parent was sheltered last generation: this lineage must stand alone' : 'No shelters left in this cosmos'}">Shelter ${i} <span style="font-weight:400">${can ? kidIcons(kidsOf(cos, u, true)) : cos.shelters ? '(rested)' : '(none left)'}</span></button><button id="prB" title="It buds no children">Prune ${i}</button><button id="wB" title="Watch its history, link by link">Watch</button>`;
   $('shB').onclick = () => act('s'); $('prB').onclick = () => act('p'); $('wB').onclick = () => watch(sel);
 }
 function renderProps() { $('p-props').innerHTML = `<p style="margin:2px 0 6px;font-style:italic;color:#c8bd9c">Lee Smolin’s idea: if black holes bud new universes, then universes that make black holes would come to outnumber the rest, and laws that look fine-tuned for us might be tuned for black holes. Each proposition is proved by seeing it happen.</p>` + PROPS.map(([k, t, h]) => `<div class="prop ${S.props[k] ? '' : 'no'}"><b>${k}. ${S.props[k] ? t : '…'}</b><span>${S.props[k] ? '' : h}</span></div>`).join(''); }
@@ -669,7 +688,7 @@ async function newCosmosDialog() {
   const v = await RH.modal(`<h2>Another cosmos</h2><p>Each cosmos begins from a different universe. <b>Today’s cosmos</b> is the same for everyone today.</p>`, [{ label: 'Stay', value: 0 }, { label: 'Today’s', value: 2 }, { label: 'A new seed', value: 1 }]);
   if (v === 1) startCosmos((Math.random() * 1e9) | 0, null, ''); if (v === 2) startCosmos(daySeed(), null, '', todayStr());
 }
-const help = () => RH.modal(`<h2>A family tree of universes</h2><p>Every black hole a universe makes buds a <b>child universe</b>. Each universe <b>varies</b> one law: its children get that law one notch down, one notch up, then a faithful copy. Its card shows what it will bud.</p><p>Each generation you may <b>shelter</b> one universe (its children are kept first, a faithful copy first of all) or <b>prune</b> one (it has none). A lineage cannot be sheltered two generations running. Only eight can be watched at a time; places go to parents in proportion to their children.</p><p>Black holes decide who has children. Minds are what you are trying to keep. The two do not always come together.</p><p class="small" style="color:#c8bd9c">The laws thaw one at a time. Tap a law to read what it does. Tap any old universe on the tree to watch its history.</p>`, [{ label: 'Begin' }]);
+const help = () => RH.modal(`<h2>A family tree of universes</h2><p>Every black hole a universe makes buds a <b>child universe</b>. Each universe <b>varies</b> one law: its children get that law one notch down, one notch up, then a faithful copy. Its card shows what it will bud.</p><p>Each generation you may <b>prune</b> one universe (it has no children) or <b>shelter</b> one (its children are kept first, a faithful copy first of all). You have only <b>twelve shelters</b> in a cosmos, and a lineage cannot be sheltered two generations running. Only eight can be watched at a time; places go to parents in proportion to their children.</p><p>Black holes decide who has children. Minds are what you are trying to keep. The two do not always come together.</p><p class="small" style="color:#c8bd9c">The laws thaw one at a time. Tap a law to read what it does. Tap any old universe on the tree to watch its history.</p>`, [{ label: 'Begin' }]);
 $('helpBtn').onclick = help;
 // ===================== Start =====================
 addEventListener('resize', resize);

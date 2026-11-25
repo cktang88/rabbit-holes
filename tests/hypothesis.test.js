@@ -1,241 +1,99 @@
-// Hypothesis: law generation, journal classification (accept box = machine accepts), prediction rounds, saves.
-const closeModals = page => page.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
-const boxes = page => page.evaluate(() => {
-  const H = window.__hyp, st = H.lawState(H.cur), L = H.cur === 'free' ? null : H.LAWS[H.cur];
-  const read = sel => [...document.querySelectorAll(sel + ' .koan')].map(el => ({ tag: el.querySelector('.tag')?.textContent || '', n: el.querySelectorAll('svg').length }));
-  return { yes: read('.jcol.yes'), no: read('.jcol.no'), journal: st.journal.map(e => ({ ok: e.ok, f: L ? L.f(e.k) : e.ok, pred: !!e.pred })) };
-});
+// Soap (hypothesis/): an explorable of soap films. Tests check the physics underneath the pictures (thin-film
+// interference, Steiner networks with 120° junctions and local minima, mean-curvature relaxation of 3D films with
+// Plateau's angles, the double bubble), the predict-then-reveal flow, share links and saves.
+// The page is opened with ?lite so software WebGL in CI renders a tiny frame quickly.
+const ready = async page => { await page.waitForFunction(() => window.__soap && __soap.fig, null, { timeout: 60000 }); };
+const reopen = async (page, hash = '') => { await page.goto(page.url().split('#')[0].split('?')[0] + '?lite' + hash); await page.reload(); await ready(page); };
 
 module.exports = {
-  page: 'hypothesis/index.html',
-  ready: async page => { await page.waitForFunction(() => window.__hyp); await closeModals(page); },
+  page: 'hypothesis/index.html?lite',
+  ready,
   tests: {
-    'sixty laws in eight tiers, each neither trivial nor near-duplicate': async ({ page, eq, ok }) => {
-      const r = await page.evaluate(() => {
-        const H = window.__hyp, fps = H.LAWS.map(H.fp), bad = [];
-        fps.forEach((p, i) => { const rate = p.filter(Boolean).length / p.length; if (rate < .1 || rate > .9) bad.push(i + ' rate ' + rate); });
-        for (let i = 0; i < fps.length; i++) for (let j = i + 1; j < fps.length; j++) if (fps[i].filter((x, k) => x !== fps[j][k]).length < 25) bad.push(i + '~' + j);
-        return { n: H.LAWS.length, tiers: [0, 1, 2, 3, 4, 5, 6, 7].map(t => H.LAWS.filter(l => l.tier === t).length), bad, desc: H.LAWS.every(l => typeof l.d === 'string' && l.d.length > 5 && !/undefined|NaN/.test(l.d)) };
-      });
-      eq(r.n, 60); eq(r.tiers, [8, 8, 8, 8, 7, 7, 7, 7]); ok(!r.bad.length, r.bad.slice(0, 5).join(', ')); ok(r.desc, 'bad description');
+    'thin-film interference: a film thinner than ~20 nm is black; colours cycle with thickness': async ({ page, ok, near }) => {
+      const r = await page.evaluate(() => { const S = __soap; return {
+        r0: S.filmR(550, 0), rq: S.filmR(550, 550 / 4 / 1.33), rh: S.filmR(550, 550 / 2 / 1.33),
+        black: S.filmRGB(12).every(c => c < .004), thick: S.filmRGB(300), hue: [150, 250, 350, 450, 550].map(d => S.filmRGB(d).map(c => +c.toFixed(3))) }; });
+      near(r.r0, 0, 1e-9, 'no film, no reflection'); ok(r.rq > .07 && r.rq < .1, 'quarter-wave film reflects most: ' + r.rq); near(r.rh, 0, 1e-6, 'half-wave film cancels');
+      ok(r.black, 'very thin film should be black'); ok(new Set(r.hue.map(c => c.indexOf(Math.max(...c)))).size >= 2, 'colours should change with thickness');
     },
-    'law semantics match their wording (hand cases)': async ({ page, eq }) => {
-      const r = await page.evaluate(() => {
-        const H = window.__hyp, fake = seq => { let i = 0; const f = () => 0; f.int = () => seq[i++ % seq.length]; f.pick = a => a[f.int()]; return f; };
-        const R = 0, B = 1, Y = 2, CI = 0, SQ = 1, TR = 2, SM = 0, MD = 1, LG = 2;
-        const odd = H.GEN[1][6](fake([0])), prime = H.GEN[7][5](fake([0])), inc = H.GEN[3][2](fake([0])), big = H.GEN[2][4](fake([0]));
-        const has = H.GEN[0][0](fake([0, 1])); // attr 0 (colour) value 1 -> blue
-        const k1 = [[R, CI, SM]], k2 = [[R, CI, SM], [B, SQ, LG]], k3 = [[Y, TR, LG], [R, CI, MD], [B, SQ, SM]];
-        return [odd.d, odd.f(k1), odd.f(k2), prime.f(k1), prime.f(k2), prime.f([...k3, ...k1]), inc.f(k2), inc.f(k3), big.f(k3), big.f(k2), has.d, has.f(k1), has.f(k2)];
-      });
-      eq(r, ['An odd number of tokens', true, false, false, true, false, true, false, true, false, 'Contains a blue token', false, true]);
+    'three pins: the films meet once, at 120°; past 120° the junction dives into the pin': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const S = __soap;
+        const tri = S.Net.dip([[0, 1], [-.87, -.5], [.87, -.5]], .3, -.2).settle(2500), j = tri.n.find(p => p.on && !p.pin);
+        const obt = S.Net.dip([[-1.5, 0], [1.5, 0], [0, .3]], 0, -.4).settle(2500);
+        return { free: tri.freeCount(), j: [j.x, j.y], ang: tri.junctionAngles(), obtFree: obt.freeCount(), obtL: obt.length() }; });
+      eq(r.free, 1); ok(Math.hypot(...r.j) < .02, 'junction should sit at the Fermat point'); ok(r.ang.every(a => Math.abs(a - 120) < 1.5), 'angles ' + r.ang);
+      eq(r.obtFree, 0, 'with a corner over 120° the film runs pin to pin'); ok(Math.abs(r.obtL - 2 * Math.hypot(1.5, .3)) < .01);
     },
-    'every law starts correctly filed: 1+1 given koans, or a sealed dossier that rules out every rival law': async ({ page, ok }) => {
-      const bad = await page.evaluate(() => {
-        const H = window.__hyp, out = [];
-        H.LAWS.forEach((L, i) => { const st = H.lawState(i), y = st.journal.filter(e => e.ok), n = st.journal.filter(e => !e.ok), sealed = H.isSealed(i);
-          if (sealed) { const tf = H.fp(L), alive = H.rivalPool(i).filter(q => H.fp(q).filter((x, k) => x !== tf[k]).length >= H.SAMPLE_D && st.journal.every(e => q.f(e.k) === e.ok));
-            if (alive.length) out.push(i + ' has ' + alive.length + ' rival laws consistent with its dossier: ' + alive[0].d);
-            if (st.journal.length < 8 || st.journal.length > 24 || y.length < 3 || n.length < 3) out.push(i + ' dossier shape ' + y.length + '/' + n.length); }
-          if ((!sealed && (y.length !== 1 || n.length !== 1)) || !y.every(e => L.f(e.k)) || n.some(e => L.f(e.k)) || new Set(st.journal.map(e => H.kkey(e.k))).size !== st.journal.length || !!st.sealed !== H.isSealed(i)) out.push(i); });
-        if (H.LAWS.filter((L, i) => H.isSealed(i)).length !== 14) out.push('sealed count');
-        return out;
-      });
-      ok(!bad.length, 'laws ' + bad.join(','));
+    'four pins in a square: two 120° junctions and a bridge; soap beats straight roads by up to the Steiner ratio': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const S = __soap, sq = [[-1, -1], [1, -1], [1, 1], [-1, 1]], N = S.Net.dip(sq, .05, .02).settle(3000);
+        return { free: N.freeCount(), L: N.length(), mst: S.mst(sq), ang: N.junctionAngles() }; });
+      ok(r.free === 2, 'expected two junctions, got ' + r.free); ok(Math.abs(r.L - 2 * (1 + Math.sqrt(3))) < .02, 'length ' + r.L);
+      ok(r.ang.every(a => Math.abs(a - 120) < 2)); ok(r.L / r.mst >= Math.sqrt(3) / 2 - 1e-3 && r.L < r.mst, 'ratio ' + r.L / r.mst);
     },
-    'regression: after failed predictions the accept box holds only accepted koans and labels misses clearly': async ({ page, ok, eq }) => {
-      for (const ans of [true, false]) {
-        await page.evaluate(ans => { const H = window.__hyp; H.openLaw(0); H.startPredict(); H.preds.forEach(p => p.ans = ans); H.submitPred(); }, ans);
-        await page.waitForTimeout(100); await closeModals(page);
-        const b = await boxes(page);
-        ok(b.journal.every(e => e.ok === e.f), 'journal verdict differs from the law');
-        eq(b.yes.length, b.journal.filter(e => e.f).length, 'accept box count');
-        eq(b.no.length, b.journal.filter(e => !e.f).length, 'reject box count');
-        ok(b.yes.every(x => x.tag !== 'you said ✓' && x.tag !== 'missed'), 'accept box has a rejected-looking label: ' + JSON.stringify(b.yes));
-        ok(b.no.every(x => x.tag !== 'you said ✗' && x.tag !== 'missed'), 'reject box mislabelled');
-        const mis = b.journal.filter(e => e.pred).length;
-        eq(b.yes.filter(x => x.tag === 'you said ✗').length + b.no.filter(x => x.tag === 'you said ✓').length, mis);
-      }
-      const head = await page.textContent('.jcol.yes h3'); ok(/accepts/.test(head));
+    'soap finds local minima: re-dipping gives different networks; the best known is the minimum and deterministic per seed': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const S = __soap, towns = [[-1.5, .2], [-.6, 1.4], [.9, 1.2], [1.6, -.2], [.4, -1.5], [-1, -1.1]], rnd = RH.rng('x');
+        const Ls = Array.from({ length: 24 }, () => +S.soapDip(towns, rnd).length().toFixed(3));
+        return { Ls, best: S.bestKnown(towns, 'k1', 40), best2: S.bestKnown(towns, 'k1', 40), mst: S.mst(towns) }; });
+      ok(new Set(r.Ls).size >= 2, 'every dip gave the same network: ' + r.Ls); eq(r.best, r.best2);
+      ok(r.best <= r.mst + 1e-6, 'best known should be no longer than straight roads: ' + r.best + ' vs ' + r.mst); ok(Math.min(...r.Ls) <= r.mst + 1e-6, 'some dip should beat or match straight roads');
     },
-    'testing a koan through the real UI files it by verdict and spends one probe; duplicates are free': async ({ page, eq, ok }) => {
-      await page.evaluate(() => window.__hyp.openLaw(0));
-      await page.click('#pal button[data-t="000"]'); await page.click('#pal button[data-t="112"]');
-      await page.click('#testBtn');
-      const r1 = await page.evaluate(() => { const H = window.__hyp, st = H.lawState(0), e = st.journal.at(-1); return { probes: st.probes, ok: e.ok, f: H.LAWS[0].f(e.k), k: e.k, verdict: document.getElementById('verdict').textContent }; });
-      eq(r1.probes, 1); eq(r1.ok, r1.f); eq(r1.k, [[0, 0, 0], [1, 1, 2]]); ok(r1.verdict.includes(r1.f ? 'Accepted' : 'Rejected'));
-      await page.click('#testBtn');
-      eq(await page.evaluate(() => window.__hyp.lawState(0).probes), 1, 'duplicate spent a probe');
-      ok((await page.textContent('#verdict')).includes('Already'));
-      // Enter key tests, but not while typing notes
-      await page.click('#notes'); await page.keyboard.type('x'); await page.keyboard.press('Enter');
-      eq(await page.evaluate(() => window.__hyp.lawState(0).probes), 1, 'Enter in notes tested');
-    },
-    'builder: 8-token limit, move, delete, empty test disabled': async ({ page, eq, ok }) => {
-      await page.evaluate(() => window.__hyp.openLaw(0));
-      ok(await page.isDisabled('#testBtn'), 'empty test enabled');
-      for (let n = 0; n < 10; n++) await page.click('#pal button[data-t="000"]');
-      eq(await page.evaluate(() => window.__hyp.builder.length), 8);
-      await page.click('#pal button[data-t="000"]');
-      await page.click('#brow .tk[data-i="0"]'); await page.click('#pal button[data-t="222"]'); await page.click('#mvR');
-      eq(await page.evaluate(() => window.__hyp.builder.slice(0, 2)), [[0, 0, 0], [2, 2, 2]]);
-      await page.click('#delBtn'); eq(await page.evaluate(() => window.__hyp.builder.length), 7);
-    },
-    'a correct prediction round publishes the law with stars; set is fresh and mixed': async ({ page, eq, ok }) => {
-      const r = await page.evaluate(() => {
-        const H = window.__hyp, out = []; H.openLaw(1);
-        for (let t = 0; t < 30; t++) { H.startPredict(); const L = H.LAWS[1], seen = new Set(H.lawState(1).journal.map(e => H.kkey(e.k)));
-          const keys = H.preds.map(p => H.kkey(p.k)); out.push({ n: H.preds.length, uniq: new Set(keys).size, fresh: keys.every(k => !seen.has(k)), pos: H.preds.filter(p => L.f(p.k)).length }); }
-        return out;
-      });
-      ok(r.every(x => x.n === 8 && x.uniq === 8 && x.fresh), 'bad prediction set');
-      ok(r.every(x => x.pos >= 3 && x.pos <= 5), 'accepted count outside 3..5');
-      ok(new Set(r.map(x => x.pos)).size > 1, 'accepted count always the same (leaks the last answer)');
-      await page.evaluate(() => { const H = window.__hyp; H.render(); });
-      for (let i = 0; i < 8; i++) { const yes = await page.evaluate(i => window.__hyp.LAWS[1].f(window.__hyp.preds[i].k), i); await page.click(`.pcard[data-i="${i}"] .${yes ? 'y' : 'n'}`); }
-      await page.click('#subBtn'); await page.waitForTimeout(100);
-      const s = await page.evaluate(() => window.__hyp.S.laws[1].solved);
-      eq(s.stars, 3); ok(await page.locator('.modal').count() === 1);
-    },
-    'wrong predictions cost 2 probes each; reveal offered after 3 failed rounds': async ({ page, eq, ok }) => {
-      const r = await page.evaluate(async () => {
-        const H = window.__hyp; H.openLaw(2); const out = [];
-        for (let t = 0; t < 3; t++) { H.startPredict(); const L = H.LAWS[2]; H.preds.forEach((p, i) => p.ans = i === 0 ? !L.f(p.k) : L.f(p.k)); H.submitPred(); await new Promise(r => setTimeout(r, 30));
-          out.push({ probes: H.lawState(2).probes, fails: H.lawState(2).fails, reveal: [...document.querySelectorAll('.modal button')].some(b => /Reveal/.test(b.textContent)) });
-          document.querySelectorAll('.modal-bg').forEach(m => m.remove()); }
-        return out;
-      });
-      eq(r.map(x => x.probes), [2, 4, 6]); eq(r.map(x => x.fails), [1, 2, 3]); eq(r.map(x => x.reveal), [false, false, true]);
-    },
-    'tiers stay locked until 3 laws are solved; progress fraction is bounded': async ({ page, eq, ok }) => {
-      ok(!(await page.evaluate(() => window.__hyp.tierOpen(1))));
-      await page.click('.law[data-i="9"]'); eq(await page.evaluate(() => window.__hyp.cur), 0, 'locked law opened');
-      await page.click('.law[data-i="free"]'); eq(await page.evaluate(() => window.__hyp.cur), 0, 'locked free lab opened');
-      const r = await page.evaluate(() => { const H = window.__hyp; for (let i = 0; i < 2; i++) { H.lawState(i).solved = { stars: 3, probes: 1 }; } if (H.tierOpen(1)) return { a: false };
-        H.lawState(2).solved = { stars: 3, probes: 1 }; const a = H.tierOpen(1);
-        for (let i = 0; i < 60; i++) H.lawState(i).solved = { stars: 3, probes: 1 }; H.openLaw(0); return { a, hub: JSON.parse(localStorage.getItem('rh:hub')).hypothesis }; });
-      ok(r.a); eq(r.hub, 1);
-    },
-    'sealed case: the test lever is locked, stars come from failed rounds, publish engraves the law': async ({ page, eq, ok }) => {
-      await page.evaluate(() => { const H = window.__hyp; for (let i = 0; i < 3; i++) H.lawState(i).solved = { stars: 3, probes: 1 }; H.openLaw(10); });
-      await page.click('#pal button[data-t="000"]');
-      ok(await page.isDisabled('#testBtn'), 'test lever not sealed');
-      const n0 = await page.evaluate(() => window.__hyp.lawState(10).journal.length);
-      await page.keyboard.press('Enter');
-      eq(await page.evaluate(() => window.__hyp.lawState(10).journal.length), n0, 'Enter probed a sealed case');
-      ok((await page.textContent('#center')).includes('Sealed case'));
-      // one failed round, then a perfect one: 2 stars
-      await page.evaluate(() => { const H = window.__hyp, L = H.LAWS[10]; H.startPredict(); H.preds.forEach((p, i) => p.ans = i ? L.f(p.k) : !L.f(p.k)); H.submitPred(); });
-      await page.waitForTimeout(80); await closeModals(page);
-      await page.evaluate(() => { const H = window.__hyp, L = H.LAWS[10]; H.startPredict(); H.preds.forEach(p => p.ans = L.f(p.k)); H.submitPred(); });
-      await page.waitForTimeout(80);
-      eq(await page.evaluate(() => window.__hyp.S.laws[10].solved.stars), 2);
-      const plate = await page.evaluate(() => [...document.querySelectorAll('.modal .lawtext .ch')].map(c => c.textContent).join(''));
-      const d = await page.evaluate(() => window.__hyp.LAWS[10].d);
-      eq(plate, ('“' + d + '”').replace(/ /g, ''), 'engraved plate text');
-      await closeModals(page); await page.evaluate(() => window.__hyp.render());
-      ok(!(await page.isDisabled('#testBtn')), 'solved sealed case should allow free experiments');
-    },
-    'the Grant: runs are deterministic per seed, every machine has a valid starting journal, and difficulty climbs': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(() => { const H = window.__hyp, a = [1, 5, 9].map(l => H.runLawAt('abc', l).L.d), b = [1, 5, 9].map(l => H.runLawAt('abc', l).L.d), c = H.runLawAt('abd', 5).L.d;
-        const tiers = [1, 4, 8, 15, 30].map(l => H.runLawAt('x', l).L.tier), bad = [];
-        for (let l = 1; l <= 25; l++) { const L = H.runLawAt('zz', l).L, rate = H.fp(L).filter(Boolean).length / 400; if (rate < .1 || rate > .9) bad.push(l); }
-        for (let i = 0; i < 3; i++) H.lawState(i).solved = { stars: 3, probes: 1 }; H.runStart('abc'); const st = H.lawState('free');
-        return { same: JSON.stringify(a) === JSON.stringify(b), differ: c !== a[1], tiers, bad, j: st.journal.map(e => e.ok), law: H.freeLaw.d === a[0] }; });
-      ok(r.same && r.differ, 'not deterministic per seed'); eq(r.tiers, [0, 1, 3, 7, 7]); ok(!r.bad.length, 'trivial laws at ' + r.bad); eq(r.j, [true, false]); ok(r.law);
-    },
-    'the Grant: probes spend it, wrong predictions cost two, publishing renews it, running dry ends the run; naive runs score 0': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(async () => { const H = window.__hyp; for (let i = 0; i < 3; i++) H.lawState(i).solved = { stars: 3, probes: 1 };
-        H.runStart('grant1'); H.builder = [[0, 0, 0]]; H.test(); H.builder = [[1, 1, 1], [2, 2, 2]]; H.test(); const afterProbes = H.S.free.run.budget;
-        H.startPredict(); H.preds.forEach(p => p.ans = H.freeLaw.f(p.k)); H.submitPred(); await new Promise(r => setTimeout(r, 30)); document.querySelectorAll('.modal-bg .modal button')[0]?.click(); await new Promise(r => setTimeout(r, 30));
-        const afterPublish = { ...H.S.free.run };
-        // naive: predicts "accept" for everything until the grant is gone
-        let rounds = 0; while (H.S.free.run && rounds < 40) { rounds++; H.startPredict(); H.preds.forEach(p => p.ans = true); H.submitPred(); await new Promise(r => setTimeout(r, 20)); document.querySelectorAll('.modal-bg').forEach(m => m.remove()); }
-        return { afterProbes, afterPublish, ended: !H.S.free.run, best: H.S.free.best };
-      });
-      eq(r.afterProbes, 22); eq([r.afterPublish.score, r.afterPublish.level, r.afterPublish.budget], [1, 2, 22 + 8 + 4]);
-      ok(r.ended, 'always-accept never ran out'); eq(r.best, 1);
-    },
-
-    'save loading tolerates junk, partial and malformed journals': async ({ page, eq }) => {
-      const r = await page.evaluate(() => {
-        const H = window.__hyp, put = v => localStorage.setItem('rh:hyp', typeof v === 'string' ? v : JSON.stringify(v)), out = [];
-        put('nope'); out.push(typeof H.loadState().seed);
-        put({ seed: 3, laws: { 0: { journal: [{ k: [[0, 0, 9]], ok: true }] }, 1: { journal: [{ k: [[0, 1, 2]], ok: false }], probes: 'x' }, 77: { journal: [] } }, cur: 'zzz', free: { tier: 99 } });
-        const s = H.loadState(); out.push(Object.keys(s.laws), s.laws[1].probes, s.cur, s.free.run, s.free.st);
-        return out;
-      });
-      eq(r, ['number', ['1'], 0, 0, null, null]);
-    },
-    'phone layout: no horizontal scroll in probe and predict modes': async ({ page, ok }) => {
-      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(150);
-      ok(await page.evaluate(() => document.documentElement.scrollWidth) <= 392, 'probe overflow');
-      await page.evaluate(() => window.__hyp.startPredict());
-      ok(await page.evaluate(() => document.documentElement.scrollWidth) <= 392, 'predict overflow');
-    },
-    'rival scientist: a wrong theory that fits the opening evidence blocks publishing until refuted': async ({ page, eq, ok }) => {
-      const r = await page.evaluate(() => { const H = window.__hyp, out = [];
-        H.LAWS.forEach((L, i) => { if (!H.hasRival(i)) return; const q = H.rivalOf(i), st = H.lawState(i);
-          out.push({ i, has: !!q, fits: q ? st.journal.every(e => q.f(e.k) === e.ok) : false, differs: q ? H.fp(q).filter((x, k) => x !== H.fp(L)[k]).length : 0, refuted: H.refuted(i, st) }); });
+    'films in 3D: relaxation lowers area, borders meet at 120°, and the cube grows its little square': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const S = __soap, out = {};
+        for (const [k, F] of [['tet', S.buildTetra(9)], ['cube', S.buildCube(8)]]) { const a0 = F.area(); for (let i = 0; i < 8; i++) F.relax(100); const a1 = F.area();
+          const angs = [...F.lineNb.keys()].filter((_, i) => i % 5 === 2).map(i => S.borderAngle(F, i)).filter(Boolean).flat();
+          const sq = k === 'cube' ? F.get(F.keys.get('s-1-1')).distanceTo(F.get(F.keys.get('s1-1'))) : null; out[k] = { a0, a1, angs, sq, fin: F.X.every(Number.isFinite) }; }
         return out; });
-      eq(r.length, 7);
-      ok(r.every(x => x.has && x.fits && x.differs >= 30 && !x.refuted), JSON.stringify(r.filter(x => !(x.has && x.fits && x.differs >= 30 && !x.refuted))));
-      const i = r[0].i;
-      await page.evaluate(i => { const H = window.__hyp; for (let j = 0; j < 3; j++) H.lawState(j).solved = { stars: 3, probes: 1 }; H.openLaw(i); }, i);
-      ok(await page.isDisabled('#pubBtn'), 'publish allowed before refuting');
-      ok((await page.textContent('.rival')).includes('Dr Ashcombe'));
-      // probe a koan on which the rival and the machine disagree
-      const k = await page.evaluate(i => { const H = window.__hyp, q = H.rivalOf(i), L = H.LAWS[i]; for (let t = 0; t < 5000; t++) { const k = H.randKoan(RH.rng(t), 1, 6); if (q.f(k) !== L.f(k)) return k; } }, i);
-      await page.evaluate(k => { const H = window.__hyp; H.builder = k; H.test(); }, k);
-      ok(!(await page.isDisabled('#pubBtn')), 'still blocked after refuting');
-      ok((await page.textContent('.rival')).includes('Refuted'));
+      for (const k of ['tet', 'cube']) { const x = r[k]; ok(x.fin, k + ' blew up'); ok(x.a1 <= x.a0 + 1e-6, `${k} area rose ${x.a0} → ${x.a1}`); ok(x.angs.length > 5 && x.angs.every(a => Math.abs(a - 120) < 8), `${k} angles ${x.angs.map(Math.round)}`); }
+      ok(r.cube.sq > .15 && r.cube.sq < .8, 'square edge ' + r.cube.sq);
     },
-    'tier briefings name a method': async ({ page, ok }) => {
-      ok(/Method:/.test(await page.textContent('.method')));
+    'the double bubble: outer films meet at 120° and the wall curves as 1/r_small − 1/r_big': async ({ page, ok, near }) => {
+      const r = await page.evaluate(() => { const S = __soap, g = S.doubleBubble(1, .6), eq = S.doubleBubble(.7, .7);
+        // angle between the two outer spheres' normals at the junction circle
+        const cosA = (1 + .36 - g.d * g.d) / (2 * 1 * .6); return { g, eq, ang: Math.acos(cosA) * 180 / Math.PI }; });
+      near(r.ang, 60, 1e-6, 'sphere normals at 60° means films meet at 120°'); near(1 / r.g.r3, 1 / .6 - 1 / 1, 1e-9); ok(!isFinite(r.eq.r3), 'equal bubbles share a flat wall');
     },
-    'difficulty: naive play fails': async ({ page, ok }) => {
-      const r = await page.evaluate(() => {
-        const H = window.__hyp, L = H.LAWS, out = { naive: [], competent: [], solver: [] };
-        let s = 11; const R = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
-        const rk = () => Array.from({ length: 1 + Math.floor(R() * 7) }, () => [0, 1, 2].map(() => Math.floor(R() * 3)));
-        const dist = (a, b) => Math.abs(a.length - b.length) * 3 + a.slice(0, Math.min(a.length, b.length)).reduce((d, t, k) => d + t.filter((x, q) => x !== b[k][q]).length, 0);
-        for (let i = 40; i < 60; i++) { if (H.isSealed(i)) continue;
-          const law = L[i], J = H.lawState(i).journal.map(e => ({ k: e.k, ok: e.ok }));
-          for (let run = 0; run < 3; run++) {
-            // a prediction set like the game's: 3-5 accepted, the rest rejected
-            const nPos = 3 + Math.floor(R() * 3), pos = [], neg = []; while (pos.length < nPos || neg.length < 8 - nPos) { const k = rk(); (law.f(k) ? (pos.length < nPos && pos.push(k)) : (neg.length < 8 - nPos && neg.push(k))); }
-            const set = pos.concat(neg), truth = set.map(k => law.f(k)), pass = preds => preds.every((v, k) => v === truth[k]);
-            const nn = j => set.map(k => j.reduce((a, e) => dist(e.k, k) < dist(a.k, k) ? e : a).ok);
-            const j10 = J.slice(); for (let t = 0; t < 10; t++) { const k = rk(); j10.push({ k, ok: law.f(k) }); }
-            out.naive.push(pass(set.map(() => true)), pass(set.map(() => R() < .5)), pass(nn(J)), pass(nn(j10)));   // all-accept, coin flips, nearest example, 10 random probes + nearest
-            const pool = H.rivalPool(i).concat([law]);
-            const play = smart => { const j = J.slice(); let probes = 0, alive = pool.filter(q => j.every(e => q.f(e.k) === e.ok));
-              while (!set.every(k => alive.every(q => q.f(k) === alive[0].f(k))) && probes < 80) { let k;
-                if (smart) { let bs = -1; for (let c = 0; c < 150; c++) { const x = rk(), y = alive.filter(q => q.f(x)).length, sc = Math.min(y, alive.length - y); if (sc > bs) { bs = sc; k = x; } } } else k = rk();
-                const v = law.f(k); probes++; alive = alive.filter(q => q.f(k) === v); }
-              return { pass: pass(set.map(k => alive.filter(q => q.f(k)).length * 2 >= alive.length)), three: probes <= H.par(law.tier) }; };
-            out.competent.push(play(false)); out.solver.push(play(true));
-          }
-        }
-        return out;
-      });
-      const rate = a => a.filter(Boolean).length / a.length;
-      ok(rate(r.naive) <= .2, 'naive policies passed the prediction round too often: ' + rate(r.naive));
-      ok(r.competent.every(x => x.pass), 'competent hypothesis-elimination failed');
-      const c3 = rate(r.competent.map(x => x.three)), s3 = rate(r.solver.map(x => x.three));
-      ok(c3 <= .6 && s3 >= .7 && s3 > c3 + .2, `3 stars should need solver-level probing: random-probing ${c3}, best-split ${s3}`);
+    'predict, then reveal: Plate II waits for a tap; Plate III/IV/V record the guess and reveal': async ({ page, ok, eq }) => {
+      await page.evaluate(() => __soap.go(1)); await page.waitForTimeout(300);
+      ok(await page.evaluate(() => !__soap.fig.net && !__soap.st.revealed), 'films should wait for a guess');
+      const box = await page.evaluate(() => { const c = document.getElementById('gl').getBoundingClientRect(); return [c.width, c.height]; });
+      await page.mouse.click(box[0] * .5, box[1] * .42); await page.waitForTimeout(500);
+      const s = await page.evaluate(() => ({ rev: __soap.st.revealed, net: !!__soap.fig.net, err: __soap.st.err, txt: document.getElementById('card').textContent }));
+      ok(s.rev && s.net && Number.isFinite(s.err), 'tap did not reveal ' + JSON.stringify(s)); ok(s.txt.includes('120'));
+      await page.evaluate(() => __soap.go(3)); await page.waitForTimeout(200);
+      ok(await page.evaluate(() => __soap.fig.hidden === true), 'cube film should be hidden until you predict');
+      await page.click('[data-pred="cube"][data-k="faces"]'); await page.waitForTimeout(200);
+      eq(await page.evaluate(() => [__soap.SAVE.preds.cube, __soap.fig.hidden]), ['faces', false]);
+      ok(await page.evaluate(() => !!document.querySelector('[data-pred]') === false || document.querySelector('.right')), 'the right answer should be marked');
     },
-    'phone: level list is a drawer behind a labelled button; picking a level closes it': async ({ page, ok }) => {
-      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(500);
-      const off = await page.evaluate(() => document.getElementById('side').getBoundingClientRect().right <= 0);
-      ok(off, 'list visible without opening the drawer');
-      ok(await page.isVisible('#lvlBtn'), 'no drawer button');
-      await page.click('#lvlBtn'); await page.waitForTimeout(300);
-      ok(await page.evaluate(() => document.body.classList.contains('drawer') && document.getElementById('side').getBoundingClientRect().left >= 0), 'drawer did not open');
-      await page.click('#side .law:not(.locked) >> nth=1'); await page.waitForTimeout(300);
-      ok(!(await page.evaluate(() => document.body.classList.contains('drawer'))), 'drawer stayed open');
-      await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(150);
-      ok(!(await page.isVisible('#lvlBtn')), 'drawer button on desktop');
+    'moving a pin: the film follows and its junctions re-balance at 120°': async ({ page, ok }) => {
+      await page.evaluate(() => { __soap.SAVE.preds.square = 'h'; __soap.go(2); }); await page.waitForTimeout(300);
+      const before = await page.evaluate(() => __soap.fig.pins.map(p => p.slice()));
+      const moved = await page.evaluate(() => { const f = __soap.fig; f.pins[0] = [f.pins[0][0] + .3, f.pins[0][1]]; f.net.n[0].x += .3; for (let i = 0; i < 400; i++) f.net.step(); return f.net.junctionAngles(); });
+      ok(moved.every(a => Math.abs(a - 120) < 3), 'junctions should re-balance: ' + moved);
+      ok(before[0][0] !== (await page.evaluate(() => __soap.fig.pins[0][0])));
+    },
+    'share links: a frame round-trips through the URL; junk is refused': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const S = __soap; return { a: S.decode(S.encodeStr({ f: 'pins', p: [[0, 1], [1, 0], [-1, -1]] })), b: S.decode(S.encodeStr({ f: 'cube', o: Array(8).fill([.1, 0, 9]) })),
+        bad: ['', 'xyz', btoa('{"f":"pins","p":[[1,2]]}'), btoa(encodeURIComponent('{"f":"evil"}'))].map(S.decode) }; });
+      eq(r.a.f, 'pins'); eq(r.a.p.length, 3); ok(r.b.o.every(v => v[2] === .45), 'offsets should be clamped'); ok(r.bad.every(x => x === null), 'junk accepted');
+      const h = await page.evaluate(() => '#frame=' + __soap.encodeStr({ f: 'pins', p: [[-1, 0], [1, 0], [0, 1.2], [0, -1.2]] }));
+      await reopen(page, h);
+      eq(await page.evaluate(() => [__soap.ch, __soap.fig.kind, __soap.fig.pins.length]), [5, 'pins', 4]);
+      ok((await page.evaluate(() => __soap.shareLink())).includes('#frame='));
+    },
+    'saves: progress persists; corrupted saves are ignored': async ({ page, ok, eq }) => {
+      await page.evaluate(() => __soap.go(2)); await reopen(page);
+      eq(await page.evaluate(() => __soap.ch), 2);
+      for (const junk of ['{', 'null', '{"ch":99,"seen":"x","preds":5}', '{"ch":-1,"seen":[1,2,99,"a"],"best":{"a":"NaN"}}']) {
+        await page.evaluate(j => localStorage.setItem('rh:soap', j), junk); await reopen(page);
+        ok(await page.evaluate(() => __soap.ch >= 0 && __soap.ch < 6 && !!__soap.fig && document.getElementById('card').textContent.length > 20), 'broken by ' + junk);
+      }
+    },
+    'phone (390x844): the 3D view fills the screen; the caption covers under a third of it': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(400);
+      const r = await page.evaluate(() => { const c = document.getElementById('card').getBoundingClientRect(), g = document.getElementById('gl').getBoundingClientRect(); return { card: c.height * c.width / (innerWidth * innerHeight), gl: g.width * g.height / (innerWidth * innerHeight), sx: document.documentElement.scrollWidth }; });
+      ok(r.gl > .99, 'canvas'); ok(r.card < .34, 'card covers ' + r.card); ok(r.sx <= 391, 'sideways scroll');
+      const small = await page.evaluate(() => [...document.querySelectorAll('button')].filter(b => { const r = b.getBoundingClientRect(); return r.width && Math.min(r.width, r.height) < 28; }).length); ok(small === 0, small + ' tiny buttons');
     },
   },
 };

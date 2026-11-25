@@ -27,7 +27,7 @@
   #meter{font-size:13.5px;color:var(--ink2);text-align:right;white-space:nowrap;flex:none} #meter b{font-size:19px;color:var(--ink);display:block}
   #stage{flex:1;min-height:0;position:relative}
   #gl{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
-  #hint{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);font:italic 600 22px "Cormorant Garamond",serif;color:#3a2a1c;text-shadow:0 1px 0 #fff6;pointer-events:none;transition:opacity .6s}
+  #hint{position:absolute;left:50%;top:82%;transform:translate(-50%,-50%);font:italic 600 22px "Cormorant Garamond",serif;color:#f6e7c8;text-shadow:0 1px 3px #000,0 0 12px #000;pointer-events:none;transition:opacity .6s}
   #tools{display:flex;align-items:center;gap:6px;justify-content:center;padding:6px 8px 10px;flex:none;position:relative;z-index:3;flex-wrap:wrap}
   .cup{width:34px;height:34px;border-radius:50%;padding:0;min-height:0;border:2px solid #2a1a10;box-shadow:inset 0 -4px 6px #0006,inset 0 3px 4px #fff5,0 2px 0 #000;flex:none}
   .cup.on{outline:2px solid #e9c987;outline-offset:2px}
@@ -122,7 +122,8 @@ void main(){
   // pigment does not sit evenly: it granulates, and gathers at the rim of a drop. Both ride along with the flow.
   float fi=float(found);
   float g=noise(p*.17+fi*13.1)*.6+noise(p*.6+fi*3.7)*.32+noise(p*1.7)*.08;
-  float m=clamp(.5+(g-.5)*.9+(found<0? 0. : .32*smoothstep(.55,1.,rim)-.06),0.,1.);
+  // and where two inks meet, the ox-gall leaves a fine dark vein
+  float m=clamp(.5+(g-.5)*.8+(found<0? 0. : .22*smoothstep(.5,.92,rim)+.45*smoothstep(.93,.995,rim)-.08),0.,1.);
   o=vec4(D*0.25,m);
 }`;
 // ---- the bath, lit: walnut trough, size with a glossy skin, a meniscus at the rim, caustics, a lamp and a window ----
@@ -205,6 +206,7 @@ void main(){
   }
   // lamp falloff, a little grain against banding
   col*=.82+.3*exp(-dot(q-vec2(120.,-120.),q-vec2(120.,-120.))/(700.*700.));
+  col=mix(col, vec3(dot(col,vec3(.3,.55,.15))), .14)*vec3(1.04,1.,.92);
   col=tonemap(col*1.12); col+= (hash(fc+fract(uTime))-.5)/255.;
   o=vec4(pow(col,vec3(1./1.0)),1.);
 }`;
@@ -297,7 +299,8 @@ function freeBath(){ const u=unlocked(); return {id:'free', n:'Free bath', era:'
 let COM=COMMISSIONS[0], ops=[], tool='drop', ink=0, anim=null, dirty=true, inkK=0, targetCache=null, likeT=0;
 const strokes=()=>ops.length-COM.ground.length;
 function open(c, extra){ COM=c; ops=c.ground.concat(extra||[]); tool=c.tools.includes(tool)? tool : c.tools[0]; ink=c.inks.includes(ink)? ink : c.inks[0]; anim=null; peel=null;
-  targetCache= c.recipe||c.target? MB.sample(MB.targetOps(c)) : null; $('hint').style.opacity= ops.length? 0 : 1; renderTools(); renderCard(); drawThumb(); dirty=true; cam.fit(false); setHash(); measure(); }
+  if (c.recipe && !extra){ const code=c.recipe[0][0]; tool={s:'stylus',c:'comb',k:'rake',w:'wave',o:'swirl'}[code]||tool; }
+  targetCache= c.recipe||c.target? MB.sample(MB.targetOps(c)) : null; $('hint').textContent=(ROT&&c.hintTurned)||c.hint||'tap the bath'; $('hint').style.opacity= (ops.length===c.ground.length && (c.hint||!ops.length))? 1 : 0; renderTools(); renderCard(); drawThumb(); dirty=true; cam.fit(false); setHash(); measure(); }
 function push(op){ if (ops.length>=MAXOPS) return RH.toast('The bath can hold no more. Lay the paper or undo.'); ops.push(op); anim={t0:performance.now(), dur: op[0]==='d'? 650 : op[0]==='o'? 900 : 700}; dirty=true; $('hint').style.opacity=0; setHash(); measure(); renderCard(); }
 function undo(){ if (ops.length<=COM.ground.length) return; ops.pop(); anim=null; dirty=true; setHash(); measure(); renderCard(); }
 let likeness=null; function measure(){ clearTimeout(likeT); likeT=setTimeout(()=>{ if (COM.free){ likeness=null; } else likeness=MB.judge(COM, ops, targetCache).score; renderCard(); }, 120); }
@@ -313,7 +316,7 @@ function viewFor(w,h,scale){ // screen pixels of the framebuffer → bath units
 
 // ======================= Frame =======================
 let peel=null, last=performance.now(), ft=[];
-function resize(){ const rot=$('stage').clientHeight>$('stage').clientWidth*1.08; if (rot!==ROT){ ROT=rot; dirty=true; cam.fit(false); } const s=DPR*dprScale, w=Math.max(2,Math.round(cv.clientWidth*s)), h=Math.max(2,Math.round(cv.clientHeight*s));
+function resize(){ const rot=$('stage').clientHeight>$('stage').clientWidth*1.08; if (rot!==ROT){ ROT=rot; dirty=true; cam.fit(false); if (COM.hint) $('hint').textContent=(ROT&&COM.hintTurned)||COM.hint; } const s=DPR*dprScale, w=Math.max(2,Math.round(cv.clientWidth*s)), h=Math.max(2,Math.round(cv.clientHeight*s));
   if (cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; inkFB=texRT(w,h); dirty=true; } return s; }
 let paused=false;
 function frame(now){ requestAnimationFrame(frame); if (!gl || paused) return; step(now); }

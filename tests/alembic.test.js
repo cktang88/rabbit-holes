@@ -96,9 +96,9 @@ module.exports = {
     'saves: junk is cleaned and the save stays small': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => { const A = window.__alembic; const c = A.cleanSave({ codex: { steam: ['2026-01-01', 'water', 'fire'], bogus: [1], glass: 'x' }, done: { mud: '2026-01-02', nope: 1 }, daily: { '2026-01-03': [7, 900], 'evil': 3, '2026-01-04': 5 }, cur: 'zzz' });
         const all = {}; A.ELS.forEach((e, i) => { if (i) all[e[0]] = ['2026-11-25', 'water', 'fire']; }); const big = A.cleanSave({ codex: all, done: Object.fromEntries(A.COMMS.map(c => [c.id, '2026-11-25'])) });
-        const o = A.cleanSave({ m: 'office', office: { w: 77, tier: 9, top: 3, cards: [[51, 52, 53, 0], [1, 2], 'x', [51, 0, 999, 0]], seen: ['51,52,53,0', { a: 1 }], left: -5, pd: [51, 3, 'q'], best: { '77-2': 1200, 'bad': 5 }, closed: 1 } }).office;
+        const N = A.office.NREAL, o = A.cleanSave({ m: 'office', office: { w: 77, tier: 9, top: 3, cards: [[N + 1, N + 2, N + 3, 0], [1, 2], 'x', [N + 1, 0, 999, 0]], seen: [[N + 1, N + 2, N + 3, 0].join(), { a: 1 }], left: -5, pd: [N + 1, 3, 'q'], best: { '77-2': 1200, 'bad': 5 }, closed: 1 } }).office;
         delete c.m; delete c.office; return { c, o: [o.w, o.tier, o.top, o.cards, o.seen, o.left, o.pd, o.best, o.closed], size: JSON.stringify(big).length }; });
-      eq(r.o, [77, 6, 3, [[51, 52, 53, 0]], ['51,52,53,0'], 0, [51], { '77-2': 1200 }, 1], 'office save cleaned');
+      const N = await page.evaluate(() => __alembic.office.NREAL); eq(r.o, [77, 6, 3, [[N + 1, N + 2, N + 3, 0]], [[N + 1, N + 2, N + 3, 0].join()], 0, [N + 1], { '77-2': 1200 }, 1], 'office save cleaned');
       eq(r.c, { v: 1, codex: { steam: ['2026-01-01', 'water', 'fire'] }, done: { mud: '2026-01-02' }, daily: { '2026-01-03': [7, 900], '2026-01-04': [5, 0] }, cur: 'mud' }); ok(r.size < 5000, 'save size ' + r.size);
     },
     'daily trays: fixed per date, 12–30 substances possible, a drop budget, and careful small pours find far more than scattered ones': async ({ page, ok, eq }) => {
@@ -237,6 +237,7 @@ module.exports = {
         for (const t of [1, 2, 3, 4, 5]) for (const sd of [11, 22]) out.sci.push(scientist(sd, t));
         for (const t of [1, 3, 5]) for (const sd of [11, 22]) out.guess.push(guesser(sd, t));
         return out; });
+      if (process.env.V) console.log(JSON.stringify(r));
       ok(r.oracle.every(o => o.done && o.left > 0), 'every law stampable and every patron payable within budget: ' + JSON.stringify(r.oracle.filter(o => !o.done || o.left <= 0)));
       const sciAll = r.sci.filter(s => s.found === s.laws).length, sciFound = r.sci.reduce((n, s) => n + s.found / s.laws, 0) / r.sci.length, gFound = r.guess.reduce((n, s) => n + s.found / s.laws, 0) / r.guess.length;
       ok(r.sci.slice(0, 6).every(s => s.found === s.laws), 'a scientist solves every world of tiers 1–3: ' + JSON.stringify(r.sci));
@@ -266,6 +267,14 @@ module.exports = {
       eq(await page.evaluate(() => [__alembic.mode, __alembic.office.world.seed, __alembic.office.cards.map(c => c.st), __alembic.office.officeState().fines]), ['office', 4242, ['seen', 'false'], 1], 'the world and its cards come back');
       const p2 = await page.context().newPage(); await p2.goto(url.replace('4242-2', '777-3')); await p2.waitForFunction(() => window.__alembic && __alembic.office.world);
       eq(await p2.evaluate(() => [__alembic.office.world.seed, __alembic.office.world.tier, __alembic.office.cards.length]), [777, 3, 0], 'a link opens its world'); await p2.close();
+    },
+    'a first visit reaches its first experiment in two taps: the welcome opens the Assay Office with both wells filled, and Mix runs them': async ({ page, ok, eq }) => {
+      await page.evaluate(() => localStorage.clear()); await page.reload(); await page.waitForSelector('.modal-actions button');
+      const t0 = Date.now(); await page.click('.modal-actions button:has-text("Assay Office")'); await page.click('#bRun');
+      await page.waitForFunction(() => __alembic.office.lastResult, null, { timeout: 15000 });
+      eq(await page.evaluate(() => [__alembic.mode, __alembic.office.world.tier, __alembic.office.lastResult.kind]), ['office', 1, 'mix']);
+      ok(Date.now() - t0 < 10000, 'first result in ' + (Date.now() - t0) + ' ms');
+      ok(await page.evaluate(() => __alembic.office.reveal.got.length >= 1), 'it makes something the first time');
     },
     'leaving the office gives the blank substances back: commissions, codex and daily trays are untouched': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => { const A = __alembic, O = A.office; O.startOffice(5, 6); A.paused = true; const known = O.world.ids.length;

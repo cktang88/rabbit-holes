@@ -48,7 +48,7 @@
   .card canvas.spark{width:48px;height:11px;margin-top:1px}
   .card.hint{animation:hint 1.2s ease-in-out infinite} @keyframes hint{50%{box-shadow:0 0 0 4px var(--sun),1px 2px 0 rgba(74,58,40,.3)}}
   .ph{border-bottom:1px dashed var(--line);padding:5px 0} .ph .n{font:700 19px Caveat,cursive;color:var(--ink2)} .ph.got .n{color:var(--berry)} .ph .d{font-size:13.5px}
-  .axes{font:700 18px Caveat,cursive;color:var(--ink2)} .chn{font-size:15px;color:var(--ink2)}
+  .axes{font:700 18px Caveat,cursive;color:var(--ink2)} .hst{display:flex;align-items:center;gap:8px;font-size:13px;margin:2px 0} .hst svg{width:110px;height:26px;flex:0 0 auto;border-bottom:1px solid var(--ink2)} .chn{font-size:15px;color:var(--ink2)}
   .card:disabled{opacity:.45}
   #time{display:flex;flex-direction:column;gap:6px;justify-content:center}
   #time button{min-width:56px}
@@ -213,11 +213,19 @@ function campEvents(ev) {
       modal(`<h2>The commission lapsed</h2><p><b>${CHn().title}</b>. ${failNote()}</p><p>Rewinding takes you back to the start of this chapter, with everything before it kept.</p>`, [{ label: 'Keep watching' }, { label: 'Rewind the chapter', primary: true, action: rewind }]); }
   } mergeCodex(); persist(); }
 let lastWin = null;
+// how the society's other stewards did on each chapter: years and releases, from bot playthroughs of 40 islands
+// (a fixed-recipe steward and one that reads the census every year; precomputed by tests' bots, see tests/island.test.js)
+const BOTH = {"meadow":{"y":{"8":67,"9":6},"r":{"2":7,"3":66}},"cycle":{"y":{"14":34,"15":4,"16":4,"18":1,"19":2,"20":2,"21":2,"22":1,"23":1},"r":{"1":12,"2":2,"3":36,"4":1}},"bees":{"y":{"2":1,"3":11,"4":8,"5":2,"6":1,"7":3,"8":1,"10":1,"12":1,"13":1,"15":2},"r":{"5":17,"6":11,"7":3,"8":1}},"woods":{"y":{"3":3,"4":1,"5":1,"6":2,"7":3,"8":1,"9":2,"11":2,"12":1,"13":1},"r":{"5":7,"6":10}},"goats":{"y":{"2":10,"3":4,"4":1},"r":{"7":10,"8":1,"9":3,"11":1}},"river":{"y":{"2":6,"3":7,"5":1,"6":1},"r":{"4":10,"5":3,"6":2}},"drought":{"y":{"16":15},"r":{"2":1,"3":2,"4":6,"5":3,"6":2,"8":1}},"plague":{"y":{"3":14,"4":1},"r":{"2":7,"3":8}},"ten":{"y":{"30":14},"r":{"7":1,"8":1,"9":4,"10":4,"11":1,"12":3}}};
+function histSvg(h, v, label, phrase) { const ks = Object.keys(h || {}).map(Number); if (!ks.length) return ''; const lo = Math.min(...ks, v), hi = Math.max(...ks, v), mx = Math.max(...Object.values(h)), n = hi - lo + 1, bw = 100 / n;
+  let bars = ''; for (let x = lo; x <= hi; x++) { const c = h[x] || 0, me = x === v; const bh = c ? Math.max(3, c / mx * 26) : me ? 26 : 0; if (bh) bars += `<rect x="${((x - lo) * bw + .4).toFixed(2)}" y="${30 - bh}" width="${Math.max(.8, bw - .8).toFixed(2)}" height="${bh}" fill="${me ? '#b5476b' : '#c9b68f'}"/>`; }
+  const tot = Object.values(h).reduce((a, b) => a + b, 0), better = ks.reduce((a, k) => a + (k > v ? h[k] : 0), 0);
+  return `<div class="hst"><svg viewBox="0 0 100 30" preserveAspectRatio="none">${bars}</svg><span>${label}: <b>${v}</b> · ${phrase} ${Math.round(better / tot * 100)}% of the society's stewards</span></div>`; }
+const histsFor = (id, y, r) => BOTH[id] ? histSvg(BOTH[id].y, y, 'years', 'quicker than') + histSvg(BOTH[id].r, r, 'releases', 'thriftier than') : '';
 function failNote() { const c = W.camp, g = I.CH[c.ch].goal(W, Math.floor(W.t / TPY) - c.y0 - 1, c); return g === 'won' || g === 'lost' ? 'Not this time.' : 'At the end: ' + g.replace(/ Year \d+ of \d+\.$/, ''); }
 const axes = (w) => w ? `${w.yrs} year${w.yrs === 1 ? '' : 's'} · ${w.rel} release${w.rel === 1 ? '' : 's'} · ${w.sp} species` : '';
 function chapterCard(ch, msg, w0) { running = false; syncPlay();
   const prev = w0 ? I.CH[w0.ch] : null, arrivals = ch.ark.map(id => SP[IDX[id]].name.toLowerCase()), tools = (ch.tools || []).map(t => I.TOOLS[t].name.toLowerCase());
-  modal(`${prev ? `<h2>Fulfilled: ${prev.title}</h2><p class="axes">${axes(w0)}${w0.prev ? `<br><span class="dim">your best: ${w0.prev.y} years · ${w0.prev.r} releases · ${w0.prev.s} species</span>` : ''}</p>` : ''}
+  modal(`${prev ? `<h2>Fulfilled: ${prev.title}</h2><p class="axes">${axes(w0)}</p>${histsFor(prev.id, w0.yrs, w0.rel)}<p class="axes">${w0.prev ? `<br><span class="dim">your best: ${w0.prev.y} years · ${w0.prev.r} releases · ${w0.prev.s} species</span>` : ''}</p>` : ''}
     <h2>${ch.title}</h2>${msg ? `<p><i>${msg}</i></p>` : ''}<p>${ch.brief}</p>${arrivals.length || tools.length ? `<p class="small">New in the ark: ${[...arrivals, ...tools].join(', ')}. ${ch.permits} more releases.</p>` : `<p class="small">${ch.permits} more releases.</p>`}`,
     [{ label: 'To the island', primary: true, action: () => { running = true; syncPlay(); } }]); }
 // the naturalist's notes: what just happened, worth writing down
@@ -456,7 +464,7 @@ function renderComs() { const day = todayKey(), d = M.daily[day], ch = MODE === 
   let h = '';
   if (MODE !== 'camp') h += `<div class="com"><div class="t">Back to your island</div><p>The steward's island is waiting where you left it.</p><button class="go" data-camp>Go back</button></div>`;
   h += `<h3>The steward's island${M.camp ? ` "${M.camp.seed}"` : ''}</h3>` + I.CH.map((c, i) => { const b = M.best[c.id], cur = MODE === 'camp' && i === ch, done = i < ch || (!!b && i < chDone());
-    return `<div class="com ${done ? 'done' : ''} ${i > ch ? 'locked' : ''}"><div class="t">${done ? '<i class="seal"></i> ' : ''}${i + 1}. ${i > ch + 1 ? '…' : c.title}</div>${i <= ch + 1 ? `<p>${i > ch ? '<i>Next.</i> ' : ''}${c.brief}</p>` : ''}${b ? `<p class="small axes">Best: ${b.y} years · ${b.r} releases · ${b.s} species</p>` : ''}${cur && !c.endless ? `<button data-rw>Rewind to this chapter's start</button>` : ''}</div>`; }).join('');
+    return `<div class="com ${done ? 'done' : ''} ${i > ch ? 'locked' : ''}"><div class="t">${done ? '<i class="seal"></i> ' : ''}${i + 1}. ${i > ch + 1 ? '…' : c.title}</div>${i <= ch + 1 ? `<p>${i > ch ? '<i>Next.</i> ' : ''}${c.brief}</p>` : ''}${b ? `<p class="small axes">Best: ${b.y} years · ${b.r} releases · ${b.s} species</p>${histsFor(c.id, b.y, b.r)}` : ''}${cur && !c.endless ? `<button data-rw>Rewind to this chapter's start</button>` : ''}</div>`; }).join('');
   h += `<p><button data-share>Copy my island</button> <button data-new>A new island…</button></p>`;
   h += `<h3>Today's island</h3>` + (deepUnlocked() ? `<div class="com"><div class="t">Island of ${day}</div><p>A new island every day, the same for everyone. Ten releases; your score is the species alive in year 30.${d ? ` Your best today: <b>${d.score}</b>.` : ''}</p><button class="go" data-day>Sail there</button> <button data-copy>Copy link</button></div>`
     + `<div class="com"><div class="t">A free island</div><p>Any species, as many releases as you like. Make a world and watch it run. Share it as a link.</p><button data-free>Go</button></div>` : `<p class="small dim">Fulfil the first chapter to open today's island and a free island.</p>`);

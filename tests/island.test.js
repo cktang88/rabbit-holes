@@ -166,7 +166,7 @@ module.exports = {
       await page.evaluate(() => { for (let k = 0; k < 6 * 24 + 1 && __isl.W.camp.ch === 0; k++) __isl.advance(); }); await page.waitForTimeout(1800);
       const b = await page.evaluate(() => ({ ch: __isl.W.camp.ch, best: __isl.M.best.meadow, snapT: __isl.M.camp.snap.t, t: __isl.W.t, permits: __isl.permits, modal: document.querySelector('.modal')?.textContent || '', prog: JSON.parse(localStorage.getItem('rh:hub')).island }));
       eq(b.ch, 1, 'chapter two'); ok(b.best && b.best.y === 8 && b.best.r === 3, JSON.stringify(b.best)); eq(b.snapT, b.t, 'the new chapter is saved where it starts'); eq(b.permits, 6, 'one release left over, five more given');
-      ok(/Fulfilled: A meadow for rabbits/.test(b.modal) && /Boom and bust/.test(b.modal), 'the chapter card: ' + b.modal.slice(0, 120)); ok(b.prog > 0);
+      ok(/Fulfilled: A meadow for rabbits/.test(b.modal) && /Boom and bust/.test(b.modal), 'the chapter card: ' + b.modal.slice(0, 120)); ok(/quicker than \d+% of the society's stewards/.test(b.modal) && /thriftier than/.test(b.modal), 'years and releases against the bots\' histograms'); ok(b.prog > 0);
       await page.click('.modal button'); ok(!(await page.isDisabled('.card[data-k="owl"]')), 'owls arrive in chapter 2'); ok(!(await page.isDisabled('.card[data-k="#burn"]')), 'and fire');
     },
     'a lapsed chapter rewinds in under a second to its start, keeping the journal and everything before it': async ({ page, eq, ok }) => {
