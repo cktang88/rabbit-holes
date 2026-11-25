@@ -414,8 +414,8 @@ module.exports = {
         const truth = await page.evaluate(() => __pz.box.els[0]);
         await page.selectOption('#sheet [data-ci="0"]', truth.k); await page.fill('#sheet [data-ca="0"]', String(truth.a));
         const c0 = await page.evaluate(() => __pz.bxSave().cash); await page.click('#sheet #bSign'); ok(await page.evaluate(c0 => __pz.bxSave().cash > c0 + 50, c0), `${w}: signed and paid`);
-        const board = await page.evaluate(() => { const r = document.getElementById('sheet').getBoundingClientRect(); return r.top; });
-        ok(board > h * .45, `${w}: the sheet stays low (${board})`);
+        await page.evaluate(() => document.getElementById('toast').classList.remove('on')); await page.click('#sheet #shT'); const board = await page.evaluate(() => document.getElementById('sheet').getBoundingClientRect().top);
+        ok(board > h * .7, `${w}: folded, the sheet is one low row (${board})`);
         await page.evaluate(() => __pz.load(0)); eq(await page.evaluate(() => document.getElementById('sheet').classList.contains('on')), false, `${w}: no sheet in the lessons`);
       }
       await page.setViewportSize({ width: 1280, height: 800 });

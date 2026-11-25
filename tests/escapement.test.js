@@ -14,7 +14,7 @@ module.exports = {
         d.ax[1].g = [79]; R = E.solve(c, d); out.gap = R.hands[0].driven;
         d.ax[1].g = [90]; R = E.solve(c, d); out.overlap = R.probs.map(p => p.k).sort().join();
         // a compound arbor: its second wheel sits one level deeper
-        const c2 = E.C.find(x => x.id === 'seconds'), e = E.blank(c2); e.ax[0].g = [16]; e.ax[1].g = []; const k = E.hang(c2, e, 0, 0, 100, 0); e.ax[k].g.push(96); e.ax[1].g = [10];
+        const c2 = E.C.find(x => x.id === 'seconds'), e = E.blank(c2); e.ax[0].g = [10]; e.ax[1].g = []; const k = E.hang(c2, e, 0, 0, 60, 0); e.ax[k].g.push(10); e.ax[1].g = [100];
         e.ax[k].lk = [1, 0, 1]; R = E.solve(c2, e); out.compound = [R.ok, R.dep[k], R.hands[0].exact, R.sp[1] > 0];
         // too deep for a two-level plate
         const f = E.blank(c); f.ax[0].g = [20]; const a = E.hang(c, f, 0, 0, 20, -1.2); f.ax[a].g.push(20); const b = E.hang(c, f, a, 1, 20, 0); f.ax[b].g.push(20);
@@ -44,13 +44,13 @@ module.exports = {
       // motor 20, hang a 50 on it, give the hand arbor a 60: rims can close at two angles
       await page.evaluate(() => { const E = window.__esc, c = E.com(), d = E.D; d.ax[0].g = [20]; d.ax[1].g = [60]; E.hang(c, d, 0, 0, 74, 2.5); E.refresh(); });
       const target = await page.evaluate(() => { const E = window.__esc, c = E.com(), P = E.R.P, s = E.circleX(P[0], 10 + 37, P[1], 37 + 30)[0]; return E.screenOf ? [s, Math.atan2(s[1] - P[0][1], s[0] - P[0][0])] : null; });
-      const st = await page.evaluate(() => window.__esc.screenOf(3));
+      const st = await page.evaluate(() => window.__esc.screenOf(2));
       await page.mouse.move(st[0], st[1]); await page.mouse.down();
       // sweep the pointer round the motor towards the meshing angle
       const path = await page.evaluate(a1 => { const E = window.__esc, P = E.R.P, out = []; const a0 = 2.5; for (let k = 0; k <= 20; k++) { const a = a0 + (a1 - a0) * k / 20, x = P[0][0] + 47 * Math.cos(a), y = P[0][1] + 47 * Math.sin(a); out.push(x); out.push(y); } return out; }, target[1]);
       for (let k = 0; k < path.length; k += 2) { const sc = await page.evaluate(([x, y]) => { const E = window.__esc; return E.toScreenW(x, y); }, [path[k], path[k + 1]]); await page.mouse.move(sc[0], sc[1]); }
       await page.mouse.up(); await page.waitForTimeout(900);
-      const r = await page.evaluate(() => { const E = window.__esc; return { lk: E.D.ax[3].lk, driven: E.R.hands[0].driven, ok: E.R.ok, done: E.S.done.idler }; });
+      const r = await page.evaluate(() => { const E = window.__esc; return { lk: E.D.ax[2].lk, driven: E.R.hands[0].driven, ok: E.R.ok, done: E.S.done.idler }; });
       ok(r.lk && r.driven, 'did not snap into mesh: ' + JSON.stringify(r)); ok(r.ok && r.done, 'idler commission not met: ' + JSON.stringify(r));
     },
     'naive play fails: random tinkering never makes a working movement': async ({ page, ok }) => {
@@ -73,7 +73,7 @@ module.exports = {
     },
     'error readout: never "every 0 days"; exact, tiny and huge errors read sensibly': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => { const E = window.__esc, D = 86400; return [E.drift(0, 29.5 * D), E.drift(26210000, 29.5 * D), E.drift(1000, 29.5 * D), E.drift(-.5, 365 * D), E.drift(3, 60), E.drift(1e-9, D * 30), E.fmtP(NaN), E.fmtP(2)]; });
-      eq(r[0], 'exact, forever'); eq(r[1], 'hopelessly wrong'); ok(/gains a day in \d+ (days|years)/.test(r[2]), r[2]); ok(/loses a day in/.test(r[3]), r[3]); ok(/a second/.test(r[4]), r[4]); ok(!r.some(x => /\b0 days|NaN/.test(x)), r.join(' | ')); eq(r[7], '2 s');
+      eq(r[0], 'exact, forever'); eq(r[1], 'hopelessly wrong'); ok(/gains a day in [\d.]+ (days|years)/.test(r[2]), r[2]); ok(/loses a day in/.test(r[3]), r[3]); ok(/a second/.test(r[4]), r[4]); ok(!r.some(x => /\b0 days|NaN/.test(x)), r.join(' | ')); eq(r[7], '2 s');
     },
     'saves: corrupt or hostile saves load; no NaN anywhere on the page; a design survives reload': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const E = window.__esc, put = v => localStorage.setItem('rh:esc2', typeof v === 'string' ? v : JSON.stringify(v)), out = [];

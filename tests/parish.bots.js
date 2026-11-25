@@ -39,9 +39,12 @@ function parishBot(E, seed, name, budget) {
     }
   } else { // the adaptive reader
     const tried = {}; let probe = null, streak = [], doubted = new Set(), nearList = [], ver = '', P = null, sureQ = [], order = [];
+    const lostNear = s => { if (tr()) return false; const e = R[s.e], lo = s.k === 'd' ? e.d - e.w.age - 6 : s.k === 'g' ? e.d - 56 : s.k === 'b' ? e.d - 46 : e.d - 45, hi = s.k === 'd' ? e.d - e.w.age + 6 : e.d; return hi >= V.lost && lo <= V.lost + 2; };
     const certain = k => {
       const s = V.slotOf[k], c = cands(k, P).filter(x => !x.strike);
-      if (!c.length) return !tr() && Math.abs(R[s.e].y - V.lost) < 50 ? undefined : null;
+      if (!c.length) { // nothing fits: born before the book, or hidden in the lost leaves (until the transcript comes)
+        if (tr()) return null; const e = R[s.e], lo = s.k === 'd' ? e.d - e.w.age - 6 : s.k === 'g' ? e.d - 56 : s.k === 'b' ? e.d - 46 : e.d - 45, hi = s.k === 'd' ? e.d - e.w.age + 6 : e.d;
+        return lostNear(s) ? undefined : null; }
       if (c.length === 1 && !c[0].other && !E.mayBeAbsent(V, s, tr())) return c[0].id;
       return undefined;
     };
@@ -49,7 +52,7 @@ function parishBot(E, seed, name, budget) {
     // a 'bachelor' already married elsewhere is unlikely, unless a letter says he had a wife already
     const suspicious = new Set(V.letters.filter(L => /wife already/.test(L.text)).flatMap(L => L.targets));
     const wed = (k, x) => x.note && /married/.test(x.note) ? (suspicious.has(k) ? -50 : 50) : 0;
-    const options = k => { const c = cands(k, P).filter(x => !x.strike); const main = c.filter(x => !x.other).sort((x, y) => (fit(k, x) + wed(k, x)) - (fit(k, y) + wed(k, y))), oth = c.filter(x => x.other).sort((x, y) => fit(k, x) - fit(k, y)); const all = [...main.map(x => x.id), ...oth.map(x => x.id), null];
+    const options = k => { const c = cands(k, P).filter(x => !x.strike); const main = c.filter(x => !x.other).sort((x, y) => (fit(k, x) + wed(k, x)) - (fit(k, y) + wed(k, y))), oth = c.filter(x => x.other).sort((x, y) => fit(k, x) - fit(k, y)); const all = [...main.map(x => x.id), ...oth.map(x => x.id), ...(lostNear(V.slotOf[k]) ? [] : [null])];
       let o = all.filter(a => !(tried[k] || []).includes(a));
       if (!o.length && (resets[k] || 0) < 2) { resets[k] = (resets[k] || 0) + 1; tried[k] = []; o = all; } // every option failed: some evidence was bad, so look again
       return o; };
@@ -65,7 +68,7 @@ function parishBot(E, seed, name, budget) {
         else streak = [];
         probe = null;
         // four doubtful threads in a row failed beside the same 'sure' pins: one of those was never sure. Cut them, and doubt them.
-        if (streak.length >= 4) { for (const p of D.pins.slice()) { (tried[p[0]] ||= []).push(p[1]); doubted.add(p[0]); E.deskUnpin(V, D, p[0]); acts++; } for (const p of streak) tried[p[0]] = (tried[p[0]] || []).filter(a => a !== p[1]); streak = []; }
+        if (streak.length >= 4) { for (const p of D.pins.slice()) { doubted.add(p[0]); E.deskUnpin(V, D, p[0]); acts++; } for (const p of streak) tried[p[0]] = (tried[p[0]] || []).filter(a => a !== p[1]); streak = []; }
         continue;
       }
       if (D.pins.length >= E.MAXPINS) { const p = D.pins[0]; E.deskUnpin(V, D, p[0]); acts++; continue; }

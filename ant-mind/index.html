@@ -569,11 +569,12 @@ function updCounts(){ if (!w) return; const alive=Math.max(1,w.alive||1); docume
 const pk=document.getElementById('picker'), scrim=document.getElementById('scrim');
 function closePick(){ pk.classList.remove('open'); scrim.classList.remove('open'); }
 scrim.onclick=closePick;
+const arrives=(kind,k)=>{ if (k==='tired') return 'Watch an ant walk until she drops'; const j=CHAMBERS.findIndex(c=>(kind==='c'?c.conds:c.acts||[])?.includes(k)); return j>=0? 'Arrives in chamber '+(j+1) : 'Not discovered yet'; };
 function pick(kind,i){
   const av=avail(), isNew=i>=card.length, r=card[i]||{c:0,not:false,a:0};
   let h=`<h3>${isNew?'New instinct: what should the ant do?':kind==='cond'?`Line ${i+1}: when should it fire?`:`Line ${i+1}: what should the ant do?`}<button id="pkX" aria-label="Close">✕</button></h3>`;
-  if (kind==='cond'){ h+=`<div class="neg"><button data-neg="0" class="${!r.not?'cur':''}">when…</button><button data-neg="1" class="${r.not?'cur':''}">unless…</button></div><div class="opts">`+CONDS.map((c,k)=>{ const ok=av.c.has(c.k)||c.k==='always'; return `<button data-k="${k}" class="${k===r.c?'cur':''}" ${ok?'':'disabled'}>${ok?c.n:'?'}<small>${ok?c.d:'Not discovered yet'}</small></button>`; }).join('')+'</div>'; }
-  else h+='<div class="opts">'+ACTS.map((a,k)=>{ const ok=av.a.has(a.k)||a.k==='wander'; return `<button data-k="${k}" class="${!isNew&&k===r.a?'cur':''}" ${ok?'':'disabled'}>${ok?a.n:'?'}<small>${ok?a.d:'Not discovered yet'}</small></button>`; }).join('')+'</div>';
+  if (kind==='cond'){ h+=`<div class="neg"><button data-neg="0" class="${!r.not?'cur':''}">when…</button><button data-neg="1" class="${r.not?'cur':''}">unless…</button></div><div class="opts">`+CONDS.map((c,k)=>{ const ok=av.c.has(c.k)||c.k==='always'; return `<button data-k="${k}" class="${k===r.c?'cur':''}" ${ok?'':'disabled'}>${ok?c.n:'?'}<small>${ok?c.d:arrives('c',c.k)}</small></button>`; }).join('')+'</div>'; }
+  else h+='<div class="opts">'+ACTS.map((a,k)=>{ const ok=av.a.has(a.k)||a.k==='wander'; return `<button data-k="${k}" class="${!isNew&&k===r.a?'cur':''}" ${ok?'':'disabled'}>${ok?a.n:'?'}<small>${ok?a.d:arrives('a',a.k)}</small></button>`; }).join('')+'</div>';
   if (!isNew) h+=`<div class="foot"><button data-mv="-1" ${i===0?'disabled':''}>▲ Move up</button><button data-mv="1" ${i===card.length-1?'disabled':''}>▼ Move down</button><button data-del>✕ Remove line</button>${kind==='act'?`<button data-sw>Edit the “when”</button>`:`<button data-sw>Edit the action</button>`}</div>`;
   pk.innerHTML=h; pk.classList.add('open'); scrim.classList.add('open');
   let neg=r.not;
@@ -619,7 +620,8 @@ document.getElementById('wipeBtn').onclick=()=>{ brush=brush==='wipe'?'trail':'w
 // ===================== canvas: camera and the queen's brush =====================
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d'); let cell=5;
 const cam=PanZoom(cv,{ world:()=>({x:-2,y:-6,w:W+4,h:H+8}), pad:6, min:.8, max:6 });
-function fit(){ const r=document.getElementById('cvWrap').getBoundingClientRect(); const dp=Math.min(2,devicePixelRatio||1); cv.width=Math.max(1,Math.round(r.width*dp)); cv.height=Math.max(1,Math.round(r.height*dp)); if (!cam.touched) cam.fit(false); }
+function fit(){ const r=document.getElementById('cvWrap').getBoundingClientRect(); const dp=DPR(); cv.width=Math.max(1,Math.round(r.width*dp)); cv.height=Math.max(1,Math.round(r.height*dp)); if (!cam.touched) cam.fit(false); }
+const coarse=matchMedia('(pointer:coarse)').matches; const DPR=()=>Math.min(coarse?1.5:2,devicePixelRatio||1);
 let painting=0, lastP=null, pendingE=null, pendT=0, mouseC=null;
 const toCell=(e)=>cam.toWorld(e.clientX,e.clientY);
 cv.addEventListener('contextmenu',e=>e.preventDefault());
@@ -665,15 +667,15 @@ function renderTerrain(){
   g.save(); g.scale(TS,TS); g.lineCap='round'; for (const rt of roots){ g.strokeStyle='rgba(201,147,63,.38)'; g.lineWidth=rt.w*0.2; g.beginPath(); rt.seg.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y)); g.stroke(); } g.restore();
   terrainDirty=false; }
 const off=document.createElement('canvas'); off.width=W; off.height=H; const octx=off.getContext('2d'); const img=octx.createImageData(W,H);
-function drawAnt(a){
-  const s=cell*0.42, col=a.team? '#8a2e1e' : '#120a05';
-  ctx.save(); ctx.translate(a.x*cell,a.y*cell); ctx.rotate(a.a); ctx.fillStyle=col;
+function drawAnt(a, base){
+  const s=cell*0.52, col=a.team? '#8a2e1e' : '#120a05', c=Math.cos(a.a), n=Math.sin(a.a);
+  ctx.setTransform(base.a*c, base.a*n, -base.a*n, base.a*c, base.e+base.a*a.x*cell, base.f+base.a*a.y*cell); ctx.fillStyle=col;
   ctx.beginPath(); ctx.ellipse(-s*1.3,0,s*0.95,s*0.7,0,0,7); ctx.ellipse(0,0,s*0.55,s*0.42,0,0,7); ctx.ellipse(s*1.05,0,s*0.55,s*0.5,0,0,7); ctx.fill();
   if (legs){ ctx.strokeStyle=col; ctx.lineWidth=Math.max(0.6,s*0.22); const ph=Math.sin(a.x*3+a.y*3)*0.5; ctx.beginPath(); for (const k of [-1,0,1]){ ctx.moveTo(k*s*0.4,0); ctx.lineTo(k*s*0.6+s*ph*.6,-s*1.2); ctx.moveTo(k*s*0.4,0); ctx.lineTo(k*s*0.6-s*ph*.6,s*1.2); } ctx.stroke(); }
   if (a.carry){ ctx.fillStyle='#f0cf6a'; ctx.beginPath(); ctx.arc(s*1.9,0,s*0.7,0,7); ctx.fill(); }
   // the line of the card this ant is obeying, as a chalk dot on its back
   if (!a.team && a.rule>=0){ ctx.fillStyle=RC[a.rule]; ctx.beginPath(); ctx.arc(-s*1.3,0,s*0.5,0,7); ctx.fill(); }
-  ctx.restore(); }
+}
 let legs=true;
 function draw(){
   if (!w) return; if (terrainDirty) renderTerrain();
@@ -683,21 +685,21 @@ function draw(){
     if (F[i]>0.05){ r=240; g=200; b=96; a=Math.min(1,0.5+F[i]); }
     d[k]=r; d[k+1]=g; d[k+2]=b; d[k+3]=a*255; }
   octx.putImageData(img,0,0);
-  const dpr=Math.min(2,devicePixelRatio||1); cell=cam.k; ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle='#120b06'; ctx.fillRect(0,0,cv.width,cv.height);
+  const dpr=DPR(); cell=cam.k; ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle='#120b06'; ctx.fillRect(0,0,cv.width,cv.height);
   ctx.setTransform(dpr,0,0,dpr,dpr*cam.x,dpr*cam.y); ctx.imageSmoothingEnabled=true;
   // grass and topsoil above the cross-section
   ctx.fillStyle='#3d5a2a'; ctx.fillRect(-cell*1.2,-cell*5,W*cell+cell*2.4,cell*2.2); ctx.fillStyle='#5a3c22'; ctx.fillRect(-cell*1.2,-cell*2.8,W*cell+cell*2.4,cell*1.8);
   ctx.strokeStyle='#6f9a45'; ctx.lineWidth=Math.max(1,cell*0.25); ctx.beginPath(); for (let x=0;x<W;x+=1.3){ const hgt=1.2+((x*7919)%13)/9; ctx.moveTo(x*cell,-cell*4.6); ctx.lineTo((x+0.3)*cell,-cell*(4.6+hgt)); } ctx.stroke();
   ctx.fillStyle='#4a3020'; ctx.fillRect(-cell*1.2,-cell*1.2,W*cell+cell*2.4,H*cell+cell*2.4); ctx.fillStyle='#1d1209'; ctx.fillRect(-cell*.5,-cell*.5,W*cell+cell,H*cell+cell);
   ctx.drawImage(terrain,0,0,W*cell,H*cell);
-  ctx.save(); ctx.globalCompositeOperation='screen'; ctx.drawImage(off,0,0,W*cell,H*cell); ctx.restore();
+  ctx.drawImage(off,0,0,W*cell,H*cell);
   if (w.raining){ ctx.strokeStyle='rgba(170,200,240,.35)'; ctx.lineWidth=1; const r=RH.rng((performance.now()/80)|0); for (let k=0;k<140;k++){ const x=r()*W*cell, y=r()*H*cell; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-2,y+10); ctx.stroke(); } }
   w.nests.forEach((n,t)=>{ if (t===1 && n.hp<=0) return; const x=n.x*cell, y=n.y*cell, R=cell*3.6;
     ctx.fillStyle=t?'#3a1410':'#160c05'; ctx.beginPath(); ctx.ellipse(x,y,R*1.25,R,0,0,7); ctx.fill(); ctx.strokeStyle=t?'#c0402a':'#c9933f'; ctx.lineWidth=2.5; ctx.stroke();
     if (!t){ ctx.fillStyle='#f3ead2'; for (let k=0;k<5;k++){ ctx.beginPath(); ctx.ellipse(x-R*0.6+k*R*0.3,y+R*0.35+Math.sin(k)*2,cell*0.35,cell*0.55,0.4,0,7); ctx.fill(); } }
     if (t===1){ ctx.fillStyle='#c0402a'; ctx.fillRect(x-20, y-R-10, 40*n.hp/n.maxhp, 3); } });
-  legs=w.ants.length<260 && cell>=3;
-  for (const a of w.ants) if (!a.dead) drawAnt(a);
+  legs=w.ants.length<(coarse?120:260) && cell>=3.5;
+  { const base=ctx.getTransform(); for (const a of w.ants) if (!a.dead) drawAnt(a, base); ctx.setTransform(base); }
   for (const sp of w.spiders){ if (sp.hp<=0) continue; const x=sp.x*cell, y=sp.y*cell; ctx.strokeStyle=sp.pinned?'#5a2020':'#120808'; ctx.lineWidth=2;
     for (let k=0;k<8;k++){ const side=k<4?-1:1, a=(k%4-1.5)*0.45+(sp.pinned?0:Math.sin(performance.now()/120+k)*0.15); const bx=x+Math.cos(a)*cell*2.4*side, by=y+Math.sin(a)*cell*2.2; ctx.beginPath(); ctx.moveTo(x,y); ctx.quadraticCurveTo(bx,by-cell*2,bx+side*cell*1.2,by+cell*1.2); ctx.stroke(); }
     ctx.fillStyle='#2a1418'; ctx.beginPath(); ctx.ellipse(x,y+cell*0.6,cell*1.6,cell*1.9,0,0,7); ctx.fill(); ctx.beginPath(); ctx.arc(x,y-cell*1.3,cell*1.0,0,7); ctx.fill();
@@ -731,7 +733,7 @@ function frame(now){ const dt=Math.min(0.1,(now-last)/1000); last=now;
   requestAnimationFrame(frame); }
 window.addEventListener('resize', ()=>{ fit(); });
 window.__ant={ S, get w(){ return w; }, get card(){ return card; }, setCard(t){ card=S.parse(t).slice(0,slots()); saveCard(); renderCard(); }, openChamber, startYears, get years(){ return years; }, get ci(){ return ci; }, get SAVE(){ return SAVE; }, cleanSave, avail, pick, closePick,
-  get paused(){ return paused; }, set paused(v){ paused=v; updBtns(); }, get speed(){ return speed; }, set speed(v){ speed=v; }, get ended(){ return ended; }, tick, run(n){ for (let k=0;k<n && !ended;k++) tick(); }, cam, fit, toScreen:(x,y)=>cam.toScreen(x,y), get brush(){ return brush; }, set brush(v){ brush=v; updBtns(); }, loadSeason, CHAMBERS };
+  get paused(){ return paused; }, set paused(v){ paused=v; updBtns(); }, get speed(){ return speed; }, set speed(v){ speed=v; }, get ended(){ return ended; }, tick, run(n){ for (let k=0;k<n && !ended;k++) tick(); }, cam, fit, toScreen:(x,y)=>cam.toScreen(x,y), get brush(){ return brush; }, set brush(v){ brush=v; updBtns(); }, loadSeason, CHAMBERS, draw };
 // ===================== boot =====================
 { const h=decodeURIComponent(location.hash.slice(1)), q=Object.fromEntries(h.split('&').map(p=>p.split('=')).filter(p=>p.length===2));
   if (q.years && yearsOpen()) startYears(q.years);

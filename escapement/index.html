@@ -137,6 +137,10 @@ function solve(com, d) {
   const Q = sp[0] != null ? [0] : [];
   while (Q.length) {
     const a = Q.shift(), A = d.ax[a];
+    // a wheel hung on one of this arbor's wheels sits at that wheel's level (the player's intent wins over a lookalike)
+    d.ax.forEach((B, b) => { if (!B.p || B.p[0] !== a || sp[b] != null || dep[a][B.p[1]] == null) return; const ta = A.g[B.p[1]], tb = B.g[B.p[2]];
+      if (Math.abs(D2(P[a], P[b]) - rad(ta) - rad(tb)) > TOL) return;
+      sp[b] = -sp[a] * ta / tb; rat[b] = red(-rat[a][0] * BigInt(ta), rat[a][1] * BigInt(tb)); dep[b][B.p[2]] = dep[a][B.p[1]]; B.g.forEach((_, k) => { if (k !== B.p[2]) dep[b][k] = dep[a][B.p[1]] + 1; }); Q.push(b); meshes.push([a, B.p[1], b, B.p[2]]); });
     A.g.forEach((ta, ja) => { if (dep[a][ja] == null) return;
       for (let b = 0; b < n; b++) { if (b === a) continue; const B = d.ax[b], dist = D2(P[a], P[b]);
         B.g.forEach((tb, jb) => {
@@ -452,6 +456,17 @@ function gearPath(T) { // unit path for a wheel with T teeth (pitch radius T/2),
     p.moveTo(hub * Math.cos(a + db * 1.3), hub * Math.sin(a + db * 1.3)); p.arc(0, 0, rim, a + da, b - da); p.arc(0, 0, hub, b - db * 1.3, a + db * 1.3, true); p.closePath(); } }
   gearPaths.set(T, p); return p;
 }
+const SPR = new Map();
+function sprite(T, col, bad, scale) { // a wheel pre-rendered once per size, colour and zoom bucket; drawing it is then one image
+  const sb = Math.min(Math.pow(2, Math.round(Math.log2(Math.max(.5, scale)) * 2) / 2), 1000 / (T + 4)), key = T + col + bad + sb;
+  let c = SPR.get(key); if (c) return c;
+  const r = rad(T) + 1.2, n = Math.ceil(2 * r * sb); c = document.createElement('canvas'); c.width = c.height = n; c.s = sb; const g = c.getContext('2d');
+  g.translate(n / 2, n / 2); g.scale(sb, sb);
+  g.save(); g.translate(.4, .9); g.fillStyle = '#00000059'; g.fill(gearPath(T), 'evenodd'); g.restore();
+  const gr = g.createRadialGradient(-rad(T) * .3, -rad(T) * .3, 1, 0, 0, rad(T) + 1); gr.addColorStop(0, '#fff4c4'); gr.addColorStop(.35, col); gr.addColorStop(1, '#6b4a14');
+  g.fillStyle = gr; g.fill(gearPath(T), 'evenodd'); g.lineWidth = .45; g.strokeStyle = bad ? '#7a1c12' : '#3a2408'; g.stroke(gearPath(T));
+  SPR.set(key, c); if (SPR.size > 80) SPR.delete(SPR.keys().next().value); return c;
+}
 const HUE = ['#e9c86a', '#d9a94a', '#c99540', '#b98535', '#a9762e', '#986a2a', '#8a5f26'];
 let perlage = null;
 function makePerlage() { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
@@ -489,11 +504,9 @@ function draw(now) {
   for (const g of G) {
     const p = R.P[g.i], v = R.sp[g.i], ang = v == null ? 0 : tau * 6.2832 * v + (g.j * .4), bad = R.bad.has(g.i + ':' + g.j), loose = v == null, on = sel.i === g.i;
     cx.save(); cx.translate(p[0], p[1]); cx.rotate(ang);
-    cx.shadowColor = '#0008'; cx.shadowBlur = 3; cx.shadowOffsetY = 1.2;
-    const col = bad ? '#c8553f' : loose ? '#cbb68a' : HUE[Math.min(6, g.d || 0)];
-    const gr = cx.createRadialGradient(-rad(g.T) * .3, -rad(g.T) * .3, 1, 0, 0, rad(g.T) + 1); gr.addColorStop(0, '#fff4c4'); gr.addColorStop(.35, col); gr.addColorStop(1, '#6b4a14');
-    cx.fillStyle = gr; cx.globalAlpha = loose ? .6 : 1; cx.fill(gearPath(g.T), 'evenodd'); cx.shadowColor = '#0000';
-    cx.lineWidth = .3; cx.strokeStyle = bad ? '#7a1c12' : '#4a3210'; cx.stroke(gearPath(g.T));
+    const col = bad ? '#c8553f' : loose ? '#cbb68a' : HUE[Math.min(6, g.d || 0)], focus = sel.i >= 0 && R.dep[sel.i] && R.dep[sel.i].includes(g.d);
+    const sp = sprite(g.T, col, bad, dpr * cam.k), half = sp.width / sp.s / 2;
+    cx.globalAlpha = loose ? .55 : focus || (sel.i < 0 && G.length <= 4) ? .96 : .8; cx.drawImage(sp, -half, -half, half * 2, half * 2); cx.globalAlpha = 1;
     if (on && sel.j === g.j) { cx.beginPath(); cx.arc(0, 0, rad(g.T) + 1.4, 0, 6.283); cx.strokeStyle = '#1b2f66'; cx.lineWidth = .9; cx.setLineDash([3, 2]); cx.stroke(); cx.setLineDash([]); }
     cx.restore();
   }

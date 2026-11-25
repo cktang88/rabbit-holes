@@ -32,9 +32,9 @@ const ANG=(i)=>i*Math.PI/12;
 function back(op, x, y, t=1){
   switch(op[0]){
     case 'd': { const dx=x-op[1], dy=y-op[2], L2=dx*dx+dy*dy, r=op[3]*Math.sqrt(t), r2=r*r; if (L2<r2) return [x,y,r-Math.sqrt(L2)]; const s=Math.sqrt(1-r2/L2); return [op[1]+dx*s, op[2]+dy*s, -1]; }
-    case 's': case 'c': case 'k': { const T=TOOLS[op[0]==='s'?'stylus':op[0]==='c'?'comb':'rake'], a=ANG(op[3]), mx=Math.cos(a), my=Math.sin(a);
-      let d=(x-op[1])*(-my)+(y-op[2])*mx; if (T.spacing){ const s=T.spacing; d=d-s*Math.round(d/s); } d=Math.abs(d); const f=T.alpha*t*T.lambda/(d+T.lambda); return [x-mx*f, y-my*f, -1]; }
-    case 'w': { const T=TOOLS.wave, a=ANG(op[3]), mx=Math.cos(a), my=Math.sin(a), d=(x-op[1])*(-my)+(y-op[2])*mx, f=T.amp*t*Math.sin(2*Math.PI*d/T.wavelength); return [x-mx*f, y-my*f, -1]; }
+    case 's': case 'c': case 'k': { const T=TOOLS[op[0]==='s'?'stylus':op[0]==='c'?'comb':'rake'], a=ANG(op[3]), mx=Math.cos(a), my=Math.sin(a), ac=ANG(op[3]%12);
+      let d=(x-op[1])*(-Math.sin(ac))+(y-op[2])*Math.cos(ac); if (T.spacing){ const s=T.spacing; d=d-s*Math.round(d/s); } d=Math.abs(d); const f=T.alpha*t*T.lambda/(d+T.lambda); return [x-mx*f, y-my*f, -1]; }
+    case 'w': { const T=TOOLS.wave, a=ANG(op[3]), mx=Math.cos(a), my=Math.sin(a), ac=ANG(op[3]%12), d=(x-op[1])*(-Math.sin(ac))+(y-op[2])*Math.cos(ac), f=T.amp*t*Math.sin(2*Math.PI*d/T.wavelength); return [x-mx*f, y-my*f, -1]; }
     case 'o': { const T=TOOLS.swirl, dx=x-op[1], dy=y-op[2], r=Math.hypot(dx,dy), th=-op[3]*T.alpha*t*T.lambda/(r+T.lambda), c=Math.cos(th), s=Math.sin(th); return [op[1]+dx*c-dy*s, op[2]+dx*s+dy*c, -1]; }
   }
   return [x,y,-1];
@@ -70,32 +70,34 @@ function pulls(code, ang, offsets){ const m=[Math.cos(ANG(ang)),Math.sin(ANG(ang
 const C=[]; const add=(o)=>C.push(o);
 add({id:'battal', n:'Battal (stone)', era:'Istanbul, 16th c.', t:'The oldest ebru: drops and nothing else. Cover the bath with stones of three inks.', tools:['drop'], inks:[0,1,2], ground:[], recipe:null, judge:'cover', need:.9});
 add({id:'line', n:'A single line', era:'First lesson', t:'Draw the stylus once, straight up through the middle of the bullseye.', tools:['drop','stylus'], inks:[0,1,2],
-  ground:bullseye(300,200,[0,2,1,2],8,16), recipe:[['s',300,200,6]], need:.97});
+  ground:bullseye(300,200,[0,2,1,2],8,16), recipe:[['s',300,200,6]], need:0.9});
 add({id:'heart', n:'The heart', era:'Ottoman, 17th c.', t:'Two pulls through a bullseye make a heart. Down, then down again beside it.', tools:['drop','stylus'], inks:[0,1,2],
-  ground:bullseye(300,220,[1,2,0,2],8,15), recipe:[['s',300,220,18]], need:.97});
+  ground:bullseye(300,220,[1,2,0,2],8,15), recipe:[['s',300,220,18]], need:0.9});
 add({id:'gelgit', n:'Gel-git', era:'Turkish "come-go"', t:'Rake the striped ground one way, then back between the first tines.', tools:['drop','stylus','rake'], inks:[0,1,2,3],
-  ground:stripesGround([0,2,1,3]), recipe:[['k',300,200,6],['k',337.5,200,18]], need:.92});
+  ground:stripesGround([0,2,1,3]), recipe:[['k',300,200,6],['k',337.5,200,18]], need:0.85});
 add({id:'nonpareil', n:'Nonpareil', era:'England, 18th c.', t:'Gel-git, then a fine comb drawn across it. The commonest bookbinder\'s paper.', tools:['drop','stylus','rake','comb'], inks:[0,1,2,3],
-  ground:stripesGround([0,2,1,3]), recipe:[['k',300,200,6],['k',337.5,200,18],['c',300,200,0]], need:.9});
+  ground:stripesGround([0,2,1,3]), recipe:[['k',300,200,6],['k',337.5,200,18],['c',300,200,0]], need:0.85});
 add({id:'restore1', n:'The restorer', era:'A damaged sheet', t:'Someone combed this ground. Comb it back. Stokes flow runs backwards exactly.', tools:['drop','stylus','rake','comb'], inks:[0,1,2,3],
-  ground:stripesGround([0,2,1,3]).concat([['c',300,200,6]]), recipe:[['c',300,200,18]], target:'ground', need:.97});
+  ground:stripesGround([0,2,1,3]).concat([['c',300,200,6]]), recipe:[['c',300,200,18]], target:'ground', need:0.95});
 add({id:'wave', n:'Spanish wave', era:'Spain, 17th c.', t:'Stone ground, then a wave rocked across it.', tools:['drop','stylus','rake','comb','wave'], inks:[1,2,4,6],
-  ground:stoneGround([1,2,4,6],'wave',70), recipe:[['w',300,200,0]], need:.92});
+  ground:stoneGround([1,2,4,6],'wave',70), recipe:[['w',300,200,0]], need:0.85});
 add({id:'peacock', n:'Peacock', era:'Bookbinders, 19th c.', t:'Gel-git, a wave across it, then a fine comb: the eyes of the peacock.', tools:['drop','stylus','rake','comb','wave'], inks:[0,2,3,5],
-  ground:columnsGround([0,2,3,5]), recipe:[['k',300,200,0],['k',300,237.5,12],['w',300,200,6],['c',300,200,0]], need:.88});
+  ground:columnsGround([0,2,3,5]), recipe:[['k',300,200,0],['k',300,237.5,12],['w',300,200,6],['c',300,200,0]], need:0.8});
 add({id:'tulip', n:'Turkish tulip', era:'Hatip ebru, 18th c.', t:'A tall bullseye pulled up at the bottom and pinched at the top. Three strokes.', tools:['drop','stylus','swirl'], inks:[1,3,2,5],
-  ground:bullseye(300,160,[3,1,5,1,2],6,18).concat(bullseye(300,260,[1,5,1],3,12)), recipe:[['s',300,120,6],['s',287.5,300,18],['s',312.5,300,18]], need:.95});
+  ground:bullseye(300,160,[3,1,5,1,2],6,18).concat(bullseye(300,260,[1,5,1],3,12)), recipe:[['s',300,120,6],['s',287.5,300,18],['s',312.5,300,18]], need:0.85});
 add({id:'snail', n:'Snail', era:'Shell papers, France', t:'A turn of the stylus about the centre of the stone ground.', tools:['drop','stylus','rake','comb','wave','swirl'], inks:[0,2,6,8],
-  ground:stoneGround([0,2,6,8],'snail',70), recipe:[['o',300,200,1]], need:.93});
+  ground:stoneGround([0,2,6,8],'snail',70), recipe:[['o',300,200,1]], need:0.85});
 add({id:'bouquet', n:'Bouquet', era:'Victorian, 1860s', t:'Gel-git, a comb, then a wave and a comb back: flowers in rows.', tools:['drop','stylus','rake','comb','wave','swirl'], inks:[1,3,5,7],
-  ground:stripesGround([1,3,5,7]), recipe:[['k',300,200,6],['k',337.5,200,18],['c',300,200,0],['w',300,200,6],['c',312.5,200,12]], need:.86});
+  ground:stripesGround([1,3,5,7]), recipe:[['k',300,200,6],['k',337.5,200,18],['c',300,200,0],['w',300,200,6],['c',312.5,200,12]], need:0.8});
 add({id:'restore2', n:'The second restorer', era:'A badly damaged sheet', t:'Raked, waved and swirled. Undo all three, in the right order.', tools:['drop','stylus','rake','comb','wave','swirl'], inks:[0,2,1,3],
-  ground:stripesGround([0,2,1,3]).concat([['k',300,200,0],['w',300,200,6],['o',300,200,-1]]), recipe:[['o',300,200,1],['w',300,200,18],['k',300,200,12]], target:'ground', need:.97});
+  ground:stripesGround([0,2,1,3]).concat([['k',300,200,0],['w',300,200,6],['o',300,200,-1]]), recipe:[['o',300,200,1],['w',300,200,18],['k',300,200,12]], target:'ground', need:0.95});
 const COMMISSIONS=C;
 // the reference picture a commission is judged against
 function targetOps(c){ if (c.target==='ground'){ const g=c.ground.slice(); let k=g.length; while (k>0 && g[k-1][0]!=='d') k--; return g.slice(0,k); } return c.ground.concat(c.recipe||[]); }
 function judge(c, ops, cache){ if (c.judge==='cover'){ const s=sample(ops,90,60); let n=0; const inks=new Set(); for (const v of s){ if (v>=0){ n++; inks.add(v); } } return {score:n/s.length, ok:n/s.length>=c.need && inks.size>=3}; }
-  const t=cache||sample(targetOps(c)); const score=likeness(sample(ops), t); return {score, ok:score>=c.need}; }
+  const t=cache||sample(targetOps(c)), g=sample(c.ground), m=sample(ops); let u=0, hit=0;
+  for (let i=0;i<t.length;i++) if (t[i]!==g[i] || m[i]!==g[i]){ u++; if (m[i]===t[i]) hit++; }
+  const score= u? hit/u : 1; return {score, ok:score>=c.need}; }
 const strokesOf=(c, ops)=>ops.length-c.ground.length;
 
 // the daily sheet: a ground and three or four strokes, from the date
