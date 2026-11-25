@@ -121,7 +121,7 @@ module.exports = {
     },
     'locked scenarios cannot be opened; corrupted saves load safely': async ({ page, eq }) => {
       const r = await page.evaluate(() => { const R = window.__rumor; document.querySelector('.sc[data-i="7"]').click(); return [R.sc.n, R.scenOpen(7), R.cleanSave(null), R.cleanSave({ done: { 3: 1, 99: 1, x: 1 }, cur: 50, endless: 'lots' })]; });
-      eq(r[0], 'Village Talk'); eq(r[1], false); eq(r[2], { done: {}, cur: 0, endless: 0 }); eq(r[3], { done: { 3: 1 }, cur: 0, endless: 0 });
+      eq(r[0], 'Village Talk'); eq(r[1], false); eq(r[2], { run: null, dailyBest: {}, runBest: 0, done: {}, cur: 0, endless: 0 }); eq(r[3], { done: { 3: 1 }, cur: 0, endless: 0 });
       for (const bad of ['{oops', 'null', '[]', '{"done":"x","cur":"3"}', '{"done":{},"cur":12}']) {
         await reloadWith(page, 'rh:rumor', bad); await page.waitForFunction(() => window.__rumor && window.__rumor.T);
         eq(await page.evaluate(() => window.__rumor.sc.n), 'Village Talk', bad);
@@ -249,8 +249,8 @@ module.exports = {
     },
     'the Long Campaign: towns are generated deterministically per seed, differ between seeds, and the bar rises': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const R = window.__rumor; const sig = (seed, n) => { const t = R.runTown(seed, n); const T = R.buildTown(t.spec, t.townSeed); return JSON.stringify([t.spec.n, t.spec.goal, t.spec.N, T.people.map(p => p.name).slice(0, 8), T.cast.T.name]); };
-        const a = sig('x', 0), b = sig('x', 0), c = sig('y', 0); const pcts = [...Array(12)].map((_, n) => R.runTown('x', n).spec.goal.pct || 0); return { same: a === b, differ: a !== c, early: pcts.slice(0, 3), late: pcts.slice(9) }; });
-      ok(r.same && r.differ, JSON.stringify(r)); ok(Math.max(...r.late) > Math.max(...r.early), 'targets rise: ' + JSON.stringify(r));
+        const a = sig('x', 0), b = sig('x', 0), c = sig('y', 0); const hard = [...Array(12)].map((_, n) => { const t = R.runTown('x', n); return t.tier + t.k * 10; }); return { same: a === b, differ: a !== c, early: hard.slice(0, 3), late: hard.slice(9) }; });
+      ok(r.same && r.differ, JSON.stringify(r)); ok(Math.min(...r.late) > Math.max(...r.early), 'harder town shapes and higher bars later: ' + JSON.stringify(r));
     },
     'the Long Campaign: a competent whisperer wins town after town; idle and greedy play lose the run at once': async ({ page, ok }) => {
       await page.addScriptTag({ content: RUNBOT });

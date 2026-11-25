@@ -51,6 +51,13 @@
   .modal h2{font-family:"Pinyon Script",cursive;font-weight:400;font-size:40px;text-align:center;margin:0}
   .modal .stars{text-align:center;font-size:28px;color:#e8d79a;letter-spacing:.2em}
   .toast{background:var(--paper);color:var(--ink);border:0;border-radius:0;font-family:"IM Fell English",serif;box-shadow:0 4px 12px #000a}
+  .tabs2{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
+  .tabs2 button{flex:1 1 45%;background:#fffaf0;color:var(--ink);border-color:#b8a67e;font-size:14px;padding:5px 6px}
+  .tabs2 button.on{background:#2a4a8a;color:#fff}
+  .codex{display:flex;flex-direction:column;gap:3px;max-height:46vh;overflow:auto}
+  .codex button{display:flex;justify-content:space-between;gap:6px;background:#fffaf0;color:var(--ink);border-color:#b8a67e;text-align:left;font-family:"IM Fell English",serif;font-size:14px}
+  .rar{font-family:"IM Fell English SC",serif;font-size:12px;padding:0 6px;border-radius:2px}
+  .rar.common{background:#d9d2bf;color:#2a2418} .rar.uncommon{background:#9fc0e8;color:#10203a} .rar.rare{background:#2a4a8a;color:#fff} .rar.legendary{background:#7a2a8a;color:#fff}
   .lvl-btn{display:none}
   @media (max-width:760px),(max-height:500px){
     .lvl-btn{display:inline-flex}
@@ -283,11 +290,15 @@ function plateFrame(x, y, w, h, label, sub) { // a glass-plate negative: dark gl
 }
 function drawPlates() {
   const dpr = FX.fit(cv, 2), W = cv.width / dpr, H = cv.height / dpr; g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
-  const c = CASES[cur], T = c.chamber ? [] : targetsOf(c), mine = grown, panes = [...T.map((t, i) => ({ cr: t, layers: c.target[i], lab: T.length > 1 ? `Specimen ${'AB'[i]}` : 'The specimen', sub: 'Bentley\'s negative' })), { cr: c.chamber ? mine : (Array.isArray(mine) ? mine[0] : mine), layers: grownLayers[0], lab: c.chamber ? 'The chamber' : 'Your regrowth', sub: grown ? '' : 'not yet grown', you: 1 }];
+  const c = SAVE.mode === 'draw' ? { chamber: 1 } : CASES[cur], mine = grown;
+  let T = c.chamber ? [] : targetsOf(c), panes = [...T.map((t, i) => ({ cr: t, layers: c.target[i], lab: T.length > 1 ? `Specimen ${'AB'[i]}` : 'The specimen', sub: 'Bentley\'s negative' })), { cr: c.chamber ? mine : (Array.isArray(mine) ? mine[0] : mine), layers: grownLayers[0], lab: c.chamber ? 'The chamber' : 'Your regrowth', sub: grown ? '' : 'not yet grown', you: 1 }];
   if (!c.chamber && T.length > 1 && Array.isArray(mine)) panes.push({ cr: mine[1], layers: grownLayers[1], lab: 'Your regrowth B', you: 1 });
+  if (SAVE.mode === 'draw') { const cm = currentComm(); panes = [];
+    if (cm) { const L2 = pathLayers(cm.par); panes.push({ cr: grow(L2), layers: L2, lab: cm.daily ? 'Today\'s sky' : 'The client\'s photograph', sub: 'for ' + cm.who }); T = [panes[0].cr]; }
+    panes.push({ cr: drawLayers ? grow(drawLayers) : null, layers: drawLayers, lab: 'Your flake', sub: drawLayers ? nameOf(habitSeq(drawLayers)) : '', you: 1 }); }
   const n = panes.length, wide = W > H * 1.1, cols = wide ? n : n <= 2 ? 1 : 2, rows = Math.ceil(n / cols), gap = 12, pw = (W - gap * (cols + 1)) / cols, ph = (H - gap * (rows + 1)) / rows;
   panes.forEach((p, i) => { const x = gap + (i % cols) * (pw + gap), y = gap + (i / cols | 0) * (ph + gap); plateFrame(x, y, pw, ph, p.lab, p.sub);
-    if (!p.cr) { g.fillStyle = '#6a7388'; g.font = 'italic 17px "IM Fell English", serif'; g.textAlign = 'center'; g.fillText(c.chamber ? 'set the weather below, then grow' : 'launch a balloon to regrow it here', x + pw / 2, y + ph / 2); g.textAlign = 'left'; return; }
+    if (!p.cr) { g.fillStyle = '#6a7388'; g.font = 'italic 17px "IM Fell English", serif'; g.textAlign = 'center'; g.fillText(SAVE.mode === 'draw' ? 'draw the fall on the diagram below' : c.chamber ? 'set the weather below, then grow' : 'launch a balloon to regrow it here', x + pw / 2, y + ph / 2); g.textAlign = 'left'; return; }
     const maxR = Math.max(p.cr.a, ...(T.map(t => t.a)), 1), maxC = Math.max(p.cr.c, ...(T.map(t => t.c)), 1), sc = Math.min(pw * .3 / maxR, (ph - 70) * .45 / maxR);
     const alpha = p.you && develop < 1 ? develop : 1;
     { const cx = crystalFor(p.layers), size = Math.min(pw * .6, ph - 66); g.save(); g.globalAlpha = alpha; g.shadowColor = '#a9c8ffaa'; g.shadowBlur = 14; g.drawImage(cx.cvs, x + pw * .34 - size / 2, y + (ph - 40) * .52 - size / 2, size, size); g.restore(); }
@@ -321,6 +332,13 @@ function drawPad() {
   pg.strokeStyle = '#ffffff55'; pg.setLineDash([4, 4]); pg.beginPath(); for (let T = TMAX; T >= TMIN; T -= .5) { const s = Math.min(1, .25 + .028 * -T); const [x, y] = padXY(T, s, W, H); T === TMAX ? pg.moveTo(x, y) : pg.lineTo(x, y); } pg.stroke(); pg.setLineDash([]);
   pg.fillStyle = '#9aa3b8'; pg.textAlign = 'left'; for (const T of [-2, -5, -10, -15, -20, -25]) { const [x] = padXY(T, 0, W, H); pg.fillText(T + '°', Math.min(x + 2, W - 26), H - 4); pg.fillStyle = '#ffffff22'; pg.fillRect(x, 0, 1, H); pg.fillStyle = '#9aa3b8'; }
   pg.save(); pg.translate(10, H / 2); pg.rotate(-Math.PI / 2); pg.textAlign = 'center'; pg.fillText('humidity (supersaturation) →', 0, 0); pg.restore();
+  if (SAVE.mode === 'draw') { // the drawn fall, with a bead travelling down it as the crystal grows
+    const pts = (drawing || !drawLayers) ? drawPath : resample(drawPath);
+    if (pts.length) { pg.strokeStyle = '#ffffffdd'; pg.lineWidth = 3; pg.lineJoin = pg.lineCap = 'round'; pg.beginPath(); pts.forEach(([x, y], i) => i ? pg.lineTo(x * W, y * H) : pg.moveTo(x * W, y * H)); pg.stroke();
+      const [x0, y0] = pts[0]; pg.fillStyle = '#a9c8ff'; pg.beginPath(); pg.arc(x0 * W, y0 * H, 5, 0, 7); pg.fill();
+      if (!drawing && drawLayers && travel < 1) { const q = resample(drawPath), k = Math.min(q.length - 1, Math.round(travel * (q.length - 1))), [bx, by] = q[k]; pg.fillStyle = '#ffe08a'; pg.beginPath(); pg.arc(bx * W, by * H, 8, 0, 7); pg.fill(); } }
+    return;
+  }
   // your sounding: each layer as a numbered dot, joined in order
   if (sounding) { pg.strokeStyle = '#fff'; pg.lineWidth = 1.5; pg.beginPath(); sounding.forEach((l, i) => { const [x, y] = padXY(l.T, l.s, W, H); i ? pg.lineTo(x, y) : pg.moveTo(x, y); }); pg.stroke();
     sounding.forEach((l, i) => { const [x, y] = padXY(l.T, l.s, W, H); pg.fillStyle = i === sel ? '#ffe08a' : '#fff'; pg.beginPath(); pg.arc(x, y, i === sel ? 8 : 6, 0, 7); pg.fill(); pg.fillStyle = '#000'; pg.textAlign = 'center'; pg.fillText(i + 1, x, y + 4); }); }
@@ -329,12 +347,17 @@ let dragging = false;
 function padSet(e) { const r = pad.getBoundingClientRect(), x = FX.clamp((e.clientX - r.left) / r.width, 0, 1), y = FX.clamp((e.clientY - r.top) / r.height, 0, 1);
   const l = sounding[sel]; l.T = Math.round((TMAX + (TMIN - TMAX) * x) * 2) / 2; l.s = Math.round((1 - y) * 20) / 20; drawPad(); renderInfo(); renderColumn(); }
 // pressing the pad grabs the nearest layer dot (and selects it); far from every dot, it moves the selected layer there
-pad.addEventListener('pointerdown', e => { const r = pad.getBoundingClientRect(); let best = -1, bd = e.pointerType === 'mouse' ? 22 : 36;
+const padPt = e => { const r = pad.getBoundingClientRect(); return [FX.clamp((e.clientX - r.left) / r.width, 0, 1), FX.clamp((e.clientY - r.top) / r.height, 0, 1)]; };
+pad.addEventListener('pointerdown', e => { if (SAVE.mode !== 'draw') return; drawing = true; drawPath = [padPt(e)]; drawLayers = null; try { pad.setPointerCapture(e.pointerId); } catch (err) {} drawPad(); drawPlates(); });
+pad.addEventListener('pointermove', e => { if (SAVE.mode !== 'draw' || !drawing) return; const p = padPt(e), l = drawPath.at(-1); if (Math.hypot(p[0] - l[0], p[1] - l[1]) > .006 && drawPath.length < 400) { drawPath.push(p); drawPad(); } });
+pad.addEventListener('pointerup', () => { if (SAVE.mode === 'draw' && drawing) { drawing = false; release(); } });
+pad.addEventListener('pointercancel', () => { drawing = false; });
+pad.addEventListener('pointerdown', e => { if (SAVE.mode === 'draw') return; const r = pad.getBoundingClientRect(); let best = -1, bd = e.pointerType === 'mouse' ? 22 : 36;
   sounding.forEach((l, i) => { const [x, y] = padXY(l.T, l.s, r.width, r.height), d = Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y); if (d < bd) { bd = d; best = i; } });
   if (best >= 0 && best !== sel) { sel = best; renderColumn(); }
   dragging = true; try { pad.setPointerCapture(e.pointerId); } catch (err) {} padSet(e); });
 pad.addEventListener('pointercancel', () => { dragging = false; });
-pad.addEventListener('pointermove', e => { if (dragging) padSet(e); });
+pad.addEventListener('pointermove', e => { if (dragging && SAVE.mode !== 'draw') padSet(e); });
 pad.addEventListener('pointerup', () => { dragging = false; });
 // ================= panels =================
 function renderColumn() {
@@ -357,13 +380,62 @@ function renderInfo() {
 }
 function render() {
   const c = CASES[cur];
-  $('side').innerHTML = `<div class="lbl"><span>${c.chamber ? 'Before the cases' : 'Case ' + cur}</span><span>${SAVE.done[cur] ? '★'.repeat(SAVE.done[cur]) : ''}</span></div><h2>${c.n}</h2><div class="story">${c.story}</div>
+  if (SAVE.mode === 'draw') return renderDraw();
+  $('side').innerHTML = `<button id="backDraw" style="margin-bottom:6px">← Draw the fall</button><div class="lbl"><span>${c.chamber ? 'Before the cases' : 'Case ' + cur}</span><span>${SAVE.done[cur] ? '★'.repeat(SAVE.done[cur]) : ''}</span></div><h2>${c.n}</h2><div class="story">${c.story}</div>
     <div class="lbl"><span>${c.chamber ? 'Chamber setting' : 'Your sounding, top of the cloud first'}</span></div><div class="col" id="column"></div>
     <div class="note" style="margin-top:6px">Click a layer, then drag its dot on Nakaya's diagram (below the plates). ${c.chamber ? '' : 'The bars set how long the flake spends in each layer.'}</div>
     <div class="lbl"><span>Case files</span></div><div class="cases" id="cases">${CASES.map((k, i) => `<button class="${i === cur ? 'cur' : ''}" data-i="${i}" ${isOpen(i) ? '' : 'disabled'}><span>${i ? i + '. ' : ''}${k.n}</span><span class="st">${SAVE.done[i] ? '★'.repeat(SAVE.done[i]) : isOpen(i) ? '' : '🔒'}</span></button>`).join('')}</div>`;
   $('cases').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.disabled) return; document.body.classList.remove('drawer'); startCase(+b.dataset.i); });
+  $('backDraw').onclick = () => { SAVE.mode = 'draw'; persist(); renderDraw(); };
   $('tot').textContent = `${Object.keys(SAVE.done).length}/${CASES.length} plates · ${Object.values(SAVE.done).reduce((a, b) => a + b, 0)}★`;
   renderColumn(); renderInfo(); drawPad(); drawPlates();
+}
+// ================= the draw mode: release, codex, commissions =================
+const currentComm = () => SAVE.tab === 'comm' ? COMMS[Math.min(COMMS.length - 1, Math.max(0, SAVE.ci))] : SAVE.tab === 'daily' ? dailyComm(todayStr()) : null;
+function release(P = drawPath) {
+  if (!P.length) return; drawPath = P; drawLayers = pathLayers(P); const x = crystalFor(drawLayers); travel = 0;
+  const seq = habitSeq(drawLayers), key = seq.join(','), fresh = !SAVE.codex[key];
+  for (const k of seq) SAVE.seen[k] = 1;
+  if (fresh) SAVE.codex[key] = { d: todayStr(), p: encodePath(P), n: 1 }; else SAVE.codex[key].n++;
+  const cm = currentComm(); lastJudge = cm ? judgeComm(cm, P) : null;
+  if (cm && lastJudge.ok) { if (cm.daily) { if (!SAVE.daily || SAVE.daily.date !== cm.daily || lastJudge.ink < SAVE.daily.ink) SAVE.daily = { date: cm.daily, ink: Math.round(lastJudge.ink * 1000) / 1000 }; }
+    else if (lastJudge.stars > (SAVE.comm[SAVE.ci] || 0)) SAVE.comm[SAVE.ci] = lastJudge.stars; }
+  persist(); shutter(); animateDevelop();
+  if (fresh) RH.toast(`First found by you: <b>${nameOf(seq)}</b> · ${rarity(seq)}`, 3400);
+  if (cm && lastJudge.ok) setTimeout(() => { [1568, 2093, 2637].forEach((f, i) => FX.tone({ f, type: 'sine', dur: 1, vol: .05, delay: i * .1 })); RH.toast(cm.daily ? `Today's sky matched with ${(lastJudge.ink * 100).toFixed(0)} units of ink.` : `Commission delivered ${'★'.repeat(lastJudge.stars)}`, 3000); }, 900);
+  location.hash = 'fall=' + encodePath(P);
+  renderDraw();
+  // the bead travels down the line in step with the crystal's growth
+  const t0 = performance.now(); const anim = now => { travel = x.done ? 1 : Math.min(1, x.o.R / RMAX); drawPad(); if (travel < 1) requestAnimationFrame(anim); }; requestAnimationFrame(anim);
+}
+function renderDraw() {
+  const tabs = [['sky', '❄ Draw the fall'], ['comm', '📜 Commissions'], ['daily', '📅 Daily sky'], ['cases', '🔎 Cases']];
+  let body = '';
+  if (SAVE.tab === 'sky') {
+    const ents = Object.entries(SAVE.codex).sort((a, b) => a[1].d < b[1].d ? 1 : -1);
+    body = `<div class="story">Draw the line a snowflake falls along: press on <b>Nakaya's diagram</b> where it is born, drag through the clouds it passes (temperature across, humidity up) and lift. It grows as it falls, <b>centre first</b>: every stretch of your line adds its own ring. Small changes make very different flakes. Every new kind goes into your codex.</div>
+      <div class="lbl"><span>Your codex</span><span>${ents.length} found</span></div>
+      <div class="codex">${ents.length ? ents.map(([k, e]) => { const seq = k.split(','); return `<button data-p="${e.p}" title="Grow it again"><span>${nameOf(seq)}</span><span class="rar ${rarity(seq)}">${rarity(seq)}</span></button>`; }).join('') : '<div class="note">Nothing yet. Draw your first fall below.</div>'}</div>`;
+  } else {
+    const cm = currentComm(), j = lastJudge;
+    const list = SAVE.tab === 'comm' ? `<div class="cases" id="cases">${COMMS.map((c, i) => `<button class="${i === SAVE.ci ? 'cur' : ''}" data-ci="${i}"><span>${i + 1}. ${c.n}</span><span class="st">${SAVE.comm[i] ? '★'.repeat(SAVE.comm[i]) : ''}</span></button>`).join('')}</div>` : '';
+    const dl = SAVE.daily && SAVE.daily.date === todayStr() ? `Your best today: <b>${Math.round(SAVE.daily.ink * 100)}</b> units of ink (par ${Math.round(cm.ink * 100)}).` : `Par: ${Math.round(cm.ink * 100)} units of ink.`;
+    body = `<div class="lbl"><span>${cm.daily ? 'Today, ' + cm.daily : 'From ' + cm.who}</span></div><h2>${cm.n}</h2><div class="story">Wanted: <b>${cm.text}</b>. Grow it by drawing a fall that passes through the right clouds in the right order, centre first. ${cm.daily ? dl : 'Stars for using little ink: the shorter your line, the better.'}</div>
+      ${j ? `<div class="note" style="margin-top:6px">${j.ok ? `✓ That is the one${cm.daily ? '' : ': ' + '★'.repeat(j.stars)}, ${Math.round(j.ink * 100)} units of ink.` : `Not quite: you grew a <b>${nameOf(j.seq)}</b>. The client wants a <b>${nameOf(cm.want)}</b>.`}</div>` : ''}
+      ${list}`;
+  }
+  $('side').innerHTML = `<div class="tabs2">${tabs.map(([k, t]) => `<button data-tab="${k}" class="${SAVE.tab === k ? 'on' : ''}">${t}</button>`).join('')}</div>${body}`;
+  $('side').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { if (b.dataset.tab === 'cases') { SAVE.mode = 'cases'; persist(); startCase(cur); return; } SAVE.tab = b.dataset.tab; lastJudge = null; persist(); renderDraw(); drawPlates(); });
+  $('side').querySelectorAll('[data-ci]').forEach(b => b.onclick = () => { SAVE.ci = +b.dataset.ci; lastJudge = null; persist(); renderDraw(); drawPlates(); document.body.classList.remove('drawer'); });
+  $('side').querySelectorAll('.codex [data-p]').forEach(b => b.onclick = () => release(decodePath(b.dataset.p)));
+  const seq = drawLayers ? habitSeq(drawLayers) : null;
+  $('padInfo').innerHTML = `<div>${seq ? `Your flake: <b>${nameOf(seq)}</b> · <span class="rar ${rarity(seq)}">${rarity(seq)}</span> · ink ${Math.round(pathLen(drawPath) * 100)}` : '<b>Press and drag</b> on the diagram to draw the fall, then lift.'}</div>
+    <div class="note" style="color:#9aa3b8">${seq ? 'Centre outwards: ' + seq.map(k => SHORT[k]).join(' → ') : 'Temperature across (warm on the left), humidity up.'}</div>
+    <div class="row" style="margin-top:6px"><button id="clrBtn">Clear</button>${seq ? '<button id="shareBtn">🔗 Share this flake</button>' : ''}</div>`;
+  $('clrBtn').onclick = () => { drawPath = []; drawLayers = null; lastJudge = null; history.replaceState(null, '', location.pathname); renderDraw(); drawPad(); drawPlates(); };
+  if ($('shareBtn')) $('shareBtn').onclick = () => { const url = location.origin + location.pathname + '#fall=' + encodePath(drawPath); try { navigator.clipboard?.writeText(url); } catch (e) {} RH.toast('Link copied: anyone who opens it sees this fall grow.', 2600); };
+  $('tot').textContent = `${Object.keys(SAVE.codex).length} forms · ${Object.values(SAVE.comm).reduce((a, b) => a + b, 0)}★ commissions`;
+  drawPad(); drawPlates();
 }
 // ================= growing and judging =================
 function scoreSounding(c, snd) { // regrow every specimen from the player's sounding (later flakes enter lower down) and take the worst match
@@ -403,7 +475,8 @@ const help = () => RH.modal(`<h2>Snowfall</h2><p>In 1885 Wilson Bentley photogra
 $('helpBtn').onclick = help;
 if (!SAVE.intro) { SAVE.intro = 1; persist(); help(); }
 startCase(cur);
-window.__snow = { crystalFor, crystals, habit, grow, similarity, CASES, MATCH, BALLOONS, scoreSounding, starsFor, cleanSave, SAVE, launch, startCase, isOpen, get cur() { return cur; }, get used() { return used; }, get sounding() { return sounding; }, set sounding(v) { sounding = v; sel = 0; renderColumn(); drawPad(); renderInfo(); } };
+{ const m = location.hash.match(/fall=([0-9a-z]+)/); if (m) { SAVE.mode = 'draw'; SAVE.tab = 'sky'; const P = decodePath(m[1]); if (P.length) setTimeout(() => release(P), 50); } }
+window.__snow = { pathLayers, habitSeq, nameOf, rarity, encodePath, decodePath, resample, pathLen, COMMS, judgeComm, dailyComm, todayStr, release, renderDraw, P2, get drawLayers() { return drawLayers; }, get drawPath() { return drawPath; }, crystalFor, crystals, habit, grow, similarity, CASES, MATCH, BALLOONS, scoreSounding, starsFor, cleanSave, SAVE, launch, startCase, isOpen, get cur() { return cur; }, get used() { return used; }, get sounding() { return sounding; }, set sounding(v) { sounding = v; sel = 0; renderColumn(); drawPad(); renderInfo(); } };
 </script>
 </body>
 </html>
