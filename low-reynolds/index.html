@@ -235,9 +235,9 @@ const LV = [
     story: '<b>Master sample.</b> Engineers are building sperm-powered micro-robots that tow a drug-carrying bead. The bead adds a lot of drag, so the stroke that was best before is not best now.',
     goal: 'Tow the bead 30 body lengths in 10 s within 260 units of energy. ★★ under 228, ★★★ under 205.', test: S => S.reached && S.energy <= L.ebudget && S.t <= L.time, fail: S => !S.reached && (S.energy > L.ebudget || S.t > L.time),
     lesson: 'With a heavy load, a bigger, slower wave is worth its cost: the tail has to make thrust, not just speed. Sperm-hybrid micro-robots really do this (Medina-Sánchez et al., 2016).' },
-  { n: 'Swim', chapter: 'V · Swim it yourself', hinges: 2, live: 1, start: [0, 0, 0], openAfter: 1, endless: 1, obstacles: [],
-    story: 'Now <b>you</b> are the motor. Drag on the stage, or use both thumbs on a phone: the swimmer copies your hinges instantly. Back and forth goes nowhere. Only a <b>loop</b> swims, and its area is the distance. Off-centre loops turn you. Each dish is new: reach the food before time runs out, without getting eaten.',
-    goal: 'Reach the food.', test: () => false },
+  { n: 'The Pond', chapter: 'V · The pond assay', hinges: 2, pond: 1, endless: 1, openAfter: 1, start: [0, 0, 0], obstacles: [],
+    story: 'Stop swimming: <b>breed</b> swimmers. Draw a founder\'s stroke on the pad and release a colony into a pond sample. Every cell repeats its stroke (at this size one stroke always moves it by the same step, however fast), pays the drag it costs, eats, and divides into slightly <b>mutated</b> daughters. The pond decides who lives. You get three drops of the <b>pipette</b> per assay: clone a promising cell, or feed a patch.',
+    goal: 'Keep a colony alive to the end of the assay; beat the par population.', test: () => false },
 ];
 for (const l of LV) l.goalBase = l.goal;
 
@@ -269,7 +269,7 @@ let L, sw, loop = [], seg = 0, trans = null, perim = 1, playing = true, speed = 
 const $ = id => document.getElementById(id);
 
 function load(i, retry = false) {
-  if (!(Number.isInteger(i) && i >= 0 && i < LV.length && (i <= maxOpen() || SAVE.done[i] || (LV[i].openAfter != null && (SAVE.done[LV[i].openAfter] || /#swim=/.test(location.hash)))))) i = maxOpen(); // locked or nonsense: the furthest open level
+  if (!(Number.isInteger(i) && i >= 0 && i < LV.length && (i <= maxOpen() || SAVE.done[i] || (LV[i].openAfter != null && (SAVE.done[LV[i].openAfter] || /#(swim|pond)=/.test(location.hash)))))) i = maxOpen(); // locked or nonsense: the furthest open level
   $('toast').classList.remove('on'); // a previous level's lesson (and its Next button) must not linger
   const fresh = !retry || LV[i] !== L;
   SAVE.cur = i; persist(); L = LV[i]; won = false; failed = false;
@@ -286,6 +286,9 @@ function load(i, retry = false) {
   renderSlots();
   $('padBox').classList.toggle('body', !!L.body); $('padBox').classList.remove('running'); $('bodyPanel').hidden = !L.body; bd = null; if (L.body) bodyInit();
   document.body.classList.toggle('live', !!L.live); $('loopIt').hidden = !L.live; $('loopIt').disabled = true;
+  document.body.classList.toggle('pond', !!L.pond);
+  if (L.pond) { $('padT').innerHTML = '<b>The founder\'s stroke.</b> Draw a loop: its area is how far each stroke goes, its length and the rate are what it costs. A selected cell\'s stroke shows dashed.'; pondInit(); }
+  else { assay = null; pondP = null; if (/#pond=/.test(location.hash)) try { history.replaceState(null, '', location.pathname); } catch (e) {} }
   if (L.live) { $('padT').innerHTML = '<b>Your hinges.</b> Drag here and the swimmer copies you instantly. Circle clockwise to swim forward; off-centre circles turn. Back and forth goes nowhere.'; swimInit(); }
   else { dish = null; if (/#swim=/.test(location.hash)) try { history.replaceState(null, '', location.pathname); } catch (e) {} }
   cam.x = sw.x + 1.2; cam.y = sw.y; camSnap = true; layout();
@@ -844,8 +847,203 @@ function renderLivePad(P, w, h) {
   for (const [id, k] of [['thumbL', 0], ['thumbR', 1]]) { const v = k ? sw.t2 : sw.t1, el = $(id).firstChild; const top = ((1 - v / LIM) / 2 * 100).toFixed(1) + '%'; if (el.style.top !== top) el.style.top = top; }
 }
 
+// ================= THE POND ASSAY: write a genome, release a colony, let the pond select =================
+// A genome is a stroke (a closed loop in shape space), a stroke rate and a reflex (turn away when the food tastes worse).
+// At low Reynolds number one stroke always moves the body by the same step and turn, however fast it is made: motion is
+// pure geometry. So each genome is turned into its gait once, exactly, by the Stokes solver above (predictLoop), and a
+// colony of hundreds just repeats gaits. Swimming costs the drag power of the stroke; food pays; full cells divide, and
+// each daughter inherits a slightly mutated genome. Ponds are generated from a seed and get harder by tier.
+const PW = 24, PH = 15, ASSAY = 150, PMAX = 260, GN = 12, DROPS = 3; // pond size (body lengths), assay length (pond seconds), population cap, loop points kept in a genome
+const KAPPA = .0004, BASE = .003, EAT = .16, DIV = 2; // energy: drag-cost scale, upkeep per second, most food eaten per second, division threshold
+const qL = v => Math.max(0, Math.min(63, Math.round((v / LIM + 1) / 2 * 63))), uqL = k => (k / 63 * 2 - 1) * LIM;
+const PA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const encGenome = G => G.loop.map(([a, b]) => PA[qL(a)] + PA[qL(b)]).join('') + '.' + Math.round(G.rate) + '.' + Math.round(G.k * 100);
+function decGenome(s) { const m = /^([A-Za-z0-9_-]{24})\.(\d{1,2})\.(\d{1,2})$/.exec(String(s || '')); if (!m) return null;
+  const loop = []; for (let i = 0; i < 24; i += 2) loop.push([uqL(PA.indexOf(m[1][i])), uqL(PA.indexOf(m[1][i + 1]))]); return mkGenome(loop, FX.clamp(+m[2], 4, 16), FX.clamp(+m[3] / 100, 0, .6)); }
+let gid = 0;
+// the gait of a genome: what one stroke does (in the body frame), how long it takes, and what it costs per second
+function mkGenome(loopPts, rate = 9, k = .1, hue = 200, gen = 0) {
+  const lp = resample(loopPts, GN).map(([a, b]) => [FX.clamp(a, -LIM, LIM), FX.clamp(b, -LIM, LIM)]);
+  const keepL = L; L = { hinges: 2 }; let pr; try { pr = predictLoop(resample(lp, 48)); } finally { L = keepL; }
+  let per = 0; for (let i = 0; i < lp.length; i++) { const A = lp[i], B = lp[(i + 1) % lp.length]; per += Math.hypot(B[0] - A[0], B[1] - A[1]); }
+  per = Math.max(per, .05); const T = per / rate;
+  return { id: ++gid, loop: lp, rate, k, hue, gen, T, vx: pr.dx / T, vy: pr.dy / T, w: pr.turn * Math.PI / 180 / T, cost: KAPPA * pr.e * rate * rate / per, step: Math.hypot(pr.dx, pr.dy) };
+}
+const gauss2 = r => Math.sqrt(-2 * Math.log(1 - r() * .999999)) * Math.cos(2 * Math.PI * r());
+function mutate(G, r) {
+  const s = r() < .3 ? [gauss2(r) * .12, gauss2(r) * .12] : [0, 0], sc = r() < .3 ? Math.exp(gauss2(r) * .08) : 1;
+  const loop = G.loop.map(([a, b]) => [a * sc + s[0] + gauss2(r) * .06, b * sc + s[1] + gauss2(r) * .06]);
+  return mkGenome(loop, FX.clamp(G.rate * Math.exp(gauss2(r) * .06), 4, 16), FX.clamp(G.k + gauss2(r) * .03, 0, .6), (G.hue + gauss2(r) * 9 + 360) % 360, G.gen + 1);
+}
+// a pond sample: food patches that regrow, grains, a current that washes cells out downstream, ciliates with feeding currents
+function makePond(seed, tier) {
+  tier = FX.clamp(tier | 0, 1, 9); const r = RH.rng((seed * 2654435761 + tier * 40503) >>> 0), P = { seed, tier, patches: [], grains: [], cil: [], drift: [0, 0], release: [4, PH / 2], moving: tier >= 5 };
+  const np = Math.max(2, 4 - (tier >> 2));
+  for (let i = 0, t = 0; i < np && t < 200; t++) { const x = 9 + r() * (PW - 11), y = 2.5 + r() * (PH - 5); if (Math.hypot(x - P.release[0], y - P.release[1]) < 6 || P.patches.some(p => Math.hypot(p.x - x, p.y - y) < 5)) continue; P.patches.push({ x, y, x0: x, y0: y, R: 2.2 + r() * 1.4 - tier * .08, ph: r() * 6.28 }); i++; }
+  for (let i = 0, t = 0; i < tier * 2 && t < 400; t++) { const x = 6 + r() * (PW - 8), y = 1.5 + r() * (PH - 3), R = .4 + r() * .7;
+    if (Math.hypot(x - P.release[0], y - P.release[1]) < 4 || P.patches.some(p => Math.hypot(p.x - x, p.y - y) < p.R + R + .5) || P.grains.some(([gx, gy, gr]) => Math.hypot(gx - x, gy - y) < gr + R + 1.8)) continue; P.grains.push([x, y, R]); i++; }
+  if (tier >= 2) { const a = (r() - .5) * 1.2 + Math.PI; P.drift = [Math.cos(a) * .012 * tier, Math.sin(a) * .012 * tier * .5]; } // mostly pushing back toward the release edge
+  for (let i = 0; i < (tier >= 3 ? 1 + ((tier - 3) / 3 | 0) : 0); i++) { const p = P.patches[i % P.patches.length], a = r() * 6.28; P.cil.push({ x: FX.clamp(p.x + Math.cos(a) * (p.R + 2.2), 2, PW - 2), y: FX.clamp(p.y + Math.sin(a) * (p.R + 2.2), 2, PH - 2), Q: .18 + tier * .015, R: .6 }); }
+  P.regrow = .05 - tier * .003; return P;
+}
+// one assay: a colony from a founder genome in a pond, stepped in fixed 0.05 s ticks (deterministic for a seed)
+function newAssay(P, G, n = 12) {
+  const r = RH.rng((P.seed * 7 + P.tier * 13 + 99991) >>> 0), A = { P, r, t: 0, cells: [], F: new Float32Array(PW * PH), C: new Float32Array(PW * PH), drops: DROPS, born: 0, dead: { starve: 0, eaten: 0, washed: 0 }, founder: G, hist: [], done: false, maxGen: 0 };
+  for (let i = 0; i < n; i++) A.cells.push(cellOf(G, P.release[0] + gauss2(r) * .4, P.release[1] + gauss2(r) * .8, (r() - .5) * 1.2, 1, r)); // released pointing into the sample
+  pondFood(A, true); return A;
+}
+const cellOf = (G, x, y, phi, E, r) => ({ G, x, y, phi, E, ph: r() * G.T, last: 0, pause: 0 });
+function pondFood(A, init) { // capacities from the patches (which may wander); regrowth toward them
+  const P = A.P; if (P.moving) for (const p of P.patches) { p.x = p.x0 + Math.cos(A.t * .05 + p.ph) * 3; p.y = p.y0 + Math.sin(A.t * .04 + p.ph) * 2; }
+  for (let j = 0; j < PH; j++) for (let i = 0; i < PW; i++) { let c = 0; for (const p of P.patches) { const d2 = ((i + .5 - p.x) ** 2 + (j + .5 - p.y) ** 2) / (p.R * p.R); if (d2 < 9) c += Math.exp(-d2 / 1.6); } A.C[j * PW + i] = Math.min(1, c); if (init) A.F[j * PW + i] = A.C[j * PW + i]; }
+}
+const foodAtP = (A, x, y) => { const i = x | 0, j = y | 0; return i >= 0 && j >= 0 && i < PW && j < PH ? A.F[j * PW + i] : 0; };
+function flowP(A, x, y) { let fx = A.P.drift[0], fy = A.P.drift[1]; for (const c of A.P.cil) { const dx = c.x - x, dy = c.y - y, r2 = Math.max(.2, dx * dx + dy * dy); fx += c.Q * dx / r2; fy += c.Q * dy / r2; } return [fx, fy]; }
+const DT_P = .1;
+function pondTick(A) {
+  const P = A.P, r = A.r, born = []; A.t += DT_P;
+  if (((A.t / DT_P) | 0) % 10 === 0) pondFood(A, false);
+  for (let k = 0; k < A.F.length; k++) A.F[k] += (A.C[k] - A.F[k]) * P.regrow * DT_P;
+  for (const c of A.cells) {
+    if (c.dead) continue; const G = c.G;
+    if (c.pause > 0) c.pause -= DT_P; // a turning stroke: the cell reorients instead of swimming
+    else { const co = Math.cos(c.phi), si = Math.sin(c.phi); c.x += (co * G.vx - si * G.vy) * DT_P; c.y += (si * G.vx + co * G.vy) * DT_P; c.phi += G.w * DT_P; }
+    c.phi += gauss2(r) * Math.sqrt(2 * .04 * DT_P); // rotational Brownian motion
+    const [fx, fy] = flowP(A, c.x, c.y); c.x += fx * DT_P; c.y += fy * DT_P;
+    for (const [gx, gy, gr] of P.grains) { const dx = c.x - gx, dy = c.y - gy, d = Math.hypot(dx, dy); if (d < gr + .35) { c.x = gx + dx / d * (gr + .35); c.y = gy + dy / d * (gr + .35); } }
+    c.y = FX.clamp(c.y, .3, PH - .3); if (c.x > PW - .3) c.x = PW - .3;
+    if (c.x < 0) { c.dead = 'washed'; continue; } // swept out of the sample by the current
+    for (const q of P.cil) if (Math.hypot(c.x - q.x, c.y - q.y) < q.R) c.dead = 'eaten';
+    if (c.dead) continue;
+    // eat, pay for the stroke and for staying alive
+    const i = c.x | 0, j = c.y | 0, f = A.F[j * PW + i] || 0, take = Math.min(f, EAT * DT_P * Math.min(1, f * 3));
+    A.F[j * PW + i] = f - take; c.E += take * 2.2 - (BASE + (c.pause > 0 ? G.cost * .5 : G.cost)) * DT_P;
+    // the reflex, checked once a stroke: if the food tastes worse than a stroke ago, make a turning stroke
+    c.ph += DT_P; if (c.ph >= G.T) { c.ph -= G.T; if (f < c.last * (1 - G.k) && c.pause <= 0) { c.pause = .4; c.phi += (r() < .5 ? -1 : 1) * (.8 + r() * 1.6); } c.last = f; }
+    if (c.E <= 0) { c.dead = 'starve'; continue; }
+    if (c.E >= DIV && A.cells.length + born.length < PMAX) { c.E /= 2; const d = cellOf(mutate(G, r), c.x + gauss2(r) * .3, c.y + gauss2(r) * .3, c.phi + (r() - .5) * 2, c.E, r); born.push(d); A.born++; A.maxGen = Math.max(A.maxGen, d.G.gen); }
+  }
+  for (const c of A.cells) if (c.dead) A.dead[c.dead]++;
+  A.cells = A.cells.filter(c => !c.dead).concat(born);
+  if (((A.t / DT_P) | 0) % 20 === 0) A.hist.push(A.cells.length);
+  if (A.t >= ASSAY - 1e-9 || !A.cells.length) A.done = true;
+}
+// the pipette: put clones of one cell back into the pond, or a drop of food where you tap
+function pipetteClone(A, c, n = 6) { if (A.drops <= 0 || A.done) return false; A.drops--; for (let i = 0; i < n && A.cells.length < PMAX; i++) A.cells.push(cellOf(c.G, c.x + gauss2(A.r) * .5, c.y + gauss2(A.r) * .5, A.r() * 6.28, 1, A.r)); return true; }
+function pipetteFood(A, x, y) { if (A.drops <= 0 || A.done) return false; A.drops--; for (let j = 0; j < PH; j++) for (let i = 0; i < PW; i++) { const d2 = (i + .5 - x) ** 2 + (j + .5 - y) ** 2; if (d2 < 9) A.F[j * PW + i] = Math.min(1.6, A.F[j * PW + i] + 1.2 * Math.exp(-d2 / 3)); } return true; }
+// the champion: the living cell of the deepest generation (ties: the best fed); what the pond made of your founder
+const champion = A => A.cells.reduce((b, c) => !b || c.G.gen > b.G.gen || (c.G.gen === b.G.gen && c.E > b.E) ? c : b, null);
+// run a whole assay headless (tests, par); policy(A, t) may use the pipette
+function runAssay(P, G, policy) { const A = newAssay(P, G); while (!A.done) { if (policy) policy(A); pondTick(A); } return A; }
+// the reference founder: a plain round stroke at a steady rate with a gentle reflex; its population sets the pond's par
+const refGenome = () => mkGenome(circLoop(0, 0, 1.15, 24), 9, .1, 200);
+const pondCache = {};
+function pondOf(seed, tier) { const key = seed + '-' + tier; if (pondCache[key]) return pondCache[key];
+  for (let t = 0; t < 30; t++) { const P = makePond((seed + t * 7919) >>> 0, tier), A = runAssay(P, refGenome()); if (A.cells.length >= Math.max(3, 10 - tier)) { P.par = A.cells.length; P.key = key; return (pondCache[key] = P); } }
+  const P = makePond(seed, 1); P.par = Math.max(1, runAssay(P, refGenome()).cells.length); P.key = key; return (pondCache[key] = P); }
+const pondStars = (A, P) => !A.cells.length ? 0 : A.cells.length >= P.par * 1.5 ? 3 : A.cells.length >= P.par ? 2 : 1;
+
+// ================= the pond on screen =================
+let assay = null, pondP = null, pSel = null, pArm = false, pAcc = 0, pEnded = false;
+const pondSave = () => { const S = obj(SAVE.pond); return { seed: Number.isInteger(S.seed) && S.seed >= 0 ? S.seed : 1, tier: Number.isInteger(S.tier) && S.tier >= 1 && S.tier <= 9 ? S.tier : 1, top: Number.isInteger(S.top) ? FX.clamp(S.top, 1, 9) : 1, best: obj(S.best), f: typeof S.f === 'string' && decGenome(S.f) ? S.f : null }; };
+function pondInit() {
+  const h = /#pond=(\d{1,9})-(\d)(?:~([A-Za-z0-9_.-]+))?/.exec(location.hash), S = pondSave();
+  if (h && h[3] && decGenome(h[3])) setLoop(decGenome(h[3]).loop.map(p => p.slice()), true); else if (S.f) setLoop(decGenome(S.f).loop.map(p => p.slice()), true);
+  openPond(h ? +h[1] : S.seed, h ? +h[2] : S.tier);
+}
+function openPond(seed, tier) {
+  pondP = pondOf(seed >>> 0, tier); const S = pondSave(); SAVE.pond = { ...S, seed: seed >>> 0, tier: pondP.tier }; persist();
+  assay = null; pSel = null; pArm = false; pEnded = false; renderPondRow(); pondHash(); $('toast').classList.remove('on');
+}
+const founderG = () => mkGenome(loop.length >= 3 ? loop : circLoop(0, 0, 1.15, 24), 9, .1, 200);
+function pondHash() { try { history.replaceState(null, '', '#pond=' + (pondP.seed >>> 0) + '-' + pondP.tier + '~' + encGenome(founderG())); } catch (e) {} }
+function release() { assay = newAssay(pondP, founderG()); pSel = null; pArm = false; pEnded = false; playing = true; $('play').textContent = '❚❚'; pondHash(); const S = pondSave(); S.f = encGenome(assay.founder); SAVE.pond = { ...S, seed: pondP.seed >>> 0, tier: pondP.tier }; persist(); FX.sfx('place'); renderPondRow(); }
+const NEWS = ['', 'Food patches and nothing else. Swim to them, eat, divide.', 'A current: it washes cells out of the sample downstream. Swim against it.', 'A ciliate guards the food with a feeding current.', 'More grains, a stronger current.', 'The food patches drift about.', 'Two ciliates.', 'Leaner patches; they regrow slowly.', 'Three ciliates and a strong current.', 'Everything at once.'];
+function renderPondRow() {
+  if (!L || !L.pond || !pondP) return; const S = pondSave(), best = S.best[pondP.key], P = pondP;
+  $('goal').className = ''; $('next').style.display = 'none';
+  $('goal').innerHTML = `→ Pond <b>${P.seed}</b> · tier ${P.tier}/9: ${NEWS[P.tier]} Draw a founder on the pad and release it; the colony must outlive the assay. Par <b>${P.par}</b> cells${best != null ? ` · your best <b>${best}</b>` : ''}.`
+    + `<div class="row" style="margin-top:6px"><button class="b on" id="pRel">${assay && !assay.done ? '↺ Release again' : '▸ Release'}</button><button class="b ${pArm ? 'on' : ''}" id="pPip" ${assay && !assay.done && assay.drops ? '' : 'disabled'} title="Tap a cell to put six clones of it back in, or tap water to add food">💧 Pipette ×${assay ? assay.drops : DROPS}</button><button class="b" id="pNew">New pond</button><button class="b" id="pDaily">Daily</button><button class="b" id="pShare">Share</button></div>`;
+  $('pRel').onclick = release; $('pPip').onclick = () => { pArm = !pArm; FX.sfx('tick'); renderPondRow(); };
+  $('pNew').onclick = () => { FX.sfx('click'); openPond((Math.random() * 1e6) | 0, Math.max(1, S.top)); };
+  $('pDaily').onclick = () => { FX.sfx('click'); openPond(dayNum() % 1000000, 4); };
+  $('pShare').onclick = () => { pondHash(); try { navigator.clipboard.writeText(location.href); } catch (e) {} flash = ['Link copied: this pond and your founder', performance.now()]; };
+}
+function pondEnd() {
+  pEnded = true; const A = assay, P = pondP, n = A.cells.length, st = pondStars(A, P), S = pondSave(), ch = champion(A);
+  S.best[P.key] = Math.max(S.best[P.key] || 0, n); const ks = Object.keys(S.best); while (ks.length > 40) delete S.best[ks.shift()];
+  if (st >= 2) S.top = Math.max(S.top, Math.min(9, P.tier + 1)); SAVE.pond = { ...S, seed: P.seed >>> 0, tier: P.tier }; if (st) { SAVE.done[SAVE.cur] = 1; SAVE.stars[SAVE.cur] = Math.max(SAVE.stars[SAVE.cur] || 0, st); } persist(); renderLevels();
+  pSel = ch; FX.sfx(st ? 'win' : 'fail'); if (st) shutter = performance.now();
+  const lost = A.dead.starve + A.dead.eaten + A.dead.washed, why = lost ? Object.entries({ starved: A.dead.starve, 'were eaten': A.dead.eaten, 'washed out': A.dead.washed }).filter(e => e[1]).map(([k, v]) => `${v} ${k}`).join(', ') : 'none lost';
+  toast(n ? `${n} cells ${starStr(st)}` : 'Extinct', `Par ${P.par}. Born ${A.born}, ${why}. ${ch ? `The champion is generation <b>${ch.G.gen}</b>: ${(ch.G.vx).toFixed(2)} BL/s, turning ${(ch.G.w * 180 / Math.PI).toFixed(0)}°/s, costs ${(ch.G.cost * 1000).toFixed(0)} (your founder ${(A.founder.cost * 1000).toFixed(0)}), reflex ${Math.round(ch.G.k * 100)}%. Its stroke is dashed on the pad.` : 'Nothing survived: what killed them is above. Change the stroke and try again.'}`, 60000, false, false, !!st);
+  const t = $('toast'); t.insertAdjacentHTML('beforeend', (ch ? '<button class="b on" id="pBreed">Breed from the champion</button>' : '') + `<button class="b" id="pAgain">↺ Again</button>` + (st >= 2 && P.tier < 9 ? '<button class="b on" id="pNext">Next pond ▸</button>' : ''));
+  if ($('pBreed')) $('pBreed').onclick = () => { setLoop(ch.G.loop.map(p => p.slice())); St.drawn = true; t.classList.remove('on'); FX.sfx('place'); flash = ['Founder = the champion. Edit it on the pad, or release it as it is.', performance.now()]; pondHash(); renderPondRow(); };
+  $('pAgain').onclick = () => { t.classList.remove('on'); release(); };
+  if ($('pNext')) $('pNext').onclick = () => { t.classList.remove('on'); openPond(P.seed + 1, P.tier + 1); };
+  renderPondRow();
+}
+// taps on the pond: inspect a cell; with the pipette armed, clone it (or drop food on open water)
+const pTap = { x: 0, y: 0, t: 0 };
+cv.addEventListener('pointerdown', e => { pTap.x = e.clientX; pTap.y = e.clientY; pTap.t = performance.now(); });
+cv.addEventListener('pointerup', e => {
+  if (!L || !L.pond || Math.hypot(e.clientX - pTap.x, e.clientY - pTap.y) > 8 || performance.now() - pTap.t > 500) return;
+  const [wx, wy] = pondWorld(e.clientX, e.clientY); pondTapAt(wx, wy);
+});
+function pondWorld(cx, cy) { const r = cv.getBoundingClientRect(), [k, tx, ty] = pzT(), sx = ((cx - r.left) * dpr - tx) / k, sy = ((cy - r.top) * dpr - ty) / k; return [cam.x + (sx - W * viewCX) / (cam.z * dpr), cam.y + (sy - H * viewCY) / (cam.z * dpr)]; }
+function pondTapAt(wx, wy) {
+  if (!assay) return false; let best = null, bd = 1.2 / Math.max(1, pz ? pz.k : 1) + .4;
+  for (const c of assay.cells) { const d = Math.hypot(c.x - wx, c.y - wy); if (d < bd) { bd = d; best = c; } }
+  if (pArm && !assay.done) { const ok = best ? pipetteClone(assay, best) : pipetteFood(assay, wx, wy); if (ok) { FX.sfx('pop'); flash = [best ? 'Six clones of that cell, back in the pond' : 'A drop of food', performance.now()]; pArm = false; renderPondRow(); } return ok; }
+  pSel = best; if (best) FX.sfx('tick'); return !!best;
+}
+function pondFrame(dt, now) {
+  cam.x = PW / 2; cam.y = PH / 2; cam.z = Math.min(freeW / (PW + 1.5), freeH / (PH + 1.5));
+  if (assay && !assay.done && playing) { pAcc += dt * 2.5 * speed / 3; let n = 0; while (pAcc >= DT_P && n++ < 40) { pondTick(assay); pAcc -= DT_P; if (assay.done) break; } if (n >= 40) pAcc = 0; }
+  if (assay && assay.done && !pEnded) pondEnd();
+  if (pSel && pSel.dead) pSel = null;
+  const A = assay, sh = A ? `assay <b>${A.t.toFixed(0)}</b> / ${ASSAY} s · cells <b>${A.cells.length}</b> (par ${pondP.par}) · born ${A.born} · gen ${A.maxGen}<br>lost: starved ${A.dead.starve}, eaten ${A.dead.eaten}, washed out ${A.dead.washed}${pSel ? `<br>selected: gen <b>${pSel.G.gen}</b>, ${pSel.G.vx.toFixed(2)} BL/s, cost ${(pSel.G.cost * 1000).toFixed(0)}, fed ${(pSel.E * 50).toFixed(0)}%` : ''}${pArm ? '<br><span class="hint">Pipette ready: tap a cell to clone it, or open water to feed.</span>' : ''}`
+    : 'Draw a stroke on the pad (a loop: area is distance, cost grows with size and speed), then <b>▸ Release</b>.' + (hintText() ? '<br><span class="hint">' + hintText() + '</span>' : '');
+  if (sh !== lastStat) { $('stat').innerHTML = sh; lastStat = sh; }
+  if (++frameN % 60 === 0) layout();
+  pondRender(now); renderPad(); padOverlay();
+}
+// the founder's stroke is the pad's own loop; a selected cell's (or the champion's) is drawn dashed in its colour
+function padOverlay() {
+  if (!pSel || $('padBox').classList.contains('min')) return; const w = pad.width, h = pad.height, P = (a, b) => [(a / LIM + 1) / 2 * w, (1 - b / LIM) / 2 * h];
+  pg.strokeStyle = `hsl(${pSel.G.hue},80%,62%)`; pg.lineWidth = 2.5 * pd; pg.setLineDash([5 * pd, 4 * pd]); pg.beginPath(); pSel.G.loop.forEach((q, i) => { const [x, y] = P(q[0], q[1]); i ? pg.lineTo(x, y) : pg.moveTo(x, y); }); pg.closePath(); pg.stroke(); pg.setLineDash([]);
+}
+function pondRender(now) {
+  g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(bgC || background(), 0, 0); bgC.cy = viewCY;
+  { const [k, tx, ty] = pzT(); g.setTransform(k, 0, 0, k, tx, ty); }
+  const z = cam.z * dpr, [x0, y0] = toS(0, 0);
+  // the sample chamber, and its food: a faint green haze where the nutrient is
+  g.fillStyle = 'rgba(20,30,24,.18)'; g.fillRect(x0, y0, PW * z, PH * z);
+  if (A_food()) { const F = assay.F; for (let j = 0; j < PH; j++) for (let i = 0; i < PW; i++) { const f = F[j * PW + i]; if (f > .03) { g.fillStyle = `rgba(70,140,60,${Math.min(.55, f * .45)})`; g.fillRect(x0 + i * z, y0 + j * z, z + .5, z + .5); } } }
+  else for (const p of pondP.patches) { const [x, y] = toS(p.x, p.y), gr = g.createRadialGradient(x, y, 0, x, y, p.R * 1.8 * z); gr.addColorStop(0, 'rgba(70,140,60,.45)'); gr.addColorStop(1, 'rgba(70,140,60,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, p.R * 1.8 * z, 0, 7); g.fill(); }
+  g.strokeStyle = 'rgba(240,244,232,.5)'; g.lineWidth = 2 * dpr; g.strokeRect(x0, y0, PW * z, PH * z);
+  // the current: faint streaks, and the outflow edge
+  const dr = pondP.drift; if (dr[0] || dr[1]) { g.strokeStyle = 'rgba(230,240,255,.18)'; g.lineWidth = dpr; const ph = (now / 1000 * Math.hypot(dr[0], dr[1]) * 3) % 1;
+    for (let j = 1; j < PH; j += 3) for (let i = 1; i < PW; i += 4) { const [a, b] = toS(i + dr[0] * ph * 20, j + dr[1] * ph * 20); g.beginPath(); g.moveTo(a, b); g.lineTo(a + dr[0] * 12 * z, b + dr[1] * 12 * z); g.stroke(); }
+    g.fillStyle = 'rgba(179,38,30,.35)'; g.fillRect(x0 - 4 * dpr, y0, 4 * dpr, PH * z); }
+  for (const [ox, oy, r] of pondP.grains) { const [x, y] = toS(ox, oy); g.fillStyle = 'rgba(245,248,240,.5)'; g.beginPath(); g.arc(x, y, r * z + 3 * dpr, 0, 7); g.fill(); g.fillStyle = '#c9cbbf'; g.strokeStyle = '#2b2e2a'; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(x, y, r * z, 0, 7); g.fill(); g.stroke(); }
+  // ciliates: a dark oval with a beating fringe and a mouth
+  for (const c of pondP.cil) { const [x, y] = toS(c.x, c.y), R = 1.1 * z; g.fillStyle = 'rgba(40,46,40,.55)'; g.beginPath(); g.ellipse(x, y, R, R * .7, 0, 0, 7); g.fill();
+    g.strokeStyle = 'rgba(240,244,232,.6)'; g.lineWidth = dpr; for (let a = 0; a < 24; a++) { const t = a / 24 * 6.28, w = Math.sin(now / 90 + a) * .25; g.beginPath(); g.moveTo(x + Math.cos(t) * R, y + Math.sin(t) * R * .7); g.lineTo(x + Math.cos(t + w) * R * 1.25, y + Math.sin(t + w) * R * .9); g.stroke(); }
+    g.fillStyle = '#111'; g.beginPath(); g.arc(x, y, c.R * z * .5, 0, 7); g.fill(); }
+  { const [rx, ry] = toS(pondP.release[0], pondP.release[1]); g.strokeStyle = 'rgba(227,164,58,.7)'; g.setLineDash([4 * dpr, 4 * dpr]); g.beginPath(); g.arc(rx, ry, 1.2 * z, 0, 7); g.stroke(); g.setLineDash([]); }
+  // the cells: each a little three-link body, posed where its stroke has got to
+  if (assay) { const L3 = z * .5; g.lineCap = 'round';
+    for (const c of assay.cells) { const G = c.G, f = c.ph / G.T * G.loop.length, i = f | 0, u = f - i, A_ = G.loop[i % G.loop.length], B_ = G.loop[(i + 1) % G.loop.length], t1 = A_[0] + (B_[0] - A_[0]) * u, t2 = A_[1] + (B_[1] - A_[1]) * u;
+      const [x, y] = toS(c.x, c.y), co = Math.cos(c.phi), si = Math.sin(c.phi), hx = co * L3 * .5, hy = si * L3 * .5, a1 = c.phi + Math.PI + t1, a2 = c.phi - t2;
+      g.strokeStyle = `hsla(${G.hue},70%,${c.E < .3 ? 70 : 32}%,.95)`; g.lineWidth = Math.max(1.5 * dpr, z * .09); g.beginPath(); g.moveTo(x - hx + Math.cos(a1) * L3, y - hy + Math.sin(a1) * L3); g.lineTo(x - hx, y - hy); g.lineTo(x + hx, y + hy); g.lineTo(x + hx + Math.cos(a2) * L3, y + hy + Math.sin(a2) * L3); g.stroke();
+      if (c === pSel) { g.strokeStyle = '#e3a43a'; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(x, y, L3 * 1.8, 0, 7); g.stroke(); } } }
+  g.setTransform(1, 0, 0, 1, 0, 0); drawShutter(now);
+}
+const A_food = () => !!assay;
+
 // ================= UI & loop =================
 function renderGoal() {
+  if (L.pond) return renderPondRow();
   if (L.live) { $('next').style.display = 'none'; return renderSwimRow(); }
   const ok = SAVE.done[SAVE.cur]; $('goal').className = ok ? 'ok' : ''; $('goal').innerHTML = (ok ? '✓ ' : '→ ') + L.goal + (L.par && !L.body ? ` <span style="color:#9a3a10">${SAVE.stars[SAVE.cur] ? starStr(SAVE.stars[SAVE.cur]) : ''} ★★★ ≤ ${L.par} energy</span>` : SAVE.stars[SAVE.cur] ? ` <span style="color:#9a3a10">${starStr(SAVE.stars[SAVE.cur])}</span>` : '');
   $('next').style.display = ok && SAVE.cur < LV.length - 1 ? 'inline-block' : 'none';
@@ -884,6 +1082,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   if (document.hidden) { last = now; return; }
   const dt = Math.min(.05, (now - last) / 1000); last = now;
+  if (L.pond) { pondFrame(dt, now); return; }
   if (L.body && playing && !won && !failed) { const k = speed / 3; for (let q = 0; q < 4; q++) (L.body === 'coli' ? coliStep : tailStep)(dt * k / 4); const n = trail.length; if (!n || Math.hypot(trail[n - 2] - sw.x, trail[n - 1] - sw.y) > .05) { trail.push(sw.x, sw.y); if (trail.length > 4000) trail.splice(0, 2); } }
   if (L.live) { liveStep(dt); const n = trail.length; if (!n || Math.hypot(trail[n - 2] - sw.x, trail[n - 1] - sw.y) > .02) { trail.push(sw.x, sw.y); if (trail.length > 3000) trail.splice(0, 2); } }
   else if (!L.body && playing && !won && !failed && (!L.waitAct || St.acted)) {
@@ -922,7 +1121,7 @@ pz.fit = animate => { pz.touched = false; const f = pz.state, t0 = performance.n
   const step = t => { const u = ms ? Math.min(1, (t - t0) / ms) : 1, e = 1 - (1 - u) ** 3; pz.state = { x: f.x * (1 - e), y: f.y * (1 - e), k: f.k + (1 - f.k) * e }; pz.touched = false; if (u < 1) requestAnimationFrame(step); }; step(t0); };
 load(+SAVE.cur || 0);
 requestAnimationFrame(frame);
-window.__lr = { get pz() { return pz; }, live, get dish() { return dish; }, swimDish, swimBot, openDish, liveStep, toV, BOT_LOOPS, circLoop, get LIM() { return LIM; }, LV, load, preset, advance, setLoop, reverse: reverseLoop, bodyVel, useSlot, St: () => St, sw: () => sw, get loop() { return loop; }, get trans() { return trans; },
+window.__lr = { pond: { mkGenome, makePond, pondOf, newAssay, pondTick, runAssay, refGenome, champion, pipetteClone, pipetteFood, encGenome, decGenome, mutate, pondStars, release, openPond, pondTapAt, pondWorld, get assay() { return assay; }, get P() { return pondP; }, get sel() { return pSel; }, get arm() { return pArm; }, PW, PH, ASSAY, DROPS }, get pz() { return pz; }, live, get dish() { return dish; }, swimDish, swimBot, openDish, liveStep, toV, BOT_LOOPS, circLoop, get LIM() { return LIM; }, LV, load, preset, advance, setLoop, reverse: reverseLoop, bodyVel, useSlot, St: () => St, sw: () => sw, get loop() { return loop; }, get trans() { return trans; },
   SAVE, get shutter() { return shutter; }, get won() { return won; }, get failed() { return failed; }, get level() { return L; }, get pred() { return pred; }, predictLoop, drawLoop: pts => { setLoop(pts); St.drawn = true; }, get cam() { return cam; }, toS, get bd() { return bd; }, tumble, coliStep, tailStep, tailUP, bodySeed: v => { bodySeed = v; }, set ds(v) { DSX = v; }, get ds() { return DSX; }, set asym(v) { asym = v; }, set playing(v) { playing = v; } };
 </script>
 </body>
