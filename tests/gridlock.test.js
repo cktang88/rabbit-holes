@@ -17,7 +17,7 @@ module.exports = {
   page: 'gridlock/index.html',
   tests: {
     'level data: 11 cities, every road joins two real nodes, every home has a route to work': async ({ page, eq, ok }) => {
-      const r = await page.evaluate(() => __gl.LV.map((L, i) => { __gl.load(i); const bad = [...L.roads, ...(L.ghosts || [])].filter(r => !L.nodes[r.a] || !L.nodes[r.b] || r.a === r.b).length;
+      const r = await page.evaluate(() => __gl.LV.slice(0, __gl.GI).map((L, i) => { __gl.load(i); const bad = [...L.roads, ...(L.ghosts || [])].filter(r => !L.nodes[r.a] || !L.nodes[r.b] || r.a === r.b).length;
         return { bad, reach: __gl.P().every(ps => ps.length > 0), demand: L.demand.every(d => L.nodes[d.o] && L.nodes[d.d] && d.n > 0), tools: Object.keys(L.tools).length }; }));
       eq(r.length, 11);
       r.forEach((x, i) => { eq(x.bad, 0, 'city ' + i); ok(x.reach, 'city ' + i + ' unreachable at start'); ok(x.demand && x.tools >= 1, 'city ' + i); });
@@ -37,7 +37,7 @@ module.exports = {
       near(await page.evaluate(`${apply}(0, [])`), 30, 1e-6); near(await page.evaluate(`${apply}(0, ['HW'])`), 20, .01);
     },
     'Wardrop condition: on every city, used routes cost the same and no route is cheaper': async ({ page, ok }) => {
-      const bad = await page.evaluate(`(() => { const bad = []; for (let lv = 0; lv < __gl.LV.length; lv++) for (const plan of [[], ${JSON.stringify(SOL)}[lv]]) {
+      const bad = await page.evaluate(`(() => { const bad = []; for (let lv = 0; lv < __gl.GI; lv++) for (const plan of [[], ${JSON.stringify(SOL)}[lv]]) {
         ${apply}(lv, plan); const R = __gl.roads(), t = r => r.t0 + r.k * r.cars / 1000;
         __gl.P().forEach((ps, j) => { const c = ps.map(p => p.e.reduce((a, i) => a + t(R[i]) + R[i].toll, 0)), m = Math.min(...c);
           ps.forEach((p, q) => { if (p.f > 5 && c[q] - m > .05) bad.push([lv, plan.join('+'), j, p.key, c[q] - m]); });
@@ -59,7 +59,7 @@ module.exports = {
       }
     },
     'build/close cities: brute force finds a solution but most choices fail': async ({ page, ok }) => {
-      const r = await page.evaluate(`(() => { const out = []; for (let lv = 0; lv < __gl.LV.length; lv++) { const L = __gl.LV[lv]; if (L.tools.toll || L.budget) continue;
+      const r = await page.evaluate(`(() => { const out = []; for (let lv = 0; lv < __gl.GI; lv++) { const L = __gl.LV[lv]; if (L.tools.toll || L.budget) continue;
         __gl.load(lv); const cand = __gl.roads().map((r, i) => [r, i]).filter(([r]) => L.tools.build ? r.ghost : !r.ghost).map(([r]) => r.a + r.b), k = L.tools.build || L.tools.close;
         const combos = [[]]; const rec = (s, c) => { if (c.length) combos.push(c.slice()); if (c.length >= k) return; for (let j = s; j < cand.length; j++) { c.push(cand[j]); rec(j + 1, c); c.pop(); } }; rec(0, []);
         let wins = 0; for (const c of combos) if (${apply}(lv, c) <= L.target) wins++; out.push([lv, wins, combos.length]); } return out; })()`);
@@ -142,6 +142,60 @@ module.exports = {
       ok(r.comp[9] < 3 && r.comp[10] < 3, `the simple search should not reach Masterplan on the last two cities: ${JSON.stringify(r.comp)}`);
       ok(r.solver[9] === 3 && r.solver[10] === 3, `solver plans should reach Masterplan: ${JSON.stringify(r.solver)}`);
     },
+    'days: drivers re-planning each morning from yesterday\'s times settle on the Wardrop equilibrium (Braess: 80, then 65)': async ({ page, near, ok }) => {
+      const r = await page.evaluate(() => { const day = rate => { let g = 1, n = 0; for (; n < 2000 && !(g < 1e-4 && n > 20); n++) g = __gl.adjust(rate); return [__gl.average(), n]; };
+        __gl.load(2); const open = day(.1); const R = __gl.roads(); R.find(r => r.a + r.b === 'CD').closed = 1; __gl.rebuild(); const shut = day(.1); __gl.load(2); const slow = day(.04); return { open, shut, slow }; });
+      near(r.open[0], 80, .05); near(r.shut[0], 65, .05); near(r.slow[0], 80, .05); ok(r.slow[1] > r.open[1], 'cautious drivers should take more days to settle');
+      // the live game: the day counter runs and the city settles on screen
+      await page.evaluate(() => __gl.load(0)); await page.waitForTimeout(2500); ok(await page.evaluate(() => __gl.DAY.n > 5 && __gl.DAY.gap < .05), 'days did not run or settle');
+      ok((await page.locator('#dayTxt').textContent()).includes('settled'), 'settled text');
+    },
+    'routes: tapping a suburb shows the routes its drivers choose between, with times and shares': async ({ page, ok }) => {
+      await page.evaluate(() => __gl.load(2)); await page.waitForTimeout(2500);
+      const [x, y] = await toScreen(page, 130, 330); await page.mouse.click(x, y);
+      const t = await page.locator('#routes').textContent(); ok(/Home/.test(t) && /via C/.test(t) && /%/.test(t), t);
+    },
+    'camera: wheel zooms about the cursor, a drag on open ground pans, Fit restores the whole map': async ({ page, ok, eq }) => {
+      await page.evaluate(() => __gl.load(0)); await page.waitForTimeout(300);
+      await page.mouse.move(640, 600); await page.mouse.wheel(0, -400); await page.waitForTimeout(100);
+      ok(await page.evaluate(() => __gl.cam.z > 1.3), 'wheel did not zoom');
+      const before = await page.evaluate(() => [__gl.cam.x, __gl.cam.y]); await page.mouse.move(640, 700); await page.mouse.down(); await page.mouse.move(540, 650, { steps: 5 }); await page.mouse.up();
+      const after = await page.evaluate(() => [__gl.cam.x, __gl.cam.y]); ok(Math.abs(after[0] - before[0]) > 50, 'drag did not pan');
+      await page.locator('#fitBtn').click(); eq(await page.evaluate(() => [__gl.cam.z, __gl.cam.user]), [1, false]);
+    },
+    'growing city: the same seed grows the same city; another seed grows a different one': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const G = __gl.grow, run = seed => { G.init(seed); G.headless = true; for (let m = 0; m < 6; m++) G.month(); G.headless = false; return JSON.stringify([__gl.LV[__gl.GI].nodes, __gl.LV[__gl.GI].demand]); };
+        return [run('alpha'), run('alpha'), run('beta')]; });
+      eq(r[0], r[1]); ok(r[0] !== r[2], 'different seeds grew the same city');
+    },
+    'growing city: idle and random play gridlock within months; connecting suburbs by joining roads holds far longer': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const G = __gl.grow, S = G.GROW, N = () => __gl.LV[__gl.GI].nodes, Dm = () => __gl.LV[__gl.GI].demand;
+        const reach = (from, to) => { const seen = new Set([from]), q = [from]; while (q.length) { const n = q.pop(); if (n === to) return true; for (const r of __gl.roads()) if (r.a === n && !seen.has(r.b)) { seen.add(r.b); q.push(r.b); } } return false; };
+        const connect = o => { const [x, y] = N()[o], to = Dm().find(d => d.o === o).d, c = [];
+          for (const [n, [nx, ny, k]] of Object.entries(N())) if (n !== o && k !== 'home' && reach(n, to)) c.push([Math.hypot(nx - x, ny - y), () => G.build(o, n, 'street')]);
+          __gl.roads().forEach((r, i) => { if (r.a === o || !reach(r.b, to)) return; const mx = (N()[r.a][0] + N()[r.b][0]) / 2, my = (N()[r.a][1] + N()[r.b][1]) / 2; c.push([Math.hypot(mx - x, my - y) + 5, () => G.split(o, i, 'street')]); });
+          c.sort((a, b) => a[0] - b[0]); for (const [, f] of c.slice(0, 6)) if (!f()) return; };
+        const play = (seed, policy) => { G.init(seed); let s = 9; const rnd = () => (s = s * 16807 % 2147483647) / 2147483647; G.headless = true;
+          while (!S.over && S.month < 40) { policy(rnd); G.settle(); G.headless = true; G.month(); } G.headless = false; return S.month; };
+        const idle = () => {}, random = rnd => { const ks = Object.keys(N()); for (let t = 0; t < 3; t++) G.build(ks[Math.floor(rnd() * ks.length)], ks[Math.floor(rnd() * ks.length)], 'street'); };
+        const joiner = () => __gl.P().forEach((ps, j) => { if (!ps.length) connect(Dm()[j].o); });
+        return ['a1', 'b2'].map(seed => [play(seed, idle), play(seed, random), play(seed, joiner)]); });
+      for (const [idle, random, joiner] of r) { ok(idle <= 6 && random <= 8, 'naive play lasted too long ' + JSON.stringify(r)); ok(joiner >= 2 * Math.max(idle, random), 'connecting play should last much longer ' + JSON.stringify(r)); }
+    },
+    'growing city: drag from a suburb onto a road joins it; the run, its seed and best score are saved and shareable': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { __gl.grow.init('share1'); __gl.grow.GROW.speed = 0; }); await page.waitForTimeout(400);
+      eq(await page.evaluate(() => location.hash), '#grow=share1');
+      // the first two suburbs come connected; a third is added and connected by a real drag onto the nearest road
+      await page.evaluate(() => { __gl.grow.headless = true; __gl.grow.month(); __gl.grow.headless = false; });
+      const [ax, ay, bx, by] = await page.evaluate(() => { const L = __gl.LV[__gl.GI], o = L.demand[2].o, v = __gl.view(), r = __gl.roads()[0], [x, y] = L.nodes[o], mx = (L.nodes[r.a][0] + L.nodes[r.b][0]) / 2, my = (L.nodes[r.a][1] + L.nodes[r.b][1]) / 2;
+        return [(x * v.s + v.ox) / v.dpr, (y * v.s + v.oy) / v.dpr, (mx * v.s + v.ox) / v.dpr, (my * v.s + v.oy) / v.dpr]; });
+      await page.mouse.move(ax, ay); await page.mouse.down(); await page.mouse.move(bx, by, { steps: 10 }); await page.mouse.up(); await page.waitForTimeout(200);
+      ok(await page.evaluate(() => __gl.P()[2].length > 0 && Object.keys(__gl.LV[__gl.GI].nodes).some(k => /^J/.test(k))), 'drag onto a road did not connect the suburb by a junction');
+      await page.evaluate(() => { const G = __gl.grow; G.headless = true; while (!G.GROW.over) G.month(); G.headless = false; });
+      ok(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:gridlock')).growBest.share1 >= 1), 'best not saved');
+      await page.goto(page.url().replace(/#.*/, '') + '#grow=share2'); await page.waitForTimeout(800);
+      eq(await page.evaluate(() => [__gl.grow.GROW.seed, document.getElementById('title').textContent]), ['share2', 'Growing City']);
+    },
     'a road with no route to work makes the average infinite (multi-home too)': async ({ page, eq }) => {
       const r = await page.evaluate(() => { __gl.load(5); const R = __gl.roads(); R.filter(r => r.a === 'Q').forEach(r => r.closed = 1); __gl.rebuild(); return [__gl.average(), __gl.average(0)]; });
       eq(r[0], null, 'JSON of Infinity'); // JSON.stringify(Infinity) === 'null'
@@ -191,9 +245,9 @@ module.exports = {
     'saves: corrupted, out-of-range and v1 saves load safely': async ({ page, eq }) => {
       const r = await page.evaluate(() => [null, 5, 'x', [], { done: null, cur: 'a' }, { done: { 0: 1, 99: 1, x: 1 }, cur: 42 }, { done: { 0: 1, 1: 1, 2: 1, 3: 1, 4: 1 }, cur: 4 }, { done: { 0: 1, 1: 1, 2: 1, 3: 1 }, cur: 3 }, { v: 2, done: { 3: 1 }, cur: 3 }].map(__gl.cleanSave));
       eq(r.slice(0, 5).map(s => [s.done, s.cur]), Array(5).fill([{}, 0]));
-      eq(r[5], { v: 2, done: { 0: 1 }, cur: 0, best: {}, grade: {}, fc: {} });
-      eq(r[6], { v: 2, done: { 0: 1, 1: 1, 2: 1, 3: 1 }, cur: 3, best: {}, grade: {}, fc: {} }, 'v1 Ring Road (old 4) moves to 3');
-      eq(r[7], { v: 2, done: { 0: 1, 1: 1, 2: 1 }, cur: 2, best: {}, grade: {}, fc: {} }, 'v1 Cheonggyecheon is dropped');
+      eq(r[5], { v: 2, done: { 0: 1 }, cur: 0, best: {}, grade: {}, fc: {}, growBest: {} });
+      eq(r[6], { v: 2, done: { 0: 1, 1: 1, 2: 1, 3: 1 }, cur: 3, best: {}, grade: {}, fc: {}, growBest: {} }, 'v1 Ring Road (old 4) moves to 3');
+      eq(r[7], { v: 2, done: { 0: 1, 1: 1, 2: 1 }, cur: 2, best: {}, grade: {}, fc: {}, growBest: {} }, 'v1 Cheonggyecheon is dropped');
       eq(r[8].cur, 3);
       for (const bad of ['{not json', '"str"', '{"done":7,"cur":-1}']) {
         await plant(page, bad);
@@ -202,7 +256,7 @@ module.exports = {
       }
     },
     'progress: replaying a solved city never lowers it, and it never exceeds 1': async ({ page, ok, eq }) => {
-      await plant(page, JSON.stringify({ v: 2, done: Object.fromEntries([...Array(11).keys()].map(i => [i, 1])), cur: 10 }));
+      await plant(page, JSON.stringify({ v: 2, done: Object.fromEntries([...Array(12).keys()].map(i => [i, 1])), cur: 10 }));
       eq(await page.evaluate(() => document.getElementById('title').textContent), 'Your City', 'resumes the saved city');
       await page.evaluate(() => __gl.load(0)); eq(await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).gridlock), 1);
       await page.evaluate(() => { const r = __gl.roads().find(r => r.a + r.b === 'HW'); r.built = 1; __gl.rebuild(); }); ok(await waitFor(page, () => __gl.won));

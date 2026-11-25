@@ -389,6 +389,31 @@ module.exports = {
       eq(await page.evaluate(() => __nand.circ.wires.map(w => w.from.join(':') + '>' + w.to.join(':')).sort()), ['1:0>out:0', 'in:0>1:0', 'in:0>1:1']);
       await page.click('#testBtn'); ok(/All 2 tests passed/.test(await page.textContent('#result')));
     },
+    'chip lab: chips are deterministic per seed, every generated chip is buildable, and designs are ranked on gates and delay': async ({ page, eq, ok }) => {
+      await solveAll(page, 7); await dismissModals(page);
+      const r = await page.evaluate(() => { const N = __nand; const same = JSON.stringify(N.genChip('x1')) === JSON.stringify(N.genChip('x1')), differ = JSON.stringify(N.genChip('x1')) !== JSON.stringify(N.genChip('x2'));
+        let ok = 0, n = 0; const ranks = [];
+        for (let s = 0; s < 25; s++) { const seed = 'q' + s; N.showLab(seed); const ch = N.genChip(seed); const sy = N.synth(ch.n, ch.tt, [...Array(ch.n).keys()]); N.circ = { comps: sy.comps.map((c, i) => ({ ...c, x: 200 + i * 8, y: 100 })), wires: sy.wires }; const res = N.runTests(); n++; if (res) { ok++; ranks.push([res.g, res.d]); } }
+        return { same, differ, ok, n, delayOk: ranks.every(([g, d]) => d >= 1 && d <= g) }; });
+      ok(r.same && r.differ); eq(r.ok, r.n); ok(r.delayOk);
+    },
+    'chip lab: unlocked after Act I, opened from the level list and from a shared #chip= link': async ({ page, ok, eq }) => {
+      await dismissModals(page); await page.click('#levels [data-lab]'); eq(await page.evaluate(() => __nand.labOn), false, 'locked before Act I');
+      await solveAll(page, 7); await dismissModals(page); await page.click('#levels [data-lab]'); eq(await page.evaluate(() => __nand.labOn), true);
+      ok(/Chip lab/.test(await page.textContent('#brief'))); eq(await page.evaluate(() => __nand.paletteFor(0)), ['NAND', 'HIGH', 'LOW']);
+      const p2 = await page.context().newPage(); await p2.goto(page.url().split('#')[0] + '#chip=abc'); await p2.waitForTimeout(400); eq(await p2.evaluate(() => [__nand.labOn, __nand.makeLabLevel('abc').id]), [true, 'LAB:abc']); await p2.close();
+    },
+    'difficulty: naive play fails (chip lab)': async ({ page, ok }) => {
+      await solveAll(page, 7); await dismissModals(page);
+      const r = await page.evaluate(() => { const N = __nand; let seed = 5; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) % n; }; let rw = 0, tries = 0, beatMedian = 0, firstOrder = 0, n = 0;
+        for (let s = 0; s < 12; s++) { const sd = 'd' + s; N.showLab(sd); const ch = N.genChip(sd); const pop = N.population(ch).map(p => p.g).sort((a, b) => a - b); const med = pop[pop.length >> 1];
+          for (let k = 0; k < 10; k++) { const comps = [], wires = []; const g = 2 + rnd(10); for (let c = 0; c < g; c++) comps.push({ id: c + 1, type: 'NAND', x: 0, y: 0 });
+            const src = () => { const o = rnd(ch.n + g); return o < ch.n ? ['in', o] : [o - ch.n + 1, 0]; }; for (const c of comps) wires.push({ from: src(), to: [c.id, 0] }, { from: src(), to: [c.id, 1] }); wires.push({ from: [g, 0], to: ['out', 0] });
+            N.circ = { comps, wires }; tries++; if (N.runTests()) rw++; }
+          const best = N.synth(ch.n, ch.tt, [...Array(ch.n).keys()]); n++; if (best.gates <= med) firstOrder++; if (pop[0] < med) beatMedian++; }
+        return { rw, tries, firstOrder, beatMedian, n }; });
+      ok(r.rw / r.tries <= .02, 'random circuits pass ' + r.rw + '/' + r.tries); ok(r.beatMedian >= r.n * .5, 'the best designs beat the median on most chips: ' + r.beatMedian + '/' + r.n);
+    },
     'phone layout: no horizontal scroll and the canvas is usable': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect() }));

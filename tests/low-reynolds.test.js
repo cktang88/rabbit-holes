@@ -165,7 +165,7 @@ module.exports = {
       await page.click('#levels .lv[data-i="0"]');
       eq(await page.$eval('#toast', t => t.classList.contains('on')), false);
       await page.evaluate(() => __lr.load(5)); eq(await page.evaluate(() => __lr.SAVE.cur), 1, 'locked level opened');
-      const locked = await page.$$eval('#levels .lv.lock', e => e.map(x => +x.dataset.i)); eq(locked, [2, 3, 4, 5, 6, 7, 8]);
+      const locked = await page.$$eval('#levels .lv.lock', e => e.map(x => +x.dataset.i)); eq(locked, [2, 3, 4, 5, 6, 7, 8, 9]);
       const hub = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub'))['low-reynolds']); ok(Math.abs(hub - 1 / 9) < 1e-9, 'progress ' + hub);
     },
     'saved loop slots: save, load, persist, and garbage slots are dropped': async ({ page, eq, ok }) => {
@@ -205,6 +205,33 @@ module.exports = {
       await page.evaluate(() => { const p = document.getElementById('pad'), r = p.getBoundingClientRect(), ev = (t, x, y) => p.dispatchEvent(new PointerEvent(t, { pointerType: 'touch', clientX: r.left + x, clientY: r.top + y, bubbles: true, pointerId: 7 }));
         ev('pointerdown', 20, 20); ev('pointermove', 60, 20); ev('pointercancel', 60, 20); ev('pointermove', 60, 80); ev('pointerup', 60, 80); });
       eq(await page.evaluate(() => __lr.St().drawn), false, 'a cancelled touch still drew a loop');
+    },
+    'microbe builder: gaits come from the physics (scallop theorem, reversal, goo), runs are deterministic, designs share by URL': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const X = __lr, np = X.newPart, g = d => X.gaitOf(d).g;
+        const o = { back: g([null, np('flag'), null, null]), front: g([np('flag'), null, null, null]), arm: g([null, np('arm'), null, null]), sym: g([null, { t: 'cilia', asym: 0 }, null, null]), side: g([null, null, np('cilia'), null]), two: g([np('flag'), np('flag'), null, null]), bead: g([{ t: 'bead' }, np('flag'), null, null]) };
+        const D = X.makeDish(42), d = [null, { ...np('flag'), smart: 1 }, null, null], a = X.bRun(d, D, 3).S, b = X.bRun(d, D, 3).S; o.det = [a.x, a.y, a.t] .join() === [b.x, b.y, b.t].join();
+        o.dishDet = JSON.stringify(X.makeDish(42)) === JSON.stringify(X.makeDish(42));
+        const code = X.encodeDesign([{ t: 'bead' }, { t: 'flag', push: 0, sp: 3, smart: 1 }, { t: 'tail', n: 1.5, A: .25 }, { t: 'cilia', asym: 1 }]); o.round = X.encodeDesign(X.decodeDesign(code)) === code;
+        return o; });
+      eq([r.back, r.front, r.arm, r.sym, r.two], ['dart', 'reverser', 'goo crawler', "scallop's curse", 'statue']);
+      ok(r.side === 'circler' && /^tug /.test(r.bead), 'off-centre cilia turn; cargo makes a tug: ' + JSON.stringify(r));
+      ok(r.det && r.dishDet && r.round, 'deterministic runs and dishes; designs round-trip through the URL code');
+    },
+    'difficulty: in the dishes, a sensible design wins and random designs mostly fail': async ({ page, ok }) => {
+      const R = await page.evaluate(() => { const X = __lr, np = X.newPart; let rs = 9; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647, types = ['flag', 'tail', 'cilia', 'arm', 'bead', null];
+        const randD = () => [0, 1, 2, 3].map(() => { const t = types[(rnd() * 6) | 0]; if (!t) return null; const q = np(t); if (t === 'flag') { q.push = rnd() < .5 ? 1 : 0; q.sp = 1 + ((rnd() * 3) | 0); q.smart = rnd() < .3 ? 1 : 0; } if (t === 'tail') { q.n = .5 + ((rnd() * 11) | 0) * .25; q.A = .05 + ((rnd() * 7) | 0) * .05; } if (t === 'cilia' || t === 'arm') q.asym = rnd() < .5 ? 1 : 0; return q; });
+        const good = D => D.type === 'tow' ? [{ t: 'bead' }, { ...np('flag'), smart: 1, sp: 3 }, null, null] : D.type === 'endure' ? [null, np('flag'), null, null] : D.type === 'escape' ? [null, { ...np('flag'), sp: 3 }, null, null] : [null, { ...np('flag'), smart: 1 }, null, null];
+        let gw = 0, rw = 0, n = 0; for (let seed = 1; seed <= 20; seed++) { const D = X.makeDish(seed); if (X.bRun(good(D), D, 3).v.ok) gw++; for (let k = 0; k < 4; k++) { n++; if (X.bRun(randD(), D, 3).v.ok) rw++; } }
+        return { gw, rw, n }; });
+      ok(R.gw >= 14, 'a sensible design wins most dishes: ' + R.gw + '/20');
+      ok(R.rw / R.n <= .2, 'random designs won ' + R.rw + '/' + R.n);
+    },
+    'microbe builder by touch: pick a slot, fit a part, run it': async ({ page, eq, ok }) => {
+      await page.evaluate(() => { __lr.SAVE.done[0] = __lr.SAVE.done[1] = 1; __lr.load(9); });
+      const c = await page.locator('#bodyC').boundingBox(); await page.mouse.click(c.x + c.width * .5, c.y + c.height * .1); // the left slot (top of the diagram)
+      await page.click('[data-part="tail"]');
+      eq(await page.evaluate(() => __lr.design.map(p => p && p.t)), [null, 'flag', 'tail', null]);
+      await page.click('#runB'); await page.waitForTimeout(500); ok(await page.evaluate(() => __lr.bd.mode === 'run' || __lr.bd.mode === 'done'));
     },
     'no overflow or console errors at phone and desktop sizes': async ({ page, ok }) => {
       await setup(page);

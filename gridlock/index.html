@@ -42,6 +42,14 @@
   #fc #fcSkip{background:transparent;color:var(--ink)}
   #fcRes{font:600 13px "Barlow Condensed";letter-spacing:.04em;color:var(--navy);margin-top:4px}#fcRes:empty{display:none}
   .gbtn{border:1.5px solid var(--ink);background:#fbf7ec;color:var(--ink);font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;cursor:pointer;margin:2px 0;min-height:30px}
+  #days{margin-top:16px;font:500 13px/1.3 "Barlow Condensed";letter-spacing:.03em;color:var(--ink2)}
+  #days svg{display:block;width:100%;height:20px;margin:3px 0;background:repeating-linear-gradient(90deg,transparent 0 9.5%,rgba(36,70,110,.12) 9.5% 10%)}
+  #routes{display:none;position:relative;margin-top:8px;padding:6px 26px 6px 8px;background:#eef2f6;border:1.5px solid var(--navy);font:500 13px/1.35 "Barlow Condensed";letter-spacing:.02em}
+  #routes.on{display:block}#routes div{display:grid;grid-template-columns:1fr auto 40px;gap:6px;border-bottom:1px dashed #b9c4cf;padding:1px 0}#routes div.best{font-weight:700;color:var(--green)}
+  #routes span:last-child{text-align:right}#routes small{display:block;color:var(--ink2);margin-top:3px}
+  #rtX{position:absolute;right:2px;top:2px;border:0;background:none;font-size:15px;cursor:pointer;min-width:28px;min-height:28px}
+  #fitBtn{position:fixed;right:16px;bottom:190px;z-index:3;border:2px solid var(--ink);background:#fbf7ec;font-size:14px;font-weight:700;letter-spacing:.1em;padding:4px 10px;cursor:pointer;min-height:36px}
+  #fitBtn.moved{background:var(--orange);color:#fff}
   #grade{font:600 13px "Barlow Condensed";letter-spacing:.06em;text-transform:uppercase;color:var(--navy);margin-top:6px}#grade:empty{display:none}
   #next{display:none;margin-top:14px;border:2px solid var(--ink);background:var(--ink);color:#fbf7ec;font-size:16px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 14px;cursor:pointer;box-shadow:3px 3px 0 var(--orange)}
   #next:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--orange)}
@@ -98,12 +106,13 @@
 <div id="hud" class="sheet"><div class="hrow"><a class="home" href="../index.html">← Rabbit Holes</a><span><button id="briefBtn" aria-expanded="false">BRIEF</button> <button id="lvBtn">CASE FILES</button></span></div>
   <div class="dept"><span>City Planning Dept.</span><span id="fileNo">Traffic study</span></div>
   <h1 id="title">Gridlock</h1><div id="story"></div>
-  <div class="big"><b id="avg">–</b><span>min average commute</span></div><div class="target" id="tgt"></div><div class="meter"><div id="bar"></div><i id="tick"></i></div><div id="per"></div><div id="grade"></div>
+  <div class="big"><b id="avg">–</b><span>min average commute</span></div><div class="target" id="tgt"></div><div class="meter"><div id="bar"></div><i id="tick"></i></div><div id="per"></div><div id="days"><span id="dayTxt"></span><svg viewBox="0 0 100 20" preserveAspectRatio="none" aria-hidden="true"><polyline id="spark" fill="none" stroke="#24466e" stroke-width="1.5" vector-effect="non-scaling-stroke" points=""/></svg><button class="gbtn" id="adapt" title="How quickly drivers switch routes">Drivers: normal</button></div><div id="routes" role="status"></div><div id="grade"></div>
   <div id="fc"><label for="fcIn">Forecast: when drivers settle, the average will be</label><span><input id="fcIn" type="number" inputmode="decimal" step="0.5" min="1" max="200"> min <button id="fcGo">Lock</button><button id="fcSkip">Skip</button></span></div><div id="fcRes" role="status"></div>
   <button id="next">Next city →</button><div id="stamp"></div></div>
 <div id="lvBox"><div id="levels"></div></div>
 <div id="tools"></div>
 <div id="toll"><span>Toll booth on <b id="tollName"></b></span> <input type="range" id="tollR" min="0" max="40" step="1" aria-label="Toll in dollars"> <b id="tollV"></b> <small>($1 ≈ 1 min to drivers)</small></div>
+<button id="fitBtn" title="Show the whole map">⤢ FIT</button>
 <div id="legend"><em>Key</em><span style="background:#2b9a6b"></span>free <span style="background:#f0a020"></span>busy <span style="background:#d63a2a"></span>jammed <em style="border:0;padding-left:8px">10+5/k = 10 min + 5 min per 1,000 cars · flat = never jams</em></div>
 <div id="toast" role="status"></div>
 <script src="../shared/common.js"></script>
@@ -237,6 +246,7 @@ function load(i) {
   rebuildPaths(true);
   tool = Object.keys(L.tools)[0]; cars.length = 0;
   const t = $('toast'); clearTimeout(toast.h); t.classList.remove('on'); // a win toast must not linger over the next city
+  DAY.n = 0; DAY.since = 0; DAY.hist = []; DAY.t = 0; routesFor = null; $('routes').classList.remove('on'); cam.z = 1; cam.x = cam.y = 0; cam.user = false;
   $('title').textContent = L.n; $('story').innerHTML = L.story; $('toll').style.display = 'none'; $('lvBox').classList.remove('open');
   document.body.classList.toggle('tollLv', !!L.tools.toll);
   renderUI(); fit();
@@ -258,21 +268,22 @@ function rebuildPaths(reset) {
     if (tot < dm.n - 1) { const miss = dm.n - tot; if (!old || tot === 0) out.forEach(p => p.f += miss / out.length); else { flows(); let b = 0; out.forEach((p, q) => { p.c = cost(p); if (p.c < out[b].c) b = q; }); out[b].f += miss; } }
     return out;
   });
-  settleT = 0; layoutLabels();
+  settleT = 0; layoutLabels(); newsDay();
 }
 function flows() { for (const r of roads) r.cars = 0; if (!P) return; for (const ps of P) for (const p of ps) for (const i of p.e) if (roads[i]) roads[i].cars += p.f; } // (paths can briefly outlive a demolished road in the growing city)
 const time = r => r.t0 + r.k * r.cars / 1000;
 function cost(p) { let a = 0; for (const i of p.e) { const r = roads[i]; a += time(r) + r.toll; } return a; }
 function ttime(p) { let a = 0; for (const i of p.e) a += time(roads[i]); return a; }
 // one tick of "drivers learn": a few percent of drivers on slower routes switch to the currently fastest one
+let adjMoved = 0; // drivers who changed route in the last adjustment
 function adjust(rate) {
   flows();
-  let gap = 0;
+  let gap = 0; adjMoved = 0;
   for (const ps of P) {
     if (!ps.length) continue; let b = 0;
     for (let q = 0; q < ps.length; q++) { ps[q].c = cost(ps[q]); if (ps[q].c < ps[b].c) b = q; }
     const m = ps[b].c;
-    for (let q = 0; q < ps.length; q++) { if (q === b) continue; const p = ps[q], d = p.c - m; if (d > 1e-6 && p.f > 0) { const mv = p.f * Math.min(.5, rate * d); p.f -= mv; ps[b].f += mv; if (p.f > 1 && d > gap) gap = d; } }
+    for (let q = 0; q < ps.length; q++) { if (q === b) continue; const p = ps[q], d = p.c - m; if (d > 1e-6 && p.f > 0) { const mv = p.f * Math.min(.5, rate * d); p.f -= mv; ps[b].f += mv; adjMoved += mv; if (p.f > 1 && d > gap) gap = d; } }
   }
   flows(); return gap;
 }
@@ -283,11 +294,13 @@ function average(j) { if (P.some((ps, q) => !ps.length && (j == null || q === j)
 const $ = id => document.getElementById(id);
 const cv = $('cv'), g = cv.getContext('2d');
 const bg = document.createElement('canvas'), bgc = bg.getContext('2d');
-let W = 1, H = 1, view = { s: 1, ox: 0, oy: 0 }, dpr = 1, fs = 1; // fs: world-units scale for text so labels stay legible on phones
+let W = 1, H = 1, view = { s: 1, ox: 0, oy: 0 }, dpr = 1, fs = 1, base = { s: 1, ox: 0, oy: 0 };
+const cam = { z: 1, x: 0, y: 0, user: false }; // the player's pan and zoom on top of the fitted view // fs: world-units scale for text so labels stay legible on phones
 function fit() {
   dpr = FX.fit(cv, 2); W = cv.width; H = cv.height;
   // world bounds: nodes plus the extent of every (possibly bent) road
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  if (L.grow && GROW.next) { const [x, y] = GROW.next; x0 = Math.min(x0, x - 45); x1 = Math.max(x1, x + 45); y0 = Math.min(y0, y - 45); y1 = Math.max(y1, y + 45); }
   for (const [x, y] of Object.values(L.nodes)) { x0 = Math.min(x0, x - 45); x1 = Math.max(x1, x + 45); y0 = Math.min(y0, y - 45); y1 = Math.max(y1, y + 45); }
   for (const r of roads) for (let t = 0; t <= 1; t += .05) { const [x, y] = bez(r.G, t); x0 = Math.min(x0, x - 30); x1 = Math.max(x1, x + 30); y0 = Math.min(y0, y - 30); y1 = Math.max(y1, y + 30); }
   // reserve the screen space taken by the panels
@@ -298,8 +311,8 @@ function fit() {
   if (L.tools.toll) bottom += 58;
   left *= dpr; right *= dpr; top *= dpr; bottom *= dpr;
   const aw = Math.max(50, W - left - right), ah = Math.max(50, H - top - bottom);
-  view.s = Math.min(aw / (x1 - x0), ah / (y1 - y0), 1.6 * dpr); view.ox = left + (aw - (x1 - x0) * view.s) / 2 - x0 * view.s; view.oy = top + (ah - (y1 - y0) * view.s) / 2 - y0 * view.s;
-  fs = Math.max(1, (11 * dpr / view.s) / 15);
+  base.s = Math.min(aw / (x1 - x0), ah / (y1 - y0), 1.6 * dpr); base.ox = left + (aw - (x1 - x0) * base.s) / 2 - x0 * base.s; base.oy = top + (ah - (y1 - y0) * base.s) / 2 - y0 * base.s;
+  applyCam();
   // static background: paper gradient + grid, drawn once per resize
   bg.width = W; bg.height = H;
   paintMap();
@@ -333,6 +346,28 @@ function paintMap() {
   for (let k = 0; k < 4; k++) { bgc.fillStyle = k % 2 ? '#fbf7ec' : '#1d2733'; bgc.fillRect(ax - 70 * u + k * 18 * u, ay + 26 * u, 18 * u, 5 * u); }
   bgc.strokeRect(ax - 70 * u, ay + 26 * u, 72 * u, 5 * u); bgc.fillStyle = '#1d2733'; bgc.font = `600 ${10 * u}px "Barlow Condensed"`; bgc.fillText('1 MILE', ax - 34 * u, ay + 44 * u);
 }
+function applyCam() {
+  view.s = base.s * cam.z; view.ox = base.ox * cam.z + cam.x; view.oy = base.oy * cam.z + cam.y;
+  fs = Math.max(1, (11 * dpr / view.s) / 15);
+}
+let camQ = 0;
+function camChanged() { cam.user = true; $('fitBtn').classList.add('moved'); applyCam(); if (!camQ) camQ = requestAnimationFrame(() => { camQ = 0; bg.width = W; bg.height = H; paintMap(); layoutLabels(); }); }
+// zoom about a screen point (device pixels)
+function zoomAt(px, py, f) { const z = Math.max(.35, Math.min(4, cam.z * f)), wx = (px - view.ox) / view.s, wy = (py - view.oy) / view.s; cam.z = z; const s = base.s * z; cam.x = px - wx * s - base.ox * z; cam.y = py - wy * s - base.oy * z; camChanged(); }
+function fitCam() { cam.z = 1; cam.x = cam.y = 0; cam.user = false; $('fitBtn').classList.remove('moved'); fit(); }
+cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoomAt((e.clientX - r.left) * dpr, (e.clientY - r.top) * dpr, Math.exp(-e.deltaY * .0015)); }, { passive: false });
+// one finger on open ground pans; two fingers pinch-zoom and pan
+const ptrs = new Map(); let panning = null, pinch = null;
+cv.addEventListener('pointerdown', e => { ptrs.set(e.pointerId, [e.clientX, e.clientY]); if (ptrs.size === 2) { panning = null; GROW.drag = null; const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), cx: (a[0] + b[0]) / 2, cy: (a[1] + b[1]) / 2 }; } }, true);
+addEventListener('pointermove', e => {
+  if (!ptrs.has(e.pointerId)) return; ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+  const r = cv.getBoundingClientRect();
+  if (pinch && ptrs.size >= 2) { const [a, b] = [...ptrs.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2;
+    cam.x += (cx - pinch.cx) * dpr; cam.y += (cy - pinch.cy) * dpr; zoomAt((cx - r.left) * dpr, (cy - r.top) * dpr, d / Math.max(1, pinch.d)); pinch = { d, cx, cy }; return; }
+  if (panning) { cam.x += (e.clientX - panning[0]) * dpr; cam.y += (e.clientY - panning[1]) * dpr; panning = [e.clientX, e.clientY]; camChanged(); }
+});
+const endPtr = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (!ptrs.size) panning = null; };
+addEventListener('pointerup', endPtr); addEventListener('pointercancel', endPtr);
 let fitQ = 0; addEventListener('resize', () => { if (L && !fitQ) fitQ = requestAnimationFrame(() => { fitQ = 0; fit(); }); });
 const ND = n => L.nodes[n];
 const nodeName = n => { const k = ND(n)[2]; return k === 'work' ? 'Work' : k === 'home' ? (homes.length > 1 ? 'Home ' + n : 'Home') : n; };
@@ -502,8 +537,10 @@ cv.addEventListener('pointermove', e => { const [x, y] = toWorld(e); hover = roa
 cv.addEventListener('pointerdown', e => {
   $('lvBox').classList.remove('open');
   if (!document.body.classList.contains('playing') || document.body.classList.contains('brief')) { document.body.classList.add('playing'); document.body.classList.remove('brief'); $('briefBtn').setAttribute('aria-expanded', false); requestAnimationFrame(fit); }
-  if (L.grow) { growDown(e); return; }
-  const [x, y] = toWorld(e), i = roadAt(x, y); if (i < 0) return;
+  if (ptrs.size > 1) return;
+  { const [x, y] = toWorld(e), n = nodeAt(x, y); if (n && L.nodes[n][2] === 'home' && !(L.grow && tool === 'road')) { routesFor = n; renderRoutes(); snd.key(); return; } }
+  if (L.grow) { if (!growDown(e)) panning = [e.clientX, e.clientY]; return; }
+  const [x, y] = toWorld(e), i = roadAt(x, y); if (i < 0) { panning = [e.clientX, e.clientY]; return; }
   const r = roads[i];
   if (r.ghost) {
     if (!L.tools.build) return;
@@ -559,6 +596,8 @@ $('next').onclick = () => { if (SAVE.cur < LV.length - 1 && SAVE.done[SAVE.cur])
 $('fcGo').onclick = () => { const v = parseFloat($('fcIn').value); if (!isFinite(v) || v <= 0) { $('fcIn').focus(); return; } snd.key(); closeForecast(Math.round(v * 10) / 10); };
 $('fcSkip').onclick = () => { snd.key(); closeForecast(null); };
 $('fcIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('fcGo').click(); else if (e.key === 'Escape') $('fcSkip').click(); });
+$('fitBtn').onclick = () => { snd.key(); fitCam(); };
+$('adapt').onclick = () => { DAY.ad = (DAY.ad + 1) % ADAPT.length; $('adapt').textContent = 'Drivers: ' + ADAPT[DAY.ad].n; snd.key(); };
 $('briefBtn').onclick = e => { e.stopPropagation(); const on = document.body.classList.toggle('brief'); $('briefBtn').setAttribute('aria-expanded', on); snd.key(); fit(); };
 $('lvBtn').onclick = e => { e.stopPropagation(); snd.drawer(); $('lvBox').classList.toggle('open'); };
 function toast(big, small, ms = 2400) { const t = $('toast'); t.innerHTML = big + (small ? `<small>${small}</small>` : ''); t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms); }
@@ -645,7 +684,7 @@ function growRebuild() {
   roads = L.roads.map(r => { const o = roads.find(q => q.a === r.a && q.b === r.b && q.type === r.type && q.bend === r.bend); return o || Object.assign({ ...r }, { toll: 0, cars: 0 }); });
   roads.forEach(r => { r.G = roadGeom(r); r.path = roadPath(r.G); r.lt = null; });
   homes = Object.keys(L.nodes).filter(k => L.nodes[k][2] === 'home');
-  rebuildPaths(); if (!growHeadless) { fit(); renderTools(); }
+  rebuildPaths(); if (!growHeadless) { if (!cam.user) fit(); else { bg.width = W; bg.height = H; paintMap(); layoutLabels(); } renderTools(); }
 }
 // building: drag from a node to another node (or to open ground, which makes a junction there)
 function buildRoad(a, b, type) {
@@ -668,16 +707,18 @@ function addJunction(p) { const k = 'J' + (++GROW.jn); L.nodes[k] = [Math.round(
 function bulldoze(i) { const r = roads[i]; if (!r) return; const j = L.roads.findIndex(q => q.a === r.a && q.b === r.b && q.type === r.type && q.bend === r.bend); if (j < 0) return; GROW.money += Math.floor(L.roads[j].cost / 2); L.roads.splice(j, 1); growRebuild(); }
 const nodeAt = (x, y) => { let best = null, bd = 40 * Math.max(1, fs); for (const [k, [nx, ny]] of Object.entries(L.nodes)) { const d = Math.hypot(nx - x, ny - y); if (d < bd) { bd = d; best = k; } } return best; };
 function growDown(e) {
-  if (GROW.over) return;
+  if (GROW.over) return false;
   const [x, y] = toWorld(e);
-  if (tool === 'road') { const n = nodeAt(x, y); if (n) { GROW.drag = { a: n, x, y }; cv.setPointerCapture(e.pointerId); } return; }
-  const i = roadAt(x, y); if (i < 0) return;
-  if (tool === 'bulldoze') { bulldoze(i); snd.erase(); return; }
-  if (tool === 'toll') { const tolled = roads.filter(q => q.toll > 0 && q !== roads[i]).length; if (tolled >= 2 && !(roads[i].toll > 0)) { snd.fail(); toast('Two booths', 'Set another toll to $0 first.', 1400); return; } sel = i; snd.key(); showToll(); }
+  if (tool === 'road') { const n = nodeAt(x, y); if (n) { GROW.drag = { a: n, x, y, sx: e.clientX, sy: e.clientY }; cv.setPointerCapture(e.pointerId); return true; } return false; }
+  const i = roadAt(x, y); if (i < 0) return false;
+  if (tool === 'bulldoze') { bulldoze(i); snd.erase(); return true; }
+  if (tool === 'toll') { const tolled = roads.filter(q => q.toll > 0 && q !== roads[i]).length; if (tolled >= 2 && !(roads[i].toll > 0)) { snd.fail(); toast('Two booths', 'Set another toll to $0 first.', 1400); return true; } sel = i; snd.key(); showToll(); }
+  return true;
 }
 function growMove(e) { if (GROW.drag) { const [x, y] = toWorld(e); GROW.drag.x = x; GROW.drag.y = y; } }
 function growUp(e) {
   const d = GROW.drag; GROW.drag = null; if (!d) return;
+  if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 10) { if (L.nodes[d.a][2] === 'home') { routesFor = d.a; renderRoutes(); snd.key(); } return; }
   const [x, y] = toWorld(e), n = nodeAt(x, y);
   let b = n, err = null;
   if (!b) { if (Math.hypot(x - L.nodes[d.a][0], y - L.nodes[d.a][1]) < 70) return;
@@ -728,13 +769,37 @@ function drawGrowExtras(now) {
 
 // ================= loop =================
 let last = performance.now(), raf = 0;
+// how drivers adapt: how many of those on a slower route switch each morning
+const ADAPT = [{ n: 'cautious', rate: .04 }, { n: 'normal', rate: .1 }, { n: 'eager', rate: .25 }];
+const DAY = { n: 0, t: 0, len: .2, gap: 1, moved: 0, hist: [], ad: 1, since: 0 };
+function newsDay() { DAY.since = DAY.n; DAY.gap = 1; } // a change to the roads: drivers start finding out tomorrow
+function renderDays() {
+  const d = DAY.n - DAY.since, mv = Math.round(DAY.moved);
+  const txt = DAY.gap < .05 ? `Day ${DAY.n}: drivers have settled. Nobody can save time by switching.` : `Day ${DAY.n}${DAY.since ? ` (${d} since your change)` : ''}: ${mv.toLocaleString('en')} drivers switched to yesterday's fastest route.`;
+  setText('dayTxt', txt);
+  const H = DAY.hist; if (H.length > 1) { const lo = Math.min(...H), hi = Math.max(...H) + .01; $('spark').setAttribute('points', H.map((v, i) => `${(i / 39 * 100).toFixed(1)},${(18 - (v - lo) / (hi - lo) * 16).toFixed(1)}`).join(' ')); }
+  if (routesFor) renderRoutes();
+}
+// tap a suburb: what its drivers are choosing between, and why
+let routesFor = null;
+function pathName(p) { const ns = [roads[p.e[0]].a, ...p.e.map(i => roads[i].b)]; return ns.slice(1, -1).length ? 'via ' + ns.slice(1, -1).join('–') : 'direct'; }
+function renderRoutes() {
+  const j = L.demand.findIndex(d => d.o === routesFor); if (j < 0 || !P[j]) { $('routes').classList.remove('on'); routesFor = null; return; }
+  const ps = P[j].slice().sort((a, b) => b.f - a.f).slice(0, 5), tot = L.demand[j].n, best = Math.min(...P[j].map(p => cost(p)));
+  $('routes').innerHTML = `<b>Home ${routesFor}</b>: ${tot.toLocaleString('en')} drivers each morning pick the route that was fastest yesterday.<button id="rtX" aria-label="Close">✕</button>` + (ps.length ? ps.map(p => { const c = cost(p), tt = ttime(p);
+    return `<div class="${c <= best + .05 ? 'best' : ''}"><span>${pathName(p)}</span><span>${tt.toFixed(0)} min${c - tt > .5 ? ` + $${(c - tt).toFixed(0)}` : ''}</span><span>${Math.round(p.f / tot * 100)}%</span></div>`; }).join('') + `<small>${DAY.gap < .05 ? 'Every route in use takes the same time: that is the equilibrium.' : 'Drivers on slower routes are still switching.'}</small>` : '<small>No road reaches work yet.</small>');
+  $('routes').classList.add('on'); $('rtX').onclick = e => { e.stopPropagation(); routesFor = null; $('routes').classList.remove('on'); };
+}
 const ui = {};
 const setText = (id, v) => { if (ui[id] !== v) { ui[id] = v; $(id).textContent = v; } };
 const setStyle = (id, k, v) => { const key = id + k; if (ui[key] !== v) { ui[key] = v; $(id).style[k] = v; } };
 function loop(now) {
   raf = requestAnimationFrame(loop);
   const dt = Math.min(.05, (now - last) / 1000); last = now;
-  let gap = 0; if (!fc.pending) for (let i = 0; i < 3; i++) gap = adjust(.004); else { flows(); gap = 1; } // drivers wait for your forecast
+  // a "day" passes every DAY.len seconds: each morning some drivers switch to the route that was fastest yesterday
+  let gap = DAY.gap;
+  if (fc.pending) { flows(); gap = 1; } // drivers wait for your forecast
+  else { DAY.t += dt; while (DAY.t >= DAY.len) { DAY.t -= DAY.len; gap = DAY.gap = adjust(ADAPT[DAY.ad].rate); DAY.n++; DAY.moved = adjMoved; const a = L.grow ? avgGrow() : average(); if (isFinite(a)) { DAY.hist.push(a); if (DAY.hist.length > 40) DAY.hist.shift(); } renderDays(); } }
   if (L.grow) { growLoop(dt); spawnCars(dt); moveCars(dt); draw(now); return; }
   const avg = average();
   if (!isFinite(shown.eq) || Math.abs(avg - shown.eq) > .08 || gap < .02) shown.eq = avg; // ignore the drivers' last little wobbles
@@ -777,7 +842,7 @@ if (/^#grow=/.test(location.hash)) SAVE.cur = GI;
 load(Math.min(SAVE.cur || 0, LV.length - 1));
 if (document.fonts) document.fonts.ready.then(() => { roads.forEach(r => r.lt = null); fit(); });
 raf = requestAnimationFrame(loop);
-window.__gl = { LV, load, GI, grow: { GROW, init: seed => { GROW.pendingSeed = seed; load(GI); }, month: () => monthTick(), avg: () => avgGrow(), build: (a, b, t) => buildRoad(a, b, t), snapshot: () => JSON.stringify([L.nodes, L.roads, GROW.jn, GROW.money]), restore: z => { const [nn, rr, jn, m] = JSON.parse(z); L.nodes = nn; L.roads = rr; GROW.jn = jn; GROW.money = m; growHeadless = true; growRebuild(); }, split: (a, i, t) => { const saved = JSON.stringify([L.nodes, L.roads, GROW.jn]), r = roads[i], k = splitRoad(i, bez(r.G, .5)); const e = k ? buildRoad(a, k, t) : 'no road'; if (e) { const [nn, rr, jn] = JSON.parse(saved); L.nodes = nn; L.roads = rr; GROW.jn = jn; growRebuild(); } return e; }, junction: p => addJunction(p), bulldoze, population,
+window.__gl = { LV, load, DAY, ADAPT, cam, zoomAt, fitCam, get routesFor() { return routesFor; }, GI, grow: { GROW, init: seed => { GROW.pendingSeed = seed; load(GI); }, month: () => monthTick(), avg: () => avgGrow(), build: (a, b, t) => buildRoad(a, b, t), snapshot: () => JSON.stringify([L.nodes, L.roads, GROW.jn, GROW.money]), restore: z => { const [nn, rr, jn, m] = JSON.parse(z); L.nodes = nn; L.roads = rr; GROW.jn = jn; GROW.money = m; growHeadless = true; growRebuild(); }, split: (a, i, t) => { const saved = JSON.stringify([L.nodes, L.roads, GROW.jn]), r = roads[i], k = splitRoad(i, bez(r.G, .5)); const e = k ? buildRoad(a, k, t) : 'no road'; if (e) { const [nn, rr, jn] = JSON.parse(saved); L.nodes = nn; L.roads = rr; GROW.jn = jn; growRebuild(); } return e; }, junction: p => addJunction(p), bulldoze, population,
   settle: () => { growHeadless = true; for (let i = 0; i < 4000; i++) { if (adjust(.004) < 1e-3 && i > 150) break; } growHeadless = false; return avgGrow(); }, set headless(v) { growHeadless = v; } }, get fc() { return fc; }, askForecast, get forecasts() { return SAVE.fc; }, cleanSave, gradeOf, gradeIdx, savedGrade, worstHome: () => worstHome(), get best() { return SAVE.best; }, get grade() { return SAVE.grade; }, budgetLeft: () => budgetLeft(), get won() { return won; }, get tool() { return tool; }, get sel() { return sel; }, roads: () => roads, average, adjust, P: () => P, rebuild: () => rebuildPaths(), view: () => ({ ...view, dpr }), labels: () => roads.map(r => [r.a + r.b, r.lx, r.ly]) };
 </script>
 </body>

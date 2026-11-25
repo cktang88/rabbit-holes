@@ -253,6 +253,25 @@ module.exports = {
       for (const i of [0, 3]) { const [x, y] = await page.evaluate((i) => __fold.screen(i), i); await page.mouse.move(x, y); await page.mouse.down(); for (let k = 1; k <= 10; k++) await page.mouse.move(x, y + cs * k / 10); await page.mouse.up(); }
       eq(await page.evaluate(() => __fold.contacts().c), 1); ok(await page.isVisible('#nextBtn')); eq(await page.evaluate(() => __fold.ghostFold()), null);
     },
+    'protein lab: deterministic chains per seed; 24 machine runs give a spread; you are ranked against it': async ({ page, ok, eq }) => {
+      await dismiss(page);
+      const r = await page.evaluate(() => { const F = __fold; return { same: F.genProtein('a') === F.genProtein('a'), differ: F.genProtein('a') !== F.genProtein('b'), len: F.genProtein('a').length }; });
+      ok(r.same && r.differ && r.len >= 24 && r.len <= 40);
+      await page.evaluate(() => { const F = __fold; for (const k of [0, 1, 2]) F.SAVE.best[k] = F.optimum(k); F.openLab('t1'); });
+      await page.waitForFunction(() => __fold.labDist, null, { timeout: 15000 });
+      const d = await page.evaluate(() => ({ dist: __fold.labDist, again: (() => { const M = __fold.makeMachine(__fold.genProtein('t1'), 3); for (let b = 0; b < 70; b++) M.step(); return M.best; })() }));
+      eq(d.dist.length, 24); eq(d.again, d.dist[3], 'runs are reproducible'); ok(Math.max(...d.dist) > Math.min(...d.dist), 'the runs disagree, so there is a spread to beat');
+      ok(/beats 0 of the machine's 24 runs/.test(await page.textContent('#labInfo')));
+      const p2 = await page.context().newPage(); await p2.goto(page.url().split('#')[0] + '#protein=t1'); await p2.waitForTimeout(500); eq(await p2.evaluate(() => [__fold.labSeed, __fold.li === __fold.LAB_I]), ['t1', true]); await p2.close();
+    },
+    'difficulty: naive play fails (protein lab)': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const F = __fold; let seed = 9; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >>> 16) % n; }; let naiveMed = 0, compMed = 0, N = 6;
+        for (let s = 0; s < N; s++) { const S = F.genProtein('d' + s); const dist = []; for (let k = 0; k < 24; k++) { const M = F.makeMachine(S, k); for (let b = 0; b < 70; b++) M.step(); dist.push(M.best); } dist.sort((a, b) => a - b); const med = dist[12];
+          F.open(12); let P = S.split('').map((_, k) => [k, 0]), best = 0; for (let m = 0; m < 1500; m++) { const i = rnd(S.length); F.pos = P; const Q = F.tryMove(i, [P[i][0] + rnd(3) - 1, P[i][1] + rnd(3) - 1]); if (Q) { P = Q; best = Math.max(best, F.contacts(P, S).c); } } if (best >= med) naiveMed++;
+          const M = F.makeMachine(S, 99); for (let b = 0; b < 250; b++) M.step(); if (M.best >= med) compMed++; }
+        return { naiveMed, compMed, N }; });
+      ok(r.naiveMed <= 1, 'random folding reaches the machine median on ' + r.naiveMed + '/' + r.N); ok(r.compMed >= r.N - 1, 'a longer anneal reaches it on ' + r.compMed + '/' + r.N);
+    },
     'phone layout: no horizontal scroll, canvas is large enough': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect() }));

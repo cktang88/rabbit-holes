@@ -222,7 +222,7 @@ module.exports = {
     'moving parish never lowers hub progress': async ({ page, ok }) => {
       await closeModals(page);
       const before = await page.evaluate(() => { const P = window.__parish; P.COMS().forEach((c, i) => { P.S.done[i] = { stars: 3 }; }); P.renderAll(); P.openLetter(0); return JSON.parse(localStorage.getItem('rh:hub')).parish; });
-      await page.click('#newParish'); await page.locator('.modal-bg button', { hasText: 'Move' }).click(); await page.waitForTimeout(500);
+      await page.click('#newParish'); await page.locator('.modal-bg button', { hasText: 'A new parish' }).click(); await page.waitForTimeout(500);
       const after = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:hub')).parish);
       ok(before === 1 && after >= before, `progress ${before} -> ${after}`);
     },

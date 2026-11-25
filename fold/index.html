@@ -112,6 +112,7 @@
     <div><div class="dim small" style="margin-bottom:4px">Sequence</div><div class="seq" id="seq"></div></div>
     <div><div class="dim small" style="margin-bottom:4px">Methods (Precise mode)</div><div id="tools"></div></div>
     <div id="designBox" style="display:none;order:-1"><button class="primary" id="verifyBtn" style="width:100%">Ask the machine to check every fold</button><div class="small" id="designRes" style="margin-top:6px"></div></div>
+    <div id="labBox" style="display:none;order:-1"><canvas id="labHist" style="display:block;width:100%;height:80px;border:1px solid #26241e"></canvas><div class="small" id="labInfo" style="margin:4px 0"></div><div class="row"><button id="labToday">Today's protein</button><button id="labNew">Another protein</button></div></div>
     <button id="watchBtn" style="display:none">Watch the machine search</button>
     <div id="photos"></div>
   </div>
@@ -155,6 +156,11 @@ const DESIGNS=[
   {name:'Design 3 · snake', shape:[[0,0],[1,0],[2,0],[3,0],[3,1],[2,1],[1,1],[0,1],[0,2],[1,2],[2,2],[3,2]], story:'Master design: the snake has exactly one sequence whose best fold is unique with two contacts. Even the machine can only check, not invent.'},
 ];
 DESIGNS.forEach(d=>LV.push({grp:'Design', name:d.name, seq:'P'.repeat(d.shape.length), shape:d.shape, design:true, story:d.story}));
+// Protein lab: a new seeded chain every time (one a day, endless on demand). The machine folds it 24 times with
+// different random starts; you see the spread of its results and try to beat all of them.
+function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function genProtein(seed){ const r=RH.rng('protein:'+seed); const n=24+r.int(17); let s=''; for (let k=0;k<n;k++) s+= r()<(.42+r()*.16)?'H':'P'; if (!s.includes('HH')) s='HH'+s.slice(2); return s; }
+const LAB_I=LV.length; LV.push({grp:'Protein lab', name:'Protein of the day', seq:genProtein('x'), lab:true, story:'A new chain every day, or press <b>Another protein</b> for endless ones. The machine folds it 24 times from different random starts; the histogram shows what it found. Beat every one of its runs.'});
 // Move unlocks
 const TOOLS=[
   {k:'end', n:'End wiggle', d:'Drag an end bead to a free spot next to its neighbour.', at:0},
@@ -165,13 +171,16 @@ const TOOLS=[
 ];
 const isObj=(o)=>o&&typeof o==='object'&&!Array.isArray(o);
 let SAVE=RH.load('fold', null); if (!isObj(SAVE)) SAVE={cur:0, best:{}, folds:{}, machine:{}};
-for (const k of ['best','folds','machine','bestFold','dseq','dstar']) if (!isObj(SAVE[k])) SAVE[k]={};
+for (const k of ['best','folds','machine','bestFold','dseq','dstar','lab']) if (!isObj(SAVE[k])) SAVE[k]={};
+for (const k of Object.keys(SAVE.lab)) if (!isObj(SAVE.lab[k]) || !Number.isFinite(SAVE.lab[k].best)) delete SAVE.lab[k];
+if (typeof SAVE.labSeed!=='string') SAVE.labSeed=null;
+for (const k of ['best','folds','machine','bestFold']) delete SAVE[k][LAB_I];
 for (const j of Object.keys(SAVE.dseq)) if (!LV[j] || !LV[j].design || typeof SAVE.dseq[j]!=='string' || !/^[HP]+$/.test(SAVE.dseq[j]) || SAVE.dseq[j].length!==LV[j].shape.length) delete SAVE.dseq[j];
 for (const j of Object.keys(SAVE.dstar)) if (!LV[j] || !LV[j].design || ![1,2,3].includes(SAVE.dstar[j])) delete SAVE.dstar[j];
 for (const k of ['best','machine']) for (const j of Object.keys(SAVE[k])) if (!Number.isFinite(SAVE[k][j]) || SAVE[k][j]<0 || !LV[j]) delete SAVE[k][j];
 if (!Number.isInteger(SAVE.cur) || SAVE.cur<0 || SAVE.cur>=LV.length) SAVE.cur=0;
 const validFold=(P,n)=>Array.isArray(P) && P.length===n && P.every(p=>Array.isArray(p)&&p.length===2&&Number.isInteger(p[0])&&Number.isInteger(p[1])) && valid(P);
-const persist=()=>{ RH.save('fold',SAVE); RH.progress('fold', Object.keys(SAVE.best).filter(k=>stars(+k)>=1).length/LV.length); };
+const persist=()=>{ const ks=Object.keys(SAVE.lab); if (ks.length>40) for (const k of ks.slice(0,ks.length-40)) delete SAVE.lab[k]; RH.save('fold',SAVE); RH.progress('fold', Object.keys(SAVE.best).filter(k=>stars(+k)>=1).length/(LV.length-1)); };
 
 // ===================== Geometry =====================
 let seq, pos, hist=[], fut=[], li, sel=-1;
@@ -223,11 +232,12 @@ function pivot(i, kind){ if (!toolOn('pivot')||i<0) return; const n=pos.length; 
 function commit(P){ hist.push(pos); if (hist.length>500) hist.shift(); fut=[]; pos=P; afterChange(); }
 function afterChange(){
   if (LV[li].design){ persist(); renderRight(); renderLevels(); return; }
+  if (LV[li].lab){ const rec=SAVE.lab[labSeed] ||= {best:0}; const {c}=contacts(); rec.fold=pos.map(p=>p.slice()); if (c>rec.best){ const mx=labDist? Math.max(...labDist) : Infinity; const prev=rec.best; rec.best=c; if (c>=mx && prev<mx) celebrate(c,mx); } persist(); renderRight(); renderLevels(); return; }
   const {c}=contacts(); SAVE.folds[li]=pos; const prev=SAVE.best[li]||0;
   if (c>prev){ SAVE.best[li]=c; SAVE.bestFold[li]=pos.map(p=>p.slice()); const t=target(); if (t && c>=t && prev<t) celebrate(c,t); }
   persist(); renderRight(); renderLevels();
 }
-function target(){ const L=LV[li]; if (L.design) return null; return L.exact? optimum(li) : L.best ?? SAVE.machine[li]; }
+function target(){ const L=LV[li]; if (L.design) return null; if (L.lab) return labDist? Math.max(...labDist) : null; return L.exact? optimum(li) : L.best ?? SAVE.machine[li]; }
 // The parity ceiling: contacts only join even and odd positions; an inner H has 2 free sides, an end 3.
 function parityBound(S){ let e=0,o=0; for (let i=0;i<S.length;i++) if (S[i]==='H'){ const cap=(i===0||i===S.length-1)?3:2; if (i%2) o+=cap; else e+=cap; } return Math.min(e,o); }
 // ---- Design: enumerate every fold of a chain (up to rotation and reflection) and check a sequence against the target shape
@@ -243,7 +253,7 @@ function verifyDesign(shape, S){ const hh=(pr)=>pr.filter(([i,j])=>S[i]==='H'&&S
   for (const pr of allFolds(shape.length)){ const h=hh(pr), v=h.length; const k=h.map(p=>p.join('-')).sort().join(';'); if (v>best){ second=Math.max(second,best); best=v; sets=new Set([k]); } else if (v===best) sets.add(k); else if (v>second) second=v; }
   const unique = t===best && sets.size===1; const st = t<1 || t<best? 0 : !unique? 1 : t>=2? 3 : 2; return {t, best, maps:sets.size, second, unique, stars:st}; }
 function target_unused(){}
-function stars(i){ const L=LV[i]; if (L.design) return SAVE.dstar[i]||0; const b=SAVE.best[i]||0; const t= L.exact? optimum(i) : L.best ?? SAVE.machine[i]; if (!t) return 0; const f=b/t; return f>=1?3 : f>=0.95?2 : f>=0.8?1 : 0; }
+function stars(i){ const L=LV[i]; if (L.lab) return 0; if (L.design) return SAVE.dstar[i]||0; const b=SAVE.best[i]||0; const t= L.exact? optimum(i) : L.best ?? SAVE.machine[i]; if (!t) return 0; const f=b/t; return f>=1?3 : f>=0.95?2 : f>=0.8?1 : 0; }
 function celebrate(c,t){ photograph(c,t); RH.toast(c>t? `🧬 ${c} contacts. That beats the best known (${t})!` : `🧬 ${c} contacts: you matched the best known fold.`, 4000); }
 // exact optimum for warm-ups via DFS
 const optCache={};
@@ -258,7 +268,7 @@ function optimum(i){ if (optCache[i]!=null) return optCache[i]; const S=LV[i].se
   rec(0); return optCache[i]=best; }
 // machine opponent: simulated annealing with pull moves
 // The search runs in small slices so the page never freezes; it never touches the player's chain.
-function makeMachine(S){ const n=S.length; let P=[...Array(n)].map((_,i)=>[i,0]); let cur=contacts(P,S).c; const r=RH.rng(S.length*31+S.charCodeAt(3)); let T=2.0;
+function makeMachine(S, runSeed){ const n=S.length; let P=[...Array(n)].map((_,i)=>[i,0]); let cur=contacts(P,S).c; const r=RH.rng(runSeed!=null? 'run:'+S+':'+runSeed : S.length*31+S.charCodeAt(3)); let T=2.0;
   const M={best:cur, bestP:P, batches:0, trace:[], step(){ for (let it=0; it<400; it++){ const i=r.int(n); const p=P[i]; const d=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]][r.int(8)]; const t=[p[0]+d[0],p[1]+d[1]];
       const Q=tryMoveRaw(P,i,t,r); if (!Q) continue; const c=contacts(Q,S).c; if (c>=cur || r()<Math.exp((c-cur)/T)){ P=Q; cur=c; if (c>M.best){ M.best=c; M.bestP=Q; } } }
     T=Math.max(0.15, T*0.97); M.batches++; if (M.batches%2===0 && M.trace.length<400) M.trace.push({P, c:cur, b:M.best, T}); } };
@@ -483,6 +493,8 @@ function redo(){ if (!fut.length) return; hist.push(pos); pos=fut.pop(); afterCh
 document.querySelectorAll('#pivots button').forEach(b=>b.onclick=()=>{ if (sel<0) RH.toast('Tap a bead first, then rotate the shorter end of the chain around it.'); else pivot(sel,b.dataset.pv); });
 document.getElementById('nextBtn').onclick=()=>{ if (li+1<LV.length && unlocked(li+1)) open(li+1); };
 document.getElementById('fitBtn').onclick=fitAll;
+document.getElementById('labToday').onclick=()=>openLab(todayKey());
+document.getElementById('labNew').onclick=()=>openLab(String(Math.floor(Math.random()*1e6)));
 document.querySelectorAll('#modes button').forEach(b=>b.onclick=()=>setMode(b.dataset.m));
 document.getElementById('verifyBtn').onclick=()=>{ const L=LV[li]; if (!L.design) return; designRes=verifyDesign(L.shape, seq); if (designRes.stars>(SAVE.dstar[li]||0)){ SAVE.dstar[li]=designRes.stars; if (designRes.stars===3) photograph(designRes.t, designRes.t); } SND[designRes.stars>=2?'gain':'lose'](2); persist(); renderRight(); renderLevels(); };
 document.getElementById('watchBtn').onclick=()=>{ if (replay) stopReplay(); else startReplay(); };
@@ -494,6 +506,7 @@ document.getElementById('loadBest').onclick=()=>{ const b=SAVE.bestFold[li]; if 
 
 // ===================== UI =====================
 function unlocked(i){ if (i===0) return true;
+  if (LV[i].lab) return LV.filter((L,k)=>L.grp==='Warm-up' && stars(k)>=1).length>=3;
   if (LV[i].design && LV[i-1].grp!=='Design') return LV.filter((L,k)=>L.grp==='Warm-up' && stars(k)>=1).length>=3; /* design opens beside the benchmarks */ if (stars(i-1)>=1) return true; if (stars(i)>=1) return true;
   // the first level of a group opens once 3 levels of the previous group are folded
   if (LV[i].grp!==LV[i-1].grp){ const prev=LV[i-1].grp; return LV.filter((L,k)=>L.grp===prev && stars(k)>=1).length>=3; }
@@ -510,6 +523,10 @@ function renderRight(){
   document.getElementById('pivots').classList.toggle('on', toolOn('pivot'));
   const nb=document.getElementById('nextBtn'); const canNext = li+1<LV.length && stars(li)>=1 && unlocked(li+1); nb.classList.toggle('on', canNext); if (canNext) nb.textContent=`Next: ${LV[li+1].name} →`;
   document.getElementById('meter').style.width= t? Math.min(100,c/t*100)+'%' : '0%';
+  document.getElementById('labBox').style.display = L.lab? '' : 'none';
+  if (L.lab){ const rec=SAVE.lab[labSeed]||{best:0}; const beat= labDist? labDist.filter(x=>rec.best>x).length : 0; const mx=labDist? Math.max(...labDist):null;
+    document.getElementById('labInfo').innerHTML = labDist? `Your best ${rec.best} beats ${beat} of the machine's 24 runs${rec.best>mx? ' — <b>all of them</b>' : rec.best===mx? ' and ties its best' : ''}. ${rec.best>=mx? '🥇' : rec.best>=labDist.slice().sort((a,b)=>a-b)[21]? '🥈' : rec.best>=labDist.slice().sort((a,b)=>a-b)[12]? '🥉' : ''}` : '';
+    requestAnimationFrame(drawLabHist); }
   document.getElementById('designBox').style.display = L.design? '' : 'none'; document.getElementById('watchBtn').style.display = (L.machine && machineTraces[li])? '' : 'none';
   if (L.design){ const r=designRes; document.getElementById('meter').style.width='0%';
     document.getElementById('vs').innerHTML = `Contacts in this shape: ${c} · H balls: ${seq.split('H').length-1}<br><span class="dim">★ the shape is a best fold · ★★ the only best way to pair the Hs · ★★★ unique, with 2+ contacts</span>`;
@@ -522,18 +539,38 @@ function renderRight(){
   document.getElementById('tools').innerHTML= L.design? '<span class="dim">Design mode: click a ball to switch it between H and P.</span>' : TOOLS.map(T=>{ const on=toolOn(T.k); return `<div class="tool ${on?'':'lock'}"><span class="k">${on?'✓':'🔒'}</span><div><b>${T.n}</b><br><span class="dim">${on?T.d:`Unlocks at level ${T.at+1}`}</span></div></div>`; }).join('');
   document.getElementById('hint').innerHTML = `Red balls = H (oily, want to hide) · white = P · <b>Pull</b>: drag any ball, the chain follows · <b>Draw</b>: drag from an end to lay the chain along your stroke · <b>Precise</b>: the textbook moves below · drag empty space to pan · scroll to zoom · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo`;
 }
+let labSeed=null, labDist=null, labJob=0;
+// the machine's 24 runs, in slices so the page stays responsive
+function computeLabDist(seed, S, done){ const job=++labJob; const out=[]; let k=0;
+  const slice=()=>{ if (job!==labJob) return; const t0=performance.now(); while (k<24 && performance.now()-t0<25){ const M=makeMachine(S, k); for (let b=0;b<70;b++) M.step(); out.push(M.best); k++; }
+    if (k<24) setTimeout(slice,0); else done(out); };
+  slice(); }
+function openLab(seed){ seed=String(seed); labSeed=seed; SAVE.labSeed=seed; LV[LAB_I].seq=genProtein(seed); LV[LAB_I].name= seed===todayKey()? 'Protein of the day' : 'Protein '+seed;
+  try { history.replaceState(null,'','#protein='+encodeURIComponent(seed)); } catch(e){}
+  const rec=SAVE.lab[seed]; labDist= rec && Array.isArray(rec.dist)? rec.dist : null;
+  stopReplay(); li=LAB_I; SAVE.cur=LAB_I; seq=LV[LAB_I].seq; pos= rec && validFold(rec.fold, seq.length)? rec.fold.map(p=>p.slice()) : seq.split('').map((_,k)=>[k,0]);
+  hist=[]; fut=[]; sel=-1; persist(); center(); renderRight(); renderLevels();
+  if (!labDist) computeLabDist(seed, seq, (d)=>{ if (labSeed!==seed) return; labDist=d; (SAVE.lab[seed] ||= {best:0}).dist=d; persist(); renderRight(); }); }
+function drawLabHist(){ const c=document.getElementById('labHist'); if (!c) return; const W=c.clientWidth||240, H=80, dpr=Math.min(2,devicePixelRatio||1); c.width=W*dpr; c.height=H*dpr; const g=c.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0);
+  g.fillStyle='#fffdf6'; g.fillRect(0,0,W,H); if (!labDist){ g.fillStyle='#6b6656'; g.font='12px "Courier Prime",monospace'; g.fillText('The machine is folding 24 times…', 6, 40); return; }
+  const you=(SAVE.lab[labSeed]||{}).best||0, now=contacts().c; const lo=Math.min(...labDist, you, now), hi=Math.max(...labDist, you, now); const bins=hi-lo+1, cnt=new Array(bins).fill(0); labDist.forEach(x=>cnt[x-lo]++); const mx=Math.max(...cnt);
+  const bw=(W-10)/bins; cnt.forEach((n,i)=>{ const h=n/mx*(H-30); g.fillStyle='#8a846f'; g.fillRect(5+i*bw, H-16-h, Math.max(1,bw-2), h); });
+  const mark=(x,col,lab,y)=>{ const px=5+(x-lo)*bw+bw/2; g.fillStyle=col; g.fillRect(px-1.5,8,3,H-24); g.font='11px "Courier Prime",monospace'; g.fillText(lab, Math.min(W-60,px+4), y); };
+  mark(you,'#b3261e','best '+you,14); if (now!==you) mark(now,'#1f3a7a','now '+now,26);
+  g.fillStyle='#26241e'; g.font='11px "Courier Prime",monospace'; g.textAlign='left'; g.fillText(lo, 5, H-3); g.textAlign='right'; g.fillText(hi, W-5, H-3); g.textAlign='left'; }
 function open(i){
-  stopReplay();
+  if (LV[i].lab){ openLab(SAVE.labSeed||todayKey()); return; }
+  labJob++; stopReplay(); try { if (location.hash.startsWith('#protein=')) history.replaceState(null,'',location.pathname); } catch(e){}
   if (LV[i].design){ li=i; SAVE.cur=i; const L=LV[i]; seq=SAVE.dseq[i]||L.seq; pos=L.shape.map(p=>p.slice()); hist=[]; fut=[]; sel=-1; designRes=null; persist(); center(); renderRight(); renderLevels(); return; }
   li=i; SAVE.cur=i; persist(); const L=LV[i]; seq=L.seq; pos=validFold(SAVE.folds[i],seq.length)? SAVE.folds[i].map(p=>p.slice()) : seq.split('').map((_,k)=>[k,0]);
   hist=[]; fut=[]; sel=-1; center(); renderRight(); renderLevels();
   if (L.machine && SAVE.machine[i]==null) machineFoldAsync(i, 900+seq.length*25);
 }
-window.__fold={ ghostFold, pullGesture, relay, setMode, get gmode(){ return gmode; }, fitAll, get cellSize(){ return cell; }, get ox(){ return ox; }, parityBound, verifyDesign, allFolds, startReplay, get replay(){ return replay; }, machineTraces, LV, TOOLS, contacts, valid, validFold, optimum, stars, unlocked, tryMove, pullMove, pivot, makeMachine, machineFold, open, undo, redo, commit,
+window.__fold={ genProtein, openLab, computeLabDist, LAB_I, get labDist(){ return labDist; }, get labSeed(){ return labSeed; }, ghostFold, pullGesture, relay, setMode, get gmode(){ return gmode; }, fitAll, get cellSize(){ return cell; }, get ox(){ return ox; }, parityBound, verifyDesign, allFolds, startReplay, get replay(){ return replay; }, machineTraces, LV, TOOLS, contacts, valid, validFold, optimum, stars, unlocked, tryMove, pullMove, pivot, makeMachine, machineFold, open, undo, redo, commit,
   get SAVE(){ return SAVE; }, get pos(){ return pos; }, set pos(P){ pos=P; }, get li(){ return li; }, get sel(){ return sel; }, set sel(v){ sel=v; }, get hist(){ return hist; },
   screen(i){ const r=cv.getBoundingClientRect(); const [x,y]=sp(pos[i]); return [r.left+x, r.top+y]; }, cellPx(){ return cell; }, machineRuns };
 fit(); window.addEventListener('resize',()=>{ fit(); });
-open(Math.min(SAVE.cur||0, LV.length-1)); requestAnimationFrame(draw);
+{ const mh=location.hash.match(/protein=([\w-]{1,24})/); if (mh && unlocked(LAB_I)) openLab(decodeURIComponent(mh[1])); else open(Math.min(SAVE.cur||0, LV.length-1)); } requestAnimationFrame(draw);
 if (!SAVE.intro){ SAVE.intro=1; persist(); RH.modal(`<h2>Fold</h2><p>A protein is a chain. Some links are oily (<b style="color:#c2452d">H</b>, red balls) and some like water (<b style="color:#6b6656">P</b>, white balls</b>). In water the chain folds itself so the oily links crowd together in the middle, and that shape decides what the protein does.</p><p>This is the HP model, a simplified version that scientists have used for decades to test folding algorithms. The puzzle is easy to state and very hard to solve: <b>fold the chain on the grid to get as many red–red contacts as possible.</b></p><p>Later levels are the classic benchmark chains, and a computer that folds against you.</p>`,[{label:'Start folding'}]); }
 </script>
 </body>

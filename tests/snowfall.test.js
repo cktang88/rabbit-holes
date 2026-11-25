@@ -124,10 +124,10 @@ module.exports = {
       ok(r.same); eq(r.seq, ['plate', 'sector', 'dendrite']); eq(r.rt, r.seq); eq(r.rev, ['dendrite', 'sector', 'plate']); eq(r.g1, r.g2);
       ok(typeof r.name === 'string' && r.name.length > 3);
     },
-    'commissions: each is won by its par route with three stars; the daily sky is winnable for any date': async ({ page, ok }) => {
+    'commissions: each is won by a known route with three stars; the daily sky is winnable for any date': async ({ page, ok }) => {
       const bad = await page.evaluate(() => { const S = __snow, out = [];
-        S.COMMS.forEach((c, i) => { const j = S.judgeComm(c, c.par); if (!j.ok || j.stars !== 3) out.push(i + ' par route fails'); if (S.COMMS.some((d, k) => k !== i && d.want.join() === c.want.join())) out.push(i + ' duplicates another commission'); });
-        for (let d = 1; d <= 30; d++) { const c = S.dailyComm('2026-12-' + String(d).padStart(2, '0')); if (!c || !S.judgeComm(c, c.par).ok || c.want.length < 2) out.push('daily ' + d); }
+        S.COMMS.forEach((c, i) => { const j = S.judgeComm(c, c.solver || c.par); if (!j.ok || j.stars !== 3) out.push(i + ' known route fails'); if (!S.judgeComm(c, c.par).ok) out.push(i + ' authored route grows the wrong flake'); if (S.COMMS.some((d, k) => k !== i && d.want.join() === c.want.join())) out.push(i + ' duplicates another commission'); });
+        for (let d = 1; d <= 30; d++) { const c = S.dailyComm('2026-12-' + String(d).padStart(2, '0')); if (!c || S.judgeComm(c, c.solver || c.par).stars !== 3 || c.want.length < 2) out.push('daily ' + d); }
         if (JSON.stringify(S.dailyComm('2026-12-01')) !== JSON.stringify(S.dailyComm('2026-12-01'))) out.push('daily not deterministic');
         return out; });
       ok(!bad.length, bad.join('; '));
@@ -166,7 +166,7 @@ module.exports = {
     'a commission through the UI: right flake earns stars, the wrong one explains what you grew': async ({ page, ok }) => {
       await page.evaluate(() => { const S = __snow; S.setMode('draw'); S.SAVE.tab = 'comm'; S.SAVE.ci = 3; S.renderDraw(); S.release([S.P2(-2, .2)]); });
       ok((await page.textContent('#side')).includes('Not quite'), 'no explanation for the wrong flake');
-      await page.evaluate(() => { const S = __snow; S.release(S.COMMS[3].par); });
+      await page.evaluate(() => { const S = __snow; S.release(S.COMMS[3].solver || S.COMMS[3].par); });
       ok(await page.evaluate(() => __snow.SAVE.comm[3] === 3), 'commission not recorded');
     },
     'phone: plates are the main surface; cases open from a drawer; no sideways scroll': async ({ page, ok }) => {

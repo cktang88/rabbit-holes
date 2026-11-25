@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Coaster</title>
+<link rel="stylesheet" href="../shared/common.css">
+<link href="https://fonts.googleapis.com/css2?family=Limelight&family=Architects+Daughter&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  /* A 1930s coaster engineer's drafting table: blueprint paper, white construction lines, red pencil,
+     and the park's poster-printed commission cards pinned at the edge. */
+  :root{--bp:#123a66;--bp2:#0d2c52;--line:#cfe6ff;--pencil:#ff6b57;--cream:#f4e8cc;--ink:#1d1a16;--gold:#f2b33d;--teal:#2f8f8a;--red:#c8372d}
+  html,body{height:100%;overflow:hidden;background:var(--bp2);font-family:"Architects Daughter","Comic Sans MS",cursive;color:var(--line);overscroll-behavior:none}
+  #cv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  /* poster card for the commission */
+  .card{position:fixed;color:var(--ink);border-radius:2px;
+    background:radial-gradient(circle at 15% 12%,rgba(255,255,255,.5),transparent 50%),repeating-linear-gradient(0deg,rgba(80,50,20,.035) 0 1px,transparent 1px 3px),linear-gradient(var(--cream),#e8d7b0);
+    box-shadow:inset 0 0 0 2px var(--ink),inset 0 0 0 5px var(--cream),inset 0 0 0 6px var(--red),0 14px 30px -10px #000c}
+  #brief{top:12px;left:12px;width:310px;padding:14px 16px 12px;max-height:calc(100vh - 120px);overflow:auto}
+  #brief .home{color:#6b5536;font-size:13px;text-decoration:none}
+  #brief h1{margin:4px 0 0;font:400 30px/1 Limelight,Georgia,serif;color:var(--red);letter-spacing:.03em;text-shadow:1px 1px 0 var(--gold)}
+  #brief h2{margin:6px 0 2px;font:400 18px Limelight,Georgia,serif;color:var(--ink)}
+  #brief p{margin:4px 0;font-size:14.5px;line-height:1.38}
+  #brief b{color:var(--red)}
+  #brief .req{margin:6px 0 0;padding:0;list-style:none;font-size:13.5px}
+  #brief .req li::before{content:'▢ ';color:#6b5536}#brief .req li.ok::before{content:'☑ ';color:var(--teal)}#brief .req li.bad::before{content:'☒ ';color:var(--red)}
+  #comSel{width:100%;margin-top:6px;font:16px "Architects Daughter",cursive;background:#fbf3df;color:var(--ink);border:0;border-bottom:2px solid var(--ink);border-radius:0}
+  /* the readout: an engineer's gauge strip */
+  #gauge{top:12px;right:12px;padding:10px 14px;display:none;min-width:200px;font-family:"Courier Prime",monospace;color:var(--ink)}
+  #gauge .row2{display:flex;justify-content:space-between;gap:10px;font-size:13px}
+  #gauge b{font-size:20px}
+  #gauge .bar{height:8px;background:#d8c7a2;margin-top:3px;position:relative}
+  #gauge .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--teal)}
+  #gauge .bar i.hot{background:var(--red)}
+  /* drafting tools along the bottom: pencil-stamped tabs */
+  #tools{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 20px);padding:8px;
+    background:linear-gradient(#5a3a1e,#3c2410);border-radius:3px;box-shadow:0 10px 24px -8px #000c,inset 0 1px 0 rgba(255,220,170,.3)}
+  .t{border:0;border-radius:2px;min-height:42px;min-width:44px;padding:6px 11px;font:700 14px "Courier Prime",monospace;color:var(--ink);cursor:pointer;
+    background:linear-gradient(#fbf3df,#e6d4ad);box-shadow:inset 0 0 0 1px #6b5536,0 2px 0 #1d1006}
+  .t:active{transform:translateY(2px);box-shadow:inset 0 0 0 1px #6b5536}
+  .t.on{background:var(--ink);color:var(--cream)}
+  .t.ride{background:linear-gradient(#e2493b,#9e2419);color:#fff3dc;font:400 18px Limelight,Georgia,serif;letter-spacing:.08em;padding:6px 18px}
+  .t:disabled{opacity:.45}
+  .t:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+  /* node inspector */
+  #insp{display:none;left:50%;transform:translateX(-50%);bottom:76px;padding:10px 14px;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;font-size:14px;max-width:calc(100vw - 20px)}
+  #insp label{display:flex;gap:6px;align-items:center}
+  #insp input[type=range]{width:120px;min-height:28px;accent-color:var(--red)}
+  /* results */
+  #result{display:none;top:50%;left:50%;transform:translate(-50%,-50%);width:min(560px,calc(100vw - 20px));max-height:calc(100vh - 30px);overflow:auto;padding:16px 18px;z-index:20}
+  #result h3{margin:0;font:400 28px Limelight,Georgia,serif;color:var(--red)}
+  #result .scores{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0;text-align:center;font-family:"Courier Prime",monospace}
+  #result .scores div{border:1px solid #6b5536;padding:5px 2px}
+  #result .scores b{display:block;font-size:22px}
+  #result .stars{font-size:28px;color:var(--gold);letter-spacing:4px;text-shadow:0 1px 0 #6b5536}
+  #result .stars s{color:#c8b48a;text-decoration:none}
+  #result .guests{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  #result .guests div{flex:1 1 150px;background:#fff9ea;border:1px solid #6b5536;border-radius:12px 12px 12px 2px;padding:6px 9px;font-size:14px}
+  #result .guests em{display:block;font-style:normal;font-size:11.5px;color:#6b5536}
+  #result canvas{width:100%;height:90px;display:block;margin-top:6px}
+  #result .row3{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;margin-top:10px}
+  #toastC{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:30;pointer-events:none;display:flex;flex-direction:column;gap:6px;align-items:center;width:min(520px,calc(100vw - 24px))}
+  .tc{background:var(--cream);color:var(--ink);border:2px solid var(--ink);padding:7px 14px;font-size:15px;box-shadow:0 8px 20px -8px #000c;text-align:center;animation:tin .25s ease-out}
+  .tc.bad{border-color:var(--red)}
+  #pov{position:fixed;right:12px;bottom:76px;width:300px;height:190px;border:3px solid var(--cream);box-shadow:0 10px 24px -8px #000c;display:none;background:#8fc7e8}
+  #povL{position:fixed;right:18px;bottom:248px;font:400 14px Limelight,Georgia,serif;color:var(--cream);display:none;text-shadow:0 1px 3px #000}
+  .modal{background:linear-gradient(var(--cream),#e8d7b0);color:var(--ink);font-family:"Architects Daughter",cursive;border:0;border-radius:2px}
+  .modal h2{font-family:Limelight,Georgia,serif;color:var(--red)}
+  .modal button{background:var(--ink);color:var(--cream);border:0;border-radius:2px;font-family:"Courier Prime",monospace}
+  @media (max-width:860px){
+    #brief{top:6px;left:6px;right:6px;width:auto;padding:8px 12px;max-height:27vh}
+    #brief h1{font-size:22px;display:inline}
+    #brief p{font-size:13px;margin:2px 0}
+    #brief .req{font-size:12.5px;columns:2}
+    #gauge{top:auto;bottom:122px;right:6px;padding:6px 10px;min-width:0}
+    #gauge b{font-size:16px}
+    #tools{left:6px;right:6px;transform:none;max-width:none;bottom:6px;flex-wrap:wrap;gap:4px;padding:5px}
+    .t{padding:5px 8px;font-size:13px}
+    .t .lbl{display:none}
+    #pov{width:46vw;height:28vw;bottom:auto;top:calc(27vh + 14px);right:6px}
+    #povL{display:none!important}
+    #insp{bottom:112px}
+  }
+  @media (max-width:860px) and (max-height:520px) and (orientation:landscape){
+    #brief{right:auto;width:240px;max-height:calc(100vh - 70px)}
+    #tools{left:auto;right:6px;max-width:calc(100vw - 260px);flex-wrap:nowrap;overflow-x:auto}
+    #gauge{bottom:60px}
+    #pov{top:8px;width:30vw;height:20vw}
+    #insp{left:auto;right:6px;transform:none;bottom:60px}
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="brief" class="card">
+  <a class="home" href="../index.html">← Rabbit Holes</a>
+  <h1>Coaster</h1>
+  <select id="comSel" aria-label="Commission"></select>
+  <h2 id="cTitle"></h2>
+  <p id="cStory"></p>
+  <ul class="req" id="cReq"></ul>
+</div>
+<div id="gauge" class="card">
+  <div class="row2"><span>speed</span><b id="gV">0</b></div><div class="bar"><i id="gVb"></i></div>
+  <div class="row2" style="margin-top:4px"><span>g (seat)</span><b id="gG">1.0</b></div><div class="bar"><i id="gGb"></i></div>
+  <div class="row2" style="margin-top:4px"><span>g (side)</span><b id="gL">0.0</b></div>
+</div>
+<div id="insp" class="card"></div>
+<div id="tools"></div>
+<div id="result" class="card"></div>
+<canvas id="pov" width="600" height="380"></canvas><div id="povL">Front seat</div>
+<div id="toastC"></div>
+<script src="../shared/common.js"></script>
+<script src="../shared/fx.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const G = 9.81, MU = .015, DRAG = .0006, DS = .5, CHAIN = 3.5, CAR_W = 1.2;
+const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
+
+// ================= track model =================
+// A design is a list of nodes in an elevation view (x along the ground, y height, metres). The track is a
+// centripetal Catmull-Rom spline through them, so a loop is just nodes that curl back over themselves.
+// Each node may carry a flat turn for the segment that follows it: radius r (m, signed, 0 = straight) and bank (deg).
+// Segment 0 (station → first crest) is a chain lift.
+function spline(nodes, perSeg = 28) {
+  const P = nodes.map(n => [n.x, n.y]), n = P.length, out = [];
+  if (n < 2) return out;
+  const ext = [[2 * P[0][0] - P[1][0], 2 * P[0][1] - P[1][1]], ...P, [2 * P[n - 1][0] - P[n - 2][0], 2 * P[n - 1][1] - P[n - 2][1]]];
+  const tj = (a, b) => Math.pow(Math.hypot(b[0] - a[0], b[1] - a[1]), .5) || 1e-3;
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = ext[i], p1 = ext[i + 1], p2 = ext[i + 2], p3 = ext[i + 3];
+    const t1 = tj(p0, p1), t2 = t1 + tj(p1, p2), t3 = t2 + tj(p2, p3);
+    for (let k = 0; k < perSeg; k++) {
+      const t = t1 + (t2 - t1) * k / perSeg, pt = [0, 0];
+      for (let c = 0; c < 2; c++) {
+        const A1 = (t1 - t) / t1 * p0[c] + t / t1 * p1[c], A2 = (t2 - t) / (t2 - t1) * p1[c] + (t - t1) / (t2 - t1) * p2[c], A3 = (t3 - t) / (t3 - t2) * p2[c] + (t - t2) / (t3 - t2) * p3[c];
+        const B1 = (t2 - t) / t2 * A1 + t / t2 * A2, B2 = (t3 - t) / (t3 - t1) * A2 + (t - t1) / (t3 - t1) * A3;
+        pt[c] = (t2 - t) / (t2 - t1) * B1 + (t - t1) / (t2 - t1) * B2;
+      }
+      out.push({ x: pt[0], y: pt[1], seg: i });
+    }
+  }
+  out.push({ x: P[n - 1][0], y: P[n - 1][1], seg: n - 2 });
+  return out;
+}
+// resample at even arc length DS, keeping which segment each sample is on
+function resample(pts) {
+  const out = [{ ...pts[0], s: 0 }]; let acc = 0, need = DS;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i], l = Math.hypot(b.x - a.x, b.y - a.y); if (!l) continue;
+    let used = 0;
+    while (acc + (l - used) >= need) { const f = (used + need - acc) / l; out.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, seg: b.seg, s: out.length * DS }); used += need - acc; acc = 0; need = DS; }
+    acc += l - used;
+  }
+  return out;
+}
+// the track in 3D: ground position from integrating the heading through flat turns (loops stay in a vertical plane)
+function geometry(design) {
+  const S = resample(spline(design.nodes)), nodes = design.nodes;
+  let hx = 0, hz = 0, h = 0;
+  for (let i = 0; i < S.length; i++) {
+    const p = S[i], th = i < S.length - 1 ? Math.atan2(S[i + 1].y - p.y, S[i + 1].x - p.x) : S[i - 1].th;
+    p.th = th; const nd = nodes[p.seg] || {}, r = nd.r || 0; p.kh = r ? 1 / r : 0; p.bank = (nd.bank || 0) * Math.PI / 180;
+    p.X = hx; p.Z = hz; p.head = h;
+    if (i < S.length - 1) { const dxg = S[i + 1].x - p.x; hx += Math.cos(h) * dxg; hz += Math.sin(h) * dxg; h += p.kh * Math.abs(dxg); }
+  }
+  for (let i = 1; i < S.length - 1; i++) { let d = S[i + 1].th - S[i - 1].th; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; S[i].kv = d / (2 * DS); }
+  if (S.length > 1) { S[0].kv = S[1].kv || 0; S[S.length - 1].kv = S[S.length - 2].kv || 0; }
+  // a train is ~10 m long: riders feel the curvature averaged over a few metres, not the spline's kinks at each node
+  const raw = S.map(p => p.kv || 0), Wn = 6; S.kink = raw.findIndex((k, i) => i > 2 && i < S.length - 3 && Math.abs(k) > 1 / 3); // tighter than a 3 m radius: steel can't be bent that way for (let i = 0; i < S.length; i++) { let a = 0, n = 0; for (let k = Math.max(0, i - Wn); k <= Math.min(S.length - 1, i + Wn); k++) { a += raw[k]; n++; } S[i].kv = a / n; }
+  return S;
+}
+
+// ================= ride physics =================
+// Energy along the track: d(v²)/ds = −2g·sinθ − 2μ·|N|/m − 2c·v². Seat g = (v²κ + g cosθ)/g in the vertical plane;
+// a flat turn adds v²/r sideways, part of it taken into the seat by the bank angle.
+function ride(design, opt = {}) {
+  const S = design.S || geometry(design), mu = opt.mu ?? MU, drag = opt.drag ?? DRAG, terrain = opt.terrain || (() => -1e9), lift = design.lift ?? 1;
+  const out = { S, t: [], v: [], gs: [], gl: [], idx: [], stall: -1, crash: -1, done: false };
+  let v = opt.v0 ?? 2, t = 0, prevG = 1;
+  const stats = { vmax: 0, gmax: -9, gmin: 9, latmax: 0, air: 0, inv: 0, jerks: 0, drop: 0, len: (S.length - 1) * DS, time: 0 };
+  let inverted = false, lastPeak = S[0].y;
+  for (let i = 0; i < S.length - 1; i++) {
+    const p = S[i], q = S[i + 1], th = p.th, onLift = p.seg < lift;
+    const gv = (v * v * (p.kv || 0) + G * Math.cos(th)) / G, ah = v * v * p.kh;
+    const seat = gv * Math.cos(p.bank) + (ah / G) * Math.sin(p.bank), lat = (ah / G) * Math.cos(p.bank) - gv * Math.sin(p.bank);
+    const N = G * Math.hypot(seat, lat);
+    let v2 = v * v + 2 * DS * (-G * Math.sin(th) - mu * N - drag * v * v);
+    if (onLift) v2 = Math.max(v2, CHAIN * CHAIN);
+    if (v2 <= 0) { out.stall = i; break; }
+    const vn = Math.sqrt(v2), dt = DS / ((v + vn) / 2); t += dt; v = vn;
+    if (p.y < terrain(p.x) + .3 && out.crash < 0) out.crash = i;
+    out.t.push(t); out.v.push(v); out.gs.push(seat); out.gl.push(lat); out.idx.push(i);
+    if (!onLift) {
+      stats.vmax = Math.max(stats.vmax, v); stats.gmax = Math.max(stats.gmax, seat); stats.gmin = Math.min(stats.gmin, seat); stats.latmax = Math.max(stats.latmax, Math.abs(lat));
+      if (seat < .2) stats.air += dt;
+      if (Math.abs((seat - prevG) / dt) > 18) stats.jerks++;
+    }
+    prevG = seat;
+    const up = Math.cos(th) < -.2; if (up && !inverted) stats.inv++; inverted = up;
+    if (q.y > p.y && p.y <= lastPeak) { /* climbing */ } if (S[i + 1] && i > 0 && p.y > S[i - 1].y && p.y >= q.y) lastPeak = p.y;
+    stats.drop = Math.max(stats.drop, lastPeak - q.y);
+  }
+  stats.time = t; out.done = out.stall < 0 && out.crash < 0; out.stats = stats; out.vEnd = v; if (S.kink >= 0) { out.kink = S.kink; out.done = false; }
+  return out;
+}
+
+// ================= scoring =================
+function footprint(S) { let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const p of S) { x0 = Math.min(x0, p.X); x1 = Math.max(x1, p.X); z0 = Math.min(z0, p.Z); z1 = Math.max(z1, p.Z); } return { w: x1 - x0 + 4, d: z1 - z0 + 4, area: (x1 - x0 + 4) * (z1 - z0 + 4) }; }
+function costOf(S, terrain, lake) {
+  let support = 0; for (const p of S) { const h = Math.max(0, p.y - terrain(p.x)); support += h * DS * (lake && p.x > lake[0] && p.x < lake[1] ? 4 : 1); }
+  const len = (S.length - 1) * DS; return Math.round(len * .8 + support * .06 + S.filter(p => Math.abs(p.bank) > .05).length * DS * .3); // £k
+}
+function scores(design, site) {
+  const S = design.S = geometry(design), r = ride(design, { terrain: site.terrain }), st = r.stats, fp = footprint(S);
+  const thrill = Math.round(22 * Math.min(1, st.vmax / 28) + 22 * Math.min(1, st.air / 3) + 20 * Math.min(1, st.inv / 2) + 16 * Math.min(1, (st.gmax - st.gmin) / 4.5) + 20 * Math.min(1, st.drop / 40));
+  let comfort = 100; comfort -= Math.max(0, st.gmax - 3.5) * 22; comfort -= Math.max(0, -1 - st.gmin) * 40; comfort -= Math.max(0, st.latmax - 1) * 35; comfort -= st.jerks * 2;
+  comfort = Math.round(clamp(comfort, 0, 100));
+  return { r, st, thrill, comfort, cost: costOf(S, site.terrain, site.lake), fp, ok: r.done, black: st.gmax > 6, grey: st.gmax > 5, eject: st.gmin < -1.5 };
+}
+
+// ================= sites and commissions =================
+const flatSite = () => ({ terrain: () => 0, lake: null });
+function siteFrom(seed) { // rolling ground with a lake, from a seed
+  const r = RH.rng(seed >>> 0 || 1), a = [r() * 6, r() * 6, r() * 3], f = [.013 + r() * .01, .031 + r() * .02, .07 + r() * .03], ph = [r() * 6, r() * 6, r() * 6];
+  const lx = 90 + r() * 120, lake = [lx, lx + 30 + r() * 30];
+  const terrain = x => { let y = 0; for (let k = 0; k < 3; k++) y += a[k] * Math.sin(x * f[k] + ph[k]); y += 6; if (x > lake[0] && x < lake[1]) y = Math.min(y, 1); return y; };
+  return { terrain, lake, seed };
+}
+const N = (x, y, o = {}) => ({ x, y, ...o });
+const COMS = [
+  { id: 'first', n: 'First Ride', site: flatSite, start: () => [N(0, 2), N(40, 32), N(62, 18), N(80, 5), N(105, 36), N(130, 5), N(170, 3)],
+    story: 'The chain lift drags the train up the first hill; after that, <b>gravity is the only engine</b>. Press <b>RIDE</b>. If the train stalls, drag the red node of the hill that stopped it lower, and ride again.',
+    req: { done: 1 } },
+  { id: 'loop', n: 'The Loop', site: flatSite, start: () => [N(0, 2), N(44, 34.5), N(54.5, 21), N(86.5, 4), N(103.5, .5), N(118, 2), N(130, 14), N(118, 26), N(106, 14), N(118, 2), N(150, 1), N(165, .5)],
+    story: 'The park wants an inversion. This loop is a perfect <b>circle</b>: fast enough to stay pressed in at the top means a crushing squeeze at the bottom. Keep riders under <b>5 g</b>. Real loops are not circles.',
+    req: { done: 1, inv: 1, gmax: 5 } },
+  { id: 'family', n: 'Family Coaster', site: flatSite, start: () => [N(0, 2), N(30, 18), N(50, 8), N(70, 3), N(95, 10), N(120, 3), N(150, 3)],
+    story: 'For the under-tens: nothing above <b>3 g</b>, nothing that throws them out of the seat, but at least <b>0.8 s of airtime</b> on a hump. Budget £160k.',
+    req: { done: 1, gmax: 3, gmin: -.5, air: .8, cost: 160 } },
+  { id: 'turn', n: 'The Narrow Lot', site: flatSite, start: () => [N(0, 2), N(30, 22), N(50, 12), N(70, 5), N(80, 5, { r: 14, bank: 0 }), N(110, 5), N(140, 4)],
+    story: 'The lot is only <b>40 m deep</b>, so the ride must turn back on itself. A flat turn throws riders sideways; <b>bank</b> it so the seat takes the push. Select the node before the turn to set its radius and bank.',
+    req: { done: 1, lat: 1.2, depth: 40, turn: 1 } },
+  { id: 'lake', n: 'Over the Lake', site: () => siteFrom(1937), start: () => [N(0, 8), N(40, 40), N(80, 12), N(130, 14), N(180, 10), N(230, 10)],
+    story: 'The site rolls and there is a lake: supports standing in water cost <b>four times</b> as much, and the track may never touch the ground. Under <b>£220k</b>, and still worth queuing for: <b>thrill 35+</b>.',
+    req: { done: 1, cost: 220, thrill: 35 } },
+  { id: 'thrill', n: 'The Thrill Machine', site: flatSite, start: () => [N(0, 2), N(44, 36), N(66, 20), N(88, 4), N(115, 22), N(140, 5), N(190, 4)],
+    story: 'The headline ride: <b>thrill 88+</b> while keeping <b>comfort 55+</b> (that needs two inversions). Speed, airtime, inversions and big drops all count; blackouts and ejections do not.',
+    req: { done: 1, thrill: 88, comfort: 55 } },
+  { id: 'daily', n: 'Daily Site', daily: 1, site: () => siteFrom(dailySeed()), start: () => dailyStart(siteFrom(dailySeed())),
+    story: 'A new plot every day, the same for everyone: rolling ground and a lake. Build the best ride you can: <b>score = thrill + comfort − cost/5</b>. Your best today is kept; share your design.',
+    req: { done: 1 } },
+  { id: 'sandbox', n: 'Sandbox', free: 1, site: flatSite, start: () => [N(0, 2), N(40, 36), N(80, 4), N(120, 4)],
+    story: 'No commission. Build anything, ride it, share it. (Try a loop that is taller than it is wide.)', req: { done: 1 } },
+];
+// a plain out-and-back that rides on any generated site: a lift, one big drop, then hills riding the ground
+function dailyStart(st) { const t = st.terrain; return [[0, 2], [40, 34], [62, 20], [88, 5], [125, 12], [160, 5], [200, 3]].map(([x, h]) => N(x, Math.round((t(x) + h) * 2) / 2)); }
+function dailySeed() { const d = new Date(); return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); }
+function checkReq(c, sc) {
+  const q = c.req, rows = [];
+  rows.push(['the train reaches the station', sc.ok]);
+  if (q.inv) rows.push([`${q.inv}+ inversion`, sc.st.inv >= q.inv]);
+  if (q.gmax) rows.push([`max ${q.gmax} g in the seat`, sc.st.gmax <= q.gmax]);
+  if (q.gmin != null) rows.push([`never below ${q.gmin} g`, sc.st.gmin >= q.gmin]);
+  if (q.air) rows.push([`${q.air}+ s of airtime`, sc.st.air >= q.air]);
+  if (q.cost) rows.push([`cost ≤ £${q.cost}k`, sc.cost <= q.cost]);
+  if (q.lat) rows.push([`sideways ≤ ${q.lat} g`, sc.st.latmax <= q.lat]);
+  if (q.depth) rows.push([`lot depth ≤ ${q.depth} m`, sc.fp.d <= q.depth]);
+  if (q.turn) rows.push(['turns back on itself', Math.abs(sc.r.S[sc.r.S.length - 1].head) > 2.6]);
+  if (q.thrill) rows.push([`thrill ≥ ${q.thrill}`, sc.thrill >= q.thrill]);
+  if (q.comfort) rows.push([`comfort ≥ ${q.comfort}`, sc.comfort >= q.comfort]);
+  return rows;
+}
+const ROWS_ONLY = c => checkReq(c, { ok: false, st: { inv: 0, gmax: 9, gmin: -9, air: 0, latmax: 9 }, cost: 1e9, fp: { d: 1e9 }, r: { S: [{ head: 0 }] }, thrill: 0, comfort: 0 }).map(r => r[0]);
+const dailyScore = sc => Math.round(sc.thrill + sc.comfort - sc.cost / 5);
+
+// ================= state =================
+const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+const SAVE = (v => isObj(v) ? v : {})(RH.load('coaster', {}));
+SAVE.done = isObj(SAVE.done) ? SAVE.done : {}; SAVE.best = isObj(SAVE.best) ? SAVE.best : {}; SAVE.designs = isObj(SAVE.designs) ? SAVE.designs : {};
+const persist = () => { for (const k in SAVE.designs) if (!COMS.find(c => c.id === k)) delete SAVE.designs[k]; RH.save('coaster', SAVE); RH.progress('coaster', COMS.filter(c => !c.free && !c.daily && SAVE.done[c.id]).length / COMS.filter(c => !c.free && !c.daily).length); };
+let C = COMS[0], site = flatSite(), design = { nodes: [], lift: 1 }, sel = -1, history = [], last = null, play = null;
+
+// ================= share codes =================
+const enc = d => d.nodes.map(n => [Math.round(n.x * 2), Math.round(n.y * 2), Math.round(n.r || 0), Math.round(n.bank || 0)].map(v => v.toString(36)).join('.')).join('_');
+const dec = s => ({ nodes: s.split('_').map(t => { const [x, y, r, b] = t.split('.').map(v => parseInt(v, 36) || 0); return N(x / 2, y / 2, r ? { r, bank: b } : {}); }).filter(n => isFinite(n.x) && isFinite(n.y)).slice(0, 80), lift: 1 });
+
+// ================= view =================
+const cv = $('cv'), g = cv.getContext('2d'); let W = 1, H = 1, dpr = 1, cam = { s: 3, ox: 40, oy: 0 };
+function resize() { dpr = FX.fit(cv, 2); W = cv.width; H = cv.height; fit(); }
+function playRect() { // the part of the screen the drawing can use
+  const b = $('brief').getBoundingClientRect(), t = $('tools').getBoundingClientRect(), mob = innerWidth < 860, land = mob && innerHeight < 520;
+  return { l: land || !mob ? b.right + 10 : 8, r: innerWidth - 10, t: land || !mob ? 20 : b.bottom + 10, b: t.top - 24 };
+}
+function fit() {
+  if (!design.nodes.length) return; const R = playRect(), xs = design.nodes.map(n => n.x), ys = design.nodes.map(n => n.y);
+  const x0 = Math.min(...xs) - 10, x1 = Math.max(...xs) + 10, y0 = Math.min(0, ...ys) - 4, y1 = Math.max(...ys) + 12;
+  cam.s = Math.max(.6, Math.min((R.r - R.l) / (x1 - x0), (R.b - R.t) / (y1 - y0))) * dpr;
+  cam.ox = R.l * dpr - x0 * cam.s + ((R.r - R.l) * dpr - (x1 - x0) * cam.s) / 2; cam.oy = R.b * dpr + y0 * cam.s;
+}
+const sx = x => cam.ox + x * cam.s, sy = y => cam.oy - y * cam.s, wx = px => (px - cam.ox) / cam.s, wy = py => (cam.oy - py) / cam.s;
+
+function draw() {
+  // blueprint paper
+  g.fillStyle = '#123a66'; g.fillRect(0, 0, W, H);
+  const step = 10 * cam.s; g.lineWidth = 1; g.strokeStyle = 'rgba(207,230,255,.09)';
+  if (step > 6) { g.beginPath(); for (let x = ((cam.ox % step) + step) % step; x < W; x += step) { g.moveTo(x, 0); g.lineTo(x, H); } for (let y = ((cam.oy % step) + step) % step; y < H; y += step) { g.moveTo(0, y); g.lineTo(W, y); } g.stroke(); }
+  // ground and lake
+  const x0 = wx(0), x1 = wx(W);
+  g.beginPath(); g.moveTo(0, H); for (let px = 0; px <= W; px += 4 * dpr) g.lineTo(px, sy(site.terrain(wx(px)))); g.lineTo(W, H); g.closePath();
+  g.fillStyle = 'rgba(207,230,255,.10)'; g.fill(); g.strokeStyle = 'rgba(207,230,255,.75)'; g.lineWidth = 1.5 * dpr; g.stroke();
+  if (site.lake) { const lx0 = sx(site.lake[0]), lx1 = sx(site.lake[1]); g.fillStyle = 'rgba(90,170,230,.45)'; g.fillRect(lx0, sy(1.2), lx1 - lx0, 1.2 * cam.s + 2);
+    g.fillStyle = '#cfe6ff'; g.font = `${12 * dpr}px "Architects Daughter"`; g.textAlign = 'center'; g.fillText('lake', (lx0 + lx1) / 2, sy(1.2) - 4 * dpr); }
+  const S = design.S || (design.S = geometry(design));
+  // supports
+  g.strokeStyle = 'rgba(207,230,255,.22)'; g.lineWidth = 1 * dpr; g.beginPath();
+  for (let i = 0; i < S.length; i += 8) { const p = S[i]; if (Math.cos(p.th) < 0) continue; g.moveTo(sx(p.x), sy(p.y)); g.lineTo(sx(p.x), sy(site.terrain(p.x))); } g.stroke();
+  // track: rails, colour-coded by seat g after a ride
+  const R = last && last.r;
+  for (let i = 0; i < S.length - 1; i++) {
+    const p = S[i], q = S[i + 1]; let col = '#ffffff';
+    if (p.seg < (design.lift ?? 1)) col = '#f2b33d';
+    if (R && R.gs[i] != null) { const gg = R.gs[i]; col = gg > 5 ? '#ff4b3a' : gg > 3.5 ? '#ffa25a' : gg < 0 ? '#7cf2ff' : gg < .2 ? '#b8f7ff' : '#ffffff'; }
+    if (R && R.stall >= 0 && i >= R.stall) col = 'rgba(255,255,255,.35)';
+    g.strokeStyle = col; g.lineWidth = (p.kh ? 4 : 2.6) * dpr; g.beginPath(); g.moveTo(sx(p.x), sy(p.y)); g.lineTo(sx(q.x), sy(q.y)); g.stroke();
+  }
+  // turns: annotated with the drafter's red pencil
+  design.nodes.forEach((n, i) => { if (!n.r || i >= design.nodes.length - 1) return; const m = design.nodes[i + 1];
+    g.fillStyle = '#ff6b57'; g.font = `${12 * dpr}px "Architects Daughter"`; g.textAlign = 'center'; g.fillText(`turn R${Math.abs(n.r)} m · bank ${n.bank || 0}°`, sx((n.x + m.x) / 2), sy((n.y + m.y) / 2) - 12 * dpr); });
+  // stall / crash markers
+  if (R && R.stall >= 0) { const p = S[R.stall]; g.fillStyle = '#ff6b57'; g.font = `700 ${14 * dpr}px "Courier Prime"`; g.textAlign = 'center'; g.fillText('STALLED', sx(p.x), sy(p.y) - 16 * dpr); }
+  if (R && R.kink >= 0) { const p = S[R.kink]; g.fillStyle = '#ff6b57'; g.font = `700 ${14 * dpr}px "Courier Prime"`; g.textAlign = 'center'; g.fillText('KINK', sx(p.x), sy(p.y) - 16 * dpr); }
+  if (R && R.crash >= 0) { const p = S[R.crash]; g.fillStyle = '#ff6b57'; g.font = `700 ${14 * dpr}px "Courier Prime"`; g.textAlign = 'center'; g.fillText('HITS THE GROUND', sx(p.x), sy(p.y) + 22 * dpr); }
+  // nodes (drag handles)
+  if (!play) design.nodes.forEach((n, i) => {
+    const X = sx(n.x), Y = sy(n.y), r = (i === sel ? 13 : 10) * dpr;
+    g.beginPath(); g.arc(X, Y, r, 0, 7); g.fillStyle = i === 0 ? '#f2b33d' : i === sel ? '#ff6b57' : 'rgba(18,58,102,.9)'; g.fill(); g.lineWidth = 2 * dpr; g.strokeStyle = '#cfe6ff'; g.stroke();
+    if (i === 0) { g.fillStyle = '#cfe6ff'; g.font = `${11 * dpr}px "Architects Daughter"`; g.textAlign = 'center'; g.fillText('station', X, Y + 24 * dpr); }
+  });
+  // the train during a ride
+  if (play) { const p = S[play.i] || S[S.length - 1]; for (let k = 0; k < 3; k++) { const q = S[Math.max(0, play.i - k * 6)] || p; g.save(); g.translate(sx(q.x), sy(q.y)); g.rotate(-q.th); g.fillStyle = k ? '#f4e8cc' : '#e2493b'; g.fillRect(-2.2 * cam.s, -1.6 * cam.s, 4 * cam.s, 1.6 * cam.s); g.restore(); } }
+  // scale bar and top view
+  g.fillStyle = '#cfe6ff'; g.font = `${12 * dpr}px "Courier Prime"`; g.textAlign = 'left'; const bx = W - 140 * dpr, by = H - 90 * dpr;
+  g.fillRect(bx, by, 10 * cam.s, 2 * dpr); g.fillText('10 m', bx, by - 5 * dpr);
+  drawTop(S);
+}
+function drawTop(S) { // plan view in the corner
+  const fp = footprint(S), sz = 110 * dpr, k = Math.min(sz / fp.w, sz / fp.d) * .9; let mx = 1e9, mz = 1e9; for (const p of S) { mx = Math.min(mx, p.X); mz = Math.min(mz, p.Z); }
+  const ox = W - sz - 14 * dpr, oy = 14 * dpr + (innerWidth < 860 ? 9999 : 0); if (oy > H) return;
+  if ($('gauge').style.display === 'block') return;
+  g.fillStyle = 'rgba(13,44,82,.8)'; g.fillRect(ox - 6 * dpr, oy - 6 * dpr, sz + 12 * dpr, sz + 28 * dpr); g.strokeStyle = 'rgba(207,230,255,.5)'; g.strokeRect(ox - 6 * dpr, oy - 6 * dpr, sz + 12 * dpr, sz + 28 * dpr);
+  g.strokeStyle = '#ffffff'; g.lineWidth = 2 * dpr; g.beginPath(); S.forEach((p, i) => { const X = ox + (p.X - mx + 2) * k, Y = oy + (p.Z - mz + 2) * k; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.stroke();
+  g.fillStyle = '#cfe6ff'; g.font = `${11 * dpr}px "Courier Prime"`; g.textAlign = 'left'; g.fillText(`plan ${Math.round(fp.w)}×${Math.round(fp.d)} m`, ox, oy + sz + 16 * dpr);
+}
+
+// ================= POV: the front seat =================
+const pv = $('pov'), pg = pv.getContext('2d');
+function drawPOV(i) {
+  const S = design.S, p = S[i]; if (!p) return; const Wp = pv.width, Hp = pv.height;
+  const ahead = S[Math.min(S.length - 1, i + 4)], fx = ahead.X - p.X, fz = ahead.Z - p.Z, fy = ahead.y - p.y, fl = Math.hypot(fx, fy, fz) || 1;
+  const F = [fx / fl, fy / fl, fz / fl], Rr = [-F[2], 0, F[0]], rl = Math.hypot(Rr[0], Rr[2]) || 1; Rr[0] /= rl; Rr[2] /= rl;
+  const U = [Rr[1] * F[2] - Rr[2] * F[1], Rr[2] * F[0] - Rr[0] * F[2], Rr[0] * F[1] - Rr[1] * F[0]];
+  if (U[1] < 0 && Math.cos(p.th) > 0) { U[0] *= -1; U[1] *= -1; U[2] *= -1; }
+  const roll = -p.bank * Math.sign(p.kh || 0);
+  const cam = [p.X, p.y + 1.6, p.Z];
+  const proj = (X, Y, Z) => { const d = [X - cam[0], Y - cam[1], Z - cam[2]], z = d[0] * F[0] + d[1] * F[1] + d[2] * F[2]; if (z < .3) return null; let x = d[0] * Rr[0] + d[1] * Rr[1] + d[2] * Rr[2], y = d[0] * U[0] + d[1] * U[1] + d[2] * U[2];
+    const c = Math.cos(roll), s = Math.sin(roll); [x, y] = [x * c - y * s, x * s + y * c]; return [Wp / 2 + x / z * Wp * .7, Hp / 2 - y / z * Wp * .7]; };
+  // sky and ground split by the horizon
+  const hz = proj(cam[0] + F[0] * 1000, cam[1], cam[2] + F[2] * 1000), hy = hz ? clamp(hz[1], -Hp, 2 * Hp) : (F[1] > 0 ? 2 * Hp : -Hp);
+  pg.fillStyle = '#8fc7e8'; pg.fillRect(0, 0, Wp, Hp); pg.fillStyle = '#6d9a4c'; pg.fillRect(0, hy, Wp, Hp * 3);
+  pg.strokeStyle = '#3a2a1a'; pg.lineWidth = 3;
+  for (const side of [-1, 1]) { pg.beginPath(); let on = false; for (let k = i; k < Math.min(S.length, i + 220); k += 2) { const q = S[k], nx = -Math.sin(q.head), nz = Math.cos(q.head);
+      const P = proj(q.X + nx * side * .7, q.y, q.Z + nz * side * .7); if (!P) { on = false; continue; } on ? pg.lineTo(P[0], P[1]) : pg.moveTo(P[0], P[1]); on = true; } pg.stroke(); }
+  pg.strokeStyle = 'rgba(80,50,20,.6)'; pg.lineWidth = 2; for (let k = i + 2; k < Math.min(S.length, i + 120); k += 4) { const q = S[k], nx = -Math.sin(q.head), nz = Math.cos(q.head), a = proj(q.X - nx, q.y, q.Z - nz), b = proj(q.X + nx, q.y, q.Z + nz); if (a && b) { pg.beginPath(); pg.moveTo(a[0], a[1]); pg.lineTo(b[0], b[1]); pg.stroke(); } }
+  // grey-out / black-out vignette
+  const gg = play && last.r.gs[i] || 1; const dim = clamp((gg - 4.5) / 1.5, 0, 1); if (dim > 0) { pg.fillStyle = `rgba(0,0,0,${dim * .85})`; pg.fillRect(0, 0, Wp, Hp); }
+  if (gg < 0) { pg.fillStyle = 'rgba(255,255,255,.12)'; pg.fillRect(0, 0, Wp, Hp); }
+  pg.fillStyle = '#e2493b'; pg.fillRect(0, Hp - 26, Wp, 26); pg.fillStyle = '#f4e8cc'; pg.font = '16px "Courier Prime"'; pg.fillText(`${Math.round(play ? last.r.v[i] * 3.6 : 0)} km/h  ${(gg).toFixed(1)} g`, 10, Hp - 8);
+}
+
+// ================= editing =================
+function snapshot() { history.push(JSON.stringify(design.nodes)); if (history.length > 50) history.shift(); }
+function changed() { design.S = null; last = null; SAVE.designs[C.id] = enc(design); persist(); renderReq(); renderTools(); kick(); }
+const ptrs = new Map(); let dragN = -1, pan = null, pinch = null;
+function hitNode(px, py) { let best = -1, bd = 1e9; design.nodes.forEach((n, i) => { const d = Math.hypot(sx(n.x) - px, sy(n.y) - py); if (d < 24 * dpr && d < bd) { bd = d; best = i; } }); return best; }
+cv.addEventListener('pointerdown', e => {
+  if (play) return; cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX * dpr, y: e.clientY * dpr });
+  if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: cam.s, ox: cam.ox, oy: cam.oy, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }; dragN = -1; pan = null; return; }
+  const px = e.clientX * dpr, py = e.clientY * dpr, h = hitNode(px, py);
+  if (h >= 0) { dragN = h; sel = h; snapshot(); renderInsp(); FX.sfx('tick'); kick(); return; }
+  sel = -1; renderInsp(); pan = { x: px, y: py, ox: cam.ox, oy: cam.oy }; kick();
+});
+cv.addEventListener('pointermove', e => {
+  const p = ptrs.get(e.pointerId); if (!p) return; p.x = e.clientX * dpr; p.y = e.clientY * dpr;
+  if (pinch && ptrs.size >= 2) { const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y), s = clamp(pinch.s * d / pinch.d, .4 * dpr, 12 * dpr);
+    const wx0 = (pinch.cx - pinch.ox) / pinch.s, wy0 = (pinch.oy - pinch.cy) / pinch.s; cam.s = s; cam.ox = pinch.cx - wx0 * s; cam.oy = pinch.cy + wy0 * s; kick(); return; }
+  if (dragN >= 0) { const n = design.nodes[dragN]; n.x = Math.round(wx(p.x) * 2) / 2; n.y = Math.max(dragN === 0 ? 0 : -2, Math.round(wy(p.y) * 2) / 2); if (dragN === 0) n.x = Math.min(n.x, design.nodes[1].x - 4); design.S = null; last = null; kick(); return; }
+  if (pan) { cam.ox = pan.ox + p.x - pan.x; cam.oy = pan.oy + p.y - pan.y; kick(); }
+});
+const up = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (dragN >= 0) { dragN = -1; changed(); } pan = null; };
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+cv.addEventListener('wheel', e => { e.preventDefault(); const s = clamp(cam.s * Math.exp(-e.deltaY * .0015), .4 * dpr, 12 * dpr), px = e.clientX * dpr, py = e.clientY * dpr, x = wx(px), y = wy(py); cam.s = s; cam.ox = px - x * s; cam.oy = py + y * s; kick(); }, { passive: false });
+function addNode() { // a new hump after the selected node (or before the end)
+  snapshot(); const i = sel >= 0 && sel < design.nodes.length - 1 ? sel : design.nodes.length - 2, a = design.nodes[i], b = design.nodes[i + 1];
+  design.nodes.splice(i + 1, 0, N((a.x + b.x) / 2, Math.max(a.y, b.y) * .7 + 4)); sel = i + 1; changed(); renderInsp(); FX.sfx('place');
+}
+function addLoop() { // a circular loop (the classic mistake) after the selected node
+  snapshot(); const i = sel >= 0 && sel < design.nodes.length - 1 ? sel : Math.max(1, design.nodes.length - 2), a = design.nodes[i], R = 12, x = a.x + 15, y = Math.max(3, a.y);
+  const loop = [N(x, y), N(x + R, y + R), N(x, y + 2 * R), N(x - R, y + R), N(x + 4, y + .5)];
+  const shift = R * 2 + 10; for (let k = i + 1; k < design.nodes.length; k++) design.nodes[k].x += shift;
+  design.nodes.splice(i + 1, 0, ...loop); sel = -1; changed(); renderInsp(); FX.sfx('whoosh');
+}
+function delNode() { if (sel <= 0 || sel >= design.nodes.length - 1 || design.nodes.length <= 3) return; snapshot(); design.nodes.splice(sel, 1); sel = -1; changed(); renderInsp(); FX.sfx('pop'); }
+function undo() { if (!history.length) return; design.nodes = JSON.parse(history.pop()); sel = -1; changed(); renderInsp(); FX.sfx('click'); }
+function renderInsp() {
+  const el = $('insp'); if (sel < 0 || play || sel >= design.nodes.length - 1) { el.style.display = 'none'; return; }
+  const n = design.nodes[sel]; el.style.display = 'flex';
+  el.innerHTML = `<span>Node ${sel}${sel === 0 ? ' (station)' : ''}: the segment after it</span>
+    <label>turn R <input id="iR" type="range" min="0" max="60" step="2" value="${Math.abs(n.r || 0)}"><b id="iRv">${n.r ? Math.abs(n.r) + ' m' : 'straight'}</b></label>
+    <label>bank <input id="iB" type="range" min="0" max="80" step="5" value="${n.bank || 0}"><b id="iBv">${n.bank || 0}°</b></label>
+    ${sel > 0 ? '<button class="t" id="iDel">Delete node</button>' : ''}`;
+  $('iR').oninput = e => { const v = +e.target.value; n.r = v >= 8 ? v : 0; $('iRv').textContent = n.r ? n.r + ' m' : 'straight'; design.S = null; last = null; kick(); };
+  $('iB').oninput = e => { n.bank = +e.target.value; $('iBv').textContent = n.bank + '°'; design.S = null; last = null; kick(); };
+  $('iR').onchange = $('iB').onchange = () => changed();
+  if ($('iDel')) $('iDel').onclick = delNode;
+}
+
+// ================= riding =================
+function startRide() {
+  if (play) return; sel = -1; renderInsp();
+  last = scores(design, site); const R = last.r;
+  play = { i: 0, k: 0, t0: performance.now(), n: R.t.length }; $('gauge').style.display = 'block'; pv.style.display = 'block'; $('povL').style.display = 'block'; renderTools(); FX.sfx('click'); kick();
+}
+function stepRide(now) {
+  const R = last.r, el = (now - play.t0) / 1000 * (play.fast || 1.6);
+  while (play.k < R.t.length - 1 && R.t[play.k] < el) play.k++;
+  play.i = R.idx[play.k] ?? 0;
+  const v = R.v[play.k] || 0, gg = R.gs[play.k] ?? 1, gl = R.gl[play.k] ?? 0;
+  $('gV').textContent = Math.round(v * 3.6) + ' km/h'; $('gVb').style.width = clamp(v * 3.6 / 1.3, 0, 100) + '%';
+  $('gG').textContent = gg.toFixed(1); $('gGb').style.width = clamp(gg / 7 * 100, 0, 100) + '%'; $('gGb').className = gg > 5 || gg < -1 ? 'hot' : '';
+  $('gL').textContent = Math.abs(gl).toFixed(1);
+  if (Math.random() < .1) FX.tone({ noise: 1, f: 200 + v * 25, q: .5, dur: .1, vol: .03 + v / 600 });
+  if (play.k >= R.t.length - 1) { endRide(); return; }
+  drawPOV(play.i);
+}
+function endRide() {
+  const sc = last; play = null; pv.style.display = 'none'; $('povL').style.display = 'none'; renderTools();
+  if (!sc.ok) { toast(sc.r.kink >= 0 ? 'A kink tighter than 3 m: the steel cannot be bent that sharply. Spread the nodes out.' : sc.r.stall >= 0 ? 'The train stalled and rolled back. Lower that hill or start higher.' : 'The track hits the ground.', 1); FX.sfx('fail'); $('gauge').style.display = 'none'; renderReq(); kick(); return; }
+  showResult(sc); kick();
+}
+function guests(sc) {
+  const st = sc.st, out = [];
+  out.push(['Thrill seeker', st.inv ? (st.air > 1.5 ? 'Upside down AND floating? Again!' : 'The loop was the best bit.') : st.vmax > 25 ? 'Fast, but I want to go upside down.' : 'Yawn. My nan has ridden faster.']);
+  out.push(['A family', sc.black ? 'Dad passed out at the bottom of the loop.' : st.gmax > 4 ? 'The little one cried at that dip.' : st.air > .8 ? 'The kids screamed with joy on the humps!' : 'Lovely and gentle. Bit dull?']);
+  out.push(['The engineer', st.latmax > 1.2 ? `Riders slammed sideways at ${st.latmax.toFixed(1)} g. Bank your turns.` : st.gmax > 5 ? `Peak ${st.gmax.toFixed(1)} g: a circle is the wrong shape for a loop.` : `Peak ${st.gmax.toFixed(1)} g, £${sc.cost}k. Tidy work.`]);
+  return out;
+}
+let HIST = {};
+function histogram(c) { // what a field of drafters builds for this commission: jittered variants of a known good design
+  if (HIST[c.id]) return HIST[c.id];
+  const ref = REF[c.id]; if (!ref) return null; const r = RH.rng(7), costs = [], s0 = c.site();
+  for (let k = 0; k < 40; k++) { const d = { nodes: ref().map((n, i) => i === 0 ? { ...n } : { ...n, x: n.x + (r() - .5) * 6, y: Math.max(1, n.y + (r() - .5) * 8) }), lift: 1 };
+    const sc = scores(d, s0); if (checkReq(c, sc).every(x => x[1])) costs.push(c.daily ? dailyScore(sc) : sc.cost); }
+  return HIST[c.id] = costs;
+}
+function showResult(sc) {
+  const rows = checkReq(C, sc), pass = rows.every(r => r[1]), el = $('result');
+  let stars = 0, hist = histogram(C), mine = C.daily ? dailyScore(sc) : sc.cost, pct = null;
+  if (pass) { stars = 1; if (hist && hist.length) { const better = C.daily ? hist.filter(x => x < mine).length : hist.filter(x => x > mine).length; pct = Math.round(better / hist.length * 100); if (pct >= 50) stars = 2; if (pct >= 85) stars = 3; } else stars = 3;
+    SAVE.done[C.id] = Math.max(SAVE.done[C.id] || 0, stars); const b = SAVE.best[C.id]; if (!b || (C.daily ? mine > b : mine < b)) SAVE.best[C.id] = mine;
+    if (C.daily) SAVE.dailyKey = dailySeed(); persist(); FX.sfx('win'); FX.shake(.3); }
+  else FX.sfx('fail');
+  el.style.display = 'block';
+  el.innerHTML = `<h3>${pass ? 'Ride approved' : 'Back to the drawing board'}</h3>${pass ? `<div class="stars">${'★'.repeat(stars)}<s>${'★'.repeat(3 - stars)}</s></div>` : ''}
+    <div class="scores"><div>thrill<b>${sc.thrill}</b></div><div>comfort<b>${sc.comfort}</b></div><div>cost<b>£${sc.cost}k</b></div><div>plan<b>${Math.round(sc.fp.w)}×${Math.round(sc.fp.d)}</b></div></div>
+    <div style="font-family:'Courier Prime';font-size:13px">top ${Math.round(sc.st.vmax * 3.6)} km/h · peak ${sc.st.gmax.toFixed(1)} g · low ${sc.st.gmin.toFixed(1)} g · side ${sc.st.latmax.toFixed(1)} g · airtime ${sc.st.air.toFixed(1)} s · inversions ${sc.st.inv}</div>
+    <ul class="req">${rows.map(r => `<li class="${r[1] ? 'ok' : 'bad'}">${r[0]}</li>`).join('')}</ul>
+    ${pass && hist && hist.length ? `<canvas id="hist" width="600" height="110"></canvas><div style="font-size:13px">${C.daily ? 'Score' : 'Cost'} against ${hist.length} designs by other drafters: better than ${pct}%.${C.daily ? ` Today's score: <b>${mine}</b> (best ${SAVE.best[C.id]}).` : ''}</div>` : ''}
+    <div class="guests">${guests(sc).map(([w, q]) => `<div>${q}<em>${w}</em></div>`).join('')}</div>
+    <div class="row3"><button class="t" id="rShare">Share design</button><button class="t" id="rEdit">Keep drafting</button>${pass && COMS.indexOf(C) < COMS.length - 1 ? '<button class="t ride" id="rNext">Next →</button>' : ''}</div>`;
+  if ($('hist')) drawHist($('hist'), hist, mine, C.daily);
+  $('rEdit').onclick = () => { el.style.display = 'none'; $('gauge').style.display = 'none'; kick(); };
+  $('rShare').onclick = share;
+  if ($('rNext')) $('rNext').onclick = () => { el.style.display = 'none'; loadCom(COMS.indexOf(C) + 1); };
+  renderReq(); renderSel();
+}
+function drawHist(c, h, mine, higherBetter) {
+  const x = c.getContext('2d'), Wc = c.width, Hc = c.height, lo = Math.min(...h, mine), hi = Math.max(...h, mine) + 1e-6, nb = 16, bins = new Array(nb).fill(0);
+  for (const v of h) bins[Math.min(nb - 1, Math.floor((v - lo) / (hi - lo) * nb))]++; const mx = Math.max(...bins);
+  x.fillStyle = '#123a66'; x.fillRect(0, 0, Wc, Hc);
+  bins.forEach((b, i) => { const bw = Wc / nb; x.fillStyle = '#cfe6ff'; x.fillRect(i * bw + 2, Hc - 18 - b / mx * (Hc - 30), bw - 4, b / mx * (Hc - 30)); });
+  const mxp = (mine - lo) / (hi - lo) * Wc; x.fillStyle = '#ff6b57'; x.fillRect(mxp - 2, 6, 4, Hc - 24); x.fillStyle = '#f4e8cc'; x.font = '15px "Courier Prime"';
+  x.fillText(higherBetter ? 'score →' : '← cheaper', 6, Hc - 3); x.textAlign = 'right'; x.fillText('you', Math.min(Wc - 4, mxp + 30), 20);
+}
+function share() { const url = location.href.split('#')[0] + `#c=${C.id}&d=${enc(design)}`; try { navigator.clipboard.writeText(url); } catch (e) {} toast('Design link copied to the clipboard.'); try { window.history.replaceState(null, '', url); } catch (e) {} }
+
+// ================= UI =================
+function toast(m, bad) { const t = document.createElement('div'); t.className = 'tc' + (bad ? ' bad' : ''); t.innerHTML = m; $('toastC').appendChild(t); setTimeout(() => t.remove(), 3400); while ($('toastC').children.length > 2) $('toastC').firstChild.remove(); }
+function renderTools() {
+  $('tools').innerHTML = play ? `<button class="t" id="tSkip">Skip ride ▸▸</button>`
+    : `<button class="t ride" id="tRide">RIDE</button><button class="t" id="tHill" title="Add a hill after the selected node">⌒<span class="lbl"> Hill</span></button><button class="t" id="tLoop" title="Add a loop">◯<span class="lbl"> Loop</span></button>`
+    + `<button class="t" id="tUndo" ${history.length ? '' : 'disabled'} title="Undo">↶<span class="lbl"> Undo</span></button><button class="t" id="tFit" title="Fit to screen">⤢<span class="lbl"> Fit</span></button><button class="t" id="tReset" title="Start this commission's drawing again">⟲<span class="lbl"> Reset</span></button>`;
+  const on = (id, f) => { if ($(id)) $(id).onclick = f; };
+  on('tRide', startRide); on('tHill', addNode); on('tLoop', addLoop); on('tUndo', undo); on('tFit', () => { fit(); kick(); });
+  on('tReset', () => { snapshot(); design = { nodes: C.start(), lift: 1 }; sel = -1; changed(); renderInsp(); fit(); });
+  on('tSkip', () => { play.fast = 1e6; });
+}
+function renderReq() { $('cReq').innerHTML = (last && last.ok !== undefined && last.r ? checkReq(C, last).map(r => `<li class="${r[1] ? 'ok' : 'bad'}">${r[0]}</li>`) : ROWS_ONLY(C).map(r => `<li>${r}</li>`)).join(''); }
+function renderSel() {
+  const open = i => i === 0 || COMS[i].free || COMS[i].daily && SAVE.done.first || SAVE.done[COMS[i - 1].id];
+  $('comSel').innerHTML = COMS.map((c, i) => `<option value="${i}" ${c === C ? 'selected' : ''} ${open(i) ? '' : 'disabled'}>${c.daily ? '☀ ' : ''}${c.n}${SAVE.done[c.id] ? ' ' + '★'.repeat(SAVE.done[c.id]) : open(i) ? '' : ' 🔒'}</option>`).join('');
+}
+$('comSel').onchange = () => loadCom(+$('comSel').value);
+function loadCom(i, shared) {
+  C = COMS[i]; site = C.site(); SAVE.cur = i; history = []; last = null; play = null; sel = -1;
+  design = shared || (SAVE.designs[C.id] ? dec(SAVE.designs[C.id]) : { nodes: C.start(), lift: 1 });
+  if (design.nodes.length < 3) design = { nodes: C.start(), lift: 1 };
+  $('cTitle').textContent = C.n + (C.daily ? ` · ${dailySeed()}` : ''); $('cStory').innerHTML = C.story;
+  $('result').style.display = 'none'; $('gauge').style.display = 'none'; pv.style.display = 'none';
+  persist(); renderSel(); renderReq(); renderTools(); renderInsp(); fit(); kick();
+}
+
+// ================= reference designs (known solutions, also the "field" for each histogram) =================
+const REF = { // found by search under the game's own rules (they are also the "field" for each histogram)
+  first: () => [[0, 2], [40, 32], [54, 12.5], [81.5, .5], [110, 4.5], [129.5, 1.5], [157.5, .5]].map(a => N(...a)),
+  loop: () => [[0, 2], [44, 34.5], [54.5, 21], [86.5, 4], [103.5, .5], [131, 9.5], [136, 19], [129.5, 28], [120.5, 24.5], [120, 14], [130.5, 5], [157, 1], [165.5, .5]].map(a => N(...a)),
+  family: () => [[0, 2], [30.5, 15.5], [46.5, 4.5], [73, .5], [94.5, 7.5], [109.5, 1], [124, .5]].map(a => N(...a)),
+  turn: () => [N(0, 2), N(30, 22), N(50, 12), N(70, 5), N(80, 5, { r: 14, bank: 50 }), N(126, 5), N(150, 4)],
+  lake: () => [[0, 8], [57, 15.5], [81, 12.5], [136.5, 3], [179, .5], [185, 6.5]].map(a => N(...a)),
+  thrill: () => [[0, 2], [44, 34.5], [54.5, 21], [86.5, 4], [103.5, .5], [131, 9.5], [136, 19], [129.5, 28], [120.5, 24.5], [120, 14], [130.5, 5], [157, 1], [171, .5], [191.5, 5], [198, 14.5], [195.5, 19], [186.5, 17.5], [185, 13], [187.5, 8.5], [201, 2], [212, .5]].map(a => N(...a)),
+  daily: () => dailyStart(siteFrom(dailySeed())),
+};
+
+// ================= loop =================
+let raf = 0;
+function kick() { if (!raf) raf = requestAnimationFrame(frame); }
+function frame(now) { raf = 0; if (play) stepRide(now); draw(); if (play) kick(); }
+addEventListener('resize', () => { resize(); kick(); });
+addEventListener('keydown', e => { if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return; if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); startRide(); } else if (e.key === 'z') undo(); else if (e.key === 'Delete' || e.key === 'Backspace') delNode(); });
+
+// ================= debug / test handle =================
+window.__coaster = { spline, resample, geometry, ride, scores, footprint, costOf, checkReq, siteFrom, COMS, REF, enc, dec, dailySeed, histogram, dailyScore,
+  get design() { return design; }, set design(d) { design = d; changed(); }, get site() { return site; }, get last() { return last; }, get C() { return C; }, load: i => loadCom(i), ride: () => { startRide(); play.fast = 1e6; stepRide(performance.now()); return last; },
+  screenOf: (x, y) => [sx(x) / dpr, sy(y) / dpr], SAVE };
+
+// ================= boot =================
+resize();
+{ const m = /#c=([a-z]+)&d=([0-9a-z._-]+)/.exec(location.hash), ci = m ? COMS.findIndex(c => c.id === m[1]) : -1;
+  if (ci >= 0) { loadCom(ci, dec(m[2])); toast('A shared design. Press RIDE.'); }
+  else loadCom(Math.min(COMS.length - 1, Math.max(0, +SAVE.cur || 0))); }
+if (document.fonts) document.fonts.ready.then(() => { fit(); kick(); });
+</script>
+</body>
+</html>

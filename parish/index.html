@@ -71,6 +71,11 @@
   .absBtn{margin-top:8px;margin-left:6px;font-size:13px}
   .probBtn{font-style:italic;border-style:dashed!important}
   .ans .prob{color:var(--fade)}
+  .claim select{font-size:14px;max-width:190px}
+  .finds{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+  .finds .fi{border:1px solid #7d5a3666;padding:6px 8px;font-size:14px;background:#f6edd4;display:flex;flex-direction:column;gap:2px}
+  .finds .fi b{font-family:"IM Fell English SC",serif} .finds .fi i{color:var(--fade);font-size:12px}
+  .finds .fi.no{color:#8a7a5a;font-style:italic}
   .ev{font-size:13px;color:var(--fade);margin:4px 0;font-style:italic}
   .ev i{color:var(--ink)}
   .lost{text-align:center;font-style:italic;color:#8a6a3a;padding:20px}
@@ -478,6 +483,7 @@ function cleanSave(raw) {
   const S = { ...d };
   if (Number.isInteger(raw.seed)) S.seed = raw.seed;
   for (const k of ['done', 'prog', 'wrong', 'strikes', 'prob']) if (isObj(raw[k])) S[k] = raw[k];
+  if (isObj(raw.finds)) { S.finds = {}; for (const k of Object.keys(raw.finds)) { const f = raw.finds[k]; if (/^[a-z]+$/.test(k) && isObj(f) && typeof f.village === 'string') S.finds[k] = { at: String(f.at || '').slice(0, 10), village: f.village.slice(0, 40), n: Math.max(1, f.n | 0) }; } }
   if (Array.isArray(raw.pins)) S.pins = raw.pins.filter(Number.isInteger);
   if (typeof raw.notes === 'string') S.notes = raw.notes;
   for (const k of ['cur', 'parishes', 'total']) if (Number.isInteger(raw[k]) && raw[k] >= 0) S[k] = raw[k];
@@ -535,6 +541,57 @@ function recRow(x, hl) {
   return `<div class="rec ${x.id === sel ? 'sel' : ''} ${solvedIds.has(x.id) ? 'done' : ''}" data-id="${x.id}"><span class="dt">${MN[dt.m]} ${dt.d}${mode === 'idx' ? ' ' + dt.y : ''}</span><span class="ty">${TYI[x.t]}</span><span class="tx">${hl ? hl(recText(x)) : recText(x)}</span><button class="pinB ${S.pins.includes(x.id) ? 'on' : ''}" data-pin="${x.id}" aria-label="${S.pins.includes(x.id) ? 'Unpin' : 'Pin'} this entry" title="Pin">${S.pins.includes(x.id) ? '📌' : '＋'}</button></div>`;
 }
 function solvedRecIds() { const s = new Set(); const c = COMS[cur]; if (c) { s.add(c.start); (S.prog[cur] || []).forEach((v, i) => { if (v) s.add(c.tasks[i].truth); }); } return s; }
+
+// ================= findings: the register's own stories, proved from pinned entries =================
+// The village was simulated: births, deaths, marriages and naming customs all happened. Pin the entries that show a story
+// and claim it. The claim is checked against what really happened, so every finding is genuinely in this register.
+const FINDS = [
+  { id: 'threegen', name: 'Three generations', clue: 'A baptism, the parents\' marriage, and a parent\'s own baptism.', need: 3 },
+  { id: 'fourgen', name: 'Four generations', clue: 'Go one step further back: the grandparents\' marriage too.', need: 4 },
+  { id: 'necronym', name: 'A name given twice', clue: 'A child buried young, and a later brother or sister baptised with the same name.', need: 3 },
+  { id: 'remarried', name: 'The widower remarries', clue: 'A wife\'s burial, and her husband\'s next wedding within two years.', need: 2 },
+  { id: 'widow', name: 'The widow remarries', clue: 'A man\'s burial, and his widow\'s next wedding.', need: 2 },
+  { id: 'spelling', name: 'The clerk\'s spelling', clue: 'One person whose surname is spelt differently in two entries.', need: 2 },
+  { id: 'ageerr', name: 'A wrong age', clue: 'A burial whose stated age is two years or more off the baptism.', need: 2 },
+  { id: 'longlife', name: 'Fourscore years', clue: 'A burial at 80 or more, proved by the baptism.', need: 2 },
+  { id: 'bigfamily', name: 'A full quiver', clue: 'Seven or more baptisms to the same couple.', need: 7 },
+  { id: 'epidemic', name: 'A bad year', clue: 'Five burials from a year with far more deaths than usual.', need: 5 },
+  { id: 'cousins', name: 'Cousins wed', clue: 'A marriage, and both spouses\' baptisms, where they share a grandparent.', need: 3 },
+];
+function findIn(id, recs) {
+  const R = W.R, P = W.P, B = recs.filter(x => x.t === 'B'), D = recs.filter(x => x.t === 'D'), M = recs.filter(x => x.t === 'M'), yrs2 = yrs(2);
+  const mar = (f, m) => M.find(x => x.groom === f && x.bride === m), bap = pid => B.find(x => x.pid === pid);
+  switch (id) {
+    case 'threegen': return B.some(c => mar(c.f, c.m) && (bap(c.f) || bap(c.m)));
+    case 'fourgen': return B.some(c => mar(c.f, c.m) && [c.f, c.m].some(pp => { const pb = bap(pp); return pb && mar(pb.f, pb.m); }));
+    case 'necronym': return B.some(b1 => D.some(d => d.pid === b1.pid && B.some(b2 => b2 !== b1 && b2.f === b1.f && b2.m === b1.m && b2.g === b1.g && b2.d > d.d)));
+    case 'remarried': return D.some(d => { const w = P[d.pid]; if (w.sex !== 'F' || !w.spouses.length) return false; const h = w.spouses[w.spouses.length - 1]; return M.some(x => x.groom === h && x.gst === 'widower' && x.d > d.d && x.d - d.d < yrs2); });
+    case 'widow': return M.some(x => x.bst === 'widow' && D.some(d => P[x.bride].spouses.includes(d.pid) && d.pid !== x.groom && d.d < x.d));
+    case 'spelling': { const names = []; for (const x of B) names.push([x.pid, x.fs]); for (const x of D) names.push([x.pid, x.s]); for (const x of M) names.push([x.groom, x.gs]);
+      return names.some(([p, s1]) => names.some(([q, s2]) => p === q && s1 !== s2 && sameSur(s1, s2))); }
+    case 'ageerr': return D.some(d => d.age != null && d.age > 0 && B.some(b => b.pid === d.pid && Math.abs(d.age - Math.floor((P[d.pid].died - P[d.pid].born) / YD)) >= 2));
+    case 'longlife': return D.some(d => B.some(b => b.pid === d.pid && (d.d - b.d) / YD >= 80));
+    case 'bigfamily': return B.some(b => B.filter(x => x.f === b.f && x.m === b.m).length >= 7);
+    case 'epidemic': { const per = {}; R.filter(x => x.t === 'D').forEach(x => { const y = yearOf(x.d); per[y] = (per[y] || 0) + 1; }); const ys = Object.values(per), mean = ys.reduce((a, b) => a + b, 0) / ys.length;
+      return D.some(d => { const y = yearOf(d.d); return per[y] >= mean * 1.8 && D.filter(x => yearOf(x.d) === y).length >= 5; }); }
+    case 'cousins': return M.some(x => { const g = P[x.groom], b = P[x.bride]; if (!bap(g.id) || !bap(b.id)) return false; const gp = p => [p.father, p.mother].filter(i => i >= 0).flatMap(i => [P[i].father, P[i].mother]).filter(i => i >= 0); const a = gp(g); return gp(b).some(i => a.includes(i)); });
+  }
+  return false;
+}
+function claimFinding(id) {
+  const F = FINDS.find(f => f.id === id); if (!F) return null;
+  const recs = S.pins.map(i => W.R[i]).filter(Boolean);
+  if (recs.length < F.need) { RH.toast(`Pin at least ${F.need} entries that show it.`, 3200); return false; }
+  if (!findIn(id, recs)) { RH.toast('The pinned entries don\'t show that. Look again.', 3200); sfx('blot'); return false; }
+  S.finds ||= {}; const key = id, first = !S.finds[key]; const v = W.village;
+  S.finds[key] ||= { at: new Date().toISOString().slice(0, 10), village: v, n: 0 }; S.finds[key].n++; persist(); sfx('seal');
+  RH.toast(first ? `New finding: <b>${F.name}</b>, in ${v}. First found by you.` : `${F.name}, again: that's ${S.finds[key].n} times now.`, 4200);
+  renderRight(); return true;
+}
+function showFindings() {
+  const f = S.finds || {};
+  RH.modal(`<h2>The parish chest</h2><p class="small">Stories you have proved from the registers. ${Object.keys(f).length} of ${FINDS.length} kinds found.</p><div class="finds">${FINDS.map(x => f[x.id] ? `<div class="fi"><b>${x.name}</b>${x.clue}<i>First in ${f[x.id].village}, ${f[x.id].at}${f[x.id].n > 1 ? ` · ${f[x.id].n} found` : ''}</i></div>` : `<div class="fi no"><b>???</b>${x.clue}</div>`).join('')}</div>`, [{ label: 'Close' }]);
+}
 
 // ================= UI =================
 const $ = id => document.getElementById(id);
@@ -733,10 +790,14 @@ function renderRight() {
     const x = W.R[sel];
     h += `<div class="selbox"><span class="h">Selected entry</span><div class="txt">${fmtD(x.d)}. ${TY[x.t].slice(0, -1)}: ${recText(x)}</div><div class="row"><button id="pinBtn">${S.pins.includes(sel) ? 'Unpin' : 'Pin'}</button><button id="goYr">Open ${yearOf(x.d)}</button></div></div>`;
   }
+  h += `<div class="claim"><span class="h">Findings</span><div class="note">Pin the entries that show a story in this register, then claim it.</div><div class="row"><select id="findSel" aria-label="Kind of finding">${FINDS.map(f => `<option value="${f.id}">${(S.finds || {})[f.id] ? '✓ ' : ''}${f.name}</option>`).join('')}</select><button id="claimBtn">Claim</button><button id="chestBtn">Chest</button></div><div class="note" id="findClue">${FINDS[0].clue}</div></div>`;
   h += `<div><span class="h">Pinned</span><div class="pins">${S.pins.length ? S.pins.map(id => `<div class="p" data-id="${id}"><span>${fmtD(W.R[id].d)} ${TYI[W.R[id].t]}</span><span style="flex:1;text-align:right" class="dim">${recText(W.R[id]).slice(0, 40)}…</span></div>`).join('') : '<div class="note">Pin entries you want to compare.</div>'}</div></div>`;
   h += `<div><span class="h">Notes</span><textarea id="notes" placeholder="John Cooper b.1741 d.1743 (inf.) — not him">${S.notes || ''}</textarea></div>`;
   $('right').innerHTML = h;
   $('notes').oninput = () => { S.notes = $('notes').value; persist(); };
+  $('findSel').onchange = () => { $('findClue').textContent = FINDS.find(f => f.id === $('findSel').value).clue; };
+  $('claimBtn').onclick = () => claimFinding($('findSel').value);
+  $('chestBtn').onclick = showFindings;
   if ($('pinBtn')) $('pinBtn').onclick = () => { S.pins = S.pins.includes(sel) ? S.pins.filter(x => x !== sel) : [...S.pins, sel]; persist(); renderRight(); renderBook(); };
   if ($('goYr')) $('goYr').onclick = () => { year = yearOf(W.R[sel].d); setMode('book'); setTab('reg'); };
   $('right').querySelectorAll('.pins .p').forEach(el => el.onclick = () => { sel = +el.dataset.id; year = yearOf(W.R[sel].d); setMode('book'); renderRight(); setTab('reg'); });
@@ -777,8 +838,11 @@ function lookUp(i) {
   setMode('idx'); $('book').scrollTop = 0; setTab('reg');
 }
 
+const dailySeed = () => RH.hashStr('parish-day:' + new Date().toISOString().slice(0, 10)) % 1e9;
+function moveTo(seed) { S.total += Object.keys(S.done).length; S.parishes++; S.seed = seed; S.done = {}; S.prog = {}; S.wrong = {}; S.strikes = {}; S.prob = {}; S.pins = []; S.cur = 0; cur = 0; sel = null; year = 1700; persist(); boot(); renderAll(); history.replaceState(null, '', '#parish=' + seed); }
 $('newParish').onclick = async () => {
-  if (!(await RH.modal('<h2>Move to a new parish?</h2><p>A different village with a different register and new letters. Your answered letters here count towards your lifetime total.</p>', [{ label: 'Stay', value: 0 }, { label: 'Move', value: 1 }]))) return;
+  const v = await RH.modal('<h2>Move to a new parish?</h2><p>A different village with a different register, new letters and new stories to find. <b>Today\'s parish</b> is the same village for everyone today: compare your stars. Your answered letters here count towards your lifetime total. (To share this village, send the page\'s link.)</p>', [{ label: 'Stay', value: 0 }, { label: 'Today\'s parish', value: 2 }, { label: 'A new parish', value: 1 }]);
+  if (!v) return; moveTo(v === 2 ? dailySeed() : (Math.random() * 1e9) | 0); return;
   S.total += Object.keys(S.done).length; S.parishes++; S.seed = (Math.random() * 1e9) | 0; S.done = {}; S.prog = {}; S.wrong = {}; S.strikes = {}; S.prob = {}; S.pins = []; S.cur = 0; cur = 0; sel = null; year = 1700; persist(); boot(); renderAll();
 };
 const help = () => RH.modal(`<h2>The Parish Register</h2>
@@ -788,6 +852,7 @@ const help = () => RH.modal(`<h2>The Parish Register</h2>
   <p class="dim">A reason the register doesn't support leaves a blot, and every blot costs a star. "Buried as a child" must cite the burial itself. In the later bundles nobody hands you the list: search the register and pin the candidates yourself.</p>
   <p class="dim">Not everyone was baptised here. If every namesake can be ruled out, answer <i>not in this register</i>. You may also answer early with <i>probably</i>: right costs a star's worth of confidence, wrong costs two blots.</p>`, [{ label: 'Open the register' }]);
 $('helpBtn').onclick = help;
+{ const m = /^#parish=(\d{1,9})$/.exec(location.hash); if (m && +m[1] !== S.seed) moveTo(+m[1]); } // a shared link opens that village
 if (!S.done[cur]) autoEnter();
 renderAll();
 if (!S.intro) { S.intro = 1; persist(); help(); }
@@ -795,7 +860,7 @@ year = yearOf(W.R[COMS[cur].start].d); renderBook();
 // solver used by tests: a true reason for striking decoy `id` from task i of the open letter, with the cited record if one is needed
 function proofFor(i, id) { const k = COMS[cur].tasks[i], K = KIND[k.kind], d = W.R[id], why = K.why(W.R, d, k).filter(x => K.strikes.includes(x)), vis = why.find(x => !CITE[x]);
   if (vis) return { code: vis }; if (!why.length) return null; return { code: why[0], cite: W.R.find(b => CITE[why[0]](W.R, d, k, b)).id }; }
-window.__parish = { declareAbsent, answerProbably, proofFor, starsFor, hardDecoys, isChildBurial, CITE, needPins, togglePin, deadBefore, W: () => W, COMS: () => COMS, S, KIND, solveTask, naive, candidates, soundex, cleanSave, recText, strike, confirmTask, remaining, strikeLabel, STARS_TO_OPEN, tierStars, lookUp, openLetter, tierOpen, tierOf, setSel: v => { sel = v; }, get sel() { return sel; }, get cur() { return cur; }, get year() { return year; }, renderAll };
+window.__parish = { FINDS, findIn, claimFinding, dailySeed, moveTo,  declareAbsent, answerProbably, proofFor, starsFor, hardDecoys, isChildBurial, CITE, needPins, togglePin, deadBefore, W: () => W, COMS: () => COMS, S, KIND, solveTask, naive, candidates, soundex, cleanSave, recText, strike, confirmTask, remaining, strikeLabel, STARS_TO_OPEN, tierStars, lookUp, openLetter, tierOpen, tierOf, setSel: v => { sel = v; }, get sel() { return sel; }, get cur() { return cur; }, get year() { return year; }, renderAll };
 </script>
 </body>
 </html>

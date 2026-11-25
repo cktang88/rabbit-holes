@@ -45,6 +45,7 @@
   .tape{font-family:ui-monospace,monospace;font-size:13px;word-break:break-all}
   #isa{font-size:12px;font-family:ui-monospace,monospace;line-height:1.6;white-space:pre}
   #result .next{margin-top:8px}
+  canvas.hist{display:block;width:100%;height:70px;margin:4px 0;background:#f8f4e6;border:1px solid #9d9479}
   @media (max-width:760px){
     body{height:auto;min-height:100vh;overflow:auto}
     main{flex-direction:column}
@@ -293,7 +294,8 @@ const SW = [
 // ======================= Save =======================
 const isObj = (o)=> o && typeof o==='object' && !Array.isArray(o);
 let SAVE = RH.load('nand', null); if (!isObj(SAVE)) SAVE = {cur:0, best:{}, circuits:{}, soft:{}, code:{}};
-for (const k of ['best','circuits','soft','code']) if (!isObj(SAVE[k])) SAVE[k] = {};
+for (const k of ['best','circuits','soft','code','lab']) if (!isObj(SAVE[k])) SAVE[k] = {};
+for (const k of Object.keys(SAVE.lab)) if (!isObj(SAVE.lab[k]) || !Number.isFinite(SAVE.lab[k].g)) delete SAVE.lab[k];
 for (const k of Object.keys(SAVE.best)) if (!Number.isFinite(SAVE.best[k]) || !L.some(l=>l.id===k)) delete SAVE.best[k];
 for (const k of Object.keys(SAVE.soft)) if (!isObj(SAVE.soft[k]) || !SW.some(x=>x.id===k)) delete SAVE.soft[k];
 for (const k of Object.keys(SAVE.circuits)){ const c=SAVE.circuits[k]; if (!isObj(c) || !Array.isArray(c.comps) || !Array.isArray(c.wires)) delete SAVE.circuits[k]; }
@@ -314,6 +316,7 @@ function registerChips(){ if (typeof board!=='undefined') board=null;
   return busOn;
 }
 function paletteFor(i){
+  if (labOn) return ['NAND','HIGH','LOW'];
   const lv = L[i]; const busOn = lv.bus;
   const p = ['NAND'];
   for (let j=0;j<i;j++) if (SAVE.best[L[j].id]!=null) p.push(L[j].id);
@@ -327,7 +330,7 @@ let circ, simState, vals, inVals, nextId;
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 let view = {x:0,y:0,z:1};
 const W_IN = 0, W_OUT = 760;
-function lv(){ return L[SAVE.cur]; }
+function lv(){ return labOn && labLevel? labLevel : L[SAVE.cur]; }
 function loadCircuit(){
   const c = SAVE.circuits[lv().id];
   circ = c ? JSON.parse(JSON.stringify(c)) : {comps:[],wires:[]};
@@ -458,6 +461,7 @@ function runTests(){
     simState = {}; vals = {}; const idx = tests.indexOf(fail.t); for (let k=0;k<=idx;k++){ inVals = tests[k].inp.slice(); settle(); } draw();
     return;
   }
+  if (l.lab){ drawScope(l, trace, -1); return labResult(l); }
   const g = gateCount(); const prev = SAVE.best[l.id];
   if (prev==null || g < prev) SAVE.best[l.id] = g;
   saveCircuit(); registerChips();
@@ -808,10 +812,12 @@ function renderLevels(){
   L.forEach((l,i)=>{ if(l.act!==last){ h+=`<div class="act">${acts[l.act]}</div>`; last=l.act; }
     const s=stars(l.id); const cur=!softOn&&i===SAVE.cur;
     h+=`<div class="lv ${cur?'cur':''} ${unlocked(i)?'':'locked'}" data-i="${i}"><span>${i+1}. ${l.id}</span><span class="stars">${s? '★'.repeat(s)+'☆'.repeat(3-s) : SAVE.best[l.id]!=null?'':''}</span></div>`; });
+  h+=`<div class="act">Chip lab${labUnlocked()?'':' 🔒 (after Act I)'}</div><div class="lv ${labOn?'cur':''} ${labUnlocked()?'':'locked'}" data-lab="1"><span>Mystery chips</span><span class="stars">${Object.keys(SAVE.lab).length||''}</span></div>`;
   h+=`<div class="act">Act V · Software${softUnlocked()?'':' 🔒'}</div>`;
   SW.forEach((s,i)=>{ const r=SAVE.soft[s.id]; h+=`<div class="lv ${softOn&&softCur===i?'cur':''} ${softUnlocked()?'':'locked'}" data-s="${i}"><span>${s.name}</span><span class="stars">${r? '★'.repeat(r.stars)+'☆'.repeat(3-r.stars):''}</span></div>`; });
   const el=document.getElementById('levels'); el.innerHTML=h;
   el.querySelectorAll('[data-i]').forEach(d=> d.onclick=()=>{ const i=+d.dataset.i; if(!unlocked(i)) return; showCircuit(i); });
+  el.querySelectorAll('[data-lab]').forEach(d=> d.onclick=()=>{ if (labUnlocked()) showLab(todayKey()); });
   el.querySelectorAll('[data-s]').forEach(d=> d.onclick=()=>{ if(!softUnlocked()) return; showSoft(+d.dataset.s); });
   const done = Object.keys(SAVE.best).length + Object.keys(SAVE.soft).length;
   document.getElementById('total').textContent = `${done} / ${L.length+SW.length} solved`;
@@ -826,14 +832,17 @@ function renderBrief(){
   let tt='';
   if (!l.seq && l.ins.reduce((s,p)=>s+p[1],0)<=4){ tt = '<div class="dim small" style="margin-top:8px">Truth table</div>'+ttTable(l, tests.map(t=>({t,exp:l.fn(t.inp,{}),got:[]})), false); }
   const hint = HINTS[l.id]? `<details class="small" style="margin-top:6px"><summary class="dim" style="cursor:pointer">Stuck? Show a hint</summary><p>${HINTS[l.id]}</p></details>` : '';
-  document.getElementById('brief').innerHTML = `<h2>${SAVE.cur+1}. ${l.id}</h2><p>${l.desc}</p>${tt}${hint}`;
+  document.getElementById('brief').innerHTML = l.lab? `<h2>Chip lab · ${l.seed===todayKey()? "today's chip" : 'chip '+l.seed}</h2><p>${l.desc}</p>${tt}<div class="row" style="margin-top:6px"><button id="labToday">Today's chip</button><button id="labRand">Random chip</button></div>` : `<h2>${SAVE.cur+1}. ${l.id}</h2><p>${l.desc}</p>${tt}${hint}`;
+  if (l.lab){ document.getElementById('labToday').onclick=()=>showLab(todayKey()); document.getElementById('labRand').onclick=()=>showLab(Math.floor(Math.random()*1e6)); }
 }
 function updateHud(){
   const l=lv(); const g=gateCount();
   document.getElementById('gatePill').textContent = `${g} NAND`;
+  if (l.lab){ const rec=SAVE.lab[l.seed]; document.getElementById('parPill').textContent = `delay ${circuitDelay()}`+(rec? ` · your best ${rec.g} gates / delay ${rec.d}` : ''); return; }
   document.getElementById('parPill').textContent = `par ${l.par}`+(goldOf(l)<l.par? ` · gold ${goldOf(l)}`:'') + (SAVE.best[l.id]!=null? ` · your best ${SAVE.best[l.id]}`:'');
 }
 function showCircuit(i){
+  labOn=false; try { if (location.hash.startsWith('#chip=')) history.replaceState(null,'',location.pathname); } catch(e){}
   softOn=false; document.getElementById('soft').classList.remove('on'); document.getElementById('stage').style.display='';
   document.getElementById('testBtn').style.display=''; document.getElementById('resetBtn').style.display='';
   SAVE.cur=i; persist(); registerChips(); loadCircuit(); updDel(); renderBrief(); renderPalette(); renderLevels(); updateHud(); document.getElementById('result').innerHTML=''; resize();
@@ -1065,15 +1074,86 @@ document.getElementById('runBtn').onclick=()=>{
 };
 
 // Debug / test handle (no behaviour of its own)
-window.__nand = { buildBoard, getBoard, runOnBoard, encode, L, SW, TYPES, HINTS, genTests, runTests, settle, outputs, gateCount, assemble, newCpu, stepCpu, showCircuit, showSoft, paletteFor, unlocked, softUnlocked, stars, registerChips, persist,
+window.__nand = { genChip, synth, population, makeLabLevel, showLab, circuitDelay, labUnlocked, get labOn(){ return labOn; }, buildBoard, getBoard, runOnBoard, encode, L, SW, TYPES, HINTS, genTests, runTests, settle, outputs, gateCount, assemble, newCpu, stepCpu, showCircuit, showSoft, paletteFor, unlocked, softUnlocked, stars, registerChips, persist,
   get SAVE(){ return SAVE; }, get circ(){ return circ; }, set circ(c){ circ=c; nextId=c.comps.reduce((m,x)=>Math.max(m,x.id),0)+1; },
   get unstable(){ return unstable; }, get selWire(){ return selWire; }, set selWire(v){ selWire=v; }, get selComp(){ return selComp; }, get softOn(){ return softOn; }, get softCur(){ return softCur; },
   get view(){ return view; }, fitView, get packaging(){ return packaging; }, wirePts, bezPt, hitWire, get wireAnim(){ return wireAnim; }, liveSettle, setInputs(v){ inVals=v.slice(); }, reset(){ simState={}; vals={}; }, pinY, compSize, portPos };
+// ======================= Chip lab: an endless design bench =======================
+// A seeded mystery truth table each time. Any working NAND circuit passes; it is then ranked against a population
+// of designs by an automatic synthesiser on two costs that pull against each other: gate count and delay (the
+// longest chain of NANDs a signal must pass through). Daily chip, endless chips, and seeds in the URL (#chip=…).
+var labOn=false, labLevel=null;
+const varTT=(i,n)=>{ let t=0; for (let m=0;m<(1<<n);m++) if ((m>>i)&1) t|=1<<m; return t; };
+function genChip(seed){ const r=RH.rng('chip:'+seed);
+  for (let tries=0; tries<500; tries++){ const n= r()<.7? 3 : 4; const full=(1<<(1<<n))-1; let tt=0; for (let m=0;m<(1<<n);m++) if (r()<.5) tt|=1<<m;
+    // must depend on every input, and not be a constant, a single input or its negation
+    let deps=true; for (let i=0;i<n;i++){ let d=false; for (let m=0;m<(1<<n);m++) if (((tt>>m)&1)!==((tt>>(m^(1<<i)))&1)) d=true; if (!d) deps=false; }
+    if (!deps || tt===0 || tt===full) continue; return {n, tt}; }
+  return {n:3, tt:0b10010110}; }
+// Shannon-decomposition synthesiser. order: the variable order to split on (or a rng for random choices).
+function synth(n, tt, pick){ const full=(1<<(1<<n))-1; const comps=[], wires=[]; let id=1; const memo=new Map();
+  const nand=(a,b,t)=>{ const c={id:id++, type:'NAND', x:0, y:0}; comps.push(c); wires.push({from:a.ref,to:[c.id,0]},{from:b.ref,to:[c.id,1]}); return {ref:[c.id,0], tt:t, d:1+Math.max(a.d,b.d)}; };
+  const vars=[...Array(n)].map((_,i)=>({ref:['in',i], tt:varTT(i,n), d:0})); for (const v of vars) memo.set(v.tt, v);
+  const NOT=(s)=>{ const t=(~s.tt)&full; if (memo.has(t)) return memo.get(t); const o=nand(s,s,t); memo.set(t,o); return o; };
+  const cof=(t,i,val)=>{ let o=0; for (let m=0;m<(1<<n);m++){ const mm= val? m|(1<<i) : m&~(1<<i); if ((t>>mm)&1) o|=1<<m; } return o; };
+  const build=(t, depth)=>{ if (memo.has(t)) return memo.get(t); const nt=(~t)&full; if (memo.has(nt)) { const o=NOT(memo.get(nt)); return o; }
+    if (t===0||t===full){ const c={id:id++, type: t? 'HIGH':'LOW', x:0,y:0}; comps.push(c); const o={ref:[c.id,0],tt:t,d:0}; memo.set(t,o); return o; }
+    const live=[...Array(n).keys()].filter(i=>cof(t,i,0)!==cof(t,i,1)); const v= typeof pick==='function'? live[pick(live.length)] : pick.find(i=>live.includes(i));
+    const X=vars[v], f0=cof(t,v,0), f1=cof(t,v,1); let o;
+    if (f0===0) { const a=nand(X, build(f1), (~(varTT(v,n)&f1))&full); o=NOT(a); }
+    else if (f1===0) { const a=nand(NOT(X), build(f0), (~((~varTT(v,n))&f0))&full); o=NOT(a); }
+    else if (f0===full) o=nand(X, NOT(build(f1)), t);
+    else if (f1===full) o=nand(NOT(X), NOT(build(f0)), t);
+    else if (f1===((~f0)&full)) { const F=build(f0); const a=nand(X,F,(~(varTT(v,n)&f0))&full); const p=nand(X,a,0), q=nand(F,a,0); o=nand(p,q,t); }
+    else { const a=nand(X, build(f1), 0), b=nand(NOT(X), build(f0), 0); o=nand(a,b,t); }
+    memo.set(t,o); return o; };
+  const out=build(tt); wires.push({from:out.ref, to:['out',0]});
+  return {comps, wires, gates:comps.filter(c=>c.type==='NAND').length, delay:out.d}; }
+// The population a design is ranked against: every variable order plus randomised splits
+function population(chip){ const pop=[]; const perms=(a)=> a.length<=1? [a] : a.flatMap((x,i)=>perms([...a.slice(0,i),...a.slice(i+1)]).map(p=>[x,...p]));
+  for (const p of perms([...Array(chip.n).keys()])) { const s=synth(chip.n, chip.tt, p); pop.push({g:s.gates, d:s.delay}); }
+  const r=RH.rng('pop:'+chip.tt); for (let k=0;k<30;k++){ const s=synth(chip.n, chip.tt, (m)=>r.int(m)); pop.push({g:s.gates, d:s.delay}); }
+  return pop; }
+function circuitDelay(){ // longest NAND path from any input to the output
+  const src={}; for (const w of circ.wires) src[w.to[0]+':'+w.to[1]]=w.from; const memo={}; const depth=(ref,seen=new Set())=>{ if (!ref || ref[0]==='in') return 0; const k=ref.join(':'); if (k in memo) return memo[k]; if (seen.has(k)) return 99; seen.add(k);
+    const c=circ.comps.find(x=>x.id===ref[0]); if (!c) return 0; const t=TYPES[c.type]; let d=0; t.ins.forEach((p,i)=>{ d=Math.max(d, depth(src[c.id+':'+i], seen)); }); return memo[k]= d + (c.type==='NAND'? 1 : c.type==='HIGH'||c.type==='LOW'? 0 : (t.gates? t.gates() : 1)); };
+  return depth(src['out:0']); }
+function makeLabLevel(seed){ const ch=genChip(seed); const names='abcd';
+  return {id:'LAB:'+seed, lab:true, seed:String(seed), chip:ch, act:6, ins:[...Array(ch.n)].map((_,i)=>[names[i],1]), outs:[['out',1]], par:Infinity,
+    fn:(v)=>{ let m=0; v.forEach((x,i)=>m|=x<<i); return [(ch.tt>>m)&1]; },
+    desc:`Mystery chip <b>${seed}</b>. Build anything that matches the truth table, using NAND gates (and HIGH/LOW). Every working design passes; then you see how it ranks on <b>gates</b> and on <b>delay</b> (the longest chain of NANDs a signal passes through). Fewer gates usually means more delay: choose which to chase.`}; }
+function labUnlocked(){ return SAVE.best.DEMUX!=null; }
+function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function showLab(seed){ seed=String(seed); labOn=true; labLevel=makeLabLevel(seed); softOn=false; document.getElementById('soft').classList.remove('on'); document.getElementById('stage').style.display='';
+  document.getElementById('testBtn').style.display=''; document.getElementById('resetBtn').style.display='';
+  try { history.replaceState(null,'','#chip='+encodeURIComponent(seed)); } catch(e){}
+  loadCircuit(); updDel(); renderBrief(); renderPalette(); renderLevels(); updateHud(); document.getElementById('result').innerHTML=''; resize(); }
+function labResult(l){ const g=gateCount(), d=circuitDelay(); const pop=population(l.chip); const rec=SAVE.lab[l.seed]||{};
+  rec.g=Math.min(rec.g??1e9,g); rec.d=Math.min(rec.d??1e9,d); SAVE.lab[l.seed]=rec;
+  const ks=Object.keys(SAVE.lab); if (ks.length>60) for (const k of ks.slice(0,ks.length-60)) delete SAVE.lab[k];
+  for (const k of Object.keys(SAVE.circuits)) if (k.startsWith('LAB:') && !SAVE.lab[k.slice(4)] && k!==l.id) delete SAVE.circuits[k];
+  const minG=Math.min(...pop.map(p=>p.g)), minD=Math.min(...pop.map(p=>p.d));
+  const medal=(x,best)=> x<best? 'beats every synthesised design' : x===best? 'matches the best synthesised design' : `${Math.round(pop.filter(p=>p.g>x||p.d>x).length/pop.length*100)}%`;
+  const res=document.getElementById('result');
+  res.innerHTML=`<div class="ok">✓ Works. ${g} NAND gates, delay ${d}.</div><canvas id="histG" class="hist"></canvas><canvas id="histD" class="hist"></canvas>
+    <div class="small">${g<minG? '🥇 Fewer gates than any synthesised design.' : g===minG? 'Gates: level with the best synthesised design.' : `Gates: the best synthesised design uses ${minG}.`}<br>${d<minD? '🥇 Faster than any synthesised design.' : d===minD? 'Delay: level with the fastest synthesised design.' : `Delay: the fastest synthesised design has ${minD}.`}<br>Your best on this chip: ${rec.g} gates, delay ${rec.d}.</div>
+    <div class="row" style="margin-top:6px"><button id="labNew">Another chip →</button><button id="labShare">Copy link</button></div>`;
+  drawHist('histG', pop.map(p=>p.g), g, 'gates'); drawHist('histD', pop.map(p=>p.d), d, 'delay');
+  document.getElementById('labNew').onclick=()=>showLab(Math.floor(Math.random()*1e6));
+  document.getElementById('labShare').onclick=()=>{ try{ navigator.clipboard.writeText(location.href.split('#')[0]+'#chip='+l.seed); RH.toast('Link copied'); }catch(e){} };
+  saveCircuit(); persist(); renderLevels(); SND.pass(); startPackaging('CHIP '+l.seed, g);
+  return {g, d, pop}; }
+function drawHist(id, xs, you, label){ const c=document.getElementById(id); if (!c) return; const W=c.clientWidth||260, H=70, d=Math.min(2,devicePixelRatio||1); c.width=W*d; c.height=H*d; const g=c.getContext('2d'); g.setTransform(d,0,0,d,0,0);
+  const lo=Math.min(...xs, you), hi=Math.max(...xs, you); const bins=hi-lo+1; const counts=new Array(bins).fill(0); xs.forEach(x=>counts[x-lo]++); const mx=Math.max(...counts);
+  g.fillStyle='#1b1a15'; g.font='11px "IBM Plex Mono", monospace'; g.fillText(label+': synthesised designs', 2, 11);
+  const bw=(W-8)/bins; counts.forEach((n,i)=>{ const h=n/mx*(H-28); g.fillStyle='#8a8578'; g.fillRect(4+i*bw, H-14-h, Math.max(1,bw-2), h); });
+  const x=4+(you-lo)*bw+bw/2; g.fillStyle='#b3261e'; g.fillRect(x-1.5, 14, 3, H-28); g.fillText('you '+you, Math.min(W-50, x+4), 24); g.fillStyle='#1b1a15'; g.fillText(lo, 4, H-2); g.textAlign='right'; g.fillText(hi, W-4, H-2); }
+
 // ======================= Boot =======================
 registerChips();
 if (!unlocked(SAVE.cur)) SAVE.cur=0;
 requestAnimationFrame(animLoop);
-showCircuit(SAVE.cur);
+{ const mh=location.hash.match(/chip=([\w-]{1,24})/); if (mh && labUnlocked()) showLab(decodeURIComponent(mh[1])); else showCircuit(SAVE.cur); }
 if (!SAVE.seenIntro){ SAVE.seenIntro=1; persist(); RH.modal(`<h2>🔌 NAND to Everything</h2><p>You have one gate. Over 35 levels you'll build logic, arithmetic, memory and a processor out of it, then write programs that run on the CPU you built.</p><p>Each solved chip goes into your parts list for later levels. Fewer NAND gates means more stars.</p><p class="dim">Progress saves automatically.</p>`,[{label:'Start building'}]); }
 </script>
 </body>
