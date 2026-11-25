@@ -341,8 +341,9 @@ const ERA_BRIEF = [
   'For three hundred years the Vigenère was "the indecipherable cipher". Now it is your turn to break it.',
   'Washington, 1920s. Yardley\'s Black Chamber reads the world\'s cables, and the ciphers now come in layers.',
   '1946. A Soviet pad factory printed some pages twice. Somewhere in this traffic is the cover name of an agent.',
+  'Arlington Hall, the wire room. Traffic never stops: intercept after intercept, every one new, every one on the clock.',
 ];
-const ERAS = ['Antiquity', 'The House of Wisdom', 'Scrambled', 'Le Chiffre Indéchiffrable', 'The Black Chamber', 'Reused Pads'];
+const ERAS = ['Antiquity', 'The House of Wisdom', 'Scrambled', 'Le Chiffre Indéchiffrable', 'The Black Chamber', 'Reused Pads', 'The Wire Room'];
 const V = [
   // Era 0
   { id: 0, e: 0, n: "Caesar's Dispatch", fmt: 'spaced', len: 60, steps: [{ t: 'caesar', k: 3 }], intro: ['shift'],
@@ -400,6 +401,27 @@ const V = [
     story: 'The final vault. The message was transposed in columns, then enciphered with a Vigenère key. Repeats will not help you now, but the index of coincidence still will. Peel the layers in the right order.' },
 ];
 
+// ---------- the Wire Room: an endless, seeded run of fresh intercepts ----------
+// After the campaign has taught the tools, the hours are here: a run of generated intercepts that grow harder (longer keys,
+// shorter texts, stacked layers), each against an alarm. Miss an alarm and you lose an agent; three lost and the run ends.
+// Hints are shared tokens for the whole run. Score = intercepts broken. Seeds are shareable (#wire=…) and there is a daily seed.
+const CAMPAIGN = V.length, WIRE = V.length;
+V.push({ id: 99, e: 6, wire: 1, n: 'The Wire Room', fmt: 'spaced', len: 120, steps: [{ t: 'caesar' }], story: '' });
+const WTIERS = [
+  [[{ t: 'caesar' }], 'grouped', 130], [[{ t: 'affine' }], 'grouped', 140], [[{ t: 'subst' }], 'spaced', 320], [[{ t: 'rail', lo: 3, hi: 7 }], 'raw', 120],
+  [[{ t: 'col', lo: 4, hi: 7 }], 'raw', 120], [[{ t: 'vig', lo: 4, hi: 6 }], 'spaced', 320], [[{ t: 'subst' }], 'grouped', 300], [[{ t: 'vig', lo: 5, hi: 8 }], 'grouped', 420],
+  [[{ t: 'subst' }, { t: 'rail', lo: 3, hi: 5 }], 'raw', 380], [[{ t: 'vig', lo: 4, hi: 6 }, { t: 'rev' }], 'grouped', 360], [[{ t: 'subst' }, { t: 'col', lo: 5, hi: 6 }], 'raw', 420], [[{ t: 'col', lo: 5, hi: 7 }, { t: 'vig', lo: 5, hi: 8 }], 'raw', 560],
+];
+function wireDef(seed, level) { // deterministic per (seed, level)
+  const r = RH.rng('wire:' + seed + ':' + level);
+  const tier = level <= WTIERS.length ? WTIERS[level - 1] : WTIERS[WTIERS.length - 4 + r.int(4)];
+  const squeeze = level > WTIERS.length ? Math.max(.6, 1 - .04 * (level - WTIERS.length)) : 1; // past the last tier: shorter texts, less time
+  const len = Math.round(tier[2] * squeeze), alarm = Math.round((180 + .6 * tier[2]) * squeeze);
+  const names = { caesar: 'a shift', affine: 'an affine pair', subst: 'a scrambled alphabet', rail: 'a rail fence', col: 'keyed columns', vig: 'a Vigenère key', rev: 'a reversal' };
+  return { steps: tier[0].map(x => ({ ...x })), fmt: tier[1], len, alarm, seedStr: 'wire:' + seed + ':' + level + ':msg', n: `Intercept ${level}`,
+    story: `Intercept ${level} of this run: ${tier[0].map(x => names[x.t]).join(', then ')}. ${level === 1 ? 'Every intercept in a run is new; the clock starts when you touch the bench.' : ''}` };
+}
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const TOOLS = {
   shift: { name: 'Caesar shift', blurb: 'Shift every letter back by k.' },
   atbash: { name: 'Atbash', blurb: 'Reverse the alphabet.' },
@@ -421,7 +443,7 @@ function APPLY_OK(st) { // shape check for a saved workbench stage
     col: () => s.w === 0 || num(s.w), vig: () => Array.isArray(s.sh) && s.sh.length > 0 && s.sh.every(num) }[st.t]?.() ?? true;
 }
 function loadState() {
-  const fresh = () => ({ v: 2, seed: (Math.random() * 1e9) | 0, solved: {}, hints: {}, work: {}, variant: {}, cur: 0, intro: 0 });
+  const fresh = () => ({ v: 2, seed: (Math.random() * 1e9) | 0, solved: {}, hints: {}, work: {}, variant: {}, cur: 0, intro: 0, wire: { best: 0, daily: null, run: null } });
   let s = RH.load('vault', null);
   if (!s || typeof s !== 'object' || Array.isArray(s) || !Number.isFinite(s.seed)) return fresh();
   for (const k of ['solved', 'hints', 'work', 'variant']) if (!s[k] || typeof s[k] !== 'object' || Array.isArray(s[k])) s[k] = {};
@@ -433,15 +455,19 @@ function loadState() {
   for (const j in s.solved) { const x = s.solved[j]; if (!V[j] || !x || typeof x !== 'object') delete s.solved[j]; else x.stars = Math.max(1, Math.min(3, x.stars | 0)); }
   for (const j in s.work) { const w = s.work[j]; if (!V[j] || !w || typeof w !== 'object' || !Array.isArray(w.stages) || w.stages.some(st => !st || !APPLY_OK(st))) delete s.work[j]; else w.time = Number.isFinite(w.time) ? w.time : 0; }
   s.cur = Number.isInteger(s.cur) && s.cur >= 0 && s.cur < V.length ? s.cur : 0;
+  const wr = s.wire && typeof s.wire === 'object' ? s.wire : {}, run = wr.run && typeof wr.run === 'object' && typeof wr.run.seed === 'string' && wr.run.level >= 1 ? wr.run : null;
+  s.wire = { best: wr.best | 0, daily: wr.daily && typeof wr.daily.date === 'string' ? { date: wr.daily.date, score: wr.daily.score | 0 } : null,
+    run: run && { seed: run.seed.slice(0, 40), daily: !!run.daily, level: Math.min(999, run.level | 0), agents: Math.max(0, Math.min(3, run.agents | 0)), tokens: Math.max(0, Math.min(9, run.tokens | 0)), score: run.score | 0 } };
+  delete s.solved[WIRE]; if (!s.wire.run) { delete s.work[WIRE]; delete s.hints[WIRE]; }
   return s;
 }
-const persist = () => { RH.save('vault', S); RH.progress('vault', Object.keys(S.solved).length / V.length); };
+const persist = () => { RH.save('vault', S); RH.progress('vault', Object.keys(S.solved).filter(k => +k < CAMPAIGN).length / CAMPAIGN); };
 
 const cache = {};
 function build(i) {
-  const variant = S.variant[i] || 0, key = i + ':' + variant;
+  const variant = S.variant[i] || 0, key = i + ':' + variant + ':' + (V[i].seedStr || '');
   if (cache[key]) return cache[key];
-  const v = V[i], r = RH.rng(S.seed + ':v' + v.id + ':' + variant); // seeded by the vault's original id so messages survive re-ordering
+  const v = V[i], r = RH.rng(v.seedStr ? v.seedStr + ':' + variant : S.seed + ':v' + v.id + ':' + variant); // seeded by the vault's original id so messages survive re-ordering
   let out;
   if (v.pad) {
     const it = intelFor(v, variant), rows = [];
@@ -463,7 +489,7 @@ function build(i) {
 }
 const toolsAt = i => { const s = new Set(); for (let j = 0; j <= i; j++) (V[j].intro || []).forEach(t => s.add(t)); return s; };
 const ERA_NEED = 3; // vaults to open in an era before the next unlocks
-const eraOpen = e => e === 0 || V.filter((v, i) => v.e === e - 1 && S.solved[i]).length >= ERA_NEED;
+const eraOpen = e => e === 6 ? eraOpen(1) : e === 0 || V.filter((v, i) => v.e === e - 1 && S.solved[i]).length >= ERA_NEED;
 const workOf = i => (S.work[i] ||= { stages: [], notes: '', time: 0, padKey: null });
 
 // ---------- decryption tools ----------
@@ -505,14 +531,14 @@ let cur = Math.min(S.cur || 0, V.length - 1), anSrc = 'c', lastOut = '', padSel 
 function renderSide() {
   let h = '', last = -1;
   V.forEach((v, i) => {
-    if (v.e !== last) { last = v.e; const done = V.filter((w, j) => w.e === v.e && S.solved[j]).length; h += `<div class="era ${eraOpen(v.e) ? '' : 'locked'}"><span>${['I','II','III','IV','V','VI'][v.e]}. ${ERAS[v.e]}</span><span>${eraOpen(v.e) ? done + '/' + V.filter(w => w.e === v.e).length : '🔒'}</span></div>`; }
+    if (v.e !== last) { last = v.e; const done = V.filter((w, j) => w.e === v.e && S.solved[j]).length; h += `<div class="era ${eraOpen(v.e) ? '' : 'locked'}"><span>${['I','II','III','IV','V','VI','VII'][v.e]}. ${ERAS[v.e]}</span><span>${eraOpen(v.e) ? done + '/' + V.filter(w => w.e === v.e).length : '🔒'}</span></div>`; }
     const open = eraOpen(v.e), sv = S.solved[i];
     h += `<div class="vlt ${i === cur ? 'cur' : ''} ${open ? '' : 'locked'}" data-i="${i}"><span>${sv ? '🔓' : '🔒'} ${v.n}</span><span class="st">${sv ? '★'.repeat(sv.stars) + '☆'.repeat(3 - sv.stars) : ''}</span></div>`;
   });
   $('side').innerHTML = h + `<div class="note" style="margin:16px 6px">Open ${ERA_NEED} vaults in an era to unlock the next one.</div>`;
   $('side').querySelectorAll('.vlt').forEach(el => el.onclick = () => { const i = +el.dataset.i; if (eraOpen(V[i].e)) openVault(i); });
-  const n = Object.keys(S.solved).length, st = Object.values(S.solved).reduce((a, x) => a + x.stars, 0);
-  $('totals').textContent = `${n}/${V.length} vaults · ${st}★`;
+  const n = Object.keys(S.solved).filter(k => +k < CAMPAIGN).length, st = Object.entries(S.solved).filter(([k]) => +k < CAMPAIGN).reduce((a, [, x]) => a + x.stars, 0);
+  $('totals').textContent = `${n}/${CAMPAIGN} vaults · ${st}★${S.wire.best ? ' · wire best ' + S.wire.best : ''}`;
 }
 
 function openVault(i) {
@@ -531,7 +557,7 @@ function openVault(i) {
   const nh = S.hints[i] || 0, sv = S.solved[i];
   $('center').innerHTML = `
     <div class="row" style="justify-content:space-between;align-items:flex-start">
-      <div><div class="dim small">${['I','II','III','IV','V','VI'][v.e]}. ${ERAS[v.e]} · Vault ${i + 1}</div><h2 class="vt">${sv ? '🔓' : '🔒'} ${v.n}</h2></div>
+      <div><div class="dim small">${['I','II','III','IV','V','VI','VII'][v.e]}. ${ERAS[v.e]} · Vault ${i + 1}</div><h2 class="vt">${sv ? '🔓' : '🔒'} ${v.n}</h2></div>
       <div class="row">${v.alarm && !sv ? `<span class="alarm ${w.armed ? 'live' : ''}" id="alarm" title="When this runs out, the message and its key change">⏰ ${Math.floor(alarmLeft(i) / 60)}:${String(alarmLeft(i) % 60).padStart(2, '0')}${w.armed ? '' : ' · starts when you touch the bench'}</span>` : ''}<span class="pill" id="timer">⏱ ${fmtT(w.time)}</span><button id="hintBtn">💡 Hint (${3 - nh} left)</button>${sv ? '<button id="newMsg" title="Same cipher, new message and key">🔁 New intercept</button>' : ''}</div>
     </div>
     ${V.findIndex(x => x.e === v.e) === i ? `<div class="brief">${ERA_BRIEF[v.e]}</div>` : ''}
