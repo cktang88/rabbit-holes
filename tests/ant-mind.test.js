@@ -94,7 +94,7 @@ module.exports = {
     'locked maps cannot be opened; corrupted saves load safely': async ({ page, eq }) => {
       const r = await page.evaluate(() => { const A = window.__ant; document.querySelector('[data-m="6"]').click(); A.openMap(9);
         return [A.mapI, A.cleanSave(null), A.cleanSave({ stars: { 0: 3, 1: 7, 50: 2 }, ups: ['legs', 'bogus', 3], cur: 99 })]; });
-      eq(r[0], 0); eq(r[1], { stars: {}, ups: [], chem: { dep: 100, evap: 50, noise: 35 }, chemSet: {}, cur: 0 }); eq(r[2], { stars: { 0: 3 }, ups: ['legs'], cur: 0, chem: { dep: 100, evap: 50, noise: 35 }, chemSet: {} });
+      eq(r[0], 0); eq(r[1], { years: {}, stars: {}, ups: [], chem: { dep: 100, evap: 50, noise: 35 }, chemSet: {}, cur: 0 }); eq(r[2], { stars: { 0: 3 }, ups: ['legs'], cur: 0, years: {}, chem: { dep: 100, evap: 50, noise: 35 }, chemSet: {} });
       for (const bad of ['{bad', 'null', '"str"', '{"stars":[],"ups":"x","cur":15}']) {
         await reloadWith(page, 'rh:ant', bad); await page.waitForFunction(() => window.__ant && window.__ant.G);
         eq(await page.evaluate(() => window.__ant.mapI), 0, bad);
@@ -163,6 +163,40 @@ module.exports = {
         document.querySelector('.pz-fit').click(); await new Promise(r => setTimeout(r, 400)); const rc = cv.getBoundingClientRect(), a = A.toScreen(0, 0), b = A.toScreen(A.W, A.H);
         return { painted: n, zoomed, fit: [Math.min(a[0], b[0]) >= rc.left - 1, Math.min(a[1], b[1]) >= rc.top - 1, Math.max(a[0], b[0]) <= rc.right + 1, Math.max(a[1], b[1]) <= rc.bottom + 1] }; });
       eq(p.painted, 0, 'a pinch paints nothing'); ok(p.zoomed > 1.5, 'the pinch zoomed ' + p.zoomed); eq(p.fit, [true, true, true, true], 'Fit frames the soil');
+    },
+    'Colony Years: seasons are generated deterministically from the seed, and a link opens a run': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const A = window.__ant; const g1 = JSON.stringify([0, 1, 2, 3, 7].map(k => A.genSeason('abc', k, 60))), g2 = JSON.stringify([0, 1, 2, 3, 7].map(k => A.genSeason('abc', k, 60)));
+        const g3 = JSON.stringify([0, 1, 2, 3, 7].map(k => A.genSeason('xyz', k, 60)));
+        const hashG = () => { let h = 2166136261; for (let i = 0; i < A.G.length; i++) { h ^= A.G[i] + (A.food[i] > 0 ? 7 : 0); h = Math.imul(h, 16777619); } return h >>> 0; };
+        A.startYears('abc'); const h1 = hashG(); A.startYears('abc'); const h2 = hashG(); A.startYears('xyz'); const h3 = hashG();
+        const seasons = [0, 1, 2, 3].map(k => A.genSeason('abc', k).n);
+        return { same: g1 === g2, differs: g1 !== g3, h: [h1 === h2, h1 !== h3], seasons, mode: A.mapI === A.GEN }; });
+      ok(r.same && r.differs, 'generation per seed'); eq(r.h, [true, true]); eq(r.seasons, ['Year 1, spring', 'Year 1, summer', 'Year 1, autumn', 'Year 1, winter']); ok(r.mode);
+      await page.goto(page.url().replace(/#.*/, '') + '#years=linkseed'); await page.reload(); await page.waitForFunction(() => window.__ant && window.__ant.G);
+      eq(await page.evaluate(() => [window.__ant.years && window.__ant.years.seed, window.__ant.mapI === window.__ant.GEN]), ['linkseed', true]);
+    },
+    'Colony Years: new scents arrive with the seasons, not stats; a bigger colony must bring more food': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const A = window.__ant; A.startYears('abc'); const u0 = A.SCENTS.map(s => A.unlockedScent(s));
+        A.years.k = 5; const u5 = A.SCENTS.map(s => A.unlockedScent(s)); return { u0, u5, small: A.genSeason('abc', 0, 40).g.n, big: A.genSeason('abc', 0, 150).g.n }; });
+      eq(r.u0, [true, false, false, false]); eq(r.u5, [true, true, true, true]); ok(r.big > r.small * 1.5, `need grows with the colony: ${r.small} → ${r.big}`);
+    },
+    'Colony Years: a competent colony survives six seasons on every seed tried; an idle one starves within three': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const A = window.__ant; RH.modal = () => Promise.resolve(); RH.toast = () => {}; const out = {};
+        const ev = (x, y) => { const q = A.toScreen(x, y); return { clientX: q[0], clientY: q[1] }; };
+        const stroke = (pts, brush) => { A.brush = brush; A.strokeStart(); A.painting = 1; for (const [x, y] of pts) A.paint(ev(x + 0.5, y + 0.5)); A.painting = 0; };
+        const pathTo = (k) => { const path = []; let x = k % A.W, y = (k / A.W) | 0; for (let s = 0; s < 400; s++) { path.push([x, y]); let bx = x, by = y, bv = A.home[A.idx(x, y)]; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= A.W || Y >= A.H) continue; if (A.home[A.idx(X, Y)] < bv) { bv = A.home[A.idx(X, Y)]; bx = X; by = Y; } } if (bx === x && by === y) break; x = bx; y = by; } return path.reverse(); };
+        for (const seed of ['a', 'b']) for (const pol of ['competent', 'idle']) { A.startYears(seed); A.paused = true;
+          for (let season = 0; season < 6 && !A.years.over; season++) { const M = A.MAP();
+            if (pol === 'competent') { A.setChem(M.moving ? { dep: 110, evap: 85, noise: 50 } : M.rain ? { dep: 200, evap: 30, noise: 25 } : M.cold ? { dep: 150, evap: 35, noise: 25 } : { dep: 130, evap: 45, noise: 30 }); document.getElementById('ratio').value = (M.rival || M.spider) ? 35 : 0; }
+            else document.getElementById('ratio').value = 10;
+            for (let t = 0; t < M.t * 20 && !A.gameOver; t++) {
+              if (pol === 'competent' && t % 300 === 0) { let k = -1, bd = 1e9; for (let i = 0; i < A.W * A.H; i++) if (A.food[i] > 0 && A.home[i] < bd) { bd = A.home[i]; k = i; } if (k >= 0) stroke(pathTo(k).filter((_, i) => i % 2 === 0).slice(0, 60), 'forage');
+                const foes = [...A.spiders.filter(s => s.hp > 0)]; if (A.nests[1] && A.nests[1].hp > 0) foes.push(A.nests[1]); if (foes.length && A.unlockedScent(A.SCENTS[1])) { const f = foes[0]; stroke(pathTo(A.idx(f.x | 0, f.y | 0)).filter((_, i) => i % 2 === 0), 'alarm'); } }
+              A.stepWorld(0.05); }
+            A.advanceYears(); }
+          out[seed + ':' + pol] = A.years.over ? A.years.k - 1 : A.years.k; }
+        return out; });
+      ok(r['a:competent'] >= 6 && r['b:competent'] >= 6, 'competent: ' + JSON.stringify(r)); ok(r['a:idle'] <= 3 && r['b:idle'] <= 3, 'idle: ' + JSON.stringify(r));
     },
     'difficulty: on late maps idle and greedy chemistry fail; a chemistry tuned to the season wins, but not with three stars': async ({ page, ok }) => {
       await page.addScriptTag({ content: BOT });

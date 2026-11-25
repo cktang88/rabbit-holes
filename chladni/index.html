@@ -256,6 +256,23 @@ function figureKey(u) { // sign pattern on a coarse 8×8 grid, up to an overall 
 }
 function domains(u, mask) { const seen = new Uint8Array(DG * DG); let n = 0; for (let c = 0; c < DG * DG; c++) { if (!mask[c] || seen[c] || Math.abs(u[c]) < .05) continue; n++; const sg = Math.sign(u[c]), st = [c]; seen[c] = 1;
     while (st.length) { const q = st.pop(), i = q % DG, j = (q / DG) | 0; for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= DG || jj >= DG) continue; const c2 = jj * DG + ii; if (!seen[c2] && mask[c2] && Math.sign(u[c2]) === sg && Math.abs(u[c2]) >= .05) { seen[c2] = 1; st.push(c2); } } } } return n; }
+// a name for a figure, read off its sign pattern the way Chladni's audiences named them: stripes are ladders and harps,
+// rings are bells and halos, checkerboards are lattices, mirror-symmetric figures are moths and lanterns
+function figureName(k, d) {
+  if (typeof k !== 'string' || k.length !== 64) return 'an unnamed figure';
+  const g = (i, j) => +k[j * 8 + i] - 1; let lr = 0, ud = 0, cols = 0, rows = 0, flips = 0, cnt = 0, h = 0;
+  for (let c = 0; c < 64; c++) h = (h * 31 + +k[c]) >>> 0;
+  for (let j = 0; j < 8; j++) for (let i = 0; i < 8; i++) { const v = g(i, j); if (!v) continue; cnt++; if (Math.abs(g(7 - i, j)) === 1) lr += g(7 - i, j) === v ? 1 : -1; if (Math.abs(g(i, 7 - j)) === 1) ud += g(i, 7 - j) === v ? 1 : -1; if (i < 7 && g(i + 1, j) === -v) flips++; if (j < 7 && g(i, j + 1) === -v) flips++; }
+  for (let i = 0; i < 8; i++) { const c0 = g(i, 0); let same = !!c0; for (let j = 1; j < 8; j++) if (g(i, j) !== c0 && g(i, j)) same = false; if (same) cols++; }
+  for (let j = 0; j < 8; j++) { const r0 = g(0, j); let same = !!r0; for (let i = 1; i < 8; i++) if (g(i, j) !== r0 && g(i, j)) same = false; if (same) rows++; }
+  const mid = g(3, 3) + g(4, 3) + g(3, 4) + g(4, 4), rim = [0, 7].reduce((a, j) => a + [0, 1, 2, 3, 4, 5, 6, 7].reduce((b, i) => b + g(i, j) + g(j, i), 0), 0);
+  const sym = Math.abs(lr) > cnt * .7 || Math.abs(ud) > cnt * .7;
+  const kind = cols >= 6 || rows >= 6 ? 'stripe' : mid && rim && Math.sign(mid) !== Math.sign(rim) && Math.abs(mid) >= 3 ? 'ring' : flips > cnt * .9 ? 'check' : sym ? 'sym' : 'odd';
+  const N = { stripe: ['Ladder', 'Harp', 'Organ Pipes', 'Picket Fence', 'Comb'], ring: ['Bell', 'Halo', 'Ripple', 'Target', 'Eye'], check: ['Lattice', 'Quilt', 'Mosaic', 'Chessboard', 'Window'],
+    sym: ['Moth', 'Butterfly', 'Lantern', 'Owl', 'Crown', 'Mask', 'Beetle'], odd: ['Comet', 'Keyhole', 'Hound', 'Leaf', 'Snail', 'Wren', 'Kite', 'Teapot'] }[kind];
+  const A = ['', 'Lone', 'Twin', 'Three-Lobed', 'Four-Petal', 'Five-Fold', 'Six-Paned', 'Seven-Starred', 'Eight-Celled'];
+  return `the ${d < A.length ? A[Math.max(1, d)] : d + '-Celled'} ${N[h % N.length]}`;
+}
 function museumAdd(md) {
   const k = figureKey(md.u); if (SAVE.museum[k]) return false;
   SAVE.museum[k] = [domains(md.u, dz.mask), dz.name.slice(0, 12), todaySeedC()]; const ks = Object.keys(SAVE.museum); if (ks.length > 400) delete SAVE.museum[ks[0]];
@@ -625,7 +642,7 @@ function renderUI() {
     designGoal(); layout();
     const mu = Object.entries(SAVE.museum).sort((a, b) => b[1][2] - a[1][2]);
     $('book').innerHTML = `<h4>The figure museum · ${mu.length}<span class="mob" style="float:right">✕</span></h4><div style="font-size:15px;line-height:1.35">${mu.length ? 'Every distinct figure your plates have drawn. Bow and hold a resonance to add one.' : 'Empty so far. Bow a plate and hold a resonance until the sand settles: each new figure goes on display here.'}</div>`
-      + mu.slice(0, 60).map(([k, [d, sh, day]], i) => `<div style="border-top:1px dotted rgba(43,29,16,.3);padding:3px 0;font-size:14px">No. ${mu.length - i} · <b>${d}</b> region${d === 1 ? '' : 's'} · on a ${sh} · ${String(day).slice(6)}/${String(day).slice(4, 6)}</div>`).join('');
+      + mu.slice(0, 60).map(([k, [d, sh, day]], i) => `<div style="border-top:1px dotted rgba(43,29,16,.3);padding:3px 0;font-size:14px">No. ${mu.length - i} · <b style="text-transform:capitalize">${figureName(k, d)}</b> · ${d} region${d === 1 ? '' : 's'} · on a ${sh} · ${String(day).slice(6)}/${String(day).slice(4, 6)}</div>`).join('');
     return;
   }
   if (plate === 'custom') { plate = PLATES[SAVE.plate] && SAVE.plate !== 'custom' ? SAVE.plate : 'square'; bow = defaultBow(plate); finger = null; sprinkle(true); layout(); computeResponse(); }
@@ -709,7 +726,7 @@ let last = performance.now(), shownF = -1, shownS = -1, raf = 0;
 const HOLD_TOL = .015; let shownL = '';
 function record(md) {
   if (SAVE.mode === 'tune') return;
-  if (SAVE.mode === 'design') { if (md.u && museumAdd(md)) { FX.sfx('chime', Object.keys(SAVE.museum).length); flyToBook(md); toast('New figure for the museum', `${Object.keys(SAVE.museum).length} distinct figures so far. First found by you, on the ${dz.name}.`, 3000); renderUI(); } return; }
+  if (SAVE.mode === 'design') { if (md.u && museumAdd(md)) { FX.sfx('chime', Object.keys(SAVE.museum).length); flyToBook(md); const k = figureKey(md.u), nm = figureName(k, SAVE.museum[k][0]); toast('New figure: ' + nm[4].toUpperCase() + nm.slice(5), `${Object.keys(SAVE.museum).length} distinct figures so far. First found by you, on the ${dz.name}.`, 3000); renderUI(); } return; }
   const cx = plateBox.x + plateBox.s / 2, cy = plateBox.y + plateBox.s / 2;
   if (SAVE.mode === 'explore') {
     if (SAVE.got[md.id]) return;
@@ -748,12 +765,13 @@ function frame(now) {
 // no work at all while the tab is hidden
 document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; updateSound(); } else if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); } });
 $('slider').value = fToSlider(freq);
+{ const h = /plate=([\w+/=-]+)/.exec(location.hash), D = h && decodePlate(h[1]); if (D) { dz = D; SAVE.mode = 'design'; if (plate === 'custom') plate = 'square'; } } // a shared plate link opens that plate in the workshop
 cam = PanZoom(cv, { canPanFrom: offPlate, min: .6, max: 5 });
 cam.fit = animate => { cam.touched = false; const f = cam.state, t0 = performance.now(), ms = animate ? 260 : 0; // the fitted view is the layout's own
   const step = now => { const u = ms ? Math.min(1, (now - t0) / ms) : 1, e = 1 - (1 - u) ** 3; cam.state = { x: f.x * (1 - e), y: f.y * (1 - e), k: f.k + (1 - f.k) * e }; cam.touched = false; if (u < 1) requestAnimationFrame(step); }; step(t0); };
 bow = defaultBow(plate); sprinkle(true); renderUI(); computeResponse();
 raf = requestAnimationFrame(frame);
-window.__ch = { get cam() { return cam; }, get finger() { return finger; }, PLATES, setFreq: f => { freq = f; $('slider').value = fToSlider(f); computeResponse(); }, setPlate, focus: () => focus, SAVE, get plate() { return plate; }, curTarget, targetsOf, EAR_FROM, solvePlate, newDesign, SHAPES, setShape, get dz() { return dz; }, set dz(v) { dz = v; }, installDesign, editAtTool, get plateBox() { return { x: plateBox.x / dpr, y: plateBox.y / dpr, s: plateBox.s / dpr }; }, bellErr, BELLS, bellGrade, editAt, encodePlate, decodePlate, figureKey, dailyShape, lamToF, DG, couple, setBow, setFinger, get bow() { return bow; }, TUNE, startTune, tunedF, tuneErr, kOf, scrapeCell: (c, light) => { tune.light = light; scrapeAt(((c % TG) + .5) / TG, (((c / TG) | 0) + .5) / TG); }, get tune() { return tune; }, tuneGrade, TG, tuneSq, get flights() { return flights; }, get holdT() { return holdT; }, record, HOLD_TOL };
+window.__ch = { figureName, get cam() { return cam; }, get finger() { return finger; }, PLATES, setFreq: f => { freq = f; $('slider').value = fToSlider(f); computeResponse(); }, setPlate, focus: () => focus, SAVE, get plate() { return plate; }, curTarget, targetsOf, EAR_FROM, solvePlate, newDesign, SHAPES, setShape, get dz() { return dz; }, set dz(v) { dz = v; }, installDesign, editAtTool, get plateBox() { return { x: plateBox.x / dpr, y: plateBox.y / dpr, s: plateBox.s / dpr }; }, bellErr, BELLS, bellGrade, editAt, encodePlate, decodePlate, figureKey, dailyShape, lamToF, DG, couple, setBow, setFinger, get bow() { return bow; }, TUNE, startTune, tunedF, tuneErr, kOf, scrapeCell: (c, light) => { tune.light = light; scrapeAt(((c % TG) + .5) / TG, (((c / TG) | 0) + .5) / TG); }, get tune() { return tune; }, tuneGrade, TG, tuneSq, get flights() { return flights; }, get holdT() { return holdT; }, record, HOLD_TOL };
 </script>
 </body>
 </html>

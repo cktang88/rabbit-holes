@@ -141,6 +141,36 @@ const SCENTS=[
   {k:'calm', n:'Retreat', c:'#9cc8f0', key:'4', d:'Everyone heads home.', unlock:10},
 ];
 const SEASONS=['Spring','Summer','Autumn','Winter'];
+// ===================== Colony Years: one colony, endless generated seasons =====================
+// Each season is a new chamber made from the run's seed. The colony carries over: its ants, its stores and your chemistry.
+// Meet the season's need and the colony grows; miss it and famine halves it. The run ends when fewer than 12 ants are left.
+// New scents arrive as the years turn (new rules, never bigger numbers).
+let GEN=-1, GENMAP=null, years=null;
+const MAP=()=> mapI===GEN? GENMAP : MAPS[mapI];
+const YUNLOCK={alarm:1, dig:2, calm:5};
+const todayKey=()=>new Date().toISOString().slice(0,10);
+function genSeason(seed,k,colony=45){
+  const r=RH.rng(RH.hashStr('years:'+seed+':'+k)), s=k%4, y=(k/4)|0, hard=1+0.15*y, need=(base)=>Math.round((base*0.55+colony*0.6)*hard); // a bigger colony must be fed more
+  const M={ n:`Year ${y+1}, ${SEASONS[s].toLowerCase()}`, seed:RH.hashStr('yr:'+seed+':'+k), t:Math.max(160, 240-8*y), food:4+r.int(3), rock:+(0.03+r()*0.08).toFixed(3), dirt: r()<.5? 0 : +(0.06+r()*0.1).toFixed(3), far: r()<.3?1:0 };
+  if (s===0){ M.rain=1; M.g={type:'food',n:need(70)}; M.season='Spring rain: trails wash away. Food is everywhere.'; }
+  if (s===1){ M.spider=Math.min(4,1+y); M.g= y%2? {type:'kill',n:Math.min(M.spider,1+(y>>1))} : {type:'food',n:need(80)}; M.season= M.g.type==='kill'? 'Summer: spiders hunt the paths. Drive them off.' : 'Summer: a spider on the paths. Feed the colony anyway.'; }
+  if (s===2){ M.rival=1; M.big=r()<.5?1:0; M.g= y>=1 && r()<.5? {type:'nest'} : {type:'food',n:need(90)}; M.season= M.g.type==='nest'? 'Autumn: the neighbours have grown bold. Their nest or yours.' : 'Autumn: a rival colony is stocking up too.'; }
+  if (s===3){ M.cold=1; M.moving=r()<.4?1:0; M.g={type:'food',n:need(60)}; if (y>=1) M.spider=1; M.season='Winter: the colony eats its stores while it works.'; }
+  return M;
+}
+function startYears(seed){ seed=String(seed||todayKey()).replace(/[^\w-]/g,'').slice(0,24)||todayKey(); years={seed, k:0, colony:45, stored:30, log:[]}; GEN=MAPS.length; startSeason(); }
+function startSeason(){ GENMAP={...genSeason(years.seed, years.k, years.colony), startN:years.colony, stored:years.stored}; build(GEN); brush='forage'; fit(); const nu=SCENTS.find(x=>YUNLOCK[x.k]===years.k); banner(`${GENMAP.n}: ${GENMAP.season}`+(nu? ` New scent: ${nu.n}.` : '')); setDrawer(false); }
+// the end of a season: grow, or starve. Returns the summary line.
+function seasonOver(won){
+  const ours=ants.filter(a=>a.team===0).length, before=years.colony;
+  const [v,n]=goalProgress(); let next= won? Math.min(160, ours+10+Math.round(timeLeft/10)) : Math.floor(ours*(0.4+0.5*Math.min(1,v/n)));
+  years.log.push(won?1:0); years.stored=Math.max(10,Math.min(80,Math.round(stored)));
+  const k=years.k; years.k++; years.colony=next; const over= next<12;
+  if (over){ years.over=true; const key=years.seed; if (k>(SAVE.years[key]||0)) { SAVE.years[key]=Math.min(999,k+ (won?1:0)); persist(); } }
+  else { const key=years.seed; if (years.k>(SAVE.years[key]||0)){ SAVE.years[key]=years.k; persist(); } }
+  return { won, ours, before, next, over, survived: years.k - (over&&!won?1:0) };
+}
+function advanceYears(){ if (!years || years.over) return; startSeason(); }
 // map specs
 const MAPS=[
   {n:'First Light', g:{type:'food',n:50}, t:150, food:3, rock:0.04, dirt:0},
@@ -200,7 +230,8 @@ function cleanSave(s){
   const stars={}; if (s.stars && typeof s.stars==='object') for (const k in s.stars){ const n=+k, v=s.stars[k]; if (Number.isInteger(n) && n>=0 && n<MAPS.length && [1,2,3].includes(v)) stars[n]=v; }
   const ups=Array.isArray(s.ups)? s.ups.filter(u=>UPS.some(x=>x[0]===u)).slice(0,MAPS.length) : [];
   const chemSet={}; if (s.chemSet && typeof s.chemSet==='object') for (const k in s.chemSet){ const n=+k; if (Number.isInteger(n) && n>=0 && n<MAPS.length) chemSet[n]=1; }
-  return {...s, stars, ups, chem:cleanChem(s.chem), chemSet, cur: Number.isInteger(s.cur) && s.cur>=0 && s.cur<MAPS.length ? s.cur : 0};
+  const yrs={}; if (s.years && typeof s.years==='object') for (const [k,v] of Object.entries(s.years).slice(-40)) if (/^[\w-]{1,24}$/.test(k) && Number.isFinite(+v)) yrs[k]=Math.max(0,Math.min(999,+v|0));
+  return {...s, years:yrs, stars, ups, chem:cleanChem(s.chem), chemSet, cur: Number.isInteger(s.cur) && s.cur>=0 && s.cur<MAPS.length ? s.cur : 0};
 }
 const mapOpen=(i)=> i===0 || !!SAVE.stars[i-1] || !!SAVE.stars[i];
 const SAVE=cleanSave(RH.load('ant',null));
@@ -213,7 +244,7 @@ let G, ants, enemies, nests, food, scent, home, rivalHome, mapI, timeLeft, store
 const idx=(x,y)=>y*W+x;
 const PASS=0, ROCK=1, DIRT=2;
 function build(i){
-  mapI=i; const M=MAPS[i]; rng=RH.rng(4242+i*97);
+  mapI=i; const M= i===GEN? GENMAP : MAPS[i]; rng=RH.rng(M.seed ?? (4242+i*97));
   G=new Uint8Array(W*H); food=new Float32Array(W*H);
   scent={}; for (const s of SCENTS) scent[s.k]=new Float32Array(W*H);
   // terrain via blobs
@@ -243,7 +274,7 @@ function build(i){
   if (M.chem && !SAVE.chemSet?.[i]) setChem(M.chem); else setChem(SAVE.chem||CHEM0);
   if (mill) for (let a=0;a<6.283;a+=0.02){ for (let dr=-1;dr<=1;dr++){ const X=Math.round(mill.x+Math.cos(a)*(mill.r+dr)), Y=Math.round(mill.y+Math.sin(a)*(mill.r+dr)); if (X>=0&&Y>=0&&X<W&&Y<H) scent.forage[idx(X,Y)]=2.5; } }
   ants=[]; enemies=[]; spiders=[];
-  const startN=Math.round(45*(1+0.5*has('start')));
+  const startN= M.startN ?? Math.round(45*(1+0.5*has('start')));
   for (let k=0;k<startN;k++) spawnAnt(0, k<startN*(M.spider>=2?0.3:0.12)?'soldier':'worker');
   if (mill) ants.forEach((a,k)=>{ if (a.role!=='worker') return; const t=k/startN*6.283; a.x=mill.x+Math.cos(t)*mill.r; a.y=mill.y+Math.sin(t)*mill.r; a.a=t+Math.PI/2; a.trip=5; });
   if (nests[1]) for (let k=0;k<40*M.rival;k++) spawnAnt(1, k%4===0?'soldier':'worker');
@@ -251,7 +282,7 @@ function build(i){
   for (let k=0;k<(M.spider||0);k++){ let x=W*0.5+rng.range(-30,40), y=rng.range(15,H-15);
     for (let tries=0; tries<300 && !(passable(x,y) && home[idx(x|0,y|0)]<1e9); tries++){ x=W*0.5+rng.range(-45,55); y=rng.range(10,H-10); }
     spiders.push({x, y, hp:70+k*15, maxhp:70+k*15, cd:0, tx:x, ty:y, t:0}); }
-  timeLeft=M.t; stored=30; gland=1; gameOver=false; rainT=0; kills=0; nextRain= M.rain? 40+rng.int(30) : 1e9;
+  timeLeft=M.t; stored=M.stored ?? 30; gland=1; gameOver=false; rainT=0; kills=0; nextRain= M.rain? 40+rng.int(30) : 1e9;
   killsNeeded=M.g.type==='kill'? M.g.n : 0;
   // nothing from the previous map may leak into this one
   hatchT=0; coldT=0; digDirty=false; digT=0; digMix.fill(0); digMixOn=false; digMixT=0; fx=[]; delivered=0; painted=0; milestone=0; hintT=0;
@@ -269,7 +300,7 @@ const passable=(x,y)=> x>=0&&y>=0&&x<W&&y<H && G[idx(x|0,y|0)]===PASS;
 function sense(field, x, y, a, dist){ const X=Math.round(x+Math.cos(a)*dist), Y=Math.round(y+Math.sin(a)*dist); if (X<0||Y<0||X>=W||Y>=H) return -1; const g=G[idx(X,Y)]; if (g===ROCK) return -1; if (g===DIRT) return scent.dig[idx(X,Y)]>0.05? field[idx(X,Y)] : -1; return field[idx(X,Y)]; }
 function sensePos(x,y,a,dist){ const X=Math.round(x+Math.cos(a)*dist), Y=Math.round(y+Math.sin(a)*dist); return [X,Y]; }
 function stepWorld(dt){
-  const M=MAPS[mapI]; const spd=(team)=> (team===0? 9*(1+0.15*has('legs'))*(1-0.1*has('shell'))*(1-0.1*has('haul')) : 8.5) * (M.cold?0.85:1);
+  const M=MAP(); const spd=(team)=> (team===0? 9*(1+0.15*has('legs'))*(1-0.1*has('shell'))*(1-0.1*has('haul')) : 8.5) * (M.cold?0.85:1);
   const sd= 3+has('nose')*1.5;
   // the player's signal scents (alarm, dig, retreat) fade on their own clock; the forage trail follows the colony's chemistry
   const decay = Math.pow(rainT>0? 0.6 : 0.985 + 0.0052*has('memory'), dt*4);
@@ -359,9 +390,9 @@ function stepWorld(dt){
   timeLeft-=dt;
   // a nudge for newcomers who haven't painted anything yet
   if (!painted && mapI===0){ hintT+=dt; if (hintT>8){ hintT=-14; banner('Ants find food on their own and mark the way. Drag a scout trail from the nest to the food to speed them up.'); } }
-  if (MAPS[mapI].layout==='bridge'){ hintT+=dt; if (hintT>25 && bridgeShare()<0.5){ hintT=-25; banner('The colony is stuck on yesterday\'s long trail. Faster evaporation lets it forget.'); } }
+  if (MAP().layout==='bridge'){ hintT+=dt; if (hintT>25 && bridgeShare()<0.5){ hintT=-25; banner('The colony is stuck on yesterday\'s long trail. Faster evaporation lets it forget.'); } }
   if (mill){ hintT+=dt; if (hintT>12 && millShare()>0.4){ hintT=-15; banner('An ant mill: they are following each other round. Let the trail evaporate, or wipe a gap in the circle.'); } }
-  if (MAPS[mapI].moving){ hintT+=dt; if (hintT>30 && delivered<10){ hintT=-30; banner('Trails lead to empty larders. Try faster evaporation and more noise.'); } }
+  if (MAP().moving){ hintT+=dt; if (hintT>30 && delivered<10){ hintT=-30; banner('Trails lead to empty larders. Try faster evaporation and more noise.'); } }
   const [gv,gn]=goalProgress(); const q=Math.floor(4*gv/gn); if (q>milestone && q<4){ milestone=q; VOICE.mark(q); banner(`${q*25}% of the goal`); }
   checkEnd();
 }
@@ -388,20 +419,30 @@ let hatchT=0, digDirty=false, digT=0, coldT=0, delivered=0, painted=0, milestone
 function windfall(){
   for (let tries=0; tries<200; tries++){ const x=8+rng.int(W-16), y=6+rng.int(H-12), i=idx(x,y), d=home[i];
     if (G[i]!==PASS || !(d>=28 && d<=95)) continue;
-    if (MAPS[mapI].moving && patches.length && Math.hypot(x-patches[patches.length-1].x, y-patches[patches.length-1].y)<60) continue; // the feast moves somewhere new
+    if (MAP().moving && patches.length && Math.hypot(x-patches[patches.length-1].x, y-patches[patches.length-1].y)<60) continue; // the feast moves somewhere new
     const r=3; for (let yy=-r;yy<=r;yy++) for (let xx=-r;xx<=r;xx++){ const X=x+xx, Y=y+yy; if (X<0||Y<0||X>=W||Y>=H||xx*xx+yy*yy>r*r) continue; const j=idx(X,Y); if (G[j]===PASS) food[j]+=8; }
     windfalls.push({x,y,t:0});
-    if (MAPS[mapI].moving){ patches.push({x,y}); if (patches.length>2){ const o=patches.shift(); for (let yy=-6;yy<=6;yy++) for (let xx=-6;xx<=6;xx++){ const X=o.x+xx, Y=o.y+yy; if (X>=0&&Y>=0&&X<W&&Y<H) food[idx(X,Y)]=0; } }
+    if (MAP().moving){ patches.push({x,y}); if (patches.length>2){ const o=patches.shift(); for (let yy=-6;yy<=6;yy++) for (let xx=-6;xx<=6;xx++){ const X=o.x+xx, Y=o.y+yy; if (X>=0&&Y>=0&&X<W&&Y<H) food[idx(X,Y)]=0; } }
       if (patches.length===1) for (let j=0;j<W*H;j++) if (food[j]>0 && Math.hypot(j%W-x,((j/W)|0)-y)>8) food[j]=0; } // the old larders rot
     const what=['A beetle fell into the soil','A seed pod split open','A worm was caught by the frost','Crumbs from a picnic above'][rng.int(4)];
     banner(`${what}! Fresh food.`); VOICE.thud(); return {x,y}; }
   return null; }
 let fx=[]; function burstAt(x,y){ for (let k=0;k<30;k++){ const a=Math.random()*7, s=Math.random()*3; fx.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,l:1}); } }
-function goalProgress(){ const g=MAPS[mapI].g;
+function goalProgress(){ const g=MAP().g;
   if (g.type==='bridge'){ const sh=bridgeShare(), ok=bridgeLog.length>=20 && sh>=g.share; return [ok? Math.min(delivered,g.n) : Math.min(delivered,g.n-0.5), g.n, `Settle on the short way (${Math.round(sh*100)}% of trips, need ${g.share*100}%) and bring ${g.n} food`]; } if (g.type==='food') return [delivered, g.n, `Bring ${g.n} food home`]; if (g.type==='kill') return [kills, g.n, `Kill ${g.n} spider${g.n>1?'s':''}`]; if (g.type==='nest') return [nests[1]? (nests[1].maxhp-Math.max(0,nests[1].hp)) : 0, nests[1]?.maxhp||1, 'Destroy the rival nest']; }
 function checkEnd(){
   if (gameOver) return; const [v,n]=goalProgress(); const ours=ants.filter(a=>a.team===0).length;
-  if (v>=n){ gameOver=true; VOICE.win(); winFx=bloom(); const frac=timeLeft/MAPS[mapI].t; const stars= frac>0.55?3: frac>0.3?2:1; const prev=SAVE.stars[mapI]||0; const first=!prev; SAVE.stars[mapI]=Math.max(prev,stars); persist();
+  if (mapI===GEN && years){ const won=v>=n; if (!won && timeLeft>0 && ours>0) return;
+    gameOver=true; if (won){ VOICE.win(); winFx=bloom(); } const r=seasonOver(won); const y=years;
+    setTimeout(()=>{ if (mapI!==GEN || years!==y) return;
+      const head= r.over? `The colony is gone after ${y.k - (r.won?0:1)} season${y.k===2?'':'s'}.` : r.won? `${GENMAP.n}: the colony thrives` : `${GENMAP.n}: famine`;
+      const body= r.over? `<p>${r.ours} ants were left, too few to found another season.</p><p>Best on <b>${y.seed}</b>: ${SAVE.years[y.seed]||0} seasons.</p>`
+        : r.won? `<p>The colony grows to <b>${r.next}</b> ants for ${SEASONS[y.k%4].toLowerCase()}.</p><p class="small dim">Next: ${genSeason(y.seed,y.k,y.colony).season} Retune the chemistry if you like.</p>`
+        : `<p>The season's need was not met (${Math.floor(v)}/${Math.round(n)}). Many starve: <b>${r.next}</b> ants go on.</p>`;
+      RH.modal(`<h2>${head}</h2>${body}`, r.over? [{label:'Same seed again'},{label:'Today\'s colony'}] : [{label:'Next season'}]).then(lbl=>{ if (years!==y) return; if (r.over){ startYears(lbl==='Same seed again'? y.seed : todayKey()); } else advanceYears(); });
+    }, won? WIN_DELAY : 300);
+    return; }
+  if (v>=n){ gameOver=true; VOICE.win(); winFx=bloom(); const frac=timeLeft/MAP().t; const stars= frac>0.55?3: frac>0.3?2:1; const prev=SAVE.stars[mapI]||0; const first=!prev; SAVE.stars[mapI]=Math.max(prev,stars); persist();
     const pool=[...UPS].sort(()=>Math.random()-.5).slice(0,3); const mi=mapI;
     setTimeout(()=>{ if (mapI!==mi || !gameOver) return;
     RH.modal(`<h2>${'★'.repeat(stars)}${'☆'.repeat(3-stars)} The colony thrives</h2><p>${Math.round(timeLeft)}s to spare.</p><p style="font-size:15px;color:#cbbd9c"><i>Field note:</i> ${NOTES[mapI]||''}</p>${first?`<p><b>The colony adapts.</b> Choose a trait for every map from now on:</p><div class="ups">${pool.map(u=>`<button data-u="${u[0]}"><b>${u[1]}</b><br><span class="small dim">${u[2]}</span></button>`).join('')}</div>`:''}`, first? [] : [{label:'Next map'}]).then(()=>{ if(!first) openMap(Math.min(MAPS.length-1,mapI+1)); });
@@ -453,12 +494,12 @@ function paint(e){
   }
 }
 window.addEventListener('keydown',e=>{ const s=SCENTS.find(s=>s.key===e.key); if (s && unlockedScent(s)){ brush=s.k; renderScents(); } if (e.key===' '){ paused=!paused; e.preventDefault(); updBtns(); } });
-const unlockedScent=(s)=> !s.unlock || mapI>=s.unlock;
+const unlockedScent=(s)=> !s.unlock || (mapI===GEN? years && years.k>=(YUNLOCK[s.k]||0) : mapI>=s.unlock);
 window.__ant={ MAPS, SCENTS, UPS, build, bfs, stepWorld, goalProgress, checkEnd, cleanSave, mapOpen, openMap, paint, passable, sense, unlockedScent,
   get G(){ return G; }, get food(){ return food; }, get scent(){ return scent; }, get home(){ return home; }, get nests(){ return nests; }, get ants(){ return ants; }, get spiders(){ return spiders; },
   get gland(){ return gland; }, set gland(v){ gland=v; }, get stored(){ return stored; }, get delivered(){ return delivered; }, set delivered(v){ delivered=v; }, get kills(){ return kills; }, set kills(v){ kills=v; }, get timeLeft(){ return timeLeft; }, set timeLeft(v){ timeLeft=v; },
   get gameOver(){ return gameOver; }, get mapI(){ return mapI; }, get SAVE(){ return SAVE; }, get paused(){ return paused; }, set paused(v){ paused=v; }, get cell(){ return cell; }, get painting(){ return painting; }, set painting(v){ painting=v; }, get brush(){ return brush; }, set brush(v){ brush=v; },
-  strokeStart(){ lastP=null; strokeLen=0; }, get digMixOn(){ return digMixOn; }, millShare, get mill(){ return mill; }, get trail(){ return trail; }, get bridgeLog(){ return bridgeLog; }, bridgeShare, setChem, chemNow, get chem(){ return chem; }, NOTES, steer, get rotated(){ return rotated; }, toCell, toScreen, cam, fit, setDrawer, get windfalls(){ return windfalls; }, get winFx(){ return winFx; }, windfall, tally, get windT(){ return windT; }, set windT(v){ windT=v; }, get rainT(){ return rainT; }, set rainT(v){ rainT=v; }, get hatchT(){ return hatchT; }, get fx(){ return fx; }, idx, W, H, PASS, ROCK, DIRT };
+  strokeStart(){ lastP=null; strokeLen=0; }, get digMixOn(){ return digMixOn; }, millShare, get mill(){ return mill; }, get trail(){ return trail; }, get bridgeLog(){ return bridgeLog; }, bridgeShare, setChem, chemNow, get chem(){ return chem; }, NOTES, steer, get rotated(){ return rotated; }, genSeason, startYears, advanceYears, get years(){ return years; }, get GEN(){ return GEN; }, MAP, toCell, toScreen, cam, fit, setDrawer, get windfalls(){ return windfalls; }, get winFx(){ return winFx; }, windfall, tally, get windT(){ return windT; }, set windT(v){ windT=v; }, get rainT(){ return rainT; }, set rainT(v){ rainT=v; }, get hatchT(){ return hatchT; }, get fx(){ return fx; }, idx, W, H, PASS, ROCK, DIRT };
 
 // ===================== Rendering =====================
 // ===================== Sound: soil =====================
@@ -478,7 +519,7 @@ let roots=[];
 function makeRoots(){ // a few ochre roots pushing down through the soil (decoration, seeded per map)
   const r=RH.rng(900+mapI); roots=[]; for (let k=0;k<5;k++){ let x=r()*W, y=-2, a=Math.PI/2+r.range(-.4,.4); const seg=[[x,y]]; for (let i=0;i<40;i++){ a+=r.range(-.35,.35); x+=Math.cos(a)*2.2; y+=Math.sin(a)*2.2; seg.push([x,y]); if (y>H*0.7) break; } roots.push({seg, w:1.5+r()*2}); } }
 function renderTerrain(){
-  const g=tctx, img=g.createImageData(W*TS,H*TS), d=img.data, cold=MAPS[mapI].cold, r=RH.rng(4242+mapI);
+  const g=tctx, img=g.createImageData(W*TS,H*TS), d=img.data, cold=MAP().cold, r=RH.rng(MAP().seed ?? (4242+mapI));
   const noise=new Float32Array(W*H); for (let i=0;i<W*H;i++) noise[i]=r();
   for (let y=0;y<H*TS;y++) for (let x=0;x<W*TS;x++){ const cx=(x/TS)|0, cy=(y/TS)|0, i=cy*W+cx, k=(y*W*TS+x)*4, t=G[i], n=noise[i], grain=((x*73856093^y*19349663)>>>0)%97/97;
     let R,Gc,B;
@@ -558,11 +599,14 @@ function tally(n){ n=Math.max(0,Math.floor(n)); const unit= n<=25?1 : n<=250?10 
 function banner(t){ const b=document.getElementById('banner'); b.textContent=t; b.style.opacity=1; clearTimeout(banner.t); banner.t=setTimeout(()=>b.style.opacity=0,3000); }
 
 // ===================== UI =====================
-function renderScents(){ const html=SCENTS.map(s=>{ const u=unlockedScent(s); return `<button data-s="${s.k}" class="${brush===s.k?'on':''}" ${u?'':'disabled'} title="${u?s.d:'Unlocks on map '+(s.unlock+1)}" aria-label="${s.n} scent${u?'':' (locked)'}" style="--vc:${s.c}"><div class="vial"></div><span>${s.n}</span><span class="k">${u?'key '+s.key:'map '+(s.unlock+1)}</span></button>`; }).join(''); document.querySelectorAll('.scents').forEach(el=>el.innerHTML=html);
+function renderScents(){ const html=SCENTS.map(s=>{ const u=unlockedScent(s), when= mapI===GEN? 'season '+((YUNLOCK[s.k]||0)+1) : 'map '+(s.unlock+1); return `<button data-s="${s.k}" class="${brush===s.k?'on':''}" ${u?'':'disabled'} title="${u?s.d:'Unlocks on '+when}" aria-label="${s.n} scent${u?'':' (locked)'}" style="--vc:${s.c}"><div class="vial"></div><span>${s.n}</span><span class="k">${u?'key '+s.key:when}</span></button>`; }).join(''); document.querySelectorAll('.scents').forEach(el=>el.innerHTML=html);
   const cur=SCENTS.find(s=>s.k===brush); document.getElementById('scentDesc').textContent=cur.d;
   document.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{ brush=b.dataset.s; T_({f:1400,type:'sine',dur:.06,vol:.05}); renderScents(); }); }
 function renderSide(){
-  const M=MAPS[mapI]; const tags=[M.spider?`${M.spider} spider${M.spider>1?'s':''}`:'', M.rival?'a rival colony':'', M.rain?'rain':'', M.cold?'cold: the colony eats its stores':'', M.dirt>0.1?'soft earth':'', mapI>=1?'windfalls':''].filter(Boolean).join(' · ');
+  if (mapI===GEN && years){ const M=GENMAP; const tags=[M.spider?`${M.spider} spider${M.spider>1?'s':''}`:'', M.rival?'a rival colony':'', M.rain?'rain':'', M.cold?'cold':'', M.moving?'moving food':'', M.dirt>0.1?'soft earth':''].filter(Boolean).join(' · ');
+    document.getElementById('goalBox').innerHTML=`<div style="color:var(--dim);font-size:14px">Colony Years · seed <b>${years.seed}</b> · season ${years.k+1} · best ${SAVE.years[years.seed]||0}</div><b class="n">${M.n}</b><div style="margin-top:4px">Goal: <span id="gText"></span></div><div style="color:var(--dim);font-size:14px">${tags} · the colony: ${years.colony} ants</div><div style="margin-top:4px">⏳ <span id="tText"></span></div>`;
+    renderScents(); renderMaps(); document.getElementById('traits').innerHTML=''; return; }
+  const M=MAP(); const tags=[M.spider?`${M.spider} spider${M.spider>1?'s':''}`:'', M.rival?'a rival colony':'', M.rain?'rain':'', M.cold?'cold: the colony eats its stores':'', M.dirt>0.1?'soft earth':'', mapI>=1?'windfalls':''].filter(Boolean).join(' · ');
   document.getElementById('goalBox').innerHTML=`<div style="color:var(--dim);font-size:14px">${SEASONS[Math.floor(mapI/5)]} · chamber ${mapI+1} of 20</div><b class="n">${M.n}</b><div style="margin-top:4px">Goal: <span id="gText"></span></div><div style="color:var(--dim);font-size:14px">${tags}</div><div style="margin-top:4px">⏳ <span id="tText"></span></div>`;
   renderScents(); renderMaps();
   document.getElementById('traits').innerHTML = SAVE.ups.length? 'Colony traits: '+SAVE.ups.map(u=>UPS.find(x=>x[0]===u)[1]).join(', ') : 'Clear a map for the first time to choose a colony trait.';
@@ -570,7 +614,11 @@ function renderSide(){
 }
 function renderMaps(){
   let h=''; for (let s=0;s<4;s++){ h+=`<div class="season">${SEASONS[s]}</div><div class="maps">`; for (let i=s*5;i<s*5+5;i++){ const open=i===0||SAVE.stars[i-1]||SAVE.stars[i]; h+=`<button data-m="${i}" class="${i===mapI?'cur':''}" ${open?'':'disabled'}>${i+1}<span class="st">${SAVE.stars[i]?'★'.repeat(SAVE.stars[i]):''}</span></button>`; } h+='</div>'; }
-  const el=document.getElementById('mapList'); el.innerHTML=h; el.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{ if (mapOpen(+b.dataset.m)) openMap(+b.dataset.m); });
+  const yOpen=!!SAVE.stars[3] || !!years;
+  h+=`<div class="season">Colony Years</div><div class="small" style="color:var(--dim);font-size:14px">${yOpen? 'One colony through endless seasons. Every chamber is new; the ants, the stores and your chemistry carry on.' : 'Clear map 4 to open the endless seasons.'}</div>`;
+  if (yOpen) h+=`<div class="row" style="flex-wrap:wrap;margin-top:4px"><button data-y="today">Today's colony</button><button data-y="new">A new seed</button></div><div class="small" style="color:var(--dim);font-size:14px">Today's best: ${SAVE.years[todayKey()]||0} seasons</div>`;
+  const el=document.getElementById('mapList'); el.innerHTML=h;
+  el.querySelectorAll('[data-y]').forEach(b=>b.onclick=()=>{ const seed= b.dataset.y==='today'? todayKey() : Math.random().toString(36).slice(2,8); startYears(seed); history.replaceState(null,'',location.pathname+'#years='+seed); }); el.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{ if (mapOpen(+b.dataset.m)) openMap(+b.dataset.m); });
 }
 function hud(){
   const [v,n,t]=goalProgress(); document.getElementById('gText').textContent=`${t}: ${Math.floor(v)} / ${Math.round(n)}`; document.getElementById('tText').textContent=`${Math.max(0,Math.ceil(timeLeft))}s left in the season`;
@@ -591,15 +639,15 @@ document.getElementById('drawerClose').onclick=()=>setDrawer(false);
 compactMQ.addEventListener?.('change',()=>{ setDrawer(false); fit(); });
 document.getElementById('pauseBtn').onclick=()=>{ paused=!paused; updBtns(); };
 document.getElementById('fastBtn').onclick=()=>{ speed=speed===1?2:speed===2?4:1; updBtns(); };
-document.getElementById('retryBtn').onclick=()=>openMap(mapI);
-function openMap(i){ if (!mapOpen(i)) i=0; SAVE.cur=i; persist(); build(i); brush='forage'; fit(); banner(MAPS[i].season? `${MAPS[i].n}: ${MAPS[i].season}` : `${MAPS[i].n}`); setDrawer(false); }
+document.getElementById('retryBtn').onclick=()=> years? startYears(years.seed) : openMap(mapI);
+function openMap(i){ years=null; if (!mapOpen(i)) i=0; SAVE.cur=i; persist(); build(i); brush='forage'; fit(); banner(MAPS[i].season? `${MAPS[i].n}: ${MAPS[i].season}` : `${MAPS[i].n}`); setDrawer(false); }
 
 let last=performance.now(), hudT=0;
 function frame(now){ const dt=Math.min(0.05,(now-last)/1000); last=now;
   if (!paused && !gameOver) for (let k=0;k<speed;k++) stepWorld(dt);
   draw(); hudT+=dt; if (hudT>0.2){ hudT=0; hud(); } requestAnimationFrame(frame); }
 window.addEventListener('resize', fit);
-openMap(SAVE.cur||0); requestAnimationFrame(frame);
+{ const h=decodeURIComponent(location.hash.slice(1)); if (h.startsWith('years=')) startYears(h.slice(6)); else openMap(SAVE.cur||0); } requestAnimationFrame(frame);
 if (!SAVE.intro){ SAVE.intro=1; persist(); RH.modal(`<h2>Ant Mind</h2><p>You can't give orders. You are the colony's chemistry.</p><p>Ants find food by wandering. A forager who finds some lays <b>pheromone</b> on the way home, others follow the strongest smell, and a trail grows by itself.</p><p>You tune that chemistry: <b>trail strength</b>, <b>evaporation</b> and <b>wandering</b>. You can also drag a short scout trail with your glands. Later come alarm, dig and retreat scents.</p>`,[{label:'Begin'}]); }
 </script>
 </body>

@@ -219,6 +219,16 @@ module.exports = {
       ok(await page.evaluate(c => !!__ch.dz.clamp[c[1] * __ch.DG + c[0]], c), 'clamp at the zoomed cell ' + c);
       await page.click('.pz-fit'); await page.waitForTimeout(400); eq(await page.evaluate(() => [__ch.cam.k, __ch.cam.x, __ch.cam.y]), [1, 0, 0], 'Fit');
     },
+    'design: a shared #plate= link opens the workshop on that plate; figures get names from their shapes': async ({ page, ok, eq }) => {
+      const code = await page.evaluate(() => { const X = __ch, D = X.newDesign('star', X.SHAPES.star()); X.dz = D; X.editAtTool('clamp', .5, .5); return X.encodePlate(D); });
+      const p2 = await page.context().newPage(), errs = []; p2.on('pageerror', e => errs.push(e.message));
+      await p2.goto(page.url().split('#')[0] + '#plate=' + code); await p2.waitForTimeout(1500);
+      const r = await p2.evaluate(() => ({ mode: __ch.SAVE.mode, plate: __ch.plate, name: __ch.dz && __ch.dz.name })); await p2.close();
+      eq(errs, []); eq([r.mode, r.plate], ['design', 'custom'], 'opened in the workshop'); eq(r.name, 'star', 'on the shared plate');
+      const n = await page.evaluate(() => { const X = __ch, P = X.PLATES.square.modes, names = new Set(); for (const md of P.slice(0, 12)) { const u = new Float64Array(X.DG * X.DG); for (let j = 0; j < X.DG; j++) for (let i = 0; i < X.DG; i++) u[j * X.DG + i] = md.z((i + .5) / X.DG, (j + .5) / X.DG); names.add(X.figureName(X.figureKey(u), 3)); }
+        return { n: names.size, one: [...names][0], same: X.figureName('1'.repeat(64), 2) === X.figureName('1'.repeat(64), 2), bad: X.figureName(null, 2) }; });
+      ok(n.n >= 6, 'distinct figures get varied names: ' + JSON.stringify(n)); ok(/^the [A-Z][\w-]+ [A-Z]/.test(n.one) && n.same && n.bad === 'an unnamed figure', 'names are deterministic words: ' + n.one);
+    },
     'corrupted / odd saves load without errors': async ({ page, eq, ok }) => {
       for (const save of ['null', '3', '[]', '"s"', '{"got":7,"solved":"x","mode":"match","tgt":{"square":999}}', '{"plate":"hexagon","tgt":[1]}', '{"tgt":-5,"mode":"match"}',
         '{"tgt":{"square":"abc"},"mode":"match"}', '{"got":{"s01p":"data:image/png;base64,AAAA"},"tgt":3,"plate":"circle"}', '{bad']) {

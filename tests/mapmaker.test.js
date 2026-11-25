@@ -227,7 +227,9 @@ module.exports = {
       eq(r.sure, 0); ok(r.doubtful, 'doubtful ink is flagged'); eq(r.reef, true); ok(r.marked >= 1); ok(r.sail <= 1, 'sounding slows the ship');
     },
     'you never sail into land you can see: steering at the shore, the helmsman bears away and stays clear, unharmed (even in fog)': async ({ page, eq }) => {
-      const r = await page.evaluate(() => { const M = window.__map, is = M.islands[1], c = is.coast[0]; const out = [];
+      const r = await page.evaluate(() => { const M = window.__map, is = M.islands[1]; const out = [];
+        // a stretch of coast with open sea 40 miles off it (on some worlds another island lies there)
+        const c = is.coast.find(([cx, cy]) => { const dx = cx - is.cx, dy = cy - is.cy, L = Math.hypot(dx, dy); for (let r = 8; r <= 44; r += 4) if (M.isLand(cx + dx / L * r, cy + dy / L * r)) return false; return true; }) || is.coast[0];
         for (const fog of [0, 20]) { const dx = c[0] - is.cx, dy = c[1] - is.cy, L = Math.hypot(dx, dy); const x = c[0] + dx / L * 40, y = c[1] + dy / L * 40;
           M.atPort = false; M.fogT = fog; const h0 = M.S.hull; M.ship = { x, y, bx: x, by: y, h: Math.atan2(-dy, -dx), sail: 2, voyageDmg: 0 }; M.target = null; let onLand = false;
           for (let i = 0; i < 400; i++) { M.ship.h = Math.atan2(c[1] - M.ship.y, c[0] - M.ship.x); M.step(0.05); if (M.isLand(M.ship.x, M.ship.y)) onLand = true; }
@@ -294,6 +296,34 @@ module.exports = {
       await page.click('#sell'); await page.evaluate(() => window.__map.renderOrders());
       const end = await page.evaluate(() => [window.__map.S.tut, !!window.__map.S.done[0], document.getElementById('orders').hidden]); steps.push(end[0]);
       eq(end, [5, true, true]); ok([1, 2, 3, 4].every(s => steps.includes(s)) || steps[steps.length - 1] === 5, 'went through the steps: ' + steps);
+    },
+    'survey expeditions: the archipelago is fixed by the seed, the career save is untouched, and leaving restores the career': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const M = window.__map; const careerSeed = M.S.seed; M.S.gold = 77; M.boot(); const before = localStorage.getItem('rh:mapmaker');
+        const coastHash = () => M.islands.map(is => is.coast.length + ':' + Math.round(is.cx) + ',' + Math.round(is.cy)).join('|');
+        M.startExpedition('abc'); const a = coastHash(), seedA = M.S.seed, inExp = !!M.S.exp, inst = Object.keys(M.S.inst).sort().join(','); M.startExpedition('abc'); const b = coastHash(); M.startExpedition('xyz'); const c = coastHash();
+        const saved = JSON.parse(localStorage.getItem('rh:mapmaker')); const untouched = localStorage.getItem('rh:mapmaker') === before; M.leaveExpedition();
+        return { same: a === b, differs: a !== c, inExp, inst, untouched, savedGold: saved && saved.gold, careerSeed, back: M.S.seed, backGold: M.S.gold, exp: !!M.S.exp }; });
+      ok(r.same && r.differs, 'seeded'); ok(r.inExp); eq(r.inst, 'compass,log,quadrant'); eq([r.untouched, r.savedGold], [true, 77], 'the career save is not overwritten');
+      eq([r.back, r.backGold, r.exp], [r.careerSeed, 77, false]);
+      await page.goto(page.url().replace(/#.*/, '') + '#survey=linkseed'); await page.reload(); await page.waitForFunction(() => window.__map && window.__map.ship);
+      eq(await page.evaluate(() => window.__map.S.exp && window.__map.S.exp.key), 'linkseed');
+    },
+    'survey expeditions: forty days, reefs cost days not hull, a chart left at sea counts half, and the best is kept': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const M = window.__map; M.startExpedition('abc'); M.ship.sail = 1; M.atPort = false; const d0 = M.S.day; M.damage(14, 'We touched a reef.'); const lost = M.S.day - d0, hull = M.S.hull;
+        M.S.ink = M.islands[1].coast.map(([x, y]) => [x, y]); M.hashInk(); const full = M.expScore(true), half = M.expScore(false);
+        M.S.day = M.EXP_DAYS - 0.01; M.ship.sail = 1; M.ship.x += 300; M.ship.bx += 300; M.step(0.2);
+        return { lost, hull, full, half, done: M.S.exp.done, best: JSON.parse(localStorage.getItem('rh:mapmaker')).expBest }; });
+      ok(r.lost > 1.5 && r.hull === 100, 'a reef costs days: ' + JSON.stringify(r)); ok(r.full > 5 && Math.abs(r.half - r.full / 2) <= 1, 'half at sea'); ok(r.done, 'the fortieth day ends it'); ok(r.best && r.best.abc >= 1, 'best kept ' + JSON.stringify(r.best));
+    },
+    'survey expeditions: a careful navigator scores far more than one who never fixes': async ({ page, ok }) => {
+      await page.addScriptTag({ content: BOT });
+      const r = await page.evaluate(() => { const M = window.__map, out = {};
+        for (const key of ['2026-11-25', 'x1']) for (const pol of ['competent', 'naive']) { M.startExpedition(key); const n = M.islands.length;
+          const order = [...Array(n - 1)].map((_, i) => i + 1).sort((a, b) => Math.hypot(M.islands[a].cx - M.port.x, M.islands[a].cy - M.port.y) - Math.hypot(M.islands[b].cx - M.port.x, M.islands[b].cy - M.port.y));
+          for (const isl of order) { if (M.S.day > M.EXP_DAYS - 8 || M.S.exp.done) break; window.__mapbot(pol, isl, 1, 1); }
+          out[key + ':' + pol] = Math.round(M.accAll()); }
+        return out; });
+      for (const key of ['2026-11-25', 'x1']) ok(r[key + ':competent'] >= r[key + ':naive'] + 25 && r[key + ':competent'] >= 60, JSON.stringify(r));
     },
     'pan and zoom: a tap while zoomed sets the course under the finger, a pinch sets no course and zooms, Fit shows the whole chart': async ({ page, ok, eq }) => {
       const r = await page.evaluate(async () => { const M = window.__map, cv = document.getElementById('chart'), rc = cv.getBoundingClientRect();

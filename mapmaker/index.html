@@ -132,7 +132,9 @@ function cleanSave(s){
   const inst={compass:1}; if (s.inst && typeof s.inst==='object') for (const k in s.inst) if (INST.some(x=>x.k===k) && s.inst[k]) inst[k]=1;
   const done={}; if (s.done && typeof s.done==='object') for (const k in s.done){ const n=+k; if (Number.isInteger(n) && n>=0 && n<COMS.length && s.done[k]) done[n]=1; }
   const sh=s.ship; const ship= sh && typeof sh==='object' && ['x','y','bx','by','h'].every(k=>Number.isFinite(sh[k])) ? {...sh, sail:[0,1,2].includes(sh.sail)?sh.sail:0, voyageDmg:num(sh.voyageDmg,0,0,1e4)} : null;
-  return {...s, seed:Math.floor(Math.abs(s.seed))%1e9, gold:Math.floor(num(s.gold,40,0,1e9)), prov:num(s.prov,100,0,100), hull:num(s.hull,100,1,100), inst, done, ship,
+  const expBest={}; if (s.expBest && typeof s.expBest==='object') for (const [k,v] of Object.entries(s.expBest).slice(-40)) if (/^[\w-]{1,24}$/.test(k) && Number.isFinite(+v)) expBest[k]=Math.max(0,Math.min(100,Math.round(+v)));
+  const exp= s.exp && typeof s.exp==='object' && /^[\w-]{1,24}$/.test(s.exp.key)? {key:s.exp.key, done:!!s.exp.done} : undefined;
+  return {...s, expBest, exp, seed:Math.floor(Math.abs(s.seed))%1e9, gold:Math.floor(num(s.gold,40,0,1e9)), prov:num(s.prov,100,0,100), hull:num(s.hull,100,1,100), inst, done, ship,
     ink:Array.isArray(s.ink)? s.ink.filter(pt) : [], visited:Array.isArray(s.visited)? s.visited.filter(pt).slice(-3000) : [], worlds:Math.floor(num(s.worlds,0,0,1e6)),
     log:Array.isArray(s.log)? s.log.filter(e=>e && Number.isFinite(e.d) && typeof e.t==='string').slice(0,40) : [], landed:(s.landed && typeof s.landed==='object' && !Array.isArray(s.landed))? Object.fromEntries(Object.keys(s.landed).filter(k=>/^\d+$/.test(k)).map(k=>[k,1])) : {}, day:num(s.day,0,0,1e7),
     learned:(s.learned && typeof s.learned==='object')? Object.fromEntries(Object.entries(s.learned).filter(([k,v])=>/^\d+$/.test(k) && +k<12 && v && Number.isFinite(v.x) && Number.isFinite(v.y))) : {}, allow:s.allow!==false,
@@ -140,7 +142,22 @@ function cleanSave(s){
     sold:(s.sold && typeof s.sold==='object')? Object.fromEntries(Object.entries(s.sold).filter(([k,v])=>/^\d+$/.test(k) && ['ok','wreck','sea'].includes(v))) : {},
     rivalDone:(s.rivalDone && typeof s.rivalDone==='object')? Object.fromEntries(Object.keys(s.rivalDone).filter(k=>/^\d+$/.test(k)).map(k=>[k,1])) : {}, routes:Math.floor(num(s.routes,0,0,100)), soundings:Array.isArray(s.soundings)? s.soundings.filter(q=>Array.isArray(q)&&q.length===3&&q.every(Number.isFinite)).slice(-200) : [], rep:Math.floor(num(s.rep,0,-99,999))};
 }
-const persist=()=>{ RH.save('mapmaker', S); RH.progress('mapmaker', Object.keys(S.done).length/COMS.length); };
+const persist=()=>{ if (S.exp){ RH.save('mapmaker-exp', S); return; } RH.save('mapmaker', S); RH.progress('mapmaker', Object.keys(S.done).length/COMS.length); };
+// ===================== Survey expeditions: a seeded archipelago, forty days, one score =====================
+// Same ship, same instruments for everyone (compass, log, quadrant), no gold, no shop. The score is how much of the true
+// coast your chart gets right (the same accuracy the Admiralty pays for), counted only if the chart comes home.
+// The pilot book shows each sea's current, so the drift is something to plan for rather than a mystery, and reefs cost days, not the ship.
+const EXP_DAYS=40;
+let career=null;
+const expToday=()=>new Date().toISOString().slice(0,10);
+function expSeed(key){ return playableSeed(RH.hashStr('survey:'+key)%1e9); }
+function startExpedition(key){ key=String(key||expToday()).replace(/[^\w-]/g,'').slice(0,24)||expToday(); if (!S.exp) career=S;
+  const best=(career||S).expBest||{}; S={...freshSave(expSeed(key)), exp:{key, done:false}, inst:{compass:1,log:1,quadrant:1}, allow:true, tut:99, intro:1, gold:0}; S.expBest=best; boot(); RH.toast(`Survey expedition <b>${key}</b>: ${EXP_DAYS} days. Chart what you can and bring the chart home.`, 5000); }
+function expScore(home=atPort){ return Math.round(accAll()*(home? 1 : 0.5)); }
+function endExpedition(why){ if (!S.exp || S.exp.done) return; S.exp.done=true; const home=atPort && why!=='wreck'; const sc=expScore(home), key=S.exp.key;
+  const c=career||S; c.expBest=c.expBest||{}; const prev=c.expBest[key]||0; if (sc>prev){ c.expBest[key]=sc; const k=Object.keys(c.expBest); if (k.length>40) delete c.expBest[k[0]]; } RH.save('mapmaker', c);
+  RH.modal(`<h2>The expedition is over</h2><p>${home? 'The chart came home safe.' : why==='days'? 'The forty days ran out at sea: the chart is only half trusted.' : 'The chart came home in an oilskin, half trusted.'}</p><p>Your chart has <b>${sc}%</b> of the archipelago right${home?'':' (halved)'}. Best on <b>${key}</b>: ${Math.max(prev,sc)}%.</p>`,[{label:'Back to the career'},{label:'Sail it again'}]).then(l=>{ if (l==='Sail it again') startExpedition(key); else leaveExpedition(); }); }
+function leaveExpedition(){ if (!S.exp) return; RH.wipe('mapmaker-exp'); const best=S.expBest; S=career || cleanSave(RH.load('mapmaker',null)) || freshSave(Math.floor(Math.random()*1e9)); S.expBest={...(S.expBest||{}), ...(best||{})}; career=null; boot(); history.replaceState(null,'',location.pathname); }
 let land, islands, coast, port, currents, reefs, rng, names;
 function noise2(r){ const N=24; const g=[...Array(N*N)].map(()=>r()); const f=(x,y)=>{ const X=Math.floor(x), Y=Math.floor(y), fx=x-X, fy=y-Y; const v=(i,j)=>g[((Y+j)%N+N)%N*N+((X+i)%N+N)%N]; const s=t=>t*t*(3-2*t); return (v(0,0)*(1-s(fx))+v(1,0)*s(fx))*(1-s(fy))+(v(0,1)*(1-s(fx))+v(1,1)*s(fx))*s(fy); }; return (x,y)=>f(x,y)*0.6+f(x*2.1,y*2.1)*0.3+f(x*4.3,y*4.3)*0.1; }
 function buildWorld(seed){
@@ -235,7 +252,7 @@ let quillT=0;
 const lastV={};
 const gated=(name,gap,fn)=>(...a)=>{ const n=performance.now(); if (n-(lastV[name]||-1e9)<gap*1000) return; lastV[name]=n; fn(...a); };
 const VOICE={
-  quill:()=>{ const n=performance.now(); if (n-quillT<260) return; quillT=n; T_({noise:1,f:5600+Math.random()*1500,q:3,dur:.05,vol:.025}); },
+  quill:()=>{ const n=performance.now(); if (n-quillT<1600) return; quillT=n; T_({f:1900+Math.random()*300,type:'sine',dur:.03,vol:.008}); }, // a faint nib tick, never a scrape
   bell:gated('bell',4,()=>{ for (const dl of [0,.55]){ T_({f:740,type:'sine',dur:1.4,vol:.09,delay:dl}); T_({f:1860,type:'sine',dur:.5,vol:.025,delay:dl}); } }),
   seal:()=>{ T_({f:80,f2:45,type:'sine',dur:.3,vol:.3}); for (let i=0;i<6;i++) T_({noise:1,f:3000+i*300,q:4,dur:.025,vol:.04,delay:.12+i*.05}); },
   squall:gated('squall',8,()=>T_({noise:1,f:500,q:.4,dur:2.6,vol:.06,attack:.8})),
@@ -345,9 +362,10 @@ function step(dt){ simClock+=dt;
   for (const r of reefs) if (Math.hypot(r.x-ship.x,r.y-ship.y)<5 && !r.hitT){ r.hitT=3; damage(14,'We touched a reef. Some planking is sprung.'); }
   if (fogT<=0) reefs.forEach((r,k)=>{ if (!S.reefInk[k] && Math.hypot(r.x-ship.x,r.y-ship.y)<sightR()*0.45){ S.reefInk[k]=[Math.round(r.x+ship.bx-ship.x),Math.round(r.y+ship.by-ship.y)]; } });
   for (const r of reefs) if (r.hitT) r.hitT=Math.max(0,r.hitT-dt);
-  S.prov -= dt*0.2; S.day += dt/6; if (S.prov<=0){ S.prov=0; mutiny(); }
+  if (S.exp){ S.day += dt/6; S.prov=Math.max(0,100*(1-S.day/EXP_DAYS)); if (S.day>=EXP_DAYS){ ship.sail=0; endExpedition('days'); } }
+  else { S.prov -= dt*0.2; S.day += dt/6; if (S.prov<=0){ S.prov=0; mutiny(); } }
   weatherT-=dt; if (weatherT<=0){ weatherT=45+rng.int(40); weather(); } if (fogT>0) fogT-=dt;
-  for (let i=1;i<COMS.length;i++) if (!S.done[i] && !S.rivalDone[i] && S.day>rivalDay(i)){ S.rivalDone[i]=1; logE(`Word from the Admiralty: ${RIVAL} has delivered "${COMS[i].n}" first. They will pay us only half for ours.`); RH.toast(`${RIVAL} beat you to "${COMS[i].n}".`); }
+  if (!S.exp) for (let i=1;i<COMS.length;i++) if (!S.done[i] && !S.rivalDone[i] && S.day>rivalDay(i)){ S.rivalDone[i]=1; logE(`Word from the Admiralty: ${RIVAL} has delivered "${COMS[i].n}" first. They will pay us only half for ours.`); RH.toast(`${RIVAL} beat you to "${COMS[i].n}".`); }
   // ink coast in sight
   inkT+=dt; if (inkT>0.35 && inkOn){ inkT=0; ink(); }
   // ghost island
@@ -374,9 +392,9 @@ function doFix(){
   if (has('chronometer')){ ship.by=by0; fixAt(ship.x+rng.range(-3,3), ship.y+rng.range(-ny,ny), 'Noon sight and chronometer'); RH.toast('Fix taken: latitude and longitude.'); }
   else { nav.t*=0.5; nav.dist*=0.5; RH.toast('Noon sight: latitude corrected. Longitude is still dead reckoning.'); logE('Noon sight taken. Latitude is good; longitude is still reckoning.'); } VOICE.creak();
 }
-function damage(n,msg){ const d=has('copper')? n/2 : n; S.hull-=d; ship.voyageDmg+=d; RH.toast(msg); VOICE.thump(); FX.shake(0.35); logE(msg); if (ship.voyageDmg>30) S.reefOk=S.reefOk||false; if (S.hull<=0) wreck(); }
+function damage(n,msg){ if (S.exp){ S.day+=n/7; RH.toast(msg.replace(/\.$/,'')+': we lose a day mending.'); VOICE.thump(); logE(msg+' A day lost to repairs.'); return; } const d=has('copper')? n/2 : n; S.hull-=d; ship.voyageDmg+=d; RH.toast(msg); VOICE.thump(); FX.shake(0.35); logE(msg); if (ship.voyageDmg>30) S.reefOk=S.reefOk||false; if (S.hull<=0) wreck(); }
 function wreck(){ S.hull=40; S.gold=Math.max(0,S.gold-40); ship=newShip(); RH.modal('<h2>Shipwreck</h2><p>Your ship broke up on the rocks. The crew rowed home. A new ship cost 40 gold, but your chart survived in its oilskin.</p>'); }
-function mutiny(){ S.gold=Math.max(0,S.gold-25); S.prov=40; ship=newShip(); RH.modal('<h2>Mutiny</h2><p>The food ran out. The crew turned the ship around and brought you home. You paid them 25 gold to keep quiet.</p>'); }
+function mutiny(){ if (S.exp){ endExpedition('days'); return; } S.gold=Math.max(0,S.gold-25); S.prov=40; ship=newShip(); RH.modal('<h2>Mutiny</h2><p>The food ran out. The crew turned the ship around and brought you home. You paid them 25 gold to keep quiet.</p>'); }
 
 // ===================== Merchants sail by your chart =====================
 // Sell sailing directions to an island. A merchant steers from Port Haven straight for your charted landing place.
@@ -404,13 +422,21 @@ function wireDirections(){ document.querySelectorAll('[data-dir]').forEach(b=>b.
 // ===================== Port =====================
 function renderPort(){
   const el=document.getElementById('portBox');
-  if (!atPort){ el.innerHTML=`<h3>At sea</h3><div class="small" style="color:#5a4630;font-style:italic">Return to Port Haven (⚓ on your chart) to deliver charts, victual and buy instruments. In port your position is known exactly.</div>`; return; }
+  if (S.exp){ const daysLeft=Math.max(0,Math.ceil(EXP_DAYS-S.day));
+    el.innerHTML=`<h3>Survey expedition · ${S.exp.key}</h3><div class="small" style="font-size:15px">Day ${Math.floor(S.day)+1} of ${EXP_DAYS} · <b>${daysLeft}</b> days left · chart right: <b>${Math.round(accAll())}%</b> · best ${(S.expBest||{})[S.exp.key]||0}%</div>
+      <div class="small" style="color:#5a4630;font-style:italic;margin-top:4px">The pilot book's currents are drawn in green. Reefs cost days, not the ship. Only a chart brought home counts in full.</div>
+      <div class="row" style="margin-top:6px">${atPort && S.day>0.5? '<button class="primary" id="expEnd">Sign the chart and end</button>' : ''}<button id="expLeave">Leave the expedition</button></div>`;
+    document.getElementById('expEnd')?.addEventListener('click',()=>endExpedition('home')); document.getElementById('expLeave').onclick=()=>leaveExpedition(); return; }
+  const expHTML=`<div style="margin-top:8px;border-top:1px dotted #8a6a3a;padding-top:6px"><b>Survey expeditions</b><div class="small" style="color:#5a4630;font-style:italic">A new archipelago, forty days, one score: how much of it you chart right. The same for everyone who sails the same seed.</div>
+    <div class="row" style="margin-top:4px"><button data-exp="today">Today's survey</button><button data-exp="new">A new seed</button></div>${(S.expBest||{})[expToday()]!=null? `<div class="small">Today's best: ${S.expBest[expToday()]}%</div>`:''}</div>`;
+  const wireExp=()=>el.querySelectorAll('[data-exp]').forEach(b=>b.onclick=()=>{ const key= b.dataset.exp==='today'? expToday() : Math.random().toString(36).slice(2,8); history.replaceState(null,'',location.pathname+'#survey='+key); startExpedition(key); });
+  if (!atPort){ el.innerHTML=`<h3>At sea</h3><div class="small" style="color:#5a4630;font-style:italic">Return to Port Haven (⚓ on your chart) to deliver charts, victual and buy instruments. In port your position is known exactly.</div>`+(S.tut>=5? expHTML:''); wireExp(); return; }
   const ready=COMS.map((c,i)=>[c,i]).filter(([c,i])=>!S.done[i] && c.test());
   el.innerHTML=`<h3>⚓ In port</h3><div class="row"><button id="resup" ${S.prov>=99?'disabled':''}>Resupply (${Math.ceil((100-S.prov)*0.3)}g)</button><button id="repair" ${S.hull>=100?'disabled':''}>Repair (${Math.ceil((100-S.hull)*0.6)}g)</button></div>
     ${ready.length? `<button class="primary" id="sell" style="width:100%;margin-top:8px">Deliver ${ready.length} chart${ready.length>1?'s':''} (+${ready.reduce((s,[c,i])=>s+payFor(i),0)}g)</button>` : '<div class="small" style="color:#5a4630;margin-top:6px;font-style:italic">No commissions ready to deliver.</div>'}
     ${directionsHTML()}
-    <button id="compare" style="width:100%;margin-top:6px" ${S.gold<25?'disabled':''}>Buy a look at the Admiralty survey (25g)</button>`;
-  wireDirections();
+    <button id="compare" style="width:100%;margin-top:6px" ${S.gold<25?'disabled':''}>Buy a look at the Admiralty survey (25g)</button>`+(S.tut>=5? expHTML:'');
+  wireDirections(); wireExp();
   document.getElementById('resup').onclick=()=>{ const c=Math.ceil((100-S.prov)*0.3); if (S.gold<c) return RH.toast('Not enough gold.'); S.gold-=c; S.prov=100; persist(); renderAll(); };
   document.getElementById('repair').onclick=()=>{ const c=Math.ceil((100-S.hull)*0.6); if (S.gold<c) return RH.toast('Not enough gold.'); S.gold-=c; S.hull=100; persist(); renderAll(); };
   document.getElementById('sell')?.addEventListener('click',()=>{ let g=0; for (const [c,i] of ready){ if (S.done[i]) continue; S.done[i]=1; g+=payFor(i); } if (!g) return; S.gold+=g; persist(); pressSeal(ready.filter(([c,i])=>S.done[i]).map(([c])=>c.n)); RH.toast(`The Admiralty pays ${g} gold.`); logE(`Delivered to the Admiralty: ${ready.map(([c])=>c.n).join(', ')}. Paid ${g} gold.`); renderAll();
@@ -486,13 +512,18 @@ function drawChart(c, s, ox, oy, exportMode){
   c.fillStyle='rgba(255,248,225,.22)'; for (const [x,y] of S.visited){ c.beginPath(); c.arc(x,y,sightR()*0.8,0,7); c.fill(); }
   // truth overlay
   if (!exportMode && performance.now()<showTruth){ c.fillStyle='rgba(60,120,200,.5)'; for (const is of islands) for (const [x,y] of is.coast) c.fillRect(x-2,y-2,4,4); for (const rf of reefs){ c.fillStyle='rgba(200,60,60,.6)'; c.fillRect(rf.x-2,rf.y-2,4,4); } }
+  // the pilot book's currents (expeditions): a verdigris arrow in each sea, length showing the set
+  if (S.exp && !exportMode){ c.strokeStyle='rgba(63,127,106,.55)'; c.fillStyle='rgba(63,127,106,.55)'; c.lineWidth=2;
+    for (let gy=0;gy<3;gy++) for (let gx=0;gx<4;gx++){ const cx=(gx+.5)*WX/4, cy=(gy+.5)*WY/3, cu=currents[gx+4*gy], L=Math.hypot(cu.x,cu.y)||1, k=14; const ex=cx+cu.x*k, ey=cy+cu.y*k;
+      c.beginPath(); c.moveTo(cx-cu.x*k,cy-cu.y*k); c.lineTo(ex,ey); c.stroke(); c.beginPath(); c.moveTo(ex,ey); c.lineTo(ex-cu.x/L*10-cu.y/L*6, ey-cu.y/L*10+cu.x/L*6); c.lineTo(ex-cu.x/L*10+cu.y/L*6, ey-cu.y/L*10-cu.x/L*6); c.fill();
+      c.font='italic 13px "IM Fell English",serif'; c.textAlign='center'; c.fillText(`set ${(L/2).toFixed(1)} kn`, cx, cy+22); } }
   // ink
   // iron-gall ink: each inked point a small nib stroke, with shoreline hatching seaward
   c.fillStyle='rgba(46,32,21,.85)'; c.strokeStyle='rgba(46,32,21,.22)'; c.lineWidth=0.7;
   for (let i=0;i<S.ink.length;i++){ const [x,y,pd]=S.ink[i]; if (pd){ if (i%2===0){ c.fillStyle='rgba(46,32,21,.38)'; c.fillRect(x-1.6,y-0.4,3.2,0.8); c.fillStyle='rgba(46,32,21,.85)'; } continue; } c.fillRect(x-1.1,y-0.7,2.2,1.4); if (i%3===0){ c.beginPath(); c.moveTo(x+2,y+2); c.lineTo(x+6,y+5); c.stroke(); } }
   // port & ghost
   c.font='22px "IM Fell English",serif'; c.textAlign='center'; c.fillStyle='#2e2015'; c.fillText('⚓',port.x,port.y+7); c.font='italic 15px "IM Fell English",serif'; c.fillText('Port Haven',port.x,port.y+26);
-  if (!S.done[6]){ c.strokeStyle='#9c1f1a'; c.setLineDash([5,5]); c.beginPath(); c.arc(ghost.x,ghost.y,40,0,7); c.stroke(); c.setLineDash([]); c.fillStyle='#9c1f1a'; c.font='italic 15px "IM Fell English",serif'; c.fillText(S.ghostSeen?'(no island here)':'? Isle of Mists ?', ghost.x, ghost.y+5); }
+  if (!S.done[6] && !S.exp){ c.strokeStyle='#9c1f1a'; c.setLineDash([5,5]); c.beginPath(); c.arc(ghost.x,ghost.y,40,0,7); c.stroke(); c.setLineDash([]); c.fillStyle='#9c1f1a'; c.font='italic 15px "IM Fell English",serif'; c.fillText(S.ghostSeen?'(no island here)':'? Isle of Mists ?', ghost.x, ghost.y+5); }
   // island names once well-charted, or once you have set foot there
   c.font='italic 17px "IM Fell English",serif'; c.fillStyle='#2e2015'; for (const is of islands) if (is.id===0 || acc(is.id)>=30 || S.landed[is.id]){ c.fillText(is.name+(S.landed[is.id]?' ✠':''), is.cx, is.cy); }
   c.font='26px "IM Fell English SC",serif'; c.textAlign='left'; c.fillStyle='#2e2015'; c.fillText('A Chart of the Lost Islands', 44, 58); c.font='italic 14px "IM Fell English",serif'; c.fillText(`surveyed aboard ${document.getElementById('shipName').textContent}, anno 1680`, 44, 78);
@@ -574,7 +605,7 @@ function renderOrders(){ const box=document.getElementById('orders'); let st=S.t
   const lost= st<=2 && !atPort && !homeInSight();
   document.getElementById('ordersTxt').innerHTML=`<b>${st+1}/${TUT.length}.</b> ${lost? '<b style="color:#9c1f1a">Turn back:</b> keep Home Isle inside the lookout circle. ' : ''}${TUT[st].t}`; if (TUT[st].el) document.querySelector(TUT[st].el)?.classList.add('nudge'); }
 function renderStatus(){ renderOrders();
-  document.getElementById('gold').textContent=S.gold+'g'; document.getElementById('prov').textContent=Math.ceil(S.prov)+' days'; document.getElementById('provBar').style.width=S.prov+'%';
+  document.getElementById('gold').textContent=S.gold+'g'; document.getElementById('prov').textContent= S.exp? Math.max(0,Math.ceil(EXP_DAYS-S.day))+' of '+EXP_DAYS+' days' : Math.ceil(S.prov)+' days'; document.getElementById('gold').parentElement.style.display=S.exp?'none':''; document.getElementById('newWorld').style.display=S.exp?'none':''; document.getElementById('provBar').style.width=S.prov+'%';
   document.getElementById('hull').textContent=Math.ceil(S.hull)+'%'; document.getElementById('hullBar').style.width=S.hull+'%';
   const u=estErr(); document.getElementById('unc').textContent= atPort? 'certain (in port)' : `within ±${Math.round(u)} miles`;
   document.getElementById('bearBtn').disabled = atPort || fixing>0; document.getElementById('allowBtn').textContent = 'Allow for current: '+(S.allow?'on':'off');
@@ -589,7 +620,7 @@ function renderComs(){ document.getElementById('coms').innerHTML=COMS.map((c,i)=
   document.getElementById('tot').textContent=`${Object.keys(S.done).length}/${COMS.length} commissions · ${Math.round(accAll())}% of coast charted${S.worlds?` · archipelago #${S.worlds+1}`:''}`; }
 function renderInsts(){ document.getElementById('insts').innerHTML=INST.map(it=>`<div class="inst"><div><b>${it.n}</b><div class="p small">${it.d}</div></div>${has(it.k)?'<span>✓</span>':`<button data-i="${it.k}" ${!atPort||S.gold<it.cost?'disabled':''}>${it.cost}g</button>`}</div>`).join('');
   document.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{ const it=INST.find(x=>x.k===b.dataset.i); if (S.gold<it.cost||!atPort) return; S.gold-=it.cost; S.inst[it.k]=1; persist(); RH.toast(`Bought: ${it.n}`); renderAll(); }); }
-function renderAll(){ renderStatus(); renderPort(); renderInsts(); }
+function renderAll(){ renderStatus(); renderPort(); renderInsts(); for (const id of ['coms','insts']) document.getElementById(id).closest('.box').style.display=S.exp?'none':''; }
 setInterval(()=>{ if (atPort) renderInsts(); }, 1000);
 
 // ===================== Input =====================
@@ -619,9 +650,12 @@ function boot(){
 }
 window.addEventListener('resize', fit);
 S = cleanSave(S) || freshSave(Math.floor(Math.random()*1e9));
-boot(); requestAnimationFrame(frame);
+{ const ex=cleanSave(RH.load('mapmaker-exp',null)); const h=decodeURIComponent(location.hash.slice(1));
+  if (h.startsWith('survey=')){ if (ex && ex.exp && ex.exp.key===h.slice(7) && !ex.exp.done){ career=S; S=ex; boot(); } else { boot(); startExpedition(h.slice(7)); } }
+  else boot(); }
+requestAnimationFrame(frame);
 window.__map={ get simClock(){ return simClock; }, set simClock(v){ simClock=v; }, tutSpot, get tutShown(){ return tutShown; }, set tutShown(v){ tutShown=v; }, renderOrders, get lastDrift(){ return lastDrift; }, sound, estErr, fixAt, bearingFix, takeBearings, inkNear, cellOf, weather, merchantVoyage, sellDirections, landingFor, rivalDay, payFor, reefsMarked, get nav(){ return nav; }, set nav(v){ nav=v; }, get fogT(){ return fogT; }, set fogT(v){ fogT=v; }, get pendingFix(){ return pendingFix; }, landfallIsle, goAshore, squall, logE, pressSeal, dirOf, hashCoast, buildWorld, acc, accAll, recall, precisions, nearestCoast, near, hashInk, cleanSave, freshSave, playableSeed, boot, step, ink, doFix, damage, renderAll, renderPort, COMS, INST, TOL, PREC_W, isLand, currentAt, uncertainty,
-  get S(){ return S; }, set S(v){ S=v; }, get islands(){ return islands; }, set islands(v){ islands=v; }, get port(){ return port; }, get reefs(){ return reefs; }, get ship(){ return ship; }, set ship(v){ ship=v; }, get ghost(){ return ghost; },
+  get S(){ return S; }, set S(v){ S=v; }, startExpedition, endExpedition, leaveExpedition, expScore, expSeed, EXP_DAYS, accAll, get career(){ return career; }, get islands(){ return islands; }, set islands(v){ islands=v; }, get port(){ return port; }, get reefs(){ return reefs; }, get ship(){ return ship; }, set ship(v){ ship=v; }, get ghost(){ return ghost; },
   get target(){ return target; }, set target(v){ target=v; }, get fixing(){ return fixing; }, get atPort(){ return atPort; }, set atPort(v){ atPort=v; }, get view(){ return view; }, setZoom, applyView, cam, get follow(){ return follow; }, get inkOn(){ return inkOn; }, set inkOn(v){ inkOn=v; }, get currents(){ return currents; }, get squallT(){ return squallT; }, set squallT(v){ squallT=v; }, get fixing(){ return fixing; }, set fixing(v){ fixing=v; } };
 if (!S.intro){ S.intro=1; persist(); RH.modal(`<h2>The Mapmaker of Lost Islands</h2><p>1680. Nobody has charted these islands. You will, and merchants will sail by what you draw.</p><p>Your chart is drawn where you <i>reckon</i> you are. Hidden currents and a crude log make that reckoning drift, and you can't see by how much. The round lookout shows what is truly there.</p><p>Fix your position with <b>bearings</b> on two landmarks you have already charted (B). Each fix measures the current, so your reckoning gets better. Lift the quill when you're unsure: bad ink costs you. A rival, ${RIVAL}, is charting the same islands.</p>`,[{label:'Weigh anchor'}]); }
 </script>
