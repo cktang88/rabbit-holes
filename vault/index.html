@@ -221,7 +221,15 @@
   @media (max-height:500px){ .topbar{padding:3px 10px} }
   .wstamp{margin:8px 0;padding:6px 10px;border:2px solid;font-family:monospace;transform:rotate(-.6deg);display:inline-block;max-width:100%}
   .wstamp.ok{border-color:#2f6b3a;color:#2f6b3a} .wstamp.bad{border-color:#a3281c;color:#a3281c}
-  [data-perk]{font-size:13px!important;padding:3px 8px!important}
+  body.postdash #right{display:none}
+  .ptr{display:flex;align-items:center;gap:8px;padding:5px 8px;margin:3px 0;background:var(--paper);border:1px solid #9c8455;cursor:pointer;font-family:"Courier Prime",monospace}
+  .ptr:hover{background:#fffaea} .ptr b{flex:1} .pst{font-size:12px;font-weight:700} .pst.ok{color:var(--carbon)} .pst.bad{color:#a8231b}
+  .pfile{background:#efe4c4;border:1px solid #9c8455;padding:8px 10px;margin-top:8px}
+  .pfile .cards button,.pfile [data-thr]{margin:3px 4px 0 0;font-size:12px;padding:3px 8px;background:linear-gradient(#f4eedb,#ddd2b3);color:var(--ink);border-color:#8f7647;box-shadow:0 1px 0 #0003;text-align:left}
+  .pfile .cards button.nofit{opacity:.6} .pfile [data-thr].on{background:#f6d77d;border-color:#a8231b}
+  .pstrike{padding:4px 2px;border-bottom:1px dashed #9c8455;font-size:14px} .pstrike.done{opacity:.6}
+  .pstrike button,.case button{font-size:12px;padding:2px 8px}
+  .rw{display:inline-flex;flex-direction:column;align-items:center;gap:2px}.rw button{padding:0 8px;font-size:11px}
 </style>
 </head>
 <body>
@@ -376,15 +384,15 @@ const STEP = {
 
 // ---------- the 36 vaults ----------
 const ERA_BRIEF = [
-  'Rome, 50 BC. A courier was stopped at the gate with sealed tablets. Read them before his friends notice he is missing.',
+  'Rome, 50 BC. A courier was stopped at the gate with sealed tablets. Read them.',
   'Baghdad, then London. Letters keep reaching a plotter in the Tower, and whoever reads them first decides who lives.',
   'Workshops, Sparta and the Civil War signal corps. Every letter is still there, only in the wrong place.',
   'For three hundred years the Vigenère was "the indecipherable cipher". Now it is your turn to break it.',
   'Washington, 1920s. Yardley\'s Black Chamber reads the world\'s cables, and the ciphers now come in layers.',
   '1946. A Soviet pad factory printed some pages twice. Somewhere in this traffic is the cover name of an agent.',
-  'Arlington Hall, the wire room. Traffic never stops: intercept after intercept, every one new, every one on the clock.',
+  'A listening post on the coast, 1953. A small network is on the air every night. Learn their habits, then decide whom to burn.',
 ];
-const ERAS = ['Antiquity', 'The House of Wisdom', 'Scrambled', 'Le Chiffre Indéchiffrable', 'The Black Chamber', 'Reused Pads', 'The Wire Room'];
+const ERAS = ['Antiquity', 'The House of Wisdom', 'Scrambled', 'Le Chiffre Indéchiffrable', 'The Black Chamber', 'Reused Pads', 'The Listening Post'];
 const V = [
   // Era 0
   { id: 0, e: 0, n: "Caesar's Dispatch", fmt: 'spaced', len: 60, steps: [{ t: 'caesar', k: 3 }], intro: ['shift'],
@@ -442,41 +450,282 @@ const V = [
     story: 'The final vault. The message was transposed in columns, then enciphered with a Vigenère key. Repeats will not help you now, but the index of coincidence still will. Peel the layers in the right order.' },
 ];
 
-// ---------- the Wire Room: an endless, seeded run of fresh intercepts ----------
-// After the campaign has taught the tools, the hours are here: a run of generated intercepts that grow harder (longer keys,
-// shorter texts, stacked layers), each against an alarm. Miss an alarm and you lose an agent; three lost and the run ends.
-// Hints are shared tokens for the whole run. Score = intercepts broken. Seeds are shareable (#wire=…) and there is a daily seed.
-const CAMPAIGN = V.length, WIRE = V.length;
-V.push({ id: -1, e: 6, wire: 1, n: 'The Wire Room', fmt: 'spaced', len: 120, steps: [{ t: 'caesar' }], story: '' });
-// The ladder climbs one idea at a time: single systems, then the easy two-layer stacks (a shift or an affine on top of a
-// transposition), and only then substitution or Vigenère under a transposition. From intercept 4 the clerk no longer says which
-// system it is: identifying it from the statistics is part of the job.
-const WTIERS = [
-  [[{ t: 'caesar' }], 'grouped', 130], [[{ t: 'affine' }], 'grouped', 140], [[{ t: 'subst' }], 'spaced', 320], [[{ t: 'rail', lo: 3, hi: 6 }], 'raw', 120],
-  [[{ t: 'col', lo: 4, hi: 6 }], 'raw', 120], [[{ t: 'vig', lo: 4, hi: 5 }], 'spaced', 320], [[{ t: 'caesar' }, { t: 'rail', lo: 3, hi: 5 }], 'raw', 160], [[{ t: 'subst' }], 'grouped', 300],
-  [[{ t: 'affine' }, { t: 'rev' }], 'grouped', 180], [[{ t: 'vig', lo: 5, hi: 7 }], 'grouped', 400], [[{ t: 'caesar' }, { t: 'col', lo: 4, hi: 6 }], 'raw', 200], [[{ t: 'subst' }, { t: 'rail', lo: 3, hi: 4 }], 'raw', 380],
-  [[{ t: 'vig', lo: 4, hi: 6 }, { t: 'rev' }], 'grouped', 360], [[{ t: 'subst' }, { t: 'col', lo: 4, hi: 5 }], 'raw', 420], [[{ t: 'col', lo: 4, hi: 6 }, { t: 'vig', lo: 4, hi: 6 }], 'raw', 560],
-];
-const WIRE_HIDE = 4; // from this intercept on, the system is not named
-function wireDef(seed, level) { // deterministic per (seed, level)
-  const r = RH.rng('wire:' + seed + ':' + level);
-  const tier = level <= WTIERS.length ? WTIERS[level - 1] : WTIERS[WTIERS.length - 4 + r.int(4)];
-  const squeeze = level > WTIERS.length ? Math.max(.6, 1 - .04 * (level - WTIERS.length)) : 1; // past the last tier: shorter texts, less time
-  const len = Math.round(tier[2] * squeeze), alarm = Math.round((180 + .6 * tier[2]) * squeeze) + (S.wire?.run?.clock || 0);
-  const names = { caesar: 'a shift', affine: 'an affine pair', subst: 'a scrambled alphabet', rail: 'a rail fence', col: 'keyed columns', vig: 'a Vigenère key', rev: 'a reversal' };
-  const hide = level >= WIRE_HIDE;
-  return { steps: tier[0].map(x => ({ ...x })), fmt: tier[1], len, alarm, hide, seedStr: 'wire:' + seed + ':' + level + ':msg', n: `Intercept ${level}`,
-    story: hide ? `Intercept ${level} of this run. The system is unknown: read the clerk's figures below, decide what you are looking at, and build the bench to match.` : `Intercept ${level} of this run: ${tier[0].map(x => names[x.t]).join(', then ')}. ${level === 1 ? 'Every intercept in a run is new, and the alarm starts the moment it arrives.' : ''}` };
+// ---------- VII. The Listening Post: a fortnight of traffic from a small enemy network ----------
+// Every operator picks his keys by a habit (his "fist"). Break a message by hand and the key goes in his file; file a habit
+// card and from the next day the card predicts his key. A right card reads his traffic at once; a wrong one prints garbage and
+// is struck. What you read is the economy: strikes (sabotage) with a place and a day, safe-house addresses, and who handles whom.
+// Post the watch where a strike is planned and you catch the man; arrest anyone whose address you know; or keep listening and
+// let the damage run. Every arrest warns the man's cell, and they change their habits. On day 9 the network gets rotor machines
+// that no hand method breaks: only a habit card or a known opening (for the bombe) reads them. Day 14 ends in a roll-up and a dossier.
+const CAMPAIGN = V.length, POST = V.length;
+V.push({ id: -1, e: 6, post: 1, n: 'The Listening Post', fmt: 'spaced', len: 60, steps: [{ t: 'caesar' }], story: '' });
+const DAYS = 14, ROTOR_DAY = 9;
+const CODEN = ['KESTREL', 'MAGPIE', 'HERON', 'OTTER', 'LYNX', 'WREN', 'BADGER', 'STOAT', 'PLOVER', 'MARTEN', 'CURLEW', 'TEAL'];
+const PLACES = ['THE RAIL DEPOT', 'THE POWER STATION', 'THE DOCKS', 'THE RADAR SITE', 'THE TELEPHONE EXCHANGE', 'THE ARMS FACTORY', 'THE SWING BRIDGE', 'THE AIRFIELD'];
+const ADDRS = ['NUMBER NINE MILL LANE', 'THE FLAT ABOVE THE BAKERY', 'ROOM FOUR AT THE STATION HOTEL', 'THE HOUSEBOAT BY THE LOCK', 'THE BLUE DOOR IN CANAL STREET', 'THE ATTIC OVER THE PRINTERS', 'THE LODGE AT THE CEMETERY', 'NUMBER TWELVE ROPE WALK'];
+const OPENINGS = ['AS AGREED', 'NOTHING NEW HERE', 'GREETINGS FROM THE COAST', 'FOR CENTRE ONLY', 'MY DEAR FRIEND', 'WEATHER HERE IS FINE', 'LONG LIVE THE CAUSE', 'URGENT AND PERSONAL', 'ALL QUIET TONIGHT'];
+const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const N1 = ['', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'TEN', 'ELEVEN', 'TWELVE', 'THIRTEEN', 'FOURTEEN', 'FIFTEEN', 'SIXTEEN', 'SEVENTEEN', 'EIGHTEEN', 'NINETEEN'];
+const O1 = ['', 'FIRST', 'SECOND', 'THIRD', 'FOURTH', 'FIFTH', 'SIXTH', 'SEVENTH', 'EIGHTH', 'NINTH', 'TENTH', 'ELEVENTH', 'TWELFTH', 'THIRTEENTH', 'FOURTEENTH', 'FIFTEENTH', 'SIXTEENTH', 'SEVENTEENTH', 'EIGHTEENTH', 'NINETEENTH'];
+const numWord = n => n < 20 ? N1[n] : 'TWENTY' + N1[n - 20];
+const ordWord = n => n < 20 ? O1[n] : n === 20 ? 'TWENTIETH' : 'TWENTY' + O1[n - 20];
+// habits, by the kind of key a system takes: a number (shift; affine b), a word (keyword alphabet; Vigenère key) or a rotor setting
+const KIND = { caesar: 'num', affine: 'num', subst: 'word', vig: 'word', rotor: 'rot' };
+const RULES = {
+  num: { FIX: 'the same every day', STEP: 'one more every day', DATE: 'the day of the month', WEEKDAY: 'the weekday (Monday 1 … Sunday 7)', IND: 'the first letter of his indicator (A=0, B=1…)' },
+  word: { FIX: 'the same keyword every day', WEEKDAY: 'the name of the weekday', HANDLER: "his handler's codename", DATEWORD: 'the date spelled out (TWELVE)', IND: 'his indicator group' },
+  rot: { FIX: 'the same setting every day', IND: 'the first three letters of his indicator', NAME: 'the first three letters of his codename', WEEKDAY: 'the first three letters of the weekday' },
+};
+const SYSNAME = { caesar: 'Caesar shift', affine: 'affine cipher', subst: 'keyword alphabet (substitution)', vig: 'Vigenère', rotor: 'rotor machine' };
+const FMT = { caesar: 'spaced', affine: 'spaced', subst: 'spaced', vig: 'grouped', rotor: 'grouped' };
+const T_LEN = { caesar: 90, affine: 120, subst: 260, vig: 250, rotor: 150 };
+const PTS = { resident: 60, handler: 40, agent: 25 };
+// the captured machine: three stepping wheels whose shifts add up (an odometer: the right wheel turns every letter)
+const RW = (() => { const r = RH.rng('captured-machine-1953'); return [0, 1, 2].map(() => r.shuffle([...Array(26).keys()])); })();
+function rotorApply(t, set, sign) {
+  let i = 0; return t.replace(/[A-Z]/g, c => { const p0 = set[2] + i++, p1 = set[1] + Math.floor(p0 / 26), p2 = set[0] + Math.floor(p1 / 26);
+    return A[(ix(c) + sign * (RW[0][p0 % 26] + RW[1][p1 % 26] + RW[2][p2 % 26]) + 2600) % 26]; });
 }
-// The clerk's figures for an unnamed intercept: what a cryptanalyst would compute first
+function bombe(text, crib) { // every wheel setting under which the text opens with the crib
+  const L = letters(text).slice(0, crib.length), out = [];
+  if (crib.length < 4 || L.length < crib.length) return out;
+  for (let a = 0; a < 26; a++) for (let b = 0; b < 26; b++) for (let c = 0; c < 26; c++) if (rotorApply(L, [a, b, c], -1) === crib) { out.push([a, b, c]); if (out.length > 8) return out; }
+  return out;
+}
+STEP.rotor = { gen: () => ({ set: [0, 0, 0] }), enc: (t, k) => rotorApply(t, k.set, 1), desc: 'the rotor machine',
+  reveal: k => `The wheels are set to ${k.set.map(x => A[x]).join('')}.`, hint2: k => `The left wheel is set to ${A[k.set[0]]}.` };
+const dedupe = s => [...new Set(s.split(''))].join('');
+function keyOf(sys, val, a) {
+  if (sys === 'caesar') return { k: val };
+  if (sys === 'affine') return { a, b: val };
+  if (sys === 'subst') return { alpha: dedupe(val + A), kw: val };
+  if (sys === 'vig') return { kw: val, sh: val.split('').map(ix) };
+  return { set: val.split('').map(ix) };
+}
+function ruleVal(kind, rule, p, c) {
+  if (kind === 'num') return rule === 'FIX' ? p : rule === 'STEP' ? (p + c.d) % 26 : rule === 'DATE' ? c.date % 26 : rule === 'WEEKDAY' ? (c.wd || 7) : rule === 'IND' ? ix(c.ind[0]) : null;
+  if (kind === 'word') return rule === 'FIX' ? p : rule === 'WEEKDAY' ? WEEKDAYS[c.wd] : rule === 'HANDLER' ? c.hname : rule === 'DATEWORD' ? numWord(c.date) : rule === 'IND' ? c.ind : null;
+  return rule === 'FIX' ? p : rule === 'IND' ? c.ind.slice(0, 3) : rule === 'NAME' ? c.name.slice(0, 3) : rule === 'WEEKDAY' ? WEEKDAYS[c.wd].slice(0, 3) : null;
+}
+const valText = (sys, v, a) => sys === 'caesar' ? `shift ${v}` : sys === 'affine' ? `a ${a}, b ${v}` : sys === 'subst' ? `alphabet ${dedupe(v + A).slice(0, 10)}…` : sys === 'vig' ? `key ${v}` : `wheels ${v}`;
+
+const NETS = {};
+function postNet(seed) {
+  if (NETS[seed]) return NETS[seed];
+  const r = RH.rng('post:' + seed), names = r.shuffle(CODEN.slice()).slice(0, 6);
+  const ops = names.map((n, i) => ({ id: i, n, role: i === 0 ? 'resident' : i === 1 ? 'handler' : 'agent', h: i === 0 ? -1 : 0 }));
+  r.shuffle([1, 1, 0, r.int(2)]).forEach((h, j) => { ops[2 + j].h = h; });
+  const ag = r.shuffle([2, 3, 4, 5]), order = [ag[0], ...r.shuffle([1, ag[1], ag[2]]), ...r.shuffle([0, ag[3]])]; // an agent first, the resident late
+  const SYS = ['caesar', 'affine', 'subst', 'vig', r.pick(['subst', 'vig']), 'vig'];
+  order.forEach((o, k) => { ops[o].arr = k + 1; ops[o].sys = SYS[k]; });
+  const ad = r.shuffle(ADDRS.slice()), opn = r.shuffle(OPENINGS.slice()), noOpen = r.shuffle(order.slice(1)).slice(0, 2);
+  ops.forEach((op, i) => { op.addr = ad[i]; op.opening = noOpen.includes(i) ? null : opn[i]; });
+  r.shuffle(ops.filter(op => op.opening && op.arr > 1)).slice(0, 2).forEach(op => { op.careful = 1; }); // random rotor settings: only the bombe reads them
+  const month = r.int(12), start = 1 + r.int(11), net = { seed, ops, order, month, start, strikes: [], facts: [] };
+  const used = new Set(), range = (lo, hi) => lo + r.int(Math.max(1, hi - lo + 1));
+  ops.forEach(op => {
+    if (op.role === 'resident') return;
+    const n = op.arr === 1 ? 2 : op.role === 'handler' ? 1 : 1 + (r() < .5);
+    for (let k = 0; k < n; k++) {
+      let day = op.arr === 1 && k === 0 ? 3 : range(Math.max(op.arr + 1, 4), 13), place, tries = 0;
+      do place = r.pick(PLACES); while (used.has(day + place) && ++tries < 20); used.add(day + place);
+      const ann = op.arr === 1 && k === 0 ? 1 : Math.max(op.arr === 1 ? 2 : op.arr, day - 1 - r.int(2));
+      net.strikes.push({ s: net.strikes.length, o: op.id, day, place, value: 10 + 5 * r.int(3) });
+      net.facts.push({ d: ann, by: op.id, k: 'op', s: net.strikes.length - 1 });
+    }
+  });
+  const arr = o => ops[o].arr, late = d => Math.max(2, d);
+  ops.forEach(op => {
+    if (op.h < 0) return;
+    net.facts.push({ d: late(range(arr(op.id), Math.min(13, arr(op.id) + 4))), by: op.id, k: 'link', a: op.id, b: op.h });
+    net.facts.push({ d: late(range(Math.max(arr(op.h), arr(op.id)), 13)), by: op.h, k: 'link', a: op.id, b: op.h });
+  });
+  for (let k = 0; k < 3; k++) { // true negatives: "I have never met him"
+    const y = r.pick(ops), z = r.pick(ops.filter(q => q !== y && q.h !== y.id && y.h !== q.id)); if (!z) continue;
+    net.facts.push({ d: late(range(arr(y.id) + 1, 13)), by: y.id, k: 'none', a: y.id, b: z.id });
+  }
+  ops.forEach(op => {
+    const own = op.role === 'agent' && r() < .5, by = op.role === 'resident' ? 1 : op.role === 'handler' ? 0 : own ? op.id : op.h;
+    const lo = op.role === 'resident' ? 11 : Math.max(arr(by), arr(op.id) + 1, op.role === 'handler' ? 8 : 2);
+    net.facts.push({ d: Math.min(13, range(lo, 12)), by, k: 'addr', a: op.id });
+  });
+  net.facts.push({ d: ROTOR_DAY - 2, by: 0, k: 'rotor' });
+  return (NETS[seed] = net);
+}
+function dayInfo(net, d) { const date = net.start + d - 1, wd = new Date(Date.UTC(1953, net.month, date)).getUTCDay(); return { d, date, wd, label: `${WEEKDAYS[wd][0]}${WEEKDAYS[wd].slice(1, 3).toLowerCase()} ${date} ${MONTHS[net.month]}` }; }
+function habitOf(net, o, ep, rot) {
+  const op = net.ops[o], r = RH.rng(`post:${net.seed}:hab:${o}:${ep}:${rot ? 'r' : 'p'}`), kind = rot ? 'rot' : KIND[op.sys];
+  let rules = Object.keys(RULES[kind]);
+  if (rot && !op.opening) rules = rules.filter(x => x !== 'FIX'); // a fixed setting with no known opening could never be read
+  let rule = r.pick(rules);
+  if (rot && op.careful && ep === 0) rule = 'RANDOM';
+  if (!rot && ep === 0 && op.arr === 1) rule = 'FIX'; // day one: one operator, one lazy habit
+  const p = kind === 'num' ? (rule === 'STEP' ? 1 + r.int(11) : 1 + r.int(25)) : kind === 'word' ? keyOfLen(r, 5, 8) : A[r.int(26)] + A[r.int(26)] + A[r.int(26)];
+  return { rule, p, a: op.sys === 'affine' ? r.pick(COPR.slice(1)) : undefined };
+}
+// who is on the air: an arrested man is silent; so is anyone whose handler (or his handler's handler) was taken
+const arrestOf = (run, o) => run.arrests.find(a => a.o === o);
+function postStatus(run, o, d) {
+  const net = postNet(run.seed), op = net.ops[o], a = arrestOf(run, o);
+  if (a && a.day < d) return 'arrested';
+  for (let h = op.h; h >= 0; h = net.ops[h].h) { const ah = arrestOf(run, h); if (ah && ah.day < d) return 'fled'; }
+  return d >= op.arr ? 'air' : 'unheard';
+}
+const inCell = (net, a, o) => a !== o && (net.ops[a].h === net.ops[o].h || net.ops[o].h === a || net.ops[a].h === o);
+const epochOf = (run, o, d) => { const net = postNet(run.seed); return run.arrests.filter(a => a.day < d && inCell(net, a.o, o)).length; };
+const EXCL = ['ARREST', 'SPY', 'TRUST', 'PAY ', 'PAID', 'KEY', 'CIPHER', 'CODE', 'MET ', 'REPORT', 'BETRAY', 'PASSWORD'];
+const S_LINK_A = ['REPORT TO {B} AS BEFORE.', 'TELL {B} I NEED MORE MONEY.', '{B} STILL OWES ME FOR LAST MONTH.'];
+const S_LINK_B = ['I PAID {A} TODAY.', '{A} IS NERVOUS. I WILL CALM HIM DOWN.', '{A} WILL BRING ME THE FILM.'];
+function encMsg(plain, steps, keys, fmt) {
+  const trans = steps.some(s => STEP[s.t].trans) || fmt !== 'spaced';
+  let target = trans ? letters(plain) : plain;
+  const col = keys.find((k, j) => steps[j].t === 'col'); if (col) while (target.length % col.w) target += 'X';
+  let c = target; steps.forEach((s, j) => { c = STEP[s.t].enc(c, keys[j]); });
+  return { target: letters(target), cipher: fmt === 'grouped' ? group5(c) : fmt === 'raw' ? letters(c) : c };
+}
+const MSGS = {};
+function postMsgs(run, d, lite) {
+  const net = postNet(run.seed), sig = net.ops.map(op => postStatus(run, op.id, d)[0] + epochOf(run, op.id, d)).join('') + run.arrests.filter(a => a.day === d - 1).map(a => a.o).join('');
+  const ck = run.seed + ':' + d + ':' + sig + (lite ? 'L' : ''); if (MSGS[ck]) return MSGS[ck];
+  const out = [], info = dayInfo(net, d);
+  for (const o of net.order) {
+    const op = net.ops[o]; if (postStatus(run, o, d) !== 'air') continue;
+    const ep = epochOf(run, o, d), rot = d >= ROTOR_DAY, sys = rot ? 'rotor' : op.sys, kind = KIND[sys], hab = habitOf(net, o, ep, rot);
+    const r = RH.rng(`post:${run.seed}:m:${o}:${d}:${ep}`);
+    let ind = ''; for (let k = 0; k < 5; k++) ind += A[1 + r.int(25)];
+    const c = { ...info, ind, name: op.n, hname: op.h < 0 ? 'CENTRE' : net.ops[op.h].n };
+    const val = hab.rule === 'RANDOM' ? A[r.int(26)] + A[r.int(26)] + A[r.int(26)] : ruleVal(kind, hab.rule, hab.p, c);
+    const facts = net.facts.filter(f => f.d === d && f.by === o), m = { id: d + ':' + o, d, o, sys, kind, ind, val, a: hab.a, rule: hab.rule, ep, facts, key: keyOf(sys, val, hab.a) };
+    if (!lite) {
+      const said = [];
+      run.arrests.filter(a => a.day === d - 1 && inCell(net, a.o, o)).forEach(a => said.push(`${net.ops[a.o].n} IS TAKEN. CHANGE ALL HABITS AT ONCE.`));
+      for (const f of facts) {
+        const A_ = net.ops[f.a]?.n, B_ = net.ops[f.b]?.n;
+        if (f.k === 'op') { const s = net.strikes[f.s], di = dayInfo(net, s.day); said.push(r.pick([`ON ${WEEKDAYS[di.wd]} THE ${ordWord(di.date)} I STRIKE AT ${s.place}.`, `${s.place} BURNS ON ${WEEKDAYS[di.wd]} THE ${ordWord(di.date)}.`])); }
+        if (f.k === 'link') said.push((f.by === f.a ? r.pick(S_LINK_A) : r.pick(S_LINK_B)).replace('{A}', A_).replace('{B}', B_));
+        if (f.k === 'none') said.push(`I HAVE NEVER MET ${B_}.`);
+        if (f.k === 'addr') said.push(f.a === o ? `MY NEW ROOMS ARE AT ${net.ops[f.a].addr}.` : `${A_} NOW LIVES AT ${net.ops[f.a].addr}.`);
+        if (f.k === 'rotor') { const di = dayInfo(net, ROTOR_DAY); said.push(`THE NEW MACHINES ARRIVE ON ${WEEKDAYS[di.wd]} THE ${ordWord(di.date)}. BURN THE OLD TABLES.`); }
+      }
+      const start = [op.opening ? op.opening + '.' : '', ...said].filter(Boolean).join(' ');
+      m.plain = genText(r, d === 1 ? 0 : T_LEN[sys], start, EXCL); m.fmt = FMT[sys];
+      Object.assign(m, encMsg(m.plain, [{ t: sys }], [m.key], m.fmt));
+    }
+    out.push(m);
+  }
+  return (MSGS[ck] = out);
+}
+function decWith(sys, key, cipher) {
+  if (sys === 'caesar') return APPLY.shift(cipher, { k: key.k });
+  if (sys === 'affine') return APPLY.affine(cipher, key);
+  if (sys === 'subst') { const m = {}; for (let x = 0; x < 26; x++) m[key.alpha[x]] = A[x]; return cipher.replace(/[A-Z]/g, c => m[c]); }
+  if (sys === 'vig') return vigApply(cipher, key.sh, -1);
+  return rotorApply(cipher, key.set, -1);
+}
+const postNew = (seed, daily) => ({ seed: String(seed).slice(0, 40), daily: !!daily, day: 1, arrests: [], watch: {}, cards: {}, struck: {}, logs: {}, read: {}, failed: {}, threads: [], damage: 0, news: [], hints: 0, work: {}, cur: null, sel: null, over: false });
+function postLearn(run, m, how) {
+  if (run.read[m.id]) return; run.read[m.id] = how;
+  (run.logs[m.o] ||= []).push({ d: m.d, val: m.val, a: m.a, ind: m.ind, rot: m.sys === 'rotor' ? 1 : 0, ep: m.ep, sys: m.sys });
+}
+function postKnown(run) { // everything read so far, as structured facts
+  const k = { strikes: new Set(), addr: new Set(), links: [], heard: new Set() };
+  for (let d = 1; d <= Math.min(run.day, DAYS); d++) for (const m of postMsgs(run, d, 1)) {
+    k.heard.add(m.o); if (!run.read[m.id]) continue;
+    m.facts.forEach(f => { if (f.k === 'op') k.strikes.add(f.s); if (f.k === 'addr') k.addr.add(f.a); if (f.k === 'link') k.links.push([f.a, f.b]); });
+  }
+  return k;
+}
+// a habit card: a rule, with its parameter read off the latest break
+function cardFrom(run, o, rule) {
+  const e = run.logs[o]?.at(-1); if (!e) return null;
+  return { rule, p: rule === 'FIX' ? e.val : rule === 'STEP' ? (e.val - e.d + 26) % 26 : null, a: e.a, rot: e.rot, ep: e.ep };
+}
+const ctxOf = (run, o, d, ind) => { const net = postNet(run.seed), op = net.ops[o]; return { ...dayInfo(net, d), ind, name: op.n, hname: op.h < 0 ? 'CENTRE' : net.ops[op.h].n }; };
+function cardFits(run, o, rule) { // checks a candidate against every break in the same stretch of habits
+  const log = run.logs[o] || [], last = log.at(-1); if (!last) return { ok: false };
+  const card = cardFrom(run, o, rule), kind = last.rot ? 'rot' : KIND[last.sys];
+  for (const e of log) {
+    if (e.rot !== last.rot || e.ep !== last.ep) continue;
+    const v = ruleVal(kind, rule, card.p, ctxOf(run, o, e.d, e.ind));
+    if (v !== e.val || (e.a != null && e.a !== card.a)) return { ok: false, day: e.d, said: v };
+  }
+  return { ok: true };
+}
+function postFile(run, o, rule) { const c = cardFrom(run, o, rule); if (!c) return false; c.filed = run.day; run.cards[o] = c; return true; }
+function applyCards(run) { // at the start of each day, every filed card meets that operator's new message
+  const out = [];
+  for (const m of postMsgs(run, run.day)) {
+    const card = run.cards[m.o]; if (!card || run.read[m.id] || card.filed >= run.day) continue;
+    if (!!card.rot !== (m.sys === 'rotor')) { delete run.cards[m.o]; out.push({ o: m.o, t: 'retired' }); continue; }
+    const v = ruleVal(m.kind, card.rule, card.p, ctxOf(run, m.o, m.d, m.ind));
+    if (v === m.val && (m.a == null || card.a === m.a)) { postLearn(run, m, 'card'); out.push({ o: m.o, t: 'read' }); continue; }
+    const pk = v == null ? null : keyOf(m.sys, v, card.a);
+    run.failed[m.id] = { rule: card.rule, said: v == null ? '?' : valText(m.sys, v, card.a), text: pk ? decWith(m.sys, pk, m.cipher).slice(0, 90) : '' };
+    (run.struck[m.o] ||= []).push(card.rule + ':' + card.ep + ':' + (card.rot ? 1 : 0)); delete run.cards[m.o]; out.push({ o: m.o, t: 'failed' });
+  }
+  return out;
+}
+function postArrest(run, o, how = 'arrest') {
+  if (arrestOf(run, o) || postStatus(run, o, run.day) !== 'air') return false;
+  if (how === 'arrest' && !postKnown(run).addr.has(o)) return false;
+  run.arrests.push({ o, day: run.day, how }); return true;
+}
+function postWatch(run, s) { const st = postNet(run.seed).strikes[s]; if (!st || st.day < run.day) return false; run.watch[st.day] = s; return true; }
+function postEndDay(run) {
+  const net = postNet(run.seed), d = run.day, ev = [];
+  for (const s of net.strikes.filter(x => x.day === d)) {
+    const op = net.ops[s.o], st = postStatus(run, s.o, d), a = arrestOf(run, s.o);
+    if (st !== 'air' || (a && a.day <= d)) continue; // a man in a cell (or on the run) strikes nothing
+    if (run.watch[d] === s.s) { run.arrests.push({ o: s.o, day: d, how: 'caught' }); ev.push(`The watch caught ${op.n} at ${s.place.toLowerCase()}. His cell will change their habits.`); }
+    else { run.damage += s.value; ev.push(`Fire at ${s.place.toLowerCase()}: ${op.n}'s strike went ahead (−${s.value}).`); }
+  }
+  run.arrests.filter(a => a.day === d && a.how === 'arrest').forEach(a => ev.push(`${net.ops[a.o].n} was arrested. His cell will change their habits.`));
+  run.news.push({ d, ev }); run.day++; run.work = {}; run.cur = null;
+  if (run.day > DAYS) { run.over = true; return ev; }
+  const cards = applyCards(run);
+  cards.forEach(c => run.news.at(-1).ev.push(c.t === 'read' ? `${net.ops[c.o].n}'s card read his new message.` : c.t === 'failed' ? `${net.ops[c.o].n}'s card FAILED: his new message came out as garbage. The card is struck.` : `${net.ops[c.o].n}'s old card is useless against the new machines.`));
+  return ev;
+}
+function postScore(run) {
+  const net = postNet(run.seed), known = postKnown(run), held = [], fled = [], lost = [];
+  for (const op of net.ops) {
+    const st = postStatus(run, op.id, DAYS + 1);
+    if (arrestOf(run, op.id)) held.push(op.id); else if (st === 'fled') fled.push(op.id);
+    else if (run.over && known.addr.has(op.id)) held.push(op.id); else lost.push(op.id);
+  }
+  const truth = new Set(net.ops.filter(op => op.h >= 0).map(op => [op.id, op.h].sort().join('-')));
+  const right = run.threads.filter(t => truth.has(t)).length, wrong = run.threads.length - right;
+  const custody = held.reduce((a, o) => a + PTS[net.ops[o].role], 0), threads = 10 * right - 10 * wrong;
+  return { held, fled, lost, right, wrong, custody, threads, damage: run.damage, hints: run.hints, total: custody + threads - run.damage - 5 * run.hints };
+}
+// simulated analysts: they read what the policy lets them, and act (or not) on it; used for the end-of-fortnight histogram and tests
+function postSim(seed, pol, rs = 1) {
+  const r = RH.rng('sim:' + rs), run = postNew(seed);
+  while (!run.over) {
+    for (const m of postMsgs(run, run.day, 1)) if (r() < pol.read) run.read[m.id] = 'hand';
+    const k = postKnown(run), net = postNet(seed);
+    if (pol.thr) k.links.forEach(([a, b]) => { const t = [a, b].sort().join('-'); if (!run.threads.includes(t) && r() < pol.thr) run.threads.push(t); });
+    if (pol.guess && r() < pol.guess) { const a = r.int(6), b = r.int(6), t = [a, b].sort().join('-'); if (a !== b && !run.threads.includes(t)) run.threads.push(t); }
+    if (pol.act && r() < pol.act) {
+      const today = net.strikes.filter(s => s.day === run.day && k.strikes.has(s.s) && postStatus(run, s.o, run.day) === 'air').sort((x, y) => y.value - x.value);
+      if (today[0]) postWatch(run, today[0].s);
+      today.slice(1).forEach(s => postArrest(run, s.o));
+    }
+    if (pol.reckless) k.addr.forEach(o => postArrest(run, o));
+    postEndDay(run);
+  }
+  return postScore(run).total;
+}
+const POLS = [{ read: 1, act: 1, thr: 1 }, { read: .9, act: .8, thr: .7 }, { read: .8, act: .6, thr: .5, guess: .3 }, { read: .7, act: .4, thr: .4, guess: .3 }, { read: .6, act: 0, thr: .3, guess: .5 }, { read: 1, act: 0, thr: 0 }, { read: .8, reckless: 1, thr: .5 }, { read: .5, act: .5, thr: .2, guess: .5 }];
+const postPop = seed => { const out = []; for (let k = 0; k < 64; k++) out.push(postSim(seed, POLS[k % POLS.length], k)); return out; };
+// The clerk's figures for a message whose system you have not yet identified
 function clerkNotes(i) {
   const b = build(i), L = letters(b.cipher), ic = ioc(L), { f, n } = freqOf(L), sorted = f.map((x, k) => [x / n * 100, k]).sort((p, q) => q[0] - p[0]);
   const eng = ENG.map((x, k) => [x, k]).sort((p, q) => q[0] - p[0]), same = sorted.slice(0, 6).filter(([, k]) => eng.slice(0, 8).some(([, e]) => e === k)).length;
   let per = 0, best = 0; for (let p = 2; p <= 9; p++) { const c = columns(L, p), v = c.reduce((a, x) => a + ioc(x), 0) / p; if (v > best + .004) { best = v; per = p; } }
-  const run = S.wire.run, crib = run && run.cribs > 0 ? b.plain.split(/[^A-Z]+/).filter(x => x.length >= 5)[0] : null;
-  return `<div class="case"><b>Clerk's figures:</b> ${L.length} letters. Index of coincidence <b>${ic.toFixed(3)}</b> (English text about 0.066; random letters 0.038). The six commonest letters are <b>${sorted.slice(0, 6).map(([, k]) => A[k]).join(' ')}</b>${same >= 4 ? ', mostly English\'s own commonest letters' : ''}.${ic < .052 && per ? ` Every <b>${per}</b>th letter, the index rises to ${best.toFixed(3)}.` : ''}${b.cipher.includes(' ') ? ' Word breaks survive.' : ''}${crib ? ` <b>HQ crib:</b> the word <b>${crib}</b> is in it.` : ''}</div>`;
+  return `<div class="case"><b>Clerk's figures:</b> ${L.length} letters. Index of coincidence <b>${ic.toFixed(3)}</b> (English about 0.066; random letters 0.038). Commonest letters <b>${sorted.slice(0, 6).map(([, k]) => A[k]).join(' ')}</b>${same >= 4 ? ", mostly English's own commonest" : ''}.${ic < .052 && per ? ` Columns every <b>${per}</b> letters look most like English.` : ''}</div>`;
 }
-const PERKS = [['tokens', '💡 Two more hint tokens'], ['clock', '⏰ Longer clocks: 45 s more on every alarm for the rest of the run'], ['cribs', '📎 A crib from HQ: one word of each of the next three intercepts']];
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const TOOLS = {
   shift: { name: 'Caesar shift', blurb: 'Shift every letter back by k.' },
@@ -487,8 +736,9 @@ const TOOLS = {
   rail: { name: 'Rail fence', blurb: 'Undo a zig-zag across n rails.' },
   col: { name: 'Columns', blurb: 'Cut into columns and reorder them.' },
   vig: { name: 'Vigenère', blurb: 'A different shift for every k-th letter.' },
+  rotor: { name: 'Rotor machine', blurb: 'Three stepping wheels. The bombe finds their setting from an opening you know.' },
 };
-const TOOL_ORDER = ['shift', 'atbash', 'affine', 'subst', 'rev', 'rail', 'col', 'vig'];
+const TOOL_ORDER = ['shift', 'atbash', 'affine', 'subst', 'rev', 'rail', 'col', 'vig', 'rotor'];
 
 // ---------- state ----------
 const S = loadState();
@@ -496,10 +746,18 @@ function APPLY_OK(st) { // shape check for a saved workbench stage
   const s = st.s; if (!TOOLS[st.t] || !s || typeof s !== 'object') return false;
   const num = x => Number.isFinite(x);
   return { shift: () => num(s.k), affine: () => COPR.includes(s.a) && num(s.b), subst: () => s.m && typeof s.m === 'object', rail: () => num(s.n),
-    col: () => s.w === 0 || num(s.w), vig: () => Array.isArray(s.sh) && s.sh.length > 0 && s.sh.every(num) }[st.t]?.() ?? true;
+    col: () => s.w === 0 || num(s.w), rotor: () => Array.isArray(s.set) && s.set.length === 3 && s.set.every(x => Number.isInteger(x) && x >= 0 && x < 26), vig: () => Array.isArray(s.sh) && s.sh.length > 0 && s.sh.every(num) }[st.t]?.() ?? true;
+}
+function postSane(r) { // a saved fortnight, checked field by field
+  if (!r || typeof r !== 'object' || typeof r.seed !== 'string' || !Number.isInteger(r.day) || r.day < 1 || r.day > DAYS) return null;
+  const obj = x => x && typeof x === 'object' && !Array.isArray(x) ? x : {}, arr = x => Array.isArray(x) ? x : [];
+  const run = { ...postNew(r.seed, r.daily), day: r.day, damage: r.damage | 0, hints: r.hints | 0, watch: obj(r.watch), cards: obj(r.cards), struck: obj(r.struck), logs: obj(r.logs), read: obj(r.read), failed: obj(r.failed), news: arr(r.news),
+    threads: arr(r.threads).filter(t => typeof t === 'string' && /^\d-\d$/.test(t)), arrests: arr(r.arrests).filter(a => a && Number.isInteger(a.o) && a.o >= 0 && a.o < 6 && Number.isInteger(a.day)), sel: Number.isInteger(r.sel) ? r.sel : null, cur: typeof r.cur === 'string' ? r.cur : null, work: {} };
+  for (const [k, w] of Object.entries(obj(r.work))) if (w && Array.isArray(w.stages) && w.stages.every(st => st && APPLY_OK(st))) run.work[k] = { stages: w.stages, notes: String(w.notes || ''), time: w.time | 0, hints: w.hints | 0 };
+  return run;
 }
 function loadState() {
-  const fresh = () => ({ v: 2, seed: (Math.random() * 1e9) | 0, solved: {}, hints: {}, work: {}, variant: {}, cur: 0, intro: 0, wire: { best: 0, daily: null, run: null } });
+  const fresh = () => ({ v: 2, seed: (Math.random() * 1e9) | 0, solved: {}, hints: {}, work: {}, variant: {}, cur: 0, intro: 0, post: { best: 0, daily: null, run: null, last: null } });
   let s = RH.load('vault', null);
   if (!s || typeof s !== 'object' || Array.isArray(s) || !Number.isFinite(s.seed)) return fresh();
   for (const k of ['solved', 'hints', 'work', 'variant']) if (!s[k] || typeof s[k] !== 'object' || Array.isArray(s[k])) s[k] = {};
@@ -511,10 +769,9 @@ function loadState() {
   for (const j in s.solved) { const x = s.solved[j]; if (!V[j] || !x || typeof x !== 'object') delete s.solved[j]; else x.stars = Math.max(1, Math.min(3, x.stars | 0)); }
   for (const j in s.work) { const w = s.work[j]; if (!V[j] || !w || typeof w !== 'object' || !Array.isArray(w.stages) || w.stages.some(st => !st || !APPLY_OK(st))) delete s.work[j]; else w.time = Number.isFinite(w.time) ? w.time : 0; }
   s.cur = Number.isInteger(s.cur) && s.cur >= 0 && s.cur < V.length ? s.cur : 0;
-  const wr = s.wire && typeof s.wire === 'object' ? s.wire : {}, run = wr.run && typeof wr.run === 'object' && typeof wr.run.seed === 'string' && wr.run.level >= 1 ? wr.run : null;
-  s.wire = { best: wr.best | 0, daily: wr.daily && typeof wr.daily.date === 'string' ? { date: wr.daily.date, score: wr.daily.score | 0 } : null,
-    run: run && { seed: run.seed.slice(0, 40), daily: !!run.daily, level: Math.min(999, run.level | 0), agents: Math.max(0, Math.min(3, run.agents | 0)), tokens: Math.max(0, Math.min(9, run.tokens | 0)), score: run.score | 0, clock: Math.max(0, Math.min(180, run.clock | 0)), cribs: Math.max(0, Math.min(9, run.cribs | 0)), perk: run.perk ? 1 : 0 } };
-  delete s.solved[WIRE]; if (!s.wire.run) { delete s.work[WIRE]; delete s.hints[WIRE]; }
+  const po = s.post && typeof s.post === 'object' ? s.post : {}; delete s.wire;
+  s.post = { best: Number.isFinite(po.best) ? po.best : 0, daily: po.daily && typeof po.daily.date === 'string' ? { date: po.daily.date, score: po.daily.score | 0 } : null, last: po.last && typeof po.last === 'object' ? po.last : null, run: postSane(po.run) };
+  delete s.solved[POST]; delete s.work[POST]; delete s.hints[POST];
   return s;
 }
 const persist = () => { RH.save('vault', S); RH.progress('vault', Object.keys(S.solved).filter(k => +k < CAMPAIGN).length / CAMPAIGN); };
@@ -531,7 +788,8 @@ function build(i) {
     const pad = Array.from({ length: v.len }, () => r.int(26));
     out = { intel: it, pad: true, plains: rows, ciphers: rows.map(p => p.split('').map((c, j) => (ix(c) + pad[j]) % 26)), padKey: pad };
   } else {
-    const wm = v.seedStr && /^wire:(.*):(\d+):msg$/.exec(v.seedStr), deck = wm && !variant ? { order: RH.rng('wire-deck:' + wm[1]).shuffle([...TPL, ...HIST]), at: Array.from({ length: +wm[2] - 1 }, (_, l) => Math.ceil(wireDef(wm[1], l + 1).len / 28) + 1).reduce((a, x) => a + x, 0) } : null; // each earlier intercept's share of the deck
+    if (v.msg) return (cache[key] = { intel: null, plain: v.msg.plain, target: v.msg.target, cipher: v.msg.cipher, keys: [v.msg.key] });
+    const deck = null;
     const it = intelFor(v, variant), plain = genText(r, v.len, it ? it.start : '', it ? v.intel.excl : [], deck);
     const keys = v.steps.map(s => STEP[s.t].gen(r, s));
     const trans = v.steps.some(s => STEP[s.t].trans) || v.fmt !== 'spaced';
@@ -547,12 +805,13 @@ function build(i) {
 const toolsAt = i => { const s = new Set(); for (let j = 0; j <= i; j++) (V[j].intro || []).forEach(t => s.add(t)); return s; };
 const ERA_NEED = 3; // vaults to open in an era before the next unlocks
 const eraOpen = e => e === 6 ? eraOpen(1) : e === 0 || V.filter((v, i) => v.e === e - 1 && S.solved[i]).length >= ERA_NEED;
-const workOf = i => (S.work[i] ||= { stages: [], notes: '', time: 0, padKey: null });
+let postScratch = { stages: [], notes: '', time: 0 };
+const workOf = i => i === POST ? (S.post?.run?.cur ? (S.post.run.work[S.post.run.cur] ||= { stages: [], notes: '', time: 0, hints: 0 }) : postScratch) : (S.work[i] ||= { stages: [], notes: '', time: 0, padKey: null });
 
 // ---------- decryption tools ----------
 const DEF = {
   shift: () => ({ k: 0 }), atbash: () => ({}), affine: () => ({ a: 1, b: 0 }), subst: () => ({ m: {} }), rev: () => ({}),
-  rail: () => ({ n: 2 }), col: () => ({ w: 0, pos: null }), vig: () => ({ sh: [0, 0, 0, 0, 0] }),
+  rail: () => ({ n: 2 }), col: () => ({ w: 0, pos: null }), vig: () => ({ sh: [0, 0, 0, 0, 0] }), rotor: () => ({ set: [0, 0, 0] }),
 };
 const LET = /[A-Za-z]/g;
 const onlyLetters = s => (s.match(LET) || []).join('');
@@ -573,6 +832,7 @@ const APPLY = {
   rail: (t, s) => railDec(onlyLetters(t), s.n),
   col: (t, s) => { const tl = onlyLetters(t), lay = colLayout(tl, s); if (!lay) return tl; let o = ''; for (let r = 0; r < lay.rows; r++) for (let p = 0; p < lay.w; p++) o += lay.chunks[lay.pos[p]][r]; return o; },
   vig: (t, s) => vigApply(t, s.sh, -1),
+  rotor: (t, s) => rotorApply(t, s.set, -1),
 };
 
 // ---------- analysis ----------
@@ -595,70 +855,190 @@ function renderSide() {
   $('side').innerHTML = h + `<div class="note" style="margin:16px 6px">Open ${ERA_NEED} vaults in an era to unlock the next one.</div>`;
   $('side').querySelectorAll('.vlt').forEach(el => el.onclick = () => { const i = +el.dataset.i; if (eraOpen(V[i].e)) openVault(i); });
   const n = Object.keys(S.solved).filter(k => +k < CAMPAIGN).length, st = Object.entries(S.solved).filter(([k]) => +k < CAMPAIGN).reduce((a, [, x]) => a + x.stars, 0);
-  $('totals').textContent = `${n}/${CAMPAIGN} vaults · ${st}★${S.wire.best ? ' · wire best ' + S.wire.best : ''}`;
+  $('totals').textContent = `${n}/${CAMPAIGN} vaults · ${st}★${S.post.best ? ' · best dossier ' + S.post.best : ''}`;
 }
 
-function applyWire() { const run = S.wire.run; if (!run) return; Object.assign(V[WIRE], wireDef(run.seed, run.level)); delete S.work[WIRE]; delete S.hints[WIRE]; delete S.variant[WIRE]; delete S.solved[WIRE]; }
-function wireStart(seed, daily) { S.wire.run = { seed: String(seed).slice(0, 40), daily: !!daily, level: 1, agents: 3, tokens: 3, score: 0, clock: 0, cribs: 0, perk: 0 }; applyWire(); persist(); openVault(WIRE); }
-let wireLast = null; // the last intercept's outcome, stamped on the next one
-function wireAdvance(won) {
-  const run = S.wire.run; if (!run) return;
-  const line = build(WIRE).plain.split(/(?<=[.!?])\s/)[0].slice(0, 70).replace(/[.!?,]+$/, ''); wireLast = { won, level: run.level, line };
-  if (won) { run.score++; S.wire.best = Math.max(S.wire.best, run.score); if (run.score % 3 === 0) { run.tokens = Math.min(9, run.tokens + 1); run.perk = 1; } } else run.agents--;
-  if (run.cribs > 0) run.cribs--;
-  run.level++;
-  if (run.agents <= 0) return wireEnd();
-  applyWire(); persist(); openVault(WIRE);
+// ---------- the Listening Post: screens ----------
+function face(op, x, y, s, st) { // a seeded passport photo, drawn in a 40×40 box
+  const r = RH.rng('face:' + op.n), skin = r.pick(['#e9c7a2', '#d7a77f', '#b98257', '#8a5a3a', '#f1d5bb']), coat = r.pick(['#3b3f4a', '#4a3b2a', '#2f4a3a', '#5a4436', '#3a3a5a']);
+  const hair = r.pick(['#2a1d12', '#6b4a2a', '#a58b5a', '#1a1a1a', '#8a8a8a']), hat = r.int(4), specs = r() < .35, tache = r() < .4;
+  const hats = [`<path d="M8 15h24l-3-3c-1-6-17-6-18 0z" fill="${coat}"/><rect x="5" y="14" width="30" height="2.5" rx="1" fill="#222"/>`, `<ellipse cx="20" cy="11" rx="11" ry="5" fill="#7e1811"/>`, `<path d="M11 14c0-7 18-7 18 0z" fill="${hair}"/>`, `<path d="M10 14c1-6 19-6 20 0h4v2H10z" fill="#55584a"/>`];
+  return `<g transform="translate(${x},${y}) scale(${s / 40})" opacity="${st === 'fled' ? .35 : 1}"><rect width="40" height="40" fill="#f3eddc" stroke="#8f7647"/><path d="M5 40c2-9 28-9 30 0z" fill="${coat}"/><rect x="17" y="25" width="6" height="5" fill="${skin}"/><ellipse cx="20" cy="19" rx="8" ry="9" fill="${skin}"/>${hats[hat]}<circle cx="17" cy="19" r="1" fill="#222"/><circle cx="23" cy="19" r="1" fill="#222"/>${specs ? '<g fill="none" stroke="#222" stroke-width=".8"><circle cx="17" cy="19" r="2.4"/><circle cx="23" cy="19" r="2.4"/><path d="M19.4 19h1.2"/></g>' : ''}${tache ? `<path d="M16.5 24c2-1.4 5-1.4 7 0" stroke="${hair}" stroke-width="1.6" fill="none"/>` : '<path d="M18 24.5h4" stroke="#7a4a3a" stroke-width=".8"/>'}${st === 'arrested' ? '<g stroke="#222" stroke-width="2">' + [8, 16, 24, 32].map(v => `<path d="M${v} 0v40"/>`).join('') + '</g>' : ''}</g>`;
 }
-async function wireEnd() {
-  const run = S.wire.run, best = Math.max(S.wire.best, run.score), daily = run.daily;
-  if (daily) S.wire.daily = { date: run.seed.replace('daily:', ''), score: Math.max(run.score, S.wire.daily?.date === run.seed.replace('daily:', '') ? S.wire.daily.score : 0) };
-  S.wire.best = best; S.wire.run = null; delete S.work[WIRE]; persist();
-  const link = location.origin + location.pathname + '#wire=' + encodeURIComponent(run.seed);
-  await RH.modal(`<h2>Run over</h2><p style="text-align:center;font-size:22px">${run.score} intercept${run.score === 1 ? '' : 's'} broken</p><p class="note" style="text-align:center">Best run: ${best}${daily ? ' · today\'s seed is the same for everyone' : ''}</p><p class="note">Share this run: <span class="mono" style="word-break:break-all">${esc(link)}</span></p>`, [{ label: 'Back to the wire room' }]);
-  openVault(WIRE);
+const faceSVG = (op, s, st) => `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" aria-hidden="true">${face(op, 0, 0, s, st)}</svg>`;
+const postRun = () => S.post.run;
+function postLobby() {
+  const d = today(), ds = S.post.daily?.date === d ? S.post.daily.score : null;
+  document.body.classList.add('postdash');
+  $('center').innerHTML = `<div class="dim small">VII. The Listening Post</div><h2 class="vt">The Listening Post</h2><div class="brief">${ERA_BRIEF[6]}</div>
+    <div class="case"><b>A fortnight on the wire.</b> Each night a small network transmits. Break a message and its key goes in the man's file. Every operator picks keys by a <b>habit</b>: file the right <b>habit card</b> and it reads his traffic for you; a wrong card prints garbage. Act on what you read: <b>watch</b> where a strike is planned, or <b>arrest</b> a man whose address you know. Every arrest warns his cell, and they change their habits. On day 14 you round up everyone you can find.</div>
+    <div class="row" style="margin-top:10px"><button class="primary" id="pNew">📻 Start a fortnight</button><button id="pDaily">📅 Today's network${ds != null ? ' · your best ' + ds : ''}</button></div>
+    <p class="note" style="margin-top:8px">Best dossier: <b>${S.post.best}</b>. A link (#post=…) gives anyone the same network.</p>`;
+  $('pNew').onclick = () => postStart(Math.random().toString(36).slice(2, 10));
+  $('pDaily').onclick = () => postStart('daily:' + d, true);
 }
-function wireLobby() {
-  const d = today(), dScore = S.wire.daily?.date === d ? S.wire.daily.score : null;
-  $('center').innerHTML = `<div class="dim small">VII. The Wire Room</div><h2 class="vt">The Wire Room</h2><div class="brief">${ERA_BRIEF[6]}</div>
-    <div class="case"><b>How a run works:</b> intercepts arrive one after another, each a fresh message under a fresh key, growing harder as you go (stacked layers, longer keys, shorter texts). Each has an alarm that starts the moment it arrives. From the fourth intercept on, nobody tells you which system it is: the clerk gives you the statistics. Every third break, HQ offers you a perk. <b>Miss an alarm and you lose an agent;</b> lose three and the run is over. <b>Hints</b> come from a shared pool of tokens (3 to start, one more every third break). Your score is how many intercepts you break.</div>
-    <div class="row" style="margin-top:10px"><button class="primary" id="wNew">📡 New run</button><button id="wDaily">📅 Today's seed (${d})${dScore != null ? ' · your best ' + dScore : ''}</button></div>
-    <p class="note" style="margin-top:8px">Best run so far: <b>${S.wire.best}</b>. A run's link (#wire=…) replays the same intercepts for anyone.</p>`;
-  $('wNew').onclick = () => wireStart(Math.random().toString(36).slice(2, 10));
-  $('wDaily').onclick = () => wireStart('daily:' + d, true);
+function postStart(seed, daily) { S.post.run = postNew(seed, daily); delete S.work[POST]; persist(); openVault(POST); }
+function postGo(id) { const run = postRun(); run.cur = id; persist(); openVault(POST); }
+function statusOf(run, m) { return run.read[m.id] === 'card' ? ['READ BY CARD', 'ok'] : run.read[m.id] ? ['BROKEN', 'ok'] : run.failed[m.id] ? ['CARD FAILED', 'bad'] : ['unread', '']; }
+function postMap(run, net, known) {
+  const heard = net.order.filter(o => known.heard.has(o)), W = 340, H = 196, pos = {};
+  heard.forEach((o, k) => { const t = -Math.PI / 2 + 2 * Math.PI * k / Math.max(1, heard.length); pos[o] = [W / 2 + 128 * Math.cos(t), H / 2 + 64 * Math.sin(t)]; });
+  let g = '';
+  run.threads.forEach(t => { const [a, b] = t.split('-').map(Number); if (pos[a] && pos[b]) g += `<line x1="${pos[a][0]}" y1="${pos[a][1]}" x2="${pos[b][0]}" y2="${pos[b][1]}" stroke="#a8231b" stroke-width="2.4"/>`; });
+  heard.forEach(o => {
+    const [x, y] = pos[o], has = run.threads.some(t => t.split('-').map(Number).includes(o));
+    if (!has) { const dx = (x - W / 2) * .2, dy = (y - H / 2) * .25 - 6; g += `<line x1="${x}" y1="${y}" x2="${x + dx}" y2="${y + dy}" stroke="#5f533b" stroke-dasharray="3 3"/><text x="${x + dx * 1.35}" y="${y + dy * 1.35 + 4}" text-anchor="middle" font-size="13" fill="#5f533b" font-weight="700">?</text>`; }
+  });
+  heard.forEach(o => {
+    const [x, y] = pos[o], op = net.ops[o], st = postStatus(run, o, run.day + 1);
+    g += `<g class="node" data-op="${o}" style="cursor:pointer">${o === run.sel ? `<rect x="${x - 21}" y="${y - 21}" width="42" height="42" fill="none" stroke="#a8231b" stroke-width="2.5"/>` : ''}${face(op, x - 18, y - 18, 36, st)}<text x="${x}" y="${y + 30}" text-anchor="middle" font-size="11" font-family="Courier Prime,monospace" font-weight="700" fill="#1f1c15">${op.n}${known.addr.has(o) ? ' 🏠' : ''}</text></g>`;
+  });
+  return `<svg id="pmap" viewBox="0 0 ${W} ${H + 18}" style="width:100%;max-width:560px;display:block;margin:0 auto;background:#efe4c4;border:1px solid #9c8455">${g}</svg>`;
 }
-function wireStamp() { // the last intercept's fate, and HQ's offer after every third break
-  const run = S.wire.run, L = wireLast, perk = run.perk ? `<div class="case"><b>HQ is pleased.</b> Choose one: ${PERKS.map(([k, t]) => `<button data-perk="${k}" style="margin:3px">${t}</button>`).join('')}</div>` : '';
-  if (!L || L.level !== run.level - 1) return perk;
-  return `<div class="wstamp ${L.won ? 'ok' : 'bad'}"><b>${L.won ? 'BROKEN' : 'AGENT LOST'}</b> · intercept ${L.level}: “${esc(L.line)}…”${L.won ? '' : ' The line re-keyed before you read it.'}</div>` + perk;
+function postFileHTML(run, net, known, o) {
+  const op = net.ops[o], log = run.logs[o] || [], last = log.at(-1), st = postStatus(run, o, run.day + 1), card = run.cards[o];
+  const kind = last ? (last.rot ? 'rot' : KIND[last.sys]) : null, rot = run.day >= ROTOR_DAY;
+  let h = `<div class="pfile"><div class="row" style="gap:8px;align-items:center">${faceSVG(op, 44, st)}<div><b style="font-size:17px">${op.n}</b><div class="note">${st === 'arrested' ? 'IN CUSTODY' : st === 'fled' ? 'gone to ground' : `on the air since ${dayInfo(net, op.arr).label}`}${known.addr.has(o) ? ` · lives at ${op.addr.toLowerCase()}` : ' · address unknown'}</div></div>
+    ${st === 'air' ? `<button id="pArrest" ${known.addr.has(o) ? '' : 'disabled title="You need his address"'}>Arrest</button>` : ''}</div>`;
+  h += `<div class="note" style="margin-top:6px"><b>Keys you have read:</b> ${log.length ? log.map((e, k) => `${k && (e.ep !== log[k - 1].ep || e.rot !== log[k - 1].rot) ? '<i>— habits changed —</i> ' : ''}${dayInfo(net, e.d).label}: <b>${valText(e.sys, e.val, e.a)}</b> (indicator ${e.ind})`).join(' · ') : 'none yet. Break one of his messages.'}</div>`;
+  if (card) h += `<div class="note"><b>Habit card on file:</b> ${RULES[card.rot ? 'rot' : KIND[last?.sys || op.sys]][card.rule]}${card.p != null ? ` (${card.rule === 'STEP' ? 'from ' + card.p : valText(last?.sys || op.sys, card.p, card.a).replace(/^\w+ /, '')})` : ''}. It meets his next message.</div>`;
+  else if (last && !!last.rot === rot && st === 'air') {
+    const struck = run.struck[o] || [];
+    h += `<div class="note"><b>File a habit card.</b> His key is…</div><div class="cards">` + Object.keys(RULES[kind]).map(rule => {
+      const x = struck.includes(rule + ':' + last.ep + ':' + last.rot), f = cardFits(run, o, rule);
+      return `<button data-card="${rule}" class="${f.ok ? 'fit' : 'nofit'}" ${x ? 'disabled style="text-decoration:line-through"' : ''} title="${f.ok ? 'Fits every key you have read' : 'Contradicted by ' + dayInfo(net, f.day).label}">${f.ok ? '✓' : '✗'} ${RULES[kind][rule]}</button>`;
+    }).join('') + '</div>';
+  } else if (last && rot && !last.rot && st === 'air') h += `<div class="note">His old habits died with the old tables. Read one rotor message (the bombe needs his opening) to start a new card.</div>`;
+  const others = net.order.filter(x => x !== o && known.heard.has(x));
+  if (others.length) h += `<div class="note" style="margin-top:6px"><b>Thread</b> (who handles whom): ${others.map(x => { const t = [o, x].sort().join('-'); return `<button data-thr="${t}" class="${run.threads.includes(t) ? 'on' : ''}">${run.threads.includes(t) ? '━ ' : ''}${net.ops[x].n}</button>`; }).join('')}</div>`;
+  return h + '</div>';
 }
+function postDash() {
+  const run = postRun(), net = postNet(run.seed), di = dayInfo(net, run.day), msgs = postMsgs(run, run.day), known = postKnown(run);
+  document.body.classList.add('postdash');
+  if (run.sel == null || !known.heard.has(run.sel)) run.sel = msgs[0]?.o ?? net.order[0];
+  const news = run.news.find(n => n.d === run.day - 1)?.ev || [];
+  const sc = postScore(run), custody = run.arrests.length;
+  const upcoming = net.strikes.filter(s => known.strikes.has(s.s)).sort((a, b) => a.day - b.day);
+  const unread = msgs.filter(m => !run.read[m.id]).length;
+  $('center').innerHTML = `<div class="dim small">VII. The Listening Post · ${run.daily ? "today's network" : 'network ' + esc(run.seed)}</div>
+    <h2 class="vt">Day ${run.day} of ${DAYS} · ${di.label}</h2>
+    <div class="row" style="gap:6px;margin:4px 0"><span class="pill">🔥 damage ${run.damage}</span><span class="pill">🔒 in custody ${custody}</span><span class="pill">👁 watch: ${run.watch[run.day] != null ? net.strikes[run.watch[run.day]].place.toLowerCase() : 'free'}</span>${run.day >= ROTOR_DAY ? '<span class="pill">⚙ rotor machines</span>' : ''}</div>
+    ${news.length ? `<div class="case">${news.map(esc).join('<br>')}</div>` : ''}
+    ${run.day === 1 && !Object.keys(run.read).length ? `<div class="brief">One man on the air tonight. Tap his message and break it.</div>` : ''}
+    <div class="lbl"><span>Tonight's traffic</span></div>
+    <div id="ptraffic">${msgs.map(m => { const op = net.ops[m.o], [t, c] = statusOf(run, m); return `<div class="ptr" data-m="${m.id}">${faceSVG(op, 30, 'air')}<b>${op.n}</b><span class="mono dim">${m.ind}</span><span class="pst ${c}">${t}</span></div>`; }).join('') || '<div class="note">Silence on every frequency.</div>'}</div>
+    <div class="lbl"><span>The network</span><span class="note">tap a face for his file</span></div>
+    ${postMap(run, net, known)}
+    <div id="pfile">${postFileHTML(run, net, known, run.sel)}</div>
+    <div class="lbl"><span>Strikes you know of</span></div>
+    <div>${upcoming.length ? upcoming.map(s => { const op = net.ops[s.o], sd = dayInfo(net, s.day), done = s.day < run.day, st = postStatus(run, s.o, s.day);
+      return `<div class="pstrike ${done ? 'done' : ''}"><b>${sd.label}</b> · ${op.n} at ${s.place.toLowerCase()} (${s.value})${done ? (st !== 'air' || arrestOf(run, s.o)?.day <= s.day ? ' · stopped' : ' · went ahead') : run.watch[s.day] === s.s ? ' · <b>watched</b>' : st === 'air' && !arrestOf(run, s.o) ? ` <button data-watch="${s.s}">👁 Watch it</button>` : ' · cancelled'}</div>`; }).join('') : '<div class="note">None yet. Strikes are announced in the traffic.</div>'}</div>
+    <div class="row" style="margin-top:14px;justify-content:space-between"><span class="note">Dossier so far: ${sc.total} points</span><button class="primary" id="pEnd">${run.day === DAYS ? 'End the fortnight ▶' : 'End the day ▶'}${unread ? ` (${unread} unread)` : ''}</button></div>`;
+  document.querySelectorAll('.ptr').forEach(el => el.onclick = () => postGo(el.dataset.m));
+  document.querySelectorAll('#pmap .node').forEach(el => el.onclick = () => { run.sel = +el.dataset.op; persist(); postDash(); });
+  document.querySelectorAll('[data-watch]').forEach(b => b.onclick = () => { const s = net.strikes[+b.dataset.watch]; const prev = run.watch[s.day]; postWatch(run, s.s); SND.clack(); persist(); postDash(); RH.toast(prev != null && prev !== s.s ? `The watch moves to ${s.place.toLowerCase()} on ${dayInfo(net, s.day).label}.` : `The watch will be at ${s.place.toLowerCase()} on ${dayInfo(net, s.day).label}.`); });
+  document.querySelectorAll('[data-card]').forEach(b => b.onclick = () => { postFile(run, run.sel, b.dataset.card); SND.stamp(.1); persist(); postDash(); RH.toast('Card filed. It meets his next message.'); });
+  document.querySelectorAll('[data-thr]').forEach(b => b.onclick = () => { const t = b.dataset.thr, k = run.threads.indexOf(t); if (k >= 0) run.threads.splice(k, 1); else run.threads.push(t); persist(); postDash(); });
+  if ($('pArrest')) $('pArrest').onclick = async () => {
+    const op = net.ops[run.sel]; if (!(await RH.modal(`<h2>Arrest ${op.n}?</h2><p>Police will take him tonight at ${op.addr.toLowerCase()}. His cell will hear of it and change their habits; anyone he runs will go to ground.</p>`, [{ label: 'Keep listening', value: 0 }, { label: 'Arrest', value: 1 }]))) return;
+    postArrest(run, run.sel); SND.stamp(.2); persist(); postDash();
+  };
+  $('pEnd').onclick = async () => {
+    if (unread && !(await RH.modal(`<h2>End the day?</h2><p>${unread} message${unread > 1 ? 's' : ''} still unread tonight. What they said is lost.</p>`, [{ label: 'Back to work', value: 0 }, { label: 'End the day', value: 1 }]))) return;
+    postEndDay(run); persist(); if (run.over) return postFinish(); openVault(POST); document.getElementById('center').scrollTop = 0;
+  };
+}
+function histSVG(vals, mine) {
+  const lo = Math.min(mine, ...vals), hi = Math.max(mine, ...vals), N = 14, bw = (hi - lo) / N || 1, bins = Array(N).fill(0); vals.forEach(v => bins[Math.min(N - 1, Math.floor((v - lo) / bw))]++);
+  const mx = Math.max(...bins), mb = Math.min(N - 1, Math.floor((mine - lo) / bw));
+  return `<svg viewBox="0 0 280 80" style="width:100%;max-width:340px;display:block;margin:6px auto">${bins.map((b, k) => `<rect x="${k * 20 + 1}" y="${64 - 56 * b / mx}" width="18" height="${56 * b / mx}" fill="${k === mb ? '#a8231b' : '#2c3e6b'}"/>`).join('')}<text x="0" y="78" font-size="10">${lo}</text><text x="280" y="78" font-size="10" text-anchor="end">${hi}</text><text x="${mb * 20 + 10}" y="${58 - 56 * bins[mb] / mx}" font-size="10" text-anchor="middle" fill="#a8231b">you</text></svg>`;
+}
+async function postFinish() {
+  const run = postRun(), net = postNet(run.seed), sc = postScore(run), pop = postPop(run.seed), better = pop.filter(v => v < sc.total).length;
+  S.post.best = Math.max(S.post.best, sc.total);
+  if (run.daily) { const d = run.seed.replace('daily:', ''); S.post.daily = { date: d, score: Math.max(sc.total, S.post.daily?.date === d ? S.post.daily.score : -999) }; }
+  S.post.last = { seed: run.seed, score: sc.total }; S.post.run = null; persist();
+  const link = location.origin + location.pathname + '#post=' + encodeURIComponent(run.seed), name = o => net.ops[o].n;
+  const truth = net.ops.filter(op => op.h >= 0).map(op => `${op.n} → ${op.h ? net.ops[op.h].n : net.ops[0].n}`).join(', ');
+  await RH.modal(`<h2>The dossier</h2><p style="text-align:center;font-size:24px;margin:4px 0">${sc.total} points</p>
+    <p class="note">In custody: <b>${sc.held.map(name).join(', ') || 'nobody'}</b> (+${sc.custody})${sc.fled.length ? ` · gone to ground: ${sc.fled.map(name).join(', ')}` : ''}${sc.lost.length ? ` · never found: ${sc.lost.map(name).join(', ')}` : ''}<br>
+    Threads: ${sc.right} right, ${sc.wrong} wrong (${sc.threads >= 0 ? '+' : ''}${sc.threads}) · damage −${sc.damage}${sc.hints ? ` · hints −${5 * sc.hints}` : ''}<br>
+    The network was: ${net.ops[0].n} (resident) and ${net.ops[1].n} (handler); ${truth}.</p>
+    ${histSVG(pop, sc.total)}<p class="note" style="text-align:center">Better than ${Math.round(100 * better / pop.length)}% of 64 simulated analysts on this network.</p>
+    <p class="note">Share this network: <span class="mono" style="word-break:break-all">${esc(link)}</span></p>`, [{ label: 'Copy link', value: 'copy' }, { label: 'Close', value: 0 }]).then(v => { if (v === 'copy') navigator.clipboard?.writeText(link).catch(() => {}); });
+  openVault(POST);
+}
+function postReadView(m) {
+  const run = postRun(), net = postNet(run.seed), op = net.ops[m.o], [t] = statusOf(run, m), known = postKnown(run);
+  document.body.classList.add('postdash');
+  const facts = m.facts.map(f => f.k === 'op' ? (() => { const s = net.strikes[f.s]; return `🔥 Strike: ${op.n} at ${s.place.toLowerCase()} on ${dayInfo(net, s.day).label}` + (s.day >= run.day && run.watch[s.day] !== s.s ? ` <button data-watch="${s.s}">👁 Watch it</button>` : ''); })() : f.k === 'addr' ? `🏠 ${net.ops[f.a].n} lives at ${net.ops[f.a].addr.toLowerCase()}` : '').filter(Boolean);
+  const log = run.logs[m.o] || [], noCard = !run.cards[m.o] && log.length;
+  $('center').innerHTML = `<button id="pBack">← Tonight's traffic</button>
+    <div class="dim small" style="margin-top:8px">${dayInfo(net, m.d).label} · ${op.n} · indicator ${m.ind}</div><h2 class="vt">${t}</h2>
+    <div class="txt" style="word-break:normal">${esc(m.plain)}</div>
+    <div class="note" style="margin:6px 0">His key tonight: <b>${valText(m.sys, m.val, m.a)}</b> (${SYSNAME[m.sys]}).</div>
+    ${facts.length ? `<div class="case">${facts.join('<br>')}</div>` : ''}
+    ${noCard && postStatus(run, m.o, run.day + 1) === 'air' ? `<button class="primary" id="pCard">Open ${op.n}'s file and name his habit</button>` : ''}`;
+  $('pBack').onclick = () => { run.cur = null; persist(); openVault(POST); };
+  if ($('pCard')) $('pCard').onclick = () => { run.cur = null; run.sel = m.o; persist(); openVault(POST); setTimeout(() => $('pfile')?.scrollIntoView({ block: 'center' }), 30); };
+  document.querySelectorAll('[data-watch]').forEach(b => b.onclick = () => { postWatch(run, +b.dataset.watch); SND.clack(); persist(); postReadView(m); RH.toast('The watch is booked.'); });
+}
+function postBrief(m) { // what you know about the sender, above the bench
+  const run = postRun(), net = postNet(run.seed), op = net.ops[m.o], log = run.logs[m.o] || [], f = run.failed[m.id];
+  let h = `<button id="pBack">← Tonight's traffic</button> `;
+  if (m.d === 1) h += `<div class="case"><b>${op.n}</b> is lazy: he uses a Caesar shift. Turn the wheel (or type a word you expect, like STRIKE, into the probable-word slot) until the message reads.</div>`;
+  else if (m.sys === 'rotor') h += `<div class="case"><b>${op.n}</b> now sends on the rotor machine. Put the <b>Rotor machine</b> on the bench: if you know how he opens his messages, the bombe finds the setting; if you know his habit, set the wheels yourself.${op.opening && log.length ? '' : ''}</div>`;
+  else if (log.length) h += `<div class="case"><b>${op.n}</b> sends in a ${SYSNAME[m.sys]}. Keys read so far: ${log.map(e => `${dayInfo(net, e.d).label} <b>${valText(e.sys, e.val, e.a)}</b> (ind. ${e.ind})`).join(' · ')}.</div>`;
+  else h += clerkNotes(POST);
+  if (f) h += `<div class="case" style="border-color:#a8231b"><b>Card failed.</b> “${RULES[m.kind][f.rule]}” said ${esc(f.said)}, and gave: <span class="mono" style="color:#a8231b">${esc(f.text)}…</span> Struck from his file. Break this one by hand.</div>`;
+  return h;
+}
+function postSolved() {
+  const run = postRun(), m = V[POST].msg; if (!run || !m || run.read[m.id]) return;
+  postLearn(run, m, 'hand'); persist();
+  const t = $('otext'); if (t) { t.style.position = 'relative'; const st = document.createElement('div'); st.className = 'stamp'; st.textContent = 'BROKEN'; t.appendChild(st); }
+  SND.stamp(.25); SND.bell(.55);
+  setTimeout(() => { if (cur === POST && postRun() === run && run.cur === m.id) openVault(POST); }, 1000);
+}
+function postStartTool(m) { const log = postRun().logs[m.o] || []; return m.d === 1 ? 'shift' : m.sys === 'rotor' ? 'rotor' : log.length ? { caesar: 'shift', affine: 'affine', subst: 'subst', vig: 'vig' }[m.sys] : null; }
 function openVault(i) {
   disarm(); seenWords = null; colPick = null; // a half-made column swap must not carry over to another vault
   cur = i; S.cur = i; padSel = null; persist();
-  if (i === WIRE && !S.wire.run) { renderSide(); wireLobby(); return; }
+  document.body.classList.remove('postdash');
+  if (i === POST) {
+    const run = postRun(); renderSide();
+    if (!run) return postLobby();
+    const m = run.cur && postMsgs(run, run.day).find(x => x.id === run.cur);
+    if (!m) { run.cur = null; return postDash(); }
+    if (run.read[m.id]) return postReadView(m);
+    Object.assign(V[POST], { n: `${postNet(run.seed).ops[m.o].n}, ${dayInfo(postNet(run.seed), m.d).label}`, steps: [{ t: m.sys }], fmt: m.fmt, msg: m, seedStr: 'post:' + run.seed + ':' + m.id + ':' + m.ep, story: '' });
+  }
   const v = V[i], w = workOf(i), b = build(i);
   if (!v.pad && !w.stages.length) {
     const intro = (v.intro || []).filter(t => TOOLS[t]);
     if (i === 0) w.stages.push({ t: 'shift', s: DEF.shift() });
     else if (intro.length && !['atbash', 'rev'].includes(intro[0])) w.stages.push({ t: intro[0], s: DEF[intro[0]]() }); // param-less tools would open the vault by themselves
     else if (v.e === 0) w.stages.push({ t: 'shift', s: DEF.shift() });
+    else if (i === POST) { const t = postStartTool(v.msg); if (t) w.stages.push({ t, s: DEF[t]() }); }
   }
   if (v.pad && (!Array.isArray(w.padKey) || w.padKey.length !== v.len)) w.padKey = Array(v.len).fill(null);
   const L = b.keys?.find((k, j) => v.steps[j].t === 'vig')?.kw?.length;
   const story = v.story.replace(/\{L\}/g, L);
-  const nh = S.hints[i] || 0, sv = S.solved[i];
+  const nh = (i === POST ? w.hints : S.hints[i]) || 0, sv = S.solved[i];
   $('center').innerHTML = `
     <div class="row" style="justify-content:space-between;align-items:flex-start">
-      <div><div class="dim small">${['I','II','III','IV','V','VI','VII'][v.e]}. ${ERAS[v.e]} · ${i === WIRE ? `${S.wire.run.daily ? 'Daily run' : 'Run'} · score ${S.wire.run.score} · agents ${'●'.repeat(S.wire.run.agents)}${'○'.repeat(3 - S.wire.run.agents)} · hint tokens ${S.wire.run.tokens}` : 'Vault ' + (i + 1)}</div><h2 class="vt">${sv ? '🔓' : '🔒'} ${v.n}</h2></div>
-      <div class="row">${v.alarm && !sv ? `<span class="alarm ${w.armed || i === WIRE ? 'live' : ''}" id="alarm" title="When this runs out, the message and its key change">⏰ ${Math.floor(alarmLeft(i) / 60)}:${String(alarmLeft(i) % 60).padStart(2, '0')}${w.armed || i === WIRE ? '' : ' · starts when you touch the bench'}</span>` : ''}<span class="pill" id="timer">⏱ ${fmtT(w.time)}</span><button id="hintBtn">💡 Hint (${3 - nh} left)</button>${sv ? '<button id="newMsg" title="Same cipher, new message and key">🔁 New intercept</button>' : ''}</div>
+      <div><div class="dim small">${['I','II','III','IV','V','VI','VII'][v.e]}. ${ERAS[v.e]} · ${i === POST ? `Day ${postRun().day} of ${DAYS} · indicator ${v.msg.ind}` : 'Vault ' + (i + 1)}</div><h2 class="vt">${sv ? '🔓' : '🔒'} ${v.n}</h2></div>
+      <div class="row">${v.alarm && !sv ? `<span class="alarm ${w.armed ? 'live' : ''}" id="alarm" title="When this runs out, the message and its key change">⏰ ${Math.floor(alarmLeft(i) / 60)}:${String(alarmLeft(i) % 60).padStart(2, '0')}${w.armed ? '' : ' · starts when you touch the bench'}</span>` : ''}<span class="pill" id="timer">⏱ ${fmtT(w.time)}</span><button id="hintBtn">💡 Hint (${3 - nh} left${i === POST ? ', −5 each' : ''})</button>${sv ? '<button id="newMsg" title="Same cipher, new message and key">🔁 New intercept</button>' : ''}</div>
     </div>
-    ${V.findIndex(x => x.e === v.e) === i ? `<div class="brief">${ERA_BRIEF[v.e]}</div>` : ''}
-    <p class="story">${story}</p>
-    ${i === WIRE ? wireStamp() : ''}${i === WIRE && v.hide ? clerkNotes(i) : caseCard(i)}${i === WIRE && !v.hide && S.wire.run.cribs > 0 ? clerkNotes(i) : ''}
+    ${i !== POST && V.findIndex(x => x.e === v.e) === i ? `<div class="brief">${ERA_BRIEF[v.e]}</div>` : ''}
+    ${story ? `<p class="story">${story}</p>` : ''}
+    ${i === POST ? postBrief(v.msg) : caseCard(i)}
     <div id="hints">${hintList(i, nh)}</div>
     ${v.pad ? padHTML(i) : benchHTML(i)}
   `;
   $('hintBtn').onclick = () => takeHint(i);
+  if ($('pBack')) $('pBack').onclick = () => { postRun().cur = null; persist(); openVault(POST); };
   if ($('newMsg')) $('newMsg').onclick = () => { S.variant[i] = (S.variant[i] || 0) + 1; delete S.work[i]; persist(); openVault(i); };
   $('notes').value = w.notes || '';
   renderSide();
@@ -720,15 +1100,17 @@ function genWords(row) { // find dictionary-ish words from the generator vocab i
 }
 const hintList = (i, n) => Array.from({ length: n }, (_, k) => `<div class="note" style="margin:4px 0">💡 ${hintText(i, k)}</div>`).join('');
 async function takeHint(i) {
-  const n = S.hints[i] || 0; if (n >= 3) return RH.toast('No hints left for this vault.');
-  if (i === WIRE) { const run = S.wire.run; if (!run || run.tokens <= 0) return RH.toast('No hint tokens left in this run.'); run.tokens--; S.hints[i] = n + 1; persist(); openVault(i); return; }
+  const n = S.hints[i] || 0;
+  if (i === POST) { const w = workOf(i), k = w.hints || 0; if (k >= 3) return RH.toast('No hints left for this message.');
+    if (!(await RH.modal(`<h2>Take a hint?</h2><p>Each hint costs 5 points off your dossier.</p>`, [{ label: 'Keep trying', value: 0 }, { label: 'Show hint', value: 1 }]))) return;
+    w.hints = k + 1; postRun().hints++; persist(); openVault(i); return; }
   if (!S.solved[i] && !(await RH.modal(`<h2>Take a hint?</h2><p>Each hint costs a star on this vault (3★ with none, 2★ with one, 1★ with more).</p>`, [{ label: 'Keep trying', value: 0 }, { label: 'Show hint', value: 1 }]))) return;
   S.hints[i] = n + 1; persist(); $('hints').innerHTML = hintList(i, n + 1); $('hintBtn').textContent = `💡 Hint (${2 - n} left)`;
 }
 
 // ---------- workbench ----------
 function benchHTML(i) {
-  const b = build(i), w = workOf(i), avail = [...toolsAt(i)].filter(t => TOOLS[t]);
+  const b = build(i), w = workOf(i), avail = i === POST ? TOOL_ORDER.filter(t => t !== 'rotor' || postRun().day >= ROTOR_DAY) : [...toolsAt(i)].filter(t => TOOLS[t]);
   return `
     <div class="lbl"><span>Ciphertext · ${letters(b.cipher).length} letters</span></div>
     <div class="txt" id="ctext">${esc(b.cipher)}</div>
@@ -749,14 +1131,13 @@ function stageHTML(st, k, n) {
   else if (st.t === 'rail') body = `<div class="ctl">Rails <button data-a="n-">◀</button><span class="big mono" data-v="n">${s.n}</span><button data-a="n+">▶</button></div>`;
   else if (st.t === 'col') body = `<div class="ctl">Columns <button data-a="w-">◀</button><span class="big mono" data-v="w">${s.w || '–'}</span><button data-a="w+">▶</button><span class="note" data-v="colinfo"></span></div><div class="cols" data-cols style="margin-top:8px"></div>`;
   else if (st.t === 'vig') body = `<div class="ctl">Key length <button data-a="L-">◀</button><span class="big mono" data-v="L">${s.sh.length}</span><button data-a="L+">▶</button> Key <input data-kw style="width:180px;text-transform:uppercase" class="mono" value="${s.sh.map(x => A[x]).join('')}"></div><div class="vgrid" data-vg style="margin-top:8px"></div><div class="note" style="margin-top:4px">Each box is one column, every ${s.sh.length}th letter. Blue bars show its decrypted letter counts and orange ticks show English. Shift until they line up.</div>`;
+  else if (st.t === 'rotor') body = `<div class="ctl">Wheels ${[0, 1, 2].map(j => `<span class="rw"><button data-a="r${j}+" aria-label="wheel ${j + 1} up">▲</button><span class="big mono" data-v="r${j}">${A[s.set[j]]}</span><button data-a="r${j}-" aria-label="wheel ${j + 1} down">▼</button></span>`).join('')}<input data-rset maxlength="3" style="width:64px;text-transform:uppercase" class="mono" placeholder="ABC" value="${s.set.map(x => A[x]).join('')}" aria-label="wheel setting"></div><div class="pw"><label class="row">Bombe: it opens with <input data-bombe placeholder="e.g. AS AGREED" style="width:170px;text-transform:uppercase" autocomplete="off"></label><div class="hits" data-bres><span class="note">Type words you are sure the message starts with (six letters or more). The bombe tries all 17,576 settings.</span></div></div>`;
   else body = `<div class="note">${T.blurb}</div>`;
   return `<div class="stage" data-k="${k}"><div class="hd"><b>${T.name}</b><button data-m="up" ${k ? '' : 'disabled'}>↑</button><button data-m="dn" ${k < n - 1 ? '' : 'disabled'}>↓</button><button data-m="rm">✕</button></div>${body}</div>`;
 }
 function wireBench(i) {
   const w = workOf(i);
-  if (i === WIRE) arm8(i); // in the Wire Room the clock runs from the moment the intercept arrives
-  else if (V[i].alarm && !w.armed) $('center').addEventListener('input', () => arm8(i), { once: true }), $('stages')?.addEventListener('click', () => arm8(i), { once: true });
-  document.querySelectorAll('[data-perk]').forEach(bn => bn.onclick = () => { const run = S.wire.run, k = bn.dataset.perk; if (!run?.perk) return; run.perk = 0; if (k === 'tokens') run.tokens = Math.min(9, run.tokens + 2); else if (k === 'clock') { run.clock += 45; V[WIRE].alarm += 45; } else run.cribs += 3; SND.clack(); persist(); openVault(WIRE); });
+  if (V[i].alarm && !w.armed) $('center').addEventListener('input', () => arm8(i), { once: true }), $('stages')?.addEventListener('click', () => arm8(i), { once: true });
   if ($('pullBtn')) $('pullBtn').onclick = () => pullCarbon(i);
   $('addBtn').onclick = () => { const t = $('addSel').value; w.stages.push({ t, s: DEF[t]() }); persist(); openVault(i); };
   document.querySelectorAll('.stage').forEach(el => {
@@ -771,6 +1152,7 @@ function wireBench(i) {
       const a = bn.dataset.a, d = a.endsWith('+') ? 1 : -1, f = a.slice(0, -1);
       if (f === 'k' || f === 'b') s[f] = (s[f] + d + 26) % 26;
       else if (f === 'n') s.n = Math.max(2, Math.min(20, s.n + d));
+      else if (/^r\d$/.test(f)) s.set[+f[1]] = (s.set[+f[1]] + d + 26) % 26;
       else if (f === 'w') { s.w = Math.max(2, Math.min(20, (s.w || 1) + d)); s.pos = null; colPick = null; }
       else if (f === 'L') { const L = Math.max(1, Math.min(20, s.sh.length + d)); s.sh = Array.from({ length: L }, (_, j) => s.sh[j] || 0); const kw = el.querySelector('[data-kw]'); kw.value = s.sh.map(x => A[x]).join(''); }
       else if (a === 'clr') { s.m = {}; el.querySelectorAll('[data-sub] input').forEach(x => x.value = ''); }
@@ -794,6 +1176,15 @@ function wireBench(i) {
         const seg = bn.dataset.seg; for (let j = 0; j < seg.length; j++) s.m[seg[j]] = word[j];
         el.querySelector('[data-sub]').innerHTML = ''; pw.value = ''; res.innerHTML = ''; tick(seg.length); update();
       });
+    };
+    const rset = el.querySelector('[data-rset]');
+    if (rset) rset.oninput = () => { const v = letters(rset.value.toUpperCase()); if (v.length === 3) { s.set = v.split('').map(ix); update(); } };
+    const bq = el.querySelector('[data-bombe]');
+    if (bq) bq.oninput = () => { const res = el.querySelector('[data-bres]'), word = letters(bq.value.toUpperCase());
+      if (word.length < 6) { res.innerHTML = '<span class="note">Six letters or more.</span>'; return; }
+      const hits = bombe(runPipeline(i).ins[k], word);
+      res.innerHTML = hits.length ? hits.map(h => `<button data-set="${h.map(x => A[x]).join('')}">⚙ ${h.map(x => A[x]).join('')}</button>`).join('') : '<span class="note">No setting makes it open that way.</span>';
+      res.querySelectorAll('[data-set]').forEach(bn => bn.onclick = () => { s.set = bn.dataset.set.split('').map(ix); SND.clack(); update(); });
     };
     const kw = el.querySelector('[data-kw]');
     if (kw) kw.oninput = () => { const v = letters(kw.value.toUpperCase()).slice(0, 20); if (v.length) { s.sh = v.split('').map(ix); update(); } };
@@ -837,6 +1228,7 @@ function refreshStage(el, st, input) {
   if (st.t === 'shift') { set('k', s.k); el.querySelector('[data-r=k]').value = s.k; set('kmap', `cipher ${A[s.k]} → plain A`); }
   if (st.t === 'affine') { set('b', s.b); el.querySelector('[data-r=b]').value = s.b; set('ainv', inv26(s.a)); }
   if (st.t === 'rail') set('n', s.n);
+  if (st.t === 'rotor') { s.set.forEach((x, j) => set('r' + j, A[x])); const rs = el.querySelector('[data-rset]'); if (rs && document.activeElement !== rs) rs.value = s.set.map(x => A[x]).join(''); }
   if (st.t === 'subst') {
     const grid = el.querySelector('[data-sub]'), { f, n } = freqOf(input);
     if (!grid.children.length) {
@@ -965,7 +1357,7 @@ function pullCarbon(i) {
   persist(); openVault(i);
 }
 async function solved(i) {
-  disarm(); if (S.solved[i]) return;
+  disarm(); if (i === POST) return postSolved(); if (S.solved[i]) return;
   const w = workOf(i), h = S.hints[i] || 0, stars = h === 0 ? 3 : h === 1 ? 2 : 1;
   S.solved[i] = { stars, time: w.time }; persist(); renderSide();
   const b = build(i);
@@ -975,7 +1367,6 @@ async function solved(i) {
   SND.stamp(.25); SND.bell(.55); FX.shake?.(.25);
   await new Promise(r => setTimeout(r, 1100));
   if (cur !== i) return;
-  if (i === WIRE) { SND.bell(); delete S.solved[WIRE]; wireAdvance(true); return; }
   if (b.intel) { // act on what you read: a wrong call costs a star
     const v = V[i], pick = await RH.modal(`<h2>Act on it</h2><p>${v.intel.q}</p><div class="txt" style="font-size:13px;word-break:normal">${plain}</div>`, b.intel.opts.map(o => ({ label: o, value: o })));
     const right = pick === b.intel.ans; S.solved[i].intel = right;
@@ -1136,7 +1527,6 @@ function alarmTick(i) {
   const left = alarmLeft(i), el = $('alarm');
   if (el) { el.textContent = `⏰ ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; el.classList.toggle('hot', left <= 20); }
   if (left <= 20 && left > 0 && left % 5 === 0) SND.clack();
-  if (left === 0 && i === WIRE) { SND.alarm(); wireAdvance(false); return; }
   if (left === 0) {
     SND.alarm(); FX.shake?.(.5);
     S.variant[i] = (S.variant[i] || 0) + 1; w.alarmT = 0; w.stages = w.stages.map(st => ({ t: st.t, s: DEF[st.t]() })); persist(); openVault(i);
@@ -1150,12 +1540,11 @@ const help = () => RH.modal(`<h2>🔐 The Vault</h2>
   <p>The panel on the right has the analyst's instruments: <b>frequency counts</b>, <b>Kasiski repeats</b> and <b>index-of-coincidence periods</b>. They unlock as history invents them.</p>
   <p class="dim">Hints cost stars. Solved vaults offer a 🔁 new intercept so you can practise a technique again.</p>`, [{ label: 'Pick a lock' }]);
 $('helpBtn').onclick = help;
-if (!S.intro) { S.intro = 1; persist(); help(); }
-if (S.wire.run) Object.assign(V[WIRE], wireDef(S.wire.run.seed, S.wire.run.level)); // resume a run in progress, work and all
+if (!S.intro) { S.intro = 1; persist(); } // no modal on arrival: the first vault teaches itself, and ? has the overview
 openVault(eraOpen(V[cur].e) ? cur : 0);
-// a #wire=SEED link starts that run (once the Wire Room is open)
-(() => { const m = location.hash.match(/wire=([^&]+)/); if (m && eraOpen(6)) { const seed = decodeURIComponent(m[1]); if (!S.wire.run || S.wire.run.seed !== seed) wireStart(seed, seed.startsWith('daily:')); } })();
-window.__vault = { clerkNotes, WIRE_HIDE, PERKS, get wireLast() { return wireLast; }, WIRE, CAMPAIGN, wireDef, wireStart, wireAdvance, applyWire, today, keyCribs, caseCard, hintText, TOOLS, pullCarbon, intelFor, probable, alarmLeft, alarmTick, V, build, S, workOf, openVault, update, APPLY, isOpenNow, findWords, SETTLE_MS, eraOpen, toolsAt, loadState, get cur() { return cur; } };
+// a #post=SEED link opens that network (once the Listening Post is open)
+(() => { const m = location.hash.match(/post=([^&]+)/); if (m && eraOpen(6)) { const seed = decodeURIComponent(m[1]); if (postRun()?.seed !== seed) postStart(seed, seed.startsWith('daily:')); else openVault(POST); } })();
+window.__vault = { POST, CAMPAIGN, DAYS, ROTOR_DAY, RULES, postNet, postMsgs, postNew, postStart, postLearn, postKnown, postFile, cardFits, applyCards, postArrest, postWatch, postEndDay, postScore, postSim, postPop, postStatus, epochOf, habitOf, dayInfo, bombe, rotorApply, postFinish, postDash, today, keyCribs, caseCard, hintText, TOOLS, pullCarbon, intelFor, probable, alarmLeft, alarmTick, V, build, S, workOf, openVault, update, APPLY, isOpenNow, findWords, SETTLE_MS, eraOpen, toolsAt, loadState, get cur() { return cur; } };
 
 // phones: level drawer and folding stories
 (() => {

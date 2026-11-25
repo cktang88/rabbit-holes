@@ -39,17 +39,17 @@ const BENCHES=[
   sol:[['plank',3.65,9.4,-1],['plank',4.25,7.95,1],['plank',3.65,6.5,-1],['plank',4.25,5.05,1],['plank',3.65,3.6,-1],['plank',4.25,2.15,1]]},
  {id:'cushion', note:'Not one cracked. I have told nobody it is me sending them. B.', n:'Something soft', t:'Straight down is quickest. Make the landing soft.', cargo:'egg', drop:[8,7], basket:[12,0], bin:{cushion:2, plank:1},
   sol:[['cushion',8.25,3.75,-2],['cushion',9.75,2.5,-2]]},
- {id:'hammock', note:'The hammock is off the ship my grandmother crossed on. She was a sea-hen. B.', n:'The hammock', t:'A high hopper, and the basket almost underneath it.', cargo:'egg', drop:[6,11], basket:[10.5,0], bin:{hammock:1, cushion:1, plank:2},
-  sol:[['hammock',6.5,7.5,-2],['cushion',8,3,-1]]},
- {id:'wall', note:"The wall is the vicar's. He says it keeps the foxes out. I am not a fox. B.", n:'Over the wall', t:'A wall stands between the hopper and the basket.', cargo:'egg', drop:[3,8], basket:[19,0], fixed:[[11.5,2.5,.2,2.5,0]], bin:{plank:4, hammock:1, cushion:2},
-  sol:[['plank',4,7.5,-1],['plank',7,6.6,-1],['plank',10,5.7,-1],['hammock',13.5,3.6,-1],['plank',16.3,1.6,-1]]},
+ {id:'hammock', note:'The hammock is off the ship my grandmother crossed on. She was a sea-hen. B.', n:'The hammock', t:'A high hopper, and the basket almost underneath it.', cargo:'egg', drop:[6,10], basket:[9,0], bin:{hammock:1, cushion:1, plank:2},
+  sol:[['hammock',6.5,2,-3]]},
+ {id:'wall', note:"The wall is the vicar's. He says it keeps the foxes out. I am not a fox. B.", n:'Over the wall', t:'A wall stands between the hopper and the basket.', cargo:'egg', drop:[3,8], basket:[16,0], fixed:[[11.5,2.5,.2,2.5,0]], bin:{plank:4, hammock:1, cushion:2},
+  sol:[['plank',4,7.5,-1],['plank',7,6.6,-1],['plank',10,5.7,-1],['hammock',14,2.5,-2]]},
  {id:'goose', note:'My cousin from the pond has one for you too. She is a good deal heavier than me. B.', n:'A heavier charge', t:'A goose egg: twice the weight, nearly as fragile.', cargo:'goose', drop:[4,10], basket:[16,0], bin:{plank:4, cushion:2, hammock:1},
-  sol:[['plank',5,9.5,-1],['plank',8,8.5,-1],['hammock',11,5.5,-2],['cushion',13.5,2.5,-1]]},
- {id:'seesaw', note:'We had a seesaw in the yard once. It was the best summer. B.', n:'Catch and lower', t:'No room for a ramp. Catch it, and let it down slowly.', cargo:'goose', drop:[5,8], basket:[8.5,0], fixed:[[2.5,4,.15,4,0],[11.5,4,.15,4,0]], bin:{seesaw:1, weight:2, block:2, plank:1},
-  sol:[['seesaw',6.5,3,0],['weight',8.1,3.6,0]]},
- {id:'handoff', note:'Sorry about the hurry. I sat on the lever. B.', n:'In a hurry', t:'This hopper throws the goose egg out fast. Take the speed off it.', cargo:'goose', drop:[2,3,6,0], basket:[9,0], bin:{cushion:1, plank:2, block:2},
-  sol:[['cushion',10.2,1.6,6]]},
- {id:'parachute', note:'I watched it float all the way down from the roost. I clucked out loud. B.', n:'Parachute', t:'A very high hopper and a long way across. Tie on a balloon.', cargo:'goose', drop:[4,13], basket:[12,0], bin:{balloon:1, plank:2, cushion:1},
+  sol:[['plank',5,9.5,-1],['plank',8,8.45,-1],['plank',11,7.4,-1],['hammock',14.5,5,-2],['cushion',17,2.5,-1]]},
+ {id:'seesaw', note:'We had a seesaw in the yard once. It was the best summer. B.', n:'Catch and lower', t:'No room for a ramp. Catch it, and let it down slowly.', cargo:'goose', drop:[5,8], basket:[4.6,0], fixed:[[2.5,4,.15,4,0],[11.5,4,.15,4,0]], bin:{seesaw:1, weight:2, block:2, plank:1},
+  sol:[['seesaw',6.5,2.5,0],['weight',7.25,4.5,0]]},
+ {id:'handoff', note:'Sorry about the hurry. I sat on the lever. B.', n:'In a hurry', t:'This hopper throws the goose egg out fast. Meet it at the angle it is falling.', cargo:'goose', drop:[2,5,6,0], basket:[11,0], bin:{cushion:1, plank:2, block:2},
+  sol:[['plank',6.5,2.5,-1]]},
+ {id:'parachute', note:'I watched it float all the way down from the roost. I clucked out loud. B.', n:'Parachute', t:'A very high hopper, a shelf in the way, and draughts. Tie on a balloon.', cargo:'goose', drop:[5,13], basket:[2,0], fixed:[[6.5,8,2.5,.12,0]], bin:{balloon:1, plank:3, cushion:1},
   sol:[['balloon',4,14,0],['plank',6,4,-1],['plank',9,3,-1]]},
  {id:'bubble', note:"The bubbles are from Monday's washing. They are a treat, not a delivery. B.", n:'A soap bubble', t:'It floats down by itself. The draughts are the trouble.', cargo:'bubble', drop:[12,12], basket:[12,0], bin:{plank:4},
   sol:[['plank',10.3,3.3,-3],['plank',13.7,3.3,3]]},
@@ -117,12 +117,12 @@ class Sim{
         w.createJoint(pl.DistanceJoint({frequencyHz:4, dampingRatio:.7, length:.95}, foot, pad.b, base, V(x,y)));
         break; }
       case 'hammock': { const n=7, span=3, c=Math.cos(a*RAD), s=Math.sin(a*RAD), seg=span/n*.5, sag=.12;
-        const pegs=[[-1,'L'],[1,'R']].map(([d])=>{ const pg=w.createBody({type:'static', position:V(x+d*span/2*c, y+d*span/2*s)}); pg.createFixture(pl.Circle(.1),FR()); return push(this.add({kind:'peg', b:pg, r:.1})); });
+        const pegs=[[-1,'L'],[1,'R']].map(([d])=>{ const pg=w.createBody({type:'static', position:V(x+d*span/2*c, y+d*span/2*s)}); pg.createFixture(pl.Circle(.1),FR({isSensor:true})); return push(this.add({kind:'peg', b:pg, r:.1})); });
         let prev=null; const slats=[];
         for (let k=0;k<n;k++){ const u=-span/2+seg+k*2*seg, dropY=-sag*(1-(2*u/span)**2); const o=push(this.box('dynamic',x+u*c-dropY*s*0, y+u*s+dropY, seg*.96, .05, a, {density:.6,friction:.9},'slat')); slats.push(o);
           if (prev){ const m=prev.b.getPosition(), q=o.b.getPosition(); w.createJoint(pl.RevoluteJoint({}, prev.b, o.b, V((m.x+q.x)/2,(m.y+q.y)/2))); } prev=o; }
         // springy cords from each peg to the end slats
-        for (const [pg,sl,sgn] of [[pegs[0],slats[0],-1],[pegs[1],slats[n-1],1]]){ const e=sl.b.getWorldPoint(V(sgn*seg,0)); w.createJoint(pl.DistanceJoint({frequencyHz:10, dampingRatio:.4}, pg.b, sl.b, pg.b.getPosition(), e)); }
+        for (const [pg,sl,sgn] of [[pegs[0],slats[0],-1],[pegs[1],slats[n-1],1]]){ const e=sl.b.getWorldPoint(V(sgn*seg,0)); w.createJoint(pl.DistanceJoint({frequencyHz:4, dampingRatio:1}, pg.b, sl.b, pg.b.getPosition(), e)); }
         break; }
       case 'seesaw': { const pv=w.createBody({type:'static', position:V(x,y)}); pv.createFixture(pl.Polygon([V(-.35,-.55),V(.35,-.55),V(0,0)]),FR());
         push(this.add({kind:'pivot', b:pv}));
@@ -155,9 +155,9 @@ class Sim{
   step(){ if (this.done) return true; const fp=this.fp, t=this.t;
     // forces: balloons lift, the bubble floats, the draught pushes light broad things most
     for (const o of this.bodies){ const b=o.b; if (!b.isDynamic()) continue;
-      if (o.kind==='balloon'){ const extra=o.tied? this.cargoWeight()*.82 : 0; b.applyForceToCenter(V(0, b.getMass()*10*1.5+extra), true); }
+      if (o.kind==='balloon'){ const extra=o.tied? this.cargoWeight()*.82 : 0, v=b.getLinearVelocity(), sp=v.length(); b.applyForceToCenter(V(-.35*v.x*sp, b.getMass()*10*1.5+extra-.35*v.y*sp), true); }
       if (o.kind==='bubble') b.applyForceToCenter(V(0, b.getMass()*10*.9), true);
-      if (fp.gust && t>=fp.g0 && t<fp.g1) b.applyForceToCenter(V(fp.gust*b.getMass()*(o.windK||1), 0), true); }
+      if (fp.gust && t>=fp.g0 && t<fp.g1) b.applyForceToCenter(V(o.kind==='balloon'? fp.gust*.35 : fp.gust*b.getMass()*(o.windK||1), 0), true); }
     this.imp.clear(); this.world.step(DT, 8, 3); this.t++;
     // the bump this step: the change of speed the contacts forced on the cargo
     let bump=0; for (const [b,s] of this.imp) bump=Math.max(bump, s/b.getMass()); if (this.ctype==='jelly') bump=0;

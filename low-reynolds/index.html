@@ -853,7 +853,7 @@ function renderLivePad(P, w, h) {
 // pure geometry. So each genome is turned into its gait once, exactly, by the Stokes solver above (predictLoop), and a
 // colony of hundreds just repeats gaits. Swimming costs the drag power of the stroke; food pays; full cells divide, and
 // each daughter inherits a slightly mutated genome. Ponds are generated from a seed and get harder by tier.
-const PW = 24, PH = 15, ASSAY = 150, PMAX = 260, GN = 12, DROPS = 3; // pond size (body lengths), assay length (pond seconds), population cap, loop points kept in a genome
+const PW = 24, PH = 15, ASSAY = 150, PMAX = 160, GN = 12, DROPS = 3; // pond size (body lengths), assay length (pond seconds), population cap, loop points kept in a genome
 const KAPPA = .0004, BASE = .003, EAT = .16, DIV = 2; // energy: drag-cost scale, upkeep per second, most food eaten per second, division threshold
 const qL = v => Math.max(0, Math.min(63, Math.round((v / LIM + 1) / 2 * 63))), uqL = k => (k / 63 * 2 - 1) * LIM;
 const PA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -870,9 +870,10 @@ function mkGenome(loopPts, rate = 9, k = .1, hue = 200, gen = 0) {
   return { id: ++gid, loop: lp, rate, k, hue, gen, T, vx: pr.dx / T, vy: pr.dy / T, w: pr.turn * Math.PI / 180 / T, cost: KAPPA * pr.e * rate * rate / per, step: Math.hypot(pr.dx, pr.dy) };
 }
 const gauss2 = r => Math.sqrt(-2 * Math.log(1 - r() * .999999)) * Math.cos(2 * Math.PI * r());
-function mutate(G, r) {
-  const s = r() < .3 ? [gauss2(r) * .12, gauss2(r) * .12] : [0, 0], sc = r() < .3 ? Math.exp(gauss2(r) * .08) : 1;
-  const loop = G.loop.map(([a, b]) => [a * sc + s[0] + gauss2(r) * .06, b * sc + s[1] + gauss2(r) * .06]);
+function mutate(G, r) { // smooth changes, as a developing body would make them: stretch, shift or bend the whole stroke a little
+  const sx = Math.exp(gauss2(r) * .07), sy = Math.exp(gauss2(r) * .07), s = [gauss2(r) * .06, gauss2(r) * .06], th = gauss2(r) * .06, ph = r() * 6.28, bend = gauss2(r) * .05;
+  const cx = G.loop.reduce((a, p) => a + p[0], 0) / G.loop.length, cy = G.loop.reduce((a, p) => a + p[1], 0) / G.loop.length;
+  const loop = G.loop.map(([a, b], i) => { const u = (a - cx) * sx, v = (b - cy) * sy, w = 1 + bend * Math.cos(i / G.loop.length * 6.28 + ph); return [cx + s[0] + (u * Math.cos(th) - v * Math.sin(th)) * w, cy + s[1] + (u * Math.sin(th) + v * Math.cos(th)) * w]; });
   const d = mkGenome(loop, FX.clamp(G.rate * Math.exp(gauss2(r) * .06), 4, 16), FX.clamp(G.k + gauss2(r) * .03, 0, .6), (G.hue + gauss2(r) * 9 + 360) % 360, G.gen + 1); d.par = G; return d;
 }
 // a pond sample: food patches that regrow, grains, a current that washes cells out downstream, ciliates with feeding currents
@@ -887,12 +888,13 @@ function makePond(seed, tier) {
   P.regrow = .05 - tier * .003; return P;
 }
 // one assay: a colony from a founder genome in a pond, stepped in fixed 0.05 s ticks (deterministic for a seed)
-function newAssay(P, G, n = 12) {
+function newAssay(P, G, n = 24) {
   const r = RH.rng((P.seed * 7 + P.tier * 13 + 99991) >>> 0), A = { P, r, t: 0, cells: [], F: new Float32Array(PW * PH), C: new Float32Array(PW * PH), drops: DROPS, born: 0, dead: { starve: 0, eaten: 0, washed: 0 }, founder: G, hist: [], done: false, maxGen: 0 };
-  for (let i = 0; i < n; i++) A.cells.push(cellOf(G, P.release[0] + gauss2(r) * .4, P.release[1] + gauss2(r) * .8, (r() - .5) * 1.2, 1, r)); // released pointing into the sample
+  for (let i = 0; i < n; i++) A.cells.push(cellOf(G, P.release[0], P.release[1] + (i / (n - 1) - .5) * 2.4, (i / (n - 1) - .5) * 2.4, 1, r)); // released as a fan, pointing into the sample
   pondFood(A, true); return A;
 }
-const cellOf = (G, x, y, phi, E, r) => ({ G, x, y, phi, E, ph: r() * G.T, last: 0, pause: 0 });
+// every cell carries its own random stream (seeded from its parent's), so one cell's luck never reshuffles another's
+const cellOf = (G, x, y, phi, E, r) => ({ G, x, y, phi, E, ph: r() * G.T, last: 0, pause: 0, rng: RH.rng((r() * 4294967296) >>> 0) });
 function pondFood(A, init) { // capacities from the patches (which may wander); regrowth toward them
   const P = A.P; if (P.moving) for (const p of P.patches) { p.x = p.x0 + Math.cos(A.t * .05 + p.ph) * 3; p.y = p.y0 + Math.sin(A.t * .04 + p.ph) * 2; }
   for (let j = 0; j < PH; j++) for (let i = 0; i < PW; i++) { let c = 0; for (const p of P.patches) { const d2 = ((i + .5 - p.x) ** 2 + (j + .5 - p.y) ** 2) / (p.R * p.R); if (d2 < 9) c += Math.exp(-d2 / 1.6); } A.C[j * PW + i] = Math.min(1, c); if (init) A.F[j * PW + i] = A.C[j * PW + i]; }
@@ -905,10 +907,10 @@ function pondTick(A) {
   if (((A.t / DT_P) | 0) % 10 === 0) pondFood(A, false);
   for (let k = 0; k < A.F.length; k++) A.F[k] += (A.C[k] - A.F[k]) * P.regrow * DT_P;
   for (const c of A.cells) {
-    if (c.dead) continue; const G = c.G;
+    if (c.dead) continue; const G = c.G, r = c.rng;
     if (c.pause > 0) c.pause -= DT_P; // a turning stroke: the cell reorients instead of swimming
     else { const co = Math.cos(c.phi), si = Math.sin(c.phi); c.x += (co * G.vx - si * G.vy) * DT_P; c.y += (si * G.vx + co * G.vy) * DT_P; c.phi += G.w * DT_P; }
-    c.phi += gauss2(r) * Math.sqrt(2 * .04 * DT_P); // rotational Brownian motion
+    c.phi += gauss2(r) * Math.sqrt(2 * .012 * DT_P); // rotational Brownian motion
     const [fx, fy] = flowP(A, c.x, c.y); c.x += fx * DT_P; c.y += fy * DT_P;
     for (const [gx, gy, gr] of P.grains) { const dx = c.x - gx, dy = c.y - gy, d = Math.hypot(dx, dy); if (d < gr + .35) { c.x = gx + dx / d * (gr + .35); c.y = gy + dy / d * (gr + .35); } }
     c.y = FX.clamp(c.y, .3, PH - .3); if (c.x > PW - .3) c.x = PW - .3;
@@ -926,19 +928,13 @@ function pondTick(A) {
   for (const c of A.cells) if (c.dead) A.dead[c.dead]++;
   A.cells = A.cells.filter(c => !c.dead).concat(born);
   if (((A.t / DT_P) | 0) % 20 === 0) A.hist.push(A.cells.length);
-  if (A.t >= ASSAY - 1e-9 || !A.cells.length) A.done = true;
+  if (A.t >= ASSAY - 1e-9 || !A.cells.length) { A.done = true; const late = A.hist.slice(-25); A.score = A.cells.length ? Math.round(late.reduce((a, b) => a + b, 0) / Math.max(1, late.length)) : 0; }
 }
 // the pipette: put clones of one cell back into the pond, or a drop of food where you tap
 function pipetteClone(A, c, n = 6) { if (A.drops <= 0 || A.done) return false; A.drops--; for (let i = 0; i < n && A.cells.length < PMAX; i++) A.cells.push(cellOf(c.G, c.x + gauss2(A.r) * .5, c.y + gauss2(A.r) * .5, A.r() * 6.28, 1, A.r)); return true; }
 function pipetteFood(A, x, y) { if (A.drops <= 0 || A.done) return false; A.drops--; for (let j = 0; j < PH; j++) for (let i = 0; i < PW; i++) { const d2 = (i + .5 - x) ** 2 + (j + .5 - y) ** 2; if (d2 < 9) A.F[j * PW + i] = Math.min(1.6, A.F[j * PW + i] + 1.2 * Math.exp(-d2 / 3)); } return true; }
 // the champion: the living cell of the deepest generation (ties: the best fed); what the pond made of your founder
-// the champion: the strain that left the most living descendants (counting each cell's parent and grandparent, so a
-// lucky single cell does not win); a living cell of that strain stands for it
-function champion(A) { if (!A.cells.length) return null; const n = new Map();
-  for (const c of A.cells) { let G = c.G; for (let k = 0; k < 3 && G; k++, G = G.par) n.set(G, (n.get(G) || 0) + 1); }
-  let best = null, bn = -1; for (const [G, k] of n) if (G.gen > 0 && (k > bn || (k === bn && G.gen > best.gen))) { best = G; bn = k; }
-  if (!best) return A.cells.reduce((b, c) => !b || c.E > b.E ? c : b, null);
-  return A.cells.find(c => c.G === best || c.G.par === best || (c.G.par && c.G.par.par === best)) && { ...A.cells.find(c => c.G === best || c.G.par === best || (c.G.par && c.G.par.par === best)), G: best, strain: bn }; }
+const champion = A => A.cells.reduce((b, c) => !b || c.G.gen > b.G.gen || (c.G.gen === b.G.gen && c.E > b.E) ? c : b, null);
 // run a whole assay headless (tests, par); policy(A, t) may use the pipette
 function runAssay(P, G, policy) { const A = newAssay(P, G); while (!A.done) { if (policy) policy(A); pondTick(A); } return A; }
 // the reference founder: a plain round stroke at a steady rate with a gentle reflex; its population sets the pond's par
