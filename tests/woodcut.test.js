@@ -157,6 +157,31 @@ module.exports = {
       const r = await page.evaluate(() => ({ s: __wc.strokes, a: __wc.anchor }));
       eq(r.s, s0 + 1, 'second tap cuts one straight stroke'); eq(r.a, null);
     },
+    'zoom in on the block: a cut made while zoomed lands under the finger, and the Fit button restores the view': async ({ page, ok, eq, near }) => {
+      await page.evaluate(() => { __wc.load(0); document.querySelector('#tools [data-t="v"]').click(); });
+      const k0 = await page.evaluate(() => __wc.cam.k);
+      const [cx, cy] = await page.evaluate(() => __wc.blockToScreen(160, 160));
+      await page.mouse.move(cx, cy); for (let i = 0; i < 5; i++) await page.mouse.wheel(0, -300); await page.waitForTimeout(100);
+      const k1 = await page.evaluate(() => __wc.cam.k); ok(k1 > k0 * 2, `zoomed ${k0} → ${k1.toFixed(2)}`);
+      // carve a short line at block (40,50)→(46,50), wherever that now is on screen
+      const [ax, ay] = await page.evaluate(() => __wc.blockToScreen(100.5, 120.5)), [bx, by] = await page.evaluate(() => __wc.blockToScreen(118.5, 120.5));
+      eq(await page.evaluate(() => [__wc.uncutAt(109, 120), __wc.uncutAt(109, 60)].map(Boolean)), [true, true], 'uncut before');
+      await page.mouse.move(ax, ay); await page.mouse.down(); for (let i = 1; i <= 8; i++) await page.mouse.move(ax + (bx - ax) * i / 8, ay + (by - ay) * i / 8); await page.mouse.up(); await page.waitForTimeout(80);
+      eq(await page.evaluate(() => [__wc.uncutAt(109, 120), __wc.uncutAt(109, 60)].map(Boolean)), [false, true], 'the cut is under the finger, nowhere else');
+      await page.click('.pz-fit'); await page.waitForTimeout(400); near(await page.evaluate(() => __wc.cam.k), k0, 1e-6, 'fit restores');
+    },
+    'a two-finger pinch zooms and never carves': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { __wc.load(0); document.querySelector('#tools [data-t="u"]').click(); });
+      const before = await page.evaluate(() => ({ s: __wc.strokes, n: Array.from({ length: 320 * 320 }, (_, i) => __wc.uncutAt(i % 320, i / 320 | 0) ? 1 : 0).reduce((a, b) => a + b, 0), k: __wc.cam.k }));
+      for (const t of ['u', 'region']) {
+        await page.evaluate(t => document.querySelector(`#tools [data-t="${t}"]`).click(), t);
+        await page.evaluate(() => { const [x, y] = __wc.blockToScreen(160, 160), el = document.getElementById('cv'), ev = (ty, id, cx) => el.dispatchEvent(new PointerEvent(ty, { pointerId: id, clientX: cx, clientY: y, bubbles: true, pointerType: 'touch', isPrimary: id === 1 }));
+          ev('pointerdown', 1, x); ev('pointermove', 1, x - 4); ev('pointerdown', 2, x + 30); for (let i = 1; i <= 6; i++) { ev('pointermove', 1, x - 4 - i * 8); ev('pointermove', 2, x + 30 + i * 8); } ev('pointerup', 1, x - 52); ev('pointerup', 2, x + 78); });
+        await page.waitForTimeout(80);
+      }
+      const after = await page.evaluate(() => ({ s: __wc.strokes, n: Array.from({ length: 320 * 320 }, (_, i) => __wc.uncutAt(i % 320, i / 320 | 0) ? 1 : 0).reduce((a, b) => a + b, 0), k: __wc.cam.k }));
+      eq([after.s, after.n], [before.s, before.n], 'nothing carved'); ok(after.k > before.k * 1.5, 'zoomed in');
+    },
     'phone layout: block, print and target on screen, tray clear of the HUD': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(400);
       const r = await page.evaluate(() => { const b = __wc.boxes, hud = document.getElementById('hud').getBoundingClientRect(), tray = document.getElementById('tray').getBoundingClientRect(); const d = b.dpr;
