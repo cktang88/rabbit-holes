@@ -12,6 +12,7 @@ async function newcomer(p, tap, upTo = 1) {
   let actions = 0;
   for (let guard = 0; guard < 60 && await S(() => window.__fc.tutOn()); guard++) {
     const st = await S(() => window.__fc.S.tut); actions++;
+    if (st !== 1) await closeLex(); // a person closes the lexicon before tapping the printout again
     if (st === 0) { await tap(p.locator('#feed .tx.coach .sentence .g').first()); continue; }
     if (st === 1 || st === 2) { const f = p.locator('#feed .tx.coach').first(); await f.scrollIntoViewIfNeeded(); const n = await dots(f.locator('.pic')); const gl = f.locator('.sentence .g').first();
       if (st === 2) { await tap(gl); } await pencil(await gl.getAttribute('data-w'), String(n)); continue; }

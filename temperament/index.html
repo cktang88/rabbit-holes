@@ -23,7 +23,7 @@
   .wrap{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
   #wheel{width:440px;max-width:100%;flex:0 0 auto}
   #wheel text{font-family:ui-sans-serif,system-ui;user-select:none}
-  #wheel .node{cursor:pointer}
+  #wheel .node{cursor:ns-resize;touch-action:none}
   #wheel .arc{cursor:pointer}
   .panel{flex:1;min-width:280px}
   .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px}
@@ -95,6 +95,18 @@
   .budget span{background:linear-gradient(#e7c36b,#a5761e);border-right:1px solid #5a3e12;font-size:10px;line-height:16px;text-align:center;color:#2a1a0e;overflow:hidden}
   .bindbtn{margin-top:3px;font-size:13px;padding:1px 8px;min-height:0}
   .tomove{margin-top:4px;color:#3a2210}
+  .pegrow{display:flex;align-items:center;gap:16px}
+  .peg{width:96px;height:96px;flex:0 0 96px;border-radius:50%;cursor:ns-resize;touch-action:none;user-select:none;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:radial-gradient(circle at 35% 30%,#f8e08e,#c4932c 45%,#6e4c14);box-shadow:0 4px 8px #0007,inset 0 -6px 10px #0005,inset 0 2px 0 #fff8;color:#2a1a0e}
+  .peg .pn{font-family:"Cormorant SC",serif;font-weight:700;font-size:30px;line-height:1;display:block}
+  .peg .ar{font-size:14px;line-height:1;opacity:.8}
+  .peg:focus-visible{outline:3px solid #2a1a0e}
+  .nudges button{min-width:46px;min-height:42px;font-size:17px}
+  .hl{animation:hl 1.2s ease-in-out infinite;position:relative;z-index:2}
+  @keyframes hl{50%{box-shadow:0 0 0 6px #ffd970,0 0 24px 8px #ffd970aa}}
+  .coach{background:#2a1a0e;color:#f6ecd2;padding:8px 14px;margin:6px 0 10px;font-size:17px;border-left:5px solid #f1cf6d;box-shadow:0 3px 8px #0006}
+  .coach .step{font-family:"Cormorant SC",serif;color:#f1cf6d;margin-right:6px}
+  abbr{text-decoration:underline dotted #8f6417;cursor:help}
   .panel{background:none;border:0;padding:0;border-radius:0}
   .box{background:#fbf5e4;background-image:repeating-linear-gradient(#0000 0 30px,#7a603d66 30px 31px,#0000 31px 36px,#7a603d66 36px 37px,#0000 37px 42px,#7a603d66 42px 43px,#0000 43px 48px,#7a603d66 48px 49px,#0000 49px 54px,#7a603d66 54px 55px,#0000 55px 400px);
     border:0;border-radius:0;box-shadow:0 3px 8px #6a3f1f66;padding:10px 14px}
@@ -231,7 +243,7 @@ const PRESET = {
 const ACTS = ['Pythagoras', 'Sweet Thirds', 'Well-Tempered', 'Commissions'];
 const C = [
   { a: 0, n: 'A Pure Fifth', tools: [], start: { 7: -9 }, goals: [{ k: 'f', i: 0, d: 0, tol: [2, .5, .1] }],
-    s: 'A string twice as short sounds an octave higher. Two strings in a <b>3:2</b> ratio make a <b>perfect fifth</b>, the sweetest interval after the octave. When a fifth is slightly off, the two notes <b>beat</b>: a slow wah-wah-wah that speeds up the further out of tune they are.<br><i>Click the C–G arc on the wheel, listen, and nudge G until the beating stops (0 beats per second).</i>' },
+    s: 'These two strings, <b>C</b> and <b>G</b>, should sound smooth together (a <abbr title="Two notes whose frequencies are in the ratio 3:2, the sweetest pair after the octave">fifth</abbr>). Right now they <b>beat</b>: a wah-wah-wah wobble. <b>Turn G until the wobbling stops.</b> Drag the big G peg up or down (or use the − / + buttons), watch the candle flame and listen: the wobble slows as you get close and stops when the two are <abbr title="Exactly in tune: the ratio is exactly 3:2, so nothing beats">pure</abbr>.' },
   { a: 0, n: 'Counting Beats', tools: [], start: { 7: -7, 2: 6, 9: -8 }, goals: [{ k: 'f', i: 7, d: 0, tol: [2, .5, .1] }, { k: 'f', i: 2, d: 0, tol: [2, .5, .1] }, { k: 'f', i: 0, d: 0, tol: [2, .5, .1] }],
     s: 'Piano tuners don\'t use meters. They count beats. Tune a chain: C–G, then G–D, then D–A, all pure. <i>Each tuning moves the upper note. Click a note on the wheel to nudge it directly.</i>' },
   { a: 0, n: 'The Pythagorean Scale', tools: ['pure'], goals: [5, 0, 7, 2, 9, 4].map(i => ({ k: 'f', i, d: 0, tol: [1, .3, .1] })),
@@ -288,6 +300,29 @@ let cur = S.cur; if (!C[cur] || !actOpen(C[cur].a)) cur = 0;
 function startTuning(i) { const st = C[i].start; if (typeof st === 'string') return PRESET[st].c(); const c = ET(); if (st) for (const k in st) c[k] += st[k]; return c; }
 const tun = () => (S.tun[cur] ||= startTuning(cur));
 let selN = 7, selI = { i: 0, k: 7 };
+// ---- the tuning peg: drag a note's peg (or its node on the wheel) up or down to retune it, hearing the interval as you go ----
+let peg = null, lastHum = 0;
+const CENTS_PER_PX = .1;
+function pegStart(e, n) { if (!n) return; peg = { n, y: e.clientY, v: tun()[n], moved: false }; e.preventDefault(); }
+addEventListener('pointermove', e => { if (!peg) return; const dy = peg.y - e.clientY; if (Math.abs(dy) > 3) peg.moved = true; if (!peg.moved) return;
+  tun()[peg.n] = Math.round((peg.v + dy * CENTS_PER_PX * (e.shiftKey ? .2 : 1)) * 100) / 100; persist(); update(); hum(); coachTick(); });
+let dragEnd = 0;
+addEventListener('pointerup', () => { if (peg && peg.moved) { dragEnd = performance.now(); peg = null; persist(); update(); } peg = null; });
+addEventListener('pointercancel', () => { peg = null; });
+function hum(force) { // play the selected interval while you tune, at most every 0.9 s, so you hear the beating change
+  if (S.mute) return; const now = performance.now(); if (!force && now - lastHum < 900) return; lastHum = now; playNotes(ivNotes(selI.i, selI.k), 1.4); }
+// ---- a guided first minute on the first commission ----
+const COACH = ['Drag the <b>G peg</b> up or down (or tap − / +) to retune G.', 'Watch the <b>flame</b>: it wobbles once per beat. Fewer wobbles means closer to pure.', 'Press <b>▶ Listen</b> and hear how smooth C and G sound now.', ''];
+function coachTick(ev) {
+  if (cur !== 0 || S.done[0] && S.coach == null) return; let st = S.coach || 0;
+  if (st === 0 && ev !== 'listen' && Math.abs(tun()[7] - (700 - 9)) > .5) st = 1;
+  if (st === 1 && beats(tun(), 0, 7) < 1.2) st = 2;
+  if (st === 2 && ev === 'listen') st = 3;
+  if (st !== S.coach) { S.coach = st; persist(); }
+  const el = $('coach'); if (!el) return; el.innerHTML = COACH[st] ? `<span class="step">${st + 1}/3</span> ${COACH[st]}` : ''; el.style.display = COACH[st] ? '' : 'none';
+  document.querySelectorAll('.hl').forEach(x => x.classList.remove('hl'));
+  const t = [document.querySelector('.peg'), document.querySelector('.candle'), $('ivPlay')][st]; if (t) t.classList.add('hl');
+}
 
 function goalEval(g, c) {
   let err, label;
@@ -349,6 +384,7 @@ function render() {
     <div class="row" style="justify-content:space-between"><div><div class="dim small">${['I','II','III','IV'][c.a]}. ${ACTS[c.a]} · Commission ${cur + 1}</div><h2>${c.n}</h2></div>
     <div class="row">${S.done[cur] ? `<span class="stars">${'★'.repeat(S.done[cur])}${'☆'.repeat(3 - S.done[cur])}</span>` : ''}${presets}<button id="resetBtn">Reset</button></div></div>
     <p class="story">${c.s}</p>
+    ${cur === 0 ? '<div id="coach" class="coach"></div>' : ''}
     <div class="wrap">
       <svg id="wheel" viewBox="-220 -220 440 440"></svg>
       <div class="panel">
@@ -357,7 +393,7 @@ function render() {
         <div class="box"><h3>Goals</h3><div class="goals" id="goals"></div>${c.piece ? '<div class="ctl"><button class="primary" id="pieceBtn">▶ Play the piece</button><button id="stopBtn">■</button></div>' : ''}</div>
       </div>
     </div>
-    <div class="box"><h3>Every interval <span class="note">(deviation from pure, in cents · click to select)</span></h3><div class="grid" id="grid"></div></div>`;
+    <div class="box" ${c.a === 0 ? 'hidden' : ''}><h3>Every interval <span class="note">(how far from pure, in <abbr title="A cent is 1/100 of a semitone; about 6 cents is the smallest difference most people hear">cents</abbr> · click to select)</span></h3><div class="grid" id="grid"></div></div>`;
   $('resetBtn').onclick = () => { S.tun[cur] = startTuning(cur); persist(); update(); };
   if ($('preset')) $('preset').onchange = () => { const v = $('preset').value; if (!v) return; S.tun[cur] = v[0] === 'c' ? S.tun[+v.slice(1)].slice() : PRESET[v].c(); persist(); update(); $('preset').value = ''; };
   if ($('pieceBtn')) { $('pieceBtn').onclick = () => playPiece(c.piece); $('stopBtn').onclick = stopAll; }
@@ -399,24 +435,27 @@ function update() {
   }
   FIFTHS.forEach((n, j) => {
     const [x, y] = pos[j], o = c[n] - 100 * n;
+    if (n === selN && n) s += `<g pointer-events="none" class="pegarrows"><text x="${x}" y="${y - 25}" text-anchor="middle" font-size="15" fill="#f1cf6d">▲</text><text x="${x}" y="${y + 36}" text-anchor="middle" font-size="15" fill="#f1cf6d">▼</text>${cur === 0 && !S.done[0] ? `<text x="${x * 1.18}" y="${y * 1.18 - 30}" text-anchor="middle" font-size="14" font-weight="700" fill="#ffe9a8" stroke="#1c120a" stroke-width="3" paint-order="stroke">drag to retune ${NM[n]}</text>` : ''}</g>`;
     s += `<g class="node" data-n="${n}"><circle cx="${x}" cy="${y}" r="19" fill="${n === selN ? '#f1cf6d' : '#120b05'}" stroke="#c4932c" stroke-width="2"/><text x="${x}" y="${y + 1}" text-anchor="middle" font-size="14" font-weight="700" fill="${n === selN ? '#2a1a0e' : '#f6ecd2'}">${NM[n]}</text><text x="${x}" y="${y + 12}" text-anchor="middle" font-size="8" fill="${n === selN ? '#2a1a0e' : '#c7ae82'}">${n ? (o >= 0 ? '+' : '') + o.toFixed(1) : 'ref'}</text></g>`;
   });
   s += `<text x="0" y="-6" text-anchor="middle" font-size="12" fill="#c7ae82">outer ring: fifths</text><text x="0" y="10" text-anchor="middle" font-size="12" fill="#c7ae82">inner star: major thirds</text>`;
   $('wheel').innerHTML = s;
   $('wheel').querySelectorAll('.arc').forEach(el => el.onclick = () => { selI = { i: +el.dataset.i, k: +el.dataset.k }; update(); playNotes(ivNotes(selI.i, selI.k)); });
-  $('wheel').querySelectorAll('.node').forEach(el => el.onclick = () => { selN = +el.dataset.n; update(); playNotes([[selN, 4]], 1.2); });
+  $('wheel').querySelectorAll('.node').forEach(el => { el.onpointerdown = e => { const n = +el.dataset.n; if (n && n !== selN) { selN = n; update(); } pegStart(e, n); };
+    el.onclick = () => { if (performance.now() - dragEnd < 300) return; selN = +el.dataset.n; update(); playNotes([[selN, 4]], 1.2); }; });
   // interval box
   const { i, k } = selI, j = (i + k) % 12, d = dev(c, i, k), b = beats(c, i, k);
   $('ivBox').innerHTML = `<h3>${NM[i]}–${NM[j]} · ${IV[k].n}</h3>
-    <div class="row" style="gap:18px"><div><div class="big" style="color:${col(d, k === 7 ? 12 : 22)}">${d >= 0 ? '+' : ''}${d.toFixed(2)}¢</div><div class="note">${iv(c, i, k).toFixed(2)}¢ vs pure ${IV[k].pure.toFixed(2)}¢</div></div>
-    <div><div class="big beats">${b.toFixed(2)}</div><div class="note">beats per second</div></div>
+    <div class="row" style="gap:18px"><div><div class="big" style="color:${col(d, k === 7 ? 12 : 22)}">${d >= 0 ? '+' : ''}${d.toFixed(2)}¢</div><div class="note">${iv(c, i, k).toFixed(2)}<abbr title="cents: 1/100 of a semitone">¢</abbr> vs pure ${IV[k].pure.toFixed(2)}¢</div></div>
+    <div><div class="big beats">${b.toFixed(2)}</div><div class="note">beats per second${cm.a === 0 ? ' <b>→ 0 when pure</b>' : ''}</div></div>
     <div class="candle" title="The flame wavers once per beat. A pure interval holds it still."><div class="flame" style="${b < .05 ? 'animation:none' : `animation-duration:${Math.max(.07, 1 / b).toFixed(3)}s;--sway:${Math.min(14, 3 + b * 1.2).toFixed(1)}deg`}"></div><div class="wick"></div><div class="wax"></div></div></div>
-    <div class="ctl"><button class="primary" id="ivPlay">▶ Listen</button>${cm.tools.includes('pure') ? `<button id="ivPure" ${j === 0 ? 'disabled' : ''}>Make pure (move ${NM[j]})</button><button id="ivPureL" ${i === 0 ? 'disabled' : ''}>Make pure (move ${NM[i]})</button>` : '<button disabled title="Unlocked in commission 3">Make pure</button>'}
+    <div class="ctl"><button class="primary" id="ivPlay">▶ Listen</button><button id="muteBtn" title="Play the interval while you tune">${S.mute ? '🔇 Sound off' : '🔊 Sound on'}</button>${cm.tools.includes('pure') ? `<button id="ivPure" ${j === 0 ? 'disabled' : ''}>Make pure (move ${NM[j]})</button><button id="ivPureL" ${i === 0 ? 'disabled' : ''}>Make pure (move ${NM[i]})</button>` : ''}
     ${cm.tools.includes('wolf') && k === 7 ? `<button id="ivWolf" title="Tune the other eleven fifths pure; this one takes the whole comma">🐺 Put the wolf here</button>` : ''}
     ${cm.tools.includes('temper') && k === 7 ? `<select id="tempSel"><option value="${-SC / 4}">narrow ¼ syntonic comma (−5.38¢)</option><option value="${-PC / 4}">narrow ¼ Pythagorean (−5.86¢)</option><option value="${-PC / 6}">narrow ⅙ Pythagorean (−3.91¢)</option><option value="${-PC / 12}">narrow 1/12 Pythagorean (−1.96¢)</option><option value="${-SC / 3}">narrow ⅓ syntonic (−7.17¢)</option><option value="${-SC / 6}">narrow ⅙ syntonic (−3.58¢)</option></select><button id="ivTemp">Temper</button>` : ''}</div>
     <div class="note tomove">To make it pure: ${j !== 0 ? `raise ${NM[j]} by` : `lower ${NM[i]} by`} <b>${(j !== 0 ? -d : d) >= 0 ? '+' : ''}${(j !== 0 ? -d : d).toFixed(2)}¢</b>${j !== 0 && i !== 0 ? ` (or move ${NM[i]} by ${d >= 0 ? '+' : ''}${d.toFixed(2)}¢)` : ''}.</div>
     <div class="note" style="margin-top:4px">Choose which note moves, so you don't undo intervals you've already tuned. C is the fixed reference.${cm.tools.includes('temper') && k === 7 ? ' Temper moves the upper note (or the lower one when the upper is C).' : ''}</div>`;
-  $('ivPlay').onclick = () => playNotes(ivNotes(i, k));
+  $('ivPlay').onclick = () => { playNotes(ivNotes(i, k)); coachTick('listen'); };
+  $('muteBtn').onclick = () => { S.mute = !S.mute; persist(); if (S.mute) stopAll(); update(); };
   const setIv = (target, lower) => { const t = tun(); if (j !== 0 && !lower) { t[j] = t[i] + target - (i + k >= 12 ? 1200 : 0); } else { t[i] = t[j] + (i + k >= 12 ? 1200 : 0) - target; } persist(); update(); playNotes(ivNotes(i, k)); };
   if ($('ivPure')) $('ivPure').onclick = () => setIv(IV[k].pure);
   if ($('ivPureL')) $('ivPureL').onclick = () => setIv(IV[k].pure, true);
@@ -424,15 +463,18 @@ function update() {
   if ($('ivTemp')) $('ivTemp').onclick = () => setIv(IV[k].pure + +$('tempSel').value);
   // note box
   const o = c[selN] - 100 * selN;
-  $('noteBox').innerHTML = `<h3>Note ${NM[selN]} ${selN ? '' : '<span class="note">(reference pitch, fixed)</span>'}</h3>
-    <div class="row"><span class="big">${selN ? (o >= 0 ? '+' : '') + o.toFixed(2) + '¢' : '0¢'}</span><span class="note">from its equal-tempered pitch (ET fifths are 1.96¢ narrow, ET thirds 13.7¢ wide) · ${freqAt(selN, 4).toFixed(2)} Hz</span></div>
-    <div class="ctl">${[-5, -1, -.1, .1, 1, 5].map(x => `<button data-n="${x}" ${selN ? '' : 'disabled'}>${x > 0 ? '+' : ''}${x}</button>`).join('')}<button id="nPlay">▶</button></div>
-    ${selN ? `<input type="range" id="nSl" min="-50" max="50" step="0.05" value="${o}" style="width:100%;margin-top:6px">` : ''}`;
-  $('noteBox').querySelectorAll('[data-n]').forEach(bn => bn.onclick = () => { tun()[selN] += +bn.dataset.n; persist(); update(); playNotes(ivNotes(selI.i, selI.k), 1.6); });
+  if (!peg) $('noteBox').innerHTML = `<h3>Note ${NM[selN]} ${selN ? '' : '<span class="note">(the reference pitch, fixed)</span>'}</h3>
+    <div class="pegrow">${selN ? `<div class="peg" role="slider" tabindex="0" aria-label="Tuning peg for ${NM[selN]}" aria-valuenow="${o.toFixed(2)}" title="Drag up to raise ${NM[selN]}, down to lower it"><span class="ar">▲</span><span class="pn" style="transform:rotate(${Math.max(-70, Math.min(70, o * 4)).toFixed(1)}deg)">${NM[selN]}</span><span class="ar">▼</span></div>` : ''}
+      <div><div class="big">${selN ? (o >= 0 ? '+' : '') + o.toFixed(2) + '¢' : '0¢'}</div><div class="note">${selN ? `drag the peg to retune ${NM[selN]}` : 'click another note on the wheel'}${cm.a ? ' · from its equal-tempered pitch' : ''} · ${freqAt(selN, 4).toFixed(2)} Hz</div></div></div>
+    <div class="ctl nudges">${[-5, -1, -.1, .1, 1, 5].map(x => `<button data-n="${x}" ${selN ? '' : 'disabled'} aria-label="${x > 0 ? 'raise' : 'lower'} by ${Math.abs(x)} cents">${x > 0 ? '+' : '−'}${Math.abs(x)}</button>`).join('')}<button id="nPlay" aria-label="Play this note">▶</button></div>
+    ${selN && cm.a ? `<input type="range" id="nSl" min="-50" max="50" step="0.05" value="${o}" style="width:100%;margin-top:6px" aria-label="Fine tuning">` : ''}`;
+  if (!peg && $('noteBox').querySelector('.peg')) { const pg = $('noteBox').querySelector('.peg'); pg.onpointerdown = e => pegStart(e, selN);
+    pg.onkeydown = e => { const d = e.key === 'ArrowUp' ? .1 : e.key === 'ArrowDown' ? -.1 : 0; if (d) { e.preventDefault(); tun()[selN] += d * (e.shiftKey ? 10 : 1); persist(); update(); hum(); coachTick(); } }; }
+  $('noteBox').querySelectorAll('[data-n]').forEach(bn => bn.onclick = () => { tun()[selN] = Math.round((tun()[selN] + +bn.dataset.n) * 100) / 100; persist(); update(); hum(true); coachTick(); });
   $('nPlay').onclick = () => playNotes([[selN, 4]], 1.2);
   if ($('nSl')) $('nSl').oninput = () => { tun()[selN] = 100 * selN + +$('nSl').value; persist(); updateSoft(); };
   if ($('nSl')) $('nSl').onchange = () => { update(); playNotes(ivNotes(selI.i, selI.k), 1.6); };
-  updateGoals();
+  updateGoals(); coachTick();
   // grid
   let g = '<div class="h"></div>'.repeat(0);
   g += NM.map(n => `<div class="h">${n}</div>`).join('');
