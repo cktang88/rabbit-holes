@@ -206,32 +206,77 @@ module.exports = {
         ev('pointerdown', 20, 20); ev('pointermove', 60, 20); ev('pointercancel', 60, 20); ev('pointermove', 60, 80); ev('pointerup', 60, 80); });
       eq(await page.evaluate(() => __lr.St().drawn), false, 'a cancelled touch still drew a loop');
     },
-    'microbe builder: gaits come from the physics (scallop theorem, reversal, goo), runs are deterministic, designs share by URL': async ({ page, eq, ok }) => {
-      const r = await page.evaluate(() => { const X = __lr, np = X.newPart, g = d => X.gaitOf(d).g;
-        const o = { back: g([null, np('flag'), null, null]), front: g([np('flag'), null, null, null]), arm: g([null, np('arm'), null, null]), sym: g([null, { t: 'cilia', asym: 0 }, null, null]), side: g([null, null, np('cilia'), null]), two: g([np('flag'), np('flag'), null, null]), bead: g([{ t: 'bead' }, np('flag'), null, null]) };
-        const D = X.makeDish(42), d = [null, { ...np('flag'), smart: 1 }, null, null], a = X.bRun(d, D, 3).S, b = X.bRun(d, D, 3).S; o.det = [a.x, a.y, a.t] .join() === [b.x, b.y, b.t].join();
-        o.dishDet = JSON.stringify(X.makeDish(42)) === JSON.stringify(X.makeDish(42));
-        const code = X.encodeDesign([{ t: 'bead' }, { t: 'flag', push: 0, sp: 3, smart: 1 }, { t: 'tail', n: 1.5, A: .25 }, { t: 'cilia', asym: 1 }]); o.round = X.encodeDesign(X.decodeDesign(code)) === code;
+    'swim: dishes are deterministic per seed, the reference swimmer reaches every one, and they get bigger': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const X = __lr, o = { det: true, solved: 0, n: 0, fallback: 0, size: {} };
+        for (const rung of [1, 3, 5, 7, 9]) for (const seed of [11, 12, 13]) { const a = X.swimDish(seed, rung), b = X.swimDish(seed, rung); if (JSON.stringify(a) !== JSON.stringify(b)) o.det = false;
+          o.n++; if (a.tries == null) o.fallback++; if (X.swimBot(a).reached) o.solved++; (o.size[rung] ||= []).push(Math.hypot(...a.target)); }
+        o.differ = JSON.stringify(X.swimDish(11, 3)) !== JSON.stringify(X.swimDish(12, 3)); return o; });
+      ok(r.det && r.differ, 'same seed, same dish; different seeds differ');
+      eq(r.solved, r.n, 'the reference swimmer reaches every dish'); eq(r.fallback, 0, 'no dish fell back to the plain one');
+      const avg = k => r.size[k].reduce((a, v) => a + v, 0) / r.size[k].length; ok(avg(9) > avg(1) * 1.6, 'later dishes are further: ' + avg(1) + ' → ' + avg(9));
+    },
+    'swim, difficulty: back-and-forth and random scribbles never reach the food; steady loops toward it do': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { FX.setMuted(true); const X = __lr; X.SAVE.done[0] = X.SAVE.done[1] = 1; X.load(9); X.playing = false;
+        // drive the pad target like a player would, frame by frame at 60 fps, until won, failed or out of time
+        const play = (seed, rung, policy) => { X.openDish(seed, rung); const D = X.dish, sw = X.sw(); X.live.started = true; let t = 0, rs = seed * 7 + 3; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647;
+          while (!X.won && !X.failed && t < D.limit + 1) { t += 1 / 60; X.live.tgt = policy(t, sw, D, rnd); X.liveStep(1 / 60); } return X.won ? X.live.t : 0; };
+        const recip = (t) => { const u = 1.2 * Math.sin(t * Math.PI * 2 * 2); return [u, u]; };
+        const scribble = (t, sw, D, rnd) => [(rnd() * 2 - 1) * 1.4, (rnd() * 2 - 1) * 1.4];
+        // competent: circle at 1.6 Hz, nudging the centre off-axis to steer towards the food (a player who reads the turn hint)
+        const steer = (t, sw, D) => { let e = Math.atan2(D.target[1] - sw.y, D.target[0] - sw.x) - sw.phi; e = Math.atan2(Math.sin(e), Math.cos(e)); const c = Math.abs(e) > .3 ? (e > 0 ? -.45 : .45) : 0, R = c ? .95 : 1.15, a = t * Math.PI * 2 * 1.6; return [c + R * Math.cos(a), c - R * Math.sin(a)]; };
+        const o = { recip: 0, scribble: 0, steer: 0, n: 0, times: [] };
+        for (const [seed, rung] of [[5, 1], [6, 2], [7, 2], [8, 3]]) { o.n++; if (play(seed, rung, recip)) o.recip++; if (play(seed, rung, scribble)) o.scribble++; const ts = play(seed, rung, steer); if (ts) { o.steer++; o.times.push(+(ts / X.dish.par).toFixed(2)); } }
         return o; });
-      eq([r.back, r.front, r.arm, r.sym, r.two], ['dart', 'reverser', 'goo crawler', "scallop's curse", 'statue']);
-      ok(r.side === 'circler' && /^tug /.test(r.bead), 'off-centre cilia turn; cargo makes a tug: ' + JSON.stringify(r));
-      ok(r.det && r.dishDet && r.round, 'deterministic runs and dishes; designs round-trip through the URL code');
+      ok(r.recip === 0 && r.scribble === 0, 'reciprocal or random strokes reached food: ' + JSON.stringify(r));
+      ok(r.steer >= 3, 'steady steering loops reach the food: ' + JSON.stringify(r));
     },
-    'difficulty: in the dishes, a sensible design wins and random designs mostly fail': async ({ page, ok }) => {
-      const R = await page.evaluate(() => { const X = __lr, np = X.newPart; let rs = 9; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647, types = ['flag', 'tail', 'cilia', 'arm', 'bead', null];
-        const randD = () => [0, 1, 2, 3].map(() => { const t = types[(rnd() * 6) | 0]; if (!t) return null; const q = np(t); if (t === 'flag') { q.push = rnd() < .5 ? 1 : 0; q.sp = 1 + ((rnd() * 3) | 0); q.smart = rnd() < .3 ? 1 : 0; } if (t === 'tail') { q.n = .5 + ((rnd() * 11) | 0) * .25; q.A = .05 + ((rnd() * 7) | 0) * .05; } if (t === 'cilia' || t === 'arm') q.asym = rnd() < .5 ? 1 : 0; return q; });
-        const good = D => D.type === 'tow' ? [{ t: 'bead' }, { ...np('flag'), smart: 1, sp: 3 }, null, null] : D.type === 'endure' ? [null, np('flag'), null, null] : D.type === 'escape' ? [null, { ...np('flag'), sp: 3 }, null, null] : [null, { ...np('flag'), smart: 1 }, null, null];
-        let gw = 0, rw = 0, n = 0; for (let seed = 1; seed <= 20; seed++) { const D = X.makeDish(seed); if (X.bRun(good(D), D, 3).v.ok) gw++; for (let k = 0; k < 4; k++) { n++; if (X.bRun(randD(), D, 3).v.ok) rw++; } }
-        return { gw, rw, n }; });
-      ok(R.gw >= 14, 'a sensible design wins most dishes: ' + R.gw + '/20');
-      ok(R.rw / R.n <= .2, 'random designs won ' + R.rw + '/' + R.n);
+    'swim by hand: the pad moves the hinges the same frame; a closed loop reports its swim; back-and-forth reports none; loop it replays': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { FX.setMuted(true); __lr.SAVE.done[0] = __lr.SAVE.done[1] = 1; __lr.load(9); __lr.openDish(31, 1); });
+      const b = await page.locator('#pad').boundingBox(), cx = b.x + b.width / 2, cy = b.y + b.height / 2, R = b.width * .38;
+      await page.mouse.move(cx + R, cy); await page.mouse.down(); await page.waitForTimeout(80);
+      const p0 = await page.evaluate(() => [__lr.sw().t1, __lr.sw().t2, __lr.LIM]); ok(Math.abs(p0[0] - .76 * p0[2]) < .05 && Math.abs(p0[1]) < .05, 'hinges jumped to the finger: ' + p0);
+      for (let k = 1; k <= 3 * 40; k++) { const a = k / 40 * Math.PI * 2; await page.mouse.move(cx + R * Math.cos(a), cy + R * Math.sin(a)); await page.waitForTimeout(12); }
+      await page.mouse.up(); await page.waitForTimeout(50);
+      const L1 = await page.evaluate(() => ({ loops: __lr.live.loops, fwd: __lr.live.last && __lr.live.last.fwd, area: __lr.live.last && __lr.live.last.area, t: __lr.live.t, stat: document.getElementById('stat').textContent }));
+      ok(L1.loops >= 2 && L1.fwd > .08 && Math.abs(L1.area) > 2, 'clockwise loops swim forward: ' + JSON.stringify(L1)); ok(L1.t > 0, 'the clock started with the first stroke'); ok(/last stroke/.test(L1.stat), 'stroke readout');
+      // back and forth along a line: loops close but have no area and no swim
+      await page.mouse.move(cx - R, cy + R); await page.mouse.down(); for (let k = 0; k < 80; k++) { const u = Math.sin(k / 20 * Math.PI * 2); await page.mouse.move(cx + R * u, cy - R * u); await page.waitForTimeout(12); } await page.mouse.up();
+      const L2 = await page.evaluate(() => __lr.live.last); ok(Math.abs(L2.area) < .15 && Math.abs(L2.fwd) < .02, 'reciprocal stroke: ' + JSON.stringify([L2.area, L2.fwd]));
+      // draw one more real loop, then loop it: it keeps swimming with no hands
+      await page.mouse.move(cx + R, cy); await page.mouse.down(); for (let k = 1; k <= 60; k++) { const a = k / 40 * Math.PI * 2; await page.mouse.move(cx + R * Math.cos(a), cy + R * Math.sin(a)); await page.waitForTimeout(12); } await page.mouse.up();
+      eq(await page.evaluate(() => document.getElementById('loopIt').disabled), false); await page.click('#loopIt');
+      const x0 = await page.evaluate(() => [__lr.sw().x, __lr.sw().y]); await page.waitForTimeout(1500); const x1 = await page.evaluate(() => [__lr.sw().x, __lr.sw().y, __lr.live.auto]);
+      ok(x1[2] && Math.hypot(x1[0] - x0[0], x1[1] - x0[1]) > .1, 'loop it keeps swimming: ' + JSON.stringify([x0, x1]));
+      await page.mouse.click(cx, cy); eq(await page.evaluate(() => __lr.live.auto), false, 'touching the stage takes over');
     },
-    'microbe builder by touch: pick a slot, fit a part, run it': async ({ page, eq, ok }) => {
-      await page.evaluate(() => { __lr.SAVE.done[0] = __lr.SAVE.done[1] = 1; __lr.load(9); });
-      const c = await page.locator('#bodyC').boundingBox(); await page.mouse.click(c.x + c.width * .5, c.y + c.height * .1); // the left slot (top of the diagram)
-      await page.click('[data-part="tail"]');
-      eq(await page.evaluate(() => __lr.design.map(p => p && p.t)), [null, 'flag', 'tail', null]);
-      await page.click('#runB'); await page.waitForTimeout(500); ok(await page.evaluate(() => __lr.bd.mode === 'run' || __lr.bd.mode === 'done'));
+    'swim: thumbs drive one hinge each; a shared dish link opens that dish; saves stay small': async ({ page, ok, eq }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.evaluate(() => { __lr.SAVE.done[0] = __lr.SAVE.done[1] = 1; __lr.load(9); __lr.openDish(77, 2); });
+      const tl = await page.locator('#thumbL').boundingBox(), tr = await page.locator('#thumbR').boundingBox(); ok(tl && tr && tl.height > 100, 'thumb tracks shown on a phone');
+      await page.mouse.move(tl.x + tl.width / 2, tl.y + tl.height * .1); await page.mouse.down(); await page.waitForTimeout(60);
+      const a = await page.evaluate(() => [__lr.sw().t1, __lr.sw().t2]); await page.mouse.up(); ok(a[0] > 1 && Math.abs(a[1]) < .05, 'left thumb is the back hinge: ' + a);
+      await page.mouse.move(tr.x + tr.width / 2, tr.y + tr.height * .9); await page.mouse.down(); await page.waitForTimeout(60);
+      const c = await page.evaluate(() => [__lr.sw().t1, __lr.sw().t2]); await page.mouse.up(); ok(c[1] < -1 && c[0] > 1, 'right thumb is the front hinge: ' + c);
+      const url = await page.evaluate(() => location.href); ok(/#swim=77-2/.test(url), 'dish in the URL: ' + url);
+      const p2 = await page.context().newPage(); await p2.goto(url.replace('77-2', '78-3')); await p2.waitForTimeout(500);
+      eq(await p2.evaluate(() => [__lr.level.n, __lr.dish.seed, __lr.dish.rung]), ['Swim', 78, 3], 'a shared link opens that dish'); await p2.close();
+      ok((await page.evaluate(() => localStorage.getItem('rh:lowre'))).length < 1500, 'compact save');
+      await page.setViewportSize({ width: 1280, height: 800 });
+    },
+    'pan and zoom: the field zooms around the pointer, drags pan, the pad still steers, Fit restores': async ({ page, ok, eq, near }) => {
+      await page.evaluate(() => { __lr.SAVE.done[0] = __lr.SAVE.done[1] = 1; __lr.load(9); __lr.openDish(31, 1); });
+      const s0 = await page.evaluate(() => __lr.toV(__lr.sw().x, __lr.sw().y).map(v => v / Math.min(devicePixelRatio, 2)));
+      await page.mouse.move(s0[0], s0[1]); await page.mouse.wheel(0, -300); await page.waitForTimeout(80);
+      const s1 = await page.evaluate(() => [__lr.toV(__lr.sw().x, __lr.sw().y).map(v => v / Math.min(devicePixelRatio, 2)), __lr.pz.k]);
+      ok(s1[1] > 1.3, 'zoomed in ' + s1[1]); near(s1[0][0], s0[0], 3); near(s1[0][1], s0[1], 3);
+      const x0 = await page.evaluate(() => __lr.pz.x); await page.mouse.move(640, 600); await page.mouse.down(); await page.mouse.move(700, 600, { steps: 5 }); await page.mouse.up();
+      near(await page.evaluate(() => __lr.pz.x) - x0, 60, 2, 'drag pans');
+      const b = await page.locator('#pad').boundingBox(); await page.mouse.click(b.x + b.width * .8, b.y + b.height / 2); ok(await page.evaluate(() => __lr.live.tgt[0] > .5), 'the pad still steers while zoomed');
+      // a pinch on the field changes the zoom and touches nothing else
+      const r = await page.evaluate(() => { const el = document.getElementById('cv'), k = __lr.pz.k, t = __lr.live.tgt.slice(); const ev = (ty, id, x, y) => el.dispatchEvent(new PointerEvent(ty, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch' }));
+        ev('pointerdown', 1, 500, 400); ev('pointerdown', 2, 560, 400); ev('pointermove', 1, 470, 400); ev('pointermove', 2, 590, 400); ev('pointerup', 1, 470, 400); ev('pointerup', 2, 590, 400); return [__lr.pz.k / k, JSON.stringify(t) === JSON.stringify(__lr.live.tgt)]; });
+      ok(r[0] > 1.5 && r[1], 'pinch zoomed and steered nothing: ' + r);
+      await page.click('.pz-fit'); await page.waitForTimeout(450); eq(await page.evaluate(() => [__lr.pz.k, __lr.pz.x, __lr.pz.y]), [1, 0, 0]);
     },
     'no overflow or console errors at phone and desktop sizes': async ({ page, ok }) => {
       await setup(page);

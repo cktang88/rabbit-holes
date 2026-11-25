@@ -223,7 +223,7 @@ function scheduleEvents(){
   for (let i=0;i<4;i++){ const e=r.pick(kinds); const city=3+r.int(cities.length-4); const start=120+i*220+r.int(120); C.events.push({...e, txt:undefined, city, start, end:start+60+r.int(60), rumor:start-30-r.int(30)}); }
 }
 function evText(e){ const k={plague:'Plague',war:'War',famine:'Famine',festival:'Festival',glut:'Glut'}[e.k]; const c=cities[e.city]; return {plague:`Plague in ${c.name}. The gates are shut and medicine is worth a fortune nearby.`, war:`War near ${c.name}. Horses and iron are in desperate demand.`, famine:`The harvest failed around ${c.name}. Grain prices soar.`, festival:`A great festival at ${c.name}. Silk and incense sell for double.`, glut:`A huge jade find near ${c.name}. Jade prices collapse.`}[e.k]; }
-function hearNews(){ for (const {to,r} of neighbors(C.at)){ const age=r.days, snap=priceAt(to, C.day-age), cur=C.book[to]; if (!cur || cur.day<C.day-age) C.book[to]={day:Math.max(0,C.day-age), p:snap}; } }
+function hearNews(){ for (const {to,r} of neighbors(C.at)){ const age=r.days, snap=priceAt(to, C.day-age), cur=C.book[to]; if (!cur || cur.day<C.day-age) C.book[to]={day:C.day-age, p:snap}; } }
 function priceAt(ci, day){ const h=cities[ci].hist||[]; let best=null; for (const e of h) if (e.day<=day && (!best||e.day>best.day)) best=e; return (best? best.p : cities[ci].price).map(x=>Math.round(x*10)/10); }
 function see(ci){ const c=cities[ci]; C.book[ci]={day:C.day, p:c.price.map(x=>Math.round(x*10)/10)}; }
 // Markets wander: every city's price for every good follows a slow random drift (months-long swings of ±40%), harvests make grain
@@ -247,7 +247,6 @@ function tick(){ // one day passes
   // perish
   for (let g=0;g<GOODS.length;g++) if (GOODS[g][2] && C.cargo[g]>0){ const lost=C.cargo[g]*GOODS[g][2]; C.cargo[g]=Math.max(0,C.cargo[g]-lost); }
   // agents & mail
-  for (const ci in C.agents){ C.gold-=2; const d=Math.max(1,Math.round((shortest(+ci,C.at)?.days||10)/4)); C.mail.push({arrive:C.day+d, city:+ci, snap:cities[ci].price.map(x=>Math.round(x*10)/10), from:C.day}); }
   C.mail=C.mail.filter(m=>{ if (m.news) return true; if (m.arrive<=C.day){ const cur=C.book[m.city]; if (!cur || cur.day<m.from) C.book[m.city]={day:m.from, p:m.snap}; return false; } return true; });
   // daily upkeep: camels and guards eat
   C.gold -= C.camels*0.05;
@@ -292,14 +291,15 @@ const maxBuy = g => { let lo=0, hi=2000; while (lo<hi){ const m=(lo+hi+1)>>1; if
 // the suggested amount: sell what fetches more here than the best you know of elsewhere; buy up to where one more unit stops paying,
 // judged against the best price you know of elsewhere (less spoilage on the way)
 function suggest(g){
-  const b=bestKnown(g), sp=sellPrice(g);
+  const b=bestKnown(g), sp=sellPrice(g), fj=C.firstJob&&!C.firstJob.done? C.firstJob : null;
+  if (fj && g===fj.g && C.at!==fj.to && !C.cargo[g]) return maxBuy(g); // the first job: take a full load of silk west
   if (C.cargo[g]>=1 && (!b || sp>=b.p*0.97 || sp>=C.cost[g]*1.05)) return -Math.floor(C.cargo[g]+1e-9);
   if (!b) return 0; const days=shortest(C.at,b.ci)?.days||30, ratio=b.p*Math.pow(1-GOODS[g][2],days)/buyPrice(g); if (ratio<=1.05) return 0;
   return Math.min(maxBuy(g), Math.floor(Math.log(ratio)/Math.log(1.004/.996)));
 }
 function trade(g, qty){
   const c=cities[C.at]; if (traveling || c.closed || !(qty===qty) || !qty) return;
-  if (qty>0){ const need=buyCost(g,qty).camels, can=Math.min(need, Math.floor(C.gold/CAMEL_PRICE)); if (can>0){ C.gold-=can*CAMEL_PRICE; C.camels+=can; if (can) logIt(`Bought ${can} camel${can>1?'s':''} to carry the load.`); } qty=Math.min(qty, Math.floor(cap()-load()+1e-9)); let spent=0, n=0; for (; n<qty; n++){ const p=buyPrice(g); if (C.gold<p) break; C.gold-=p; spent+=p; c.price[g]*=1.004; } if (n){ C.cost[g]=(C.cost[g]*C.cargo[g]+spent)/(C.cargo[g]+n); C.cargo[g]+=n; } }
+  if (qty>0){ { let lo=0, hi=Math.min(qty,3000); while (lo<hi){ const m=(lo+hi+1)>>1; if (buyCost(g,m).total<=C.gold) lo=m; else hi=m-1; } qty=lo; } if (!qty) return; const need=buyCost(g,qty).camels, can=Math.min(need, Math.floor(C.gold/CAMEL_PRICE)); if (can>0){ C.gold-=can*CAMEL_PRICE; C.camels+=can; if (can) logIt(`Bought ${can} camel${can>1?'s':''} to carry the load.`); } qty=Math.min(qty, Math.floor(cap()-load()+1e-9)); let spent=0, n=0; for (; n<qty; n++){ const p=buyPrice(g); if (C.gold<p) break; C.gold-=p; spent+=p; c.price[g]*=1.004; } if (n){ C.cost[g]=(C.cost[g]*C.cargo[g]+spent)/(C.cargo[g]+n); C.cargo[g]+=n; } }
   else { const want=-qty; qty=Math.min(want, Math.floor(C.cargo[g]+1e-9)); let got=0; for (let n=0;n<qty;n++){ const p=sellPrice(g); C.gold+=p; got+=p; c.price[g]*=0.996; } C.cargo[g]-=qty;
     // perishables leave fractions behind (9.6 tea): selling everything sells the fraction too, so no unsellable ghost cargo is left taking up space
     if (want>=C.cargo[g]+qty-1e-9 && C.cargo[g]>0){ const p=sellPrice(g)*C.cargo[g]; C.gold+=p; got+=p; qty+=C.cargo[g]; C.cargo[g]=0; } if (qty) { const profit=got-C.cost[g]*qty; if (C.cost[g]>0 && profit>5) coinBurst(profit); if (C.firstJob&&!C.firstJob.done&&g===C.firstJob.g&&C.at===C.firstJob.to){ C.firstJob.done=1; setTimeout(()=>RH.toast(`First job done: ${profit>=0?'+':''}${Math.round(profit)}g. From here on, you choose: the Information tab buys you fresher prices.`,6000),300); } if (Math.abs(profit)>50) logIt(`Sold ${qty} ${GOODS[g][0].toLowerCase()} in ${c.name} for ${Math.round(got)}g (${profit>=0?'+':''}${Math.round(profit)}).`); } if (C.cargo[g]<0.01){ C.cargo[g]=0; C.cost[g]=0; } }
@@ -377,7 +377,7 @@ function stepTravel(dt){
 }
 function travelNow(to){
   const p=route(to).path; if (!p) return false;
-  for (const l of p.legs){ for (let d=0; d<l.r.days; d++){ tick(); deliverNews(); processPigeons(); if (C.day>=CAREER_DAYS) return 'end'; }
+  for (const l of p.legs){ for (let d=0; d<l.r.days; d++){ tick(); deliverNews(); if (C.day>=CAREER_DAYS) return 'end'; }
     const nx=l.r.a===C.at? l.r.b : l.r.a;
     if (rng()<banditChance(l.r)) rob();
     C.at=nx; see(nx); }
@@ -390,25 +390,13 @@ function arrivalTip(){ const c=cities[C.at]; if (c.closed) return; const bits=[]
   if (bits.length) RH.toast(`🐫 ${c.name}: ${bits.join(' · ')}`, 5000); }
 
 // ===================== Information =====================
-function buyRumor(){ if (C.gold<3) return; C.gold-=3; const r=RH.rng(C.seed+C.day*7+C.at);
-  const upcoming=C.events.filter(e=>C.day>=e.rumor && C.day<e.start && !C.rumors.includes(e.start));
-  let t;
-  if (upcoming.length && r()<0.7){ const e=upcoming[0]; C.rumors.push(e.start); const k={plague:'sickness spreading',war:'soldiers gathering',famine:'blight in the fields',festival:'preparations for a great festival',glut:'miners boasting of a find'}[e.k]; t=`A traveller mutters about ${k} near ${cities[e.city].name}. Something will happen there within a month or two.`; }
-  else if (r()<0.25){ const ci=r.int(cities.length); t=`They say there's ${['plague','war','a famine'][r.int(3)]} coming to ${cities[ci].name}. (The teller is very drunk.)`; }
-  else { const ci=r.int(cities.length), g=r.int(GOODS.length); const p=cities[ci].price[g]; t=`A merchant says ${GOODS[g][0].toLowerCase()} goes for about ${Math.round(p*r.range(0.85,1.15))}g in ${cities[ci].name} right now.`; }
-  logIt('🍺 '+t); if (!headless){ RH.toast('🍺 '+t, 6000); persist(); renderAll(); } }
-function sendPigeon(ci){ const here=cities[C.at]; if (!here.dove) return; if (C.gold<6) return; C.gold-=6; const d=Math.max(1,Math.round((shortest(C.at,ci)?.days||10)/3));
-  // pigeon flies there and back: the report is as of its arrival there
-  C.pigeons=(C.pigeons||[]); C.pigeons.push({city:ci, at:C.day+d, back:C.day+d*2});
-  logIt(`🕊️ Pigeon sent to ${cities[ci].name}. Expect a reply in about ${d*2} days.`); persist(); renderAll(); }
-function processPigeons(){ if (!C.pigeons) return; C.pigeons=C.pigeons.filter(p=>{ if (!p.snap && C.day>=p.at){ p.snap=cities[p.city].price.map(x=>Math.round(x*10)/10); p.from=C.day; } if (C.day>=p.back){ if (p.snap){ const cur=C.book[p.city]; if (!cur||cur.day<p.from) C.book[p.city]={day:p.from,p:p.snap}; } if (!headless) RH.toast(`🕊️ Pigeon back from ${cities[p.city].name}.`); return false; } return true; }); }
-function hireAgent(){ if (C.agents[C.at]) { delete C.agents[C.at]; logIt(`Dismissed your agent in ${cities[C.at].name}.`); } else { if (C.gold<20) return; C.gold-=20; C.agents[C.at]={since:C.day}; logIt(`Hired an agent in ${cities[C.at].name} (20g, then 2g a day). They'll send prices every day.`); } if (!headless){ persist(); renderAll(); } }
 
 
 // ===================== End =====================
-// Fortune for 1, 2 and 3 stars, set from scripted traders (tests/caravan.test.js): following the "makes/wants" labels earns 1 star,
-// a greedy trader working from its own price book earns 2, and 3 needs fresher information than your own eyes (pigeons, agents, news).
-const STAR_AT=[3000,11500,35000];
+// Fortune for 1, 2 and 3 stars, set from scripted traders (tests/caravan.test.js): naive play stays under 1; a greedy trader that fills its camels earns 2;
+// 3 needs the strong trader, who buys only as much as pays (the slider's suggestion) and chooses where to go from stale news.
+
+const STAR_AT=[5000,25000,65000];
 const starsFor=w=>STAR_AT.filter(t=>w>=t).length;
 function endCareer(){
   if (C.ended) return; C.ended=1; // a reload before the modal is closed must not pay the legacy twice
@@ -561,7 +549,7 @@ function renderMarket(){
 // the one market action: a slider from "sell all you hold" to "buy all you can", starting at the suggested amount
 function renderDeal(el, g){
   const lo=-Math.floor(C.cargo[g]+1e-9), hi=maxBuy(g), sug=Math.max(lo,Math.min(hi,suggest(g)));
-  const b=bestKnown(g), why= sug<0? 'Suggested: sell here.' : sug>0? `Suggested: buy ${sug}, for ${b?cities[b.ci].name:''} (${b?b.p.toFixed(1):''}g, news ${b?b.age:0} days old).` : (b? `The best you know of elsewhere (${b.p.toFixed(1)}g in ${cities[b.ci].name}) does not pay for the trip.` : 'You know of nowhere better to sell it.');
+  const b=bestKnown(g), why= sug<0? 'Suggested: sell here.' : sug>0? (C.firstJob&&!C.firstJob.done&&g===C.firstJob.g? `Suggested: buy ${sug}, a full load for your first job in ${cities[C.firstJob.to].name}.` : `Suggested: buy ${sug}, for ${cities[b.ci].name} (${b.p.toFixed(1)}g, news ${b.age} days old).`) : (b? `The best you know of elsewhere (${b.p.toFixed(1)}g in ${cities[b.ci].name}) does not pay for the trip.` : 'You know of nowhere better to sell it.');
   el.innerHTML=`<div class="dealBox"><div class="small">${why}</div><input type="range" id="qty" min="${lo}" max="${hi}" step="1" value="${sug}" aria-label="Amount to buy (right) or sell (left)" ${lo===hi?'disabled':''}><div class="row" style="justify-content:space-between;align-items:center"><span class="small dim">${lo<0?`sell ${-lo}`:'—'} ◂ ▸ ${hi>0?`buy ${hi}`:'—'}</span><button class="primary" id="dealBtn"></button></div></div>`;
   const r=el.querySelector('#qty'), btn=el.querySelector('#dealBtn');
   const lab=()=>{ const n=+r.value; if (!n){ btn.textContent='Choose an amount'; btn.disabled=true; return; } btn.disabled=false;
@@ -583,7 +571,7 @@ function renderStatus(){
 function renderAll(){ renderStatus(); renderMarket(); }
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+b.dataset.t)); });
 
-let last=performance.now(); function loop(now){ const dt=Math.min(0.1,(now-last)/1000); last=now; if (traveling){ stepTravel(dt); processPigeons(); renderStatus(); } requestAnimationFrame(loop); }
+let last=performance.now(); function loop(now){ const dt=Math.min(0.1,(now-last)/1000); last=now; if (traveling){ stepTravel(dt); renderStatus(); } requestAnimationFrame(loop); }
 function buildAndRender(){ buildWorld(C.seed); // replay stored world state
   if (C.prices) cities.forEach((c,i)=>{ c.price=C.prices[i]; c.mod=C.mods[i]; if (C.drifts&&Array.isArray(C.drifts[i])&&C.drifts[i].length===GOODS.length) c.drift=C.drifts[i]; });
   if (!Array.isArray(C.rivals)) C.rivals=RIVAL_NAMES.map((name,i)=>({name, at:RIVAL_START[i], to:null}));

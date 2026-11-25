@@ -49,7 +49,7 @@ module.exports = {
       await page.fill('#q', 'zzzz-nothing'); await page.waitForTimeout(300);
       ok(await page.isVisible('.empty'));
       await page.click('#tags [data-clear]'); await page.fill('#q', 'bee'); await page.waitForTimeout(300);
-      const b = [...new Set((await cards(page)).map(c => c[0]))]; ok(b.includes('swarm'), 'bee should find swarm: ' + b);
+      const b = [...new Set((await cards(page)).map(c => c[0]))]; ok(b.includes('island'), 'bee should find the island: ' + b);
     },
     'search finds by words in description': async ({ page, eq }) => {
       await page.fill('#q', 'gravity'); await page.waitForTimeout(300);

@@ -91,7 +91,7 @@ module.exports = {
       const k0 = await page.evaluate(() => __lf.cam.k); const [ax, ay] = await page.evaluate(() => __lf.screenOf(__lf.M.towns[0].c));
       await page.mouse.move(ax + 40, ay); for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -240); await page.waitForTimeout(100);
       const k1 = await page.evaluate(() => __lf.cam.k); ok(k1 > k0 * 1.5, `zoomed in ${k0.toFixed(1)} → ${k1.toFixed(1)}`);
-      const [sx, sy] = await page.evaluate(() => __lf.screenOf(__lf.M.towns[0].c)); const tgt = await page.evaluate(([x, y]) => { const [wx, wy] = __lf.cam.toWorld(x, y); return __lf.K.idx(Math.floor(wx), Math.floor(wy)); }, [sx + 120, sy]);
+      const [sx, sy] = await page.evaluate(() => __lf.screenOf(__lf.M.towns[0].c)); const tgt = await page.evaluate(([x, y]) => { const [wx, wy] = __lf.toW(x, y); return __lf.K.idx(Math.floor(wx), Math.floor(wy)); }, [sx + 120, sy]);
       await drag(page, [[sx, sy], [sx + 120, sy]]); await page.waitForTimeout(100);
       const p = await page.evaluate(() => __lf.D.paths[0]); eq(p[0], await page.evaluate(() => __lf.M.towns[0].c), 'starts at the town'); eq(p[p.length - 1], tgt, 'ends under the pointer');
       await page.evaluate(() => __lf.cam.fit()); await page.waitForTimeout(50); const [sx2, sy2] = await page.evaluate(() => __lf.screenOf(__lf.M.towns[0].c));
@@ -119,6 +119,14 @@ module.exports = {
           el.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 8, clientX: x, clientY: y, bubbles: true, button: 0, pointerType: 'mouse' })); el.dispatchEvent(new PointerEvent('pointerup', { pointerId: 8, clientX: x, clientY: y, bubbles: true, button: 0, pointerType: 'mouse' })); }, key);
         ok(await page.$eval('#insp', e => getComputedStyle(e).display !== 'none'), 'lock card opens'); await page.click('#insp [data-t=stair]'); eq(await page.evaluate(k => __lf.D.locks[k].t, key), 'stair'); }
       const h = await page.evaluate(() => JSON.stringify(__lf.D)); await page.click('#tUndo'); ok(await page.evaluate(() => JSON.stringify(__lf.D)) !== h, 'undo');
+    },
+    'tall phone: the map turns a quarter to fill the screen, and a finger drag still digs from town to town': async ({ page, ok, eq }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300); await page.evaluate(() => __lf.load(0)); await page.waitForTimeout(300);
+      ok(await page.evaluate(() => __lf.ROT), 'rotated on a tall phone');
+      const r = await page.evaluate(() => { const a = __lf.screenOf(__lf.M.towns[0].c), b = __lf.screenOf(__lf.M.towns[1].c); return { a, b, span: Math.hypot(b[0] - a[0], b[1] - a[1]) }; });
+      ok(r.span > 300, `towns ${Math.round(r.span)} px apart on a 390 px screen`);
+      await drag(page, [r.a, r.b]); await page.waitForTimeout(150);
+      ok(await page.evaluate(() => __lf.K.connected(__lf.an)), 'joined by a drag on the rotated map');
     },
     'corrupted saves never crash the page': async ({ page, ok }) => {
       for (const v of ['null', '7', '[]', '{"v":2,"done":null,"designs":{"first":"!!~~"},"cur":99}', '{"v":2,"designs":{"ridge":"AAAA.zz"},"cur":1}', '{bad']) {
