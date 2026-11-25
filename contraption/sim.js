@@ -122,7 +122,7 @@ class Sim{
         for (let k=0;k<n;k++){ const u=-span/2+seg+k*2*seg, dropY=-sag*(1-(2*u/span)**2); const o=push(this.box('dynamic',x+u*c-dropY*s*0, y+u*s+dropY, seg*.96, .05, a, {density:.6,friction:.9},'slat')); slats.push(o);
           if (prev){ const m=prev.b.getPosition(), q=o.b.getPosition(); w.createJoint(pl.RevoluteJoint({}, prev.b, o.b, V((m.x+q.x)/2,(m.y+q.y)/2))); } prev=o; }
         // springy cords from each peg to the end slats
-        for (const [pg,sl,sgn] of [[pegs[0],slats[0],-1],[pegs[1],slats[n-1],1]]){ const e=sl.b.getWorldPoint(V(sgn*seg,0)); w.createJoint(pl.DistanceJoint({frequencyHz:3, dampingRatio:.4}, pg.b, sl.b, pg.b.getPosition(), e)); }
+        for (const [pg,sl,sgn] of [[pegs[0],slats[0],-1],[pegs[1],slats[n-1],1]]){ const e=sl.b.getWorldPoint(V(sgn*seg,0)); w.createJoint(pl.DistanceJoint({frequencyHz:10, dampingRatio:.4}, pg.b, sl.b, pg.b.getPosition(), e)); }
         break; }
       case 'seesaw': { const pv=w.createBody({type:'static', position:V(x,y)}); pv.createFixture(pl.Polygon([V(-.35,-.55),V(.35,-.55),V(0,0)]),FR());
         push(this.add({kind:'pivot', b:pv}));

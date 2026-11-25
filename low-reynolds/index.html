@@ -873,7 +873,7 @@ const gauss2 = r => Math.sqrt(-2 * Math.log(1 - r() * .999999)) * Math.cos(2 * M
 function mutate(G, r) {
   const s = r() < .3 ? [gauss2(r) * .12, gauss2(r) * .12] : [0, 0], sc = r() < .3 ? Math.exp(gauss2(r) * .08) : 1;
   const loop = G.loop.map(([a, b]) => [a * sc + s[0] + gauss2(r) * .06, b * sc + s[1] + gauss2(r) * .06]);
-  return mkGenome(loop, FX.clamp(G.rate * Math.exp(gauss2(r) * .06), 4, 16), FX.clamp(G.k + gauss2(r) * .03, 0, .6), (G.hue + gauss2(r) * 9 + 360) % 360, G.gen + 1);
+  const d = mkGenome(loop, FX.clamp(G.rate * Math.exp(gauss2(r) * .06), 4, 16), FX.clamp(G.k + gauss2(r) * .03, 0, .6), (G.hue + gauss2(r) * 9 + 360) % 360, G.gen + 1); d.par = G; return d;
 }
 // a pond sample: food patches that regrow, grains, a current that washes cells out downstream, ciliates with feeding currents
 function makePond(seed, tier) {
@@ -932,7 +932,13 @@ function pondTick(A) {
 function pipetteClone(A, c, n = 6) { if (A.drops <= 0 || A.done) return false; A.drops--; for (let i = 0; i < n && A.cells.length < PMAX; i++) A.cells.push(cellOf(c.G, c.x + gauss2(A.r) * .5, c.y + gauss2(A.r) * .5, A.r() * 6.28, 1, A.r)); return true; }
 function pipetteFood(A, x, y) { if (A.drops <= 0 || A.done) return false; A.drops--; for (let j = 0; j < PH; j++) for (let i = 0; i < PW; i++) { const d2 = (i + .5 - x) ** 2 + (j + .5 - y) ** 2; if (d2 < 9) A.F[j * PW + i] = Math.min(1.6, A.F[j * PW + i] + 1.2 * Math.exp(-d2 / 3)); } return true; }
 // the champion: the living cell of the deepest generation (ties: the best fed); what the pond made of your founder
-const champion = A => A.cells.reduce((b, c) => !b || c.G.gen > b.G.gen || (c.G.gen === b.G.gen && c.E > b.E) ? c : b, null);
+// the champion: the strain that left the most living descendants (counting each cell's parent and grandparent, so a
+// lucky single cell does not win); a living cell of that strain stands for it
+function champion(A) { if (!A.cells.length) return null; const n = new Map();
+  for (const c of A.cells) { let G = c.G; for (let k = 0; k < 3 && G; k++, G = G.par) n.set(G, (n.get(G) || 0) + 1); }
+  let best = null, bn = -1; for (const [G, k] of n) if (G.gen > 0 && (k > bn || (k === bn && G.gen > best.gen))) { best = G; bn = k; }
+  if (!best) return A.cells.reduce((b, c) => !b || c.E > b.E ? c : b, null);
+  return A.cells.find(c => c.G === best || c.G.par === best || (c.G.par && c.G.par.par === best)) && { ...A.cells.find(c => c.G === best || c.G.par === best || (c.G.par && c.G.par.par === best)), G: best, strain: bn }; }
 // run a whole assay headless (tests, par); policy(A, t) may use the pipette
 function runAssay(P, G, policy) { const A = newAssay(P, G); while (!A.done) { if (policy) policy(A); pondTick(A); } return A; }
 // the reference founder: a plain round stroke at a steady rate with a gentle reflex; its population sets the pond's par
