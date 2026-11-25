@@ -70,7 +70,9 @@
   #v3.on,#v3fx.on{display:block}
   body.ride3 #brief,body.ride3 #insp{display:none!important}
   body.ride3 #gauge{z-index:8;background:rgba(244,232,204,.88)}
-  body.ride3 #tools{z-index:8}
+  body.ride3 #tools{z-index:8;top:10px;bottom:auto;left:10px;right:auto;transform:none;max-width:calc(100vw - 230px);flex-wrap:nowrap;transition:opacity .5s}
+  body.ride3 #tools.idle{opacity:.18}
+  @media (max-width:860px){body.ride3 #gauge{top:8px;bottom:auto;right:6px} body.ride3 #tools{top:8px;left:6px;max-width:calc(100vw - 150px)}}
   .modal{background:linear-gradient(var(--cream),#e8d7b0);color:var(--ink);font-family:"Architects Daughter",cursive;border:0;border-radius:2px}
   .modal h2{font-family:Limelight,Georgia,serif;color:var(--red)}
   .modal button{background:var(--ink);color:var(--cream);border:0;border-radius:2px;font-family:"Courier Prime",monospace}
@@ -461,8 +463,10 @@ function startRide() {
   renderTools(); FX.sfx('click'); kick();
 }
 // advance a playback clock by dt seconds of ride time, visiting every physics sample on the way
+const EYE = 1.5, LIFTX = 2.5; // the chain lift plays back 2.5x faster (playback only: the physics is untouched)
 function advance(p, R, dt) {
-  p.simT += dt;
+  if (R.liftK == null) { const lift = design.lift ?? 1; R.liftK = Math.max(0, R.idx.findIndex(i => R.S[i].seg >= lift)); }
+  p.simT += dt * (p.k < R.liftK ? LIFTX : 1);
   while (p.k < R.t.length - 1 && R.t[p.k + 1] <= p.simT) { p.k++; p.visited++; const g2 = R.gs[p.k]; if (g2 > p.peak) p.peak = g2; if (g2 < p.low) p.low = g2; }
   const t0 = R.t[p.k], t1 = R.t[Math.min(R.t.length - 1, p.k + 1)]; p.f = t1 > t0 ? clamp((p.simT - t0) / (t1 - t0), 0, 1) : 0;
   p.i = R.idx[p.k] ?? 0; return p.k >= R.t.length - 1;
@@ -474,7 +478,11 @@ function stepRide(now) {
   $('gV').textContent = Math.round(v * 3.6) + ' km/h'; $('gVb').style.width = clamp(v * 3.6 / 1.3, 0, 100) + '%';
   $('gG').textContent = gg.toFixed(1); $('gGb').style.width = clamp(gg / 7 * 100, 0, 100) + '%'; $('gGb').className = gg > 5 || gg < -1 ? 'hot' : '';
   $('gL').textContent = Math.abs(gl).toFixed(1);
-  if (play.speed && Math.random() < .1) FX.tone({ noise: 1, f: 200 + v * 25, q: .5, dur: .1, vol: .03 + v / 600 });
+  if (play.speed && !play.fast) {
+    if (k < R.liftK) { if ((play.clack = (play.clack || 0) + play.visited - (play.lastV || 0)) >= 2) { play.clack = 0; FX.tone({ f: 1500, f2: 700, type: 'square', dur: .018, vol: .05 }); FX.tone({ f: 160, type: 'triangle', dur: .03, vol: .08 }); } }
+    else if (Math.random() < .22) FX.tone({ noise: 1, f: 250 + v * 28, q: .5, dur: .14, vol: Math.min(.14, .01 + v * v / 7000) });
+  }
+  play.lastV = play.visited; if (V3.on) V3.dt = dt;
   if (end) { endRide(); return; }
   if (V3.on) v3Frame(play); else { follow(design.S[play.i].x); drawPOV(play.i); }
 }
@@ -491,8 +499,9 @@ function endRide() {
 
 // ================= the 3D ride (three.js) =================
 // The track is extruded from the same samples the physics rode: height from the drawing, plan position and heading
-// from the turns, roll from the banks. Low-poly throughout so a phone holds 60 fps.
-const V3 = { on: false, want: true, chase: false, frames: null, key: '' };
+// from the turns, roll from the banks. Phone budget: pixel ratio ≤ 1.5, ~20 draw calls (props merged, trees and
+// guests instanced), ~30k triangles.
+const V3 = { on: false, want: true, chase: false, frames: null, key: '', bob: 0, dt: 1 / 60 };
 function trackFrames(S) { // per sample: position, forward, up (rolled by the bank), side
   return S.map(p => {
     const ch = Math.cos(p.head), shh = Math.sin(p.head), ct = Math.cos(p.th), st = Math.sin(p.th);
@@ -503,128 +512,210 @@ function trackFrames(S) { // per sample: position, forward, up (rolled by the ba
     return { p: [p.X, p.y, p.Z], fwd, up, side };
   });
 }
+// one geometry from many parts, each with its own colour (or a colour function of position) and transform
+function mergeParts(T, parts) {
+  const pos = [], nor = [], col = [], c = new T.Color();
+  for (const [g0, colr, m] of parts) {
+    let g = g0.index ? g0.toNonIndexed() : g0.clone(); if (m) g.applyMatrix4(m); if (!g.attributes.normal) g.computeVertexNormals();
+    const P = g.attributes.position, Nn = g.attributes.normal;
+    for (let i = 0; i < P.count; i++) { pos.push(P.getX(i), P.getY(i), P.getZ(i)); nor.push(Nn.getX(i), Nn.getY(i), Nn.getZ(i)); c.set(typeof colr === 'function' ? colr(P.getX(i), P.getY(i), P.getZ(i)) : colr); col.push(c.r, c.g, c.b); }
+  }
+  const out = new T.BufferGeometry(); out.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); out.setAttribute('normal', new T.Float32BufferAttribute(nor, 3)); out.setAttribute('color', new T.Float32BufferAttribute(col, 3)); return out;
+}
+const M4 = (T, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, s = 1) => new T.Matrix4().compose(new T.Vector3(x, y, z), new T.Quaternion().setFromEuler(new T.Euler(rx, ry, rz)), new T.Vector3(s, s, s));
+// the front car: bevelled nose in red paint, gold trim, a little logo on the dash, padded seat, curved lap bar, grab handles.
+// Car frame: x right, y up, −z forward; the rider's eye sits at (0, 1.25, 0).
+function carGeometry(T) {
+  const sh = new T.Shape(); sh.moveTo(-1.25, .22); sh.lineTo(1.05, .22); sh.quadraticCurveTo(1.5, .26, 1.45, .46); sh.quadraticCurveTo(1.38, .66, 1.0, .68); sh.lineTo(.7, .71); sh.quadraticCurveTo(.58, .68, .56, .58); sh.lineTo(-1.1, .58); sh.lineTo(-1.25, .62); sh.closePath();
+  const body = new T.ExtrudeGeometry(sh, { depth: 1.2, bevelEnabled: true, bevelThickness: .07, bevelSize: .07, bevelSegments: 2, curveSegments: 7 });
+  const bodyM = M4(T, -.6, 0, 0, 0, Math.PI / 2, 0);
+  const red = 0xc8382b, gold = 0xe8b84a, cream = 0xf4e8cc, chrome = 0xd8d6cf, dark = 0x2a1d14;
+  const parts = [[body, (x, y) => y < .3 ? 0x7d1a14 : red, bodyM]];
+  for (const sx2 of [-.68, .68]) parts.push([new T.BoxGeometry(.05, .05, 2.5), gold, M4(T, sx2, .6, 0)]);
+  parts.push([new T.BoxGeometry(1.36, .05, .05), gold, M4(T, 0, .38, -1.52)]);
+  parts.push([new T.CircleGeometry(.17, 14), gold, M4(T, 0, .775, -.85, -Math.PI / 2 + .03)], [new T.CircleGeometry(.11, 14), cream, M4(T, 0, .78, -.85, -Math.PI / 2 + .03)], [new T.CircleGeometry(.05, 8), red, M4(T, 0, .785, -.85, -Math.PI / 2 + .03)]);
+  // padded seat back and headrest
+  parts.push([new T.BoxGeometry(1.06, .75, .2), 0x3a2418, M4(T, 0, 1.12, .55)], [new T.CylinderGeometry(.2, .2, .8, 8), 0x4a2e1e, M4(T, 0, 1.55, .55, 0, 0, Math.PI / 2)]);
+  for (const sx2 of [-.2, .2]) parts.push([new T.BoxGeometry(.04, .7, .03), 0x2a160c, M4(T, sx2, 1.12, .44)]);
+  // curved lap bar on two posts, and grab handles on the dash
+  parts.push([new T.TorusGeometry(.3, .03, 5, 14, Math.PI), chrome, M4(T, 0, .74, -.2, -Math.PI / 2)]);
+  for (const sx2 of [-.3, .3]) parts.push([new T.CylinderGeometry(.03, .03, .2, 5), chrome, M4(T, sx2, .65, -.2)]);
+  for (const sx2 of [-.42, .42]) parts.push([new T.TorusGeometry(.09, .022, 4, 8, Math.PI), dark, M4(T, sx2, .78, -.66)]);
+  // wheels
+  for (const sx2 of [-.62, .62]) for (const z of [-1.05, .9]) parts.push([new T.CylinderGeometry(.16, .16, .12, 8), 0x333333, M4(T, sx2, .18, z, 0, 0, Math.PI / 2)]);
+  return mergeParts(T, parts);
+}
+function canvasTex(T, w, h, paint) { const c = document.createElement('canvas'); c.width = w; c.height = h; paint(c.getContext('2d'), w, h); const t = new T.CanvasTexture(c); t.colorSpace = T.SRGBColorSpace; return t; }
 function v3Init() {
   const T = window.THREE; if (!T) return false; if (V3.r) return true;
   const mob = innerWidth < 860 || matchMedia('(pointer:coarse)').matches;
   V3.r = new T.WebGLRenderer({ canvas: $('v3'), antialias: !mob, powerPreference: 'high-performance' });
   V3.r.setPixelRatio(Math.min(devicePixelRatio || 1, mob ? 1.5 : 2));
-  V3.cam = new T.PerspectiveCamera(72, 1, .1, 1400);
-  // the front of the car and the lap bar ride with the camera
-  const car = new T.Group(), red = new T.MeshLambertMaterial({ color: 0xc8382b }), gold = new T.MeshLambertMaterial({ color: 0xf2b33d }), dark = new T.MeshLambertMaterial({ color: 0x2a2018 });
-  const nose = new T.Mesh(new T.BoxGeometry(1.3, .3, 1.1), red); nose.position.set(0, -1.05, -1.9); nose.rotation.x = -.12; car.add(nose);
-  const lip = new T.Mesh(new T.BoxGeometry(1.56, .1, .16), gold); lip.position.set(0, -.92, -1.35); car.add(lip);
-  const bar = new T.Mesh(new T.CylinderGeometry(.03, .03, 1.1, 6), gold); bar.rotation.z = Math.PI / 2; bar.position.set(0, -.6, -1.0); car.add(bar);
-  for (const sx2 of [-.42, .42]) { const arm = new T.Mesh(new T.CylinderGeometry(.025, .025, .4, 5), dark); arm.position.set(sx2 * 1.2, -.78, -1.0); car.add(arm); }
-  V3.car = car; V3.cam.add(car);
-  V3.train = new T.Group(); for (let k = 0; k < 3; k++) { const m = new T.Mesh(new T.BoxGeometry(1.3, .8, 2.4), k ? new T.MeshLambertMaterial({ color: 0xf4e8cc }) : red); V3.train.add(m); }
+  V3.cam = new T.PerspectiveCamera(72, 1, .08, 1600);
+  V3.carGeo = carGeometry(T);
+  // speed streaks ride with the camera
+  const n = 40, sp = new Float32Array(n * 6); V3.streak = { n, p: Array.from({ length: n }, () => [0, 0, -40]) };
+  const lg = new T.BufferGeometry(); lg.setAttribute('position', new T.BufferAttribute(sp, 3));
+  V3.lines = new T.LineSegments(lg, new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, fog: false })); V3.lines.frustumCulled = false; V3.cam.add(V3.lines);
+  // the wind and the chain
   return true;
 }
-function canvasTex(T, w, h, paint) { const c = document.createElement('canvas'); c.width = w; c.height = h; paint(c.getContext('2d'), w, h); const t = new T.CanvasTexture(c); t.colorSpace = T.SRGBColorSpace; return t; }
 function v3Build() {
   const T = window.THREE, S = design.S || (design.S = geometry(design)), key = enc(design) + '|' + C.id;
   if (V3.key === key && V3.scene) return; V3.key = key;
-  if (V3.scene) V3.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } });
-  const sc = V3.scene = new T.Scene(), F = V3.frames = trackFrames(S), terr = site.terrain;
-  const fogC = 0xd9e6e4; sc.fog = new T.Fog(fogC, 80, 520);
-  sc.add(new T.HemisphereLight(0xe6f2ff, 0x557a3a, 1.25)); const sun = new T.DirectionalLight(0xfff0d0, 1.5); sun.position.set(60, 120, 30); sc.add(sun);
-  // sky dome: a vertex-coloured gradient that follows the camera
-  { const g2 = new T.SphereGeometry(900, 16, 10), col = [], pos = g2.attributes.position, c = new T.Color();
-    for (let i = 0; i < pos.count; i++) { const y = pos.getY(i) / 900; c.set(y > .05 ? 0x5f9fd6 : 0xd9e6e4).lerp(new T.Color(0xd9e6e4), y > .05 ? Math.max(0, 1 - y * 2.2) : 0); col.push(c.r, c.g, c.b); }
-    g2.setAttribute('color', new T.Float32BufferAttribute(col, 3)); V3.sky = new T.Mesh(g2, new T.MeshBasicMaterial({ vertexColors: true, side: T.BackSide, fog: false, depthWrite: false })); sc.add(V3.sky); }
-  // bounds of the ride in plan
+  if (V3.scene) { V3.scene.remove(V3.cam); V3.scene.traverse(o => { if (o === V3.lines || o.geometry === V3.carGeo) return; if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); }
+  const sc = V3.scene = new T.Scene(), F = V3.frames = trackFrames(S), terr = site.terrain, rnd = RH.rng(17);
+  sc.fog = new T.Fog(0xdde8e6, 90, 560);
+  sc.add(new T.HemisphereLight(0xdcecff, 0x4f6f34, .85)); const sun = new T.DirectionalLight(0xfff0d2, 2.0); sun.position.set(-70, 110, 45); sc.add(sun);
+  const lam = new T.MeshLambertMaterial({ vertexColors: true });
+  // sky dome with painted clouds (one texture, one draw)
+  { const tex = canvasTex(T, 1024, 256, (x, w, h) => { const gr = x.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#2f6fb8'); gr.addColorStop(.38, '#7fb2df'); gr.addColorStop(.5, '#e4ece8'); gr.addColorStop(1, '#e4ece8'); x.fillStyle = gr; x.fillRect(0, 0, w, h);
+      const r = RH.rng(9); for (let k = 0; k < 46; k++) { const cx = r() * w, cy = h * (.3 + r() * .16), s = 14 + r() * 40; for (let j = 0; j < 7; j++) { const px = cx + (r() - .5) * s * 3, py = cy + (r() - .5) * s * .5, rr = s * (.5 + r() * .6);
+        for (const ox of [0, -w, w]) { x.save(); x.translate(px + ox, py); x.scale(1, .45); const g2 = x.createRadialGradient(0, 0, 0, 0, 0, rr); g2.addColorStop(0, 'rgba(255,255,255,.6)'); g2.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g2; x.fillRect(-rr, -rr, rr * 2, rr * 2); x.restore(); } } } });
+    V3.sky = new T.Mesh(new T.SphereGeometry(1000, 18, 12), new T.MeshBasicMaterial({ map: tex, side: T.BackSide, fog: false, depthWrite: false })); sc.add(V3.sky); }
   let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const f of F) { x0 = Math.min(x0, f.p[0]); x1 = Math.max(x1, f.p[0]); z0 = Math.min(z0, f.p[2]); z1 = Math.max(z1, f.p[2]); }
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, half = Math.max(x1 - x0, z1 - z0) / 2 + 170;
-  // ground: heights from the drawing's terrain under the nearest stretches of track (inverse-distance), lake in blue
   const few = []; for (let i = 0; i < S.length; i += 6) few.push(i);
   const groundAt = (X, Z) => { let ws = 0, hs = 0, lk = 0; for (const i of few) { const d2 = (F[i].p[0] - X) ** 2 + (F[i].p[2] - Z) ** 2 + 4, w = 1 / (d2 * d2); ws += w; hs += w * terr(S[i].x); if (site.lake && S[i].x > site.lake[0] && S[i].x < site.lake[1]) lk += w; } return [hs / ws, lk / ws]; };
+  const nearTrack = (X, Z, r) => few.some(i => (F[i].p[0] - X) ** 2 + (F[i].p[2] - Z) ** 2 < r * r);
   V3.groundAt = groundAt;
+  // ground: varied grass, lake in blue
   { const n = 56, g2 = new T.PlaneGeometry(half * 2, half * 2, n, n); g2.rotateX(-Math.PI / 2); g2.translate(cx, 0, cz);
     const pos = g2.attributes.position, col = [], c = new T.Color();
-    for (let i = 0; i < pos.count; i++) { const [hh, lk] = groundAt(pos.getX(i), pos.getZ(i)); const wet = lk > .5; pos.setY(i, wet ? Math.min(hh, .9) : hh); c.set(wet ? 0x4f8fc0 : 0xffffff); col.push(c.r, c.g, c.b); }
+    for (let i = 0; i < pos.count; i++) { const [hh, lk] = groundAt(pos.getX(i), pos.getZ(i)); const wet = lk > .5; pos.setY(i, wet ? Math.min(hh, .9) : hh); c.set(wet ? 0x3f7fb4 : 0xffffff); if (!wet) c.offsetHSL((rnd() - .5) * .03, 0, (rnd() - .5) * .08); col.push(c.r, c.g, c.b); }
     g2.setAttribute('color', new T.Float32BufferAttribute(col, 3)); g2.computeVertexNormals();
-    const tex = canvasTex(T, 128, 128, (x, w, h) => { x.fillStyle = '#6f9a48'; x.fillRect(0, 0, w, h); const r = RH.rng(3); for (let k = 0; k < 900; k++) { x.fillStyle = r() < .5 ? 'rgba(40,70,20,.18)' : 'rgba(190,220,120,.16)'; x.fillRect(r() * w, r() * h, 2, 2); } for (let k = 0; k < 4; k++) { x.fillStyle = 'rgba(255,255,220,.05)'; x.fillRect(k * 32, 0, 16, h); } });
-    tex.wrapS = tex.wrapT = T.RepeatWrapping; tex.repeat.set(half / 8, half / 8);
+    const tex = canvasTex(T, 256, 256, (x, w, h) => { x.fillStyle = '#6c9845'; x.fillRect(0, 0, w, h); const r = RH.rng(3);
+      for (let k = 0; k < 40; k++) { const px = r() * w, py = r() * h, rr = 10 + r() * 30, g3 = x.createRadialGradient(px, py, 0, px, py, rr); g3.addColorStop(0, r() < .5 ? 'rgba(130,170,70,.35)' : 'rgba(60,100,40,.3)'); g3.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g3; x.fillRect(px - rr, py - rr, rr * 2, rr * 2); }
+      for (let k = 0; k < 2600; k++) { x.fillStyle = r() < .5 ? 'rgba(40,70,20,.22)' : 'rgba(200,230,130,.18)'; x.fillRect(r() * w, r() * h, 1 + r() * 2, 2 + r() * 3); }
+      for (let k = 0; k < 8; k++) { x.fillStyle = 'rgba(255,255,220,.04)'; x.fillRect(k * 32, 0, 16, h); } });
+    tex.wrapS = tex.wrapT = T.RepeatWrapping; tex.repeat.set(half / 12, half / 12); tex.anisotropy = 4;
     sc.add(new T.Mesh(g2, new T.MeshLambertMaterial({ map: tex, vertexColors: true }))); }
-  // distant hills on the horizon
-  { const r = RH.rng(11), geo = new T.ConeGeometry(1, 1, 6, 1), mat = new T.MeshLambertMaterial({ color: 0x6d8f66, flatShading: true }), M = new T.InstancedMesh(geo, mat, 28), m4 = new T.Matrix4();
-    for (let k = 0; k < 28; k++) { const a = k / 28 * Math.PI * 2 + r() * .2, R2 = half + 80 + r() * 160, w = 60 + r() * 90, hh = 25 + r() * 60; m4.compose(new T.Vector3(cx + Math.cos(a) * R2, hh / 2 - 4, cz + Math.sin(a) * R2), new T.Quaternion(), new T.Vector3(w, hh, w * .8)); M.setMatrixAt(k, m4); }
+  // horizon hills
+  { const geo = new T.ConeGeometry(1, 1, 7, 1), M = new T.InstancedMesh(geo, new T.MeshLambertMaterial({ color: 0x7c9a72, flatShading: true }), 30), m4 = new T.Matrix4();
+    for (let k = 0; k < 30; k++) { const a = k / 30 * Math.PI * 2 + rnd() * .2, R2 = half + 120 + rnd() * 200, w = 70 + rnd() * 110, hh = 25 + rnd() * 55; m4.compose(new T.Vector3(cx + Math.cos(a) * R2, hh / 2 - 6, cz + Math.sin(a) * R2), new T.Quaternion(), new T.Vector3(w, hh, w * .8)); M.setMatrixAt(k, m4); }
     sc.add(M); }
-  // trees, kept off the track
-  { const r = RH.rng(5), n = 140, geo = new T.ConeGeometry(1, 1, 5, 1), mat = new T.MeshLambertMaterial({ color: 0x2f5a2a, flatShading: true }), M = new T.InstancedMesh(geo, mat, n), m4 = new T.Matrix4(); let k = 0;
-    for (let tries = 0; tries < 900 && k < n; tries++) { const X = cx + (r() - .5) * (half * 1.6), Z = cz + (r() - .5) * (half * 1.6); let near = false; for (const i of few) if ((F[i].p[0] - X) ** 2 + (F[i].p[2] - Z) ** 2 < 260) { near = true; break; } if (near) continue;
-      const [hh, lk] = groundAt(X, Z); if (lk > .4) continue; const s = 2 + r() * 2.5; m4.compose(new T.Vector3(X, hh + s * 1.6, Z), new T.Quaternion(), new T.Vector3(s, s * 3.2, s)); M.setMatrixAt(k++, m4); }
+  // the park: station, plaza with tents, paths, a Ferris wheel, guests; all static props in one merged mesh
+  const f0 = F[0], L0 = [-Math.sin(S[0].head), Math.cos(S[0].head)], fw0 = [Math.cos(S[0].head), Math.sin(S[0].head)];
+  let plaza = null; for (const d of [-20, 20, -30, 30, -42, 42]) { const X = f0.p[0] + L0[0] * d + fw0[0] * 6, Z = f0.p[2] + L0[1] * d + fw0[1] * 6; if (!nearTrack(X, Z, 13)) { plaza = [X, Z, Math.sign(d)]; break; } }
+  if (!plaza) plaza = [f0.p[0] - fw0[0] * 30, f0.p[2] - fw0[1] * 30, -1];
+  const gy = (X, Z) => groundAt(X, Z)[0];
+  const props = [], stY = terr(S[0].x), stA = -S[0].head;
+  { const st = (geo, colr, x, y, z, ry = 0) => { const v = new T.Vector3(x, 0, z).applyAxisAngle(new T.Vector3(0, 1, 0), stA); props.push([geo, colr, M4(T, f0.p[0] + v.x, stY + y, f0.p[2] + v.z, 0, stA + ry)]); };
+    st(new T.BoxGeometry(16, .35, 7), 0xb8302a, 0, 4.4, 0); st(new T.BoxGeometry(16.4, .5, .3), 0xe8b84a, 0, 4.1, 3.5); st(new T.BoxGeometry(16.4, .5, .3), 0xe8b84a, 0, 4.1, -3.5);
+    for (const [a, b] of [[-7.5, -3.2], [7.5, -3.2], [-7.5, 3.2], [7.5, 3.2], [0, 3.2], [0, -3.2]]) st(new T.CylinderGeometry(.18, .22, 4.3, 6), 0xf4e8cc, a, 2.15, b);
+    st(new T.BoxGeometry(16, .3, 3), 0x9c8f7a, 0, .15, -3.2 * plaza[2] * -1); }
+  { const [X, Z] = plaza, Y = gy(X, Z); props.push([new T.CircleGeometry(15, 20), 0xd9c49a, M4(T, X, Y + .06, Z, -Math.PI / 2)]);
+    const sx0 = f0.p[0] + L0[0] * 3 * plaza[2], sz0 = f0.p[2] + L0[1] * 3 * plaza[2], dx = X - sx0, dz = Z - sz0, len = Math.hypot(dx, dz);
+    props.push([new T.PlaneGeometry(3.2, len), 0xd9c49a, new T.Matrix4().compose(new T.Vector3((X + sx0) / 2, gy((X + sx0) / 2, (Z + sz0) / 2) + .05, (Z + sz0) / 2), new T.Quaternion().setFromEuler(new T.Euler(-Math.PI / 2, 0, -Math.atan2(dx, dz) + Math.PI, 'YXZ')).multiply(new T.Quaternion()), new T.Vector3(1, 1, 1))]);
+    // Ferris wheel legs beyond the plaza (the wheel itself turns)
+    const wx2 = X + L0[0] * 26 * plaza[2], wz2 = Z + L0[1] * 26 * plaza[2], wy = gy(wx2, wz2); V3.wheelAt = [wx2, wy + 13, wz2, Math.atan2(L0[1], L0[0])];
+    for (const s2 of [-1, 1]) for (const t2 of [-1, 1]) { const m = M4(T, wx2 + Math.cos(V3.wheelAt[3] + Math.PI / 2) * 1.6 * s2 + Math.cos(V3.wheelAt[3]) * 4 * t2, wy + 6.5, wz2 + Math.sin(V3.wheelAt[3] + Math.PI / 2) * 1.6 * s2 + Math.sin(V3.wheelAt[3]) * 4 * t2, 0, 0, 0); m.multiply(new T.Matrix4().makeRotationAxis(new T.Vector3(Math.sin(V3.wheelAt[3]), 0, -Math.cos(V3.wheelAt[3])), t2 * .3)); props.push([new T.CylinderGeometry(.25, .3, 14, 5), 0xf4e8cc, m]); } }
+  if (C.req.depth) { const r0 = z0 - 3; for (const zz of [r0, r0 + C.req.depth]) for (let X = x0 - 6; X <= x1 + 6; X += 4) props.push([new T.BoxGeometry(.2, 1.4, .2), 0xf4e8cc, M4(T, X, gy(X, zz) + .7, zz)]);
+    for (const zz of [r0, r0 + C.req.depth]) props.push([new T.BoxGeometry(x1 - x0 + 12, .08, .08), 0xf4e8cc, M4(T, cx, gy(cx, zz) + 1.15, zz)]); }
+  sc.add(new T.Mesh(mergeParts(T, props), lam));
+  // Ferris wheel (turns slowly)
+  { const parts = [[new T.TorusGeometry(11, .25, 4, 28), 0xf4e8cc], [new T.TorusGeometry(10.4, .12, 3, 28), 0xe8b84a]];
+    for (let k = 0; k < 8; k++) parts.push([new T.BoxGeometry(.15, 22, .15), 0xf4e8cc, M4(T, 0, 0, 0, 0, 0, k / 8 * Math.PI)]);
+    for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2; parts.push([new T.BoxGeometry(1.2, 1, 1.2), [0xc8382b, 0x2f6fb8, 0xe8b84a][k % 3], M4(T, Math.cos(a) * 11, Math.sin(a) * 11 - .7, 0)]); }
+    V3.wheel = new T.Mesh(mergeParts(T, parts), lam); const [wx2, wy, wz2, wa] = V3.wheelAt; V3.wheel.position.set(wx2, wy, wz2); V3.wheel.rotation.y = -wa + Math.PI / 2; sc.add(V3.wheel); }
+  // tents round the plaza: striped roofs (instance colour tints the stripes)
+  { const parts = [[new T.CylinderGeometry(2.2, 2.2, 2.4, 10), 0xf6efe0, M4(T, 0, 1.2, 0)], [new T.ConeGeometry(2.7, 2.2, 10), (x, y, z) => (Math.floor((Math.atan2(z, x) + Math.PI) / (Math.PI / 5)) % 2 ? 0xffffff : 0xf6efe0), M4(T, 0, 3.5, 0)]];
+    const geo = mergeParts(T, parts), n = 7, M = new T.InstancedMesh(geo, lam, n), m4 = new T.Matrix4(), cols = [0xd8402f, 0x2f6fb8, 0xe8b84a, 0x3c9a5c, 0xd8402f, 0x8a4fb8, 0x2f6fb8];
+    for (let k = 0; k < n; k++) { const a = k / n * Math.PI * 2 + .3, X = plaza[0] + Math.cos(a) * 12, Z = plaza[1] + Math.sin(a) * 12; m4.compose(new T.Vector3(X, gy(X, Z), Z), new T.Quaternion(), new T.Vector3(1, 1, 1)); M.setMatrixAt(k, m4); M.setColorAt(k, new T.Color(cols[k])); }
+    sc.add(M); }
+  // guests: on the plaza, along the path and in the queue
+  { const geo = mergeParts(T, [[new T.CylinderGeometry(.22, .28, 1.1, 6), 0xffffff, M4(T, 0, .55, 0)], [new T.SphereGeometry(.2, 6, 4), 0xf0c8a0, M4(T, 0, 1.32, 0)]]), n = 110, M = new T.InstancedMesh(geo, lam, n), m4 = new T.Matrix4();
+    const shirt = [0xd8402f, 0x2f6fb8, 0xe8b84a, 0x3c9a5c, 0xf4e8cc, 0x8a4fb8, 0x333333, 0xe07a30];
+    for (let k = 0; k < n; k++) { let X, Z; if (k < 70) { const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * 13; X = plaza[0] + Math.cos(a) * r; Z = plaza[1] + Math.sin(a) * r; } else { const t2 = rnd(); X = f0.p[0] + L0[0] * 3 * plaza[2] + (plaza[0] - f0.p[0] - L0[0] * 3 * plaza[2]) * t2 + (rnd() - .5) * 2; Z = f0.p[2] + L0[1] * 3 * plaza[2] + (plaza[1] - f0.p[2] - L0[1] * 3 * plaza[2]) * t2 + (rnd() - .5) * 2; }
+      const s = .85 + rnd() * .3; m4.compose(new T.Vector3(X, gy(X, Z), Z), new T.Quaternion(), new T.Vector3(s, s, s)); M.setMatrixAt(k, m4); M.setColorAt(k, new T.Color(shirt[k % shirt.length])); }
+    sc.add(M); }
+  // trees in mixed greens (a few autumn ones) and a dense far treeline
+  { const geo = mergeParts(T, [[new T.CylinderGeometry(.25, .35, 2, 5), 0x8a6a4a, M4(T, 0, 1, 0)], [new T.ConeGeometry(1.6, 4.2, 7), 0xffffff, M4(T, 0, 3.8, 0)], [new T.ConeGeometry(1.2, 3, 7), 0xffffff, M4(T, 0, 5.6, 0)]]);
+    const n = 420, M = new T.InstancedMesh(geo, lam, n), m4 = new T.Matrix4(), greens = [0x2f5a2a, 0x3b6b2e, 0x4a7a34, 0x285028, 0x5a7d2e, 0xa8742c, 0x9a4a24]; let k = 0;
+    const put = (X, Z, s, c) => { const [hh, lk] = groundAt(X, Z); if (lk > .4) return; m4.compose(new T.Vector3(X, hh, Z), new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), rnd() * 6), new T.Vector3(s, s * (.9 + rnd() * .4), s)); M.setMatrixAt(k, m4); M.setColorAt(k, new T.Color(c)); k++; };
+    for (let tries = 0; tries < 1400 && k < 170; tries++) { const X = cx + (rnd() - .5) * half * 1.7, Z = cz + (rnd() - .5) * half * 1.7; if (nearTrack(X, Z, 15) || Math.hypot(X - plaza[0], Z - plaza[1]) < 18) continue; put(X, Z, .8 + rnd() * .9, greens[(rnd() * (rnd() < .12 ? 7 : 5)) | 0]); }
+    for (let j = 0; k < n; j++) { const a = rnd() * Math.PI * 2, R2 = half * .9 + rnd() * 60; put(cx + Math.cos(a) * R2, cz + Math.sin(a) * R2, 1.6 + rnd() * 1.6, greens[(rnd() * 4) | 0]); if (j > 2000) break; }
     M.count = k; sc.add(M); }
-  // the lot fence on commissions that limit the plot
-  if (C.req.depth) { const r0 = z0 - 3, posts = new T.InstancedMesh(new T.BoxGeometry(.2, 1.4, .2), new T.MeshLambertMaterial({ color: 0xf4e8cc }), 120), m4 = new T.Matrix4(); let k = 0;
-    const edge = (ax, az, bx, bz) => { const L = Math.hypot(bx - ax, bz - az); for (let s = 0; s <= L && k < 120; s += 4) { const X = ax + (bx - ax) * s / L, Z = az + (bz - az) * s / L; m4.makeTranslation(X, groundAt(X, Z)[0] + .7, Z); posts.setMatrixAt(k++, m4); } };
-    edge(x0 - 6, r0, x1 + 6, r0); edge(x0 - 6, r0 + C.req.depth, x1 + 6, r0 + C.req.depth); posts.count = k; sc.add(posts); }
-  // station
-  { const f = F[0], st = new T.Group(), roof = new T.Mesh(new T.BoxGeometry(14, .4, 6), new T.MeshLambertMaterial({ color: 0xc8382b })); roof.position.y = 4; st.add(roof);
-    for (const [a, b] of [[-6, -2.6], [6, -2.6], [-6, 2.6], [6, 2.6]]) { const p2 = new T.Mesh(new T.BoxGeometry(.3, 4, .3), new T.MeshLambertMaterial({ color: 0xf4e8cc })); p2.position.set(a, 2, b); st.add(p2); }
-    st.position.set(f.p[0] - 4, terr(S[0].x), f.p[2]); st.rotation.y = -S[0].head; sc.add(st); }
-  // rails, spine, ties and supports, all from the ride's own samples
-  const tube = (off, rad, sides, color) => {
-    const pos = [], idx = [], step = 2, rings = [];
-    for (let i = 0; i < F.length; i += step) rings.push(i); if (rings[rings.length - 1] !== F.length - 1) rings.push(F.length - 1);
-    rings.forEach((i, r2) => { const f = F[i], c = [f.p[0] + f.side[0] * off[0] + f.up[0] * off[1], f.p[1] + f.side[1] * off[0] + f.up[1] * off[1], f.p[2] + f.side[2] * off[0] + f.up[2] * off[1]];
-      for (let s = 0; s < sides; s++) { const a = s / sides * Math.PI * 2, ca = Math.cos(a) * rad, sa = Math.sin(a) * rad; pos.push(c[0] + f.side[0] * ca + f.up[0] * sa, c[1] + f.side[1] * ca + f.up[1] * sa, c[2] + f.side[2] * ca + f.up[2] * sa); }
-      if (r2) for (let s = 0; s < sides; s++) { const a = (r2 - 1) * sides + s, b = (r2 - 1) * sides + (s + 1) % sides, c2 = r2 * sides + s, d = r2 * sides + (s + 1) % sides; idx.push(a, c2, b, b, c2, d); } });
-    const g2 = new T.BufferGeometry(); g2.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g2.setIndex(idx); g2.computeVertexNormals();
-    sc.add(new T.Mesh(g2, new T.MeshLambertMaterial({ color })));
-  };
-  tube([-.55, 0], .07, 5, 0xd8402f); tube([.55, 0], .07, 5, 0xd8402f); tube([0, -.38], .17, 6, 0xf1e6cf);
-  { const n = Math.ceil(F.length / 3), M = new T.InstancedMesh(new T.BoxGeometry(1.35, .09, .24), new T.MeshLambertMaterial({ color: 0x3b2c20 }), n), m4 = new T.Matrix4(); let k = 0;
+  // track: rails and spine in one mesh, ties and supports instanced
+  { const parts = [], tube = (off, rad, sides, color) => {
+      const pos = [], idx = [], rings = []; for (let i = 0; i < F.length; i += 2) rings.push(i); if (rings[rings.length - 1] !== F.length - 1) rings.push(F.length - 1);
+      rings.forEach((i, r2) => { const f = F[i], c = [f.p[0] + f.side[0] * off[0] + f.up[0] * off[1], f.p[1] + f.side[1] * off[0] + f.up[1] * off[1], f.p[2] + f.side[2] * off[0] + f.up[2] * off[1]];
+        for (let s = 0; s < sides; s++) { const a = s / sides * Math.PI * 2, ca = Math.cos(a) * rad, sa = Math.sin(a) * rad; pos.push(c[0] + f.side[0] * ca + f.up[0] * sa, c[1] + f.side[1] * ca + f.up[1] * sa, c[2] + f.side[2] * ca + f.up[2] * sa); }
+        if (r2) for (let s = 0; s < sides; s++) { const a = (r2 - 1) * sides + s, b = (r2 - 1) * sides + (s + 1) % sides, c2 = r2 * sides + s, d = r2 * sides + (s + 1) % sides; idx.push(a, c2, b, b, c2, d); } });
+      const g2 = new T.BufferGeometry(); g2.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g2.setIndex(idx); g2.computeVertexNormals(); parts.push([g2, color]); };
+    tube([-.55, 0], .075, 6, 0xd8402f); tube([.55, 0], .075, 6, 0xd8402f); tube([0, -.4], .18, 7, 0xf1e6cf);
+    sc.add(new T.Mesh(mergeParts(T, parts), new T.MeshLambertMaterial({ vertexColors: true }))); }
+  { const n = Math.ceil(F.length / 3), M = new T.InstancedMesh(new T.BoxGeometry(1.35, .1, .24), new T.MeshLambertMaterial({ color: 0x4a3626 }), n), m4 = new T.Matrix4(); let k = 0;
     for (let i = 0; i < F.length; i += 3) { const f = F[i]; m4.makeBasis(new T.Vector3(...f.side), new T.Vector3(...f.up), new T.Vector3(...f.fwd)); m4.setPosition(f.p[0] - f.up[0] * .2, f.p[1] - f.up[1] * .2, f.p[2] - f.up[2] * .2); M.setMatrixAt(k++, m4); }
     M.count = k; sc.add(M); }
-  { const n = Math.ceil(F.length / 8), M = new T.InstancedMesh(new T.CylinderGeometry(.13, .2, 1, 6), new T.MeshLambertMaterial({ color: 0xe9dfc8 }), n), m4 = new T.Matrix4(); let k = 0;
-    for (let i = 4; i < F.length; i += 8) { const f = F[i]; if (f.up[1] < .6) continue; const top = f.p[1] - .5, gnd = terr(S[i].x), hh = top - gnd; if (hh < .6) continue;
+  { const n = Math.ceil(F.length / 8), M = new T.InstancedMesh(new T.CylinderGeometry(.14, .22, 1, 7), new T.MeshLambertMaterial({ color: 0xe9dfc8 }), n), m4 = new T.Matrix4(); let k = 0;
+    for (let i = 4; i < F.length; i += 8) { const f = F[i]; if (f.up[1] < .6) continue; const top = f.p[1] - .55, gnd = terr(S[i].x), hh = top - gnd; if (hh < .6) continue;
       m4.compose(new T.Vector3(f.p[0], gnd + hh / 2, f.p[2]), new T.Quaternion(), new T.Vector3(1, hh, 1)); M.setMatrixAt(k++, m4); }
     M.count = k; sc.add(M); }
-  sc.add(V3.cam); sc.add(V3.train);
+  // the train (three cars, the same model) and its blob shadow
+  V3.train = new T.InstancedMesh(V3.carGeo, new T.MeshLambertMaterial({ vertexColors: true }), 3); V3.train.frustumCulled = false; sc.add(V3.train);
+  { const tex = canvasTex(T, 64, 64, (x, w) => { const g3 = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); g3.addColorStop(0, 'rgba(0,0,0,.55)'); g3.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g3; x.fillRect(0, 0, w, w); });
+    V3.shadow = new T.Mesh(new T.PlaneGeometry(1, 1), new T.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })); V3.shadow.rotation.x = -Math.PI / 2; sc.add(V3.shadow); }
+  sc.add(V3.cam);
 }
 function v3Size() { if (!V3.r) return; V3.r.setSize(innerWidth, innerHeight, false); V3.cam.aspect = innerWidth / innerHeight; V3.cam.updateProjectionMatrix(); }
 function v3Open() {
   if (!v3Init()) return false; V3.chaseP = null; V3.chaseD = null; v3Build(); v3Size();
-  V3.on = true; $('v3').classList.add('on'); $('v3fx').classList.add('on'); document.body.classList.add('ride3'); pv.style.display = 'none'; $('povL').style.display = 'none';
+  V3.on = true; $('v3').classList.add('on'); $('v3fx').classList.add('on'); document.body.classList.add('ride3'); pv.style.display = 'none'; $('povL').style.display = 'none'; wakeTools();
   if (play) v3Frame(play); return true;
 }
 function v3Close() { V3.on = false; $('v3').classList.remove('on'); $('v3fx').classList.remove('on'); document.body.classList.remove('ride3'); }
 function toggle3D() { V3.want = !V3.on; if (V3.on) { v3Close(); if (play) { pv.style.display = 'block'; $('povL').style.display = 'block'; } } else v3Open(); renderTools(); kick(); }
+// the ride controls fade away after two seconds so they don't sit on the view; any touch or mouse move brings them back
+let toolsT = 0; function wakeTools() { $('tools').classList.remove('idle'); clearTimeout(toolsT); toolsT = setTimeout(() => { if (V3.on) $('tools').classList.add('idle'); }, 2000); }
+addEventListener('pointermove', () => V3.on && wakeTools()); addEventListener('pointerdown', () => V3.on && wakeTools());
 // where the front seat is at playback position (sample k plus fraction f): interpolated between physics samples
 function seatAt(p) {
   const R = last.r, F = V3.frames, i0 = R.idx[p.k] ?? 0, i1 = R.idx[Math.min(R.idx.length - 1, p.k + 1)] ?? i0, a = F[i0], b = F[i1], f = p.f;
   const L = (u, v) => [u[0] + (v[0] - u[0]) * f, u[1] + (v[1] - u[1]) * f, u[2] + (v[2] - u[2]) * f], nz = u => { const l = Math.hypot(...u) || 1; return [u[0] / l, u[1] / l, u[2] / l]; };
   const ah = F[Math.min(F.length - 1, i0 + 3)]; // look a little ahead, as a rider does
-  return { p: L(a.p, b.p), fwd: nz(L(L(a.fwd, b.fwd), ah.fwd)), up: nz(L(a.up, b.up)), i: i0 };
+  return { p: L(a.p, b.p), fwd: nz(L(L(a.fwd, b.fwd), ah.fwd)), tfwd: nz(L(a.fwd, b.fwd)), up: nz(L(a.up, b.up)), i: i0 };
 }
+function carMatrix(T, q) { const fw = new T.Vector3(...q.fwd), up = new T.Vector3(...q.up), rt = fw.clone().cross(up).normalize(); up.crossVectors(rt, fw).normalize(); return new T.Matrix4().makeBasis(rt, up, fw.clone().negate()).setPosition(q.p[0], q.p[1], q.p[2]); }
 function v3Frame(p) {
-  const T = window.THREE, R = last.r, s = seatAt(p), v = R.v[p.k] || 0, gg = R.gs[p.k] ?? 1;
-  const camE = V3.cam;
+  const T = window.THREE, R = last.r, s = seatAt(p), v = R.v[p.k] || 0, gg = R.gs[p.k] ?? 1, F = V3.frames, camE = V3.cam, dt = V3.dt;
+  // the train: front car at the seat, two more behind
+  for (let k = 0; k < 3; k++) { const q = k ? { p: F[Math.max(0, s.i - k * 6)].p, fwd: F[Math.max(0, s.i - k * 6)].fwd, up: F[Math.max(0, s.i - k * 6)].up } : { p: s.p, fwd: s.tfwd, up: s.up }; V3.train.setMatrixAt(k, carMatrix(T, q)); }
+  V3.train.instanceMatrix.needsUpdate = true;
+  { const [gh] = V3.groundAt(s.p[0], s.p[2]), hgt = Math.max(0, s.p[1] - gh), k = 1 / (1 + hgt / 12); V3.shadow.position.set(s.p[0], gh + .1, s.p[2]); V3.shadow.scale.set(3.2 + hgt * .05, 8 + hgt * .08, 1); V3.shadow.rotation.z = -Math.atan2(s.tfwd[2], s.tfwd[0]) + Math.PI / 2; V3.shadow.material.opacity = k; }
+  // floating up off the seat in airtime, pressed down under high g
+  const bobT = gg < .4 ? (.4 - gg) * .28 : -Math.max(0, gg - 1.5) * .04; V3.bob += (bobT - V3.bob) * Math.min(1, dt * 8);
   if (!V3.chase) {
-    const sh = Math.max(0, Math.abs(gg - 1) - 1.5) * .025 * (play && play.speed ? 1 : 0), j = () => (Math.random() - .5) * sh;
-    camE.position.set(s.p[0] + s.up[0] * 1.25 + j(), s.p[1] + s.up[1] * 1.25 + j(), s.p[2] + s.up[2] * 1.25 + j());
-    const right = new T.Vector3(...s.fwd).cross(new T.Vector3(...s.up)).normalize(), up = new T.Vector3().crossVectors(right, new T.Vector3(...s.fwd)).normalize();
-    camE.quaternion.setFromRotationMatrix(new T.Matrix4().makeBasis(right, up, new T.Vector3(-s.fwd[0], -s.fwd[1], -s.fwd[2])));
-    V3.car.visible = true; V3.train.visible = false;
+    // a rider looks about: the gaze is pulled 40% toward the horizon while the car is upright
+    const up0 = new T.Vector3(...s.up), f0 = new T.Vector3(...s.fwd), lv = new T.Vector3(f0.x, 0, f0.z), w = .4 * clamp((up0.y - .3) / .4, 0, 1);
+    const gaze = lv.lengthSq() > 1e-4 ? f0.clone().lerp(lv.normalize(), w).normalize() : f0;
+    const sh = Math.max(0, Math.abs(gg - 1) - 1.5) * .025 * (play && play.speed ? 1 : 0), j = () => (Math.random() - .5) * sh, e = EYE + V3.bob;
+    camE.position.set(s.p[0] + s.up[0] * e + j(), s.p[1] + s.up[1] * e + j(), s.p[2] + s.up[2] * e + j());
+    const right = gaze.clone().cross(up0).normalize(), up = new T.Vector3().crossVectors(right, gaze).normalize();
+    camE.quaternion.setFromRotationMatrix(new T.Matrix4().makeBasis(right, up, gaze.clone().negate()));
   } else {
-    const F = V3.frames, back = F[Math.max(0, s.i - 30)], dx0 = s.p[0] - back.p[0], dz0 = s.p[2] - back.p[2], hz0 = Math.hypot(dx0, dz0);
+    const back = F[Math.max(0, s.i - 30)], dx0 = s.p[0] - back.p[0], dz0 = s.p[2] - back.p[2], hz0 = Math.hypot(dx0, dz0);
     if (hz0 > 3 || !V3.chaseD) V3.chaseD = hz0 > .1 ? [dx0 / hz0, dz0 / hz0] : [Math.cos(design.S[s.i].head), Math.sin(design.S[s.i].head)]; // behind the train's recent travel, so loops don't swing it round
-    const [bx, bz] = V3.chaseD;
-    const tx = s.p[0] - bx * 16, tz = s.p[2] - bz * 16; V3.chaseP = V3.chaseP || [tx, s.p[1] + 7, tz];
-    const k = play && play.fast ? 1 : .12; V3.chaseP = [V3.chaseP[0] + (tx - V3.chaseP[0]) * k, V3.chaseP[1] + (Math.max(s.p[1] + 7, (V3.groundAt ? V3.groundAt(tx, tz)[0] : 0) + 3) - V3.chaseP[1]) * k, V3.chaseP[2] + (tz - V3.chaseP[2]) * k];
+    const [bx, bz] = V3.chaseD, tx = s.p[0] - bx * 16, tz = s.p[2] - bz * 16; V3.chaseP = V3.chaseP || [tx, s.p[1] + 7, tz];
+    const k = play && play.fast ? 1 : Math.min(1, dt * 7); V3.chaseP = [V3.chaseP[0] + (tx - V3.chaseP[0]) * k, V3.chaseP[1] + (Math.max(s.p[1] + 7, V3.groundAt(tx, tz)[0] + 3) - V3.chaseP[1]) * k, V3.chaseP[2] + (tz - V3.chaseP[2]) * k];
     camE.position.set(...V3.chaseP); camE.up.set(0, 1, 0); camE.lookAt(s.p[0], s.p[1] + 1, s.p[2]);
-    V3.car.visible = false; V3.train.visible = true;
-    V3.train.children.forEach((m, k) => { const f = F[Math.max(0, s.i - k * 6)], q = k ? f : { p: s.p, fwd: s.fwd, up: s.up }; m.position.set(q.p[0] + q.up[0] * .7, q.p[1] + q.up[1] * .7, q.p[2] + q.up[2] * .7);
-      const rt = new T.Vector3(...q.fwd).cross(new T.Vector3(...q.up)).normalize(); m.quaternion.setFromRotationMatrix(new T.Matrix4().makeBasis(rt, new T.Vector3(...q.up), new T.Vector3(-q.fwd[0], -q.fwd[1], -q.fwd[2]))); });
   }
-  const fov = 66 + Math.min(34, v * 1.1); if (Math.abs(camE.fov - fov) > .2) { camE.fov = fov; camE.updateProjectionMatrix(); }
+  const fov = 64 + Math.min(36, v * 1.15); if (Math.abs(camE.fov - fov) > .2) { camE.fov = fov; camE.updateProjectionMatrix(); }
   V3.sky.position.copy(camE.position);
+  if (V3.wheel) V3.wheel.rotateZ(dt * .08);
+  // speed streaks: faint lines rushing past once the train is quick
+  { const st = V3.streak, a = V3.lines.geometry.attributes.position, sp = clamp((v - 14) / 18, 0, 1), len = .4 + v * .05;
+    V3.lines.material.opacity = sp * .35 * (V3.chase ? 0 : 1);
+    for (let k = 0; k < st.n; k++) { const q = st.p[k]; q[2] += v * dt * 1.4; if (q[2] > -1.5) { const ang = Math.random() * Math.PI * 2, r = 1.6 + Math.random() * 3.5; q[0] = Math.cos(ang) * r; q[1] = Math.sin(ang) * r * .7; q[2] = -18 - Math.random() * 20; }
+      a.setXYZ(k * 2, q[0], q[1], q[2]); a.setXYZ(k * 2 + 1, q[0], q[1], q[2] - len); }
+    a.needsUpdate = true; }
   // grey-out above 4.5 g, a pale flash of float below 0 g
   const dim = clamp((gg - 4.5) / 1.5, 0, 1), fl = gg < 0 ? clamp(-gg, 0, 1) * .25 : 0;
   $('v3fx').style.background = dim > 0 ? `radial-gradient(ellipse at center, rgba(0,0,0,${dim * .55}) ${Math.round(60 - dim * 45)}%, rgba(0,0,0,${.3 + dim * .65}) 100%)` : fl ? `rgba(255,255,255,${fl})` : 'radial-gradient(ellipse at center, transparent 70%, rgba(0,0,0,.25) 100%)';
   V3.r.render(V3.scene, camE);
 }
 addEventListener('resize', () => v3Size());
+
 function guests(sc) {
   const st = sc.st, out = [];
   out.push(['Thrill seeker', st.inv ? (st.air > 1.5 ? 'Upside down AND floating? Again!' : 'The loop was the best bit.') : st.vmax > 25 ? 'Fast, but I want to go upside down.' : 'Yawn. My nan has ridden faster.']);

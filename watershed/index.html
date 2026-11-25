@@ -231,7 +231,7 @@ function cleanSave(raw) {
     if (/^\d+$/.test(k) && +k < SC.length && Array.isArray(P) && P.length <= 60 && P.every(w => Array.isArray(w) && WORKS[w[0]] && [w[1], w[2]].every(p => Array.isArray(p) && p.length === 2 && p.every(v => Number.isFinite(v) && v >= 0 && v < N)))) plans[k] = P; }
   const sk = {}; if (s.sk && typeof s.sk === 'object') for (const k of Object.keys(s.sk).slice(-20)) { const e = s.sk[k];
     if (/^[a-z0-9]{1,12}$/.test(k) && Array.isArray(e) && Number.isInteger(e[0]) && e[0] >= 0 && e[0] < 1e6 && typeof e[1] === 'string' && e[1].length <= 1500 && /^[A-Za-z0-9_.-]*$/.test(e[1])) sk[k] = [e[0], e[1]]; }
-  return { v: 3, medals, plans, sk, cur: s.v === 3 && Number.isInteger(s.cur) && s.cur >= 0 && s.cur < SC.length ? s.cur : 0, intro: s.intro ? 1 : 0 };
+  return { v: 3, medals, plans, sk, cur: s.v === 3 && Number.isInteger(s.cur) && s.cur >= 0 && s.cur < SC.length ? s.cur : 0, intro: s.intro ? 1 : 0, ...(typeof s.skSeed === 'string' && /^[a-z0-9]{1,12}$/.test(s.skSeed) ? { skSeed: s.skSeed } : {}) };
 }
 const SAVE = cleanSave(RH.load('watershed', null));
 const persist = () => { RH.save('watershed', SAVE); RH.progress('watershed', Object.values(SAVE.medals).reduce((a, m) => a + m, 0) / (3 * CAMP)); };
@@ -436,7 +436,7 @@ function skSample() {
   SK.samples++; const late = year >= L.years * 2 / 3; if (late) SK.late++;
   L.gates.forEach(([gx, gy], i) => { const cx = Math.round(gx * (N - 1)), cy = Math.round(gy * (N - 1)); let hit = false;
     for (let dy = -4; dy <= 4 && !hit; dy++) for (let dx = -4; dx <= 4; dx++) { const k = (cy + dy) * N + cx + dx; if (dx * dx + dy * dy <= 16 && D[k] > .12 && U[k] * U[k] + V[k] * V[k] > .01) { hit = true; break; } }
-    SK.liveGates[i] = hit; if (hit && late) SK.gateHits[i]++; });
+    if (SK.liveGates[i] !== hit && !headless) { SK.liveGates[i] = hit; skFlagCols(); } SK.liveGates[i] = hit; if (hit && late) SK.gateHits[i]++; });
   if (late && seaInflowStep > .5) SK.seaHits++;
   for (const t of towns) for (const k of t.cells) if (D[k] > .3) { if (!t.wet) t.floods++; t.wet = true; SK.wet++; }
 }
@@ -994,10 +994,10 @@ function skWorks() {
   $('works').querySelectorAll('.wk').forEach(b => b.onclick = () => { SK.strokes.splice(+b.dataset.i, 1); skChanged(); snd.plaster(); });
 }
 // little survey flags on the model: orange until the river runs through, then green
-const flagGeo = new THREE.CylinderGeometry(.22, .22, 7, 6), penGeo = new THREE.BoxGeometry(3, 1.6, .2); SK.mats = [];
+const flagGeo = new THREE.CylinderGeometry(.3, .3, 9, 6), penGeo = new THREE.BoxGeometry(4.2, 2.4, .25); SK.mats = [];
 function skFlags() {
-  SK.mats = L.gates.map((g, i) => { const m = new THREE.MeshStandardMaterial({ color: '#e0782a', roughness: .6 }), grp = new THREE.Group(), pole = new THREE.Mesh(flagGeo, houseMat), pen = new THREE.Mesh(penGeo, m), k = Math.round(g[1] * (N - 1)) * N + Math.round(g[0] * (N - 1));
-    pole.position.y = 3.5; pen.position.set(1.5, 6.2, 0); pole.castShadow = pen.castShadow = true; grp.add(pole, pen); grp.position.set(k % N - N / 2, B[k] * VS, ((k / N) | 0) - N / 2); grp.userData = { k }; scene.add(grp); markerMeshes.push(grp); return m; });
+  SK.mats = L.gates.map((g, i) => { const m = new THREE.MeshStandardMaterial({ color: '#e0782a', emissive: '#5a2200', roughness: .6 }), grp = new THREE.Group(), pole = new THREE.Mesh(flagGeo, houseMat), pen = new THREE.Mesh(penGeo, m), k = Math.round(g[1] * (N - 1)) * N + Math.round(g[0] * (N - 1));
+    pole.position.y = 4.5; pen.position.set(2.1, 7.6, 0); pole.castShadow = pen.castShadow = true; grp.add(pole, pen); grp.position.set(k % N - N / 2, B[k] * VS, ((k / N) | 0) - N / 2); grp.userData = { k }; scene.add(grp); markerMeshes.push(grp); return m; });
   skFlagCols();
 }
 function skFlagCols() { SK.mats.forEach((m, i) => m.color.set(SK.liveGates[i] ? '#4f9a3a' : '#e0782a')); needDraw = true; }

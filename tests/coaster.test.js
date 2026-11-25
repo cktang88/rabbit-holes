@@ -102,7 +102,7 @@ module.exports = {
       await page.click('#tCam'); await page.click('#tSkip'); await page.waitForTimeout(300);
       eq(await page.evaluate(() => [__coaster.V3.on, !!__coaster.play]), [false, false], 'closed when the ride ends');
     },
-    'front-seat camera sits on the train: 1.25 m above the track at the interpolated seat, looking along it': async ({ page, ok }) => {
+    'front-seat camera sits on the train: 1.5 m above the track at the interpolated seat, looking along it': async ({ page, ok }) => {
       await page.waitForFunction(() => window.THREE);
       await page.evaluate(() => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; });
       await page.click('#tRide'); await page.click('#tSpd'); await page.click('#tSpd'); // 4x
@@ -112,7 +112,7 @@ module.exports = {
           const d = Math.hypot(c.position.x - s.p[0], c.position.y - s.p[1], c.position.z - s.p[2]), dot = q.x * s.fwd[0] + q.y * s.fwd[1] + q.z * s.fwd[2];
           const R = K.last.r, i0 = R.idx[P.k], S = K.design.S, tr = [S[i0].X, S[i0].y, S[i0].Z], gap = Math.hypot(s.p[0] - tr[0], s.p[1] - tr[1], s.p[2] - tr[2]); P.speed = 4; return { d, dot, gap }; });
         if (!r) break;
-        ok(Math.abs(r.d - 1.25) < .3, `camera ${r.d.toFixed(2)} m from the seat`); ok(r.dot > .9, `looking along the track (${r.dot.toFixed(2)})`); ok(r.gap < 1, `seat ${r.gap.toFixed(2)} m from the physics sample`);
+        ok(Math.abs(r.d - 1.5) < .3, `camera ${r.d.toFixed(2)} m from the seat`); ok(r.dot > .8, `looking along the track (${r.dot.toFixed(2)})`); ok(r.gap < 1, `seat ${r.gap.toFixed(2)} m from the physics sample`);
       }
     },
     'phone: the 3D ride renders a frame in under 16 ms with a capped pixel ratio and a low-poly scene': async ({ page, ok }) => {

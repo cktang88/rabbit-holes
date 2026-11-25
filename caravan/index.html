@@ -372,13 +372,13 @@ function buyRumor(){ if (C.gold<3) return; C.gold-=3; const r=RH.rng(C.seed+C.da
   if (upcoming.length && r()<0.7){ const e=upcoming[0]; C.rumors.push(e.start); const k={plague:'sickness spreading',war:'soldiers gathering',famine:'blight in the fields',festival:'preparations for a great festival',glut:'miners boasting of a find'}[e.k]; t=`A traveller mutters about ${k} near ${cities[e.city].name}. Something will happen there within a month or two.`; }
   else if (r()<0.25){ const ci=r.int(cities.length); t=`They say there's ${['plague','war','a famine'][r.int(3)]} coming to ${cities[ci].name}. (The teller is very drunk.)`; }
   else { const ci=r.int(cities.length), g=r.int(GOODS.length); const p=cities[ci].price[g]; t=`A merchant says ${GOODS[g][0].toLowerCase()} goes for about ${Math.round(p*r.range(0.85,1.15))}g in ${cities[ci].name} right now.`; }
-  logIt('🍺 '+t); RH.toast('🍺 '+t, 6000); persist(); renderAll(); }
+  logIt('🍺 '+t); if (!headless){ RH.toast('🍺 '+t, 6000); persist(); renderAll(); } }
 function sendPigeon(ci){ const here=cities[C.at]; if (!here.dove) return; if (C.gold<6) return; C.gold-=6; const d=Math.max(1,Math.round((shortest(C.at,ci)?.days||10)/3));
   // pigeon flies there and back: the report is as of its arrival there
   C.pigeons=(C.pigeons||[]); C.pigeons.push({city:ci, at:C.day+d, back:C.day+d*2});
   logIt(`🕊️ Pigeon sent to ${cities[ci].name}. Expect a reply in about ${d*2} days.`); persist(); renderAll(); }
-function processPigeons(){ if (!C.pigeons) return; C.pigeons=C.pigeons.filter(p=>{ if (!p.snap && C.day>=p.at){ p.snap=cities[p.city].price.map(x=>Math.round(x*10)/10); p.from=C.day; } if (C.day>=p.back){ if (p.snap){ const cur=C.book[p.city]; if (!cur||cur.day<p.from) C.book[p.city]={day:p.from,p:p.snap}; } RH.toast(`🕊️ Pigeon back from ${cities[p.city].name}.`); return false; } return true; }); }
-function hireAgent(){ if (C.agents[C.at]) { delete C.agents[C.at]; logIt(`Dismissed your agent in ${cities[C.at].name}.`); } else { if (C.gold<20) return; C.gold-=20; C.agents[C.at]={since:C.day}; logIt(`Hired an agent in ${cities[C.at].name} (20g, then 2g a day). They'll send prices every day.`); } persist(); renderAll(); }
+function processPigeons(){ if (!C.pigeons) return; C.pigeons=C.pigeons.filter(p=>{ if (!p.snap && C.day>=p.at){ p.snap=cities[p.city].price.map(x=>Math.round(x*10)/10); p.from=C.day; } if (C.day>=p.back){ if (p.snap){ const cur=C.book[p.city]; if (!cur||cur.day<p.from) C.book[p.city]={day:p.from,p:p.snap}; } if (!headless) RH.toast(`🕊️ Pigeon back from ${cities[p.city].name}.`); return false; } return true; }); }
+function hireAgent(){ if (C.agents[C.at]) { delete C.agents[C.at]; logIt(`Dismissed your agent in ${cities[C.at].name}.`); } else { if (C.gold<20) return; C.gold-=20; C.agents[C.at]={since:C.day}; logIt(`Hired an agent in ${cities[C.at].name} (20g, then 2g a day). They'll send prices every day.`); } if (!headless){ persist(); renderAll(); } }
 
 // ===================== Contracts =====================
 function genContracts(){
@@ -388,7 +388,7 @@ function genContracts(){
     C.offers.push({to, g, qty, by:C.day+days, reward}); }
 }
 function checkContracts(){ C.contracts=C.contracts.filter(ct=>{ if (C.day>ct.by){ logIt(`❌ Contract failed: ${ct.qty} ${GOODS[ct.g][0].toLowerCase()} to ${cities[ct.to].name}. Your reputation suffers.`); return false; } return true; }); }
-function deliver(i){ const ct=C.contracts[i]; if (!ct || C.at!==ct.to || C.cargo[ct.g]<ct.qty || C.day>ct.by) return; C.cargo[ct.g]-=ct.qty; C.gold+=ct.reward; C.done++; C.contracts.splice(i,1); logIt(`✅ Contract fulfilled in ${cities[C.at].name}: +${ct.reward}g.`); RH.toast(`Contract fulfilled: +${ct.reward}g`); persist(); renderAll(); }
+function deliver(i){ const ct=C.contracts[i]; if (!ct || C.at!==ct.to || C.cargo[ct.g]<ct.qty || C.day>ct.by) return; C.cargo[ct.g]-=ct.qty; C.gold+=ct.reward; C.done++; C.contracts.splice(i,1); logIt(`✅ Contract fulfilled in ${cities[C.at].name}: +${ct.reward}g.`); if (!headless) RH.toast(`Contract fulfilled: +${ct.reward}g`); if (!headless){ persist(); renderAll(); } }
 
 // ===================== End =====================
 // Fortune for 1, 2 and 3 stars, set from scripted traders (tests/caravan.test.js): following the "makes/wants" labels earns 1 star,

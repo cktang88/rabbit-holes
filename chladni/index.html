@@ -28,6 +28,10 @@
   .b{border:1px solid #5a4018;background:linear-gradient(#e6c47c,#b18636 55%,#94701f);color:#2a1a06;font:600 15px "Cormorant Garamond",Georgia,serif;border-radius:2px;padding:4px 11px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,240,200,.7),inset 0 -1px 0 rgba(60,40,10,.4),0 2px 3px rgba(0,0,0,.35);text-shadow:0 1px 0 rgba(255,235,190,.6)}
   .b:hover{filter:brightness(1.07)}
   .b:active{transform:translateY(1px)}
+  /* zoom: three small brass keys */
+  .pz-bar{position:fixed!important;left:16px;bottom:16px;gap:5px!important}
+  .pz-bar button{min-width:34px!important;min-height:34px!important;padding:0!important;border:1px solid #5a4018;border-radius:2px;color:#2a1a06;font:600 19px "Cormorant Garamond",Georgia,serif!important;background:linear-gradient(#e6c47c,#b18636 55%,#94701f);box-shadow:inset 0 1px 0 rgba(255,240,200,.7),inset 0 -1px 0 rgba(60,40,10,.4),0 2px 3px rgba(0,0,0,.5);opacity:1!important}
+  .pz-bar button:active{transform:translateY(1px)}
   .b.on{background:linear-gradient(#3b2a18,#21170c);color:#f2d9a0;text-shadow:none;border-color:#120b05;box-shadow:inset 0 2px 4px rgba(0,0,0,.6)}
   .b:focus-visible,#slider:focus-visible{outline:2px dashed var(--rosin);outline-offset:3px}
   .mob{display:none}
@@ -134,6 +138,7 @@
 <div id="toast"></div>
 <script src="../shared/common.js"></script>
 <script src="../shared/fx.js"></script>
+<script src="../shared/panzoom.js"></script>
 <script>
 'use strict';
 // ================= plate physics (idealised) =================
@@ -413,7 +418,7 @@ function shake(steps) {
 // ================= rendering =================
 const $ = id => document.getElementById(id);
 const cv = $('cv'), g = cv.getContext('2d');
-let W = 1, H = 1, dpr = 1, plateBox = { x: 0, y: 0, s: 1 };
+let W = 1, H = 1, dpr = 1, plateBox = { x: 0, y: 0, s: 1 }, cam = null;
 const SZ = 700, sandC = document.createElement('canvas'), sg = sandC.getContext('2d');
 sandC.width = sandC.height = SZ;
 const sandImg = sg.createImageData(SZ, SZ), sand32 = new Uint32Array(sandImg.data.buffer), CNT = new Uint8Array(SZ * SZ);
@@ -488,6 +493,8 @@ function layout() {
   else { const book = $('book').getBoundingClientRect(); l = hud.right + 16; r = (book.width ? book.left : innerWidth) - 16; t = 24; b = dial.top - 20; }
   const s = Math.max(60, Math.min(r - l, (b - t) / hf, 680)), y = t + Math.max(0, (b - t - s * hf) / 2) - (plate === 'rect' ? s / 4 : 0);
   plateBox = { x: ((l + r) / 2 - s / 2) * dpr, y: y * dpr, s: s * dpr };
+  const key = [W, H, plateBox.x, plateBox.y, plateBox.s].map(Math.round).join(); if (cam && key !== layout.key) { layout.key = key; cam.state = { x: 0, y: 0, k: 1 }; cam.touched = false; } // a new layout starts at the fitted view
+  if (cam && cam.bar) { const b = cam.bar.style; if (narrow() || innerHeight <= 500) { b.left = 'auto'; b.right = '6px'; b.top = (innerHeight <= 500 ? 6 : hud.bottom + 6) + 'px'; b.bottom = 'auto'; } else { b.left = '16px'; b.right = 'auto'; b.top = 'auto'; b.bottom = '16px'; } }
   bake();
 }
 addEventListener('resize', layout);
@@ -507,7 +514,7 @@ function rasterSand() {
 }
 function draw(now) {
   g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
-  g.drawImage(bgC, 0, 0);
+  g.drawImage(bgC, 0, 0); if (cam) g.setTransform(cam.k, 0, 0, cam.k, cam.x * dpr, cam.y * dpr); // the bench stays put; the plate zooms
   const { x, y, s } = plateBox, wob = focus.strength * 1.5 * dpr * Math.sin(now / 9);
   const rect = plate === 'rect', h = rect ? s / 2 : s, yy = rect ? y + s / 4 : y, ph = rect ? SZ / 2 : SZ;
   g.drawImage(plC, x + wob - plPad, yy - plPad);
@@ -644,7 +651,7 @@ function renderUI() {
   layout();
 }
 function setPlate(p) { if (!PLATES[p]) return; plate = p; bow = defaultBow(p); finger = null; SAVE.plate = p; holdT = 0; persist(); sprinkle(); FX.sfx('click'); renderUI(); computeResponse(); }
-const plateXY = e => { const { x, y, s } = plateBox, h = plate === 'rect' ? s / 2 : s, yy = plate === 'rect' ? y + s / 4 : y; return [((e.clientX * dpr) - x) / s, ((e.clientY * dpr) - yy) / h]; };
+const plateXY = e => { const { x, y, s } = plateBox, h = plate === 'rect' ? s / 2 : s, yy = plate === 'rect' ? y + s / 4 : y, [wx, wy] = cam ? cam.toWorld(e.clientX, e.clientY) : [e.clientX, e.clientY]; return [((wx * dpr) - x) / s, ((wy * dpr) - yy) / h]; };
 function edgeDist(px, py) { if (plate === 'custom') { const inn = maskAt(px, py); for (let r = 1; r <= 3; r++) for (const [dx, dy] of [[r, 0], [-r, 0], [0, r], [0, -r]]) if (!!maskAt(px + dx / DG, py + dy / DG) !== !!inn) return r / DG; return 1; } if (plate === 'circle') return Math.abs(Math.hypot(px - .5, py - .5) - .5); return Math.min(Math.abs(px), Math.abs(1 - px), Math.abs(py), Math.abs(1 - py)) * (px < -.2 || px > 1.2 || py < -.2 || py > 1.2 ? 99 : 1); }
 function toEdge(px, py) { if (plate === 'custom') { let best = null, bd2 = 9; for (let c = 0; c < DG * DG; c++) { if (!dz.mask[c]) continue; const i = c % DG, j = (c / DG) | 0; if ([[1, 0], [-1, 0], [0, 1], [0, -1]].every(([a, b2]) => i + a >= 0 && i + a < DG && j + b2 >= 0 && j + b2 < DG && dz.mask[(j + b2) * DG + i + a])) continue; const x2 = (i + .5) / DG, y2 = (j + .5) / DG, d2 = (x2 - px) ** 2 + (y2 - py) ** 2; if (d2 < bd2) { bd2 = d2; best = { x: x2, y: y2 }; } } return best || bow; } if (plate === 'circle') { const a = Math.atan2(py - .5, px - .5); return { x: .5 + .49 * Math.cos(a), y: .5 + .49 * Math.sin(a) }; }
   px = Math.max(0, Math.min(1, px)); py = Math.max(0, Math.min(1, py)); const d = [px, 1 - px, py, 1 - py], k = d.indexOf(Math.min(...d)); return k === 0 ? { x: 0, y: py } : k === 1 ? { x: 1, y: py } : k === 2 ? { x: px, y: 0 } : { x: px, y: 1 }; }
@@ -652,17 +659,30 @@ let bowDrag = false;
 function setBow(b) { bow = b; dirty = true; holdT = 0; }
 function setFinger(f) { finger = f; dirty = true; holdT = 0; FX.sfx(f ? 'press' : 'lift'); }
 let brushing = false;
+// a press acts on release (a tap) or once it moves (a stroke); a second finger turns it into a pinch and cancels it
+let press = null, nPtr = 0;
 cv.addEventListener('pointerdown', e => {
+  nPtr++; if (nPtr > 1 || cam.gesturing) { press = null; brushing = false; drawPts = null; if (bowDrag) { bowDrag = false; if (press0Bow) setBow(press0Bow); } return; }
+  press = { e: { clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId }, started: false };
+});
+let press0Bow = null;
+function startPress() { const p = press; if (!p || p.started) return; p.started = true; press0Bow = bow; pressAt(p.e); }
+cv.addEventListener('pointermove', e => { if (press && !press.started && !cam.gesturing && Math.hypot(e.clientX - press.e.clientX, e.clientY - press.e.clientY) > 5) startPress(); }, true);
+const pressUp = e => { nPtr = Math.max(0, nPtr - 1); if (press && !press.started && e.type === 'pointerup' && !cam.gesturing) startPress(); press = null; };
+cv.addEventListener('pointerup', pressUp, true); cv.addEventListener('pointercancel', pressUp, true);
+function pressAt(e) {
   const [px, py] = plateXY(e); if (tuneOn()) return scrapeAt(px, py, e);
   if (plate === 'custom' && SAVE.mode === 'design') {
     if (dtool === 'draw') { drawPts = [[px, py]]; brushing = true; try { cv.setPointerCapture(e.pointerId); } catch (err) {} return; }
     if (dtool === 'strike') { if (maskAt(px, py)) strike(px, py); return; }
     if (dtool !== 'bow') { brushing = true; try { cv.setPointerCapture(e.pointerId); } catch (err) {} editAt(px, py); return; }
   }
-  if (edgeDist(px, py) < .08) { bowDrag = true; cv.setPointerCapture(e.pointerId); setBow(toEdge(px, py)); return; }
+  if (edgeDist(px, py) < .08) { bowDrag = true; try { cv.setPointerCapture(e.pointerId); } catch (_) {} setBow(toEdge(px, py)); return; }
   if (px > 0 && px < 1 && py > 0 && py < 1 && insideP(plate, px, py)) { if (finger && Math.hypot(finger.x - px, finger.y - py) < .07) setFinger(null); else setFinger({ x: px, y: py }); }
-});
-cv.addEventListener('pointermove', e => { if (bowDrag) { const [px, py] = plateXY(e); setBow(toEdge(px, py)); }
+}
+// only the bench around the plate pans the view: the plate itself is all instrument
+const offPlate = e => { const [px, py] = plateXY(e), m = .08; if (px < -m || px > 1 + m || py < -m || py > 1 + m) return true; if (plate === 'custom' && SAVE.mode === 'design') return false; return !insideP(plate, Math.max(0, Math.min(1, px)), Math.max(0, Math.min(1, py))) && edgeDist(px, py) >= .08 && !(px > 0 && px < 1 && py > 0 && py < 1 && insideP(plate, px, py)); };
+cv.addEventListener('pointermove', e => { if (cam.gesturing) return; if (bowDrag) { const [px, py] = plateXY(e); setBow(toEdge(px, py)); }
   if (brushing && plate === 'custom') { const [px, py] = plateXY(e); if (dtool === 'draw') { const q = drawPts[drawPts.length - 1]; if (Math.hypot(px - q[0], py - q[1]) > .02) drawPts.push([Math.max(.02, Math.min(.98, px)), Math.max(.02, Math.min(.98, py))]); }
     else if ((dtool === 'thin' || dtool === 'thick') && Math.random() < .35) editAt(px, py); } });
 addEventListener('pointerup', () => { if (!brushing) return; brushing = false;
@@ -728,9 +748,12 @@ function frame(now) {
 // no work at all while the tab is hidden
 document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; updateSound(); } else if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); } });
 $('slider').value = fToSlider(freq);
+cam = PanZoom(cv, { canPanFrom: offPlate, min: .6, max: 5 });
+cam.fit = animate => { cam.touched = false; const f = cam.state, t0 = performance.now(), ms = animate ? 260 : 0; // the fitted view is the layout's own
+  const step = now => { const u = ms ? Math.min(1, (now - t0) / ms) : 1, e = 1 - (1 - u) ** 3; cam.state = { x: f.x * (1 - e), y: f.y * (1 - e), k: f.k + (1 - f.k) * e }; cam.touched = false; if (u < 1) requestAnimationFrame(step); }; step(t0); };
 bow = defaultBow(plate); sprinkle(true); renderUI(); computeResponse();
 raf = requestAnimationFrame(frame);
-window.__ch = { PLATES, setFreq: f => { freq = f; $('slider').value = fToSlider(f); computeResponse(); }, setPlate, focus: () => focus, SAVE, get plate() { return plate; }, curTarget, targetsOf, EAR_FROM, solvePlate, newDesign, SHAPES, setShape, get dz() { return dz; }, set dz(v) { dz = v; }, installDesign, editAtTool, get plateBox() { return { x: plateBox.x / dpr, y: plateBox.y / dpr, s: plateBox.s / dpr }; }, bellErr, BELLS, bellGrade, editAt, encodePlate, decodePlate, figureKey, dailyShape, lamToF, DG, couple, setBow, setFinger, get bow() { return bow; }, TUNE, startTune, tunedF, tuneErr, kOf, scrapeCell: (c, light) => { tune.light = light; scrapeAt(((c % TG) + .5) / TG, (((c / TG) | 0) + .5) / TG); }, get tune() { return tune; }, tuneGrade, TG, tuneSq, get flights() { return flights; }, get holdT() { return holdT; }, record, HOLD_TOL };
+window.__ch = { get cam() { return cam; }, get finger() { return finger; }, PLATES, setFreq: f => { freq = f; $('slider').value = fToSlider(f); computeResponse(); }, setPlate, focus: () => focus, SAVE, get plate() { return plate; }, curTarget, targetsOf, EAR_FROM, solvePlate, newDesign, SHAPES, setShape, get dz() { return dz; }, set dz(v) { dz = v; }, installDesign, editAtTool, get plateBox() { return { x: plateBox.x / dpr, y: plateBox.y / dpr, s: plateBox.s / dpr }; }, bellErr, BELLS, bellGrade, editAt, encodePlate, decodePlate, figureKey, dailyShape, lamToF, DG, couple, setBow, setFinger, get bow() { return bow; }, TUNE, startTune, tunedF, tuneErr, kOf, scrapeCell: (c, light) => { tune.light = light; scrapeAt(((c % TG) + .5) / TG, (((c / TG) | 0) + .5) / TG); }, get tune() { return tune; }, tuneGrade, TG, tuneSq, get flights() { return flights; }, get holdT() { return holdT; }, record, HOLD_TOL };
 </script>
 </body>
 </html>

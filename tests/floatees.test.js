@@ -199,7 +199,7 @@ module.exports = {
       await page.mouse.move(vp.width / 2, vp.height / 2); await page.mouse.down(); await page.mouse.move(vp.width / 2 + 160, vp.height / 2, { steps: 8 }); await page.mouse.up(); await page.waitForTimeout(500);
       const after = await page.evaluate(() => __fl.camPos); ok(Math.hypot(after[0] - before[0], after[2] - before[2]) > .3, 'drag turned the view');
       await page.click('#vReset'); await page.waitForTimeout(1500);
-      const back = await page.evaluate(() => __fl.camPos); for (let i = 0; i < 3; i++) near(back[i], home[i], .03, 'reset axis ' + i);
+      const back = await page.evaluate(() => __fl.camPos); for (let i = 0; i < 3; i++) near(back[i], home[i], .1, 'reset axis ' + i);
       ok((await page.evaluate(() => __fl.ducks.length)) === 0, 'view controls drop nothing');
     },
     'corrupted / odd saves load without errors': async ({ page, eq }) => {

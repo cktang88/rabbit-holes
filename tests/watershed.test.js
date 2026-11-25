@@ -131,10 +131,74 @@ module.exports = {
     },
     'saves: corrupted and old saves load safely; progress counts medals and never exceeds 1': async ({ page, eq }) => {
       eq(await page.evaluate(() => [null, 'x', { v: 2, done: { 0: 1 }, cur: 3 }, { v: 3, medals: { 0: 2, 1: 9, 5: 1, z: 1 }, cur: 1, plans: { 0: [['farm', [62, 75], [62, 75]]], 1: [['bomb', [1, 1], [1, 1]]], 2: 'x' } }].map(__ws.cleanSave)),
-        [{ v: 3, medals: {}, plans: {}, cur: 0, intro: 0 }, { v: 3, medals: {}, plans: {}, cur: 0, intro: 0 }, { v: 3, medals: {}, plans: {}, cur: 0, intro: 0 }, { v: 3, medals: { 0: 2, 1: 3 }, plans: { 0: [['farm', [62, 75], [62, 75]]] }, cur: 1, intro: 0 }]);
+        [{ v: 3, medals: {}, plans: {}, sk: {}, cur: 0, intro: 0 }, { v: 3, medals: {}, plans: {}, sk: {}, cur: 0, intro: 0 }, { v: 3, medals: {}, plans: {}, sk: {}, cur: 0, intro: 0 }, { v: 3, medals: { 0: 2, 1: 3 }, plans: { 0: [['farm', [62, 75], [62, 75]]] }, sk: {}, cur: 1, intro: 0 }]);
       await plant(page, '{"medals":'); eq(await page.evaluate(() => document.getElementById('lvName').textContent), 'The Levee');
       await plant(page, JSON.stringify({ v: 3, medals: { 0: 3, 1: 3, 2: 3 }, cur: 2 }));
       eq(await page.evaluate(() => [document.getElementById('lvName').textContent, JSON.parse(localStorage.getItem('rh:hub')).watershed]), ['The High Dam', 1]);
+    },
+    'sketch: a seed always makes the same slab, flags and village; a shared link rebuilds the drawing and replays the river exactly': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const W = __ws, sum = a => { let v = 0; for (let k = 0; k < a.length; k += 7) v += a[k] * (k % 13 + 1); return v; };
+        const look = sd => { W.sketch(sd); return { b: sum(W.B), gates: W.sketchSite(sd).gates, village: W.towns[0].cells, par: W.SK.par }; };
+        const a = look('k3'), b = look('k3'), c = look('k4');
+        W.sketch('k3'); W.draw('valley', [[80, 8], [70, 40], [60, 70]]); W.draw('ridge', [[90, 60], [100, 80]]); W.draw('rock', [[66, 50], [70, 56]]);
+        const design = W.skEncode(), drawn = { b: sum(W.B), cost: Math.round(W.SK.cost), hash: location.hash }; W.runYears(3); const ran = sum(W.D) + sum(W.B);
+        W.sketch('k3', design); const again = { b: sum(W.B), cost: Math.round(W.SK.cost) }; W.runYears(3); const ran2 = sum(W.D) + sum(W.B);
+        return { same: JSON.stringify(a) === JSON.stringify(b), differ: a.b !== c.b && JSON.stringify(a.gates) !== JSON.stringify(c.gates), design, drawn, again, ran, ran2, today: W.todaySeed(), dateNow: new Date().getDate(),
+          junk: W.skDecode('v!!.zAB.r').length + W.skDecode('x' + 'A'.repeat(5000)).length }; });
+      ok(r.same, 'same seed, same land'); ok(r.differ, 'different seeds differ');
+      eq(r.again, { b: r.drawn.b, cost: r.drawn.cost }, 'design rebuilt'); eq(r.ran2, r.ran, 'river replays identically');
+      ok(r.drawn.hash === '#sketch=k3~' + r.design && r.design.split('.').length === 3, r.drawn.hash);
+      ok(/^d\d{8}$/.test(r.today) && +r.today.slice(7) === r.dateNow, r.today); eq(r.junk, 0, 'junk designs decode to nothing');
+      await page.goto(page.url().replace(/#.*$/, '') + '#sketch=k3~' + r.design); await page.reload(); await page.waitForFunction(() => window.__ws, null, { timeout: 20000 });
+      eq(await page.evaluate(() => [__ws.seed, __ws.SK.strokes.length, Math.round(__ws.SK.cost), document.getElementById('lvName').textContent]), ['k3', 3, r.drawn.cost, 'River Sketch']);
+    },
+    'sketch: every seed is solvable (the surveyor’s course wins, inside par); leaving it, or scribbling at random, never does': async ({ page, ok }) => {
+      const seeds = ['a1', 'm5', 'x1y2', 'd20261125', 'river', 'q1'];
+      const pages = [page]; for (let i = 1; i < 3; i++) { const p = await page.context().newPage(); await p.goto(page.url()); await p.waitForFunction(() => window.__ws, null, { timeout: 30000 }); pages.push(p); }
+      const out = {}; await Promise.all(pages.map(async (p, w) => { for (let i = w; i < seeds.length; i += 3) out[seeds[i]] = await p.evaluate(sd => { const W = __ws, run = S => { W.sketch(sd); W.SK.strokes = S; W.skRebuild(); W.runYears(99); return { met: W.stat().goalMet, cost: W.skStat().plaster }; };
+        let x = 7; const R = () => (x = (x * 16807) % 2147483647) / 2147483647, rand = [];
+        for (let i = 0; i < 5; i++) { const p = [[R() * 63 | 0, R() * 63 | 0]]; for (let j = 0; j < 12; j++) { const l = p[p.length - 1]; p.push([Math.max(0, Math.min(63, l[0] + (R() * 5 | 0) - 2)), Math.max(0, Math.min(63, l[1] + (R() * 5 | 0) - 1))]); } rand.push({ t: ['valley', 'ridge', 'valley'][i % 3], p }); }
+        return { idle: run([]).met, rand: run(rand).met, bot: run(W.skBot(1)), par: W.SK.par }; }, seeds[i]); }));
+      for (const p of pages.slice(1)) await p.close();
+      for (const [sd, r] of Object.entries(out)) { ok(r.bot.met && r.bot.cost <= r.par + 5, sd + ' course: ' + JSON.stringify(r)); ok(!r.idle && !r.rand, sd + ' naive won: ' + JSON.stringify(r)); }
+    },
+    'sketch: a won run saves the best plaster and design per seed, compactly; the report offers edit, share and a new seed': async ({ page, eq, ok }) => {
+      const r = await page.evaluate(() => { const W = __ws; W.sketch('n6'); W.SK.strokes = W.skBot(1); W.skRebuild(); W.runYears(99);
+        const rep = document.getElementById('report'); return { best: W.SAVE.sk.n6, cost: W.skStat().plaster, met: W.stat().goalMet, buttons: [...rep.querySelectorAll('button')].map(b => b.id), on: rep.classList.contains('on'), size: localStorage.getItem('rh:watershed').length }; });
+      ok(r.met, 'bot run won'); eq(r.best && r.best[0], r.cost); eq(r.buttons, ['skEdit', 'skShare2', 'skNew2']); ok(r.on && r.size < 3000, JSON.stringify(r));
+      await page.click('#skEdit'); eq(await page.evaluate(() => [__ws.year, __ws.over, document.getElementById('report').classList.contains('on')]), [0, false, false], 'edit returns to the drawing');
+      const many = await page.evaluate(() => { const W = __ws; for (let i = 0; i < 30; i++) W.SAVE.sk['s' + i] = [100 + i, 'vAB']; return Object.keys(W.cleanSave({ v: 3, sk: W.SAVE.sk }).sk).length; }); eq(many, 20, 'at most 20 seeds kept');
+    },
+    'view: pinch zooms and never sculpts; a stroke drawn while zoomed lands under the finger; ⤢ resets the view': async ({ page, eq, ok }) => {
+      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }), p = await ctx.newPage();
+      await p.goto(page.url().replace(/#.*$/, '') + '#sketch=b2'); await p.waitForFunction(() => window.__ws, null, { timeout: 20000 }); await p.waitForTimeout(400);
+      const cdp = await ctx.newCDPSession(p), T = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+      const [cx, cy] = await p.evaluate(() => { const r = document.getElementById('gl').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+      const d0 = await p.evaluate(() => __ws.camDist()), b0 = await p.evaluate(() => __ws.B.reduce((a, v) => a + v, 0));
+      await T('touchStart', [[cx - 20, cy]]); await T('touchStart', [[cx - 20, cy], [cx + 20, cy]]);
+      for (let i = 1; i <= 10; i++) { await T('touchMove', [[cx - 20 - i * 6, cy - i * 3], [cx + 20 + i * 6, cy + i * 3]]); await p.waitForTimeout(16); }
+      await T('touchEnd', []); await p.waitForTimeout(400);
+      const a = await p.evaluate(b0 => ({ d: __ws.camDist(), strokes: __ws.SK.strokes.length, same: Math.abs(__ws.B.reduce((a, v) => a + v, 0) - b0) < 1e-3, moved: document.getElementById('viewBtn').classList.contains('moved') }), b0);
+      ok(a.d < d0 * .7 && a.strokes === 0 && a.same && a.moved, 'pinch: ' + JSON.stringify(a) + ' from ' + d0);
+      await T('touchStart', [[cx, cy]]); const g0 = await p.evaluate(() => [__ws.hover.x, __ws.hover.y]);
+      for (let i = 1; i <= 8; i++) { await T('touchMove', [[cx + i * 5, cy + i * 3]]); await p.waitForTimeout(16); }
+      const hv = await p.evaluate(() => __ws.toScreen(__ws.hover.x, __ws.hover.y)); await T('touchEnd', []); await p.waitForTimeout(200);
+      const st = await p.evaluate(() => __ws.SK.strokes.map(s => s.p[0]));
+      ok(Math.hypot(hv[0] - cx - 40, hv[1] - cy - 24) < 14, 'ground under the finger: ' + hv + ' vs ' + [cx + 40, cy + 24]);
+      ok(st.length === 1 && Math.abs(st[0][0] * 2.5 - g0[0]) <= 1.3 && Math.abs(st[0][1] * 2.5 - g0[1]) <= 1.3, 'stroke starts under the finger: ' + JSON.stringify([st, g0]));
+      await p.locator('#viewBtn').tap(); await p.waitForTimeout(300); const d2 = await p.evaluate(() => __ws.camDist());
+      ok(Math.abs(d2 - d0) < d0 * .05, 'reset view: ' + d2 + ' vs ' + d0); await ctx.close();
+      // desktop: the wheel zooms toward the cursor
+      const w0 = await page.evaluate(() => __ws.camDist()); await page.mouse.move(450, 300); await page.mouse.wheel(0, -600); await page.waitForTimeout(500);
+      ok(await page.evaluate(() => __ws.camDist()) < w0 * .9, 'wheel zoom');
+    },
+    'performance: an idle model is not redrawn, and the erosion step stays within its frame budget': async ({ page, ok }) => {
+      const r = await page.evaluate(async () => { const W = __ws; W.sketch('a1'); W.setSpeed(0); const f = n => new Promise(res => { let i = 0; const g = () => ++i < n ? requestAnimationFrame(g) : res(); requestAnimationFrame(g); });
+        await f(20); const d0 = W.drawCount; await f(30); const idle = W.drawCount - d0;
+        for (const k in W.PERF) W.PERF[k] = 0; W.setSpeed(8); await f(60); W.setSpeed(0); const P = { ...W.PERF };
+        return { idle, simPerFrame: P.sim / 60, geomPerFrame: P.geom / 60, stepCost: W.stepCost, steps: P.steps }; });
+      ok(r.idle === 0, 'idle frames drawn: ' + r.idle);
+      ok(r.steps > 0 && r.simPerFrame < 32 && r.stepCost < 4 && r.geomPerFrame < 12, JSON.stringify(r));
     },
   },
 };

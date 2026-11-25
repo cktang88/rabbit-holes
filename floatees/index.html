@@ -635,12 +635,14 @@ function load(i) {
 // the level's own view of the globe; Reset eases back to it
 function homeView(animate) {
   const fc = L.drop || L.focus, d = MOBILE ? (innerHeight <= 500 ? 5.4 : 6.6) : 5.4;
-  const v = fc ? new THREE.Vector3(...toXYZ(fc[0] - 12, fc[1])).normalize().multiplyScalar(d) : new THREE.Vector3(0, 1.2, 5.6).setLength(Math.max(d, 5.6));
+  if (!fc && !animate) { homePos = camera.position.clone(); return; } // free voyages keep the view they open with; Reset comes back to it
+  const v = fc ? new THREE.Vector3(...toXYZ(fc[0] - 12, fc[1])).normalize().multiplyScalar(d) : homePos.clone();
   if (fc) globe.rotation.y = 0;
-  if (animate) viewTo = { v, d: v.length() }; else { viewTo = null; camera.position.copy(v); controls.update(); }
+  if (animate) { stopSpin(); viewTo = { v, d: v.length() }; } else { viewTo = null; camera.position.copy(v); controls.update(); }
 }
-let viewTo = null;
-const zoomView = f => { const d = Math.max(controls.minDistance, Math.min(controls.maxDistance, camera.position.length() * f)); viewTo = { v: camera.position.clone().setLength(d), d }; };
+const stopSpin = () => { controls.enableDamping = false; controls.update(); controls.enableDamping = true; }; // drop any leftover fling before an eased move
+let viewTo = null, homePos = new THREE.Vector3(0, 1.2, 5.6);
+const zoomView = f => { const d = Math.max(controls.minDistance, Math.min(controls.maxDistance, camera.position.length() * f)); stopSpin(); viewTo = { v: camera.position.clone().setLength(d), d }; };
 function setSpin(r, quiet) {
   rot = r; ducks = []; simT = 0; running = false;
   const go = () => { if (rot !== r) return; applyOcean(r); renderCtrl(); };

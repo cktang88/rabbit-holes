@@ -217,7 +217,7 @@ function life(t,src){
     case HYD: return 700+(rnd()&255); case FOAM: return 160+(rnd()&127); case EMBER: return 800+(rnd()&511); case PLANT: return 200; }
   return 0;
 }
-function make(i,t,a,b){ T[i]=t; L[i]=life(t,a); S[i]=(rnd()&127)|(t===FIRE&&ORGANIC[a]?128:0); C[i]=stamp; made[t]++; if (!KNOWN[t]) { KNOWN[t]=1; if (onFound) onFound(t,a,b); } }
+function make(i,t,a,b){ T[i]=t; L[i]=life(t,a); S[i]=(rnd()&127)|(t===FIRE&&ORGANIC[a]?128:0); C[i]=stamp; if (!t){ L[i]=0; return; } made[t]++; if (!KNOWN[t]) { KNOWN[t]=1; if (onFound) onFound(t,a,b); } }
 function swap(i,j){ const t=T[i]; T[i]=T[j]; T[j]=t; const l=L[i]; L[i]=L[j]; L[j]=l; const s=S[i]; S[i]=S[j]; S[j]=s; C[i]=C[j]=stamp; }
 const FLUID=new Uint8Array(NT); for (let t=0;t<NT;t++) FLUID[t]=(KIND[t]===LIQ||KIND[t]===GAS||KIND[t]===FLM)?1:0;
 const fluid=(b)=>FLUID[b]===1;
@@ -407,7 +407,8 @@ function cleanSave(s){
   if (!s || typeof s!=='object') return o;
   if (s.codex && typeof s.codex==='object') for (const [k,v] of Object.entries(s.codex)) if (ID[k]>0 && Array.isArray(v)) o.codex[k]=[String(v[0]||'').slice(0,10), ID[v[1]]>=0?v[1]:'', ID[v[2]]>=0?v[2]:''];
   if (s.done && typeof s.done==='object') for (const [k,v] of Object.entries(s.done)) if (comById[k]) o.done[k]=String(v).slice(0,10);
-  if (s.daily && typeof s.daily==='object') for (const [k,v] of Object.entries(s.daily).slice(-60)) if (/^\d{4}-\d\d-\d\d$|^mix:/.test(k) && Number.isFinite(+v)) o.daily[k.slice(0,40)]=Math.max(0,Math.min(99,+v|0));
+  if (s.daily && typeof s.daily==='object') for (const [k,v] of Object.entries(s.daily).slice(-60)){ const a=Array.isArray(v)? v : [v,0];
+    if (/^\d{4}-\d\d-\d\d$|^mix:/.test(k) && Number.isFinite(+a[0])) o.daily[k.slice(0,40)]=[Math.max(0,Math.min(99,+a[0]|0)), Math.max(0,Math.min(1e6,+a[1]|0))]; }
   if (comById[s.cur]) o.cur=s.cur;
   return o;
 }
@@ -428,7 +429,7 @@ function dailyFor(key){
   const r=RH.rng('alembic:'+key);
   for (let tries=0; tries<200; tries++){
     const pal=r.shuffle(POOL.slice()).slice(0,4); const cl=closure(pal); let n=0; for (let t=1;t<NT;t++) if (cl[t] && !pal.includes(t)) n++;
-    if (n>=9 && n<=30) return {key, pal, possible:n, seed:RH.hashStr('tray:'+key)|1};
+    if (n>=12 && n<=30) return {key, pal, possible:n, seed:RH.hashStr('tray:'+key)|1};
   }
   return {key, pal:START.slice(), possible:0, seed:7};
 }
@@ -448,6 +449,10 @@ function startSandbox(cells){
   mode='sandbox'; com=null; daily=null; clearTray(); seed=RH.hashStr('sandbox')|1; if (cells) decodeTray(cells); setKnown(knownGlobal()); renderVials(); updGoal(true);
 }
 function dailyScore(){ return dailyMade.size; }
+const dropsUsed=()=>{ let n=0; for (let t=1;t<NT;t++) n+=poured[t]; return n; };
+// a better daily: more substances, or as many with fewer drops poured
+const better=(a,b)=> !b || a[0]>b[0] || (a[0]===b[0] && a[0]>0 && a[1]<b[1]);
+const fmtBest=(b)=> b? `${b[0]} substances${b[0]?` in ${b[1].toLocaleString()} drops`:''}` : 'none yet';
 
 // discovery: a new substance appears in the tray
 onFound=(t,a,b)=>{
@@ -504,14 +509,14 @@ function updGoal(force){
   let txt='', pg='';
   if (mode==='work' && com){ const n=COMMS.indexOf(com)+1; const [v,need]=progressOf(com);
     txt=`<span class="cap">${roman(n)}</span> <b>${com.n}.</b> ${com.g}`; pg=SAVE.done[com.id]? 'sealed ✓' : `${v} / ${need}`; }
-  else if (mode==='daily'){ txt=`<span class="cap">☉</span> <b>Daily tray ${daily.key.replace('mix:','· ')}.</b> From ${daily.pal.map(t=>ELS[t][1].toLowerCase()).join(', ')}: make as many new substances as you can.`; pg=`${dailyScore()} / ${daily.possible}`; }
+  else if (mode==='daily'){ txt=`<span class="cap">☉</span> <b>Daily tray ${daily.key.replace('mix:','· ')}.</b> From ${daily.pal.map(t=>ELS[t][1].toLowerCase()).join(', ')}: make as many new substances as you can, in as few drops as you can.`; pg=`${dailyScore()} / ${daily.possible} · ${dropsUsed().toLocaleString()} drops`; }
   else { txt=`<span class="cap">✠</span> <b>Sandbox.</b> <i>Every vial you have found. Share the tray from the Book.</i>`; pg=''; }
   const key=txt+pg; if (!force && key===lastGoal) return; lastGoal=key;
   $('goal').querySelector('.txt').innerHTML=txt; $('goal').querySelector('.pg').textContent=pg;
 }
 const roman=(n)=>['','I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX','XXI','XXII','XXIII'][n]||String(n);
 function checkWin(){
-  if (mode==='daily'){ const k=daily.key, s=dailyScore(); if (s>(SAVE.daily[k]||0)){ SAVE.daily[k]=s; persist(); } return; }
+  if (mode==='daily'){ const k=daily.key, cur=[dailyScore(), dropsUsed()]; if (cur[0] && better(cur,SAVE.daily[k])){ SAVE.daily[k]=cur; persist(); } return; }
   if (mode!=='work' || !com || SAVE.done[com.id]) return;
   const [v,need]=progressOf(com); if (v<need) return;
   SAVE.done[com.id]=today(); persist(); FX.sfx('win'); const s=$('seal'); s.classList.remove('on'); void s.offsetWidth; s.classList.add('on');
@@ -525,20 +530,22 @@ function nextCommission(){ return COMMS.find(c=>!SAVE.done[c.id] && available(c)
 let pointer=null, lastCell=null;
 const cellAt=(e)=>{ const [x,y]=cam.toWorld(e.clientX,e.clientY); return [Math.floor(x), Math.floor(y)]; };
 cv.addEventListener('pointerdown', e=>{ e.preventDefault(); if (cam.gesturing || e.button===1){ pointer=null; return; } const c=cellAt(e); if (c[0]<0||c[1]<0||c[0]>=W||c[1]>=H) return;
-  try{ cv.setPointerCapture(e.pointerId); }catch(_){} pointer=c; lastCell=null; FX.sfx('pop'); });
-cv.addEventListener('pointermove', e=>{ if (cam.gesturing){ pointer=null; return; } if (pointer) pointer=cellAt(e); });
-const up=()=>{ pointer=null; lastCell=null; };
+  try{ cv.setPointerCapture(e.pointerId); }catch(_){} pointer=c; downAt=performance.now(); downXY=[e.clientX,e.clientY]; lastCell=null; });
+cv.addEventListener('pointermove', e=>{ if (cam.gesturing){ pointer=null; return; } if (pointer){ pointer=cellAt(e); if (Math.hypot(e.clientX-downXY[0],e.clientY-downXY[1])>8) downAt=-1e9; } });
+let downAt=0, downXY=[0,0];
+const up=()=>{ if (pointer && !lastCell && !cam.gesturing){ downAt=-1e9; pourFrame(); FX.sfx('pop'); } pointer=null; lastCell=null; };
 window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up); window.addEventListener('blur', up);
 function pourFrame(){
   if (cam.gesturing) pointer=null;
   if (!pointer || (sel!==0 && !KNOWN[sel])) return;
+  if (performance.now()-downAt<70) return;   // wait a moment: a second finger may be coming for a pinch
   const r= sel===0? 4 : KIND[sel]===SOL? 2 : 4;
   const [x1,y1]=pointer, [x0,y0]=lastCell||pointer; const n=Math.max(1,Math.ceil(Math.hypot(x1-x0,y1-y0)/2));
   for (let k=1;k<=n;k++) pourAt(sel, Math.round(x0+(x1-x0)*k/n), Math.round(y0+(y1-y0)*k/n), r);
   lastCell=pointer;
 }
 $('pauseBtn').onclick=()=>{ paused=!paused; $('pauseBtn').textContent=paused?'Run':'Pause'; };
-$('clearBtn').onclick=()=>{ const keep={...poured}; clearTray(); FX.sfx('whoosh'); updGoal(true); };
+$('clearBtn').onclick=()=>{ const keep=poured.slice(); clearTray(); if (mode==='daily') poured.set(keep); FX.sfx('whoosh'); updGoal(true); };
 window.addEventListener('keydown', e=>{ if (e.target.tagName==='INPUT') return; if (e.code==='Space'){ e.preventDefault(); $('pauseBtn').click(); } if (e.key==='Escape') closeBook(); });
 
 // the tray keeps a 2:3 page; it fills whatever room the desk leaves
@@ -569,11 +576,11 @@ function drawBook(){
     h+='</div>';
   } else if (tab==='daily'){
     const d=dailyFor(today());
-    h+=`<p class="note">One tray a day, the same for everyone: four vials and nothing else. Anything you make in it becomes pourable there. Score: how many new substances you make. Today's vials: <b>${d.pal.map(t=>ELS[t][1]).join(', ')}</b>; ${d.possible} are possible.</p>
-      <p>Your best today: <b>${SAVE.daily[d.key]||0}</b>. <button data-daily="${d.key}">Open today's tray</button></p>
+    h+=`<p class="note">One tray a day, the same for everyone: four vials and nothing else. Anything you make in it becomes pourable there. Score: how many new substances you make; between equals, fewer drops poured wins. Clearing the tray keeps what you have found but not the drops you saved. Today's vials: <b>${d.pal.map(t=>ELS[t][1]).join(', ')}</b>; ${d.possible} are possible.</p>
+      <p>Your best today: <b>${fmtBest(SAVE.daily[d.key])}</b>. <button data-daily="${d.key}">Open today's tray</button></p>
       <p class="note">A tray of your own: any word makes a seed. <input id="mixIn" maxlength="24" placeholder="a word" style="font:16px 'EB Garamond';padding:5px;width:140px"> <button id="mixBtn">Open</button></p>`;
     const past=Object.entries(SAVE.daily).filter(([k])=>!k.startsWith('mix:')).slice(-7).reverse();
-    if (past.length) h+=`<h3>Past days</h3><p>${past.map(([k,v])=>`${k}: ${v}`).join(' · ')}</p>`;
+    if (past.length) h+=`<h3>Past days</h3><p>${past.map(([k,v])=>`${k}: ${fmtBest(v)}`).join(' · ')}</p>`;
   } else {
     h+=`<p class="note">Every vial you have found, no goal. Build, burn and flood as you like, then send the tray to someone: the link carries every grain.</p>
       <p><button data-sandbox="1">Open the sandbox</button> <button id="shareBtn"${mode==='sandbox'?'':' disabled'}>Copy a link to this tray</button></p><p class="note" id="shareOut"></p>`;
@@ -631,8 +638,8 @@ function boot(){
 }
 window.__alembic={ W,H,NT,ELS,ID,T,L,S,RULES,COMMS,st,made,poured,cnt,
   get seed(){ return seed; }, set seed(v){ seed=(v|0)||1; }, get tick(){ return tick; }, get KNOWN(){ return KNOWN; }, get mode(){ return mode; }, get com(){ return com; }, get daily(){ return daily; }, get SAVE(){ return SAVE; }, get sel(){ return sel; }, set sel(v){ sel=v; },
-  set paused(v){ paused=v; }, cam, get pointer(){ return pointer; }, pourFrame, step, run(n){ for (let k=0;k<n;k++) step(); census(); }, clearTray, pourAt, fillRect, held, peakOf, census, progressOf, render, closure, dailyFor, dailyScore, cleanSave, encodeTray, decodeTray,
-  startCommission, startDaily, startSandbox, checkWin, knownGlobal, explode, comById, fitTray, nextCommission };
+  set paused(v){ paused=v; }, dropsUsed, better, cam, get pointer(){ return pointer; }, pourFrame, step, run(n){ for (let k=0;k<n;k++) step(); census(); }, clearTray, pourAt, fillRect, held, peakOf, census, progressOf, render, closure, dailyFor, dailyScore, cleanSave, encodeTray, decodeTray,
+  get dailyMade(){ return [...dailyMade]; }, startCommission, startDaily, startSandbox, checkWin, knownGlobal, explode, comById, fitTray, nextCommission };
 boot();
 </script>
 </body>

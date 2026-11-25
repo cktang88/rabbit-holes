@@ -49,6 +49,10 @@
   .bt th{color:var(--dim);font-weight:500}
   .bt td.l,.bt th.l{text-align:left}
   .note{font-size:12px;color:var(--dim);line-height:1.45}
+  .guild .gh{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}
+  .hgs{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:8px}
+  .hg .hl{font-size:12px;font-weight:600;margin-bottom:2px}
+  .hsvg svg{width:100%;height:82px;display:block}
   .stars{color:var(--accent);font-size:18px}
   @media (max-width:1000px) and (min-width:761px){#side{width:180px}}
   @media (max-width:760px){
@@ -113,6 +117,11 @@
   .yes{color:#1e5a2a;font-weight:700} .no{color:#8a1a10;font-weight:700} .mid{color:#6a4a10;font-weight:700}
   #cv{border:0;border-radius:50% / 12%;box-shadow:0 0 0 6px #8d6a22,0 0 0 9px #2a1c06,0 10px 24px #000a;background:#2c2416;height:360px}
   #cv.zoom{animation:loupe 1.6s cubic-bezier(.3,0,.3,1)}
+  .cvwrap{position:relative}
+  .pz-bar{bottom:16px!important;right:14px!important}
+  .pz-bar button{background:var(--brass);color:#2a1c06;border:1px solid #5a3e12;border-radius:3px;box-shadow:inset 0 1px 0 #fff8,0 2px 0 #4a3210;font-family:"EB Garamond",serif;font-weight:700}
+  .ax.flash{animation:axflash .9s}
+  @keyframes axflash{0%,60%{outline:3px solid #1b2f66;outline-offset:2px}100%{outline:0 solid transparent}}
   @keyframes loupe{30%{transform:scale(1.06);filter:brightness(1.25) saturate(1.2)}}
   .ax{background:var(--brass);color:#2a1c06;border:1px solid #5a3e12;border-radius:4px;box-shadow:inset 0 1px 0 #fff8,0 3px 6px #0008;position:relative}
   .ax:before,.ax:after{content:'';position:absolute;top:6px;width:7px;height:7px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#7fa6e6,#1b2f66);box-shadow:inset 0 0 0 1px #0b1638}
@@ -168,7 +177,7 @@
   @media (max-height:500px) and (min-width:600px){ /* landscape phone: the loupe on the left, the ticket and parts on the right */
     #center{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);grid-auto-rows:max-content;column-gap:16px;align-content:start;padding:10px 14px 30px}
     #center > *{grid-column:2;min-width:0}
-    #cv{grid-column:1;grid-row:1 / span 40;position:sticky;top:0;height:calc(100vh - 70px)!important;margin:0;align-self:start}
+    .cvwrap{grid-column:1;grid-row:1 / span 40;position:sticky;top:0;align-self:start} #cv{height:calc(100vh - 70px)!important;margin:0}
     h2{font-size:28px}
     .story:not(.open){-webkit-line-clamp:2;padding-bottom:0}
     table.tg{display:block;overflow-x:auto;white-space:nowrap}
@@ -180,6 +189,7 @@
 <main><div id="side"></div><div id="center" data-play></div></main>
 <script src="../shared/common.js"></script>
 <script src="../shared/fx.js"></script>
+<script src="../shared/panzoom.js"></script>
 <script>
 'use strict';
 const DAY = 86400, YEAR = 365.2422 * DAY;
@@ -265,8 +275,12 @@ function loadState() {
   const tooth = x => Number.isInteger(x) && x > 0 && x < 1e6;
   for (const k in s.done) { const d = s.done[k]; if (!C[k] || !d || typeof d !== 'object' || !(d.stars >= 1)) delete s.done[k]; else { d.stars = Math.min(3, d.stars | 0); d.gears = d.gears | 0; } }
   for (const k in s.designs) { const ax = s.designs[k]?.ax;
-    if ((k !== 'free' && !C[k]) || !Array.isArray(ax) || ax.length < 2 || ax.length > 40 || !tooth(ax[0]?.o) || ax.slice(1).some(a => !a || !tooth(a.i) || !(a.o == null || tooth(a.o)))) delete s.designs[k]; }
-  if (s.cur !== 'free' && !(Number.isInteger(s.cur) && C[s.cur])) s.cur = 0;
+    if ((k !== 'free' && k !== 'guild' && !C[k]) || !Array.isArray(ax) || ax.length < 2 || ax.length > 40 || !tooth(ax[0]?.o) || ax.slice(1).some(a => !a || !tooth(a.i) || !(a.o == null || tooth(a.o)))) delete s.designs[k]; }
+  if (s.cur !== 'free' && s.cur !== 'guild' && !(Number.isInteger(s.cur) && C[s.cur])) s.cur = 0;
+  const g = obj(s.guild), best = {};
+  for (const k in obj(g.best)) { const b = g.best[k]; if (/^[\w:.-]{1,60}$/.test(k) && b && Number.isFinite(b.e) && b.g > 0 && b.t > 0 && Object.keys(best).length < 40) best[k] = { e: +b.e, g: b.g | 0, t: b.t | 0, m: Math.min(3, Math.max(0, b.m | 0)) }; }
+  s.guild = { seed: typeof g.seed === 'string' && g.seed ? g.seed.slice(0, 40) : Math.random().toString(36).slice(2, 8), level: Math.max(1, Math.min(999, g.level | 0)), lv: Math.max(1, Math.min(999, g.lv | 0)), daily: g.daily ? 1 : 0, n: Math.max(0, g.n | 0), best,
+    dayBest: g.dayBest && typeof g.dayBest.date === 'string' && Number.isFinite(g.dayBest.m) ? { date: g.dayBest.date.slice(0, 10), m: g.dayBest.m | 0, e: +g.dayBest.e || 0 } : null };
   if (s.freeX != null && typeof s.freeX !== 'string') delete s.freeX;
   return s;
 }
@@ -274,11 +288,76 @@ const persist = () => { RH.save('esc', S); RH.progress('escapement', Object.keys
 const ACT_NEED = 4;
 const actOpen = a => a === 0 || C.filter(c => c.a === a - 1 && S.done[C.indexOf(c)]).length >= ACT_NEED;
 let cur = S.cur ?? 0;
-if (cur !== 'free' && (!C[cur] || !actOpen(C[cur].a))) cur = 0;
+if (cur === 'guild' && !actOpen(1)) cur = 0;
+if (cur !== 'free' && cur !== 'guild' && (!C[cur] || !actOpen(C[cur].a))) cur = 0;
 const FREE = { a: -1, n: 'Free workshop', motor: [1, '1 turn per second'], T: [{ n: 'Your target', x: 1 / 29.530589, tol: [1000, 100, 1] }], maxG: 30, brocot: 1, s: 'No commission, no rules. Type any ratio and build towards it.' };
-const com = () => cur === 'free' ? FREE : C[cur];
+const com = () => cur === 'free' ? FREE : cur === 'guild' ? (GUILD || (guildSet(S.guild.seed, S.guild.level, S.guild.daily), GUILD)) : C[cur];
 const design = () => (S.designs[cur] ||= { ax: [{ o: 20 }, { i: 20, o: null }] });
 const limits = c => ({ tmin: c.tmin || 8, tmax: c.tmax || 120 });
+
+// ---------- the Guild: endless generated commissions, ranked like Opus Magnum ----------
+// Every Guild commission is a real astronomical period. Any train that lands within 1000 ppm passes; then the Guild ranks it
+// against the designs its other members submitted, on three histograms: error, gear count and brass (total teeth). The members
+// are deterministic hill-climbers of varied skill and taste, so the same commission always shows the same histograms.
+const SKY = [
+  ['Synodic month', 'the Moon\'s phases', 29.530589], ['Sidereal month', 'the Moon against the stars', 27.321661], ['Draconic month', 'the Moon\'s nodes: eclipse seasons', 27.212221],
+  ['Anomalistic month', 'the Moon\'s perigee', 27.55455], ['Mercury', 'its year', 87.9691], ['Venus', 'its year', 224.701], ['Mars', 'its year', 686.98], ['Jupiter', 'its year', 4332.589],
+  ['Saturn', 'its year', 10759.22], ['Tropical year', 'the seasons', 365.2422], ['Eclipse year', 'the Sun back at a lunar node', 346.62], ['Venus synodic period', 'Venus as evening star', 583.924],
+  ['Mars synodic period', 'Mars at opposition', 779.94], ['Jupiter synodic period', 'Jupiter at opposition', 398.88], ['Saturn synodic period', 'Saturn at opposition', 378.09],
+  ['Tidal day', 'high tide to high tide', 1.03505, 1], ['Sidereal day', 'the stars overhead', .99726957, 1] ];
+const G_TOL = 1000, G_POP = 120, G_MAXG = 12;
+function guildDef(seed, level) { // a few attempts per seed, so that every commission has a healthy field of working designs
+  for (let att = 0; att < 8; att++) { const d = guildTry(seed, level, att); if (att === 7 || guildPop(d).length >= 30) return d; } }
+function guildTry(seed, level, att) {
+  const r = RH.rng('esc:guild:' + seed + ':' + level + (att ? ':' + att : '')), tier = Math.min(4, Math.floor((level - 1) / 2));
+  const pool = SKY.filter((b, i) => tier >= 2 || (i < 7 || i === 9)), two = tier >= 3 && r() < .5;
+  const a = r.pick(pool.filter(b => !two || !b[3])), b2 = two ? r.pick(pool.filter(b => !b[3] && b !== a)) : null;
+  const hourly = !!a[3], T = [a, b2].filter(Boolean).map(b => ({ n: b[0], x: hourly ? 1 / (b[2] * 24) : 1 / b[2], tol: [G_TOL, 100, 10], what: b[1], days: b[2] })).sort((p, q) => q.x - p.x);
+  const tmax = two ? 120 : [120, 120, 100, 80, 60][tier], odd = !two && tier >= 2 && r() < .3;
+  return { a: -2, guild: 1, seed: String(seed), level, att, n: T.map(t => t.n).join(' and '), motor: hourly ? [3600, '1 turn per hour'] : [DAY, '1 turn per day'], T, tmax, odd: odd ? 1 : 0, maxG: G_MAXG,
+    s: `A Guild commission: ${T.map(t => `a <b>${t.n}</b> hand (${t.what}), one turn every ${fmtP((hourly ? 3600 : DAY) / t.x)}`).join(', and ')}. Any train within ${G_TOL} ppm passes. The Guild then ranks your design against ${G_POP} other members' on <b>error</b>, <b>gears</b> and <b>brass</b> (total teeth). Beat 90% of them on a measure to earn its mark.` };
+}
+const gKey = d => d.seed + ':' + d.level, gPopKey = d => gKey(d) + ':' + (d.att || 0);
+// a member's design: k compound meshes, climbing downhill on log error plus their own taste for saving brass
+function gEval(d, g) { const L = limits(d); let v = 1, worst = 0, teeth = 0; const vals = [];
+  for (let i = 0; i < g.length; i += 2) { v *= g[i] / g[i + 1]; vals.push(v); }
+  for (const t of g) teeth += t;
+  for (const tg of d.T) { let e = Infinity; for (const x of vals) e = Math.min(e, Math.abs(x / tg.x - 1) * 1e6); worst = Math.max(worst, e); }
+  return { e: worst, t: teeth, ok: g.every(t => t >= L.tmin && t <= L.tmax && (!d.odd || t % 2)) }; }
+const gToAx = g => { const ax = [{ o: g[0] }]; for (let i = 1; i < g.length; i += 2) ax.push({ i: g[i], o: i + 1 < g.length ? g[i + 1] : null }); return { ax }; };
+// smart members climb the early meshes and choose the last mesh exactly (the best fraction for what is left, as Brocot would);
+// apprentices climb every gear blindly
+function gClimb(d, r, k, iters, w, smart) {
+  const L = limits(d), step = d.odd ? 2 : 1, ok = t => t >= L.tmin && t <= L.tmax && (!d.odd || t % 2), rnd = () => { let t = L.tmin + r.int(L.tmax - L.tmin + 1); if (!ok(t)) t = t + 1 > L.tmax ? t - 1 : t + 1; return t; };
+  const cost = g => { const m = gEval(d, g); return Math.log10(m.e + .01) + w * m.t / 100; };
+  const finish = g => { if (!smart) return g; let v = 1; for (let i = 0; i < g.length - 2; i += 2) v *= g[i] / g[i + 1]; const y = d.T[d.T.length - 1].x / v; let best = g, bc = cost(g);
+    for (let q = L.tmin; q <= L.tmax; q++) { if (!ok(q)) continue; for (const pp of [Math.floor(y * q), Math.ceil(y * q)]) { if (!ok(pp)) continue; const h = g.slice(); h[h.length - 2] = pp; h[h.length - 1] = q; const c = cost(h); if (c < bc) { bc = c; best = h; } } }
+    return best; };
+  let g = finish(Array.from({ length: 2 * k }, rnd)), c = cost(g);
+  for (let it = 0; it < iters; it++) { let h = g.slice(); const j = r.int(smart && k > 1 ? h.length - 2 : h.length);
+    h[j] = r() < .7 ? Math.max(L.tmin, Math.min(L.tmax, h[j] + step * (1 + r.int(3)) * (r() < .5 ? -1 : 1))) : rnd(); if (!ok(h[j])) continue;
+    h = finish(h); const ch = cost(h); if (ch <= c) { g = h; c = ch; } }
+  return g; }
+const kMin = d => Math.max(1, Math.ceil(Math.log(1 / Math.min(...d.T.map(t => t.x))) / Math.log(limits(d).tmax / limits(d).tmin) + .15));
+const gPops = new Map();
+function guildPop(d) { // the members' passing designs, as {e, g, t}
+  const key = gPopKey(d); if (gPops.has(key)) return gPops.get(key);
+  const r = RH.rng('esc:members:' + key), k0 = kMin(d), out = [];
+  for (let m = 0; m < G_POP * 3 && out.length < G_POP; m++) {
+    const smart = r() < .65, k = Math.min(G_MAXG / 2, k0 + r.int(3)), iters = Math.round((smart ? 6 : 40) * Math.pow(2, r() * (smart ? 4 : 4.5))), w = r() * r() * 1.5, g = gClimb(d, r, k, iters, w, smart), m2 = gEval(d, g);
+    if (m2.ok && m2.e <= G_TOL) out.push({ e: m2.e, g: g.length, t: m2.t, ax: g }); }
+  gPops.set(key, out); if (gPops.size > 12) gPops.delete(gPops.keys().next().value); return out; }
+// the Guild master's best: many careful climbs with an exact last mesh (the "competent" bar in the tests)
+function guildMaster(d, tries = 12) { const r = RH.rng('esc:master:' + gPopKey(d)); let best = null;
+  for (let i = 0; i < tries; i++) { const k = Math.min(G_MAXG / 2, kMin(d) + (i % 3)), g = gClimb(d, r, k, 300, 0, true), m = gEval(d, g); if (m.ok && (!best || m.e < best.e)) best = { ...m, g: g.length, ax: g }; }
+  return best; }
+// share of the Guild's designs that yours beats on one measure (ties count half)
+const beats = (v, arr) => arr.length ? arr.reduce((a, x) => a + (x > v + 1e-9 ? 1 : Math.abs(x - v) <= 1e-9 ? .5 : 0), 0) / arr.length : 0;
+const MEASURES = [['e', 'Error', 'ppm', true], ['g', 'Gears', '', false], ['t', 'Brass', 'teeth', false]];
+const guildMarks = (best, pop) => best ? MEASURES.filter(([m]) => beats(best[m], pop.map(x => x[m])) >= .9).length : 0;
+let GUILD = null;
+const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+function guildSet(seed, level, daily) { const g = S.guild; if (g.seed !== seed || g.level !== level) { g.seed = String(seed).slice(0, 40); g.level = level; g.daily = daily ? 1 : 0; delete S.designs.guild; } GUILD = guildDef(g.seed, g.level); }
 
 function analyse(c, d) {
   const ax = d.ax, L = limits(c), res = { axles: [], gears: [], problems: [] };
@@ -358,9 +437,10 @@ function renderSide() {
     const d = S.done[i];
     h += `<div class="cm ${i === cur ? 'cur' : ''} ${actOpen(c.a) ? '' : 'locked'}" data-i="${i}"><span>${d ? '⚙️' : '○'} ${c.n}</span><span class="st">${d ? '★'.repeat(d.stars) + '☆'.repeat(3 - d.stars) : ''}</span></div>`;
   });
+  h += `<div class="act ${actOpen(1) ? '' : 'locked'}"><span>∞. The Guild</span><span>${actOpen(1) ? S.guild.n + ' delivered' : '🔒'}</span></div><div class="cm ${cur === 'guild' ? 'cur' : ''} ${actOpen(1) ? '' : 'locked'}" data-i="guild"><span>📜 Endless commissions, ranked</span></div>`;
   h += `<div class="act"><span>∞. Free workshop</span></div><div class="cm ${cur === 'free' ? 'cur' : ''}" data-i="free"><span>🛠️ Any ratio you like</span></div><div class="note" style="margin:14px 6px">Finish ${ACT_NEED} commissions in an act to open the next.</div>`;
   $('side').innerHTML = h;
-  $('side').querySelectorAll('.cm').forEach(el => el.onclick = () => { const i = el.dataset.i === 'free' ? 'free' : +el.dataset.i; if (i === 'free' || actOpen(C[i].a)) open(i); });
+  $('side').querySelectorAll('.cm').forEach(el => el.onclick = () => { const i = el.dataset.i === 'free' || el.dataset.i === 'guild' ? el.dataset.i : +el.dataset.i; if (i === 'free' || (i === 'guild' ? actOpen(1) : actOpen(C[i].a))) open(i); });
   const n = Object.keys(S.done).length, st = Object.values(S.done).reduce((a, x) => a + x.stars, 0);
   $('totals').textContent = `${n}/${C.length} commissions · ${st}★`;
 }
@@ -378,24 +458,25 @@ function render() {
   if (c.coaxial) rules.push('Coaxial: equal tooth sums');
   if (c.lastGear) rules.push(`Last gear: the ${c.lastGear}-tooth disc`);
   if (c.budget) rules.push(`At most ${c.budget} teeth in all`);
-  const best = S.done[cur];
+  const best = cur === 'guild' ? null : S.done[cur];
   $('center').innerHTML = `
-    <div class="row" style="justify-content:space-between"><div><div class="dim small">${cur === 'free' ? 'Free workshop' : `${['I','II','III','IV'][c.a]}. ${ACTS[c.a]} · Commission ${cur + 1}`}</div><h2>${c.n}</h2></div>
+    <div class="row" style="justify-content:space-between"><div><div class="dim small">${cur === 'free' ? 'Free workshop' : cur === 'guild' ? `∞. The Guild · ${S.guild.daily ? 'today\'s commission' : 'commission ' + S.guild.level}` : `${['I','II','III','IV'][c.a]}. ${ACTS[c.a]} · Commission ${cur + 1}`}</div><h2>${c.n}</h2></div>
       <div class="row">${best ? `<span class="stars">${'★'.repeat(best.stars)}${'☆'.repeat(3 - best.stars)}</span><span class="pill">best: ${best.gears} gears</span>` : ''}<button id="resetBtn">Reset train</button></div></div>
     <p class="story">${c.s}</p>
     ${cur === 'free' ? `<div class="row" style="margin-bottom:8px">Target ratio (output turns per motor turn): <input id="freeX" style="width:180px" class="mono" value="${S.freeX ?? '1/29.530589'}"><span class="note">e.g. 1/365.2422, 3.14159, 7/29.53</span></div>` : ''}
     <div class="rules"><span class="pill">Motor: ${c.motor[1]}</span>${rules.map(r => `<span class="pill">${r}</span>`).join('')}<span id="status"></span></div>
     <table class="tg"><thead><tr><th>Hand</th><th>Needs</th><th>Direction</th><th>Best axle</th><th>Achieved</th><th>Error</th><th></th></tr></thead><tbody id="tgt"></tbody></table>
-    <canvas id="cv"></canvas>
+    <div class="cvwrap"><canvas id="cv"></canvas></div>
     <div class="axles" id="axles"></div>
+    ${cur === 'guild' ? '<div class="tool guild" id="guildBox"></div>' : ''}
     <div class="note" style="margin-top:6px">Each axle after the motor has a <b>driven</b> gear. Give it a second, <b>driving</b> gear to make it compound, or leave that empty and the driven gear passes the motion on by itself (an idler). Every mesh reverses direction.</div>
     ${c.brocot ? (brocotEarned() ? brocotHTML(c) : walkHTML(c)) : ''}`;
   $('resetBtn').onclick = () => { delete S.designs[cur]; persist(); render(); };
   if ($('freeX')) $('freeX').oninput = () => { S.freeX = $('freeX').value; const x = parseRatio(S.freeX); if (x > 0) { FREE.T[0].x = x; } update(); };
   if (cur === 'free') { const x = parseRatio(S.freeX ?? '1/29.530589'); if (x > 0) FREE.T[0].x = x; }
-  renderAxles(); renderSide(); update();
+  renderAxles(); renderSide(); update(); if (cur === 'guild') renderGuild();
   if (c.brocot) (brocotEarned() ? wireBrocot : wireWalk)(c);
-  sizeCanvas();
+  sizeCanvas(); attachCam();
 }
 const parseRatio = s => { const m = String(s).split('/'); const v = m.length === 2 ? +m[0] / +m[1] : +m[0]; return isFinite(v) ? v : NaN; };
 
@@ -444,6 +525,7 @@ function update() {
   document.querySelectorAll('.ax').forEach(el => { const k = +el.dataset.ax, a = d.ax[k], gs = [a.o, a.i].filter(x => x != null); el.classList.toggle('bad', gs.some(g => R.bad.has(g))); });
   const st = $('status');
   st.innerHTML = `<span class="pill ${c.maxG && R.gears.length > c.maxG ? 'bad' : ''}">${R.gears.length} gears</span>` + R.problems.map(p => `<span class="pill bad">${p}</span>`).join('') + (R.ok ? `<span class="pill ok">✓ Commission met ${'★'.repeat(R.stars)}</span>` : '');
+  if (cur === 'guild' && $('guildBox')) guildMarkers();
   if (R.ok && cur !== 'free') scheduleRecord(); else disarm();
 }
 // Deliberate commit: a design only counts once it has stood unchanged for SETTLE_MS with no pointer held down,
@@ -462,6 +544,7 @@ const SFXW = {
   click: () => FX.tone({ noise: 1, f: 4200 + Math.random() * 800, q: 5, dur: .012, vol: .12 }),
 };
 async function record() {
+  if (cur === 'guild') return guildRecord();
   const prev = S.done[cur], st = R.stars, g = R.gears.length;
   if (prev && (prev.stars > st || (prev.stars === st && prev.gears <= g))) return;
   S.done[cur] = { stars: st, gears: g }; persist(); renderSide();
@@ -477,6 +560,51 @@ async function record() {
     nxt >= 0 ? [{ label: 'Keep tinkering', value: 0 }, { label: `Next: ${C[nxt].n}`, value: 1 }] : [{ label: 'Close', value: 0 }]);
   celebrating = false;
   if (go) open(nxt);
+}
+
+// ---------- the Guild's ledger: three histograms, your best and your current design on each ----------
+function guildMetrics() { if (!R || !R.ok) return null; return { e: Math.max(...R.T.map(t => t.err)), g: R.gears.length, t: R.gears.reduce((a, b) => a + b, 0) }; }
+function histSVG(vals, best, now, log) {
+  const W = 240, H = 74, n = 14, f = v => log ? Math.log10(Math.max(.01, v)) : v, all = [...vals, best, now].filter(v => v != null).map(f);
+  let lo = Math.min(...all), hi = Math.max(...all); if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+  const bin = v => Math.min(n - 1, Math.floor((f(v) - lo) / (hi - lo) * n)), cnt = Array(n).fill(0); vals.forEach(v => cnt[bin(v)]++); const mx = Math.max(1, ...cnt);
+  const X = v => 4 + (f(v) - lo) / (hi - lo) * (W - 8), bw = (W - 8) / n, lab = v => log ? (v < 1 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : Math.round(v)) : Math.round(v);
+  return `<svg viewBox="0 0 ${W} ${H + 14}" preserveAspectRatio="none" role="img">${cnt.map((c, i) => `<rect x="${4 + i * bw + 1}" y="${H - c / mx * (H - 6)}" width="${bw - 2}" height="${c / mx * (H - 6)}" fill="#8d6a22" opacity=".55"/>`).join('')}
+    <line x1="2" x2="${W - 2}" y1="${H}" y2="${H}" stroke="#5d5440"/>
+    ${now != null ? `<line x1="${X(now)}" x2="${X(now)}" y1="2" y2="${H}" stroke="#1b2f66" stroke-width="2" stroke-dasharray="4 3"/>` : ''}
+    ${best != null ? `<line x1="${X(best)}" x2="${X(best)}" y1="6" y2="${H}" stroke="#a3281c" stroke-width="2.5"/><path d="M${X(best) - 6} 0 L${X(best) + 6} 0 L${X(best)} 8 Z" fill="#a3281c"/>` : ''}
+    <text x="3" y="${H + 12}" font-size="10" fill="#5d5440">${lab(log ? Math.pow(10, lo) : lo)}</text><text x="${W - 3}" y="${H + 12}" font-size="10" text-anchor="end" fill="#5d5440">${lab(log ? Math.pow(10, hi) : hi)}</text></svg>`;
+}
+function guildMarkers() {
+  const d = com(), pop = guildPop(d), b = S.guild.best[gKey(d)], now = guildMetrics();
+  for (const [m, name, unit, log] of MEASURES) { const el = $('h-' + m); if (!el) continue; const vals = pop.map(x => x[m]);
+    el.innerHTML = histSVG(vals, b ? b[m] : null, now ? now[m] : null, log);
+    $('hn-' + m).innerHTML = b ? `yours: <b>${m === 'e' ? fmtErr(b.e) : b[m]}</b> · better than <b>${Math.round(beats(b[m], vals) * 100)}%</b>${beats(b[m], vals) >= .9 ? ' · ✦ mark' : ''}` : now ? `this train: ${m === 'e' ? fmtErr(now.e) : now[m]}` : '<span class="dim">no working train yet</span>'; }
+}
+function renderGuild() {
+  const d = com(), b = S.guild.best[gKey(d)], pop = guildPop(d), g = S.guild, today = todayStr(), db = g.dayBest?.date === today ? g.dayBest : null;
+  $('guildBox').innerHTML = `<div class="gh"><b>The Guild's ledger</b><span class="note">${pop.length} members' designs · <span style="color:#a3281c">▼ your best</span> · <span style="color:#1b2f66">┆ this train</span></span></div>
+    <div class="hgs">${MEASURES.map(([m, name, unit]) => `<div class="hg"><div class="hl">${name}${unit ? ' (' + unit + ')' : ''}${m === 'e' ? ', log scale' : ''}</div><div class="hsvg" id="h-${m}"></div><div class="note" id="hn-${m}"></div></div>`).join('')}</div>
+    <div class="row" style="margin-top:8px"><span class="pill">Marks here: ${'✦'.repeat(b ? b.m : 0)}${'◇'.repeat(3 - (b ? b.m : 0))}</span><span class="pill">${g.n} delivered · ${Object.values(g.best).reduce((a, x) => a + x.m, 0)} marks</span>${db ? `<span class="pill">today: ${db.m} marks</span>` : ''}</div>
+    <div class="row" style="margin-top:8px"><button id="gNext" ${b ? '' : 'disabled title="Deliver a working train first"'}>${g.daily ? 'Back to the ladder →' : 'Next commission →'}</button><button id="gDaily" ${g.daily ? 'disabled' : ''}>📅 Today's commission</button><button id="gShare">🔗 Share</button></div>
+    <div class="note" style="margin-top:6px">Every working train passes. Fewer gears, less brass and a smaller error are three different contests; one design rarely wins all three, so try a train for each.</div>`;
+  $('gNext').onclick = () => { if (g.daily) guildSet(Math.random().toString(36).slice(2, 8), g.lv || 1, false); else { g.lv = g.level + 1; guildSet(Math.random().toString(36).slice(2, 8), g.level + 1, false); } persist(); render(); };
+  $('gDaily').onclick = () => { guildSet('daily:' + today, 6, true); persist(); render(); };
+  $('gShare').onclick = () => { const url = location.origin + location.pathname + '#guild=' + encodeURIComponent(gKey(d)); try { navigator.clipboard?.writeText(url); } catch (e) {} history.replaceState(null, '', '#guild=' + encodeURIComponent(gKey(d))); RH.toast('Link copied: anyone who opens it gets this commission and these histograms.', 2600); };
+  guildMarkers();
+}
+function guildRecord() {
+  const d = com(), key = gKey(d), m = guildMetrics(); if (!m) return;
+  const g = S.guild, b = g.best[key], first = !b, better = [];
+  if (first) g.best[key] = { ...m, m: 0 }; else for (const [k, name] of MEASURES) if (m[k] < b[k] - 1e-9) { b[k] = m[k]; better.push(name.toLowerCase()); }
+  if (!first && !better.length) return;
+  const nb = g.best[key]; nb.e = Math.round(nb.e * 1000) / 1000; nb.m = guildMarks(nb, guildPop(d));
+  if (first) g.n++;
+  if (g.daily && d.seed.startsWith('daily:')) { const date = d.seed.slice(6); if (!g.dayBest || g.dayBest.date !== date || nb.m > g.dayBest.m || (nb.m === g.dayBest.m && nb.e < g.dayBest.e)) g.dayBest = { date, m: nb.m, e: nb.e }; }
+  const keys = Object.keys(g.best); if (keys.length > 40) delete g.best[keys.find(k => k !== key)];
+  persist(); renderSide(); renderGuild();
+  for (let k = 0; k < 2; k++) SFXW.tick(k * .2, k % 2); // a cheap two-tick acknowledgement: no animation
+  RH.toast(first ? `Delivered to the Guild · ${nb.m} mark${nb.m === 1 ? '' : 's'}` : `New best ${better.join(', ')} · ${nb.m} mark${nb.m === 1 ? '' : 's'}`, 2400);
 }
 
 // ---------- Brocot table ----------
@@ -534,6 +662,18 @@ function wireBrocot(c) {
 }
 
 // ---------- drawing ----------
+// The loupe pans and zooms (wheel, pinch, drag on bare plate, ⤢ to fit). Tapping a gear jumps to its axle's card to edit it.
+let cam = null, gearHits = [];
+const gearAt = (cx, cy) => { if (!cam) return null; const [wx, wy] = cam.toWorld(cx, cy); let best = null; for (const h of gearHits) { const d = Math.hypot(wx - h.x, wy - h.y); if (d <= h.r && (!best || h.r < best.r)) best = h; } return best; };
+function attachCam() {
+  const c = cv(); if (!c || c.dataset.cam) return; c.dataset.cam = 1; const keep = cam && cam.touched ? cam.state : null;
+  cam = PanZoom(c, { world: () => { const r = c.getBoundingClientRect(); return { x: 0, y: 0, w: Math.max(1, r.width), h: Math.max(1, r.height) }; }, canPanFrom: e => !gearAt(e.clientX, e.clientY), min: 1, max: 8, pad: 0 });
+  if (keep) { cam.state = keep; cam.touched = true; }
+  c.addEventListener('click', e => { if (cam.gesturing) return; const h = gearAt(e.clientX, e.clientY); if (!h) return;
+    const card = document.querySelector(`.ax[data-ax="${h.k}"]`); if (!card) return; card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash');
+    card.scrollIntoView({ block: 'nearest', inline: 'center' }); const inp = card.querySelector('input,select'); if (inp) inp.focus({ preventScroll: true }); selectedAxle = h.k; SFXW.click(); });
+}
+let selectedAxle = null;
 const cv = () => $('cv');
 function sizeCanvas() { const c = cv(); if (!c) return; const r = c.getBoundingClientRect(), dpr = devicePixelRatio || 1; c.width = r.width * dpr; c.height = r.height * dpr; }
 addEventListener('resize', sizeCanvas);
@@ -573,11 +713,13 @@ function draw(now) {
   const sc = Math.min((W - 40) / (x1 - x0), (H - 50) / (y1 - y0), 4 * (devicePixelRatio || 1));
   const ox = (W - (x1 - x0) * sc) / 2 - x0 * sc, oy = (H - (y1 - y0) * sc) / 2 - y0 * sc + 8;
   const time = (now - t0) / 1000, base = 0.25; // motor: a quarter turn per real second
+  const dpr = devicePixelRatio || 1; if (cam) g.setTransform(cam.k, 0, 0, cam.k, cam.x * dpr, cam.y * dpr); gearHits = [];
   const c0 = com();
   ax.forEach((a, k) => {
     const A = R.axles[k], spd = Number(A.p) / Number(A.q) * A.sign;
     const th = time * base * spd * Math.PI * 2;
     const x = ox + pos[k][0] * sc, y = oy + pos[k][1] * sc, hue = HUES[k % HUES.length];
+    gearHits.push({ k, x: x / dpr, y: y / dpr, r: rad(Math.max(a.i || 0, a.o || 0)) * sc / dpr });
     const list = [];
     if (k > 0) list.push(['i', a.i]);
     if (a.o != null && (k === 0 || k < ax.length - 1)) list.push(['o', a.o]);
@@ -617,6 +759,7 @@ function draw(now) {
     const yy = Math.max(12, Math.min(H - 4, y - Math.max(rad(a.i || 0), rad(a.o || 0)) * sc - 8));
     g.fillText(lab, x, yy);
   });
+  g.setTransform(1, 0, 0, 1, 0, 0);
   // loupe: dark vignette with a lens rim
   const lv = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .36, W / 2, H / 2, Math.max(W, H) * .62);
   lv.addColorStop(0, '#0000'); lv.addColorStop(1, '#000000d0'); g.fillStyle = lv; g.fillRect(0, 0, W, H);
@@ -630,8 +773,10 @@ const help = () => RH.modal(`<h2>⚙️ Escapement</h2>
   <p class="dim">Stars: fewer gears than par for exact work, smaller error (in parts per million) for astronomical work.</p>`, [{ label: 'Open the workshop' }]);
 $('helpBtn').onclick = help;
 if (!S.intro) { S.intro = 1; persist(); help(); }
+{ const m = location.hash.match(/guild=([^&]+)/); if (m && actOpen(1)) { const [sd, lv] = decodeURIComponent(m[1]).split(':').reduce((a, x, i, arr) => i === arr.length - 1 ? [arr.slice(0, -1).join(':'), +x] : a, []); if (sd && lv >= 1) { guildSet(sd, Math.min(999, lv | 0), sd.startsWith('daily:')); cur = 'guild'; } } }
+if (cur === 'guild') guildSet(S.guild.seed, S.guild.level, S.guild.daily);
 open(cur);
-window.__esc = { drift, brocotEarned, ACT_NEED, loadState, actOpen, SETTLE_MS, get cur() { return cur; }, C, S, analyse, open, design, render, update, get R() { return R; } };
+window.__esc = { get cam() { return cam; }, get gearHits() { return gearHits; }, get selectedAxle() { return selectedAxle; }, guildDef, guildPop, guildMaster, gEval, gToAx, gClimb, guildSet, guildMarks, beats, kMin, get GUILD() { return GUILD; }, G_TOL, todayStr, drift, brocotEarned, ACT_NEED, loadState, actOpen, SETTLE_MS, get cur() { return cur; }, C, S, analyse, open, design, render, update, get R() { return R; } };
 
 // phones: level drawer and folding stories
 (() => {
