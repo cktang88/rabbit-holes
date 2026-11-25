@@ -31,7 +31,7 @@
   #tools .sep{width:1px;height:26px;background:var(--line);margin:0 2px}
   #hint{position:absolute;left:50%;bottom:74px;transform:translateX(-50%);z-index:4;font-style:italic;font-size:19px;color:var(--ink);text-shadow:0 1px 10px #000,0 0 20px #000;pointer-events:none;text-align:center;width:max-content;max-width:calc(100% - 30px);opacity:0;transition:opacity .6s}
   #hint.on{opacity:1}
-  #card{position:absolute;left:50%;bottom:74px;transform:translateX(-50%);z-index:8;min-width:min(380px,calc(100% - 30px));max-width:calc(100% - 30px);text-align:center;padding:22px 26px;background:radial-gradient(ellipse at center,rgba(4,5,9,.86),rgba(4,5,9,.62));border-top:1px solid var(--line);border-bottom:1px solid var(--line);display:none}
+  #card{position:absolute;right:18px;top:64px;z-index:8;min-width:min(380px,calc(100% - 30px));max-width:calc(100% - 30px);text-align:center;padding:22px 26px;background:radial-gradient(ellipse at center,rgba(4,5,9,.86),rgba(4,5,9,.62));border-top:1px solid var(--line);border-bottom:1px solid var(--line);display:none}
   #card.on{display:block;animation:cardIn .9s cubic-bezier(.2,.8,.2,1)}
   #card h2{font-family:"Cormorant SC",serif;font-weight:500;letter-spacing:.3em;font-size:22px;margin:0 0 6px;color:var(--gold)}
   #card .sc{font-size:20px;margin:6px 0} #card .note{font-style:italic;color:var(--dim);font-size:16px;margin:8px auto 12px;max-width:420px}
@@ -50,6 +50,7 @@
   .modal .modal-actions{background-color:#06070c}
   #noGL{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;font-size:20px;padding:30px}
   @media (max-width:640px){
+    #card{right:auto;left:50%;top:auto;bottom:74px;transform:translateX(-50%)}
     .topbar{padding:8px 12px 14px} .topbar h1{font-size:14px;letter-spacing:.2em}
     #goal{left:12px;top:44px} #goal .g{font-size:16px} #goal .p{font-size:14px}
     button{font-size:15px;padding:5px 11px;min-height:40px}
@@ -169,7 +170,8 @@ const SANDBOX = { id: 'sandbox', name: 'Sandbox', start: [[1.5, 2.3, 40000]], go
 // The game state for one problem, and its fixed-step simulation (deterministic for the same actions).
 const TICK = PH.ORBIT / 32;
 function newState(c) { const G = { c, S: new Float32Array(PH.NB), moons: [], t: 0, orbits: 0, st: {}, poured: 0, used: 0, F: null, solved: null, log: [] };
-  for (const [a0, a1, m] of c.start) PH.addBand(G.S, a0, a1, m); G.poured = c.start.reduce((s, b) => s + b[2], 0); G.F = PH.field(G.moons); return G; }
+  // a start ring has a faint inner part, a dense middle and a moderate outer part, like Saturn's C, B and A rings
+  for (const [a0, a1, m] of c.start) { const w = a1 - a0; PH.addBand(G.S, a0, a0 + .25 * w, m * .1); PH.addBand(G.S, a0 + .25 * w + PH.DA, a0 + .62 * w, m * .58); PH.addBand(G.S, a0 + .62 * w + PH.DA, a1, m * .32); } G.poured = c.start.reduce((s, b) => s + b[2], 0); G.F = PH.field(G.moons); return G; }
 function tick(G, n = 1) { let res = null; for (let k = 0; k < n; k++) { PH.advance(G.S, G.F, TICK); G.t += TICK; G.orbits = G.t / PH.ORBIT;
   for (const m of G.moons) m.th += Math.pow(m.a, -1.5) * TICK; if (k % 8 === 7 || k === n - 1) { const r = G.c.check(G); if (r.ok && !G.solved) { G.solved = { moons: G.moons.length, orbits: Math.round(G.orbits), used: G.used }; res = r; } } }
   return res; }
@@ -292,27 +294,8 @@ const planet = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 96), planetMat); 
 const halo = new THREE.Mesh(new THREE.SphereGeometry(1.035, 96, 64), new THREE.ShaderMaterial({ uniforms: { uSun: { value: SUN }, uCam: { value: new THREE.Vector3() } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide,
   vertexShader: `varying vec3 vW; void main(){ vW = vec3(position.x, position.y * .9, position.z); gl_Position = projectionMatrix * viewMatrix * vec4(vW, 1.); }`,
   fragmentShader: `uniform vec3 uSun, uCam; varying vec3 vW; void main(){ vec3 n = normalize(vW), V = normalize(uCam - vW); float edge = 1. - abs(dot(n, V)); float lit = smoothstep(-.3, .5, dot(n, normalize(uSun)));
-    float fwd = pow(max(dot(-V, normalize(uSun)), 0.), 10.); float a = pow(edge, 5.) * (lit * .5 + fwd * 2.5); gl_FragColor = vec4(vec3(.9, .75, .5) * a, 1.); }` }));
+    float fwd = pow(max(dot(-V, normalize(uSun)), 0.), 10.); float a = pow(edge, 3.) * smoothstep(1., .84, edge) * (lit * .45 + fwd * 2.5); gl_FragColor = vec4(vec3(.9, .75, .5) * a, 1.); }` }));
 scene.add(halo);
-
-// ----- The ring sheet: the continuous optical depth, lit by the Sun, shadowed by the planet -----
-const sheetMat = new THREE.ShaderMaterial({ uniforms: { uSig: { value: sigTex }, uStruct: { value: structTex }, uSun: { value: SUN }, uCam: { value: new THREE.Vector3() }, uGain: { value: 1 } }, transparent: true, depthWrite: false, side: THREE.DoubleSide,
-  vertexShader: `varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
-  fragmentShader: `${GLSL_COMMON} uniform vec3 uCam; uniform float uGain; varying vec3 vW;
-    void main(){ float r = length(vW.xz); float tau0 = tauAt(r); if (tau0 < .002) discard;
-      vec2 fs = fineAt(r); float tau = tau0 * fs.x;
-      vec3 V = normalize(uCam - vW), L = normalize(uSun); float mu = max(abs(V.y), .02), mu0 = max(abs(L.y), .02), c = dot(-L, V);
-      // phase function: icy boulders scatter back towards the Sun; the fine dust between them scatters forward
-      float dust = .5 * exp(-tau * 2.5);
-      float P = .85 * hg(c, -.3) + .15 * hg(c, .3) + dust * hg(c, .82) * 2.;
-      // single scattering in a slab of optical depth τ: reflected on the sunlit face, transmitted through to the dark face
-      float I = (sign(V.y) == sign(L.y)) ? P * mu0 / (mu + mu0) * (1. - exp(-tau * (1. / mu + 1. / mu0)))
-                                         : P * mu0 * (exp(-tau / mu) - exp(-tau / mu0)) / (mu - mu0 + (abs(mu - mu0) < 1e-3 ? 1e-3 : 0.));
-      float a = (1. - exp(-tau / mu)) * .97;
-      vec3 ice = mix(vec3(.55, .50, .45), vec3(.93, .84, .70), smoothstep(1.42, 1.85, r)) * mix(vec3(.92, .95, 1.02), vec3(1.06, 1., .9), fs.y);
-      vec3 col = ice * max(I, 0.) * planetShadow(vW) * 1.55 * uGain;
-      gl_FragColor = vec4(col, a); }`, premultipliedAlpha: true, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor });
-const sheet = new THREE.Mesh(new THREE.RingGeometry(PH.A0, PH.A1, 512, 1), sheetMat); sheet.rotation.x = -Math.PI / 2; scene.add(sheet);
 
 // ----- 100k+ dust grains on the GPU: their orbit radius and angle live in a float texture, stepped by the same field as Σ -----
 const SIZE = coarse ? 320 : 384, CAP = SIZE * SIZE, K = CAP / BUDGET; // particles per grain
@@ -346,25 +329,30 @@ function seedParticles(G, seed) { const data = new Float32Array(CAP * 4), r = RH
   simMat.uniforms.uState.value = tex; simMat.uniforms.uDt.value = 0; simMat.uniforms.uSpCount.value = 0; renderer.setRenderTarget(rts[cur]); renderer.render(quadScene, quadCam); renderer.setRenderTarget(null); tex.dispose();
   dustMat.uniforms.uState.value = rts[cur].texture; cursor = n % CAP; }
 const MAXM = 8;
-const dustMat = new THREE.ShaderMaterial({ uniforms: { uState: { value: null }, uSun: { value: SUN }, uSig: { value: sigTex }, uStruct: { value: structTex }, uCam: { value: new THREE.Vector3() }, uPR: { value: pixelRatio }, uMoon: { value: Array.from({ length: MAXM }, () => new THREE.Vector4()) }, uMoonB: { value: Array.from({ length: MAXM }, () => new THREE.Vector4()) }, uNM: { value: 0 }, uTime: { value: 0 }, uGain: { value: 1 }, uSize: { value: SIZE } },
-  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-  vertexShader: `${GLSL_COMMON} uniform sampler2D uState; uniform vec3 uCam; uniform float uPR, uTime, uGain, uSize; uniform vec4 uMoon[${MAXM}], uMoonB[${MAXM}]; uniform int uNM; attribute vec2 ref; varying vec3 vCol; varying float vA;
-    void main(){ vec4 s = texture2D(uState, ref); if (s.b < .5) { gl_Position = vec4(2., 2., 2., 1.); gl_PointSize = 0.; return; }
-      float a = s.r, th = s.g, sd = s.a, r = a, bright = 1., hide = 1.;
+const GLSL_MOONS = `uniform vec4 uMoon[${MAXM}], uMoonB[${MAXM}]; uniform int uNM; uniform float uTime;
+  // what the moons do to a grain at (a, θ): radial shift, brightness (compression), and whether a moon has swallowed it
+  vec3 moonFx(float a, float th, float sd){ float dr = 0., bright = 1., hide = 1.;
       for (int i = 0; i < ${MAXM}; i++) { if (i >= uNM) break; vec4 M = uMoon[i], B = uMoonB[i]; float am = M.x, thm = M.y, m = M.z, e = M.w, rh = B.y, open = B.z;
         float d = a - am, ad = abs(d), dph = mod(th - thm + PI, TAU) - PI;
         float down = d > 0. ? -dph : dph; if (down < 0.) down += TAU; float ds = down * a; // arc length since this grain last passed the moon
         // wakes: each pass kicks the grain; it then oscillates with wavelength 3π|Δa| (the scalloped edges of the Encke and Keeler gaps)
-        if (ad > 1.3 * rh && ad < 40. * rh) { float lam = 3. * PI * ad; float amp = min(.3 * ad, 2.24 * m * am * am * am / (d * d)); r += sign(d) * amp * sin(TAU * ds / lam) * exp(-ds / (5. * lam)); }
+        if (ad > 1.3 * rh && ad < 40. * rh) { float lam = 3. * PI * ad; float amp = min(.3 * ad, 2.24 * m * am * am * am / (d * d)); dr += sign(d) * amp * sin(TAU * ds / lam) * exp(-ds / (5. * lam)); }
         // propellers: a moonlet too small to open a gap pushes two short wings of grains aside
-        if (open < 2.5 && ad < 6. * rh) { float wing = exp(-ds / (60. * rh)) * smoothstep(0., 4. * rh, ds); r += sign(d) * rh * 2.2 * exp(-ad / (2.5 * rh)) * wing; bright *= 1. - .6 * wing * exp(-ad / (3. * rh)); }
+        if (open < 2.5 && ad < 6. * rh) { float wing = exp(-ds / (60. * rh)) * smoothstep(0., 4. * rh, ds); dr += sign(d) * rh * 2.2 * exp(-ad / (2.5 * rh)) * wing; bright *= 1. - .6 * wing * exp(-ad / (3. * rh)); }
         // Lindblad resonances: spiral density waves that turn with the moon (inner j+1:j, j = 1..3)
         for (int j = 1; j <= 3; j++) { float fj = float(j), ar = am * pow(fj / (fj + 1.), .6667), w = ar * ${PH.P.CW.toFixed(2)} * sqrt(m) * (1. + e * 4.) + .002, x = (a - ar) / w;
-          if (abs(x) < 4.) { float ph = (fj + 1.) * (th - thm) - x * 4.5; float env = exp(-x * x * .35) / fj; r += .35 * w * env * cos(ph); bright *= 1. + .5 * env * cos(ph); } }
+          if (abs(x) < 4.) { float ph = (fj + 1.) * (th - thm) - x * 4.5; float env = exp(-x * x * .35) / fj; dr += .35 * w * env * cos(ph); bright *= 1. + .5 * env * cos(ph); } }
         // braids: an eccentric shepherd reaches in once a lap, kinking and twisting the strands of a ring beside it
-        if (e > 0. && ad < .22) { float strand = floor(sd * 3.); float k = exp(-ad / .07); r += e * .9 * k * (sin(th - thm + strand * 2.1) * .5 + .35 * sin(3. * (th - thm) + strand * 1.3 + uTime * .02)); bright *= 1. + .7 * k * max(0., sin(7. * (th - thm) + strand)); }
+        if (e > 0. && ad < .22) { float strand = floor(sd * 3.); float k = exp(-ad / .07); dr += e * .9 * k * (sin(th - thm + strand * 2.1) * .5 + .35 * sin(3. * (th - thm) + strand * 1.3 + uTime * .02)); bright *= 1. + .7 * k * max(0., sin(7. * (th - thm) + strand)); }
         // grains inside a moon's Hill sphere are its own
-        vec2 mp = am * vec2(cos(thm), sin(thm)), pp = r * vec2(cos(th), sin(th)); hide *= smoothstep(.6 * rh, 1.2 * rh, length(pp - mp)); }
+        vec2 mp = am * vec2(cos(thm), sin(thm)), pp = (a + dr) * vec2(cos(th), sin(th)); hide *= smoothstep(.6 * rh, 1.2 * rh, length(pp - mp)); }
+    return vec3(dr, bright, hide); }`;
+const dustMat = new THREE.ShaderMaterial({ uniforms: { uState: { value: null }, uSun: { value: SUN }, uSig: { value: sigTex }, uStruct: { value: structTex }, uCam: { value: new THREE.Vector3() }, uPR: { value: pixelRatio }, uMoon: { value: Array.from({ length: MAXM }, () => new THREE.Vector4()) }, uMoonB: { value: Array.from({ length: MAXM }, () => new THREE.Vector4()) }, uNM: { value: 0 }, uTime: { value: 0 }, uGain: { value: 1 }, uSize: { value: SIZE } },
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  vertexShader: `${GLSL_COMMON} uniform sampler2D uState; uniform vec3 uCam; uniform float uPR, uGain, uSize; ${GLSL_MOONS} attribute vec2 ref; varying vec3 vCol; varying float vA;
+    void main(){ vec4 s = texture2D(uState, ref); if (s.b < .5) { gl_Position = vec4(2., 2., 2., 1.); gl_PointSize = 0.; return; }
+      float a = s.r, th = s.g, sd = s.a, r = a, bright = 1., hide = 1.;
+      vec3 fx = moonFx(a, th, sd); r += fx.x; bright *= fx.y; hide *= fx.z;
       vec3 p = vec3(r * cos(th), (sd - .5) * .004 + (fract(sd * 97.31) - .5) * .002, r * sin(th));
       vec4 mv = viewMatrix * vec4(p, 1.); gl_Position = projectionMatrix * mv;
       vec3 V = normalize(uCam - p), L = normalize(uSun); float c = dot(-L, V);
@@ -372,8 +360,31 @@ const dustMat = new THREE.ShaderMaterial({ uniforms: { uState: { value: null }, 
       float lit = (sign(V.y) == sign(L.y)) ? 1. : .5 * exp(-tau) + .1;
       vec3 ice = mix(vec3(.70, .64, .58), vec3(1., .94, .84), smoothstep(1.4, 1.9, a)) * (.85 + .3 * fract(sd * 13.7));
       float sz = clamp(1.6 * uPR * 2.2 / -mv.z * 2.4, .9 * uPR, 3.2 * uPR); gl_PointSize = sz;
-      vCol = ice * ph * lit * bright * planetShadow(p) * uGain * .16 * hide / max(sz * sz / (uPR * uPR), 1.); vA = hide; }`,
+      vCol = ice * ph * lit * bright * planetShadow(p) * uGain * .16 * hide * (.35 + .65 * exp(-tau * .8)) / max(sz * sz / (uPR * uPR), 1.); vA = hide; }`,
   fragmentShader: `varying vec3 vCol; varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float d = dot(q, q) * 4.; if (d > 1.) discard; gl_FragColor = vec4(vCol * (1. - d), 1.); }` });
+// ----- The ring sheet: the continuous optical depth, lit by the Sun, shadowed by the planet -----
+const sheetMat = new THREE.ShaderMaterial({ uniforms: { uMoon: { value: null }, uMoonB: { value: null }, uNM: { value: 0 }, uTime: { value: 0 }, uSig: { value: sigTex }, uStruct: { value: structTex }, uSun: { value: SUN }, uCam: { value: new THREE.Vector3() }, uGain: { value: 1 } }, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+  vertexShader: `varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+  fragmentShader: `${GLSL_COMMON} ${GLSL_MOONS} uniform vec3 uCam; uniform float uGain; varying vec3 vW;
+    void main(){ float r = length(vW.xz), th = atan(vW.z, vW.x);
+      // follow the streamlines back: the grains here came from orbit a, shifted by the moons' wakes and waves
+      vec3 fx = moonFx(r, th, .5); float a = r - fx.x; fx = moonFx(a, th, .5); a = r - fx.x;
+      float tau0 = tauAt(a) * fx.y * fx.z; if (tau0 < .002) discard;
+      vec2 fs = fineAt(a); float tau = tau0 * fs.x;
+      vec3 V = normalize(uCam - vW), L = normalize(uSun); float mu = max(abs(V.y), .02), mu0 = max(abs(L.y), .02), c = dot(-L, V);
+      // phase function: icy boulders scatter back towards the Sun; the fine dust between them scatters forward
+      float dust = .5 * exp(-tau * 2.5);
+      float P = .85 * hg(c, -.3) + .15 * hg(c, .3) + dust * hg(c, .82) * 2.;
+      // single scattering in a slab of optical depth τ: reflected on the sunlit face, transmitted through to the dark face
+      float I = (sign(V.y) == sign(L.y)) ? P * mu0 / (mu + mu0) * (1. - exp(-tau * (1. / mu + 1. / mu0)))
+                                         : P * mu0 * (exp(-tau / mu) - exp(-tau / mu0)) / (mu - mu0 + (abs(mu - mu0) < 1e-3 ? 1e-3 : 0.));
+      float a = (1. - exp(-tau / mu)) * .97;
+      vec3 ice = mix(vec3(.55, .50, .45), vec3(.93, .84, .70), smoothstep(1.42, 1.85, r)) * mix(vec3(.92, .95, 1.02), vec3(1.06, 1., .9), fs.y);
+      vec3 col = ice * max(I, 0.) * planetShadow(vW) * 1.55 * uGain;
+      gl_FragColor = vec4(col, a); }`, premultipliedAlpha: true, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor });
+const sheet = new THREE.Mesh(new THREE.RingGeometry(PH.A0, PH.A1, 512, 1), sheetMat); sheet.rotation.x = -Math.PI / 2; scene.add(sheet);
+
+sheetMat.uniforms.uMoon = dustMat.uniforms.uMoon; sheetMat.uniforms.uMoonB = dustMat.uniforms.uMoonB; sheetMat.uniforms.uNM = dustMat.uniforms.uNM; sheetMat.uniforms.uTime = dustMat.uniforms.uTime;
 const dustGeo = new THREE.BufferGeometry(); { const ref = new Float32Array(CAP * 2); for (let i = 0; i < CAP; i++) { ref[i * 2] = (i % SIZE + .5) / SIZE; ref[i * 2 + 1] = (Math.floor(i / SIZE) + .5) / SIZE; } dustGeo.setAttribute('ref', new THREE.BufferAttribute(ref, 2)); dustGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(CAP * 3), 3)); }
 const dust = new THREE.Points(dustGeo, dustMat); dust.frustumCulled = false; dust.renderOrder = 2; scene.add(dust);
 
@@ -405,7 +416,7 @@ function syncMoons() { const U = dustMat.uniforms; U.uNM.value = G.moons.length;
 const growObj = new THREE.Group(); growObj.add(new THREE.Mesh(moonGeo, moonMat), new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({ color: 0xffe2a0, transparent: true, opacity: .3, blending: THREE.AdditiveBlending, depthWrite: false }))); scene.add(growObj);
 
 // ===================== Camera: a slow cinematic drift you can take over =====================
-const VIEWS = [{ n: 'Oblique', az: 2.35, el: .38, d: 9.5 }, { n: 'Backlit', az: .55 + Math.PI, el: .07, d: 9 }, { n: 'Overhead', az: 1.4, el: 1.32, d: 9 }, { n: 'Edge-on', az: 2.0, el: .012, d: 10 }, { n: 'Close', az: 2.9, el: .22, d: 5.2 }];
+const VIEWS = [{ n: 'Oblique', az: 2.35, el: .38, d: 9.5 }, { n: 'Backlit', az: .55 + Math.PI, el: .07, d: 9 }, { n: 'Overhead', az: 1.4, el: 1.32, d: 9 }, { n: 'Edge-on', az: 2.0, el: .012, d: 10 }, { n: 'Close', az: 2.9, el: .22, d: 5.2 }, { n: 'Underside', az: 1.9, el: -.32, d: 8.5 }];
 const cam = { az: VIEWS[0].az, el: VIEWS[0].el, d: VIEWS[0].d, idle: 0 }, camGoal = { ...cam }; let viewI = 0;
 function placeCamera() { const k = coarse && innerWidth < innerHeight ? 1.45 : 1; camera.position.set(Math.cos(cam.el) * Math.cos(cam.az), Math.sin(cam.el), Math.cos(cam.el) * Math.sin(cam.az)).multiplyScalar(cam.d * k); camera.lookAt(0, -.05, 0);
   for (const u of [planetMat.uniforms.uCam, halo.material.uniforms.uCam, sheetMat.uniforms.uCam, dustMat.uniforms.uCam]) u.value.copy(camera.position); }
@@ -470,9 +481,9 @@ canvas.addEventListener('pointerdown', e => { setDrawer(false); document.getElem
   drag = { pour: true, last: h }; });
 canvas.addEventListener('pointermove', e => { if (!ptrs.has(e.pointerId)) return; const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]);
   if (pinch && ptrs.size >= 2) { const [a, b] = [...ptrs.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-    camGoal.d = cam.d = Math.max(3.2, Math.min(22, cam.d * pinch.d / Math.max(1, d))); camGoal.az = cam.az += (m[0] - pinch.m[0]) * .006; camGoal.el = cam.el = Math.max(.005, Math.min(1.45, cam.el + (m[1] - pinch.m[1]) * .005)); pinch = { d, m }; return; }
+    camGoal.d = cam.d = Math.max(3.2, Math.min(22, cam.d * pinch.d / Math.max(1, d))); camGoal.az = cam.az += (m[0] - pinch.m[0]) * .006; camGoal.el = cam.el = Math.max(-1.3, Math.min(1.45, cam.el + (m[1] - pinch.m[1]) * .005)); pinch = { d, m }; return; }
   if (!drag) return;
-  if (drag.look) { camGoal.az = cam.az += (e.clientX - drag.x) * .006; camGoal.el = cam.el = Math.max(.005, Math.min(1.45, cam.el + (e.clientY - drag.y) * .005)); drag.x = e.clientX; drag.y = e.clientY; return; }
+  if (drag.look) { camGoal.az = cam.az += (e.clientX - drag.x) * .006; camGoal.el = cam.el = Math.max(-1.3, Math.min(1.45, cam.el + (e.clientY - drag.y) * .005)); drag.x = e.clientX; drag.y = e.clientY; return; }
   const h = planeHit(e.clientX, e.clientY); if (!h) return;
   if (drag.moon) { if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) drag.moved = true; if (!drag.moved) return; const m = drag.moon; m.a = Math.max(1.12, Math.min(3.9, h.a)); m.th = h.th; m.pw = h.th; drag.dirty = true; return; }
   if (drag.grow) { grow.a = Math.max(PH.A0 + .02, Math.min(PH.A1 - .02, h.a)); grow.th = h.th; return; }
