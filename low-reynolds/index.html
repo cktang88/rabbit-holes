@@ -888,8 +888,8 @@ function makePond(seed, tier) {
   P.regrow = .05 - tier * .003; return P;
 }
 // one assay: a colony from a founder genome in a pond, stepped in fixed 0.05 s ticks (deterministic for a seed)
-function newAssay(P, G, n = 24) {
-  const r = RH.rng((P.seed * 7 + P.tier * 13 + 99991) >>> 0), A = { P, r, t: 0, cells: [], F: new Float32Array(PW * PH), C: new Float32Array(PW * PH), drops: DROPS, born: 0, dead: { starve: 0, eaten: 0, washed: 0 }, founder: G, hist: [], done: false, maxGen: 0 };
+function newAssay(P, G, n = 48, salt = 0) {
+  const r = RH.rng((P.seed * 7 + P.tier * 13 + 99991 + salt * 7777) >>> 0), A = { P, r, t: 0, cells: [], F: new Float32Array(PW * PH), C: new Float32Array(PW * PH), drops: DROPS, born: 0, dead: { starve: 0, eaten: 0, washed: 0 }, founder: G, hist: [], done: false, maxGen: 0 };
   for (let i = 0; i < n; i++) A.cells.push(cellOf(G, P.release[0], P.release[1] + (i / (n - 1) - .5) * 2.4, (i / (n - 1) - .5) * 2.4, 1, r)); // released as a fan, pointing into the sample
   pondFood(A, true); return A;
 }
@@ -936,14 +936,16 @@ function pipetteFood(A, x, y) { if (A.drops <= 0 || A.done) return false; A.drop
 // the champion: the living cell of the deepest generation (ties: the best fed); what the pond made of your founder
 const champion = A => A.cells.reduce((b, c) => !b || c.G.gen > b.G.gen || (c.G.gen === b.G.gen && c.E > b.E) ? c : b, null);
 // run a whole assay headless (tests, par); policy(A, t) may use the pipette
-function runAssay(P, G, policy) { const A = newAssay(P, G); while (!A.done) { if (policy) policy(A); pondTick(A); } return A; }
+function runAssay(P, G, policy, salt = 0) { const A = newAssay(P, G, 48, salt); while (!A.done) { if (policy) policy(A); pondTick(A); } return A; }
 // the reference founder: a plain round stroke at a steady rate with a gentle reflex; its population sets the pond's par
 const refGenome = () => mkGenome(circLoop(0, 0, 1.15, 24), 9, .1, 200);
 const pondCache = {};
 function pondOf(seed, tier) { const key = seed + '-' + tier; if (pondCache[key]) return pondCache[key];
-  for (let t = 0; t < 30; t++) { const P = makePond((seed + t * 7919) >>> 0, tier), A = runAssay(P, refGenome()); if (A.cells.length >= Math.max(3, 10 - tier)) { P.par = A.cells.length; P.key = key; return (pondCache[key] = P); } }
-  const P = makePond(seed, 1); P.par = Math.max(1, runAssay(P, refGenome()).cells.length); P.key = key; return (pondCache[key] = P); }
-const pondStars = (A, P) => !A.cells.length ? 0 : A.cells.length >= P.par * 1.5 ? 3 : A.cells.length >= P.par ? 2 : 1;
+  // par: the median of five runs of the reference founder (a colony is a chaotic many-body system: one run is partly luck)
+  const med = P => { const v = [0, 1, 2, 3, 4].map(s => runAssay(P, refGenome(), null, s + 1).score).sort((a, b) => a - b); return v[2]; };
+  for (let t = 0; t < 30; t++) { const P = makePond((seed + t * 7919) >>> 0, tier), m = med(P); if (m >= Math.max(3, 10 - tier)) { P.par = m; P.key = key; return (pondCache[key] = P); } }
+  const P = makePond(seed, 1); P.par = Math.max(1, med(P)); P.key = key; return (pondCache[key] = P); }
+const pondStars = (A, P) => !A.cells.length ? 0 : A.score >= P.par * 1.4 ? 3 : A.score >= P.par * .7 ? 2 : 1;
 
 // ================= the pond on screen =================
 let assay = null, pondP = null, pSel = null, pArm = false, pAcc = 0, pEnded = false;
@@ -973,12 +975,12 @@ function renderPondRow() {
   $('pShare').onclick = () => { pondHash(); try { navigator.clipboard.writeText(location.href); } catch (e) {} flash = ['Link copied: this pond and your founder', performance.now()]; };
 }
 function pondEnd() {
-  pEnded = true; const A = assay, P = pondP, n = A.cells.length, st = pondStars(A, P), S = pondSave(), ch = champion(A);
+  pEnded = true; const A = assay, P = pondP, n = A.score, st = pondStars(A, P), S = pondSave(), ch = champion(A);
   S.best[P.key] = Math.max(S.best[P.key] || 0, n); const ks = Object.keys(S.best); while (ks.length > 40) delete S.best[ks.shift()];
   if (st >= 2) S.top = Math.max(S.top, Math.min(9, P.tier + 1)); SAVE.pond = { ...S, seed: P.seed >>> 0, tier: P.tier }; if (st) { SAVE.done[SAVE.cur] = 1; SAVE.stars[SAVE.cur] = Math.max(SAVE.stars[SAVE.cur] || 0, st); } persist(); renderLevels();
   pSel = ch; FX.sfx(st ? 'win' : 'fail'); if (st) shutter = performance.now();
   const lost = A.dead.starve + A.dead.eaten + A.dead.washed, why = lost ? Object.entries({ starved: A.dead.starve, 'were eaten': A.dead.eaten, 'washed out': A.dead.washed }).filter(e => e[1]).map(([k, v]) => `${v} ${k}`).join(', ') : 'none lost';
-  toast(n ? `${n} cells ${starStr(st)}` : 'Extinct', `Par ${P.par}. Born ${A.born}, ${why}. ${ch ? `The champion is generation <b>${ch.G.gen}</b>: ${(ch.G.vx).toFixed(2)} BL/s, turning ${(ch.G.w * 180 / Math.PI).toFixed(0)}°/s, costs ${(ch.G.cost * 1000).toFixed(0)} (your founder ${(A.founder.cost * 1000).toFixed(0)}), reflex ${Math.round(ch.G.k * 100)}%. Its stroke is dashed on the pad.` : 'Nothing survived: what killed them is above. Change the stroke and try again.'}`, 60000, false, false, !!st);
+  toast(A.cells.length ? `${n} cells ${starStr(st)}` : 'Extinct', `Score: the average colony over the last 50 s. Par ${P.par} (★★ from ${Math.ceil(P.par * .7)}, ★★★ from ${Math.ceil(P.par * 1.4)}). Born ${A.born}, ${why}. ${ch ? `The champion is generation <b>${ch.G.gen}</b>: ${(ch.G.vx).toFixed(2)} BL/s, turning ${(ch.G.w * 180 / Math.PI).toFixed(0)}°/s, costs ${(ch.G.cost * 1000).toFixed(0)} (your founder ${(A.founder.cost * 1000).toFixed(0)}), reflex ${Math.round(ch.G.k * 100)}%. Its stroke is dashed on the pad.` : 'Nothing survived: what killed them is above. Change the stroke and try again.'}`, 60000, false, false, !!st);
   const t = $('toast'); t.insertAdjacentHTML('beforeend', (ch ? '<button class="b on" id="pBreed">Breed from the champion</button>' : '') + `<button class="b" id="pAgain">↺ Again</button>` + (st >= 2 && P.tier < 9 ? '<button class="b on" id="pNext">Next pond ▸</button>' : ''));
   if ($('pBreed')) $('pBreed').onclick = () => { setLoop(ch.G.loop.map(p => p.slice())); fRate = ch.G.rate; fK = ch.G.k; fHue = ch.G.hue; St.drawn = true; t.classList.remove('on'); FX.sfx('place'); flash = ['Founder = the champion. Edit it on the pad, or release it as it is.', performance.now()]; pondHash(); renderPondRow(); };
   $('pAgain').onclick = () => { t.classList.remove('on'); release(); };

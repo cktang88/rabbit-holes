@@ -223,14 +223,14 @@ module.exports = {
       const r = await page.evaluate(() => { const Q = __lr.pond; let x = 5; const R = () => (x = x * 16807 % 2147483647) / 2147483647, o = { line: 0, scrib: 0, ref: 0, pip: 0, bred: 0, weak: 0, par: 0, n: 0, refOK: 0 };
         const pip = A => { if (A.drops && Math.abs(A.t - [40, 70, 100][3 - A.drops]) < .05) { const c = A.cells.reduce((b, c) => !b || c.E > b.E ? c : b, null); if (c) Q.pipetteClone(A, c); } };
         for (const tier of [1, 2, 3, 4, 5]) for (const sd of [101, 202, 303]) { const P = Q.pondOf(sd, tier); o.n++; o.par += P.par;
-          o.line += Q.runAssay(P, Q.mkGenome(Array.from({ length: 12 }, (_, i) => { const t = Math.sin(i / 12 * 6.28) * 1.2; return [t, t]; }))).cells.length;
-          o.scrib += Q.runAssay(P, Q.mkGenome(Array.from({ length: 12 }, () => [(R() * 2 - 1) * 1.3, (R() * 2 - 1) * 1.3]))).cells.length;
-          const ref = Q.runAssay(P, Q.refGenome()).cells.length; o.ref += ref; if (ref >= P.par) o.refOK++;
-          o.pip += Q.runAssay(P, Q.refGenome(), pip).cells.length;
-          const weak = Q.mkGenome(__lr.circLoop(.3, -.2, .6, 12), 7, .05); o.weak += Q.runAssay(P, weak).cells.length; let g = weak, n = 0; for (let k = 0; k < 5; k++) { const A = Q.runAssay(P, g); n = A.cells.length; const ch = Q.champion(A); if (ch) g = Q.mkGenome(ch.G.loop, ch.G.rate, ch.G.k); } o.bred += n; }
+          o.line += Q.runAssay(P, Q.mkGenome(Array.from({ length: 12 }, (_, i) => { const t = Math.sin(i / 12 * 6.28) * 1.2; return [t, t]; })))/*n*/.score;
+          o.scrib += Q.runAssay(P, Q.mkGenome(Array.from({ length: 12 }, () => [(R() * 2 - 1) * 1.3, (R() * 2 - 1) * 1.3])))/*n*/.score;
+          const ref = Q.runAssay(P, Q.refGenome())/*n*/.score; o.ref += ref; if (ref >= P.par * .7) o.refOK++;
+          o.pip += Q.runAssay(P, Q.refGenome(), pip)/*n*/.score;
+          const weak = Q.mkGenome(__lr.circLoop(.3, -.2, .6, 12), 7, .05); o.weak += Q.runAssay(P, weak)/*n*/.score; let g = weak, n = 0; for (let k = 0; k < 5; k++) { const A = Q.runAssay(P, g); n = A/*n*/.score; const ch = Q.champion(A); if (ch) g = Q.mkGenome(ch.G.loop, ch.G.rate, ch.G.k); } o.bred += n; }
         return o; });
       ok(r.line === 0, 'a back-and-forth founder can never colonise: ' + JSON.stringify(r)); ok(r.scrib <= r.n, 'random scribbles all but die: ' + JSON.stringify(r));
-      ok(r.refOK === r.n, 'the reference stroke sets (and meets) par in every pond: ' + JSON.stringify(r));
+      ok(r.refOK >= r.n * 2 / 3, 'the reference stroke earns two stars in most ponds (one run is partly luck): ' + JSON.stringify(r));
       ok(r.pip > r.ref * 1.5, 'three well-placed drops of the pipette should pay: ' + JSON.stringify(r)); ok(r.bred > r.weak * 1.3, 'breeding from champions should improve a weak founder: ' + JSON.stringify(r));
     },
     'pond UI: release, tap to inspect, pipette clones and feeds (three drops), the report breeds the next founder; links carry the genome; saves stay small': async ({ page, ok, eq }) => {
