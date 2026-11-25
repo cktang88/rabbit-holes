@@ -233,15 +233,16 @@ function stepMonth(an, st, opt = {}) {
   const rec = { m, rain, boats: 0, rev: 0, lostW: 0, lostC: 0, lostR: 0, dry: [], jam: [], flows: [] };
   // demand along each route, cut by empty pounds
   const nav = P.map((p, i) => Math.min(1, st.S[i] / (.25 * p.cap + 1e-9)));
-  const f = an.routes.map(r => {
-    const full = C.K * popAt(M.towns[r.i], m) * popAt(M.towns[r.j], m) * G, d = full * r.A;
+  const f = an.routes.map((r, ri) => {
+    // opt.demand (the Canal Age) gives each route its own trade, already weighed against roads, rivals and rails
+    const full = opt.demand ? opt.demand(r, ri) : C.K * popAt(M.towns[r.i], m) * popAt(M.towns[r.j], m) * G, d = opt.demand ? full : full * r.A;
     rec.lostR += full - d;
     let k = 1; for (const p of r.pounds) k = Math.min(k, nav[p]);
     rec.lostW += d * (1 - k); return d * k;
   });
   // locks and tunnels pass only so many boats a month
   const load = si => { let a = 0; for (const ri of an.sites[si].routes) a += f[ri]; return a; };
-  const sr = an.sites.map((s, si) => { const l = load(si); return l > s.cap ? s.cap / l : 1; });
+  const sr = an.sites.map((s, si) => { if (opt.closed && opt.closed.has(s.key)) return 0; const l = load(si); return l > s.cap ? s.cap / l : 1; }); // a closed flight passes nothing
   const tr = an.tun.map(t => { let l = 0; for (const ri of t.routes) l += f[ri]; return l > t.cap ? t.cap / l : 1; });
   an.routes.forEach((r, ri) => { let k = 1; for (const s of r.sites) k = Math.min(k, sr[s]); for (const t of r.tuns) k = Math.min(k, tr[t]); rec.lostC += f[ri] * (1 - k); f[ri] *= k; });
   an.sites.forEach((s, si) => { if (sr[si] < .999) rec.jam.push(si); });
@@ -277,7 +278,7 @@ function stepMonth(an, st, opt = {}) {
   }
   an.res.forEach((r, ri) => { if (r.bad) return; const v = RV[ri] + r.inflow * rain; st.wIn += r.inflow * rain; RV[ri] = Math.min(r.cap, v); st.wOut += v - RV[ri]; });
   // tolls and running costs
-  an.routes.forEach((r, ri) => { rec.boats += f[ri]; rec.rev += f[ri] * C.R * r.e; rec.flows.push(f[ri]); });
+  an.routes.forEach((r, ri) => { rec.boats += f[ri]; rec.rev += f[ri] * C.R * r.e * (opt.revK ? opt.revK(ri) : 1); rec.flows.push(f[ri]); });
   for (const s of an.sites) { running += s.t === 'plane' ? C.RUN_PLANE + C.RUN_PLANE_BOAT * load(s.si) : C.RUN_LOCK * s.n * (s.dbl ? 2 : 1); }
   for (const p of P) running += C.RUN_TUN * p.tunnel + C.RUN_CELL * p.len;
   rec.run = running;

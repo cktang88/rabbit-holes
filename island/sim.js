@@ -7,7 +7,7 @@
   const hashStr = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
   function rng(seed) { let a = typeof seed === 'string' ? hashStr(seed) : seed >>> 0;
     const f = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
-    f.int = (n) => Math.floor(f() * n); return f; }
+    f.int = (n) => Math.floor(f() * n); f.get = () => a; f.set = (v) => { a = v | 0; }; return f; }
 
   const GW = 56, GH = 40, N = GW * GH, TPY = 24; // two ticks a month
   const FOOD = 30;                              // food units in a tile fully covered by one plant
@@ -107,21 +107,21 @@
     return placed;
   }
 
-  // Trap a species around (tx, ty): up to 30 animals within 6 tiles are caught and shipped off the island.
+  // Trap a species around (tx, ty): up to 12 animals within 6 tiles are caught and shipped off the island.
   function trap(w, id, tx, ty, rec = true) { const s = IDX[id]; let n = 0;
-    for (let k = 0; k < w.n && n < 30; k++) if (w.sp[k] === s && Math.abs(w.x[k] - tx) <= 6 && Math.abs(w.y[k] - ty) <= 6) { w.sp[k] = -1; n++; }
-    if (rec) w.actions.push([w.t, '-' + id, tx, ty]); return n; }
-  // Cull: trap whichever animal is most numerous within 5 tiles (up to 30 of it).
+    for (let k = 0; k < w.n && n < (rec === 'cull' ? 20 : 12); k++) if (w.sp[k] === s && Math.abs(w.x[k] - tx) <= 6 && Math.abs(w.y[k] - ty) <= 6) { w.sp[k] = -1; n++; }
+    if (rec === true) w.actions.push([w.t, '-' + id, tx, ty]); return n; }
+  // Cull: trap whichever animal is most numerous within 5 tiles (up to 20 of it).
   function cull(w, tx, ty, rec = true) { const c = new Array(SP.length).fill(0);
     for (let k = 0; k < w.n; k++) if (w.sp[k] >= 0 && Math.abs(w.x[k] - tx) <= 5 && Math.abs(w.y[k] - ty) <= 5) c[w.sp[k]]++;
     let s = -1; for (let i = 0; i < c.length; i++) if (c[i] && (s < 0 || c[i] > c[s])) s = i; if (s < 0) return 0;
-    const n = trap(w, SP[s].id, tx, ty, false); if (rec) w.actions.push([w.t, '-any', tx, ty]); w.lastCull = SP[s].id; return n; }
+    const n = trap(w, SP[s].id, tx, ty, 'cull'); if (rec) w.actions.push([w.t, '-any', tx, ty]); w.lastCull = SP[s].id; return n; }
   // Fence: grazers (rabbits, deer, goats) cannot enter for five years, so the plants inside get a rest.
   const FENCE_T = 5 * TPY;
   function fence(w, tx, ty, rec = true) { let n = 0; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = tx + dx, y = ty + dy; if (x < 0 || y < 0 || x >= GW || y >= GH || dx * dx + dy * dy > 10) continue; const i = y * GW + x; if (w.isl.land[i]) { w.fence[i] = FENCE_T; n++; } }
     if (rec) w.actions.push([w.t, '#fence', tx, ty]); return n; }
-  function act(w, a) { const [, id, x, y] = a; return id === '-any' ? cull(w, x, y) : id === '#fence' ? fence(w, x, y) : id[0] === '-' ? trap(w, id.slice(1), x, y) : release(w, id, x, y); }
-  const TOOLS = { '-any': { name: 'Cull', note: 'Trap up to 30 of the most numerous animal near where you tap, and ship them off.' }, '#fence': { name: 'Fence', note: 'Fence off a patch for five years: rabbits, deer and goats cannot get in, so the plants inside recover.' } };
+  function act(w, a) { const [, id, x, y] = a; return id === '-any' ? cull(w, x, y) : id === '#fence' ? fence(w, x, y) : id === '#burn' ? burn(w, x, y) : id === '#dam' ? dam(w, x, y) : id[0] === '-' ? trap(w, id.slice(1), x, y) : release(w, id, x, y); }
+  const TOOLS = { '-any': { name: 'Cull', note: 'Trap up to 20 of the most numerous animal near where you tap, and ship them off.' }, '#fence': { name: 'Fence', note: 'Fence off a patch for five years: rabbits, deer and goats cannot get in, so the plants inside recover.' }, '#burn': { name: 'Burn', note: 'Burn off a patch of brush and wood. The ash feeds the soil; slow animals caught in it die.' }, '#dam': { name: 'Dam', note: 'Dam the stream (tap next to it). The ground around stays wet for good: willows, bramble and lush grass.' } };
   const validId = (id) => typeof id === 'string' && (IDX[id] != null || IDX[id.slice(1)] != null || TOOLS[id] != null);
   // ----- one tick (half a month) -----
   const head = new Int32Array(N), nxt = new Int32Array(MAXA);
@@ -151,10 +151,10 @@
     }
     // animals
     head.fill(-1); for (let k = 0; k < w.n; k++) if (w.sp[k] >= 0) { const i = w.y[k] * GW + w.x[k]; nxt[k] = head[i]; head[i] = k; }
-    const r = w.r, n = w.n;
+    const r = w.r, n = w.n; const harsh = win && w.harsh && w.harsh.includes(Math.floor(t / TPY));
     for (let k = 0; k < n; k++) { const s = w.sp[k]; if (s < 0) continue; const S = P[s]; w.px[k] = w.x[k]; w.py[k] = w.y[k];
       w.age[k]++; if (w.age[k] > S.life) { kill(w, k); continue; }
-      const cold = win && s !== IDX.bee ? S.wcost : (win ? S.wcost : S.cost);
+      const cold = (win ? S.wcost : S.cost) * (harsh && s !== IDX.bee ? 1.45 : 1);   // a hard winter bites everything but the sleeping bees
       w.E[k] -= cold * (w.age[k] < S.mature ? .8 : 1);
       let i = w.y[k] * GW + w.x[k];
       if (S.prey) i = hunt(w, k, S, i);
@@ -260,14 +260,14 @@
   function scatter(w, id, n, tag) { const r = rng('scatter:' + w.seed + tag); const L = []; for (let i = 0; i < N; i++) if (w.isl.land[i]) L.push(i);
     for (let k = 0; k < n; k++) { const j = spawn(w, IDX[id], L[r.int(L.length)], P[IDX[id]].E0, k & 1); if (j >= 0) w.age[j] = P[IDX[id]].mature + r.int(60); } }
   // the fox swing: 0 rising, 1 a peak of 6+ seen, 2 crashed to 60% of the peak or less, 3 recovered to 1.5x the trough (and +4)
-  function swing(f) { let pk = 0, tr = Infinity, st = 0; for (const v of f) { if (st < 2) { if (v > pk) pk = v; if (pk >= 6) st = 1; if (pk >= 6 && v <= .6 * pk) { st = 2; tr = v; } } else { if (v < tr) tr = v; if (v >= Math.max(tr * 1.5, tr + 4)) return 3; } } return st; }
+  function swing(f) { let pk = 0, tr = Infinity, st = 0; for (const v of f) { if (st < 2) { if (v > pk) pk = v; if (pk >= 6) st = 1; if (pk >= 6 && v <= .65 * pk) { st = 2; tr = v; } } else { if (v < tr) tr = v; if (v >= Math.max(tr * 1.5, tr + 4)) return 3; } } return st; }
   const ALL = SP.map(s => s.id).filter(x => x !== 'goat');
   const SCEN = [
     { id: 'meadow', title: 'A meadow for rabbits', seed: 'meadow', years: 9, permits: 4, species: ['rabbit', 'fox', 'shrub'],
       brief: 'This island has grass and nothing that eats it. The warden wants rabbits on it, and still a meadow worth the name: in year 8, twenty rabbits or more and grass over 12% of the island. Rabbits alone eat a meadow to the bone.',
       goal: (w) => { const y = yr(w), r = cnt(w, 'rabbit'), g = cnt(w, 'grass'); if (y >= 8 && r >= 20 && g >= .12) return 'won'; if (y >= 9) return 'lost'; return `Rabbits ${r}; grass ${(g * 100).toFixed(0)}% (12% wanted). Year ${y} of 8.`; } },
     { id: 'cycle', title: 'Boom and bust', seed: 'cycle', years: 30, permits: 6, species: ['rabbit', 'vole', 'shrub', 'fox', 'owl'],
-      brief: 'Establish foxes and rabbits together and keep both for twenty years running, long enough to see the foxes boom, crash by at least 40%, and come back half as many again.',
+      brief: 'Establish foxes and rabbits together and keep both for twenty years running, long enough to see the foxes boom, crash by at least a third, and come back.half as many again.',
       goal: (w) => { const y = yr(w); const ra = w.census[IDX.rabbit], fo = w.census[IDX.fox]; let run = 0, f = [];
         for (let k = TPY - 1; k < ra.length; k += TPY) { if (ra[k] >= 2 && fo[k] >= 2) { run++; f.push(fo[k]); } else { run = 0; f = []; } }
         const s = swing(f); if (run >= 20 && s === 3) return 'won'; if (y >= 30) return 'lost';
@@ -299,6 +299,151 @@
     brief: 'No commission: any species, as many as you like. Watch what happens.', goal: (w) => `${speciesCount(w)} species. Year ${yr(w)}.` });
   function start(c, run) { const w = create(c.seed, { setup: c.setup, run }); if (c.drought) w.drought = c.drought; census(w); return w; }
 
-  const api = { GW, GH, N, TPY, SP, IDX, ANIMALS, PLANTS, MAXA, rng, hashStr, makeIsland, create, step, release, trap, cull, fence, act, TOOLS, validId, SCEN, SCN, daily, sandbox, start, census, counts, present, presentAt, speciesCount, season, seasonName, isWinter, inDrought, replay };
+  // ===================== more hands on the land: fire and water =====================
+  // Burn: clears brush and woods in a patch; the ash feeds the soil, so grass and flowers come back strong.
+  function burn(w, tx, ty, rec = true) { let n = 0; const f = w.f; const burnt = [];
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = tx + dx, y = ty + dy; if (x < 0 || y < 0 || x >= GW || y >= GH || dx * dx + dy * dy > 10) continue; const i = y * GW + x; if (!w.isl.land[i]) continue;
+      const fuel = f.shrub[i] + f.tree[i] + .5 * w.litter[i] + .3 * f.grass[i]; w.fert[i] = Math.min(1.25, w.fert[i] + .3 * fuel);
+      f.shrub[i] *= .05; f.tree[i] *= .1; f.grass[i] *= .3; f.flower[i] *= .5; f.fungi[i] *= .3; w.litter[i] = 0; burnt.push(i); n++; }
+    for (let k = 0; k < w.n; k++) if (w.sp[k] >= 0 && Math.abs(w.x[k] - tx) <= 2 && Math.abs(w.y[k] - ty) <= 2 && P[w.sp[k]].speed < 2) kill(w, k);   // the slow ones do not get away
+    (w.burns || (w.burns = [])).push({ t: w.t, x: tx, y: ty, before: patch(w, tx, ty, ['grass', 'flower']) });
+    if (rec) w.actions.push([w.t, '#burn', tx, ty]); return n; }
+  // Dam: a beaver-style dam on the stream floods the ground around it; the wet ground stays wet for good.
+  function dam(w, tx, ty, rec = true) { let n = 0, near = false; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const x = tx + dx, y = ty + dy; if (x >= 0 && y >= 0 && x < GW && y < GH && w.isl.river[y * GW + x]) near = true; }
+    if (!near) return 0;
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) { const x = tx + dx, y = ty + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const i = y * GW + x, d = Math.hypot(dx, dy); if (!w.isl.land[i] || d > 4.2) continue;
+      w.isl.moist[i] = Math.min(1, w.isl.moist[i] + .4 * (1 - d / 5)); w.f.grass[i] *= .8; n++; }
+    (w.dams || (w.dams = [])).push({ t: w.t, x: tx, y: ty, before: patch(w, tx, ty, ['tree', 'shrub']) });
+    if (rec) w.actions.push([w.t, '#dam', tx, ty]); return n; }
+  function patch(w, tx, ty, ids) { let v = 0, c = 0; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = tx + dx, y = ty + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const i = y * GW + x; if (!w.isl.land[i]) continue; for (const id of ids) v += w.f[id][i]; c++; } return c ? v / c : 0; }
+
+  // ===================== snapshots: a whole world in a few dozen kilobytes =====================
+  const b64 = (u8) => { if (typeof Buffer !== 'undefined') return Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength).toString('base64'); let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode.apply(null, u8.subarray(i, i + 8192)); return btoa(s); };
+  const unb64 = (s) => { if (typeof Buffer !== 'undefined') { const b = Buffer.from(s, 'base64'); return new Uint8Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)); } const t = atob(s), u = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) u[i] = t.charCodeAt(i); return u; };
+  const FIELDS = (w) => [w.f.grass, w.f.flower, w.f.shrub, w.f.tree, w.f.fungi, w.litter, w.fert, w.poll, w.fear, w.isl.moist];
+  function snapshot(w) { const L = []; for (let i = 0; i < N; i++) if (w.isl.land[i]) L.push(i); const nl = L.length;
+    const fl = new Float32Array(nl * 10); FIELDS(w).forEach((a, j) => { for (let q = 0; q < nl; q++) fl[j * nl + q] = a[L[q]]; });
+    const fe = new Uint16Array(nl); for (let q = 0; q < nl; q++) fe[q] = w.fence[L[q]];
+    const live = []; for (let k = 0; k < w.n; k++) if (w.sp[k] >= 0) live.push(k); const m = live.length;
+    const ai = new Int16Array(m * 6), ae = new Float32Array(m); live.forEach((k, j) => { ai.set([k, w.sp[k] | w.fem[k] << 8, w.x[k] | w.y[k] << 8, w.age[k], w.last[k], 0], j * 6); ae[j] = w.E[k]; });
+    const yrs = w.years.map(y => y.map(v => Math.round(v * 1e5) / 1e5));
+    return { v: 1, seed: w.seed, t: w.t, r: w.r.get(), n: w.n, fl: b64(new Uint8Array(fl.buffer, 0, nl * 40)), fe: b64(new Uint8Array(fe.buffer)), ai: b64(new Uint8Array(ai.buffer)), ae: b64(new Uint8Array(ae.buffer)),
+      years: yrs, camp: JSON.parse(JSON.stringify(w.camp)), codex: { ...w.codex }, harsh: w.harsh.slice(), drought: w.drought.slice(), burns: (w.burns || []).slice(-20), dams: (w.dams || []).slice(-20), dis: w.dis || null }; }
+  function restore(sn) { const w = create(sn.seed); const L = []; for (let i = 0; i < N; i++) if (w.isl.land[i]) L.push(i); const nl = L.length;
+    const fl = new Float32Array(unb64(sn.fl).buffer); FIELDS(w).forEach((a, j) => { for (let q = 0; q < nl; q++) a[L[q]] = fl[j * nl + q]; });
+    const fe = new Uint16Array(unb64(sn.fe).buffer); for (let q = 0; q < nl; q++) w.fence[L[q]] = fe[q];
+    w.sp.fill(-1); const ai = new Int16Array(unb64(sn.ai).buffer), ae = new Float32Array(unb64(sn.ae).buffer);
+    for (let j = 0; j < ae.length; j++) { const k = ai[j * 6]; w.sp[k] = ai[j * 6 + 1] & 255; w.fem[k] = (ai[j * 6 + 1] >> 8) & 1; w.x[k] = w.px[k] = ai[j * 6 + 2] & 255; w.y[k] = w.py[k] = (ai[j * 6 + 2] >> 8) & 255; w.age[k] = ai[j * 6 + 3]; w.last[k] = ai[j * 6 + 4]; w.E[k] = ae[j]; }
+    w.n = sn.n; w.t = sn.t; w.r.set(sn.r); w.years = sn.years.map(y => y.slice()); w.camp = JSON.parse(JSON.stringify(sn.camp)); w.codex = { ...sn.codex }; w.harsh = sn.harsh.slice(); w.drought = sn.drought.map(d => d.slice());
+    w.burns = sn.burns.slice(); w.dams = sn.dams.slice(); w.dis = sn.dis; census(w); return w; }
+
+  // ===================== the campaign: one island, many years, chapter after chapter =====================
+  // Everything you do stays done: the woods you grew, the species you lost, the soil you spent. Each chapter
+  // brings a new commission, new arrivals in the ark, more releases and, often, a blow from outside.
+  const YK = ['grass', 'flower', 'shrub', 'tree', 'fungi', 'bee', 'vole', 'rabbit', 'deer', 'goat', 'fox', 'owl', 'wolf'];   // = SP order
+  const Y = (w, ago = 0) => w.years[w.years.length - 1 - ago];
+  const yc = (w, id, ago = 0) => { const y = Y(w, ago); return y ? y[IDX[id]] : 0; };
+  // extra per-year numbers after the species: 13 river woods, 14 green cover, 15 mean fertility, 16 deer on the banks (share)
+  const XR = 13, XC = 14, XF = 15, XD = 16;
+  const scatterAt = (w, id, n, tag) => { const r = rng('drift:' + w.seed + tag); const L = []; for (let i = 0; i < N; i++) if (w.isl.coast[i]) L.push(i); const at = L[r.int(L.length)];
+    let k = 0; for (let j = 0; j < n; j++) { const i = L[Math.max(0, Math.min(L.length - 1, L.indexOf(at) + r.int(9) - 4))]; const q = spawn(w, IDX[id], i, P[IDX[id]].E0, j & 1); if (q >= 0) { w.age[q] = P[IDX[id]].mature + r.int(40); k++; } } return [at % GW, (at / GW) | 0]; };
+  function disease(w, id, frac, tag) { const r = rng('dis:' + w.seed + tag); let n = 0; for (let k = 0; k < w.n; k++) if (w.sp[k] === IDX[id] && r() < frac) { kill(w, k); n++; } return n; }
+  const mostMammal = (w) => { const c = counts(w); let best = 'rabbit'; for (const id of ['vole', 'rabbit', 'deer', 'fox']) if (c[IDX[id]] > c[IDX[best]]) best = id; return best; };
+  const CH = [
+    { id: 'meadow', title: 'A meadow for rabbits', years: 9, permits: 4, ark: ['rabbit', 'fox', 'shrub'], tools: ['-any', '#fence'],
+      brief: 'The warden wants rabbits on the island and still a meadow worth the name: in year 8 of this chapter, twenty rabbits or more and grass over 12% of the island. Rabbits alone eat a meadow to the bone.',
+      goal: (w, y) => { const r = yc(w, 'rabbit'), g = yc(w, 'grass'); if (y >= 8 && r >= 20 && g >= .12) return 'won'; if (y >= 9) return 'lost'; return `Rabbits ${r}; grass ${(g * 100).toFixed(0)}% of 12%. Year ${y} of 8.`; } },
+    { id: 'cycle', title: 'Boom and bust', years: 25, permits: 5, ark: ['vole', 'owl'], tools: ['#burn'],
+      brief: 'Keep foxes and rabbits together for fifteen years running, long enough to see the foxes boom, crash by at least a third, and come back.',
+      goal: (w, y, c) => { let run = 0, f = []; for (let k = c.y0; k < w.years.length; k++) { const Yk = w.years[k]; if (Yk[IDX.rabbit] >= 2 && Yk[IDX.fox] >= 2) { run++; f.push(Yk[IDX.fox]); } else { run = 0; f = []; } }
+        const s = swing(f); if (run >= 15 && s === 3) return 'won'; if (y >= 25) return 'lost'; return `Together ${run} of 15 years. Foxes ${['still rising', 'peaked; wait for the crash', 'crashed; wait for the comeback', 'boomed, crashed, came back'][s]}.`; } },
+    { id: 'woods', title: 'Owl wood', years: 20, permits: 5, ark: ['tree', 'fungi'],
+      brief: 'The society would like tawny owls nesting here: a wood covering an eighth of the island, and at least four owls living in it.',
+      goal: (w, y) => { const t = yc(w, 'tree'), o = yc(w, 'owl'); if (t >= .125 && o >= 4) return 'won'; if (y >= 20) return 'lost'; return `Woods ${(t * 100).toFixed(0)}% of 12.5%; owls ${o} of 4.`; } },
+    { id: 'goats', title: 'Castaway goats', years: 20, permits: 8, ark: ['wolf', 'grass'], traps: ['goat'],
+      start: (w) => { scatterAt(w, 'goat', 20, 'goats'); scatterAt(w, 'goat', 20, 'goats2'); return 'A wrecked ship\'s goats have swum ashore: forty of them, in two herds.'; },
+      brief: 'Forty goats from a wreck are on the island. Get them down to three or fewer while green cover stays over 45%.',
+      goal: (w, y) => { const g = yc(w, 'goat'), c = Y(w)[XC]; if (g <= 3 && c >= .45) return 'won'; if (y >= 20) return 'lost'; return `Goats ${g}; green cover ${(c * 100).toFixed(0)}% of 45%.`; } },
+    { id: 'river', title: 'Wolves change rivers', years: 20, permits: 5, ark: ['deer'], tools: ['#dam'],
+      start: (w) => { scatterAt(w, 'deer', 25, 'deer'); scatterAt(w, 'deer', 25, 'deer2'); for (let i = 0; i < N; i++) if (w.isl.bank[i]) { w.f.tree[i] = Math.min(w.f.tree[i], .03); w.f.shrub[i] = Math.min(w.f.shrub[i], .03); } return 'Fifty red deer have crossed the ice, and their winter browsing has stripped the riverbanks.'; },
+      brief: 'Bring the riverside woods back to a quarter of the banks while deer still live here.',
+      goal: (w, y) => { const rv = Y(w)[XR], d = yc(w, 'deer'); if (rv >= .25 && d >= 5) return 'won'; if (y >= 20) return 'lost'; return `Riverside woods ${(rv * 100).toFixed(0)}% of 25%; deer ${d}.`; } },
+    { id: 'bees', title: 'The bee meadow', years: 15, permits: 5, ark: ['flower', 'bee'],
+      brief: 'Wildflowers over 3% of the island, with bees working them.',
+      goal: (w, y) => { const f = yc(w, 'flower'); if (f >= .03 && yc(w, 'bee') >= 2) return 'won'; if (y >= 15) return 'lost'; return `Wildflowers ${(f * 100).toFixed(1)}% of 3%.`; } },
+    { id: 'drought', title: 'The dry decade', years: 16, permits: 6, ark: [],
+      start: (w) => { const y0 = Math.floor(w.t / TPY); w.drought.push([y0 + 2, y0 + 11]); return 'The almanac warns of nine dry years, starting in two.'; },
+      brief: 'Nine dry years are coming. Have seven species or more alive when the chapter ends.',
+      goal: (w, y) => { const n = speciesCount(w); if (y >= 16) return n >= 7 ? 'won' : 'lost'; return `${n} species now.${y >= 2 && y < 11 ? ' Drought!' : y < 2 ? ' The rains fail in year 2.' : ''}`; } },
+    { id: 'plague', title: 'Plague year', years: 15, permits: 5, ark: [],
+      start: (w) => { const id = mostMammal(w), before = cnt(w, id); const n = disease(w, id, .85, 'plague' + w.t); w.dis = { id, before, t: w.t }; return `A plague has swept through the ${P[IDX[id]].name.toLowerCase()}: ${n} of ${before} dead.`; },
+      brief: 'Bring the stricken species back to half its old numbers, and keep eight species alive.',
+      goal: (w, y) => { const d = w.dis, n = speciesCount(w), c = yc(w, d.id); if (y >= 3 && c >= d.before * .5 && n >= 8) return 'won'; if (y >= 15) return 'lost'; return `${P[IDX[d.id]].name} ${c} of ${Math.ceil(d.before * .5)}; ${n} species of 8.`; } },
+    { id: 'ten', title: 'Ten species', years: 30, permits: 8, ark: [],
+      brief: 'The grand commission: ten species living side by side at the end of thirty years.',
+      goal: (w, y) => { const n = speciesCount(w); if (y >= 30) return n >= 10 ? 'won' : 'lost'; return `${n} species now; ten wanted in year 30.`; } },
+    { id: 'watch', title: 'The long watch', years: 1e9, permits: 4, ark: [], endless: true,
+      brief: 'No more commissions: the island is yours. Every ten years the society sends four more releases. Fill the journal of phenomena.',
+      goal: (w, y) => `${speciesCount(w)} species; ${Object.keys(w.codex).length} of ${CODEX.length} phenomena seen.` },
+  ];
+  const arkAt = (ch) => { const a = []; for (let i = 0; i <= Math.min(ch, CH.length - 1); i++) for (const id of CH[i].ark) if (!a.includes(id)) a.push(id); return ch >= 6 ? ALL.slice() : a; };
+  const toolsAt = (ch) => { const t = []; for (let i = 0; i <= Math.min(ch, CH.length - 1); i++) for (const id of CH[i].tools || []) t.push(id); return t; };
+  const trapsAt = (ch) => { const t = []; for (let i = 0; i <= Math.min(ch, CH.length - 1); i++) for (const id of CH[i].traps || []) t.push(id); return t; };
+  function newCampaign(seed) { const w = create('camp:' + seed); w.years = []; w.codex = {}; w.harsh = []; w.camp = { seed: String(seed), ch: 0, y0: 0, permits: 0, log: [] }; census(w); record(w); startChapter(w); return w; }
+  function startChapter(w) { const c = w.camp, ch = CH[c.ch]; c.y0 = Math.floor(w.t / TPY); c.permits += ch.permits; c.status = 'on'; const msg = ch.start ? ch.start(w) : null; if (msg) c.log.push([c.y0, msg]); census(w); if (w.years.length) w.years[w.years.length - 1] = yearRow(w); return msg; }
+  function yearRow(w) { const c = w.last_counts.slice(0, SP.length); let fe = 0, db = 0, dn = 0; for (let i = 0; i < N; i++) if (w.isl.land[i]) fe += w.fert[i];
+    for (let k = 0; k < w.n; k++) if (w.sp[k] === IDX.deer) { dn++; if (w.isl.bank[w.y[k] * GW + w.x[k]]) db++; }
+    c.push(w.riverHist[w.riverHist.length - 1], w.coverHist[w.coverHist.length - 1], fe / w.isl.nLand, dn ? db / dn : 0); return c; }
+  function record(w) { w.years.push(yearRow(w)); }
+  // can this be done now? (releases left, the species is in the ark, the tool is unlocked)
+  function allowed(w, id) { const c = w.camp; if (c.permits <= 0) return false; if (TOOLS[id]) return toolsAt(c.ch).includes(id); if (id[0] === '-') return trapsAt(c.ch).includes(id.slice(1)); return arkAt(c.ch).includes(id); }
+  function campAct(w, a) { if (!allowed(w, a[1])) return 0; const na = w.actions.length; const n = act(w, a); if (!n) { w.actions.length = na; return 0; } w.camp.permits--; return n; }
+  // one tick; at the year's end, the bookkeeping: the census, shocks, the journal of phenomena, the commission
+  function campTick(w) { step(w); if (w.t % TPY) return null; const ev = []; const c = w.camp; const yAbs = w.t / TPY; record(w);
+    for (const id of observe(w)) ev.push({ kind: 'codex', id });
+    // weather and bad luck, from the third chapter on: never in a chapter's first two years
+    const y = yAbs - c.y0; if (c.ch >= 2 && y >= 2) { const r = rng('shock:' + c.seed + ':' + yAbs); if (r() < .1) { const k = r.int(4); let msg = '';
+        if (k === 0) { w.harsh.push(yAbs); msg = 'The coming winter will be a hard one.'; }
+        else if (k === 1) { const x = 6 + r.int(GW - 12), yy = 6 + r.int(GH - 12); let n = 0; for (let i = 0; i < N; i++) if (w.isl.land[i] && Math.hypot(i % GW - x, ((i / GW) | 0) - yy) < 7) { w.f.tree[i] *= .35; n++; } msg = 'A gale has torn through the woods.'; }
+        else if (k === 2) { const id = mostMammal(w), n = disease(w, id, .5, 'shock' + yAbs); msg = `Sickness among the ${P[IDX[id]].name.toLowerCase()}: ${n} died.`; }
+        else { scatterAt(w, 'goat', 6, 'cast' + yAbs); msg = 'Six goats have washed ashore from a wreck.'; }
+        c.log.push([yAbs, msg]); ev.push({ kind: 'shock', msg }); } }
+    if (CH[c.ch].endless && y > 0 && y % 10 === 0) { c.permits += 4; ev.push({ kind: 'permits', n: 4 }); }
+    if (c.status === 'on') { const g = CH[c.ch].goal(w, y, c); if (g === 'won') { c.log.push([yAbs, 'Fulfilled: ' + CH[c.ch].title]); ev.push({ kind: 'won', ch: c.ch }); c.ch++; const msg = startChapter(w); ev.push({ kind: 'chapter', ch: c.ch, msg }); } else if (g === 'lost') { c.status = 'lost'; ev.push({ kind: 'lost', ch: c.ch }); } }
+    return ev; }
+  const goalText = (w) => { const c = w.camp; return c.status === 'lost' ? 'Lapsed.' : CH[c.ch].goal(w, Math.floor(w.t / TPY) - c.y0, c); };
+
+  // ===================== the journal of phenomena =====================
+  // Things you can make happen on the island, each detected from the census, not scripted.
+  const sinceY = (w, n) => w.years.slice(Math.max(0, w.years.length - n));
+  const CODEX = [
+    { id: 'boom', name: 'Population explosion', hint: 'Something with plenty to eat and nothing to eat it.', test: (w) => ANIMALS.some(s => yc(w, SP[s].id) >= 100 && yc(w, SP[s].id) >= 4 * Math.max(1, yc(w, SP[s].id, 2))) },
+    { id: 'overgraze', name: 'Overgrazing', hint: 'Too many mouths on one meadow.', test: (w) => yc(w, 'grass') < .08 && sinceY(w, 5).some(y => y[IDX.grass] > .2) && yc(w, 'rabbit') + yc(w, 'deer') + yc(w, 'goat') >= 80 },
+    { id: 'cycle', name: 'Predator–prey cycle', hint: 'Hunters that boom, overeat and starve, then boom again.', test: (w) => swing(sinceY(w, 25).map(y => y[IDX.fox])) === 3 },
+    { id: 'cascade', name: 'Trophic cascade', hint: 'A hunter that helps the trees.', test: (w) => { const s = sinceY(w, 15); return s.length >= 10 && s.every(y => y[IDX.wolf] >= 2) && s[s.length - 1][XR] >= s[0][XR] + .1 && s[s.length - 1][IDX.deer] < s[0][IDX.deer]; } },
+    { id: 'fear', name: 'Landscape of fear', hint: 'Prey that stop going where they are watched.', test: (w) => { const s = sinceY(w, 12); return s.length >= 8 && s[0][IDX.wolf] < 2 && s[0][IDX.deer] >= 10 && s[0][XD] > .1 && Y(w)[IDX.wolf] >= 2 && Y(w)[IDX.deer] >= 5 && Y(w)[XD] < s[0][XD] * .5; } },
+    { id: 'invasion', name: 'Biological invasion', hint: 'A stranger with no enemies.', test: (w) => yc(w, 'goat') >= 60 },
+    { id: 'eradication', name: 'Eradication', hint: 'Every last one of an invader, gone.', test: (w) => yc(w, 'goat') === 0 && sinceY(w, 20).some(y => y[IDX.goat] >= 20) },
+    { id: 'mutualism', name: 'Mutualism', hint: 'Two species that need each other.', test: (w) => yc(w, 'bee') >= 15 && yc(w, 'flower') >= 2 * Math.max(.002, yc(w, 'flower', 5)) },
+    { id: 'exhaust', name: 'Soil exhaustion', hint: 'Bare ground, heavy rain, nothing to rot.', test: (w) => Y(w)[XF] < .45 },
+    { id: 'rot', name: 'Decomposers at work', hint: 'The quiet ones under the leaf litter.', test: (w) => { const s = sinceY(w, 10); return s.length >= 10 && yc(w, 'fungi') >= .02 && Y(w)[XF] >= s[0][XF] + .08; } },
+    { id: 'succession', name: 'Succession', hint: 'Grass, then bramble, then wood.', test: (w) => yc(w, 'tree') >= .15 && sinceY(w, 30).some(y => y[IDX.tree] < .07) },
+    { id: 'extinct', name: 'Local extinction', hint: 'The last of a kind.', test: (w) => ANIMALS.some(s => yc(w, SP[s].id) === 0 && sinceY(w, 5).some(y => y[s] >= 10)) },
+    { id: 'rescue', name: 'Rescued from extinction', hint: 'Bring something back, and keep it.', test: (w) => ANIMALS.some(s => { const h = w.years.map(y => y[s]); let i = h.length - 1, n = 0; while (i >= 0 && h[i] >= 2) { n++; i--; } return n >= 10 && i >= 0 && h.slice(0, i + 1).some(v => v >= 10); }) },
+    { id: 'allee', name: 'Too few to last', hint: 'A handful released, and none left.', test: (w) => ANIMALS.some(s => { const h = sinceY(w, 3).map(y => y[s]); return h.length === 3 && h[2] === 0 && h.some(v => v > 0) && Math.max(...h) <= 12 && w.years.length > 3; }) },
+    { id: 'release', name: 'Prey release', hint: 'Take away the hunter and watch the hunted.', test: (w) => [['fox', 'rabbit'], ['owl', 'vole'], ['wolf', 'deer']].some(([a, b]) => { const s = sinceY(w, 8); return s.length === 8 && s[0][IDX[a]] >= 4 && s[s.length - 1][IDX[a]] === 0 && s[s.length - 1][IDX[b]] >= 3 * Math.max(5, s[0][IDX[b]]); }) },
+    { id: 'fire', name: 'Fire ecology', hint: 'Ash is a fertiliser.', test: (w) => (w.burns || []).some(b => w.t - b.t >= 2 * TPY && w.t - b.t <= 4 * TPY && patch(w, b.x, b.y, ['grass', 'flower']) > 1.4 * b.before + .05) },
+    { id: 'wetland', name: 'Wetland', hint: 'Hold back the water.', test: (w) => (w.dams || []).some(d => w.t - d.t >= 6 * TPY && patch(w, d.x, d.y, ['tree', 'shrub']) > 1.6 * d.before + .05) },
+    { id: 'refuge', name: 'Refuge', hint: 'Somewhere to hide from the hunter.', test: (w) => { const s = sinceY(w, 10); return s.length === 10 && s.every(y => y[IDX.fox] >= 15 && y[IDX.rabbit] >= 10 && y[IDX.shrub] >= .1); } },
+    { id: 'winterkill', name: 'Winter kill', hint: 'A hard winter, and who it takes.', test: (w) => w.harsh.includes(w.t / TPY - 1) && ANIMALS.some(s => yc(w, SP[s].id, 1) >= 20 && yc(w, SP[s].id) <= .5 * yc(w, SP[s].id, 1)) },
+    { id: 'epidemic', name: 'Epidemic and recovery', hint: 'A sickness, and the years after.', test: (w) => !!w.dis && yc(w, w.dis.id) >= .8 * w.dis.before && w.t - w.dis.t <= 12 * TPY },
+    { id: 'owls', name: 'Owls nesting', hint: 'They need a wood, and something to hunt in it.', test: (w) => yc(w, 'owl') >= 6 },
+    { id: 'drought', name: 'Drought survivors', hint: 'Every animal through the dry years.', test: (w) => w.drought.some(([a, b]) => w.t / TPY === b + 1 && ANIMALS.filter(s => w.years[a] && w.years[a][s] >= 2).every(s => yc(w, SP[s].id) >= 2) && ANIMALS.filter(s => w.years[a] && w.years[a][s] >= 2).length >= 3) },
+    { id: 'ten', name: 'A web of ten', hint: 'Ten species at once.', test: (w) => speciesCount(w) >= 10 },
+    { id: 'twelve', name: 'The whole drawer', hint: 'Every native species at once.', test: (w) => speciesCount(w) >= 12 },
+  ];
+  function observe(w) { const out = []; for (const c of CODEX) if (!w.codex[c.id]) { let ok = false; try { ok = c.test(w); } catch (e) { ok = false; } if (ok) { w.codex[c.id] = Math.floor(w.t / TPY); out.push(c.id); } } return out; }
+
+  const api = { GW, GH, N, TPY, SP, IDX, ANIMALS, PLANTS, MAXA, rng, hashStr, makeIsland, create, step, release, trap, cull, fence, act, TOOLS, validId, SCEN, SCN, daily, sandbox, start, census, counts, present, presentAt, speciesCount, season, seasonName, isWinter, inDrought, replay, burn, dam, snapshot, restore, CH, CODEX, newCampaign, startChapter, campTick, campAct, allowed, arkAt, toolsAt, trapsAt, goalText, observe, swing };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.IslandSim = api;
 })(typeof window !== 'undefined' ? window : this);
