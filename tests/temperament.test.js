@@ -58,22 +58,37 @@ module.exports = {
       ok(await page.locator('.modal .seal').count() === 1, 'no seal');
       ok(await page.evaluate(() => document.getElementById('kbd').classList.contains('gliss')), 'no glissando');
     },
-    'regression: dragging the note slider through the target does not complete the commission': async ({ page, ok }) => {
-      const box = await page.locator('#nSl').boundingBox(), y = box.y + box.height / 2, xAt = v => box.x + 8 + (box.width - 16) * (v + 50) / 100;
-      await page.mouse.move(xAt(-40), y); await page.mouse.down();
-      for (let v = -40; v <= 40; v += 2) { await page.mouse.move(xAt(v), y); await page.waitForTimeout(30); }
+    'regression: dragging the G peg through pure without stopping does not complete the commission': async ({ page, ok }) => {
+      const b = await page.locator('.peg').boundingBox(), x = b.x + b.width / 2, y = b.y + b.height / 2;
+      await page.mouse.move(x, y); await page.mouse.down();
+      for (let dy = 0; dy <= 250; dy += 5) { await page.mouse.move(x, y - dy); await page.waitForTimeout(15); }
       await page.mouse.up(); await page.waitForTimeout(1400);
       ok(!(await page.evaluate(() => window.__tm.S.done[0])), 'swept through pure and it completed');
+      ok(await page.evaluate(() => window.__tm.tun()[7] > 700 + 15), 'the peg did not retune G');
     },
-    'holding the slider on pure completes only after release and settle': async ({ page, ok }) => {
-      const box = await page.locator('#nSl').boundingBox(), y = box.y + box.height / 2, xAt = v => box.x + 8 + (box.width - 16) * (v + 50) / 100;
-      await page.mouse.move(xAt(-30), y); await page.mouse.down(); await page.mouse.move(xAt(2), y, { steps: 6 });
+    'newcomer: drag the G peg to pure (mouse), hold, release: level 1 clears after the settle, with the coach steps': async ({ page, ok, eq }) => {
+      ok((await page.textContent('#coach')).includes('Drag the G peg'), 'no first coach step');
+      ok(await page.evaluate(() => document.querySelector('.peg').classList.contains('hl')), 'peg not highlighted');
+      const b = await page.locator('.peg').boundingBox(), x = b.x + b.width / 2, y = b.y + b.height / 2;
+      await page.mouse.move(x, y); await page.mouse.down();
+      for (let dy = 0; dy <= 110; dy += 10) { await page.mouse.move(x, y - dy); await page.waitForTimeout(20); }
       const e = await page.evaluate(() => { const T = window.__tm; return Math.abs(T.dev(T.tun(), 0, 7)); });
-      ok(e <= 2, 'did not land within 2 cents: ' + e);
-      await page.waitForTimeout(1400);
-      ok(!(await page.evaluate(() => window.__tm.S.done[0])), 'completed while dragging');
+      ok(e <= .5, 'did not land near pure: ' + e);
+      await page.waitForTimeout(1400); ok(!(await page.evaluate(() => window.__tm.S.done[0])), 'completed while still holding');
+      ok(await page.evaluate(() => document.querySelector('.candle').classList.contains('hl')), 'flame not highlighted after close tuning');
       await page.mouse.up(); await page.waitForTimeout(1300);
-      ok(await page.evaluate(() => window.__tm.S.done[0] >= 1), 'did not complete after settling');
+      ok(await page.evaluate(() => window.__tm.S.done[0] >= 2), 'level 1 not cleared');
+    },
+    'newcomer (touch, phone): drag the G node on the wheel to pure and it clears': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
+      await page.locator('#wheel .node[data-n="7"]').scrollIntoViewIfNeeded();
+      const b = await page.locator('#wheel .node[data-n="7"]').boundingBox(), x = b.x + b.width / 2, y = b.y + b.height / 2;
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      for (let dy = 0; dy <= 110; dy += 10) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - dy }] });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.waitForTimeout(1400);
+      ok(await page.evaluate(() => window.__tm.S.done[0] >= 1), 'touch drag on the wheel did not clear level 1: G at ' + await page.evaluate(() => window.__tm.dev(window.__tm.tun(), 0, 7)));
     },
     'rapid clicks through the target do not complete; stopping there does': async ({ page, ok }) => {
       // G starts 9 cents flat; pure needs about +11. Click +5 three times quickly (passes through pure at +10) then -5 back.

@@ -43,7 +43,15 @@ const FX = (() => {
     win: () => [523, 659, 784, 1047].forEach((f, i) => tone({ f, type: 'triangle', dur: .45, vol: .14, delay: i * .085 })),
     chime: (k = 0) => { const sc = [0, 2, 4, 7, 9, 12, 14, 16]; const f = 523.25 * Math.pow(2, sc[((k % 8) + 8) % 8] / 12); tone({ f, type: 'sine', dur: .6, vol: .12 }); tone({ f: f * 2, type: 'sine', dur: .3, vol: .04 }); },
   };
-  const sfx = (name, ...a) => { try { (SFX[name] || SFX.click)(...a); } catch (e) {} };
+  // Every sound is rate-limited per name so nothing machine-guns: at most one per 90 ms, and a sound
+  // that keeps firing (held against a wall, a stuck loop) backs off to one every 1.5 s after 4 quick repeats.
+  const lastSfx = {};
+  const sfx = (name, ...a) => {
+    const now = performance.now(), r = lastSfx[name] || (lastSfx[name] = { t: -1e9, n: 0 });
+    const gap = now - r.t; if (gap < 90) return;
+    r.n = gap < 600 ? r.n + 1 : 0; if (r.n > 4 && gap < 1500) return;
+    r.t = now; try { (SFX[name] || SFX.click)(...a); } catch (e) {}
+  };
   const setMuted = m => { muted = m; try { localStorage.setItem('rh:muted', m ? '1' : '0'); } catch (e) {} };
 
   // ---------- easing & tweens ----------
