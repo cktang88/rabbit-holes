@@ -6,7 +6,7 @@
 const W = 30, H = 22, N = W * H;
 const C = {
   STREAM: 7,                  // catchment cells before a trickle counts as a stream
-  CELL: 2, TUN: 16, AQ: 10,   // £k per cell: plain canal, tunnel, aqueduct
+  CELL: 2, TUN: 24, AQ: 10,   // £k per cell: plain canal, tunnel, aqueduct
   CUT: 2.2, BANK: 2.5,        // £k per cell per (rise beyond tolerance)^2
   CULVERT: 2,
   FLIGHT: 6, STAIR: 4, PLANE: 22, PLANE_N: 1.5, PONDS: 1.4, DBL: 1.8, PUMP: 12,
