@@ -171,7 +171,7 @@ function noise2(seed) {
 function fbm(n, x, y, oct = 5) { let s = 0, a = 1, f = 1, t = 0; for (let o = 0; o < oct; o++) { s += a * n(x * f, y * f); t += a; a *= .5; f *= 2; } return s / t; }
 const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const EMUL = [.45, 1, .1]; // erosion multiplier by land use: open ground, ploughed field, forest
-const EMAX = .0004, INF = .006, CHAN = new Uint8Array(NN); // CHAN: the river channel, where water keeps running // most soil a cell can lose in one step; how fast still flood water soaks away
+let EMAX = .0004; const INF = .006, CHAN = new Uint8Array(NN); // CHAN: the river channel, where water keeps running // most soil a cell can lose in one step; how fast still flood water soaks away
 
 // ================= the basin commission: scenarios =================
 // Each site is a real river problem. You get a fixed number of years, a budget of works, and stakeholders who want
@@ -189,7 +189,7 @@ const SC = [
     medals: [['Goal met', S => S.goalMet], ['No town ever floods', S => S.goalMet && S.maxFloods === 0], ['And 7,000 bushels', S => S.goalMet && S.maxFloods === 0 && S.harvest >= 7000]] },
   // the campaign continues: the same valley ten years on, your 1927 works still standing, and bigger floods coming
   { id: 'floodway', seed: 'levee', n: 'The Floodway', place: 'Mississippi · 1937', years: 20, sea: 3, erodeScale: .15, gen: valleyGen, springs: [[.45, .03, 1.2]], stormY: .45,
-    storm: y => y === 4 ? 6 : y === 11 ? 8 : y % 3 === 1 ? 1.5 : 0, rain: .03, inherit: 0,
+    storm: y => y === 4 ? 6 : y === 11 ? 9 : y % 3 === 1 ? 1.5 : 0, rain: .02, inherit: 0,
     defaultPlan: [['farm', [62, 75]], ['farm', [62, 88]], ['farm', [62, 101]], ['farm', [84, 75]], ['farm', [84, 86]], ['farm', [50, 80]], ['levee', [84, 94], [110, 95]]],
     towns: [{ n: 'Upper Town', at: [[.6, .64], [.63, .7], [.57, .76]] }, { n: 'Lower Town', at: [[.52, .87], [.56, .9], [.6, .86]] }],
     kit: { farm: 14, levee: 8, cut: 4 }, budget: 14,
@@ -197,7 +197,7 @@ const SC = [
     first: 'One levee is not enough for a flood this size. Give the water somewhere else to go: a <b>Cut</b> can open a floodway onto land you can afford to lose.',
     want: { harvest: 2500, floods: 2 },
     medals: [['Goal met', S => S.goalMet], ['No town floods more than once', S => S.goalMet && S.maxFloods <= 1], ['And 3,500 bushels', S => S.goalMet && S.maxFloods <= 1 && S.harvest >= 3500]] },
-  { id: 'nile', n: 'The High Dam', place: 'Nile · 1960s', years: 20, sea: 6, evap: .0002, springs: [[.5, .03, 2.5]], stormY: .5, storm: y => y % 5 === 3 ? 2.5 : y % 2 ? 1 : 0, rain: .006, cam: { el: 40, az: -12, d: 305, t: [0, 6, 8] },
+  { id: 'nile', n: 'The High Dam', place: 'Nile · 1960s', years: 20, sea: 6, evap: .0002, emax: 1, springs: [[.5, .03, 2.5]], stormY: .5, storm: y => y % 5 === 3 ? 2.5 : y % 2 ? 1 : 0, rain: .006, cam: { el: 40, az: -12, d: 305, t: [0, 6, 8] },
     gen: (x, y, n) => { const v = Math.abs(x - .5), walls = 13 * sm(.03, .16, v) * sm(.22, .34, y) * sm(.6, .48, y); const h = 26 * Math.pow(1 - y, 1.2) + walls + 4 * fbm(n, x * 3, y * 3) + 1; return [h + 3.5, h - 2]; },
     coastY: .78, waves: .2, kit: { dam: 2, cut: 3 }, budget: 26,
     goal: 'Make <b>{power} GWh</b> of power in 20 years, and keep at least <b>{delta}%</b> of the delta.',
@@ -237,6 +237,7 @@ function buildLevel(i) {
   year = 0; yStep = 0; harvest = 0; power = 0; history = []; lastYield = 0;
   NOERODE.fill(0); NOSCULPT.fill(0); RAISED.fill(0); USE.fill(0); YDUR.fill(0); WORKOF.fill(-1); FH.fill(0); FDEP.fill(0); YMAX.fill(0); INB.fill(0);
   K.evap = L.evap ?? .0015; // drier sites lose shallow water faster
+  EMAX = L.emax ?? .0004; // how fast a site's land can wear: the Nile carries far more sand than a Mississippi side valley
   const n = noise2('ws' + (L.seed || L.id));
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const k = y * N + x, [h, r] = L.gen(x / (N - 1), y / (N - 1), n); B[k] = h; ROCK[k] = Math.min(r, h); HARD[k] = L.soft || 1; }
   D.fill(0); SED.fill(0); SED2.fill(0); FL.fill(0); FR.fill(0); FT.fill(0); FB.fill(0); U.fill(0); V.fill(0); DEP.fill(0);

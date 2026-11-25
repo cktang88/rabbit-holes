@@ -120,6 +120,15 @@
   .law .opts{display:flex;gap:4px;flex-wrap:wrap}
   .law .opts button{font-size:14px;padding:3px 8px;min-height:34px} .law .opts button.on{background:#e6c36a;color:#120d02}
   .law .opts button.ours::after{content:" ·";color:#e6c36a}
+  .lhead{display:flex;gap:10px;align-items:flex-start} .prev{flex:0 0 96px;width:96px;height:60px;border:1px solid #e6c36a55;background:#070a24}
+  .ud{display:flex;flex-direction:column;gap:1px;font-size:13px;color:#c8bd9c;margin:4px 0 6px}
+  .cmp{font-size:14px;color:#e3dac0;margin-top:6px;line-height:1.35} .cmp b{color:#f0d68c;font-weight:600}
+  .law .opts button.pulse{animation:pulse 1.2s infinite} @keyframes pulse{50%{box-shadow:0 0 0 3px #f6e3a1,0 0 18px #e6c36a}}
+  .tut{border:1px solid #f6e3a1;background:rgba(80,60,20,.35);padding:8px 10px;margin:6px 0} .tut b{color:#f6e3a1;font-size:17px} .tut ol{margin:4px 0 4px 18px;padding:0} .tut li{margin:2px 0}
+  .hl{padding:6px 8px;margin-bottom:5px;border-left:3px solid #3a3570;background:rgba(10,14,48,.5)} .hl b{display:block;color:#ece3c8} .hl span{font-size:15px;color:#d9cfb2}
+  .hl em{font-style:normal;font-size:12px;color:#120d02;background:#e6c36a;padding:0 5px;margin-left:4px}
+  .hl.ok{border-left-color:#e6c36a} .hl.weak{border-left-color:#a0782a} .hl.broken{border-left-color:#ff9a8a;background:rgba(120,20,20,.35)} .hl.none{opacity:.45}
+  .culprit{margin-top:4px;color:#ffd8cf;font-size:15px} .culprit b{display:inline;color:#fff}
   .bangRow{display:flex;gap:8px;margin:10px 0 4px;position:sticky;top:0;z-index:1;padding:6px 0;background:#0b0f30}
   .bangRow .primary{flex:1;font-size:20px;min-height:42px}
   .dist{font-size:14px;color:#c8bd9c;font-style:italic}
@@ -337,30 +346,79 @@ function bang(){
   run={c, o, t0:performance.now(), idx:0, done:reduceMotion, solved}; sel=-1;
   SND.gong(); if (reduceMotion) finishRun(); renderAll();
 }
-function finishRun(){ if (!run) return; run.done=true; run.idx=run.o.reached + (run.o.broke?1:0) - 1; if (run.idx<0) run.idx=0;
+function finishRun(){ if (!run) return; showTab('hist'); run.done=true; run.idx=run.o.reached + (run.o.broke?1:0) - 1; if (run.idx<0) run.idx=0;
   if (run.solved.length){ SND.chord(); RH.toast('Challenge met: '+run.solved.map(c=>`<b>${c.n}</b>`).join(', '), 4000); run.solved=[]; }
   renderAll(); }
-function stageAt(now){ if (!run) return -1; if (run.done) return run.idx; const k=Math.floor((now-run.t0)/STEP_MS); const last=run.o.reached + (run.o.broke?1:0) - 1; if (k>=last+1){ run.idx=last; finishRun(); return last; } if (k!==run.idx){ run.idx=k; SND.stage(run.o.stages[k].status); renderRibbon(); renderEra(); } return k; }
+function stageAt(now){ if (!run) return -1; if (run.done) return run.idx; const k=Math.floor((now-run.t0)/STEP_MS); const last=run.o.reached + (run.o.broke?1:0) - 1; if (k>=last+1){ run.idx=last; finishRun(); return last; } if (k!==run.idx){ run.idx=k; SND.stage(run.o.stages[k].status); renderRibbon(); renderEra(); renderHistory(); } return k; }
+// ===================== Pictures of each era =====================
+// Every link of the chain gets a labelled picture of what exists at that moment. When something fails to form,
+// the picture shows its absence and says why.
+const RND=(i)=>{ const x=Math.sin(i*127.1+311.7)*43758.5453; return x-Math.floor(x); };
+function label(x,y,t,col='#f3e7c4',size=14,align='center'){ ctx.font=`italic ${size}px "Cormorant Garamond", serif`; ctx.textAlign=align; ctx.fillStyle='rgba(7,10,36,.65)'; const w=ctx.measureText(t).width; const x0= align==='center'? x-w/2 : align==='right'? x-w : x; ctx.fillRect(x0-4,y-size+2,w+8,size+4); ctx.fillStyle=col; ctx.fillText(t,x,y); }
+function pointer(x1,y1,x2,y2){ ctx.strokeStyle='rgba(243,231,196,.6)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); }
+function glowDot(x,y,r,col,blur=10){ ctx.save(); ctx.shadowColor=col; ctx.shadowBlur=blur; ctx.fillStyle=col; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); ctx.restore(); }
+function absent(text){ ctx.fillStyle='rgba(20,0,0,.35)'; ctx.fillRect(0,0,W,H); label(W/2, H*.45, text, '#ffb3a6', Math.min(24, W/22)); }
+function drawScene(k, o, age, now){
+  const CAPY=H-(W<760?118:96), TOPY=Math.max(H*.26,150); const v=o.v, c=run.c, st=o.stages[k], broken=st.status==='broken', t=now/1000, cx=W/2, cy=H*.46, S=Math.min(W,H);
+  ctx.fillStyle='#03041a'; ctx.fillRect(0,0,W,H); ctx.globalAlpha=.55; ctx.drawImage(nebulaFor(Math.min(8,k), true),0,0,W,H); ctx.globalAlpha=1;
+  const dens = val(c,'m')===-12? .25 : val(c,'m')===-8? 2.2 : 1;
+  if (k===0){ // quark soup: matter and antimatter annihilate; a few survivors remain
+    const n=Math.round(140*Math.min(1.6,dens)); for (let i=0;i<n;i++){ const x=(RND(i)*W + Math.sin(t*2+i)*8)%W, y=(RND(i+99)*H + Math.cos(t*1.7+i)*8)%H; const anti=i%2; ctx.fillStyle=['#ff6a5a','#6aff8a','#6a8aff'][i%3]; ctx.globalAlpha=anti? Math.max(0,1-age*1.3) : 1; ctx.beginPath(); ctx.arc(x,y,anti?2:2.6,0,7); ctx.fill(); if (anti && age>.3 && age<.8 && i%7===0) glowDot(x,y,4,'#fff6d0',14); }
+    ctx.globalAlpha=1; label(cx, TOPY, 'quarks and antiquarks: almost all annihilate into light', '#f3e7c4', 16); label(cx, H*.26, dens<1? 'very few quarks survive (thin universe)' : dens>1? 'many quarks survive (crowded universe)' : 'one in ten billion survives: that is all the matter there will ever be', GOLD, 14); return; }
+  if (k===1){ // nucleosynthesis: protons, neutrons, helium nuclei
+    const X=v.X; const n=60; for (let i=0;i<n;i++){ const x=W*.1+RND(i)*W*.8, y=H*.22+RND(i+7)*H*.55; const isHe = RND(i+3) > X && v.fusion;
+      if (isHe){ for (let q=0;q<4;q++) { ctx.fillStyle= q%2? '#cfc7b0':'#ff8a6a'; ctx.beginPath(); ctx.arc(x+(q%2)*5-2.5, y+(q>>1)*5-2.5, 3,0,7); ctx.fill(); } }
+      else { ctx.fillStyle='#ff8a6a'; ctx.beginPath(); ctx.arc(x+Math.sin(t+i)*3,y,3,0,7); ctx.fill(); } }
+    label(W*.2, TOPY, 'protons (hydrogen nuclei)', '#ff8a6a', 15, 'left'); if (v.fusion && X<1) label(W*.8, TOPY, 'helium nuclei (2 protons + 2 neutrons)', '#cfc7b0', 15, 'right');
+    label(cx, CAPY, !v.fusion? 'no helium: protons and neutrons cannot stick' : X===0? 'no hydrogen left: every proton paired off' : `${Math.round(X*100)}% hydrogen, ${Math.round((1-X)*100)}% helium`, X<.1||!v.fusion? '#ffb3a6' : GOLD, 16); return; }
+  if (k===2){ // recombination: atoms form, the fog clears
+    const fog=Math.max(0,1-age*1.6); ctx.fillStyle=`rgba(255,180,120,${.35*fog})`; ctx.fillRect(0,0,W,H);
+    for (let i=0;i<14;i++){ const x=W*.12+RND(i)*W*.76, y=H*.25+RND(i+5)*H*.5, R=9; ctx.fillStyle='#ff8a6a'; ctx.beginPath(); ctx.arc(x,y,2.5,0,7); ctx.fill(); ctx.strokeStyle='rgba(159,208,255,.35)'; ctx.beginPath(); ctx.arc(x,y,R,0,7); ctx.stroke(); glowDot(x+Math.cos(t*3+i)*R, y+Math.sin(t*3+i)*R, 1.8, '#9fd0ff', 6); }
+    label(cx, TOPY, 'atoms form: each electron settles onto a nucleus', '#f3e7c4', 16); label(cx, CAPY, `hydrogen gas · light travels freely from ${fmtT(v.tRec)}`, GOLD, 15); return; }
+  if (k===3){ // galaxies: gas gathering into spirals of stars, or not
+    if (broken){ for (let i=0;i<80;i++){ const x=RND(i)*W, y=RND(i+1)*H; ctx.fillStyle='rgba(159,208,255,.25)'; ctx.beginPath(); ctx.arc(x+t*(i%3),y,1.5,0,7); ctx.fill(); } absent('no galaxies formed: '+(val(c,'L')>=3? 'dark energy pulled the gas apart' : 'gravity too weak to gather thin gas')); label(cx,H*.56,'thin hydrogen gas, drifting apart','#c8bd9c',14); return; }
+    const n=Math.max(1,Math.min(9, Math.round(Math.log10(1+v.galaxies)*3)));
+    for (let gI=0; gI<n; gI++){ const gx=W*(.15+.7*RND(gI+3)), gy=H*(.22+.55*RND(gI+11)), sc=(18+RND(gI)*22)*S/600*Math.min(1,age*1.6+.2);
+      for (let i=0;i<120;i++){ const arm=i%2, a=i*0.12+arm*Math.PI+t*.15, r=i*.012*sc*4; ctx.fillStyle=`rgba(255,240,200,${.8-i/160})`; ctx.fillRect(gx+Math.cos(a)*r, gy+Math.sin(a)*r*.45, 1.6,1.6); } glowDot(gx,gy,3,'#fff1c2',12); }
+    label(W*.15+10, TOPY, 'galaxy: a spiral of gas becoming stars', '#f3e7c4', 15, 'left'); label(cx, CAPY, `${v.galaxies} galaxies for every 100 in ours${val(c,'L')===-1? ' — but space will fall back in':''}`, GOLD, 15); return; }
+  if (k===4){ // first stars
+    if (broken && val(c,'G')>=10){ for (let i=0;i<10;i++){ const x=W*(.15+.7*RND(i)), y=H*(.25+.5*RND(i+2)); ctx.fillStyle='#000'; ctx.beginPath(); ctx.arc(x,y,7,0,7); ctx.fill(); ctx.strokeStyle='rgba(255,180,90,.8)'; ctx.lineWidth=2; ctx.beginPath(); ctx.ellipse(x,y,14,4,.3,0,7); ctx.stroke(); ctx.lineWidth=1; }
+      absent('no lasting stars: every star collapsed into a black hole'); label(W*.15+20,TOPY,'black holes','#f3e7c4',15,'left'); return; }
+    if (broken){ for (let i=0;i<6;i++){ const x=W*(.2+.6*RND(i)), y=H*(.3+.4*RND(i+2)); const gg=ctx.createRadialGradient(x,y,2,x,y,40); gg.addColorStop(0,'rgba(159,208,255,.25)'); gg.addColorStop(1,'rgba(159,208,255,0)'); ctx.fillStyle=gg; ctx.fillRect(x-40,y-40,80,80); } absent('no stars formed: gravity too weak'); label(cx,H*.56,'cold gas clouds that never ignite','#c8bd9c',14); return; }
+    const n=40; const dim=!v.fusion; for (let i=0;i<n;i++){ const x=W*(.08+.84*RND(i+20)), y=H*(.18+.62*RND(i+40)); const r=(dim?1.5:2.2)*(1+RND(i)*1.5); glowDot(x,y,r*(0.8+.2*Math.sin(t*2+i)), dim? '#c96a4a' : v.tau<2? '#bcd8ff' : '#fff1c2', dim?4:12); }
+    label(W*.08+10, TOPY, dim? 'dim stars, glowing only from squeezing' : 'first stars', '#f3e7c4', 16, 'left'); label(cx, CAPY, dim? 'they cannot fuse hydrogen and fade in tens of millions of years' : `a sun-like star lives ${fmtT(v.tau)}${val(c,'G')!==1? ' (ours: 10 billion years)':''}`, GOLD, 15); return; }
+  if (k===5){ // carbon: a dying star explodes and scatters carbon
+    const ex=Math.min(1,age*1.4); glowDot(cx,cy,10+ex*14,'#ffd27a',30); ctx.strokeStyle=`rgba(255,200,120,${1-ex})`; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(cx,cy,30+ex*S*.3,0,7); ctx.stroke(); ctx.lineWidth=1;
+    if (broken){ absent('no carbon: '+(!v.fusion? 'stars never fuse' : 'helium never fuses into carbon')); label(cx,H*.62,'only hydrogen and helium','#c8bd9c',14); return; }
+    const n=Math.round(40*v.carbon)+4; for (let i=0;i<n;i++){ const a=i*2.4, r=(30+ex*S*.28)*(.6+RND(i)*.4); ctx.fillStyle='#9a9a9a'; ctx.beginPath(); ctx.arc(cx+Math.cos(a)*r, cy+Math.sin(a)*r, 3,0,7); ctx.fill(); }
+    label(cx+S*.22, cy-S*.18, 'carbon, scattered by a supernova', '#f3e7c4', 15); label(cx, CAPY, v.carbon<1? `only ${Math.round(v.carbon*100)}% of our carbon` : 'carbon, oxygen and iron: the stuff of planets', GOLD, 15); return; }
+  if (k===6){ // a solar system
+    glowDot(cx,cy,12,'#ffd27a',24);
+    if (broken){ const ph=(t%3)/3, R=S*.3*(1-ph); glowDot(cx+Math.cos(t*4)*R, cy+Math.sin(t*4)*R*.45, 4, '#9fd0ff', 6); absent(val(c,'D')===4? 'no planets: in 4D no orbit is stable' : 'no planets: space collapsed too soon'); return; }
+    const flat=val(c,'D')===2; [.16,.24,.33,.42].forEach((rr,i)=>{ const R=S*rr; ctx.strokeStyle='rgba(230,195,106,.25)'; ctx.beginPath(); ctx.ellipse(cx,cy,R,flat?1:R*.42,0,0,7); ctx.stroke(); const a=t*(.6/(i+1))+i; glowDot(cx+Math.cos(a)*R, cy+Math.sin(a)*R*(flat?0:.42), 3+i%2*2, ['#c9a27a','#9fd0ff','#d8b48a','#b8d0a0'][i], 4); });
+    label(cx, cy-S*.24, 'a star with planets', '#f3e7c4', 16); label(cx, CAPY, flat? 'in two dimensions every orbit lies in one line' : 'rocky worlds made of the carbon and metal from old stars', GOLD, 15); return; }
+  if (k===7){ // a planet with oceans; green if life
+    const R=S*.22; const life=!broken; const g=ctx.createRadialGradient(cx-R*.3,cy-R*.3,R*.1,cx,cy,R); g.addColorStop(0,'#6aa8ff'); g.addColorStop(1,'#123a7a'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,R,0,7); ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,R,0,7); ctx.clip(); for (let i=0;i<7;i++){ ctx.fillStyle= life? '#4f9a4a' : '#8a7a5a'; ctx.beginPath(); ctx.ellipse(cx+(RND(i)-.5)*R*1.6+Math.sin(t*.2)*10, cy+(RND(i+4)-.5)*R*1.4, R*.25, R*.14, RND(i)*3, 0,7); ctx.fill(); } ctx.restore();
+    if (broken){ absent('no life: '+(st.plain.split('→').slice(-2).join('→').trim())); return; }
+    label(cx+R*.9, cy-R*.9, 'oceans of water', '#9fd0ff', 15, 'left'); label(cx-R*.9, cy+R*1.05, 'first cells', '#a8e090', 15, 'right'); label(cx, CAPY, `life begins after ${fmtT(v.tLife)}`, GOLD, 15); return; }
+  if (k===8){ // the night side with city lights
+    const R=S*.26; ctx.fillStyle='#0b1430'; ctx.beginPath(); ctx.arc(cx,cy,R,0,7); ctx.fill(); ctx.strokeStyle='rgba(159,208,255,.5)'; ctx.beginPath(); ctx.arc(cx,cy,R,-.8,.8); ctx.stroke();
+    if (broken){ absent('no minds: '+(st.plain.split('→').slice(-2).join('→').trim())); return; }
+    for (let i=0;i<70;i++){ const a=RND(i)*6.28, r=Math.sqrt(RND(i+9))*R*.92; glowDot(cx+Math.cos(a)*r, cy+Math.sin(a)*r, 1.4, `rgba(255,210,122,${.6+.4*Math.sin(t*3+i)})`, 6); }
+    label(cx, cy-R-12, 'city lights: minds that ask where all this came from', '#f3e7c4', 16); label(cx, CAPY, `after ${fmtT(v.tLife+v.tMind)}`, GOLD, 15); return; }
+}
 function draw(){
   const now=performance.now(); const k=Math.max(0,stageAt(now)); const show = sel>=0? sel : k;
-  const o=run? run.o : null; const st=o? o.stages[show] : null; const broken = st && st.status==='broken';
-  ctx.drawImage(nebulaFor(Math.min(8,show), broken),0,0,W,H);
-  if (o){ const v=o.v; const age=run.done? 1 : ((now-run.t0)%STEP_MS)/STEP_MS;
-    // what this history has made so far, drawn in gold leaf
-    if (show>=4 && v.stars){ const n=Math.min(700, Math.round(60*Math.log10(10+(v.galaxies||1)))); for (let i=0;i<n;i++){ const s=bgStars[i]; ctx.fillStyle=`rgba(255,246,220,${0.35+0.35*Math.sin(now/900+s.tw)})`; ctx.fillRect(s.x,s.y,s.s,s.s); } }
-    if (show>=3 && v.galaxies){ const n=Math.min(14, Math.round(2*Math.log10(1+v.galaxies))); for (let g=0; g<n; g++){ const gx=(g*271+40)%W, gy=(g*157+60)%H; for (let i=0;i<110;i++){ const a=i*0.25+now/8000, r=i*0.45*(show===3? Math.min(1,age*1.5):1); ctx.fillStyle=`rgba(230,205,150,${0.5-i/260})`; ctx.fillRect(gx+Math.cos(a)*r, gy+Math.sin(a)*r*0.5, 1.4,1.4); } } }
-    if (show>=6 && v.planets){ const n=Math.min(40,Math.round(6*Math.log10(1+v.planets))); for (let i=0;i<n;i++){ const b=bgStars[(i*13)%bgStars.length]; ctx.strokeStyle='rgba(230,195,106,.35)'; ctx.beginPath(); ctx.arc(b.x,b.y,6+i%5,0,7); ctx.stroke(); } }
-    if (show>=7 && ok(o,'Life')){ for (let i=0;i<24;i++){ const b=bgStars[(i*29)%bgStars.length]; ctx.fillStyle='rgba(170,230,150,.85)'; ctx.beginPath(); ctx.arc(b.x+5,b.y,2,0,7); ctx.fill(); } }
-    if (show>=8 && ok(o,'Minds')){ for (let i=0;i<40;i++){ const b=bgStars[(i*41)%bgStars.length]; ctx.strokeStyle=`rgba(230,195,106,${.4+.3*Math.sin(now/500+i)})`; ctx.beginPath(); ctx.arc(b.x,b.y,3,0,7); ctx.stroke(); } }
-    if (broken && !run.done){ ctx.fillStyle=`rgba(80,0,0,${.25*age})`; ctx.fillRect(0,0,W,H); }
-    // Signature moment: each link blooms through the sky like ink dropped into water, its name lettered in gold.
-    if (!run.done && sel<0){ const q=age; const [hi,mid]=ERA_INK[Math.min(8,show)]; const R=Math.max(W,H)*FX.ease.outCubic(Math.min(1,q*1.4));
-      const g=ctx.createRadialGradient(W/2,H*.45,R*.2,W/2,H*.45,R); g.addColorStop(0,mid+'00'); g.addColorStop(.85,hi+Math.round(60*(1-q)).toString(16).padStart(2,'0')); g.addColorStop(1,hi+'00'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-      const a=q<.15? q/.15 : q>.85? (1-q)/.15 : 1; ctx.globalAlpha=Math.max(0,a); ctx.textAlign='center'; ctx.fillStyle=broken? '#ffb3a6' : GOLD; ctx.shadowColor='#000'; ctx.shadowBlur=12;
-      ctx.font=`300 ${Math.min(60,W/9)}px "Cormorant Garamond", serif`; ctx.fillText(STAGES[show], W/2, H*.42); ctx.shadowBlur=0; ctx.globalAlpha=1; }
+  const o=run? run.o : null;
+  if (o){ const age=run.done||sel>=0? 1 : ((now-run.t0)%STEP_MS)/STEP_MS; let s=show; if (o.stages[s].status==='none') s=o.stages.findIndex(x=>x.status==='broken');
+    drawScene(Math.max(0,s), o, age, now);
+    if (!run.done && sel<0 && age<.35){ ctx.globalAlpha=1-age/.35; ctx.textAlign='center'; ctx.fillStyle=o.stages[s].status==='broken'? '#ffb3a6' : GOLD; ctx.shadowColor='#000'; ctx.shadowBlur=12; ctx.font=`300 ${Math.min(56,W/9)}px "Cormorant Garamond", serif`; ctx.fillText(STAGES[s], W/2, H*.5); ctx.shadowBlur=0; ctx.globalAlpha=1; }
   } else { // before the first bang: a quiet, unlit void
-    for (let i=0;i<60;i++){ const x=(i*97+now*0.006*(1+i%5))%W, y=(i*53+now*0.004*(1+i%7))%H; ctx.fillStyle=`rgba(255,240,210,${0.05+0.04*Math.sin(now/900+i)})`; ctx.beginPath(); ctx.arc(x,y,1+i%3,0,7); ctx.fill(); }
+    ctx.fillStyle='#03041a'; ctx.fillRect(0,0,W,H); for (let i=0;i<60;i++){ const x=(i*97+now*0.006*(1+i%5))%W, y=(i*53+now*0.004*(1+i%7))%H; ctx.fillStyle=`rgba(255,240,210,${0.05+0.04*Math.sin(now/900+i)})`; ctx.beginPath(); ctx.arc(x,y,1+i%3,0,7); ctx.fill(); }
+    label(W/2, H*.5, 'nothing yet: choose the laws, then press Bang', '#c8bd9c', 18);
   }
+  drawPreviews(now);
   document.getElementById('skipBtn').classList.toggle('on', !!run && !run.done);
   requestAnimationFrame(draw);
 }
@@ -375,7 +433,7 @@ function renderRibbon(){
   el.innerHTML = STAGES.map((n,i)=>{ const s=run && i<=k? run.o.stages[i].status : ''; return `<button data-i="${i}" class="${s} ${i===(sel>=0?sel:k)?'cur':''}" title="${n}">${i+1}<span> ${n}</span></button>`; }).join('');
   el.querySelectorAll('button').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const i=+b.dataset.i; if (!run || (!run.done && i>run.idx)) return; sel = sel===i? -1 : i; renderRibbon(); renderEra(); });
   const w=document.getElementById('why'); const i = sel>=0? sel : k; const st = run && i>=0? run.o.stages[i] : null;
-  w.className = st && st.status==='broken'? 'broken' : ''; w.innerHTML = st && st.status!=='none'? `<b>${st.name}.</b> ${st.why}` : run? '' : 'Set the laws on the right, then press <b>Bang</b>.';
+  w.className = st && st.status==='broken'? 'broken' : ''; w.innerHTML = st && st.status!=='none'? `<b>${st.name}.</b> ${st.plain}` : run? '' : 'Set the laws on the right, then press <b>Bang</b>.';
 }
 function renderEra(){
   const k = run? (sel>=0? sel : run.idx) : -1;
@@ -401,7 +459,7 @@ function renderStats(){
 const TUT_STEPS=['Tap <b>0.3×</b> on Gravity (weaker gravity).','Press <b>Bang</b>, then <b>Skip to the end</b> if you like.','Read the <b>History</b> tab: which links changed, and why?'];
 function renderLaws(){
   const act=M.active? CHAL.find(c=>c.id===M.active) : null; const tut=!M.chal.first;
-  let h=(tut? `<div class="tut"><b>Your first experiment</b><ol>${TUT_STEPS.map((t,i)=>`<li class="${(i===0&&M.consts.G===1)||(i===1&&M.consts.G===1&&M.consts.G!==OURS.G)?'now':''}">${t}</li>`).join('')}</ol><span class="dim">Change just one law and see what it does to the whole history.</span></div>` : '')+
+  let h=(tut? `<div class="tut"><b>Your first experiment</b><ol>${TUT_STEPS.map((t,i)=>`<li>${t}</li>`).join('')}</ol><span class="dim">Change just one law and see what it does to the whole history.</span></div>` : '')+
     (act? `<div class="chal act"><b>Challenge: ${act.n}</b><span>${act.d}</span><div class="best">Attempt ${(M.att[act.id]||0)+1}</div></div>` : '')+
     `<div class="bangRow"><button class="primary" id="bangBtn">Bang</button><button id="oursBtn">Our laws</button></div><div class="dist">${changed(M.consts)? `${changed(M.consts)} law${changed(M.consts)>1?'s':''} changed from ours` : 'These are the laws of our universe.'}</div>`;
   for (const l of LAWS){ const cur=l.opts[M.consts[l.k]];
@@ -459,7 +517,7 @@ function showTab(t){ document.querySelectorAll('.tabs button').forEach(x=>x.clas
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+b.dataset.t)); });
 document.getElementById('skipBtn').onclick=(e)=>{ e.stopPropagation(); finishRun(); };
 
-window.__us={ MIN_CHANGES, ALL_COMBOS, starsFor, LAWS, STAGES, CHAL, OURS, simulate, changed, val, bang, finishRun, renderAll, cleanConsts, persist, get M(){ return M; }, get run(){ return run; }, set sel(v){ sel=v; } };
+window.__us={ renderRibbon, MIN_CHANGES, ALL_COMBOS, starsFor, LAWS, STAGES, CHAL, OURS, simulate, changed, val, bang, finishRun, renderAll, cleanConsts, persist, get M(){ return M; }, get run(){ return run; }, set sel(v){ sel=v; } };
 resize(); window.addEventListener('resize', resize); renderAll(); requestAnimationFrame(draw);
 setInterval(()=>{ if (run && !run.done) renderRibbon(); }, 250);
 if (!M.intro){ M.intro=1; persist(); RH.modal(`<h2>Universe Seed</h2><p>Six numbers decide what a universe can become: the strength of gravity, dark energy, the fine-structure constant, the strong force, how much matter survived the Big Bang, and how many dimensions space has.</p><p>Set them, then press <b>Bang</b>. The universe runs its history link by link: nucleosynthesis, galaxies, stars, carbon, planets, life, minds. When a link breaks, you'll see the physics that broke it.</p><p>The <b>Challenges</b> ask for strange universes. Most need two laws turned together.</p>`,[{label:'Choose the laws'}]); }
