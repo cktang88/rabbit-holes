@@ -122,6 +122,10 @@
     #report{transform:translate(-50%,-50%) scale(.75) rotate(6deg)} #report.on{transform:translate(-50%,-50%) scale(.75) rotate(-2deg)}
     #toast{font-size:18px;top:30%;left:calc(50% + 135px);max-width:52vw;padding:8px 14px} #toast small{font-size:11.5px}
   }
+  /* globe view keys: three typewriter keys down the right edge (drag turns the globe, pinch or wheel zooms) */
+  #view{position:fixed;left:16px;bottom:16px;display:flex;gap:8px;z-index:3}
+  #view .b{width:36px;height:36px;padding:0;font-size:17px;line-height:1}
+  @media (max-width:860px),(max-height:500px){#view{left:auto;bottom:auto;right:6px;top:50%;transform:translateY(-50%);flex-direction:column;gap:6px}#view .b{width:34px;height:34px}}
   @media (pointer:coarse){select{font-size:16px!important}}
   @media (prefers-reduced-motion:reduce){.pcard{animation:none}#report.on .conf{animation:none;opacity:1;transform:translate(-50%,-50%) rotate(-12deg)}}
 </style>
@@ -132,6 +136,7 @@
 <div id="levels" class="chip"></div>
 <div id="ctrl" class="chip"></div>
 <div id="tally" class="chip"></div>
+<div id="view" aria-label="Globe view"><button class="b" id="vIn" aria-label="Zoom in">+</button><button class="b" id="vOut" aria-label="Zoom out">−</button><button class="b" id="vReset" aria-label="Reset view" title="Reset view">⟲</button></div>
 <div id="tip"></div>
 <div id="toast"></div>
 <div id="cards" aria-live="polite"></div>
@@ -624,9 +629,18 @@ function load(i) {
   if (L.endless) startCaseFile();
   caseState = L.case ? { left: L.case.budget, month: 0, wnd: 22, results: [] } : null; 
   patchRing.visible = !!L.patch; $('story').innerHTML = L.story; renderBets(); renderGoal(); renderLevels(); renderCtrl();
-  const fc = L.drop || L.focus; if (fc) { globe.rotation.y = 0; const v = new THREE.Vector3(...toXYZ(fc[0] - 12, fc[1])).normalize().multiplyScalar(MOBILE ? (innerHeight <= 500 ? 5.4 : 6.6) : 5.4); camera.position.copy(v); controls.update(); }
+  homeView(false);
   $('toast').classList.remove('on'); layout();
 }
+// the level's own view of the globe; Reset eases back to it
+function homeView(animate) {
+  const fc = L.drop || L.focus, d = MOBILE ? (innerHeight <= 500 ? 5.4 : 6.6) : 5.4;
+  const v = fc ? new THREE.Vector3(...toXYZ(fc[0] - 12, fc[1])).normalize().multiplyScalar(d) : new THREE.Vector3(0, 1.2, 5.6).setLength(Math.max(d, 5.6));
+  if (fc) globe.rotation.y = 0;
+  if (animate) viewTo = { v, d: v.length() }; else { viewTo = null; camera.position.copy(v); controls.update(); }
+}
+let viewTo = null;
+const zoomView = f => { const d = Math.max(controls.minDistance, Math.min(controls.maxDistance, camera.position.length() * f)); viewTo = { v: camera.position.clone().setLength(d), d }; };
 function setSpin(r, quiet) {
   rot = r; ducks = []; simT = 0; running = false;
   const go = () => { if (rot !== r) return; applyOcean(r); renderCtrl(); };
@@ -732,6 +746,11 @@ function frame(now) {
     if (n && cen.lengthSq() > 1e-6) { globe.localToWorld(cen); const dist = camera.position.length(); tmpV.copy(cen).normalize().multiplyScalar(dist); camera.position.lerp(tmpV, 1 - Math.exp(-dt * 1.5)).setLength(dist); }
   }
   tallyT += dt; if (tallyT > .2) { tallyT = 0; const S = stats(); renderTally(S); check(S); layout(); }
+  if (viewTo) { // eased dolly / reset: slerp the direction, ease the distance
+    const k = 1 - Math.exp(-dt * 7), a = camera.position.clone().normalize(), b = viewTo.v.clone().normalize(), dist = camera.position.length() + (viewTo.d - camera.position.length()) * k;
+    a.lerp(b, k).normalize(); camera.position.copy(a.multiplyScalar(dist)); hot = now;
+    if (camera.position.distanceTo(viewTo.v) < .005) { camera.position.copy(viewTo.v); viewTo = null; }
+  }
   controls.update(); meridian.quaternion.copy(camera.quaternion).multiply(ringQ); meridianEdge.quaternion.copy(meridian.quaternion); renderer.render(scene, camera); lastRender = performance.now();
 }
 // after a miss: how close it was and where the ducks went instead, so the next drop is an informed guess
@@ -823,10 +842,12 @@ const LESSON = [
   'On a backwards Earth the Gulf Stream would run up the coast of Africa and Europe. Western intensification follows the direction of the spin.',
   'The Antarctic Circumpolar Current carries about 100 times the flow of all the world\'s rivers combined.',
 ];
+$('vIn').onclick = () => { FX.sfx('click'); zoomView(1 / 1.3); }; $('vOut').onclick = () => { FX.sfx('click'); zoomView(1.3); }; $('vReset').onclick = () => { FX.sfx('click'); homeView(true); };
+canvas.addEventListener('pointerdown', () => { viewTo = null; }); // grabbing the globe cancels an easing view
 load(sharedCase ? LV.findIndex(l => l.endless) : +SAVE.cur || 0); // a shared case link opens that case
 requestAnimationFrame(frame);
 const proj = new THREE.Vector3();
-window.__fl = { LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
+window.__fl = { get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
   screenOf: (lat, lon) => { proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>

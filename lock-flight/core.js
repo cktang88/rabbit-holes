@@ -6,13 +6,13 @@
 const W = 30, H = 22, N = W * H;
 const C = {
   STREAM: 7,                  // catchment cells before a trickle counts as a stream
-  CELL: 2, TUN: 14, AQ: 10,   // £k per cell: plain canal, tunnel, aqueduct
+  CELL: 2, TUN: 16, AQ: 10,   // £k per cell: plain canal, tunnel, aqueduct
   CUT: 2.2, BANK: 2.5,        // £k per cell per (rise beyond tolerance)^2
   CULVERT: 2,
   FLIGHT: 6, STAIR: 4, PLANE: 22, PLANE_N: 1.5, PONDS: 1.4, DBL: 1.8, PUMP: 12,
-  RCOST: 18, FEEDER: 1, RCAP: 420, RREL: 130, RFEED: 1.1, RREACH: 9,
-  K: 1.2, GROW: 1.012, R: .0062, MONTHS: 120,
-  STORE: 5, LEAK: .14, FEED: .45,
+  RCOST: 18, FEEDER: 1, RCAP: 500, RREL: 150, RFEED: 6, RREACH: 9,
+  K: .8, GROW: 1.012, R: .0045, MONTHS: 120,
+  STORE: 5, LEAK: .14, FEED: .8,
   CAP: 60, PLANECAP: 90, PUMPCAP: 70,
   RUN_LOCK: .025, RUN_PLANE: .35, RUN_PLANE_BOAT: .008, RUN_PUMP: .006, RUN_TUN: .02, RUN_CELL: .006,
   TONS: 25,
@@ -43,7 +43,7 @@ function townName(r) { return r.pick(SYL1) + r.pick(SYL2); }
 // A random country: one or two ridges with a saddle, a hill or two, three or four towns in the low ground.
 function randomSpec(seed) {
   const r = rng(seed * 2654435761 + 7);
-  const sp = { seed, relief: r.range(2, 3.4), ridges: [], hills: [], towns: [], drought: [] };
+  const sp = { seed, relief: r.range(2, 3.4), ridges: [], hills: [], drought: [] };
   const nr = r() < .55 ? 1 : 2;
   for (let i = 0; i < nr; i++) {
     const vert = r() < .6, a = vert ? [r.range(10, 20), -2] : [-2, r.range(7, 15)], b = vert ? [r.range(10, 20), H + 1] : [W + 1, r.range(7, 15)];
@@ -98,13 +98,13 @@ function genMap(spec) {
   }
   // towns
   const towns = [];
-  if (spec.towns) for (const [x, y, p, from] of spec.towns) towns.push({ c: idx(x, y), p, from: from || 0 });
+  if (spec.towns && spec.towns.length) for (const [x, y, p, from] of spec.towns) towns.push({ c: idx(x, y), p, from: from || 0 });
   else {
     const n = spec.nTowns || 3, tr = rng((spec.seed || 1) * 31 + 5);
-    for (let k = 0; k < 400 && towns.length < n; k++) {
+    for (let k = 0; k < 2400 && towns.length < n; k++) {
       const x = 2 + tr.int(W - 4), y = 2 + tr.int(H - 4), c = idx(x, y);
-      if (h[c] > 3.2) continue;
-      if (towns.some(t => eucl(t.c, c) < 11)) continue;
+      if (h[c] > 2.6 + k / 300) continue;
+      if (towns.some(t => eucl(t.c, c) < 11 - k / 600)) continue;
       towns.push({ c, p: 2 + tr.int(3), from: towns.length === 3 ? 30 + tr.int(30) : 0 });
     }
   }
@@ -217,6 +217,8 @@ function analyse(M, D) {
     }
   }
   const order = pounds.map(p => p.id).sort((a, b) => pounds[b].lv - pounds[a].lv);
+  sites.forEach((s, si) => { s.si = si; s.routes = []; }); tun.forEach(t => t.routes = []);
+  routes.forEach((r, ri) => { r.sites.forEach(si => sites[si].routes.push(ri)); r.tuns.forEach(ti => tun[ti].routes.push(ri)); r.drawsFrom = new Set(r.sites.filter(si => sites[si].w > 0).map(si => sites[si].hi)); });
   return { M, D, cells, edges, sites, pounds, tun, res, routes, towns, cost, total, order };
 }
 
@@ -238,9 +240,9 @@ function stepMonth(an, st, opt = {}) {
     rec.lostW += d * (1 - k); return d * k;
   });
   // locks and tunnels pass only so many boats a month
-  const load = s => an.routes.reduce((a, r, ri) => r.sites.includes(s) ? a + f[ri] : a, 0);
+  const load = si => { let a = 0; for (const ri of an.sites[si].routes) a += f[ri]; return a; };
   const sr = an.sites.map((s, si) => { const l = load(si); return l > s.cap ? s.cap / l : 1; });
-  const tr = an.tun.map((t, ti) => { const l = an.routes.reduce((a, r, ri) => r.tuns.includes(ti) ? a + f[ri] : a, 0); return l > t.cap ? t.cap / l : 1; });
+  const tr = an.tun.map(t => { let l = 0; for (const ri of t.routes) l += f[ri]; return l > t.cap ? t.cap / l : 1; });
   an.routes.forEach((r, ri) => { let k = 1; for (const s of r.sites) k = Math.min(k, sr[s]); for (const t of r.tuns) k = Math.min(k, tr[t]); rec.lostC += f[ri] * (1 - k); f[ri] *= k; });
   an.sites.forEach((s, si) => { if (sr[si] < .999) rec.jam.push(si); });
   // water: from the highest pound down, each lock passes lockfuls from its upper pound to its lower one
@@ -249,11 +251,11 @@ function stepMonth(an, st, opt = {}) {
   for (const pi of an.order) {
     const p = P[pi];
     let avail = st.S[pi] + inflow[pi] + p.feed * rain - p.leak;
-    let want = 0; const dl = p.down.map(s => { const si = an.sites.indexOf(s), w = s.w * load(si); want += w; return [si, w]; });
+    let want = 0; const dl = p.down.map(s => { const si = s.si, w = s.w * load(si); want += w; return [si, w]; });
     let resAv = 0; for (const ri of p.res) resAv += Math.min(C.RREL, RV[ri]);
     if (want > avail + resAv && want > 0) { // not enough water: the locks below this pound work fewer boats
       const k = Math.max(0, avail + resAv) / want;
-      an.routes.forEach((r, ri) => { if (r.sites.some(si => an.sites[si].hi === pi && an.sites[si].w > 0)) { rec.lostW += f[ri] * (1 - k); f[ri] *= k; } });
+      an.routes.forEach((r, ri) => { if (r.drawsFrom.has(pi)) { rec.lostW += f[ri] * (1 - k); f[ri] *= k; } });
       rec.dry.push(pi);
     }
     let out = 0; for (const [si] of dl) { q[si] = an.sites[si].w * load(si); out += q[si]; }
@@ -276,7 +278,7 @@ function stepMonth(an, st, opt = {}) {
   an.res.forEach((r, ri) => { if (!r.bad) RV[ri] = Math.min(r.cap, RV[ri] + r.inflow * rain); });
   // tolls and running costs
   an.routes.forEach((r, ri) => { rec.boats += f[ri]; rec.rev += f[ri] * C.R * r.e; rec.flows.push(f[ri]); });
-  for (const s of an.sites) { running += s.t === 'plane' ? C.RUN_PLANE + C.RUN_PLANE_BOAT * load(an.sites.indexOf(s)) : C.RUN_LOCK * s.n * (s.dbl ? 2 : 1); }
+  for (const s of an.sites) { running += s.t === 'plane' ? C.RUN_PLANE + C.RUN_PLANE_BOAT * load(s.si) : C.RUN_LOCK * s.n * (s.dbl ? 2 : 1); }
   for (const p of P) running += C.RUN_TUN * p.tunnel + C.RUN_CELL * p.len;
   rec.run = running;
   st.rev += rec.rev; st.run += running; st.boats += rec.boats; st.lostW += rec.lostW; st.lostC += rec.lostC; st.lostR += rec.lostR;
@@ -287,7 +289,7 @@ function stepMonth(an, st, opt = {}) {
 }
 function connected(an) { // every town that matters is on one network with the first town
   const need = an.towns.filter((t, i) => an.M.towns[i].req !== false);
-  if (!need.every(t => t.on)) return false;
+  if (need.length < 2 || !need.every(t => t.on)) return false;
   const reach = new Set([need[0].i]); for (const r of an.routes) if (r.i === need[0].i) reach.add(r.j);
   return need.every(t => reach.has(t.i));
 }
@@ -332,16 +334,19 @@ function prune(D) { // drop levels, locks and nothing-paths no longer used
 
 // ================= the planner (the canal company's engineers) =================
 function routeGrid(M, from, targets, al, be, hRef) {
-  const dist = new Float64Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1), done = new Uint8Array(N);
-  dist[from] = 0;
-  for (;;) {
-    let u = -1, du = Infinity; for (let c = 0; c < N; c++) if (!done[c] && dist[c] < du) { du = dist[c]; u = c; }
-    if (u < 0) return null; if (targets.has(u)) { const p = [u]; while (prev[p[0]] >= 0) p.unshift(prev[p[0]]); return p; }
+  const dist = new Float64Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1), done = new Uint8Array(N), heap = [];
+  const push = (d, c) => { heap.push([d, c]); let i = heap.length - 1; while (i) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+  dist[from] = 0; push(0, from);
+  while (heap.length) {
+    const [du, u] = pop(); if (done[u]) continue;
+    if (targets.has(u)) { const p = [u]; while (prev[p[0]] >= 0) p.unshift(prev[p[0]]); return p; }
     done[u] = 1; const [x, y] = xy(u);
     for (const [dx, dy] of DIRS) { const nx = x + dx, ny = y + dy; if (!inb(nx, ny)) continue; const v = idx(nx, ny); if (done[v]) continue;
       const w = (dx && dy ? Math.SQRT2 : 1) * (1 + be * Math.max(0, M.h[v] - hRef)) + al * Math.abs(M.h[v] - M.h[u]);
-      if (du + w < dist[v]) { dist[v] = du + w; prev[v] = u; } }
+      if (du + w < dist[v]) { dist[v] = du + w; prev[v] = u; push(dist[v], v); } }
   }
+  return null;
 }
 function levelDP(M, D, path, lam, stair) { // the cheapest levels along a fixed route: cuttings, banks, tunnels and locks traded off
   const LV = 13, n = path.length, cost = Array.from({ length: n }, () => new Float64Array(LV).fill(Infinity)), back = Array.from({ length: n }, () => new Int8Array(LV));
@@ -418,12 +423,13 @@ const VARIANTS = [];
 for (const al of [0, 1.5, 6]) for (const be of [0, .6, 3]) for (const lam of [0, 6]) VARIANTS.push({ al, be, lam, stair: 0 });
 VARIANTS.push({ al: 1.5, be: .6, lam: 0, stair: 1 }, { al: 6, be: 0, lam: 0, stair: 1 }, { al: 0, be: 0, lam: 20, stair: 0 }, { al: 0, be: 8, lam: 0, stair: 0 });
 function plan(M, opt = {}) {
-  const field = [], seen = new Set();
+  const field = [], seen = new Set(), raw = [];
   for (const v of opt.variants || VARIANTS) {
     const D = planDesign(M, v), sig = JSON.stringify(D); if (seen.has(sig)) continue; seen.add(sig);
-    const raw = simulate(M, D); field.push({ v, D, dividend: raw.ok ? raw.dividend : -999, raw: 1 });
-    if (opt.improve !== false) { const im = improve(M, D, opt.tries || 6); field.push({ v, D: im.D, dividend: im.dividend }); }
+    const r = simulate(M, D); raw.push({ v, D, dividend: r.ok ? r.dividend : -999, raw: 1 });
   }
+  raw.sort((a, b) => b.dividend - a.dividend); field.push(...raw);
+  if (opt.improve !== false) for (const x of raw.slice(0, opt.top || 99)) { const im = improve(M, x.D, opt.tries || 5); if (im.dividend > x.dividend + .5) field.push({ v: x.v, D: im.D, dividend: im.dividend }); }
   field.sort((a, b) => b.dividend - a.dividend);
   return { best: field[0], field };
 }

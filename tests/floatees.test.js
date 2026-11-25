@@ -188,6 +188,20 @@ module.exports = {
       ok(r.naive <= 1, 'random hindcasting cracked ' + r.naive + '/8');
       eq(r.run, [1, true, true, true]); eq(r.next, [2, 502, '#case=502-2']);
     },
+    'globe view: + and − dolly, drag turns the globe, wheel zooms, reset returns to the voyage view': async ({ page, ok, near }) => {
+      await page.evaluate(() => __fl.load(0)); await page.waitForTimeout(200);
+      const home = await page.evaluate(() => __fl.camPos), d0 = await page.evaluate(() => __fl.camDist);
+      await page.click('#vIn'); await page.waitForTimeout(900); const d1 = await page.evaluate(() => __fl.camDist); ok(d1 < d0 * .85, `zoomed in ${d0} → ${d1}`);
+      await page.click('#vOut'); await page.click('#vOut'); await page.waitForTimeout(900); ok(await page.evaluate(() => __fl.camDist) > d1 * 1.4, 'zoomed out');
+      const vp = page.viewportSize(); await page.mouse.move(vp.width / 2, vp.height / 2); await page.mouse.wheel(0, -400); await page.waitForTimeout(600);
+      ok(await page.evaluate(() => __fl.camDist) < await page.evaluate(() => 9), 'wheel zoom stays in range');
+      const before = await page.evaluate(() => __fl.camPos);
+      await page.mouse.move(vp.width / 2, vp.height / 2); await page.mouse.down(); await page.mouse.move(vp.width / 2 + 160, vp.height / 2, { steps: 8 }); await page.mouse.up(); await page.waitForTimeout(500);
+      const after = await page.evaluate(() => __fl.camPos); ok(Math.hypot(after[0] - before[0], after[2] - before[2]) > .3, 'drag turned the view');
+      await page.click('#vReset'); await page.waitForTimeout(1500);
+      const back = await page.evaluate(() => __fl.camPos); for (let i = 0; i < 3; i++) near(back[i], home[i], .03, 'reset axis ' + i);
+      ok((await page.evaluate(() => __fl.ducks.length)) === 0, 'view controls drop nothing');
+    },
     'corrupted / odd saves load without errors': async ({ page, eq }) => {
       const u = page.url(); await page.goto('about:blank'); // stop the first globe rendering while the others load
       for (const [save, cur] of [['null', 0], ['{"done":{"0":1,"9":1,"x":1},"stars":"q","cards":7,"cur":3}', 1]]) {

@@ -306,7 +306,8 @@ function colonyBox(){ const ox=new Uint8Array(W), oy=new Uint8Array(H); for (let
   const a=span(ox,W), b=span(oy,H); return a? box({x:a.c, y:b.c, w:a.len, h:b.len}) : box({x:W/2, y:H/2, w:48, h:48}); }
 function fitTo(c){ layout(); pinned=box(c); try { cam.fit(false); } finally { pinned=null; } cam.touched=true; }  // automatic framings are not refitted on resize
 function fitColonies(){ layout(); cam.fit(false); }
-function fitSoup(){ fitTo({x:W/2, y:H/2, w:48, h:48}); }
+// the opening view: the middle of the 48-cell soup, cells at least 8 CSS px even on a phone
+function fitSoup(){ layout(); pinned={x:W/2-21, y:H/2-21, w:42, h:42}; try { cam.fit(false); } finally { pinned=null; } cam.touched=true; }
 // Click a colony to put it under the lens on its own (a focused, one-object scan).
 function examineAt(x,y){
   const objs=components(grid,W,H); let best=null, bd=1e9;
@@ -326,7 +327,7 @@ function examineAt(x,y){
 // Draw mode: the dish becomes a blank slide; tap or drag across cells, then test the drawing in the current rule.
 let drawing=false;
 function setDrawing(on){ drawing=on; document.body.classList.toggle('drawing',on); closeSheet();
-  if (on){ running=false; grid.fill(0); gen=0; syncPlay(); if (view.z<10) setView(view.vx,view.vy,12); log('Drawing: tap or drag across cells, then press Test it. Two fingers still pan and zoom.'); }
+  if (on){ pending=null; document.getElementById('predict').classList.remove('on'); running=false; grid.fill(0); gen=0; syncPlay(); if (view.z<10) setView(view.vx,view.vy,12); log('Drawing: tap or drag across cells, then press Test it. Two fingers still pan and zoom.'); }
   else log(''); draw(); }
 function testDrawing(){ const objs=components(grid,W,H); if (!objs.length){ log('Draw something first.'); return null; }
   drawnFlag=true; growthBudget=2; const seen=new Set(); const res=[]; try { for (const o of objs) res.push(catalog(o, seen)); } finally { drawnFlag=false; }
@@ -349,7 +350,7 @@ function paintTo(px,py){ const [x,y]=dishToCell(px,py); const k=y*W+x; if (k===p
   for (let i=1;i<=n;i++){ const xx=mod(Math.round(lx+dx*i/n),W), yy=mod(Math.round(ly+dy*i/n),H); setCell(yy*W+xx, paint.v); } paint.last=k; draw(); }
 cv.addEventListener('pointerdown', e=>{ e.preventDefault(); const p=local(e); ptrs.set(e.pointerId,p);
   if (narrow() && document.body.classList.contains('sheet')) closeSheet();
-  if (ptrs.size===1 && !cam.gesturing){ tap={p0:p, multi:false};
+  if (ptrs.size===1){ tap={p0:p, multi:false};
     if (drawing){ try{ cv.setPointerCapture(e.pointerId); }catch(_){} const [x,y]=dishToCell(...p); const k=y*W+x; paint={v:grid[k]?0:1, last:k, undo:[]}; setCell(k,paint.v); SND.lens(); draw(); } }
   else { if (tap) tap.multi=true; if (paint){ for (let i=paint.undo.length-1;i>=0;i--) grid[paint.undo[i][0]]=paint.undo[i][1]; paint=null; draw(); } } });
 cv.addEventListener('pointermove', e=>{ if (!ptrs.has(e.pointerId)) return; const p=local(e); ptrs.set(e.pointerId,p); if (paint && !cam.gesturing) paintTo(...p); });

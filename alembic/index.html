@@ -172,9 +172,9 @@ const FIRELIFE=new Uint8Array(NT).fill(30); FIRELIFE[WOOD]=120; FIRELIFE[WAX]=17
 // [A, B, A becomes, B becomes, chance per frame per neighbour, condition]. -1 keeps; an array picks one at random.
 const K=-1, UPC=1, SULFC=2, BLAST6=3, BLAST4=4, DRINK=5;
 const RULES=[
- [WATER,EARTH,[WATER,WATER,0,0],MUD,.06],[WATER,SALT,BRINE,BRINE,.1],[WATER,NITRE,ICE,BRINE,.06],[WATER,ASH,K,LYE,.05],
+ [WATER,EARTH,[WATER,WATER,0,0],MUD,.06],[WATER,SALT,BRINE,BRINE,.1],[WATER,NITRE,ICE,BRINE,.06],[WATER,ASH,LYE,0,.05],
  [WATER,IRON,K,RUST,.0008],[WATER,SOAP,FOAM,K,.06],[WATER,SNOW,K,WATER,.003],[WATER,FUME,VIT,0,.1],[WATER,VIT,STEAM,K,.01],
- [FIRE,WATER,SMOKE,STEAM,.35],[FIRE,SAND,K,GLASS,.03],[FIRE,PLANT,K,FIRE,.25],[FIRE,WOOD,K,[FIRE,FIRE,FIRE,CHAR],.04],[FIRE,OIL,K,FIRE,.5],
+ [FIRE,WATER,SMOKE,STEAM,.35],[FIRE,SAND,K,GLASS,.08],[FIRE,PLANT,K,FIRE,.25],[FIRE,WOOD,K,[FIRE,FIRE,FIRE,CHAR],.04],[FIRE,OIL,K,FIRE,.5],
  [FIRE,MUD,K,BRICK,.03],[FIRE,ICE,K,WATER,.2],[FIRE,SNOW,K,WATER,.5],[FIRE,LYE,K,[SALT,STEAM,SALT,SALT],.12],[FIRE,BRINE,K,[SALT,STEAM,STEAM,STEAM],.04],
  [FIRE,GUN,K,K,1,BLAST6],[FIRE,HYD,K,K,1,BLAST4],[FIRE,SULF,K,FUME,.05],[FIRE,COAL,K,EMBER,.02],[FIRE,CHAR,K,EMBER,.06],[FIRE,WAX,K,FIRE,.03],
  [FIRE,TAR,K,[FIRE,FIRE,FIRE,SMOKE],.012],[FIRE,ESS,K,FIRE,.4],[FIRE,SEED,K,FIRE,.3],[FIRE,FLOWER,K,FIRE,.25],[FIRE,MOSS,K,FIRE,.06],[FIRE,FOAM,K,0,.3],
@@ -182,7 +182,7 @@ const RULES=[
  [EMBER,EARTH,K,LAVA,.012],[EMBER,SAND,K,GLASS,.03],[EMBER,WATER,CHAR,STEAM,.3],[EMBER,IRON,K,STEEL,.006],[EMBER,MUD,K,BRICK,.02],[EMBER,PLANT,K,FIRE,.2],
  [EMBER,WOOD,K,FIRE,.04],[EMBER,OIL,K,FIRE,.4],[EMBER,CHAR,K,EMBER,.01],[EMBER,COAL,K,EMBER,.01],[EMBER,ICE,K,WATER,.2],[EMBER,SNOW,K,WATER,.5],
  [EMBER,GUN,K,K,1,BLAST6],[EMBER,HYD,K,K,1,BLAST4],[EMBER,WAX,K,FIRE,.03],[EMBER,SULF,K,FUME,.05],[EMBER,STONE,K,LAVA,.002],
- [LAVA,WATER,OBS,STEAM,.5],[LAVA,BRINE,OBS,[STEAM,SALT],.4],[LAVA,0,STONE,K,.0015],[LAVA,STONE,STONE,K,.0002],[LAVA,SAND,K,GLASS,.05],
+ [LAVA,WATER,OBS,STEAM,.5],[LAVA,LYE,OBS,STEAM,.5],[LAVA,BRINE,OBS,[STEAM,SALT],.4],[LAVA,0,STONE,K,.0015],[LAVA,STONE,STONE,K,.0002],[LAVA,SAND,K,GLASS,.05],
  ...[PLANT,WOOD,OIL,SEED,FLOWER,WAX,TAR,MOSS,ESS].map(b=>[LAVA,b,K,FIRE,.3]),[LAVA,ICE,K,WATER,.4],[LAVA,SNOW,K,STEAM,.5],[LAVA,CHAR,IRON,SMOKE,.03],
  [LAVA,STEAM,K,SULF,.004],[LAVA,GUN,K,K,1,BLAST6],[LAVA,HYD,K,K,1,BLAST4],[LAVA,COAL,K,EMBER,.05],[LAVA,MUD,K,BRICK,.03],
  [OIL,LYE,SOAP,SOAP,.05],[OIL,MUD,WAX,K,.012],[OIL,SAND,TAR,K,.002],
@@ -192,7 +192,7 @@ const RULES=[
  [SALT,ICE,BRINE,BRINE,.05],[ICE,0,WATER,K,.0004],[SNOW,0,WATER,K,.0002],
  [STEAM,ICE,SNOW,K,.1],[STEAM,FLOWER,K,ESS,.02],[STEAM,FUME,VIT,VIT,.05],
  [NITRE,CHAR,GUN,GUN,.06,SULFC],[SULF,IRON,0,PYR,.012],
- [VIT,IRON,HYD,COPP,.05],[VIT,STONE,[VIT,0,0,0],0,.01],[VIT,EARTH,K,0,.005],[VIT,MUD,K,0,.005],[VIT,PLANT,K,CHAR,.05],[VIT,WOOD,K,CHAR,.05],
+ [VIT,IRON,HYD,COPP,.1],[VIT,STONE,[VIT,0,0,0],0,.01],[VIT,EARTH,K,0,.005],[VIT,MUD,K,0,.005],[VIT,PLANT,K,CHAR,.05],[VIT,WOOD,K,CHAR,.05],
  [VIT,STEEL,K,COPP,.002],[VIT,RUST,K,COPP,.02],[VIT,BRICK,K,SAND,.001],
  [BRINE,IRON,K,RUST,.008],[BRINE,PLANT,K,ASH,.01],[MOSS,STONE,K,MOSS,.0006],[FUME,PLANT,K,ASH,.1],
 ];
@@ -235,6 +235,8 @@ function moveLiq(i,x,y,t){
   if (VISC[t]<1 && rf()>VISC[t]) return i;
   if (y<H-1){ const j=i+W, b=T[j];
     if (b===0 || (fluid(b) && DENS[b]<DENS[t] && (KIND[b]!==LIQ || rf()<.5))){ swap(i,j); return j; }
+    // buoyancy: a powder lighter than this liquid (ash, embers, seeds) floats up through it
+    if (KIND[b]===POW && DENS[b]<DENS[t] && rf()<.5){ swap(i,j); return j; }
     const d=(rnd()&1)?1:-1;
     let nx=x+d; if (nx>=0 && nx<W && T[j+d]===0){ const sd=T[i+d]; if (sd===0 || KIND[sd]===GAS){ swap(i,j+d); return j+d; } }
     nx=x-d; if (nx>=0 && nx<W && T[j-d]===0){ const sd=T[i-d]; if (sd===0 || KIND[sd]===GAS){ swap(i,j-d); return j-d; } } }
@@ -348,7 +350,7 @@ function held(liq, wall=GLASS){ const gas=KIND[liq]===GAS;
   for (let s=0;s<NC;s++){ if (T[s]!==liq || seen[s]) continue;
     let h=0,n=0,ok=true; q[n++]=s; seen[s]=1;
     while (h<n){ const i=q[h++], x=i%W, y=(i/W)|0;
-      for (const [dx,dy] of [[0,1],[-1,0],[1,0],[0,-1]]){ const nx=x+dx, ny=y+dy, open=gas? dy===1 : dy===-1;
+      for (const [dx,dy] of [[0,1],[-1,0],[1,0],[0,-1]]){ const nx=x+dx, ny=y+dy, open=gas? dy!==-1 : dy===-1;
         if (nx<0||nx>=W||ny>=H||ny<0){ if (!open) ok=false; continue; }
         const j=ny*W+nx, b=T[j];
         if (b===liq){ if (!seen[j]){ seen[j]=1; q[n++]=j; } continue; }
@@ -380,7 +382,7 @@ const COMMS=[
  {id:'tartar', n:'Salt of tartar', g:'Boil 30 salt out of lye or brine.', needs:[ASH,WATER,FIRE], f:()=>[made[SALT],30]},
  {id:'forest', n:'A forest that survives a fire', g:'Keep 150 green alive through a fire of 80 flames, then let it burn out.', needs:[PLANT,FIRE], f:()=>{ const g=cnt[PLANT]+cnt[WOOD]+cnt[FLOWER]+cnt[MOSS]; return [st.forest===1 && cnt[FIRE]===0 ? g : (st.forest===1? Math.min(g,149) : 0),150]; }},
  {id:'lava', n:'Melt the earth', g:'Make 60 lava with embers (no lava poured).', needs:[EMBER,EARTH], f:()=>[poured[LAVA]?0:made[LAVA],60]},
- {id:'obsidian', n:'An obsidian floor', g:'A layer of obsidian from wall to wall, without pouring lava or obsidian.', needs:[EMBER,EARTH,WATER], f:()=>[poured[LAVA]||poured[OBS]?0:spans(OBS)?1:0,1]},
+ {id:'obsidian', n:'Obsidian, no lava spent', g:'Make 40 obsidian without pouring any lava.', needs:[EMBER,EARTH,WATER], f:()=>[poured[LAVA]?0:made[OBS],40]},
  {id:'candle', n:'A candle', g:'Keep a small flame (1–14 fire) alight for 30 seconds without adding fire.', needs:[WAX,FIRE], f:()=>[Math.floor(st.flameRun/60),30]},
  {id:'volcano', n:'Build a volcano', g:'A solid stone mountain 150 tall, with 40 lava lying on it above the halfway line.', needs:[STONE,LAVA], f:()=>{ const [h,l]=volcano(); return [h>=150? l : 0,40]; }},
  {id:'iron', n:'The bloomery', g:'Win 25 iron from molten earth and charcoal.', needs:[CHAR,EARTH,EMBER], f:()=>[poured[IRON]?0:made[IRON],25]},
@@ -391,7 +393,7 @@ const COMMS=[
  {id:'acid', n:'Vitriol kept in glass', g:'Hold 30 oil of vitriol in glass.', needs:[VIT,GLASS], f:()=>[held(VIT),30]},
  {id:'air', n:'Inflammable air in a jar', g:'Catch 40 inflammable air under an upturned glass jar.', needs:[IRON,VIT,GLASS], f:()=>[held(HYD),40]},
  {id:'plot', n:'The gunpowder plot', g:'One chain of 30 blasts within a second, from gunpowder you made yourself.', needs:[NITRE,CHAR,SULF,FIRE], f:()=>[poured[GUN]?0:st.chain,30]},
- {id:'fool', n:'Fool\'s gold', g:'Make 40 fool\'s gold.', needs:[IRON,SULF], f:()=>[made[PYR],40]},
+ {id:'fool', n:'Fool\'s gold', g:'Turn every grain of iron in the tray to fool\'s gold: at least 40, none left over.', needs:[IRON,SULF], f:()=>[cnt[IRON]? Math.min(made[PYR],39) : made[PYR],40]},
 ];
 const comById=Object.fromEntries(COMMS.map(c=>[c.id,c]));
 function progressOf(c){ census(); const [v,need]=c.f(); return [Math.min(v,need),need]; }

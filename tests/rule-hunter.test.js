@@ -20,6 +20,7 @@ async function touchDrag(cdp, a, b, steps = 6) { await cdp.send('Input.dispatchT
 async function touchPinch(cdp, c, d0, d1) { const pts = (d) => [{ x: c[0] - d, y: c[1], id: 1 }, { x: c[0] + d, y: c[1], id: 2 }]; await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pts(d0) });
   for (let k = 1; k <= 5; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pts(d0 + (d1 - d0) * k / 5) }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); }
 const dismiss = (page) => page.evaluate(() => { document.querySelectorAll('.modal-bg').forEach(m => m.remove()); __rh.running = false; });
+const noBet = (page) => page.evaluate(() => { if (__rh.pending) __rh.predict(null); __rh.S.noPredict = 1; __rh.running = false; });
 
 module.exports = {
   page: 'rule-hunter/index.html',
@@ -131,12 +132,12 @@ module.exports = {
       eq(await page.isDisabled('#autoBtn'), false); await page.click('#autoBtn'); eq(await page.evaluate(() => __rh.auto), true);
     },
     'landscape phone: dish fills the screen; the journal is one sheet; the dock makes soups and scans': async ({ page, eq, ok }) => {
-      await dismiss(page); await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(300);
+      await dismiss(page); await noBet(page); await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(300);
       const open = () => page.evaluate(() => { const r = document.getElementById('sheet').getBoundingClientRect(); return r.left < innerWidth - 5 && getComputedStyle(document.getElementById('sheet')).visibility === 'visible'; });
       const w = await page.evaluate(() => { const r = document.getElementById('world').getBoundingClientRect(); return r.width * r.height / (innerWidth * innerHeight); });
       ok(w > .8, 'dish fills the screen: ' + w); eq(await open(), false);
       await page.click('#moreBtn'); await page.waitForTimeout(350); eq(await open(), true);
-      await page.mouse.click(120, 200); await page.waitForTimeout(350); eq(await open(), false, 'tapping the dish closes the journal');
+      await page.mouse.click(30, 330); await page.waitForTimeout(350); eq(await open(), false, 'tapping the dish closes the journal');
       await page.click('#ruleChip'); await page.waitForTimeout(350); eq(await open(), true); ok(await page.isVisible('#bits'), 'rule chip opens the switches');
       await page.click('#sheetX'); await page.waitForTimeout(350);
       const s0 = await page.evaluate(() => __rh.S.scans); await page.click('#scanBtn'); eq(await page.evaluate(() => __rh.S.scans), s0 + 1);
@@ -207,7 +208,7 @@ module.exports = {
       ok(r.design && r.competent > Math.max(...r.random), 'competent policy beats naive: ' + r.competent); ok(r.right >= 4, 'note-based predictions ' + r.right); ok(!r.master, 'master prize needs more than the simple policy');
     },
     'touch (phone): big cells, one-finger pan, pinch zoom, tap examines, drag-paint in draw mode': async ({ page, ok, eq, near }) => {
-      await page.setViewportSize({ width: 390, height: 844 }); await page.goto(page.url()); await page.waitForTimeout(600); await dismiss(page);
+      await page.setViewportSize({ width: 390, height: 844 }); await page.goto(page.url()); await page.waitForTimeout(600); await dismiss(page); await noBet(page);
       const cdp = await touchSession(page);
       const v = await page.evaluate(() => ({ k: __rh.cam.k, sw: document.scrollingElement.scrollHeight, h: innerHeight, dock: !!document.getElementById('scanBtn').getBoundingClientRect().width }));
       ok(v.k >= 8 && v.k <= 14, 'cells are 8-14 CSS px on a phone: ' + v.k); ok(v.sw <= v.h + 1, 'no page scroll'); ok(v.dock);

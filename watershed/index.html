@@ -379,11 +379,16 @@ const SKL = { valley: 'v', ridge: 'r', rock: 'k' }, SKR = { v: 'valley', r: 'rid
 function sketchSite(seed) {
   const R = rng('sk' + seed), daily = /^d\d{8}$/.test(seed);
   const sx = .3 + R() * .4, ng = 2 + (R() < .6 ? 1 : 0), side = R() < .5 ? -1 : 1, bumps = [];
-  for (let i = 0; i < 5; i++) bumps.push([.12 + R() * .76, .15 + R() * .65, .05 + R() * .07, (R() < .7 ? 1 : -1) * (1.5 + R() * 2.5)]);
   const gates = []; for (let i = 0; i < ng; i++) { const gy = ng === 3 ? [.3, .52, .74][i] : [.36, .66][i], off = (.17 + R() * .11) * (i % 2 ? -side : side); gates.push([Math.max(.12, Math.min(.88, sx + off)), gy]); }
-  const gen = (x, y, n) => { let h = 3.5 + 24 * Math.pow(1 - y, 1.1) + 2.2 * fbm(n, x * 3, y * 3) - 4.5 * sm(.84, 1, y) + 2.5 * Math.pow(Math.abs(x - .5) * 2, 3);
+  // hills and hollows to work around; but never a rise on the flags' own course higher than a valley can cut (so every seed can be solved)
+  const nz = noise2('ws' + seed), C = [[sx, .04], ...gates, [gates[ng - 1][0], .95]];
+  for (let tries = 0; tries < 12; tries++) {
+    bumps.length = 0; for (let i = 0; i < 5; i++) bumps.push([.12 + R() * .76, .15 + R() * .65, .05 + R() * .07, (R() < .7 ? 1 : -1) * (1.5 + R() * 2.5)]);
+    let lo = 1e9, ok = true; for (let i = 1; i < C.length && ok; i++) for (let j = 0; j <= 40; j++) { const h = gen(C[i - 1][0] + (C[i][0] - C[i - 1][0]) * j / 40, C[i - 1][1] + (C[i][1] - C[i - 1][1]) * j / 40, nz)[0]; if (h > lo + 2) { ok = false; break; } lo = Math.min(lo, h); }
+    if (ok) break; }
+  function gen(x, y, n) { let h = 3.5 + 24 * Math.pow(1 - y, 1.1) + 2.2 * fbm(n, x * 3, y * 3) - 4.5 * sm(.84, 1, y) + 2.5 * Math.pow(Math.abs(x - .5) * 2, 3);
     for (const [bx, by, br, bh] of bumps) { const d2 = ((x - bx) ** 2 + (y - by) ** 2) / (br * br); if (d2 < 9) h += bh * Math.exp(-d2); }
-    return [h, h - 3]; };
+    return [h, h - 3]; }
   const label = daily ? 'Daily sketch · ' + seed.slice(1, 5) + '-' + seed.slice(5, 7) + '-' + seed.slice(7) : 'Sketch · seed ' + seed;
   return { id: 'sketch', sketch: 1, seed, n: 'River Sketch', place: label, years: 12, sea: 3, gen, springs: [[sx, .04, SKP.q]], stormY: 0, storm: () => 0, rain: 0, spin: 0,
     pulse: y => y === 5 || y === 9 ? SKP.flood : 1, emax: SKP.emax, erodeScale: SKP.es, evap: SKP.evap, inf: SKP.inf, gates, kit: { valley: 1, ridge: 1, rock: 1 }, budget: 0, towns: [],
