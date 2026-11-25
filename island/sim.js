@@ -25,7 +25,7 @@
     { id: 'rabbit', name: 'Rabbits', kind: 'animal', group: 8, diet: [['grass', 1], ['flower', .25], ['shrub', .1]], bite: 1.3, cost: .7, wcost: .95, Emax: 12, E0: 8, breedE: 7, bcost: 3.5, litter: [2, 4], season: [2, 15], every: 5, mature: 10, life: 96, speed: 1, crowd: 7, shelter: true, note: 'Graze hard and breed harder. Hide under bramble when foxes are near.' },
     { id: 'deer', name: 'Red deer', kind: 'animal', group: 6, diet: [['shrub', 1], ['grass', .9], ['tree', .8]], bite: 4, cost: 1.7, wcost: 2.1, Emax: 60, E0: 45, breedE: 34, bcost: 12, litter: [1, 2], season: [5, 7], every: 24, mature: 24, life: 300, speed: 2, crowd: 6, fear: 'wolf', note: 'Graze, and browse young trees and shrubs. They linger by the river unless something frightens them.' },
     { id: 'goat', name: 'Feral goats', kind: 'animal', group: 6, invasive: true, diet: [['grass', 1], ['shrub', 1], ['tree', .9], ['flower', .8]], bite: 3, cost: 1.5, wcost: 1.7, Emax: 40, E0: 30, breedE: 22, bcost: 8, litter: [1, 2], season: [2, 8], every: 24, mature: 20, life: 260, speed: 2, crowd: 14, fear: 'wolf', herd: true, note: 'Hardy, hungry and fond of anything green; they roam in herds. With nothing to eat them, they strip an island to the rock.' },
-    { id: 'fox', name: 'Red foxes', kind: 'animal', group: 4, prey: [['rabbit', .3], ['vole', .2]], cost: .7, wcost: .9, Emax: 22, E0: 16, breedE: 13, bcost: 6, litter: [1, 3], season: [2, 6], every: 24, mature: 24, life: 168, speed: 3, radius: 3, value: { rabbit: 9, vole: 4 }, crowd: 4, fallback: ['shrub', .45], note: 'Hunt rabbits and voles. Their numbers rise and fall a year or two behind the rabbits.' },
+    { id: 'fox', name: 'Red foxes', kind: 'animal', group: 4, prey: [['rabbit', .3], ['vole', .2]], cost: .7, wcost: .9, Emax: 22, E0: 16, breedE: 13, bcost: 6, litter: [2, 4], season: [2, 6], every: 24, mature: 24, life: 120, speed: 3, radius: 3, value: { rabbit: 9, vole: 4 }, crowd: 4, fallback: ['shrub', .3], note: 'Hunt rabbits and voles. Their numbers rise and fall a year or two behind the rabbits.' },
     { id: 'owl', name: 'Tawny owls', kind: 'animal', group: 2, prey: [['vole', .3], ['rabbit', .06]], cost: .4, wcost: .5, Emax: 18, E0: 12, breedE: 10, bcost: 5, litter: [1, 3], season: [2, 4], every: 24, mature: 24, life: 220, speed: 3, radius: 4, value: { vole: 3, rabbit: 8 }, crowd: 3, fallback: ['grass', .2], needTrees: true, note: 'Hunt voles at night from a tree. They can only nest where there are trees.' },
     { id: 'wolf', name: 'Grey wolves', kind: 'animal', group: 5, prey: [['deer', .12], ['goat', .14], ['rabbit', .05]], cost: 1.3, wcost: 1.5, Emax: 70, E0: 55, breedE: 46, bcost: 16, litter: [1, 3], season: [3, 5], every: 24, mature: 36, life: 220, speed: 4, radius: 5, value: { deer: 45, goat: 30, rabbit: 8 }, crowd: 5, fallback: ['litter', .6], pack: true, scare: true, note: 'Hunt deer and goats in packs. Deer learn to avoid places wolves pass through.' },
   ];
@@ -75,7 +75,7 @@
     const isl = makeIsland(seed);
     const w = { isl, seed: String(seed), t: 0, r: rng('life:' + seed + (opt.run ? ':' + opt.run : '')), drought: [], actions: [], log: [],
       f: {}, fert: new Float32Array(N), litter: new Float32Array(N), poll: new Float32Array(N), fear: new Float32Array(N),
-      sp: new Int8Array(MAXA).fill(-1), x: new Int16Array(MAXA), y: new Int16Array(MAXA), px: new Int16Array(MAXA), py: new Int16Array(MAXA), E: new Float32Array(MAXA), age: new Int16Array(MAXA), fem: new Uint8Array(MAXA), last: new Int16Array(MAXA), n: 0,
+      sp: new Int8Array(MAXA).fill(-1), x: new Int16Array(MAXA), y: new Int16Array(MAXA), px: new Int16Array(MAXA), py: new Int16Array(MAXA), E: new Float32Array(MAXA), age: new Int16Array(MAXA), fem: new Uint8Array(MAXA), fence: new Uint16Array(N), last: new Int16Array(MAXA), n: 0,
       census: SP.map(() => []), riverHist: [], coverHist: [] };
     for (const p of PLANTS) w.f[p] = new Float32Array(N); w.f.litter = w.litter;
     const rr = rng('soil:' + seed);
@@ -109,9 +109,20 @@
 
   // Trap a species around (tx, ty): up to 20 animals within 5 tiles are caught and shipped off the island.
   function trap(w, id, tx, ty, rec = true) { const s = IDX[id]; let n = 0;
-    for (let k = 0; k < w.n && n < 20; k++) if (w.sp[k] === s && Math.abs(w.x[k] - tx) <= 5 && Math.abs(w.y[k] - ty) <= 5) { w.sp[k] = -1; n++; }
+    for (let k = 0; k < w.n && n < 30; k++) if (w.sp[k] === s && Math.abs(w.x[k] - tx) <= 6 && Math.abs(w.y[k] - ty) <= 6) { w.sp[k] = -1; n++; }
     if (rec) w.actions.push([w.t, '-' + id, tx, ty]); return n; }
-  function act(w, a) { const [, id, x, y] = a; return id[0] === '-' ? trap(w, id.slice(1), x, y) : release(w, id, x, y); }
+  // Cull: trap whichever animal is most numerous within 5 tiles (up to 20 of it).
+  function cull(w, tx, ty, rec = true) { const c = new Array(SP.length).fill(0);
+    for (let k = 0; k < w.n; k++) if (w.sp[k] >= 0 && Math.abs(w.x[k] - tx) <= 5 && Math.abs(w.y[k] - ty) <= 5) c[w.sp[k]]++;
+    let s = -1; for (let i = 0; i < c.length; i++) if (c[i] && (s < 0 || c[i] > c[s])) s = i; if (s < 0) return 0;
+    const n = trap(w, SP[s].id, tx, ty, false); if (rec) w.actions.push([w.t, '-any', tx, ty]); w.lastCull = SP[s].id; return n; }
+  // Fence: grazers (rabbits, deer, goats) cannot enter for five years, so the plants inside get a rest.
+  const FENCE_T = 5 * TPY;
+  function fence(w, tx, ty, rec = true) { let n = 0; for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const x = tx + dx, y = ty + dy; if (x < 0 || y < 0 || x >= GW || y >= GH || dx * dx + dy * dy > 10) continue; const i = y * GW + x; if (w.isl.land[i]) { w.fence[i] = FENCE_T; n++; } }
+    if (rec) w.actions.push([w.t, '#fence', tx, ty]); return n; }
+  function act(w, a) { const [, id, x, y] = a; return id === '-any' ? cull(w, x, y) : id === '#fence' ? fence(w, x, y) : id[0] === '-' ? trap(w, id.slice(1), x, y) : release(w, id, x, y); }
+  const TOOLS = { '-any': { name: 'Cull', note: 'Trap up to 20 of the most numerous animal near where you tap, and ship them off.' }, '#fence': { name: 'Fence', note: 'Fence off a patch for five years: rabbits, deer and goats cannot get in, so the plants inside recover.' } };
+  const validId = (id) => typeof id === 'string' && (IDX[id] != null || IDX[id.slice(1)] != null || TOOLS[id] != null);
   // ----- one tick (half a month) -----
   const head = new Int32Array(N), nxt = new Int32Array(MAXA);
   function step(w) {
@@ -136,7 +147,7 @@
       U[i] = Math.max(0, U[i] + .08 * U[i] * (Math.min(1, w.litter[i] * 4) * (.3 + .7 * m) - U[i]) + .01 * nU * Math.min(1, w.litter[i] * 4) - .004 * U[i]);
       // bare ground washes away in the autumn and winter rains
       const cover = G[i] + F[i] + B[i] + T[i]; if (cover < .08 && ph > .6) w.fert[i] = Math.max(.15, w.fert[i] - .006 * (1 + isl.elev[i]));
-      w.poll[i] *= .75; w.fear[i] *= .8;
+      w.poll[i] *= .75; w.fear[i] *= .8; if (w.fence[i]) w.fence[i]--;
     }
     // animals
     head.fill(-1); for (let k = 0; k < w.n; k++) if (w.sp[k] >= 0) { const i = w.y[k] * GW + w.x[k]; nxt[k] = head[i]; head[i] = k; }
@@ -176,12 +187,14 @@
   function graze(w, k, S, i) {
     const r = w.r, isl = w.isl; const fearful = S.fear === 'wolf';
     // look at a few tiles within reach; pick the best food, keeping away from wolves (deer, goats) and towards cover (rabbits near foxes)
-    let best = i, bv = -1e9;
+    let best = i, bv = -1e9; const fenced = S.id !== 'vole';
     for (let c = 0; c < 5; c++) { let j = i; if (c) { const dx = r.int(2 * S.speed + 1) - S.speed, dy = r.int(2 * S.speed + 1) - S.speed, x = w.x[k] + dx, y = w.y[k] + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; j = y * GW + x; if (!isl.land[j]) continue; }
+      if (fenced && w.fence[j]) continue;   /* the fence keeps grazers out */
       let v = foodAt(w, S, j) + r() * .05; if (fearful) v -= 1.6 * w.fear[j]; if (S.shelter) v += .3 * Math.min(.4, w.f.shrub[j]);
       if (S.herd && c) { let h = 0; for (let q = head[j]; q >= 0 && h < 6; q = nxt[q]) if (w.sp[q] === S.i) h++; v += .06 * h; }   /* goats keep together in herds */
       if (S === P[IDX.deer] && isl.bank[j] && w.fear[j] < .2) v += .15;   // deer love the lush riverbanks, if it is safe
       if (v > bv) { bv = v; best = j; } }
+    if (fenced && w.fence[best]) { for (const j of nbr8(best)) if (!w.fence[j] && isl.land[j]) { best = j; break; } }   // pushed out of a new fence
     i = moveTo(w, k, best);
     let want = Math.min(S.bite, S.Emax - w.E[k] + S.cost);
     for (const [d, p] of S.diet) { if (want <= 0) break; const fl = w.f[d]; const avail = Math.max(0, browse(d, fl[i])) * FOOD * .5 * p; const take = Math.min(want, avail); fl[i] -= (d === 'tree' && fl[i] >= .35 ? .3 : 1) * take / FOOD;   /* a grown tree only loses bark and low leaves */ want -= take; w.E[k] += take; }
@@ -245,16 +258,19 @@
   const cnt = (w, id) => (w.last_counts || counts(w))[IDX[id]];
   function scatter(w, id, n, tag) { const r = rng('scatter:' + w.seed + tag); const L = []; for (let i = 0; i < N; i++) if (w.isl.land[i]) L.push(i);
     for (let k = 0; k < n; k++) { const j = spawn(w, IDX[id], L[r.int(L.length)], P[IDX[id]].E0, k & 1); if (j >= 0) w.age[j] = P[IDX[id]].mature + r.int(60); } }
+  // the fox swing: 0 rising, 1 a peak of 6+ seen, 2 crashed to 60% of the peak or less, 3 recovered to 1.5x the trough (and +4)
+  function swing(f) { let pk = 0, tr = Infinity, st = 0; for (const v of f) { if (st < 2) { if (v > pk) pk = v; if (pk >= 6) st = 1; if (pk >= 6 && v <= .6 * pk) { st = 2; tr = v; } } else { if (v < tr) tr = v; if (v >= Math.max(tr * 1.5, tr + 4)) return 3; } } return st; }
   const ALL = SP.map(s => s.id).filter(x => x !== 'goat');
   const SCEN = [
-    { id: 'meadow', title: 'A meadow for rabbits', seed: 'meadow', years: 6, permits: 3, species: ['rabbit', 'shrub'],
-      brief: 'This island has grass and nothing that eats it. Release rabbits on the meadow and keep them going for five years.',
-      goal: (w) => { const y = yr(w), r = cnt(w, 'rabbit'); if (y >= 5 && r >= 20) return 'won'; if (y >= 6) return 'lost'; return `Rabbits: ${r}. Year ${y} of 5.`; } },
+    { id: 'meadow', title: 'A meadow for rabbits', seed: 'meadow', years: 9, permits: 4, species: ['rabbit', 'fox', 'shrub'],
+      brief: 'This island has grass and nothing that eats it. The warden wants rabbits on it, and still a meadow worth the name: in year 8, twenty rabbits or more and grass over 12% of the island. Rabbits alone eat a meadow to the bone.',
+      goal: (w) => { const y = yr(w), r = cnt(w, 'rabbit'), g = cnt(w, 'grass'); if (y >= 8 && r >= 20 && g >= .12) return 'won'; if (y >= 9) return 'lost'; return `Rabbits ${r}; grass ${(g * 100).toFixed(0)}% (12% wanted). Year ${y} of 8.`; } },
     { id: 'cycle', title: 'Boom and bust', seed: 'cycle', years: 30, permits: 6, species: ['rabbit', 'vole', 'shrub', 'fox', 'owl'],
-      brief: 'Establish foxes and rabbits together, and keep both for twenty years running while their numbers rise and fall.',
-      goal: (w) => { const y = yr(w); const ra = w.census[IDX.rabbit], fo = w.census[IDX.fox]; let run = 0, lo = 1e9, hi = 0;
-        for (let k = TPY - 1; k < ra.length; k += TPY) { if (ra[k] >= 2 && fo[k] >= 2) { run++; lo = Math.min(lo, fo[k]); hi = Math.max(hi, fo[k]); } else { run = 0; lo = 1e9; hi = 0; } }
-        if (run >= 20 && hi >= 2 * lo) return 'won'; if (y >= 30) return 'lost'; return `Foxes and rabbits together for ${run} year${run === 1 ? '' : 's'} of 20.`; } },
+      brief: 'Establish foxes and rabbits together and keep both for twenty years running, long enough to see the foxes boom, crash by at least 40%, and come back half as many again.',
+      goal: (w) => { const y = yr(w); const ra = w.census[IDX.rabbit], fo = w.census[IDX.fox]; let run = 0, f = [];
+        for (let k = TPY - 1; k < ra.length; k += TPY) { if (ra[k] >= 2 && fo[k] >= 2) { run++; f.push(fo[k]); } else { run = 0; f = []; } }
+        const s = swing(f); if (run >= 20 && s === 3) return 'won'; if (y >= 30) return 'lost';
+        return `Together for ${run} year${run === 1 ? '' : 's'} of 20. Foxes: ${['still rising', 'have peaked; waiting for the crash', 'crashed; waiting for them to recover', 'boomed, crashed and recovered'][s]}.`; } },
     { id: 'bees', title: 'The bee meadow', seed: 'bees', years: 15, permits: 5, species: ['flower', 'bee', 'shrub', 'rabbit', 'fox'],
       brief: 'The botanical society wants a wildflower meadow: flowers over 3% of the island, with bees working them, within fifteen years.',
       goal: (w) => { const y = yr(w), f = cnt(w, 'flower'); if (f >= .03 && cnt(w, 'bee') >= 2) return 'won'; if (y >= 15) return 'lost'; return `Wildflowers cover ${(f * 100).toFixed(1)}% of 3%.`; } },
@@ -282,6 +298,6 @@
     brief: 'No commission: any species, as many as you like. Watch what happens.', goal: (w) => `${speciesCount(w)} species. Year ${yr(w)}.` });
   function start(c, run) { const w = create(c.seed, { setup: c.setup, run }); if (c.drought) w.drought = c.drought; census(w); return w; }
 
-  const api = { GW, GH, N, TPY, SP, IDX, ANIMALS, PLANTS, MAXA, rng, hashStr, makeIsland, create, step, release, trap, act, SCEN, SCN, daily, sandbox, start, census, counts, present, presentAt, speciesCount, season, seasonName, isWinter, inDrought, replay };
+  const api = { GW, GH, N, TPY, SP, IDX, ANIMALS, PLANTS, MAXA, rng, hashStr, makeIsland, create, step, release, trap, cull, fence, act, TOOLS, validId, SCEN, SCN, daily, sandbox, start, census, counts, present, presentAt, speciesCount, season, seasonName, isWinter, inDrought, replay };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.IslandSim = api;
 })(typeof window !== 'undefined' ? window : this);

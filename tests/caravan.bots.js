@@ -12,13 +12,13 @@ function caravanBot(seed, policy) {
     if (policy === 'idle') break;
     if (policy === 'random') {
       const g = rnd.int(G); K.trade(g, Math.floor(C.gold * .5 / here.price[g]));
-      const nb = K.neighbors(C.at); if (K.travelNow(nb[rnd.int(nb.length)].to) === 'end') break; continue;
+      const nb = K.neighbors(C.at); const tr = K.travelNow(nb[rnd.int(nb.length)].to); if (tr === 'end') break; if (!tr) K.tick(); continue;
     }
     if (policy === 'obvious') { // buy what the city says it makes, take it to the nearest city that says it wants it
       const g = here.prod[0]; let best = null;
       for (const d of K.cities) if (d.dem.includes(g) && d.id !== C.at) { const p = K.shortest(C.at, d.id); if (p && (!best || p.days < best.days)) best = { to: d.id, days: p.days }; }
       if (!best) { const nb = K.neighbors(C.at); best = { to: nb[0].to }; }
-      K.trade(g, 999); if (K.travelNow(best.to) === 'end') break; continue;
+      K.trade(g, 999); const tr = K.travelNow(best.to); if (tr === 'end') break; if (!tr) K.tick(); continue;
     }
     // greedy: best known profit per day; 'book' only knows what it has seen, 'live' sees every market now
     if (C.gold > 450 && C.camels < 14) { const n = Math.min(14 - C.camels, Math.floor((C.gold - 300) / 40)); C.gold -= 40 * n; C.camels += n; }
@@ -36,9 +36,9 @@ function caravanBot(seed, policy) {
     }
     if (!best || best.v <= 0) { // scout: the city we know least about, nearby
       let sc = null; for (const d of K.cities) { if (d.id === C.at) continue; const p = K.shortest(C.at, d.id); if (!p) continue; const age = C.book[d.id] ? C.day - C.book[d.id].day : 999; const v = age / (p.days + 5); if (!sc || v > sc.v) sc = { v, to: d.id }; }
-      if (K.travelNow(sc.to) === 'end') break; continue;
+      if (!sc) { K.tick(); continue; } if (K.travelNow(sc.to) === 'end') break; continue;
     }
-    K.trade(best.g, best.qty); if (K.travelNow(best.to) === 'end') break;
+    K.trade(best.g, best.qty); const tr = K.travelNow(best.to); if (tr === 'end') break; if (!tr) K.tick();
   }
   sellAll(); K.headless = false;
   return Math.round(K.netWorth());

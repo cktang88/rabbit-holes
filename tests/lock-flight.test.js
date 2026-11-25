@@ -57,12 +57,25 @@ module.exports = {
         if (x.id !== 'first') ok(x.rndWins <= 1, `${x.id}: ${x.rndWins}/${x.rndN} random canals reached par`);
       }
     },
+    'each commission\'s brief, done literally, pays a dividend (so no level is a wall)': async ({ page, ok }) => {
+      const r = await page.evaluate(src => { const K = __lf.K, BRIEF = eval('(' + src + ')'), out = [];
+        for (const c of __lf.COMS.filter(c => c.spec)) { const M = K.genMap(c.spec), D = BRIEF[c.id](K, M), s = K.simulate(M, D); out.push({ id: c.id, div: Math.round(s.dividend), ok: s.ok, res: D.res.length }); } return out; }, "{\n  // what each commission's brief tells the player to do, done literally\n  first: (K, M) => { const D = K.newDesign(), a = M.towns[0].c, b = M.towns[1].c; K.addPath(M, D, [a, ...K.lineCells(a, b)]); return D; },\n  ridge: (K, M) => { // over the saddle; drag the summit pound down until a stream lies above it; dam that stream\n    const a = M.towns[0].c, b = M.towns[1].c, D = K.newDesign(); K.addPath(M, D, K.routeGrid(M, a, new Set([b]), 1.5, 1, Math.max(M.h[a], M.h[b])));\n    for (let k = 0; k < 6; k++) { const an = K.analyse(M, K.clone(D)), top = an.pounds.reduce((p, q) => q.lv > p.lv ? q : p), rc = K.bestReservoir(M, an, top.id); if (rc >= 0) { D.res.push(rc); break; } for (const c of top.cells) D.lv[c] = top.lv - 1; K.prune(D); }\n    return D; },\n  tunnel: (K, M) => { const D = K.newDesign(), a = M.towns[0].c, b = M.towns[1].c, p = [a, ...K.lineCells(a, b)]; K.addPath(M, D, p); p.forEach(c => D.lv[c] = D.lv[a]); K.prune(D); return D; },\n  round: (K, M) => { const D = K.newDesign(), a = M.towns[0].c, b = M.towns[1].c; const p = K.routeGrid(M, a, new Set([b]), 0, 8, Math.max(M.h[a], M.h[b])); K.addPath(M, D, p); p.forEach(c => D.lv[c] = D.lv[a]); K.prune(D); return D; },\n  dry: (K, M) => { // climb the ridge, bank water in a reservoir, side ponds on the summit locks\n    const a = M.towns[0].c, b = M.towns[1].c, D = K.newDesign(); K.addPath(M, D, K.routeGrid(M, a, new Set([b]), 1.5, 1, Math.max(M.h[a], M.h[b])));\n    for (let k = 0; k < 6; k++) { const an = K.analyse(M, K.clone(D)), top = an.pounds.reduce((p, q) => q.lv > p.lv ? q : p), rc = K.bestReservoir(M, an, top.id); if (rc >= 0) { D.res.push(rc); for (const s of top.down) D.locks[s.key] = { ponds: 1 }; break; } for (const c of top.cells) D.lv[c] = top.lv - 1; K.prune(D); }\n    return D; },\n  junction: (K, M) => { // a branching network that holds its level through the ridge; double the busiest lock\n    const D = K.planDesign(M, { al: 0, be: 0, lam: 20, stair: 0 }), r = K.simulate(M, D); let best = null, bl = -1;\n    for (const s of r.an.sites) { const l = s.routes.reduce((a, ri) => a + r.months[100].flows[ri], 0); if (l > bl) { bl = l; best = s; } }\n    if (best) D.locks[best.key] = { dbl: 1 }; return D; },\n}\n");
+      for (const x of r) ok(x.ok && x.div > 0, `${x.id}: the brief's own recipe made ${x.div}`);
+      ok(r.find(x => x.id === 'ridge').res === 1, 'Over the Top: lowering the summit brings a stream above it to dam');
+    },
     'no single answer: the best canal tunnels on one commission, climbs with reservoirs on another, holds a level round on a third': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const K = __lf.K, cls = {}; for (const c of __lf.COMS.filter(c => c.spec && c.id !== 'first')) { const M = K.genMap(c.spec), b = K.simulate(M, K.plan(M).best.D), cells = [...b.an.cells.values()];
           cls[c.id] = { tun: cells.filter(o => o.k === 'tunnel').length, rises: b.an.sites.reduce((a, s) => a + s.n, 0), res: b.an.res.length }; } return cls; });
       ok(r.tunnel.tun >= 3, 'Through the Hill is won underground: ' + JSON.stringify(r.tunnel));
       ok(r.ridge.res >= 1 && r.ridge.rises >= 2 && r.ridge.tun === 0, 'Over the Top is won by climbing with a reservoir: ' + JSON.stringify(r.ridge));
       ok(r.round.tun === 0 && r.round.rises <= 1, 'The Long Way Round is won on the level: ' + JSON.stringify(r.round));
+    },
+    'the result card agrees with itself: a bust is never "the best canal stock", and the counts read right': async ({ page, ok }) => {
+      await page.evaluate(() => { __lf.load(1); __lf.D = __lf.K.naiveDesign(__lf.M); __lf.open(); __lf.skip(); }); await page.waitForTimeout(2300);
+      const t = await page.$eval('.modal', e => e.textContent);
+      ok(/bust/.test(t), 'a bust is called a bust'); ok(!/best canal stock|handsome/.test(t), 'no boasting on a bust: ' + t.slice(0, 200)); ok(!/\b1 months\b/.test(t), 'plural');
+      ok(!/\b0k tons\b/.test(t), 'cargo reads in tons');
+      const bg = await page.$eval('.modal .modal-actions', e => getComputedStyle(e).backgroundColor); ok(!/rgb\(1[0-9], 2[0-9], 3[0-9]\)/.test(bg), 'no dark block behind the buttons: ' + bg);
     },
     'shares are deterministic: a design round-trips, simulates identically, and a link opens it': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const K = __lf.K, c = __lf.COMS.find(c => c.id === 'junction'), M = K.genMap(c.spec), D = K.plan(M).best.D, code = K.enc(D), back = K.dec(code);

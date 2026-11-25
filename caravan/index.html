@@ -26,6 +26,7 @@
   main{flex:1;display:flex;min-height:0}
   #mapWrap{flex:1;position:relative;min-width:0;border:6px solid #120c06}
   #map{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+  #travelBox,#encBox,.legend,#mapWrap .pz-bar,#mapTip{touch-action:none}
   #mapWrap .pz-bar{right:20px;bottom:20px;flex-direction:column;gap:6px;z-index:3}
   #mapWrap .pz-bar button{width:40px;height:40px;font-size:22px;padding:0;color:#3a2408;opacity:1;width:40px;height:40px;font-size:22px;padding:0;border-radius:50%;background:radial-gradient(circle at 40% 35%,#fff3c8,#d4a940 70%,#8a6a10);border-color:#6a4a08}
   /* the ledger */
@@ -96,12 +97,19 @@
     table.mk td:nth-child(6) button{flex:1;min-height:36px;font-size:14px;border-radius:18px}
     table.mk tr.deal{display:block}
   }
+  /* portrait phones: one screen, no page scroll. The map on top, the market sheet below scrolls inside itself; the route card
+     is a bottom sheet over the map with big buttons, and pinches on overlays never zoom the page */
   @media (max-width:760px){
-    body{height:auto;min-height:100vh;overflow:auto}
-    .topbar{flex-wrap:wrap}
-    main{flex-direction:column}
-    #mapWrap{flex:none;height:60vh}
-    #side{width:auto;border-left:0;border-top:4px solid #3a220c}
+    body{height:100vh;height:100dvh;overflow:hidden}
+    .topbar{flex-wrap:nowrap}
+    main{flex-direction:column;min-height:0}
+    #mapWrap{flex:0 0 50%;height:auto;border-width:3px}
+    #side{flex:1;min-height:0;width:auto;border-left:0;border-top:4px solid #3a220c;display:flex;flex-direction:column}
+    #side .pane{flex:1;min-height:0;overflow:auto}
+    #travelBox{left:6px!important;right:6px;top:auto!important;bottom:6px;max-width:none!important;padding:8px 10px!important}
+    #travelBox .roads button{min-height:44px;flex:1}
+    #mapWrap .pz-bar{bottom:auto;top:48px;right:10px}
+    #ledgerBtn{min-height:38px}
   }
   /* landscape phones: map and ledger side by side, both full height */
   @media (max-height:500px) and (min-width:600px){
@@ -141,7 +149,7 @@ const sfx=n=>{ try { if (typeof FX!=='undefined') SFX[n](); } catch(e){} };
 const GOODS=[ // name, base price, perish per day
   ['Grain',5,0.004],['Salt',7,0],['Wool',9,0],['Iron',13,0],['Tea',20,0.006],['Spices',28,0.008],['Incense',24,0],['Porcelain',32,0],['Silk',38,0],['Medicine',22,0.003],['Horses',45,0],['Jade',65,0]];
 const CITY_NAMES=['Chang\'an','Lanzhou','Dunhuang','Turfan','Kucha','Kashgar','Khotan','Ferghana','Samarkand','Bukhara','Balkh','Merv','Herat','Nishapur','Rayy','Hamadan','Tabriz','Baghdad','Palmyra','Antioch','Damascus','Trebizond','Constantinople'];
-const CAREER_DAYS=1080, CAMEL_CAP=10;
+const CAREER_DAYS=720, CAMEL_CAP=10; // two years: about thirty to forty journeys
 // [makes, wants] per city, by good index: 0 Grain 1 Salt 2 Wool 3 Iron 4 Tea 5 Spices 6 Incense 7 Porcelain 8 Silk 9 Medicine 10 Horses 11 Jade
 const GEO=[[[8,7],[10,11]],[[4,0],[10,2]],[[2,1],[8,0]],[[0,1],[4,3]],[[3,2],[8,4]],[[2,10],[7,4]],[[11,2],[8,0]],[[10,0],[8,7]],[[3,9],[8,11]],[[2,1],[4,7]],[[10,0],[3,1]],
   [[9,0],[10,8]],[[2,3],[5,4]],[[3,9],[0,8]],[[9,1],[7,5]],[[0,10],[3,6]],[[2,3],[8,5]],[[5,9],[7,8]],[[6,1],[0,3]],[[2,3],[8,11]],[[6,5],[8,7]],[[3,1],[4,5]],[[2,0],[8,7]]];
@@ -175,27 +183,28 @@ const persist=()=>{ if (C && cities){ C.prices=cities.map(c=>c.price); C.mods=ci
   RH.save('caravan',C); RH.save('caravan-meta',M); RH.progress('caravan', Math.min(1, Math.log10(1+M.best)/5)); };
 
 // ===================== World =====================
+// The real Silk Road: cities where they are (longitude, latitude) and the roads that joined them. Which roads are bandit country
+// changes from road to road (career to career); the geography never does, so what you learn about it carries over.
+const LONLAT=[[108.9,34.3],[103.8,36.1],[94.7,40.1],[89.2,42.9],[82.9,41.7],[76.0,39.5],[79.9,37.1],[71.8,40.4],[66.9,39.7],[64.4,39.8],[66.9,36.8],[62.2,37.6],[62.2,34.3],[58.8,36.2],[51.4,35.6],[48.5,34.8],[46.3,38.1],[44.4,33.3],[38.3,34.6],[36.2,36.2],[36.3,33.5],[39.7,41.0],[29.0,41.0]];
+const ROADS=[[0,1],[1,2],[2,3],[2,6],[3,4],[4,5],[6,5],[5,7],[7,8],[5,10],[8,9],[8,10],[9,11],[10,11],[10,12],[11,13],[12,13],[13,14],[14,15],[14,16],[15,16],[15,17],[16,21],[17,18],[17,19],[18,20],[18,19],[20,19],[19,22],[21,22]];
+const SAFE_START=[0,1]; // the first job's roads (Chang'an-Lanzhou-Dunhuang) are never bandit country
 function buildWorld(seed){
-  rng=RH.rng(seed); cities=[]; const n=CITY_NAMES.length;
-  CITY_NAMES.forEach((nm,i)=>{ const t=i/(n-1); cities.push({id:i, name:nm, x: 0.95-t*0.89+rng.range(-0.015,0.015), y: 0.5+Math.sin(t*9+rng()*2)*0.24+rng.range(-0.1,0.1), prod:[], dem:[], dove: rng()<0.45, inn: true}); });
-  for (let it=0;it<60;it++) for (const a of cities) for (const b of cities){ if (a===b) continue; const dx=a.x-b.x, dy=(a.y-b.y)*0.6, d=Math.hypot(dx,dy); if (d<0.07){ a.x+=dx/(d+1e-6)*0.003; a.y+=dy/(d+1e-6)*0.005; } }
-  for (const c of cities){ c.x=Math.min(0.96,Math.max(0.05,c.x)); c.y=Math.min(0.9,Math.max(0.1,c.y)); }
+  rng=RH.rng(seed); cities=[];
+  CITY_NAMES.forEach((nm,i)=>{ const [lon,lat]=LONLAT[i]; cities.push({id:i, name:nm, x:0.05+(lon-29)/(108.9-29)*0.9, y:0.12+(43.5-lat)/(43.5-33)*0.78, prod:[], dem:[], dove: rng()<0.45, inn: true}); });
   // production and demand follow the real route: silk, porcelain and tea from China, jade from Khotan, horses from the steppe and
   // Ferghana, medicine and spices from Persia and Baghdad, incense from Arabia via Palmyra and Damascus; the west wants the east's luxuries
   for (const c of cities){ const [pr,dm]=GEO[c.id]; c.prod=pr; c.dem=dm;
     c.target=GOODS.map((g,i)=> g[1]*(c.prod.includes(i)?0.6:c.dem.includes(i)?1.7:rng.range(0.8,1.25)));
     c.price=c.target.map(p=>p*rng.range(0.9,1.1)); c.mod=GOODS.map(()=>1); c.drift=GOODS.map(()=>0); c.closed=0; }
-  // routes: connect sequential + some shortcuts
-  routes=[]; const add=(a,b,danger)=>{ if (routes.some(r=>(r.a===a&&r.b===b)||(r.a===b&&r.b===a))) return; const d=Math.hypot(cities[a].x-cities[b].x,cities[a].y-cities[b].y); routes.push({a,b,days:Math.max(3,Math.round(d*55)), danger}); };
-  // bandit country is rare and bad: a road there is robbed a fifth to a third of the time (half the cargo); other roads are safe
-  for (let i=0;i<n-1;i++) add(i,i+1, rng()<0.25? rng.range(0.18,0.32):0.01);
-  for (let i=0;i<n-2;i++) if (rng()<0.55) add(i,i+2, rng()<0.4? rng.range(0.2,0.34):0.02);
-  for (let i=0;i<n-3;i++) if (rng()<0.2) add(i,i+3, rng.range(0.22,0.36));
+  routes=ROADS.map(([a,b],i)=>{ const [x1,y1]=LONLAT[a],[x2,y2]=LONLAT[b], deg=Math.hypot(x1-x2,(y1-y2)*1.2), days=Math.max(8,Math.round(deg*2.2));
+    const bad=!SAFE_START.includes(i) && rng()<0.28; return {a,b,days,base:days,danger: bad? rng.range(0.18,0.32) : 0, shut:0}; });
 }
+// a usual price: what a good tends to fetch in a city, from what it makes and wants (old quotes drift back towards it)
+const usual=(ci,g)=>GOODS[g][1]*(cities[ci].prod.includes(g)?0.6:cities[ci].dem.includes(g)?1.7:1);
 function neighbors(c){ return routes.filter(r=>r.a===c||r.b===c).map(r=>({to:r.a===c?r.b:r.a, r})); }
 function shortest(from,to,safe){ const dist=cities.map(()=>1e9), prev=cities.map(()=>null); dist[from]=0; const q=new Set(cities.map(c=>c.id));
   while(q.size){ let u=-1,bd=1e9; for (const v of q) if (dist[v]<bd){ bd=dist[v]; u=v; } if (u<0) break; q.delete(u); if (u===to) break;
-    for (const {to:v,r} of neighbors(u)){ if (cities[v].closed && v!==to) continue; if (safe && r.danger>0.03) continue; const nd=dist[u]+r.days; if (nd<dist[v]){ dist[v]=nd; prev[v]={u,r}; } } }
+    for (const {to:v,r} of neighbors(u)){ if (r.shut || (cities[v].closed && v!==to)) continue; if (safe && r.danger>0.03) continue; const nd=dist[u]+r.days; if (nd<dist[v]){ dist[v]=nd; prev[v]={u,r}; } } }
   if (dist[to]>=1e9) return null; const path=[]; let v=to; while(v!==from){ path.unshift(prev[v]); v=prev[v].u; } return {days:dist[to], legs:path}; }
 
 // ===================== Career =====================
@@ -203,7 +212,7 @@ function newCareer(seedIn){
   const seed=Number.isInteger(seedIn)? seedIn : Math.floor(Math.random()*1e9);
   const c={seed, daily:seed===dailySeed()?1:0, day:0, gold:300, at:0, camels:3, guards:0, cargo:GOODS.map(()=>0), cost:GOODS.map(()=>0),
     book:{}, agents:{}, mail:[], log:[], events:[], contracts:[], done:0, rumors:[], peak:0, scheduled:[]};
-  C=c; buildWorld(seed); scheduleEvents();
+  C=c; buildWorld(seed); scheduleEvents(); applyRoads();
   const rr=RH.rng(seed+5); C.rivals=RIVAL_NAMES.map((name,i)=>({name, at:RIVAL_START[i], to:null}));
   for (let d=0; d<60; d++){ C.day=d; for (const c2 of cities) for (let g=0;g<GOODS.length;g++){ c2.drift[g]+=-c2.drift[g]*DRIFT_K+DRIFT_SD*gauss(); } } C.day=0; // markets have been moving before you arrive
   for (const c2 of cities) c2.price=c2.price.map((p,g)=>p*Math.exp(c2.drift[g]));
@@ -212,23 +221,34 @@ function newCareer(seedIn){
   if (!M.careers){ let best=null; for (const d of cities) if (d.dem.includes(8)){ const p=shortest(0,d.id); if (p&&(!best||p.days<best.days)) best={to:d.id, days:p.days}; } if (best) C.firstJob={g:8, to:best.to, days:best.days}; }
   logIt(`Year 1. You set out from ${cities[0].name} with ${C.gold} gold and ${C.camels} camels.`); persist();
 }
+// The world changes every month or so: plagues shut cities, wars close passes, harvests fail or glut, fashions sweep the west,
+// and new caravanserais shorten roads for good. News of each travels at caravan speed, so you hear of distant events late.
 function scheduleEvents(){
-  const r=RH.rng(C.seed+9); const kinds=[
-    {k:'plague', txt:c=>`Plague in ${c.name}. The gates are shut and medicine is worth a fortune nearby.`, good:9, mul:3.2, close:1},
-    {k:'war', txt:c=>`War near ${c.name}. Horses and iron are in desperate demand.`, good:10, mul:2.6, also:3},
-    {k:'famine', txt:c=>`The harvest failed around ${c.name}. Grain prices soar.`, good:0, mul:4},
-    {k:'festival', txt:c=>`A great festival at ${c.name}. Silk and incense sell for double.`, good:8, mul:2.2, also:6},
-    {k:'glut', txt:c=>`A huge jade find near ${c.name}. Jade prices collapse.`, good:11, mul:0.35},
-  ];
-  for (let i=0;i<4;i++){ const e=r.pick(kinds); const city=3+r.int(cities.length-4); const start=120+i*220+r.int(120); C.events.push({...e, txt:undefined, city, start, end:start+60+r.int(60), rumor:start-30-r.int(30)}); }
+  const r=RH.rng(C.seed+9), west=[14,15,16,17,18,19,20,21,22]; let day=12+r.int(15);
+  while (day<CAREER_DAYS-25){ const k=r.pick(['plague','war','war','famine','fashion','glut','glut','serai']); let e;
+    if (k==='plague') e={k, city:2+r.int(21), good:9, mul:3.2, close:1, len:50+r.int(40)};
+    else if (k==='war'){ const road=2+r.int(ROADS.length-2); e={k, road, city:ROADS[road][0], good:10, mul:2.6, also:3, len:70+r.int(60)}; }
+    else if (k==='famine') e={k, city:r.int(23), good:0, mul:4, len:60+r.int(40)};
+    else if (k==='fashion') e={k, city:r.pick(west), good:r.pick([8,7,6,11]), mul:2.3, len:110+r.int(60)};
+    else if (k==='glut'){ const city=r.int(23); e={k, city, good:r.pick([...cities[city].prod, 4, 0, 11]), mul:0.35, len:60+r.int(50)}; }
+    else { const road=2+r.int(ROADS.length-2); e={k, road, city:ROADS[road][0], len:1e6}; }
+    e.start=day; e.end=Math.min(1e6,day+e.len); delete e.len; C.events.push(e); day+=18+r.int(22); }
 }
-function evText(e){ const k={plague:'Plague',war:'War',famine:'Famine',festival:'Festival',glut:'Glut'}[e.k]; const c=cities[e.city]; return {plague:`Plague in ${c.name}. The gates are shut and medicine is worth a fortune nearby.`, war:`War near ${c.name}. Horses and iron are in desperate demand.`, famine:`The harvest failed around ${c.name}. Grain prices soar.`, festival:`A great festival at ${c.name}. Silk and incense sell for double.`, glut:`A huge jade find near ${c.name}. Jade prices collapse.`}[e.k]; }
+function evText(e){ const c=cities[e.city], G=e.good!=null? GOODS[e.good][0].toLowerCase() : '', road=e.road!=null? `${cities[ROADS[e.road][0]].name} and ${cities[ROADS[e.road][1]].name}` : '';
+  return {plague:`Plague in ${c.name}. The gates are shut and medicine is worth a fortune nearby.`, war:`War closes the road between ${road}. Horses and iron are in desperate demand around ${c.name}.`,
+    famine:`The harvest failed around ${c.name}. Grain prices soar.`, fashion:`${G.charAt(0).toUpperCase()+G.slice(1)} is all the fashion in ${c.name}: it sells for more than double.`,
+    glut:`A glut of ${G} around ${c.name}: the price has collapsed.`, serai:`A new caravanserai on the road between ${road}: the journey is much shorter now.`}[e.k]; }
+// roads follow the events: closed by war while it lasts, shortened for good by a new caravanserai
+function applyRoads(){ let changed=false;
+  routes.forEach((r,i)=>{ const shut=C.events.some(e=>e.k==='war'&&e.road===i&&C.day>=e.start&&C.day<e.end)?1:0, serai=C.events.some(e=>e.k==='serai'&&e.road===i&&C.day>=e.start), days=serai? Math.max(3,Math.round(r.base*0.6)) : r.base;
+    if (shut!==r.shut || days!==r.days){ r.shut=shut; r.days=days; changed=true; } });
+  if (changed) mapBg=null; }
 function hearNews(){ for (const {to,r} of neighbors(C.at)){ const age=r.days, snap=priceAt(to, C.day-age), cur=C.book[to]; if (!cur || cur.day<C.day-age) C.book[to]={day:C.day-age, p:snap}; } }
 function priceAt(ci, day){ const h=cities[ci].hist||[]; let best=null; for (const e of h) if (e.day<=day && (!best||e.day>best.day)) best=e; return (best? best.p : cities[ci].price).map(x=>Math.round(x*10)/10); }
 function see(ci){ const c=cities[ci]; C.book[ci]={day:C.day, p:c.price.map(x=>Math.round(x*10)/10)}; }
 // Markets wander: every city's price for every good follows a slow random drift (months-long swings of ±40%), harvests make grain
 // and tea cheap in autumn, and rival caravans buy out and flood markets. A price you saw two months ago can be badly wrong.
-const DRIFT_K=1/90, DRIFT_SD=0.055;
+const DRIFT_K=1/60, DRIFT_SD=0.07;
 const season=(g,day)=> g===0||g===4 ? 1+0.25*Math.cos((day%360-240)/360*2*Math.PI) : 1;
 const gauss=()=>(rng()+rng()+rng()+rng()-2)*1.732;
 function tick(){ // one day passes
@@ -239,11 +259,12 @@ function tick(){ // one day passes
   // events
   for (const e of C.events){
     if (C.day>=e.start && C.day<e.end){ const near=[e.city, ...neighbors(e.city).map(n=>n.to)];
-      for (const ci of near){ cities[ci].mod[e.good]= ci===e.city? e.mul : 1+(e.mul-1)*0.5; if (e.also!=null) cities[ci].mod[e.also]=1+(e.mul-1)*0.6; }
+      if (e.good!=null) for (const ci of near){ cities[ci].mod[e.good]= ci===e.city? e.mul : 1+(e.mul-1)*0.5; if (e.also!=null) cities[ci].mod[e.also]=1+(e.mul-1)*0.6; }
       if (e.close) cities[e.city].closed=1;
       if (C.day===e.start){ newsTo(`📜 ${evText(e)}`, e.city); } }
-    if (C.day===e.end){ for (const c of cities){ c.mod[e.good]=1; if (e.also!=null) c.mod[e.also]=1; } }
+    if (C.day===e.end && e.good!=null){ for (const c of cities){ c.mod[e.good]=1; if (e.also!=null) c.mod[e.also]=1; } }
   }
+  applyRoads();
   // perish
   for (let g=0;g<GOODS.length;g++) if (GOODS[g][2] && C.cargo[g]>0){ const lost=C.cargo[g]*GOODS[g][2]; C.cargo[g]=Math.max(0,C.cargo[g]-lost); }
   // agents & mail
@@ -255,14 +276,18 @@ function tick(){ // one day passes
 }
 // Rival houses: they buy a city's cheapest good, haul it to where it is dearest, and sell. Their buying lifts prices where they
 // load, their selling floods the market where they unload. They travel the same roads at the same speed, and you can see them.
-const RIVAL_NAMES=['House of Barmak','The Sogdian Brothers','Old Wang\'s company','The Radhanites','House of Ardashir','The Khotanese'];
-const RIVAL_START=[22,8,12,17,3,6];
+const RIVAL_NAMES=['House of Barmak','The Sogdian Brothers','Old Wang\'s company','The Radhanites','House of Ardashir','The Khotanese','The Merv Partners','Daughters of Bukhara','The Armenian Fleet'];
+const RIVAL_START=[22,8,12,17,3,6,11,9,21];
 function planRival(rv){
   const c=cities[rv.at]; let best=null;
   for (let g=0;g<GOODS.length;g++){ const buy=c.price[g]; for (const d of cities){ if (d.id===rv.at) continue; const p=shortest(rv.at,d.id); if (!p||p.days>40) continue; const v=(d.price[g]-buy)/buy/(p.days+4); if (!best||v>best.v) best={v,g,to:d.id,days:p.days,legs:p.legs}; } }
   if (!best) return; rv.g=best.g; rv.to=best.to; rv.left=best.days; rv.total=best.days; rv.legs=best.legs.map(l=>routes.indexOf(l.r)); rv.from=rv.at;
   c.drift[best.g]+=0.35; c.price[best.g]*=1.25; // they bought the market out
 }
+// word of a fat profit spreads: the nearest idle rival hauls the same good to the same market, and floods it when they arrive
+function rivalCopy(g, ci){ let best=null; for (const rv of (C.rivals||[])){ if (rv.to!=null || rv.at===ci) continue; const p=shortest(rv.at,ci); if (p&&(!best||p.days<best.p.days)) best={rv,p}; }
+  if (!best) return; const {rv,p}=best; rv.g=g; rv.to=ci; rv.left=p.days; rv.total=p.days; rv.legs=p.legs.map(l=>routes.indexOf(l.r)); rv.from=rv.at; rv.copy=1;
+  logIt(`👀 Word of your ${GOODS[g][0].toLowerCase()} profits in ${cities[ci].name} spreads. ${rv.name} are on their way there.`); }
 function stepRivals(){
   for (const rv of (C.rivals||[])){
     if (rv.to==null){ planRival(rv); continue; }
@@ -290,11 +315,15 @@ function buyCost(g, n){ let p=buyPrice(g), s=0; for (let k=0;k<n;k++){ s+=p; p*=
 const maxBuy = g => { let lo=0, hi=2000; while (lo<hi){ const m=(lo+hi+1)>>1; if (buyCost(g,m).total<=C.gold*0.9) lo=m; else hi=m-1; } return lo; };
 // the suggested amount: sell what fetches more here than the best you know of elsewhere; buy up to where one more unit stops paying,
 // judged against the best price you know of elsewhere (less spoilage on the way)
+// the suggested amount, judged against the city you have tapped on the map and its last known price, taken at face value:
+// up to where one more unit stops paying. Whether that old quote still holds is your call.
+function quote(ci,g){ const b=C.book[ci]; return b? {p:b.p[g]*0.97, age:C.day-b.day} : null; }
 function suggest(g){
-  const b=bestKnown(g), sp=sellPrice(g), fj=C.firstJob&&!C.firstJob.done? C.firstJob : null;
-  if (fj && g===fj.g && C.at!==fj.to && !C.cargo[g]) return maxBuy(g); // the first job: take a full load of silk west
-  if (C.cargo[g]>=1 && (!b || sp>=b.p*0.97 || sp>=C.cost[g]*1.05)) return -Math.floor(C.cargo[g]+1e-9);
-  if (!b) return 0; const days=shortest(C.at,b.ci)?.days||30, ratio=b.p*Math.pow(1-GOODS[g][2],days)/buyPrice(g); if (ratio<=1.05) return 0;
+  const fj=C.firstJob&&!C.firstJob.done? C.firstJob : null, held=Math.floor(C.cargo[g]+1e-9);
+  if (fj && g===fj.g && C.at!==fj.to) return held? 0 : maxBuy(g); // the first job: one full load of silk, then go
+  const to=plan&&!plan.none? plan.to : null, q=to!=null? quote(to,g) : null;
+  if (held>=1){ if (q && q.p>sellPrice(g)*1.08) return 0; return sellPrice(g)>=C.cost[g]*1.02 || !C.cost[g]? -held : 0; }
+  if (!q) return 0; const ratio=q.p*Math.pow(1-GOODS[g][2],plan.days)/buyPrice(g); if (ratio<=1.05) return 0;
   return Math.min(maxBuy(g), Math.floor(Math.log(ratio)/Math.log(1.004/.996)));
 }
 function trade(g, qty){
@@ -302,7 +331,7 @@ function trade(g, qty){
   if (qty>0){ { let lo=0, hi=Math.min(qty,3000); while (lo<hi){ const m=(lo+hi+1)>>1; if (buyCost(g,m).total<=C.gold) lo=m; else hi=m-1; } qty=lo; } if (!qty) return; const need=buyCost(g,qty).camels, can=Math.min(need, Math.floor(C.gold/CAMEL_PRICE)); if (can>0){ C.gold-=can*CAMEL_PRICE; C.camels+=can; if (can) logIt(`Bought ${can} camel${can>1?'s':''} to carry the load.`); } qty=Math.min(qty, Math.floor(cap()-load()+1e-9)); let spent=0, n=0; for (; n<qty; n++){ const p=buyPrice(g); if (C.gold<p) break; C.gold-=p; spent+=p; c.price[g]*=1.004; } if (n){ C.cost[g]=(C.cost[g]*C.cargo[g]+spent)/(C.cargo[g]+n); C.cargo[g]+=n; } }
   else { const want=-qty; qty=Math.min(want, Math.floor(C.cargo[g]+1e-9)); let got=0; for (let n=0;n<qty;n++){ const p=sellPrice(g); C.gold+=p; got+=p; c.price[g]*=0.996; } C.cargo[g]-=qty;
     // perishables leave fractions behind (9.6 tea): selling everything sells the fraction too, so no unsellable ghost cargo is left taking up space
-    if (want>=C.cargo[g]+qty-1e-9 && C.cargo[g]>0){ const p=sellPrice(g)*C.cargo[g]; C.gold+=p; got+=p; qty+=C.cargo[g]; C.cargo[g]=0; } if (qty) { const profit=got-C.cost[g]*qty; if (C.cost[g]>0 && profit>5) coinBurst(profit); if (C.firstJob&&!C.firstJob.done&&g===C.firstJob.g&&C.at===C.firstJob.to){ C.firstJob.done=1; setTimeout(()=>RH.toast(`First job done: ${profit>=0?'+':''}${Math.round(profit)}g. From here on, you choose: the Information tab buys you fresher prices.`,6000),300); } if (Math.abs(profit)>50) logIt(`Sold ${qty} ${GOODS[g][0].toLowerCase()} in ${c.name} for ${Math.round(got)}g (${profit>=0?'+':''}${Math.round(profit)}).`); } if (C.cargo[g]<0.01){ C.cargo[g]=0; C.cost[g]=0; } }
+    if (want>=C.cargo[g]+qty-1e-9 && C.cargo[g]>0){ const p=sellPrice(g)*C.cargo[g]; C.gold+=p; got+=p; qty+=C.cargo[g]; C.cargo[g]=0; } if (qty) { const profit=got-C.cost[g]*qty; if (C.cost[g]>0 && profit>5) coinBurst(profit); if (profit>250 && qty>=25) rivalCopy(g, C.at); if (C.firstJob&&!C.firstJob.done&&g===C.firstJob.g&&C.at===C.firstJob.to){ C.firstJob.done=1; setTimeout(()=>RH.toast(`First job done: ${profit>=0?'+':''}${Math.round(profit)}g. From here on, you choose: the Information tab buys you fresher prices.`,6000),300); } if (Math.abs(profit)>50) logIt(`Sold ${qty} ${GOODS[g][0].toLowerCase()} in ${c.name} for ${Math.round(got)}g (${profit>=0?'+':''}${Math.round(profit)}).`); } if (C.cargo[g]<0.01){ C.cargo[g]=0; C.cost[g]=0; } }
   see(C.at); netWorth(); if (!headless){ persist(); renderAll(); }
 }
 function netWorth(){ let w=C.gold + C.camels*25; const c=cities[C.at]; for (let g=0;g<GOODS.length;g++) w+=C.cargo[g]*c.price[g]*0.9; C.peak=Math.max(C.peak,w); return w; }
@@ -321,15 +350,15 @@ function renderTravel(){
   const box=document.getElementById('travelBox'); if (!plan){ box.style.display='none'; return; } box.style.display='block';
   const c=cities[plan.to];
   if (plan.none){ box.innerHTML=`<b>${c.name}</b><br>No open route.`; return; }
-  const risk=riskOf(plan.legs), info=C.book[plan.to]?`<span class="age">Price news is ${C.day-C.book[plan.to].day} days old</span>`:'<span class="age">You know nothing of its markets.</span>';
-  box.innerHTML=`<b>${c.name}</b>${c.closed?' <span class="dn">(gates shut)</span>':''}<br>${plan.days} days${risk>0.005?` · <span class="dn">bandits ${Math.round(risk*100)}%</span>`:''}${plan.detour?`<br><span class="small">Your caravan master takes the long way round (+${plan.detour} days): the short road crosses bandit country and you carry too much to risk it.</span>`:risk>0.005?`<br><span class="small">Through bandit country: if robbed, you lose half the cargo. Your load is light enough to chance it.</span>`:''}<br>${info}<div class="roads"><button class="primary" id="goBtn">Set out</button><button id="cancelBtn">Cancel</button></div>`;
-  document.getElementById('goBtn').onclick=()=>travel(); document.getElementById('cancelBtn').onclick=()=>{ plan=null; renderTravel(); };
+  renderMarket(); const risk=riskOf(plan.legs), info=C.book[plan.to]?`<span class="age">Price news is ${C.day-C.book[plan.to].day} days old</span>`:'<span class="age">You know nothing of its markets.</span>';
+  box.innerHTML=`<b>${c.name}</b>${c.closed?' <span class="dn">(gates shut)</span>':''}<br>${plan.days} days${risk>0.005?` · <span class="dn">bandits ${Math.round(risk*100)}%</span>`:''}${plan.detour?`<br><span class="small">Your caravan master takes the long way round (+${plan.detour} days): the short road crosses bandit country and you carry too much to risk it.</span>`:risk>0.005?`<br><span class="small">Risky: through bandit country. If robbed, you lose half the cargo; your load is light enough that the caravan master chances it.</span>`:''}<br>${info}<div class="roads"><button class="primary" id="goBtn">Set out</button><button id="cancelBtn">Cancel</button></div>`;
+  document.getElementById('goBtn').onclick=()=>travel(); document.getElementById('cancelBtn').onclick=()=>{ plan=null; renderTravel(); renderMarket(); };
 }
 function banditChance(r){ return r.danger; }
 function rob(){ for (let g=0;g<GOODS.length;g++) C.cargo[g]=Math.floor(C.cargo[g]*0.5); }
 function travel(){
-  if (!plan||plan.none) return; const legs=plan.legs.slice(); plan=null; renderTravel();
-  traveling={legs, leg:0, t:0, from:C.at}; sfx('bell');
+  if (!plan||plan.none) return; const legs=plan.legs.slice(); plan=null;
+  traveling={legs, leg:0, t:0, from:C.at}; sfx('bell'); renderTravel(); renderAll();
 }
 // ===================== Encounters on the road =====================
 // Halfway along a longer leg, something may happen that asks for a decision: news, weather, a deal, a camel.
@@ -355,7 +384,7 @@ function renderEncounter(){
   const box=document.getElementById('encBox'); const e=traveling&&traveling.enc;
   if (!e){ box.style.display='none'; return; }
   const os=ENC[e.k].opts(e); box.style.display='block';
-  box.innerHTML=`<div class="encT">On the road</div><p>${ENC[e.k].text(e)}</p><div class="row">${os.map((o,i)=>`<button data-enc="${i}" ${o.ok===false?'disabled':''} class="${i?'':'primary'}">${o.label}</button>`).join('')}</div>`;
+  const pi=os.findIndex(o=>o.ok!==false); box.innerHTML=`<div class="encT">On the road</div><p>${ENC[e.k].text(e)}</p><div class="row">${os.map((o,i)=>`<button data-enc="${i}" ${o.ok===false?'disabled':''} class="${i===pi?'primary':''}">${o.label}</button>`).join('')}</div>`;
   box.querySelectorAll('[data-enc]').forEach(b=>b.onclick=()=>resolveEncounter(+b.dataset.enc));
 }
 function resolveEncounter(i){
@@ -402,7 +431,7 @@ function endCareer(){
   if (C.ended) return; C.ended=1; // a reload before the modal is closed must not pay the legacy twice
   const w=Math.round(netWorth()), st=starsFor(w); C.stars=st; const prevRoad=M.roads[C.seed];
   M.best=Math.max(M.best,w); M.careers++; M.roads[C.seed]=Math.max(prevRoad||0,w); const ks=Object.keys(M.roads); if (ks.length>40) delete M.roads[ks[0]]; persist();
-  RH.modal(`<h2>Three years on the road.</h2><p style="font-size:30px;text-align:center;color:#b3402a;margin:4px 0">${'★'.repeat(st)}${'☆'.repeat(3-st)}</p><p>You retire with a fortune of <b>${w.toLocaleString()}g</b> (best ever ${M.best.toLocaleString()}g) </p><p>${prevRoad!=null?`Your best on this road was ${prevRoad.toLocaleString()}g.`:'Your first career on this road.'}${C.daily?' This was <b>today\'s road</b>: everyone travels the same one today.':''}</p><p class="small">Share this road: <span class="mono">${location.href.split('#')[0]}#road=${C.seed}</span></p><p class="small">★ ${STAR_AT[0].toLocaleString()}g · ★★ ${STAR_AT[1].toLocaleString()}g · ★★★ ${STAR_AT[2].toLocaleString()}g</p>`,[{label:'The same road again',value:'same'},{label:"Today's road",value:'daily'},{label:'A new road',value:'new'}]).then(v=>startRoad(v==='same'?C.seed:v==='daily'?dailySeed():undefined));
+  RH.modal(`<h2>Two years on the road.</h2><p style="font-size:30px;text-align:center;color:#b3402a;margin:4px 0">${'★'.repeat(st)}${'☆'.repeat(3-st)}</p><p>You retire with a fortune of <b>${w.toLocaleString()}g</b> (best ever ${M.best.toLocaleString()}g) </p><p>${prevRoad!=null?`Your best on this road was ${prevRoad.toLocaleString()}g.`:'Your first career on this road.'}${C.daily?' This was <b>today\'s road</b>: everyone travels the same one today.':''}</p><p class="small">Share this road: <span class="mono">${location.href.split('#')[0]}#road=${C.seed}</span></p><p class="small">★ ${STAR_AT[0].toLocaleString()}g · ★★ ${STAR_AT[1].toLocaleString()}g · ★★★ ${STAR_AT[2].toLocaleString()}g</p>`,[{label:'The same road again',value:'same'},{label:"Today's road",value:'daily'},{label:'A new road',value:'new'}]).then(v=>startRoad(v==='same'?C.seed:v==='daily'?dailySeed():undefined));
 }
 function startRoad(seed){ traveling=null; plan=null; newCareer(seed); buildAndRender(); }
 
@@ -535,10 +564,11 @@ function renderMarket(){
   else if (c.closed) h+=`<p class="dn">The gates are shut. Nobody is trading.</p>`;
   else {
     if (selG==null) { const held=GOODS.map((_,g)=>g).find(g=>C.cargo[g]>=1); selG = held ?? (fj? fj.g : null); }
-    h+=`<table class="mk"><tr><th>Good</th><th>Buy</th><th>Sell</th><th>Held</th><th>Best known elsewhere</th></tr>`;
-    GOODS.forEach((gd,g)=>{ const b=bestKnown(g); const sp=sellPrice(g), bp=buyPrice(g); const margin=b? b.p-bp : 0;
+    const to=plan&&!plan.none? plan.to : null;
+    h+=`<table class="mk"><tr><th>Good</th><th>Buy</th><th>Sell</th><th>Held</th><th>${to!=null?`${cities[to].name} <span class="age">${C.book[to]?(C.day-C.book[to].day)+'d old':'unknown'}</span>`:'<span class="age">tap a city to compare</span>'}</th></tr>`;
+    GOODS.forEach((gd,g)=>{ const q=to!=null? quote(to,g) : null; const sp=sellPrice(g), bp=buyPrice(g);
       h+=`<tr data-g="${g}" class="${g===selG?'sel':''}" tabindex="0" role="button" aria-label="${gd[0]}"><td>${gd[0]}${gd[2]?' <span class="age">perishes</span>':''}</td><td>${bp.toFixed(1)}</td><td>${sp.toFixed(1)}</td><td>${C.cargo[g]?Math.floor(C.cargo[g])+(C.cost[g]?` <span class="age">@${C.cost[g].toFixed(1)}</span>`:''):''}</td>
-      <td>${b?`<span class="${margin>0?'up':'dn'}">${b.p.toFixed(1)}</span> ${cities[b.ci].name} <span class="age">${b.age}d old</span>`:'<span class="age">—</span>'}</td></tr>`;
+      <td>${q?`<span class="${q.p>bp?'up':'dn'}">${q.p.toFixed(1)}</span> <span class="age">usually ~${Math.round(usual(to,g))}</span>`:'<span class="age">—</span>'}</td></tr>`;
       if (g===selG) h+=`<tr class="deal"><td colspan="5" id="deal"></td></tr>`; });
     h+=`</table><div class="small dim" style="margin-top:6px">Tap a good to trade it. Your buying pushes its price up and your selling pushes it down, so the suggested amount stops where one more unit stops paying. Buying more than your camels carry brings more camels (${CAMEL_PRICE}g each).</div>`;
   }
@@ -549,7 +579,10 @@ function renderMarket(){
 // the one market action: a slider from "sell all you hold" to "buy all you can", starting at the suggested amount
 function renderDeal(el, g){
   const lo=-Math.floor(C.cargo[g]+1e-9), hi=maxBuy(g), sug=Math.max(lo,Math.min(hi,suggest(g)));
-  const b=bestKnown(g), why= sug<0? 'Suggested: sell here.' : sug>0? (C.firstJob&&!C.firstJob.done&&g===C.firstJob.g? `Suggested: buy ${sug}, a full load for your first job in ${cities[C.firstJob.to].name}.` : `Suggested: buy ${sug}, for ${cities[b.ci].name} (${b.p.toFixed(1)}g, news ${b.age} days old).`) : (b? `The best you know of elsewhere (${b.p.toFixed(1)}g in ${cities[b.ci].name}) does not pay for the trip.` : 'You know of nowhere better to sell it.');
+  const fj=C.firstJob&&!C.firstJob.done&&g===C.firstJob.g&&C.at!==C.firstJob.to? C.firstJob : null, to=plan&&!plan.none? plan.to : null, q=to!=null? quote(to,g) : null;
+  const why= fj? (sug>0? `Suggested: buy ${sug}, a full load for your first job in ${cities[fj.to].name}.` : `Loaded. Now tap <b>${cities[fj.to].name}</b> on the map and set out.`)
+    : sug<0? `Suggested: sell here (you paid ${C.cost[g].toFixed(1)}).` : sug>0? `Suggested: buy ${sug}, if ${cities[to].name} still pays ${q.p.toFixed(1)} (that news is ${q.age} days old; it usually pays ~${Math.round(usual(to,g))}).`
+    : to==null? 'Tap a city on the map to see what it last paid for this.' : q? `At ${q.p.toFixed(1)} in ${cities[to].name} (${q.age} days ago) it does not pay for the trip.` : `You have no news of ${cities[to].name}'s markets.`;
   el.innerHTML=`<div class="dealBox"><div class="small">${why}</div><input type="range" id="qty" min="${lo}" max="${hi}" step="1" value="${sug}" aria-label="Amount to buy (right) or sell (left)" ${lo===hi?'disabled':''}><div class="row" style="justify-content:space-between;align-items:center"><span class="small dim">${lo<0?`sell ${-lo}`:'—'} ◂ ▸ ${hi>0?`buy ${hi}`:'—'}</span><button class="primary" id="dealBtn"></button></div></div>`;
   const r=el.querySelector('#qty'), btn=el.querySelector('#dealBtn');
   const lab=()=>{ const n=+r.value; if (!n){ btn.textContent='Choose an amount'; btn.disabled=true; return; } btn.disabled=false;
@@ -572,7 +605,7 @@ function renderAll(){ renderStatus(); renderMarket(); }
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='p-'+b.dataset.t)); });
 
 let last=performance.now(); function loop(now){ const dt=Math.min(0.1,(now-last)/1000); last=now; if (traveling){ stepTravel(dt); renderStatus(); } requestAnimationFrame(loop); }
-function buildAndRender(){ buildWorld(C.seed); // replay stored world state
+function buildAndRender(){ buildWorld(C.seed); applyRoads(); // replay stored world state
   if (C.prices) cities.forEach((c,i)=>{ c.price=C.prices[i]; c.mod=C.mods[i]; if (C.drifts&&Array.isArray(C.drifts[i])&&C.drifts[i].length===GOODS.length) c.drift=C.drifts[i]; });
   if (!Array.isArray(C.rivals)) C.rivals=RIVAL_NAMES.map((name,i)=>({name, at:RIVAL_START[i], to:null}));
   traveling=null; plan=null; renderTravel();
@@ -586,8 +619,8 @@ if (!C || C.ended){ newCareer(hashSeed ?? undefined); }
 else if (hashSeed!=null && hashSeed!==C.seed){ if (C.day===0) newCareer(hashSeed); else setTimeout(()=>RH.modal(`<h2>Another road</h2><p>This link is for a different road. Abandon your career on this one (day ${C.day}) and set out on the new road?</p>`,[{label:'Keep my career',value:0},{label:'Take the new road',value:1}]).then(v=>{ if (v) startRoad(hashSeed); else try { history.replaceState(null,'','#road='+C.seed); } catch(e){} }),600); }
 buildAndRender();
 if (C.day>=CAREER_DAYS) endCareer(); fit(); window.addEventListener('resize',fit); requestAnimationFrame(drawMap); requestAnimationFrame(loop);
-window.__caravan = { buyCost, suggest, renderMarket, startRoad, dailySeed, hearNews, see, cam, maxBuy,  P0, zoomAt, get zoom(){ return cam.k; }, labelBoxes:()=>labels.slice(),  get headless(){ return headless; }, set headless(v){ headless=v; }, travelNow, starsFor, STAR_AT, GEO, rivalPos, newCareerSeed:(seed)=>{ traveling=null; plan=null; newCareer(seed); }, P, mapSegs:()=>mapBg&&mapBg.segs, get mapBg(){ return mapBg; }, get encountersOn(){ return encountersOn; }, set encountersOn(v){ encountersOn=v; }, ENC, resolveEncounter, maybeEncounter, renderEncounter, coins:()=>coins, get C(){ return C; }, get M(){ return M; }, get cities(){ return cities; }, get routes(){ return routes; }, get traveling(){ return traveling; }, GOODS, CAREER_DAYS, cleanCareer, cleanMeta, shortest, neighbors, trade, tick, planTo, travel, endCareer, netWorth, banditChance, buildAndRender, persist, load, cap };
-if (!M.intro){ M.intro=1; persist(); RH.modal(`<h2>The Caravan</h2><p>Twenty-three cities from Chang'an to Constantinople. Silk is cheap in the east and dear in the west. Everyone knows that, and so do the six rival houses you'll see on the road, so the real money is in knowing <b>what's changed</b>. Markets drift from month to month; rivals buy out one city and flood another.</p><p>Your price book only holds what you've seen with your own eyes, and that goes out of date. News travels along the roads: arriving in a city, you hear its neighbours' prices, already days old. The domes on the map show how old your news is. Wars, plagues and famines change everything. The rumours usually arrive first.</p><p>You have three years. Make your house rich.</p>`,[{label:'Load the camels'}]); }
+window.__caravan = { usual, quote, applyRoads, ROADS, buyCost, suggest, renderMarket, startRoad, dailySeed, hearNews, see, cam, maxBuy,  P0, zoomAt, get zoom(){ return cam.k; }, labelBoxes:()=>labels.slice(),  get headless(){ return headless; }, set headless(v){ headless=v; }, travelNow, starsFor, STAR_AT, GEO, rivalPos, newCareerSeed:(seed)=>{ traveling=null; plan=null; newCareer(seed); }, P, mapSegs:()=>mapBg&&mapBg.segs, get mapBg(){ return mapBg; }, get encountersOn(){ return encountersOn; }, set encountersOn(v){ encountersOn=v; }, ENC, resolveEncounter, maybeEncounter, renderEncounter, coins:()=>coins, get C(){ return C; }, get M(){ return M; }, get cities(){ return cities; }, get routes(){ return routes; }, get traveling(){ return traveling; }, GOODS, CAREER_DAYS, cleanCareer, cleanMeta, shortest, neighbors, trade, tick, planTo, travel, endCareer, netWorth, banditChance, buildAndRender, persist, load, cap };
+if (!M.intro){ M.intro=1; persist(); RH.modal(`<h2>The Caravan</h2><p>Twenty-three cities from Chang'an to Constantinople. Silk is cheap in the east and dear in the west. Everyone knows that, and so do the six rival houses you'll see on the road, so the real money is in knowing <b>what's changed</b>. Markets drift from month to month; rivals buy out one city and flood another.</p><p>Your price book only holds what you've seen with your own eyes, and that goes out of date. News travels along the roads: arriving in a city, you hear its neighbours' prices, already days old. The domes on the map show how old your news is. Wars, plagues and famines change everything. The rumours usually arrive first.</p><p>You have two years: thirty or forty journeys. Make your house rich.</p>`,[{label:'Load the camels'}]); }
 </script>
 </body>
 </html>

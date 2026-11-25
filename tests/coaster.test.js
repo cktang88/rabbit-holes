@@ -68,8 +68,8 @@ module.exports = {
     'first minute: press RIDE, it stalls; drag the second hill down with the mouse; ride again and pass': async ({ page, ok, eq }) => {
       await page.click('#tRide'); await page.click('#tSkip'); await page.waitForTimeout(300);
       ok(await page.evaluate(() => __coaster.last.r.stall >= 0), 'starting design should stall');
-      const [x, y] = await page.evaluate(() => { const n = __coaster.design.nodes[4]; return __coaster.screenOf(n.x, n.y); });
-      const [, y2] = await page.evaluate(() => __coaster.screenOf(105, 14));
+      const [x, y] = await page.evaluate(() => { const n = __coaster.design.nodes[5]; return __coaster.screenOf(n.x, n.y); });
+      const [, y2] = await page.evaluate(() => __coaster.screenOf(128, 20));
       await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x, (y + y2) / 2); await page.mouse.move(x, y2); await page.mouse.up();
       await page.click('#tRide'); await page.click('#tSkip'); await page.waitForTimeout(400);
       eq(await page.evaluate(() => __coaster.last.ok), true, 'after lowering the hill the ride should finish');
@@ -121,6 +121,31 @@ module.exports = {
       await page.click('#tRide'); await page.waitForTimeout(500);
       const b = await page.evaluate(() => __coaster.bench3d(90));
       ok(b && b.ms < 16, `frame time ${b && b.ms.toFixed(2)} ms`); ok(b.tris < 40000, `${b.tris} triangles`); ok(b.pr <= 2, `pixel ratio ${b.pr}`); ok(b.calls <= 20, `${b.calls} draw calls`);
+    },
+    'every starting track is a real ride: no kinks, never touches the ground, and all but First Ride (whose stall is the lesson) reach the station': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const K = __coaster; return K.COMS.map(c => { const sc = K.scores({ nodes: c.start(), lift: 1 }, c.site()); return { id: c.id, ok: sc.ok, stall: sc.r.stall, crash: sc.r.crash, kink: sc.r.kink }; }); });
+      for (const x of r) { ok(x.crash < 0, `${x.id}: start hits the ground`); ok(!(x.kink >= 0), `${x.id}: start has a kink`); if (x.id === 'first') ok(x.stall >= 0, 'First Ride should stall at its second hill'); else ok(x.ok, `${x.id}: start must reach the station`); }
+    },
+    'riders talk about the ride they rode: no loop talk without a loop, no yawning at a fast ride, a blackout is never approved': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const K = __coaster, out = []; for (const c of K.COMS.filter(c => K.REF[c.id] && !c.daily)) { const sc = K.scores({ nodes: K.REF[c.id](), lift: 1 }, c.site()); out.push({ id: c.id, inv: sc.st.inv, thr: sc.thrill, q: K.guests(sc).map(x => x[1]).join(' | ') }); }
+        const N = (x, y) => ({ x, y }), hard = K.scores({ nodes: [N(0, 2), N(40, 32), N(54, 12), N(81, .5), N(95, 14), N(110, 2), N(140, 2)], lift: 1 }, K.COMS[0].site());
+        return { out, hard: { gmax: hard.st.gmax, approved: K.checkReq(K.COMS[0], hard).every(x => x[1]) } }; });
+      for (const x of r.out) { if (!x.inv) ok(!/loop/i.test(x.q), `${x.id}: loop talk without a loop: ${x.q}`); if (x.thr >= 45) ok(!/Yawn/.test(x.q), `${x.id}: yawning at thrill ${x.thr}`); }
+      if (r.hard.gmax > 6) ok(!r.hard.approved, `a ${r.hard.gmax.toFixed(1)} g ride must not be approved`);
+    },
+    'live prediction: dragging a node recolours the track by predicted g before you ride': async ({ page, ok }) => {
+      await page.evaluate(() => __coaster.load(1)); await page.waitForTimeout(200);
+      const g0 = await page.evaluate(() => __coaster.live && __coaster.live.st.gmax); ok(g0 > 5, 'the circular loop is predicted over 5 g: ' + g0);
+      const [x, y] = await page.evaluate(() => { const n = __coaster.design.nodes[7]; return __coaster.screenOf(n.x, n.y); }), [, y2] = await page.evaluate(() => __coaster.screenOf(118, 33));
+      await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x, (y + y2) / 2); await page.mouse.move(x, y2);
+      const mid = await page.evaluate(() => ({ g: __coaster.live && __coaster.live.st.gmax, rode: !!__coaster.last })); await page.mouse.up();
+      ok(mid.g && Math.abs(mid.g - g0) > .05 && !mid.rode, `prediction changed during the drag without riding (${g0.toFixed(2)} → ${mid.g && mid.g.toFixed(2)})`);
+    },
+    'phone: The Loop fits the screen on load and its checklist is visible': async ({ page, ok }) => {
+      await page.setViewportSize(phone); await page.evaluate(() => __coaster.load(1)); await page.waitForTimeout(400);
+      const r = await page.evaluate(() => { const pts = __coaster.design.nodes.map(n => __coaster.screenOf(n.x, n.y)), req = document.getElementById('cReq').getBoundingClientRect();
+        return { inside: pts.every(([x, y]) => x > 0 && x < innerWidth && y > 0 && y < innerHeight), req: { top: req.top, bottom: req.bottom, h: req.height }, items: document.querySelectorAll('#cReq li').length }; });
+      ok(r.inside, 'every node of the loop on screen'); ok(r.items >= 2 && r.req.h > 20 && r.req.bottom <= 844 * .5, 'checklist visible near the top: ' + JSON.stringify(r.req));
     },
     'corrupted saves never crash the page': async ({ page, ok }) => {
       for (const v of ['null', '7', '[]', '{"done":null,"designs":{"first":"!!"},"cur":99}', '{bad']) {

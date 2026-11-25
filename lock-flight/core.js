@@ -282,7 +282,7 @@ function stepMonth(an, st, opt = {}) {
   for (const p of P) running += C.RUN_TUN * p.tunnel + C.RUN_CELL * p.len;
   rec.run = running;
   st.rev += rec.rev; st.run += running; st.boats += rec.boats; st.lostW += rec.lostW; st.lostC += rec.lostC; st.lostR += rec.lostR;
-  if (rec.dry.length) st.dryMonths++;
+  if (rec.dry.length || rec.lostW > .5) st.dryMonths++;
   rec.fill = P.map((p, i) => st.S[i] / p.cap); rec.res = RV.slice();
   st.m++;
   return rec;

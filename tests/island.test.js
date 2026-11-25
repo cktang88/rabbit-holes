@@ -12,21 +12,23 @@ function POLICIES(I){
       else if(id==='tree') v=(w.isl.bank[i]?1:0)+w.isl.moist[i]*.3-f.tree[i]; else if(id==='-goat') v=cnt(i,[I.IDX.goat],4); else v=w.isl.moist[i]-f[id][i];
       if(v>bv){bv=v;best=i;} } return [best%GW,(best/GW)|0]; }
   const play=(c, plan, run)=>{ const w=I.start(c, run); let p=c.permits, res=null; const ctx={ w, c, get p(){return p;}, cnt:(id)=>(w.last_counts||I.counts(w))[I.IDX[id]], has:(id)=>I.present(w,I.IDX[id]), year:0,
-      rel:(id,at)=>{ if(p<=0) return false; if(!c.species.includes(id) && !(id[0]==='-' && (c.traps||[]).includes(id.slice(1)))) return false; I.act(w,[w.t,id,...(at||bestTile(w,id))]); p--; return true; } };
+      rel:(id,at)=>{ if(p<=0) return false; if(!c.species.includes(id) && !I.TOOLS[id] && !(id[0]==='-' && (c.traps||[]).includes(id.slice(1)))) return false; I.act(w,[w.t,id,...(at||bestTile(w,id))]); p--; return true; } };
     for(let y=0;y<c.years;y++){ ctx.year=y; plan(ctx); for(let t=0;t<I.TPY;t++) I.step(w); res=c.goal(w); if(res==='won'||res==='lost'||res==='done') break; }
     return {w, res, species:I.speciesCount(w)}; };
   // naive: spend every permit on random species at random places, right away
   const naive=(c, seed='n')=>play(c, (x)=>{ if(x.year) return; const r=I.rng('naive:'+seed+c.id); const L=[]; for(let i=0;i<N;i++) if(x.w.isl.land[i]) L.push(i); let guard=0; while(x.p>0 && guard++<100){ const id=c.species[r.int(c.species.length)]; const i=L[r.int(L.length)]; x.rel(id,[i%GW,(i/GW)|0]); } });
   const order=['shrub','flower','fungi','grass','tree','rabbit','vole','bee','deer','fox','owl','wolf'];
-  const want={ shrub:x=>true, flower:x=>true, fungi:x=>true, grass:x=>true, tree:x=>x.cnt('tree')<.03||x.c.id==='river', rabbit:x=>true, vole:x=>true, bee:x=>x.cnt('flower')>.004, deer:x=>x.year>=1, fox:x=>x.year>=3&&x.cnt('rabbit')+x.cnt('vole')>150, owl:x=>x.year>=3&&x.cnt('vole')>40, wolf:x=>x.cnt('deer')+x.cnt('goat')>30 };
+  const want={ shrub:x=>true, flower:x=>true, fungi:x=>true, grass:x=>true, tree:x=>x.cnt('tree')<.03||x.c.id==='river', rabbit:x=>true, vole:x=>true, bee:x=>x.cnt('flower')>.004, deer:x=>x.year>=1, fox:x=>x.year>=3&&x.cnt('rabbit')+x.cnt('vole')>150, owl:x=>x.year>=3&&x.cnt('vole')>40&&x.cnt('tree')>.02, wolf:x=>x.cnt('deer')+x.cnt('goat')>30 };
   // the planner: plants and rot first, grazers when there is food, hunters once their prey is plentiful; refill what dies out
   const planner=(c, run)=>play(c, (x)=>{
     if (c.id==='goats'){ if(x.year===0){ x.rel('wolf'); x.rel('wolf'); x.rel('wolf'); x.rel('-goat'); x.rel('-goat'); return; } if(x.cnt('goat')>0 && x.cnt('goat')<30 && x.p>1) { x.rel('-goat'); if (x.p>1) x.rel('-goat'); return; } if(!x.has('wolf') && x.cnt('goat')>10) x.rel('wolf'); else if(x.cnt('goat')<=3 && x.p>0 && x.cnt('shrub')<.05) x.rel('shrub'); return; }
+    if (c.id==='meadow'){ if(x.year===0) x.rel('rabbit'); if(x.year===1||x.year===2) x.rel('fox'); if(x.year>2&&!x.has('rabbit')) x.rel('rabbit'); return; }
+    if (c.id==='cycle'){ if(x.year===0){x.rel('rabbit');x.rel('shrub');} if(x.year===1) x.rel('fox'); if(x.year>3&&!x.has('fox')) x.rel('fox'); if(x.year>3&&!x.has('rabbit')) x.rel('rabbit'); return; }
     if (c.id==='bees'){ if(x.year===0){ x.rel('flower'); x.rel('flower'); x.rel('flower'); } if(x.year===1) x.rel('bee'); if(x.year===2) x.rel('flower'); return; }
     if (c.id==='river'){ if(x.year===0){ x.rel('wolf'); x.rel('wolf'); } if(x.year===2||x.year===3) x.rel('tree'); if(x.year>3 && x.cnt('wolf')<4 && x.cnt('deer')>40) x.rel('wolf'); return; }
     if (c.id==='drought' && x.year>=6 && x.year<18) return;   // keep the remaining permits for after the drought
     const ids=c.species; const first=x.year===0;
-    for(const id of order){ if(!ids.includes(id)) continue; if(x.has(id)&&!(c.id==='bees'&&id==='flower'&&x.year<3)) continue; if(!want[id](x)) continue; if(!first && x.p<=Math.floor((c.years-x.year)/20) && c.id!=='drought') break; if (c.id==='drought' && x.year<6 && x.p<=4) break; if(x.rel(id) && !first) break; } }, run);
+    for(const id of order){ if(!ids.includes(id)) continue; if(x.has(id)&&!(c.id==='bees'&&id==='flower'&&x.year<3)) continue; if(!want[id](x)) continue; if(x.w.actions.filter(a=>a[1]===id).length>=3) continue; if(!first && x.p<=Math.floor((c.years-x.year)/20) && c.id!=='drought') break; if (c.id==='drought' && x.year<6 && x.p<=4) break; if(x.rel(id) && !first) break; } }, run);
   return { play, naive, planner, bestTile };
 }
 `;
@@ -65,8 +67,10 @@ module.exports = {
       const r = await page.evaluate(() => { const I = IslandSim, out = []; for (const run of ['c1', 'c2', 'c3']) { const w = I.create('cyc', { run }); for (const x of [10, 20, 30, 40]) I.release(w, 'shrub', x, 20);
         I.release(w, 'rabbit', 22, 20); I.release(w, 'rabbit', 32, 22); I.release(w, 'vole', 27, 21); const fox = [], rab = [];
         for (let y = 0; y < 30; y++) { if (y === 3) I.release(w, 'fox', 27, 20); for (let t = 0; t < I.TPY; t++) I.step(w); fox.push(w.last_counts[I.IDX.fox]); rab.push(w.last_counts[I.IDX.rabbit]); } out.push({ fox, rab }); } return out; });
-      let cycles = 0; for (const { fox, rab } of r) { const f = fox.slice(4, 20); if (Math.min(...rab) > 0 && Math.max(...f) >= 2 * Math.max(1, Math.min(...f.filter(v => v > 0)))) cycles++; }
-      ok(cycles >= 2, 'fox numbers swing at least twofold while rabbits hang on: ' + JSON.stringify(r.map(x => x.fox.join(','))));
+      // a real swing, not just a climb: a peak, a crash to 60% of it or less, then a recovery of half as many again
+      const swing = (f) => { let pk = 0, tr = Infinity, st = 0; for (const v of f) { if (st < 2) { pk = Math.max(pk, v); if (pk >= 6 && v <= .6 * pk) { st = 2; tr = v; } } else { tr = Math.min(tr, v); if (v >= Math.max(tr * 1.5, tr + 4)) return true; } } return false; };
+      let cycles = 0; for (const { fox, rab } of r) if (Math.min(...rab.slice(4)) > 0 && swing(fox)) cycles++;
+      ok(cycles >= 1, 'foxes boom, crash and recover while rabbits hang on: ' + JSON.stringify(r.map(x => x.fox.join(','))));
     },
     'trophic cascade: wolves bring back the riverside woods that deer had browsed bare': async ({ page, ok }) => {
       await withPolicies(page);
@@ -85,25 +89,31 @@ module.exports = {
     },
     'difficulty: naive play fails the commissions, a planner fulfils them': async ({ page, ok }) => {
       await withPolicies(page);
-      const r = await page.evaluate(() => { const I = IslandSim, out = {}; for (const id of ['cycle', 'bees', 'river', 'goats', 'drought', 'ten']) { const c = I.SCN[id]; let p = 0, n = 0;
+      const r = await page.evaluate(() => { const I = IslandSim, out = {}; for (const id of ['meadow', 'cycle', 'bees', 'river', 'goats', 'drought', 'ten']) { const c = I.SCN[id]; let p = 0, n = 0;
         for (const run of ['r1', 'r2', 'r3']) { if (POL.planner(c, run).res === 'won') p++; if (POL.naive(c, run).res === 'won') n++; } out[id] = [p, n]; } return out; });
       const P = Object.values(r).reduce((a, x) => a + x[0], 0), Nv = Object.values(r).reduce((a, x) => a + x[1], 0), n = Object.keys(r).length * 3;
       ok(P / n >= .6, `planner fulfils ${P}/${n}: ` + JSON.stringify(r)); ok(Nv / n <= .15, `naive fulfils ${Nv}/${n}: ` + JSON.stringify(r));
       ok(Object.values(r).every(x => x[0] >= x[1]), 'planner at least as good on every commission');
+      // the first commission's twist: rabbits alone eat the meadow bare, a cull or a fence alone is not enough, foxes are
+      const m = await page.evaluate(() => { const c = IslandSim.SCN.meadow, out = {}; for (const [k, pl] of Object.entries({ rabbits: (x) => { if (x.year === 0) x.rel('rabbit'); }, culls: (x) => { if (x.year === 0) x.rel('rabbit'); if (x.year >= 3 && x.year <= 5) x.rel('-any', POL.bestTile(x.w, 'rabbit')); } }))
+        out[k] = ['r1', 'r2', 'r3', 'r4'].filter(run => POL.play(c, pl, run).res === 'won').length; return out; });
+      ok(m.rabbits <= 1, 'rabbits alone rarely keep the meadow: ' + m.rabbits); ok(m.culls <= 1, 'culling alone rarely does: ' + m.culls);
     },
     'difficulty: on the daily island the planner keeps clearly more species alive than naive play': async ({ page, ok }) => {
       await withPolicies(page);
       const r = await page.evaluate(() => { const I = IslandSim, p = [], n = []; for (const d of ['2026-01-01', '2026-03-14', '2026-07-30']) { const c = I.daily(d); p.push(POL.planner(c).species); n.push(POL.naive(c).species); } return { p, n }; });
       const avg = (a) => a.reduce((x, y) => x + y) / a.length; ok(avg(r.p) >= avg(r.n) + 2, `planner ${r.p} vs naive ${r.n}`);
     },
-    'first minutes by real clicks: pick the rabbit card, tap the meadow, and the first commission is fulfilled': async ({ page, eq, ok }) => {
+    'first minutes by real clicks: rabbits on the meadow, then foxes to hold them in check, and the first commission is fulfilled': async ({ page, eq, ok }) => {
       await dismiss(page);
       eq(await page.evaluate(() => __isl.C.id), 'meadow'); await page.click('.card[data-k="rabbit"]');
       const pt = await page.evaluate(() => { const W = __isl.W; let best = 0, bv = -1; for (let i = 0; i < 2240; i++) if (W.isl.land[i] && W.f.grass[i] > bv) { bv = W.f.grass[i]; best = i; } return __isl.tileToClient(best % 56, best / 56 | 0); });
       await page.mouse.click(pt[0], pt[1]);
       const a = await page.evaluate(() => ({ p: __isl.permits, acts: __isl.W.actions.length, n: __isl.W.sp.filter(s => s === IslandSim.IDX.rabbit).length }));
-      eq(a.p, 2); eq(a.acts, 1); eq(a.n, 8);
-      await page.evaluate(() => { for (let t = 0; t < 5 * 24; t++) __isl.advance(); }); await page.waitForTimeout(300);
+      eq(a.p, 3); eq(a.acts, 1); eq(a.n, 8);
+      for (let y = 1; y <= 2; y++) { await page.evaluate(() => { for (let t = 0; t < 24; t++) __isl.advance(); }); await page.click('.card[data-k="fox"]'); await page.mouse.click(pt[0], pt[1]); }
+      eq(await page.evaluate(() => __isl.permits), 1, 'two lots of foxes');
+      await page.evaluate(() => { for (let t = 0; t < 6 * 24; t++) __isl.advance(); }); await page.waitForTimeout(300);
       const b = await page.evaluate(() => ({ res: __isl.result, done: !!__isl.M.done.meadow, prog: JSON.parse(localStorage.getItem('rh:hub')).island, modal: document.querySelector('.modal h2')?.textContent }));
       eq(b.res, 'won'); ok(b.done); ok(b.prog > 0); await page.waitForTimeout(1500); ok(/fulfilled/i.test(await page.textContent('.modal h2')), 'the seal and the dialog');
     },
@@ -149,8 +159,37 @@ module.exports = {
       await tap(cdp, await page.evaluate(() => { const r = document.querySelector('.card[data-k="rabbit"]').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }));
       eq(await page.evaluate(() => __isl.sel), 'rabbit');
       const t = await page.evaluate(() => { const W = __isl.W; const r = document.getElementById('map').getBoundingClientRect(); for (let i = 0; i < 2240; i++) if (W.isl.land[i]) { const p = __isl.tileToClient(i % 56, i / 56 | 0); if (p[0] > r.left + 40 && p[0] < r.right - 40 && p[1] > r.top + 90 && p[1] < r.bottom - 90) return p; } });
-      await tap(cdp, t); eq(await page.evaluate(() => __isl.permits), 2, 'a tap released the rabbits');
+      await tap(cdp, t); eq(await page.evaluate(() => __isl.permits), 3, 'a tap released the rabbits');
       const big = await page.evaluate(() => { const r = document.getElementById('map').getBoundingClientRect(); return r.width * r.height / (innerWidth * innerHeight); }); ok(big > .6, 'the island fills the screen: ' + big);
+    },
+    'the first release starts the clock; cards select (never toggle off); a new commission starts at x1 with no stale notes': async ({ page, eq, ok }) => {
+      ok(await page.isVisible('.modal'), 'the intro'); await page.click('.modal button'); await page.waitForTimeout(200);
+      eq(await page.evaluate(() => __isl.sel), null, 'the intro does not pick a card for you');
+      const t0 = await page.evaluate(() => __isl.W.t); await page.waitForTimeout(1200); eq(await page.evaluate(() => __isl.W.t), t0, 'no time passes before the first release');
+      ok(/first release/.test(await page.textContent('#brief')));
+      await page.click('.card[data-k="rabbit"]'); await page.click('.card[data-k="rabbit"]'); eq(await page.evaluate(() => __isl.sel), 'rabbit', 'a second tap keeps the card');
+      const pt = await page.evaluate(() => __isl.tileToClient(41, 30)); await page.mouse.click(pt[0], pt[1]); await page.waitForTimeout(1200);
+      ok(await page.evaluate(() => __isl.W.t) > t0, 'the clock runs after the release');
+      eq(await page.locator('.card[data-k="-any"]').count(), 1, 'a cull card'); eq(await page.locator('.card[data-k="#fence"]').count(), 1, 'a fence card');
+      await page.click('#speedBtn'); await page.click('#speedBtn'); eq(await page.textContent('#speedBtn'), '×16');
+      await page.evaluate(() => { __isl.sel = 'fox'; __isl.releaseAt(41, 30); }); ok(await page.evaluate(() => document.getElementById('note').classList.contains('on')));
+      await page.evaluate(() => __isl.begin('cycle'));
+      eq(await page.textContent('#speedBtn'), '×1', 'speed resets'); ok(!(await page.evaluate(() => document.getElementById('note').classList.contains('on'))), 'no stale note');
+      // the fence keeps grazers out, and is painted on the map
+      const f = await page.evaluate(() => { const I = IslandSim, w = I.create('fence'); I.release(w, 'rabbit', 25, 20); for (let t = 0; t < 48; t++) I.step(w); const n = I.fence(w, 25, 20); for (let t = 0; t < 30; t++) I.step(w);
+        let inside = 0; for (let k = 0; k < w.n; k++) if (w.sp[k] >= 0 && w.fence[w.y[k] * I.GW + w.x[k]]) inside++; return { n, inside }; });
+      ok(f.n > 15, 'a fenced patch: ' + f.n); eq(f.inside, 0, 'no rabbits inside the fence');
+    },
+    'phone layout: the island fills the screen, every card is in view, the notebook is a full page, animals are visible': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.goto(page.url()); await page.waitForTimeout(600); await dismiss(page);
+      await page.evaluate(() => __isl.begin('sandbox', 'phone'));
+      const r = await page.evaluate(() => { const cards = [...document.querySelectorAll('#cards .card')]; const vis = cards.filter(c => { const b = c.getBoundingClientRect(); return b.left >= 0 && b.right <= innerWidth && b.width > 30; }).length;
+        const m = document.getElementById('map').getBoundingClientRect(); const fs = parseFloat(getComputedStyle(document.getElementById('note')).fontSize); return { n: cards.length, vis, map: m.height / innerHeight, fs, k: __isl.cam.k }; });
+      ok(r.vis >= 12, `cards in view ${r.vis} of ${r.n}`); ok(r.map > .6, 'the island has most of the height: ' + r.map.toFixed(2)); ok(r.fs <= 19, 'captions sized for a phone: ' + r.fs);
+      ok(Math.max(.55, Math.min(1.7, 13 / r.k)) * r.k >= 10, 'an animal is at least 10px across at the starting zoom (k=' + r.k.toFixed(1) + ')');
+      await page.click('#bookBtn'); await page.waitForTimeout(400);
+      const b = await page.evaluate(() => { const r = document.getElementById('book').getBoundingClientRect(); return r.height / innerHeight; }); ok(b > .95, 'the notebook is a full page: ' + b.toFixed(2));
+      await page.click('#bookX'); await page.waitForTimeout(400); ok(!(await page.evaluate(() => document.body.classList.contains('book'))));
     },
     'performance: a busy island stays smooth on a throttled phone': async ({ page, ok }) => {
       const cdp = await page.context().newCDPSession(page);

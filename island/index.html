@@ -43,7 +43,7 @@
   .card canvas{width:44px;height:44px}
   .card .nm{text-align:center} .card .ct{font:700 15px Caveat,cursive;color:var(--ink2)}
   .card.on{transform:translateY(-6px);background:#fff;box-shadow:0 0 0 3px var(--sun),2px 5px 0 rgba(74,58,40,.3)}
-  .card.trap{background:#f3e3d3}
+  .card.trap{background:#f3e3d3} .card.tool{background:#eef0dc}
   .card:disabled{opacity:.45}
   #time{display:flex;flex-direction:column;gap:6px;justify-content:center}
   #time button{min-width:56px}
@@ -84,7 +84,16 @@
     #brief{max-width:calc(100% - 150px);font-size:13px}
     #census{width:132px;height:52px}
     .card{width:64px;min-height:78px;font-size:11px} .card canvas{width:38px;height:38px}
-    #book{top:auto;left:0;width:auto;height:72%;border-left:0;border-top:2px solid var(--ink);transform:translateY(105%)}
+    #book{position:fixed;inset:0;width:auto;height:auto;border-left:0;transform:translateY(105%);z-index:20}
+    #note{font-size:18px;max-width:86%;top:38%}
+    #drawer{gap:6px;padding:6px 8px}
+    #cards.many{display:grid;grid-template-rows:repeat(2,auto);grid-auto-flow:column;grid-auto-columns:50px;gap:5px}
+    #cards.many .card{width:50px;min-height:0;padding:2px 1px 1px;font-size:9.5px;line-height:1}
+    #cards.many .card canvas{width:26px;height:26px}
+    #cards.many .card .ct{font-size:12px;line-height:1}
+    #cards.many .card.on{transform:none}
+    #time{gap:4px} #time button{min-width:44px;min-height:36px;padding:0 6px}
+    #permits{font-size:14px;line-height:1}
   }
   @media (max-height:520px) and (min-width:600px){
     body{flex-direction:column}
@@ -130,7 +139,7 @@ if (!isObj(M.done)) M.done = {}; if (!isObj(M.daily)) M.daily = {}; if (!Array.i
 for (const k of Object.keys(M.done)) if (!I.SCN[k]) delete M.done[k];
 for (const [k, v] of Object.entries(M.daily)) if (!/^\d{4}-\d\d-\d\d$/.test(k) || !isObj(v) || !Number.isFinite(v.score)) delete M.daily[k];
 M.seen = M.seen.filter(x => typeof x === 'string' && IDX[x] != null);
-const validRun = (r) => isObj(r) && typeof r.c === 'string' && Array.isArray(r.a) && r.a.length < 400 && r.a.every(a => Array.isArray(a) && a.length === 4 && Number.isInteger(a[0]) && a[0] >= 0 && typeof a[1] === 'string' && (IDX[a[1]] != null || IDX[a[1].slice(1)] != null) && Number.isInteger(a[2]) && Number.isInteger(a[3])) && Number.isInteger(r.t) && r.t >= 0 && r.t < 300 * TPY;
+const validRun = (r) => isObj(r) && typeof r.c === 'string' && Array.isArray(r.a) && r.a.length < 400 && r.a.every(a => Array.isArray(a) && a.length === 4 && Number.isInteger(a[0]) && a[0] >= 0 && typeof a[1] === 'string' && I.validId(a[1]) && Number.isInteger(a[2]) && Number.isInteger(a[3])) && Number.isInteger(r.t) && r.t >= 0 && r.t < 300 * TPY;
 if (!validRun(M.run)) delete M.run;
 const persist = () => { RH.save('island', M); RH.progress('island', Object.keys(M.done).length / I.SCEN.length); };
 const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
@@ -138,21 +147,23 @@ const unlocked = (i) => i === 0 || !!M.done[I.SCEN[i - 1].id] || Object.keys(M.d
 const deepUnlocked = () => !!M.done.meadow;
 
 // ===================== the run =====================
-let C = null, W = null, permits = 0, result = null, running = true, speed = 1, acc = 0, sel = null, lastYear = -1, events = [];
+let C = null, W = null, permits = 0, result = null, running = true, waiting = false, speed = 1, acc = 0, sel = null, lastYear = -1, events = [];
 function commission(id, arg) { if (id === 'daily') return I.daily(arg || todayKey()); if (id === 'sandbox') return I.sandbox(arg || 'one'); return I.SCN[id]; }
 function begin(id, arg, actions, upto) {
-  C = commission(id, arg); W = I.start(C); permits = C.permits; result = null; sel = null; lastYear = -1; events = []; acc = 0;
+  C = commission(id, arg); W = I.start(C); permits = C.permits; result = null; sel = null; lastYear = -1; events = []; acc = 0; speed = 1; hush();
+  for (const k in prevYear) delete prevYear[k];
   // replay a saved or shared run exactly
   if (actions && actions.length) { const acts = [...actions].sort((a, b) => a[0] - b[0]); let ai = 0; const end = Math.max(upto || 0, acts[acts.length - 1][0]);
     while (W.t <= end) { while (ai < acts.length && acts[ai][0] <= W.t) { I.act(W, acts[ai++]); permits--; } if (W.t >= end) break; I.step(W); yearTick(true); } }
   M.run = { c: id, arg: arg || null, a: W.actions, t: W.t }; persist();
-  floraDirty = vegDirty = true; buildStatic(); renderCards(); renderBrief(); renderBook(); fitIsland(); running = true; syncPlay();
+  running = true; waiting = !W.actions.length;   // the clock starts with the first release
+  floraDirty = vegDirty = true; buildStatic(); renderCards(); renderBrief(); renderBook(); fitIsland(); syncPlay();   // the clock starts with the first release
   if (id === 'daily' || id === 'sandbox') setHash(); else if (location.hash) history.replaceState(null, '', location.pathname);
 }
 function setHash() { const h = C.id === 'daily' ? '#day=' + C.seed.slice(4) : '#free=' + encodeURIComponent(C.seed.slice(5)) + (W.actions.length ? '&r=' + encodeActs(W.actions) : ''); history.replaceState(null, '', location.pathname + h); }
 const encodeActs = (a) => a.map(([t, id, x, y]) => `${t.toString(36)}.${id}.${x.toString(36)}.${y.toString(36)}`).join('_');
 const decodeActs = (s) => String(s || '').split('_').filter(Boolean).map(p => { const [t, id, x, y] = p.split('.'); return [parseInt(t, 36), id, parseInt(x, 36), parseInt(y, 36)]; })
-  .filter(a => Number.isInteger(a[0]) && a[0] >= 0 && a[0] < 200 * TPY && typeof a[1] === 'string' && (IDX[a[1]] != null || IDX[a[1].slice(1)] != null) && a[2] >= 0 && a[2] < GW && a[3] >= 0 && a[3] < GH).slice(0, 300);
+  .filter(a => Number.isInteger(a[0]) && a[0] >= 0 && a[0] < 200 * TPY && typeof a[1] === 'string' && I.validId(a[1]) && a[2] >= 0 && a[2] < GW && a[3] >= 0 && a[3] < GH).slice(0, 300);
 
 // one tick of the world, plus the yearly bookkeeping (notes, the commission check)
 function advance() { I.step(W); vegDirty = true; if (W.t % 12 === 0) floraDirty = true; yearTick(false); }
@@ -175,6 +186,7 @@ function notice(y, quiet) {
     prevYear[s.id] = n; }
   if (events.length > 200) events.splice(0, events.length - 200);
 }
+function hush() { clearTimeout(sayT); document.getElementById('note').classList.remove('on'); }
 let sayT = 0; function say(t) { const el = document.getElementById('note'); el.textContent = t; el.classList.add('on'); clearTimeout(sayT); sayT = setTimeout(() => el.classList.remove('on'), 2600); }
 function finish(g, quiet) { result = g;
   if (g === 'won' && !M.done[C.id]) { M.done[C.id] = { y: W.t / TPY }; persist(); }
@@ -252,7 +264,12 @@ function buildFlora() { const w = GW * TS, h = GH * TS; if (!flora) flora = mk(w
       g.strokeStyle = 'rgba(60,45,30,.55)'; g.lineWidth = .8; g.stroke(); }
     if (f.fungi[i] > .15 && R() < .5) { g.fillStyle = '#c0523d'; g.beginPath(); g.arc(x - 4, y + 4, 2, Math.PI, 0); g.fill(); g.fillStyle = '#efe5cc'; g.fillRect(x - 4.5, y + 4, 1, 2.2); }
     if (f.flower[i] > .12 && !win) { const cols = ['#d1708f', '#e3b341', '#9c7fc8', '#f3f0e6']; for (let k = 0; k < 2; k++) { g.fillStyle = cols[R.int(4)]; g.beginPath(); g.arc(x + (R() - .5) * 12, y + (R() - .5) * 12, 1.4, 0, 7); g.fill(); } } }
-  floraDirty = false; }
+  // fences: posts and rails around each fenced patch
+  g.strokeStyle = 'rgba(107,74,43,.85)'; g.lineWidth = 1.6; g.beginPath();
+  for (let i = 0; i < N; i++) { if (!W.fence[i]) continue; const x = i % GW, y = i / GW | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const a = x + dx, b = y + dy; if (a >= 0 && b >= 0 && a < GW && b < GH && W.fence[b * GW + a]) continue;
+      const ex = (x + .5 + dx * .5) * TS, ey = (y + .5 + dy * .5) * TS; g.moveTo(ex - dy * TS * .5, ey - dx * TS * .5); g.lineTo(ex + dy * TS * .5, ey + dx * TS * .5); g.moveTo(ex, ey); g.arc(ex, ey, 1.4, 0, 7); } }
+  g.stroke(); floraDirty = false; }
 // cute animal sprites, drawn once in ink and wash
 const SPR = {};
 function sprite(id, size = 64) { const key = id + size; if (SPR[key]) return SPR[key]; const c = mk(size, size), g = c.getContext('2d'); g.scale(size / 64, size / 64); g.lineWidth = 2.2; g.strokeStyle = '#4a3a28'; g.lineJoin = g.lineCap = 'round';
@@ -274,6 +291,7 @@ function sprite(id, size = 64) { const key = id + size; if (SPR[key]) return SPR
     case 'shrub': for (const [x, y, r] of [[22, 38, 13], [40, 36, 14], [31, 26, 12]]) el(x, y, r, r * .9, '#6b8a4a'); [[20, 34], [38, 30], [44, 40], [30, 22]].forEach(([x, y]) => dot(x, y, 2.6, '#7a2f4a')); break;
     case 'tree': g.fillStyle = '#7a5a3a'; g.fillRect(28, 36, 8, 22); g.strokeRect(28, 36, 8, 22); el(32, 26, 20, 17, '#5f8a4e'); el(22, 32, 9, 8, '#6f9a58'); el(42, 32, 9, 8, '#6f9a58'); break;
     case 'fungi': el(32, 48, 6, 10, '#f1e6cc'); g.fillStyle = '#c0523d'; g.beginPath(); g.ellipse(32, 36, 18, 11, 0, Math.PI, 0); g.closePath(); g.fill(); g.stroke(); [[26, 31], [36, 30], [31, 27]].forEach(([x, y]) => dot(x, y, 2.2, '#f8efe0')); el(48, 52, 4, 6, '#f1e6cc'); g.fillStyle = '#c0523d'; g.beginPath(); g.ellipse(48, 46, 8, 5, 0, Math.PI, 0); g.fill(); g.stroke(); break;
+    case 'fence': g.strokeStyle = '#6b4a2b'; g.lineWidth = 4; for (let k = 0; k < 4; k++) { g.beginPath(); g.moveTo(12 + k * 13, 56); g.lineTo(12 + k * 13, 20); g.stroke(); } g.lineWidth = 3; for (const y of [28, 44]) { g.beginPath(); g.moveTo(6, y); g.lineTo(58, y - 3); g.stroke(); } dot(40, 52, 4, '#7fae4a'); dot(26, 53, 3.5, '#7fae4a'); break;
     case 'trap': g.strokeStyle = '#4a3a28'; g.strokeRect(12, 22, 40, 30); for (let k = 0; k < 5; k++) { g.beginPath(); g.moveTo(18 + k * 7, 22); g.lineTo(18 + k * 7, 52); g.stroke(); } g.beginPath(); g.moveTo(10, 22); g.lineTo(32, 10); g.lineTo(54, 22); g.stroke(); break;
   }
   SPR[key] = c; return c; }
@@ -301,7 +319,7 @@ function render(now) {
   g.imageSmoothingEnabled = true; g.drawImage(stat, -PAD, -PAD, GW + 2 * PAD, GH + 2 * PAD); g.drawImage(veg, 0, 0, GW, GH); g.drawImage(flora, 0, 0, GW, GH); frameDirty = false; }
   const g = fx; g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, fv.width, fv.height); g.setTransform(fdpr * k, 0, 0, fdpr * k, fdpr * cam.x, fdpr * cam.y);
   // animals: drawn small, eased between ticks; bees bob
-  const t = now / 1000, sz = Math.max(.55, Math.min(1.1, 14 / k));
+  const t = now / 1000, sz = Math.max(.55, Math.min(1.7, 13 / k))   /* never smaller than ~13px on screen, so a zoomed-out phone still shows animals */;
   for (let a = 0; a < W.n; a++) { const s = W.sp[a]; if (s < 0) continue; const id = SP[s].id; const ff = Math.min(1, frac);
     let x = W.px[a] + (W.x[a] - W.px[a]) * ff + JIT[a * 2], y = W.py[a] + (W.y[a] - W.py[a]) * ff + JIT[a * 2 + 1];
     if (id === 'bee') { if (I.isWinter(W.t)) continue; x += Math.sin(t * 3 + a) * .15; y += Math.cos(t * 4 + a * 1.7) * .12; }
@@ -309,7 +327,7 @@ function render(now) {
     g.drawImage(sprite(id), x - s2 / 2, y - s2 / 2, s2, s2); }
   // a ripple where you just released something
   if (ripple) { const u = Math.max(0, (now - ripple.t) / 900); if (u < 1) { g.strokeStyle = `rgba(74,58,40,${1 - u})`; g.lineWidth = 2 / k; g.beginPath(); g.arc(ripple.x + .5, ripple.y + .5, .8 + u * 2.6, 0, 7); g.stroke(); } else ripple = null; }
-  if (hover && sel) { g.strokeStyle = 'rgba(74,58,40,.6)'; g.setLineDash([.3, .25]); g.lineWidth = 1.5 / k; g.beginPath(); g.arc(hover[0] + .5, hover[1] + .5, sel[0] === '-' ? 5.5 : 2.4, 0, 7); g.stroke(); g.setLineDash([]); }
+  if (hover && sel) { g.strokeStyle = 'rgba(74,58,40,.6)'; g.setLineDash([.3, .25]); g.lineWidth = 1.5 / k; g.beginPath(); g.arc(hover[0] + .5, hover[1] + .5, sel === '#fence' ? 3.2 : sel[0] === '-' ? 5.5 : 2.4, 0, 7); g.stroke(); g.setLineDash([]); }
   drawCensus(); }
 let ripple = null, hover = null, seaPat = null;
 // the open sea: a seamless tile of the same washes as the painting
@@ -337,15 +355,20 @@ function drawBig() { const c = document.getElementById('bigChart'), g = c.getCon
   document.getElementById('plegend').innerHTML = pl.map(id => `<span><i style="background:${COL[id]}"></i>${SP[IDX[id]].name}</span>`).join('') + (C.id === 'river' ? '<span><i style="background:#3f7fb0"></i>riverside woods</span>' : '') + ' <span class="dim">(cover, up to 50%)</span>'; }
 // ===================== the drawer, the brief, the notebook =====================
 function count(id) { const c = W.last_counts; const s = SP[IDX[id]]; return s.kind === 'animal' ? c[s.i] : Math.round(c[s.i] * 1000) / 10 + '%'; }
-function renderCards() { const el = document.getElementById('cards'); const list = [...C.species.map(id => [id, false]), ...(C.traps || []).map(id => [id, true])];
-  el.innerHTML = list.map(([id, tr]) => { const s = SP[IDX[id]]; const key = (tr ? '-' : '') + id; return `<button class="card ${tr ? 'trap' : ''} ${sel === key ? 'on' : ''}" data-k="${key}" ${permits <= 0 || result === 'won' ? 'disabled' : ''} title="${tr ? 'Trap ' + s.name.toLowerCase() : s.name}: ${s.note}"><canvas width="88" height="88"></canvas><span class="nm">${tr ? 'Trap ' + s.name.split(' ').pop().toLowerCase() : s.name}</span><span class="ct" data-c="${id}">${count(id)}</span></button>`; }).join('');
-  el.querySelectorAll('.card').forEach(b => { const k = b.dataset.k; const g = b.querySelector('canvas').getContext('2d'); g.drawImage(sprite(k[0] === '-' ? k.slice(1) : k, 88), 0, 0); if (k[0] === '-') g.drawImage(sprite('trap', 88), 22, 22, 66, 66);
-    b.onclick = () => { sel = sel === k ? null : k; SND.pick(); el.querySelectorAll('.card').forEach(x => x.classList.toggle('on', x.dataset.k === sel)); if (sel) say(k[0] === '-' ? 'Tap where the ' + SP[IDX[k.slice(1)]].name.toLowerCase() + ' are' : 'Now tap the island'); }; });
+const TOOLHINT = { '-any': 'Tap a crowd: the commonest animal there is trapped', '#fence': 'Tap a patch to fence it for five years' };
+function renderCards() { const el = document.getElementById('cards'); const list = [...C.species.map(id => [id, 0]), ...Object.keys(I.TOOLS).map(id => [id, 2]), ...(C.traps || []).map(id => [id, 1])];
+  el.classList.toggle('many', list.length > 6);
+  el.innerHTML = list.map(([id, kind]) => { const key = kind === 1 ? '-' + id : id; const dis = permits <= 0 || result === 'won' ? 'disabled' : '';
+    if (kind === 2) { const t = I.TOOLS[id]; return `<button class="card tool ${sel === key ? 'on' : ''}" data-k="${key}" ${dis} title="${t.name}: ${t.note}"><canvas width="88" height="88"></canvas><span class="nm">${t.name}</span><span class="ct">tool</span></button>`; }
+    const s = SP[IDX[id]]; return `<button class="card ${kind ? 'trap' : ''} ${sel === key ? 'on' : ''}" data-k="${key}" ${dis} title="${kind ? 'Trap ' + s.name.toLowerCase() : s.name}: ${s.note}"><canvas width="88" height="88"></canvas><span class="nm">${kind ? 'Trap ' + s.name.split(' ').pop().toLowerCase() : s.name}</span><span class="ct" data-c="${id}">${count(id)}</span></button>`; }).join('');
+  el.querySelectorAll('.card').forEach(b => { const k = b.dataset.k; const g = b.querySelector('canvas').getContext('2d'); const tool = I.TOOLS[k];
+    if (tool) g.drawImage(sprite(k === '#fence' ? 'fence' : 'trap', 88), 0, 0); else { g.drawImage(sprite(k[0] === '-' ? k.slice(1) : k, 88), 0, 0); if (k[0] === '-') g.drawImage(sprite('trap', 88), 22, 22, 66, 66); }
+    b.onclick = () => { sel = k; SND.pick(); el.querySelectorAll('.card').forEach(x => x.classList.toggle('on', x.dataset.k === sel)); say(tool ? TOOLHINT[k] : k[0] === '-' ? 'Tap where the ' + SP[IDX[k.slice(1)]].name.toLowerCase() + ' are' : 'Now tap the island'); }; });
   document.getElementById('permits').textContent = permits === Infinity ? '∞ releases' : `${permits} release${permits === 1 ? '' : 's'}`; }
-function renderCounts() { document.querySelectorAll('#cards .ct').forEach(e => { const t = String(count(e.dataset.c)); if (e.textContent !== t) e.textContent = t; }); }
+function renderCounts() { document.querySelectorAll('#cards .ct[data-c]').forEach(e => { const t = String(count(e.dataset.c)); if (e.textContent !== t) e.textContent = t; }); }
 function renderBrief() { const y = Math.floor(W.t / TPY); document.getElementById('when').textContent = `Year ${y} · ${I.seasonName(W.t)}${I.inDrought(W) ? ' · drought' : ''}`;
   const g = result === 'won' ? 'Fulfilled.' : result === 'lost' ? 'Lapsed.' : result === 'done' ? `Score: ${I.speciesCount(W)} species.` : C.goal(W);
-  document.getElementById('brief').innerHTML = `<b>${C.title}</b><br><span class="pg">${g}</span>`; }
+  document.getElementById('brief').innerHTML = `<b>${C.title}</b><br><span class="pg">${waiting && !W.actions.length ? 'The clock starts with your first release.' : g}</span>`; }
 const bookOpen = () => document.body.classList.contains('book');
 let tab = 'com';
 function openBook(t) { if (t) tab = t; document.body.classList.add('book'); renderBook(); }
@@ -379,9 +402,12 @@ function releaseAt(tx, ty) {
   if (!sel || !W || permits <= 0 || result === 'won') return false; if (tx < 0 || ty < 0 || tx >= GW || ty >= GH) return false;
   const id = sel; const land = W.isl.land[ty * GW + tx];
   if (!land) { say('That is water. Tap the land.'); return false; }
-  const n = I.act(W, [W.t, id, tx, ty]); if (!n && id[0] === '-') { say('No ' + SP[IDX[id.slice(1)]].name.toLowerCase() + ' within reach there.'); W.actions.pop(); return false; }
-  permits--; ripple = { x: tx, y: ty, t: performance.now() }; SND.place(); floraDirty = vegDirty = true;
-  const s = SP[IDX[id.replace('-', '')]]; say(id[0] === '-' ? `${n} ${s.name.toLowerCase()} trapped` : s.kind === 'animal' ? `${n} ${s.name.toLowerCase()} released` : `${s.name} planted`);
+  const na = W.actions.length, n = I.act(W, [W.t, id, tx, ty]);
+  if (!n && id[0] === '-') { say(id === '-any' ? 'No animals within reach there.' : 'No ' + SP[IDX[id.slice(1)]].name.toLowerCase() + ' within reach there.'); W.actions.length = na; return false; }
+  permits--; ripple = { x: tx, y: ty, t: performance.now() }; SND.place(); floraDirty = vegDirty = true; if (waiting) { waiting = false; syncPlay(); }
+  if (id === '-any') { const s = SP[IDX[W.lastCull]]; say(`${n} ${s.name.toLowerCase()} trapped and shipped off`); }
+  else if (id === '#fence') say('Fenced for five years: no grazers inside');
+  else { const s = SP[IDX[id.replace('-', '')]]; say(id[0] === '-' ? `${n} ${s.name.toLowerCase()} trapped` : s.kind === 'animal' ? `${n} ${s.name.toLowerCase()} released` : `${s.name} planted`); }
   M.run.a = W.actions; M.run.t = W.t; persist(); if (C.sandbox) setHash();
   if (permits <= 0 || !C.sandbox) { if (permits <= 0) sel = null; } renderCards(); renderBrief(); return true; }
 let down = null;
@@ -396,14 +422,14 @@ function describe(i) { const f = W.f, bits = []; for (const id of ['grass', 'flo
   say((bits.join(', ') || 'bare ground') + (Object.keys(a).length ? ' · ' + Object.entries(a).map(([k, v]) => v + ' ' + k.toLowerCase()).join(', ') : '')); }
 // ===================== time =====================
 const SPEEDS = [1, 4, 16], TPS = 3;   // ticks per second at ×1: a year in eight seconds
-function syncPlay() { document.getElementById('playBtn').textContent = running ? '❚❚' : '▶'; document.getElementById('speedBtn').textContent = '×' + speed; }
-document.getElementById('playBtn').onclick = () => { running = !running; syncPlay(); };
+function syncPlay() { document.getElementById('playBtn').textContent = running && !waiting ? '❚❚' : '▶'; document.getElementById('speedBtn').textContent = '×' + speed; }
+document.getElementById('playBtn').onclick = () => { if (waiting) { waiting = false; running = true; } else running = !running; syncPlay(); };
 document.getElementById('speedBtn').onclick = () => { speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]; syncPlay(); };
-addEventListener('keydown', (e) => { if (e.key === ' ') { e.preventDefault(); running = !running; syncPlay(); } else if (e.key === 'Escape') { sel = null; renderCards(); closeBook(); } });
+addEventListener('keydown', (e) => { if (e.key === ' ') { e.preventDefault(); document.getElementById('playBtn').click(); } else if (e.key === 'Escape') { sel = null; renderCards(); closeBook(); } });
 let last = performance.now(), countsT = 0, frames = [];
 function loop(now) {
   const dt = Math.min(.25, (now - last) / 1000); last = now;
-  if (running && W && !(result && result !== 'done' && C.sandbox)) { acc += dt * TPS * speed; let n = 0; while (acc >= 1 && n < 8) { advance(); acc -= 1; n++; } if (acc > 8) acc = 0; frac = acc; }
+  if (running && !waiting && W && !(result && result !== 'done' && C.sandbox)) { acc += dt * TPS * speed; let n = 0; while (acc >= 1 && n < 8) { advance(); acc -= 1; n++; } if (acc > 8) acc = 0; frac = acc; }
   if (W) { render(now); if (now - countsT > 400) { countsT = now; renderCounts(); } }
   frames.push(now); if (frames.length > 240) frames.splice(0, frames.length - 240);
   requestAnimationFrame(loop); }
@@ -418,7 +444,7 @@ function boot() {
   else begin('meadow');
   requestAnimationFrame(loop);
   if (!M.intro) { M.intro = 1; persist(); running = false; syncPlay();
-    modal(`<h2>Naturalist's Island</h2><p>A small island with grass on it and nothing else alive. You hold a drawer of field-guide cards: grasses and flowers, rabbits and voles, foxes and owls, deer, wolves, bees and fungi.</p><p><b>Tap a card, then tap the island</b> to release a few there. Then watch: everything eats, breeds, starves and hides by its own simple rules, and the island does the rest. Booms, crashes, cycles and cascades are all real.</p><p>Commissions from the natural history society are in the notebook, <b>⋯</b>.</p>`, [{ label: 'Open the drawer', primary: true, action: () => { running = true; syncPlay(); const b = document.querySelector('.card'); if (b) { b.click(); } } }]); }
+    modal(`<h2>Naturalist's Island</h2><p>A small island with grass on it and nothing else alive. You hold a drawer of field-guide cards: grasses and flowers, rabbits and voles, foxes and owls, deer, wolves, bees and fungi.</p><p><b>Tap a card, then tap the island</b> to release a few there. Then watch: everything eats, breeds, starves and hides by its own simple rules, and the island does the rest. Booms, crashes, cycles and cascades are all real.</p><p>Commissions from the natural history society are in the notebook, <b>⋯</b>.</p>`, [{ label: 'Open the drawer', primary: true, action: () => { running = true; syncPlay(); say('Pick a card, then tap the island'); } }]); }
 }
 window.__isl = { I, get W() { return W; }, get C() { return C; }, get M() { return M; }, get permits() { return permits; }, get result() { return result; }, get sel() { return sel; }, set sel(v) { sel = v; renderCards(); },
   begin, releaseAt, advance, cam, fps, render, encodeActs, decodeActs, todayKey, openBook, closeBook, get running() { return running; }, set running(v) { running = v; syncPlay(); }, set speed(v) { speed = v; syncPlay(); }, events: () => events,
