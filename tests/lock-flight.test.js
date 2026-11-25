@@ -1,5 +1,6 @@
 // Canal Mania (lock-flight): seeded countries, the water book, lock water rules, planners beat naive and random bots,
-// commissions favour different answers, shares, daily maps, pan/zoom input, the section editor, saves.
+// commissions favour different answers, shares, daily maps, pan/zoom input, the section editor, saves; and The Canal Age:
+// bots over seventy years, replay from the log, rivals, railways and offers, the first minute and the phone.
 const ready = async page => { await page.waitForFunction(() => window.__lf && __lf.M && __lf.an); await page.waitForTimeout(150); };
 async function reopen(page, url) { const p = await page.context().newPage(), errs = []; p.on('pageerror', e => errs.push(e.message)); await p.goto(url || page.url()); await ready(p); p.errs = errs; return p; }
 const COM = id => `__lf.COMS.find(c => c.id === '${id}')`;
@@ -141,8 +142,85 @@ module.exports = {
       await drag(page, [r.a, r.b]); await page.waitForTimeout(150);
       ok(await page.evaluate(() => __lf.K.connected(__lf.an)), 'joined by a drag on the rotated map');
     },
+    // ================= The Canal Age (age.js): the long game =================
+    'Canal Age bots: drawing the shortest line and waiting fails badly; the best day-one design loses to an engineer who keeps building; no single strategy wins every map': async ({ ok }) => {
+      const A = require(require('path').join(__dirname, '../lock-flight/age.js')), L = { naive: A.naive, staticPlan: A.staticPlan, ...A.STRATS }, wins = {}, rows = [];
+      for (const s of [1, 2, 3, 4, 5, 6]) { const v = {}; for (const [nm, cfg] of Object.entries(L)) v[nm] = A.score(A.play(s, cfg));
+        const best = Object.keys(v).reduce((a, b) => v[a] >= v[b] ? a : b); wins[best] = (wins[best] || 0) + 1; rows.push(s + ': ' + Object.entries(v).map(([k, x]) => k + ' ' + x).join(', '));
+        ok(v.naive < .35 * v.adaptive, `map ${s}: the straight line should fail badly: ${rows.at(-1)}`);
+        ok(v.staticPlan < v.adaptive, `map ${s}: a perfect-at-start canal should lose to one that keeps building: ${rows.at(-1)}`); }
+      ok(Object.keys(wins).length >= 2, 'one strategy won every map: ' + JSON.stringify(wins) + '\n' + rows.join('\n'));
+    },
+    'Canal Age model: the water book still balances in a seventy-year run, a game replays exactly from its log, and rewinding keeps the past': async ({ ok, eq, near }) => {
+      const A = require(require('path').join(__dirname, '../lock-flight/age.js')), K = require(require('path').join(__dirname, '../lock-flight/core.js'));
+      const G = A.newGame(5), h = A.firstHint(G); ok(h, 'a first canal is suggested');
+      ok(A.act(G, { k: 'build', d: K.enc(A.branch(G, G.places[h.i].c, [G.places[h.j].c])) }), 'the first canal is affordable');
+      const st = G.st, tot = () => st.S.reduce((a, b) => a + b, 0) + st.RV.reduce((a, b) => a + b, 0), t0 = tot(), w0 = st.wIn - st.wOut; let worst = 0;
+      for (let m = 0; m < 240; m++) { A.step(G); if (G.st !== st || G.an.pounds.length !== st.S.length) break; worst = Math.max(worst, Math.abs(tot() - t0 - (st.wIn - st.wOut - w0))); }
+      ok(worst < 1e-6, 'water drift ' + worst);
+      const s0 = G.D.paths.length && K.analyse(G.M, K.clone(G.D)).sites[0]; if (s0) A.act(G, { k: 'mode', key: s0.key, v: 'pair' });
+      for (let m = 0; m < 300; m++) A.step(G);
+      const nc = Object.keys(G.D.lv).map(Number), far = G.places.findIndex((p, i) => !G.an.cells.has(G.M.towns[i].c)); if (far >= 0) { const D2 = A.branch(G, G.places[far].c, nc); if (D2) A.act(G, { k: 'build', d: K.enc(D2) }); }
+      for (let m = 0; m < 100; m++) A.step(G);
+      const code = A.encLog(G.log), R = A.replay(5, A.decLog(code), G.m);
+      eq([R.m, R.places.length, R.D.paths.length], [G.m, G.places.length, G.D.paths.length], 'replayed game shape'); near(R.cash, G.cash, 1e-6, 'replayed bank');
+      const back = A.replay(5, G.log.filter(a => a.m < 300), 300); eq(back.m, 300); ok(back.log.every(a => a.m < 300), 'rewound log holds only the past');
+    },
+    'Canal Age pressure: a rival is refused if you join its towns first; railways take trade from slow canals; the railway\'s offer ends the game at its price': async ({ ok }) => {
+      const A = require(require('path').join(__dirname, '../lock-flight/age.js')), K = require(require('path').join(__dirname, '../lock-flight/core.js'));
+      // play the engineer to the first rival petition, then compare joining the two places against ignoring them
+      const G = A.newGame(4); let pet = null; while (!G.over && !pet) { A.bot(G, A.STRATS.trunk); A.step(G); pet = G.rivals.find(v => !v.open && !v.gone); }
+      ok(pet, 'a rival petitions'); const save = A.encLog(G.log);
+      const ignore = A.replay(4, A.decLog(save), G.m); let G2 = ignore; while (G2.m < pet.at + 2) { A.bot(G2, A.STRATS.trunk); A.step(G2); }
+      ok(G2.rivals.some(v => v.open), 'ignored, the rival canal opens');
+      const join = A.replay(4, A.decLog(save), G.m), nc = Object.keys(join.D.lv).map(Number);
+      for (const i of [pet.i, pet.j]) if (!join.an.cells.has(join.M.towns[i].c)) { const D2 = A.branch(join, join.places[i].c, Object.keys(join.D.lv).map(Number)); if (D2) { join.cash += 1000; A.act(join, { k: 'build', d: K.enc(D2) }); } }
+      while (join.m < pet.at + 2) A.step(join);
+      ok(join.rivals.some(v => v.gone) && !join.rivals.some(v => v.open), 'joined first, the petition is thrown out');
+      // railways: the same canal carries less once trains run, and fly-boats win some back
+      const H = A.play(7, A.STRATS.adaptive), y0 = H.years.find(y => y.year === 1828), y1 = H.years.at(-1); ok(H.rails.length >= 3, 'railways spread');
+      ok(y1.net < y0.net, `trains cut the canal's income: ${y0.net.toFixed(0)} in 1828, ${y1.net.toFixed(0)} in ${y1.year}`);
+      // an offer: selling ends the game at the offer's price
+      const S = A.newGame(7); while (!S.over && !S.offer) { A.bot(S, A.STRATS.adaptive); A.step(S); }
+      ok(S.offer && S.offer.price > 0, 'the railway makes an offer'); ok(A.act(S, { k: 'sell' }) && S.over && A.score(S) === S.offer.price, 'sold at the offer');
+    },
+    'Canal Age first minute: drag from a place, read the prospectus, open, a branch shows the engineer\'s estimate before it is paid, and a reload carries on where you were': async ({ page, ok, eq }) => {
+      const p = await reopen(page, page.url().split('#')[0] + '#age=20261125'); await p.reload(); await ready(p); await p.waitForTimeout(400);
+      eq(await p.evaluate(() => [__lf.C ? 1 : 1, __lf.mode, !!__lf.G]), [1, 'survey', true]);
+      // dig from the port toward the mill the surveyor suggests (as a player would, with the mouse)
+      await p.waitForFunction(() => __lf.G.hint, null, { timeout: 8000 });
+      const pts = await p.evaluate(() => { const G = __lf.G, a = G.places[G.hint.i].c, b = G.places[G.hint.j].c, D2 = __lf.AGE.branch(G, a, [b]); return D2.paths[0].map(c => __lf.screenOf(c)); });
+      await drag(p, pts); await p.waitForTimeout(300);
+      const pros = await p.evaluate(() => ({ paths: __lf.D.paths.length, net: __lf.fore && __lf.fore.net, txt: document.getElementById('goals').textContent }));
+      ok(pros.paths === 1 && pros.net != null && /Prospectus/.test(pros.txt), 'prospectus after the first drag: ' + JSON.stringify(pros));
+      await p.click('#tOpen'); await p.waitForTimeout(1600);
+      const run = await p.evaluate(() => ({ mode: __lf.mode, m: __lf.G.m, cash: __lf.G.cash })); ok(run.mode === 'run' && run.m >= 2, 'months pass in real time: ' + JSON.stringify(run));
+      // a branch while running: the estimate card, then Build pays from the bank
+      await p.evaluate(() => { __lf.setSpeed(0); document.querySelectorAll('#note').forEach(e => e.style.display = 'none'); });
+      const b = await p.evaluate(() => { const G = __lf.G, nc = Object.keys(G.D.lv).map(Number), i = G.places.findIndex((q, k) => !G.an.cells.has(G.M.towns[k].c)), D2 = __lf.AGE.branch(G, G.places[i].c, nc); const pth = D2.paths[D2.paths.length - 1].slice().reverse(); return pth.map(c => __lf.screenOf(c)); });
+      await drag(p, b); await p.waitForTimeout(300);
+      const est = await p.evaluate(() => ({ shown: document.getElementById('note').style.display, txt: document.getElementById('note').textContent, cash: __lf.G.cash, paths: __lf.G.D.paths.length }));
+      ok(est.shown === 'block' && /cost/.test(est.txt) && est.paths === 1, 'estimate before paying: ' + JSON.stringify(est));
+      await p.click('#pBuild'); await p.waitForTimeout(200);
+      const after = await p.evaluate(() => ({ paths: __lf.G.D.paths.length, cash: __lf.G.cash, m: __lf.G.m }));
+      ok(after.paths === 2 && after.cash < est.cash, 'the branch is built and paid for: ' + JSON.stringify(after));
+      await p.evaluate(() => { __lf.setSpeed(0); ageSave(); });
+      const q = await reopen(p, p.url().split('#')[0]); await q.waitForTimeout(300);
+      const back = await q.evaluate(() => ({ mode: __lf.mode, m: __lf.G.m, paths: __lf.G.D.paths.length, cash: __lf.G.cash }));
+      eq([back.mode, back.m, back.paths], ['run', after.m, 2], 'carried on after a reload'); ok(Math.abs(back.cash - after.cash) < 1e-6, 'same bank after reload');
+      ok(!p.errs.length && !q.errs.length, p.errs[0] || q.errs[0]); await q.close(); await p.close();
+    },
+    'Canal Age on a phone: the map, the tools and a news card all fit the screen': async ({ page, ok }) => {
+      const p = await page.context().newPage(); await p.setViewportSize({ width: 390, height: 844 }); await p.goto(page.url().split('#')[0] + '#age=20261125'); await p.reload(); await ready(p); await p.waitForTimeout(400);
+      await p.evaluate(() => { const G = __lf.G, h = __lf.AGE.firstHint(G), D2 = __lf.AGE.branch(G, G.places[h.i].c, [G.places[h.j].c]); __lf.D = D2; openCanal(); __lf.setSpeed(0); __lf.AGE.unlock(G, 'fly'); ageDrainNews(); });
+      await p.waitForTimeout(300);
+      const r = await p.evaluate(() => { const box = id => { const b = document.getElementById(id).getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; }, inside = b => b[0] >= 0 && b[1] >= 0 && b[2] <= innerWidth && b[3] <= innerHeight;
+        const tb = [...document.querySelectorAll('#tools button')].map(e => e.getBoundingClientRect()); return { tools: inside(box('tools')), note: inside(box('note')), btn: Math.min(...tb.map(b => Math.min(b.width, b.height))), map: __lf.screenOf(__lf.G.places[0].c) }; });
+      ok(r.tools && r.note, 'tools and the news card on screen'); ok(r.btn >= 28, 'buttons big enough: ' + r.btn); ok(r.map[0] > 0 && r.map[0] < 390 && r.map[1] > 0 && r.map[1] < 844, 'the map is on screen');
+      await p.close();
+    },
     'corrupted saves never crash the page': async ({ page, ok }) => {
-      for (const v of ['null', '7', '[]', '{"v":2,"done":null,"designs":{"first":"!!~~"},"cur":99}', '{"v":2,"designs":{"ridge":"AAAA.zz"},"cur":1}', '{bad']) {
+      for (const v of ['null', '7', '[]', '{"v":2,"done":null,"designs":{"first":"!!~~"},"cur":99}', '{"v":2,"designs":{"ridge":"AAAA.zz"},"cur":1}', '{"v":2,"cur":6,"age":{"seed":5,"log":"zz|b|!! 3|m|1-2:p 4|b|AB0.CC","m":99}}', '{"v":2,"cur":6,"age":{"seed":"x","log":7,"m":-4}}', '{bad']) {
         await page.evaluate(v => { localStorage.clear(); localStorage.setItem('rh:lock-flight', v); }, v);
         const p = await reopen(page); ok(!p.errs.length, `save ${v}: ${p.errs[0]}`); ok(await p.evaluate(() => !!__lf.an)); await p.close();
       }

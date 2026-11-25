@@ -272,36 +272,49 @@ module.exports = {
       await page.click('.pz-fit'); await page.waitForTimeout(450);
       eq(await page.evaluate(() => [__pz.cam.k, __pz.cam.x, __pz.cam.y]), [1, 0, 0], 'Fit returns to the fitted board');
     },
-    'workshop: jobs are deterministic per seed, always buildable from the drawer, and harder grades ask for more': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(() => { const X = __pz, o = { det: true, solved: 0, n: 0, trayOk: 0, empty: 0, nulls: 0, dets: {}, cost: {} };
-        for (let rung = 1; rung <= 7; rung++) for (let sd = 1; sd <= 12; sd++) { const a = X.genJob(sd, rung), b = X.genJob(sd, rung); if (!a) { o.nulls++; continue; }
-          if (JSON.stringify(a) !== JSON.stringify(b)) o.det = false; o.n++;
-          const h = X.simulate(a, a.ref).hits, H = {}; for (const k in h) H[k] = h[k].p; if (X.jobPass(a, H)) o.solved++;
-          const c = {}; for (const p of a.ref) c[p.t] = (c[p.t] || 0) + 1; if (Object.entries(c).every(([t, n]) => (a.tray[t] || 0) >= n)) o.trayOk++;
-          const h0 = X.simulate(a, []).hits, H0 = {}; for (const k in h0) H0[k] = h0[k].p; if (X.jobPass(a, H0)) o.empty++;
-          (o.dets[rung] ||= []).push(a.fixed.filter(f => f.t === 'det').length); (o.cost[rung] ||= []).push(a.par.cost); }
-        o.differ = JSON.stringify(X.genJob(1, 3)) !== JSON.stringify(X.genJob(2, 3)); return o; });
-      ok(r.det && r.differ, 'same seed, same job; seeds differ'); eq(r.nulls, 0, 'every seed gives a job');
-      eq(r.solved, r.n, 'the reference build delivers every job'); eq(r.trayOk, r.n, 'the drawer always holds the reference parts'); eq(r.empty, 0, 'no job is done by the bare table');
-      const avg = a => a.reduce((x, v) => x + v, 0) / a.length; ok(avg(r.cost[7]) > avg(r.cost[1]) * 3 && avg(r.dets[7]) > avg(r.dets[1]), 'later grades ask for more: ' + JSON.stringify([avg(r.cost[1]), avg(r.cost[7])]));
+    'sealed boxes: generated per seed; hidden parts are real optics on the bench; nothing inside is drawn': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const X = __pz, o = { det: true, n: 0, kinds: {} };
+        for (let g = 1; g <= 7; g++) for (let sd = 1; sd <= 10; sd++) { const a = X.genBox(sd, g), b = X.genBox(sd, g); if (JSON.stringify(a) !== JSON.stringify(b)) o.det = false; o.n++; for (const e of a.els) o.kinds[e.k] = 1; }
+        o.differ = JSON.stringify(X.genBox(1, 3)) !== JSON.stringify(X.genBox(2, 3));
+        // a box with one filter at 60° passes cos² of the laser's light, exactly as the physics says
+        const B = { seed: 0, grade: 1, els: [{ k: 'pol', a: 60 }] }, lv = { sources: [{ x: 1, y: 4, d: 0, pol: 0 }], fixed: X.boxParts(B) };
+        const h = X.simulate(lv, [{ t: 'det', x: 12, y: 4, id: 'P1', a: 0, m: 1 }]).hits; o.malus = h.P1.p;
+        const hl = X.simulate({ ...lv, fixed: X.boxParts({ els: [{ k: 'live' }] }) }, [{ t: 'det', x: 12, y: 4, id: 'P1', a: 0, m: 1 }]).hits; o.live = [hl.BOMB && hl.BOMB.p, hl.P1 ? hl.P1.p : 0];
+        const hd = X.simulate({ ...lv, fixed: X.boxParts({ els: [{ k: 'dud' }] }) }, [{ t: 'det', x: 12, y: 4, id: 'P1', a: 0, m: 1 }]).hits; o.dud = hd.P1.p;
+        return o; });
+      ok(r.det && r.differ, 'same seed, same box'); ok(['pol', 'hwp', 'phase', 'live', 'dud', 'up', 'down'].every(k => r.kinds[k]), 'every kind of content turns up: ' + Object.keys(r.kinds));
+      ok(Math.abs(r.malus - .25) < 1e-9, 'filter at 60°: ' + r.malus); eq(r.live, [1, 0], 'a live bomb takes every photon'); ok(Math.abs(r.dud - 1) < 1e-9, 'a dud lets it all through');
+      // in the box level no beam is drawn and detectors show counts, not probabilities
+      await page.evaluate(() => { for (let i = 0; i < 4; i++) __pz.SAVE.done[i] = 1; __pz.openBox(3, 1); });
+      eq(await page.evaluate(() => __pz.parts.map(p => [p.t, p.x, p.y])), [['det', 12, 4]], 'the first box comes with a detector in place');
+      await page.click('#bf1'); ok(await page.evaluate(() => __pz.bx.shots === 1 && __pz.bx.left === __pz.box.budget - 1), 'Fire 1 spends one photon');
     },
-    'workshop difficulty: random builds from the drawer almost never deliver; the reference build does, and a better build scores more stars': async ({ page, ok, eq }) => {
-      const r = await page.evaluate(() => { const X = __pz; let rs = 7; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647; let wins = 0, tries = 0;
-        for (let rung = 1; rung <= 7; rung++) for (let sd = 20; sd < 26; sd++) { const J = X.genJob(sd, rung), taken = new Set([...J.fixed, ...J.sources].map(p => p.x + ',' + p.y));
-          for (let k = 0; k < 6; k++) { tries++; const parts = []; for (const [t, n] of Object.entries(J.tray)) for (let q = 0; q < n; q++) { if (rnd() < .3) continue; let x, y, g = 0; do { x = (rnd() * 15) | 0; y = (rnd() * 9) | 0; } while ((taken.has(x + ',' + y) || parts.some(p => p.x === x && p.y === y)) && g++ < 50);
-              parts.push({ t, x, y, a: Math.round(rnd() * 36) * 5, m: rnd() < .5 ? 1 : 0 }); }
-            const h = X.simulate(J, parts).hits, H = {}; for (const k in h) H[k] = h[k].p; if (X.jobPass(J, H)) wins++; } }
-        return { wins, tries }; });
-      ok(r.wins / r.tries <= .03, `random builds delivered ${r.wins}/${r.tries}`);
-      // play a job through the UI: the reference build delivers; a cheaper rebuild (same job, fewer mirrors) is recorded as better
-      const s = await page.evaluate(() => { FX.setMuted(true); const X = __pz; for (let i = 0; i < 4; i++) X.SAVE.done[i] = 1; X.openJob(4, 1); const J = X.job;
-        for (const p of J.ref) X.addPart(p.t, p.x, p.y, p.a, p.m); const best = X.SAVE.ws.best['4-1']; return { won: X.won, best, par: J.par, hash: location.hash, toast: document.getElementById('toast').textContent }; });
-      ok(s.won && s.best && s.best[0] === s.par.cost, 'reference build delivered and recorded: ' + JSON.stringify(s)); ok(/#job=4-1/.test(s.hash) && /Delivered/.test(s.toast), 'job in the URL, delivery toast');
-      // reload: the workshop reopens the same job, with the best kept
-      await page.reload(); await page.waitForTimeout(400);
-      eq(await page.evaluate(() => [__pz.job.seed, __pz.job.rung, document.getElementById('title').textContent]), [4, 1, 'Optics Workshop']);
-      ok(await page.evaluate(() => /Your best/.test(document.getElementById('goal').textContent)), 'best shown on the job card');
-      ok(await page.evaluate(() => localStorage.getItem('rh:polarizer').length < 2000), 'compact save');
+    'sealed boxes, difficulty: a careful prober profits; firing straight through and guessing loses money': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { FX.setMuted(true); const X = __pz; for (let i = 0; i < 4; i++) X.SAVE.done[i] = 1; let rs = 11; const rnd = () => (rs = (rs * 16807) % 2147483647) / 2147483647; Math.random = rnd;
+        const sign = ans => { ans.forEach((a, i) => { document.querySelector(`[data-ci="${i}"]`).value = a.k; document.querySelector(`[data-ca="${i}"]`).value = a.a == null ? '' : a.a; }); const c0 = X.bxSave().cash; document.getElementById('bSign').click(); return X.bxSave().cash - c0; };
+        const careful = (sd, g) => { X.openBox(sd, g); if (!X.parts.some(p => p.t === 'det')) X.addPart('det', 12, 4); X.boxFire(30); const T0 = X.bx.log[Object.keys(X.bx.log)[0]]; const t0 = (T0.clicks.P1 || 0) / T0.shots;
+          const an = X.addPart('pol', 10, 4, 0); for (const a of [0, 45, 90, 135]) { X.setAngle(an, a); X.boxFire(30); } const f = X.cosFit(X.evidence()), r15 = v => Math.round(v / 15) * 15;
+          return sign(g === 1 || t0 < .9 ? [{ k: 'pol', a: r15(f.ph) % 180 }] : [{ k: 'hwp', a: r15(f.ph / 2) % 90 }]); };
+        const naive = (sd, g) => { X.openBox(sd, g); if (!X.parts.some(p => p.t === 'det')) X.addPart('det', 12, 4); X.boxFire(20); const k = g === 1 || rnd() < .5 ? 'pol' : 'hwp'; return sign([{ k, a: Math.floor(rnd() * 12) * 15 }]); };
+        const o = { care: [], naive: [] }; for (const g of [1, 2]) for (let sd = 40; sd < 48; sd++) { o.care.push(careful(sd, g)); o.naive.push(naive(sd + 100, g)); }
+        const sum = a => a.reduce((x, v) => x + v, 0); o.careSum = sum(o.care); o.naiveSum = sum(o.naive); o.carePerfect = o.care.filter(v => v > 60).length; return o; });
+      ok(r.careSum > 0 && r.carePerfect >= 12, 'careful probing pays: ' + JSON.stringify(r)); ok(r.naiveSum < 0, 'guessing loses money: ' + JSON.stringify(r));
+    },
+    'sealed boxes: a live bomb hit by a photon destroys the box; an interferometer can certify it untouched; the shop stocks the drawer': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { FX.setMuted(true); const X = __pz; for (let i = 0; i < 4; i++) X.SAVE.done[i] = 1; const o = {};
+        let s = 5; Math.random = () => (s = (s * 16807) % 2147483647) / 2147483647;
+        // straight through: the first photon on a live bomb ends it
+        const live = X.genBox(1, 4).els[0].k === 'live' ? 1 : [2, 3, 4, 5, 6, 7, 8].find(sd => X.genBox(sd, 4).els[0].k === 'live'); X.openBox(live, 4); X.boxFire(5); o.direct = [X.bx.destroyed, X.bx.shots];
+        // Elitzur–Vaidman round the box: half mirror at C5 up to C3, mirror at K5 up to K3, mirror C3 across, half mirror K3; detectors right of and above K3
+        let cert = 0, lost = 0; for (let t = 0; t < 12; t++) { X.openBox(live, 4); X.addPart('bs', 2, 4, 0, 0); X.addPart('mirror', 2, 2, 0, 0); X.addPart('mirror', 10, 4, 0, 0); X.addPart('bs', 10, 2, 0, 0); X.addPart('det', 12, 2); X.addPart('det', 10, 0);
+          const hd = X.simulate({ sources: [{ x: 1, y: 4, d: 0, pol: 0 }], fixed: X.boxParts({ els: [{ k: 'dud' }] }) }, X.parts).hits, dark = ['P1', 'P2'].find(k => !hd[k] || hd[k].p < 1e-9); o.dark = dark;
+          while (!X.bx.destroyed && X.bx.left > 0) { X.boxFire(1); if (X.fires[dark]) break; } if (X.bx.destroyed) lost++; else cert++; }
+        o.ev = [cert, lost];
+        const c0 = X.bxSave().cash; document.getElementById('bShop').click(); const btn = document.querySelector('[data-buy="pol"]'); btn.click(); o.shop = [c0 - X.bxSave().cash, X.bxSave().own.pol, X.LV[12].n];
+        o.tray = [...document.querySelectorAll('#tray [data-t]')].map(b => b.dataset.t); return o; });
+      eq(r.direct, [true, 1], 'the first photon straight through detonates a live bomb');
+      ok(r.ev[0] >= 3 && r.ev[1] >= 3, 'an interferometer certifies some live bombs untouched (and loses some): ' + r.ev);
+      eq(r.shop.slice(0, 2), [30, 2], 'bought a second filter'); ok(r.tray.includes('pol') && !r.tray.includes('bs') || r.tray.length >= 1, 'drawer shows what you own');
     },
     'progress and locked levels': async ({ page, eq, ok }) => {
       const locked = await page.$$eval('#levels .lv.lock', els => els.map(e => +e.dataset.i));

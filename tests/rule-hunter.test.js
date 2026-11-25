@@ -19,8 +19,8 @@ async function touchDrag(cdp, a, b, steps = 6) { await cdp.send('Input.dispatchT
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); }
 async function touchPinch(cdp, c, d0, d1) { const pts = (d) => [{ x: c[0] - d, y: c[1], id: 1 }, { x: c[0] + d, y: c[1], id: 2 }]; await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pts(d0) });
   for (let k = 1; k <= 5; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pts(d0 + (d1 - d0) * k / 5) }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); }
-const dismiss = (page) => page.evaluate(() => { document.querySelectorAll('.modal-bg').forEach(m => m.remove()); __rh.running = false; });
-const noBet = (page) => page.evaluate(() => { if (__rh.pending) __rh.predict(null); __rh.S.noPredict = 1; __rh.running = false; });
+const dismiss = (page) => page.evaluate(() => { __rh.setMode('dish'); document.querySelectorAll('.modal-bg').forEach(m => m.remove()); __rh.running = false; });
+const noBet = (page) => page.evaluate(() => { if (__rh.mode !== 'dish') { __rh.setMode('dish'); document.querySelectorAll('.modal-bg').forEach(m => m.remove()); } if (__rh.pending) __rh.predict(null); __rh.S.noPredict = 1; __rh.running = false; });
 
 module.exports = {
   page: 'rule-hunter/index.html',
@@ -148,8 +148,9 @@ module.exports = {
       eq(r.names.length, 16, r.names.join(', ')); for (const n of ['Block', 'Beehive', 'Blinker', 'Toad', 'Beacon', 'Pulsar', 'Pentadecathlon', 'Glider', 'Lightweight spaceship', 'Heavyweight spaceship']) ok(r.names.includes(n), n);
       ok(/^diag\|4\|1\|1\|/.test(r.id), 'the glider is a c/4 diagonal ship: ' + r.id);
     },
-    'the first bet is on an unfamiliar rule, and shows its λ': async ({ page, ok }) => {
-      ok(await page.isVisible('.modal'), 'the intro'); ok(/B368\/S245/.test(await page.textContent('.modal')), 'the intro names the rule'); await page.click('.modal button'); await page.waitForTimeout(300);
+    'the first bet is on an unfamiliar rule, and shows its λ': async ({ page, ok, eq }) => {
+      eq(await page.evaluate(() => __rh.mode), 'law', 'a new player starts on a law'); await page.evaluate(() => __rh.setMode('dish')); await page.waitForTimeout(200);
+      ok(await page.isVisible('.modal'), 'the dish introduces itself on the first visit'); ok(/B368\/S245/.test(await page.textContent('.modal')), 'the intro names the rule'); await page.click('.modal button'); await page.waitForTimeout(300);
       const r = await page.evaluate(() => ({ rule: __rh.ruleStr(__rh.S.rule), pending: !!__rh.pending, txt: document.getElementById('predict').textContent }));
       ok(r.rule !== 'B3/S23', 'not Life: ' + r.rule); ok(r.pending, 'a bet is waiting'); ok(/λ 0\.\d\d: \d+ of 17 switches/.test(r.txt), r.txt);
     },

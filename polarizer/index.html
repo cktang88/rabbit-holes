@@ -246,6 +246,7 @@ function genBox(seed, grade) {
   const els = kinds.map(k => k === 'pol' || k === 'hwp' ? { k, a: Math.floor(r() * (k === 'hwp' ? 90 : 180) / G.step) * G.step } : k === 'phase' ? { k, a: (1 + Math.floor(r() * (360 / G.step - 1))) * G.step } : { k });
   // a box that does nothing visible to a bare beam would be unfair at grade 1: avoid a filter at 90° there (nothing ever gets through)
   if (grade === 1 && els[0].a === 90) els[0].a = 105;
+  if (grade === 2 && !els[0].a) els[0].a = 15; // a filter or wave plate at 0° does nothing to the laser's own light: indistinguishable at this grade
   return { seed, grade, els, budget: G.budget, fee: G.fee };
 }
 // the hidden parts as real board parts (never drawn), plus inert filler so the whole box is sealed
@@ -319,7 +320,8 @@ function cardHTML() {
 function renderBoxPanel() {
   if (!L || !L.box || !$('boxp')) return; const S = bxSave(), clicks = {};
   for (const E of Object.values(bx.log)) for (const k in E.clicks) clicks[k] = (clicks[k] || 0) + E.clicks[k];
-  $('boxStat').innerHTML = `Photons left <b>${bx.left}</b> / ${box.budget} · cash <b>$${S.cash}</b>` + (Object.keys(clicks).length ? '<br>clicks: ' + Object.entries(clicks).map(([k, v]) => `<b>${k}</b> ${v}`).join(' · ') : '') + (bx.destroyed ? '<br><b style="color:#a8321e">Box destroyed.</b>' : '');
+  const rows = Object.values(bx.log).filter(E => E.shots).slice(-4).map(E => `<div style="display:flex;justify-content:space-between;gap:6px"><span>${E.ana != null ? `analyser ${E.ana}°` : 'no analyser'} · ${E.desc} part${E.desc === 1 ? '' : 's'}</span><span>${Object.entries(E.clicks).map(([k, v]) => `<b>${k}</b> ${v}`).join(' ') || '<b>0</b>'} / ${E.shots}</span></div>`).join('');
+  $('boxStat').innerHTML = `Photons left <b>${bx.left}</b> / ${box.budget} · cash <b>$${S.cash}</b>` + (rows ? `<div style="margin-top:3px;border-top:1px dotted rgba(0,0,0,.3)">${rows}</div>` : '<br>Fire a photon: the detector clicks, or doesn\'t.') + (bx.destroyed ? '<br><b style="color:#a8321e">Box destroyed.</b>' : '');
   drawEvidence();
 }
 function boxGoalHTML() {
@@ -795,7 +797,7 @@ function renderTray() {
     if ($('crN')) $('crN').oninput = e => { crate.N = +e.target.value; e.target.nextElementSibling.textContent = e.target.value; };
     if ($('crNew')) $('crNew').onclick = () => { newCrate(); FX.sfx('pop'); renderTray(); };
     fit(); return; }
-  $('tray').innerHTML = Object.entries(L.tray).map(([t, n]) => `<button class="pc ${tool === t ? 'on' : ''}" data-t="${t}">${NAMES[t]} <i>${n - used(t)}</i></button>`).join('') +
+  $('tray').innerHTML = Object.entries(L.tray).filter(([, n]) => !L.box || n > 0).map(([t, n]) => `<button class="pc ${tool === t ? 'on' : ''}" data-t="${t}">${NAMES[t]} <i>${n - used(t)}</i></button>`).join('') +
     (L.box ? `<button class="b" id="bf1">Fire 1</button><button class="b" id="bf10">Fire 10</button><button class="b" id="bf50">Fire 50</button>` : L.fire ? `<button class="b" id="f1">Fire 1 photon</button><button class="b" id="f20">Fire 20</button>` : `<button class="b ghost" id="f20">Fire 20 photons</button>`) + `<button class="b ghost" id="rst">${L.box ? 'Clear' : 'Reset'}</button>`;
   $('tray').querySelectorAll('[data-t]').forEach(b => {
     b.onpointerdown = e => { if (e.button) return; e.preventDefault(); drag = { mode: 'new', type: b.dataset.t, cx: e.clientX, cy: e.clientY, moved: false }; FX.sfx('tick'); };

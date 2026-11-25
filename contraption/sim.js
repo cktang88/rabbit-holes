@@ -35,8 +35,8 @@ const PTYPES=Object.keys(PARTS);
 const BENCHES=[
  {id:'first', n:'The first egg', t:'Bring the egg down to the basket without cracking it.', cargo:'egg', drop:[3,4], basket:[12,0], bin:{plank:3},
   sol:[['plank',4,3.5,-1],['plank',7,2.5,-1],['plank',10,1.4,-1]]},
- {id:'zigzag', n:'The long way down', t:'A deep shaft. Spend the height slowly.', cargo:'egg', drop:[3,9.4], basket:[9,0], fixed:[[2,5,.15,5,0],[6,6.2,.15,4.2,0]], bin:{plank:7},
-  sol:[]},
+ {id:'zigzag', n:'The long way down', t:'A deep shaft. Spend the height slowly.', cargo:'egg', drop:[3,9.9], basket:[3.1,0], fixed:[[2,5.25,.15,5.25,0],[5.9,5.25,.15,5.25,0]], bin:{plank:6},
+  sol:[['plank',3.65,9.4,-1],['plank',4.25,7.95,1],['plank',3.65,6.5,-1],['plank',4.25,5.05,1],['plank',3.65,3.6,-1],['plank',4.25,2.15,1]]},
  {id:'cushion', n:'Something soft', t:'Straight down is quickest. Make the landing soft.', cargo:'egg', drop:[8,7], basket:[12,0], bin:{cushion:2, plank:1},
   sol:[['cushion',8,4.5,-1],['cushion',10.5,2.5,-1]]},
  {id:'hammock', n:'The hammock', t:'A high hopper above a shelf. The basket is down on the left.', cargo:'egg', drop:[15,12], basket:[4,0], fixed:[[16,8,3,.15,0]], bin:{hammock:1, plank:3, cushion:1},
@@ -116,9 +116,9 @@ class Sim{
         const ax=V(-Math.sin(a*RAD), Math.cos(a*RAD)), base=V(x-ax.x*.7, y-ax.y*.7);
         const foot=w.createBody({type:'static', position:base, angle:a*RAD}); foot.createFixture(pl.Box(.5,.08),FR());
         push(this.add({kind:'cfoot', b:foot, hw:.5, hh:.08}));
-        const pad=this.box('dynamic',x,y,.85,.07,a,{density:2,friction:.8},'cushion'); push(pad); pad.base=base; pad.axis=ax;
+        const pad=this.box('dynamic',x,y,.85,.07,a,{density:1,friction:.8},'cushion'); push(pad); pad.base=base; pad.axis=ax;
         w.createJoint(pl.PrismaticJoint({enableLimit:true, lowerTranslation:-.6, upperTranslation:0}, foot, pad.b, V(x,y), ax));
-        w.createJoint(pl.DistanceJoint({frequencyHz:2.2, dampingRatio:.35, length:.95}, foot, pad.b, base, V(x,y)));
+        w.createJoint(pl.DistanceJoint({frequencyHz:4, dampingRatio:.7, length:.95}, foot, pad.b, base, V(x,y)));
         break; }
       case 'hammock': { const n=7, span=3, c=Math.cos(a*RAD), s=Math.sin(a*RAD), seg=span/n*.5, sag=.12;
         const pegs=[[-1,'L'],[1,'R']].map(([d])=>{ const pg=w.createBody({type:'static', position:V(x+d*span/2*c, y+d*span/2*s)}); pg.createFixture(pl.Circle(.1),FR()); return push(this.add({kind:'peg', b:pg, r:.1})); });
