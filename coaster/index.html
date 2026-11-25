@@ -351,6 +351,8 @@ function playRect() { // the part of the screen the drawing can use
 }
 const stripH = () => innerHeight < 520 ? 30 : innerWidth < 860 ? 38 : 48; // the g strip under the drawing
 function fit() {
+  // while the 3D ride covers the screen the brief and toolbar measure 0×0, so fitting now would aim the blueprint at nothing: refit when the ride view closes
+  if (V3.on || $('tools').getBoundingClientRect().height === 0) { V3.needFit = true; return; }
   if (!design.nodes.length) return; const R = playRect(), xs = design.nodes.map(n => n.x), ys = design.nodes.map(n => n.y);
   const x0 = Math.min(...xs) - 10, x1 = Math.max(...xs) + 10, y0 = Math.min(0, ...ys) - 4, y1 = Math.max(...ys) + 12;
   // fit the whole ride if it reads well; on a narrow phone keep the track at least half the drawing's height and start at the station (drag to pan)
@@ -850,7 +852,7 @@ function v3Open() {
   V3.on = true; $('v3').classList.add('on'); $('v3fx').classList.add('on'); document.body.classList.add('ride3'); pv.style.display = 'none'; $('povL').style.display = 'none'; wakeTools();
   if (play) v3Frame(play); return true;
 }
-function v3Close() { V3.on = false; $('v3').classList.remove('on'); $('v3fx').classList.remove('on'); document.body.classList.remove('ride3'); }
+function v3Close() { V3.on = false; $('v3').classList.remove('on'); $('v3fx').classList.remove('on'); document.body.classList.remove('ride3'); if (V3.needFit) { V3.needFit = false; fit(); } }
 function toggle3D() { V3.want = !V3.on; if (V3.on) { v3Close(); if (play) { pv.style.display = 'block'; $('povL').style.display = 'block'; } } else v3Open(); renderTools(); kick(); }
 // the ride controls fade away after two seconds so they don't sit on the view; any touch or mouse move brings them back
 let toolsT = 0; function wakeTools() { $('tools').classList.remove('idle'); clearTimeout(toolsT); toolsT = setTimeout(() => { if (V3.on) $('tools').classList.add('idle'); }, 2000); }
@@ -1000,6 +1002,7 @@ addEventListener('keydown', e => { if (e.target.tagName === 'SELECT' || e.target
 // ================= debug / test handle =================
 window.__coaster = { spline, resample, geometry, simulate: ride, scores, footprint, costOf, checkReq, siteFrom, COMS, REF, enc, dec, dailySeed, histogram, dailyScore,
   get design() { return design; }, set design(d) { design = d; changed(); }, get site() { return site; }, get last() { return last; }, get C() { return C; }, load: i => loadCom(i), ride: () => { startRide(); play.fast = 1e6; stepRide(performance.now()); return last; },
+  nodesOnScreen: () => design.nodes.map(n => [sx(n.x) / dpr, sy(n.y) / dpr]),
   startRide, get play() { return play; }, V3, v3Open, v3Close, toggle3D, cycleSpeed, seatAt: () => play && V3.frames && seatAt(play),
   // headless playback at a given speed with fixed frame steps: what a player sees at 1x, 2x, 4x
   playback(speed, dt = 1 / 60) { const sc = scores(design, site), R = sc.r, p = { k: 0, f: 0, simT: 0, peak: -9, low: 9, visited: 0 }, ks = []; let frames = 0; while (!advance(p, R, dt * speed) && frames < 1e6) { frames++; ks.push(p.k); } return { peak: p.peak, low: p.low, visited: p.visited, frames, n: R.t.length, stats: sc.st, thrill: sc.thrill, comfort: sc.comfort }; },

@@ -234,5 +234,15 @@ module.exports = {
         const p = await reopen(page); ok(!p.errs.length, `save ${v}: ${p.errs[0]}`); ok(await p.evaluate(() => __coaster.design.nodes.length >= 3)); await p.close();
       }
     },
+    'after a ride on a phone the blueprint nodes are still on screen (the view is not re-fitted while the 3D ride hides the toolbar)': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.evaluate(() => __coaster.load(0)); await page.waitForTimeout(300);
+      const before = await page.evaluate(() => __coaster.nodesOnScreen());
+      await page.evaluate(() => { __coaster.startRide(); }); await page.waitForTimeout(400);
+      ok(await page.evaluate(() => __coaster.V3.on), '3D ride view opened');
+      await page.evaluate(() => { __coaster.play.fast = 1e6; }); await page.waitForFunction(() => !__coaster.play, null, { timeout: 20000 }); await page.waitForTimeout(400);
+      const after = await page.evaluate(() => __coaster.nodesOnScreen()), tb = await page.evaluate(() => document.getElementById('tools').getBoundingClientRect().top);
+      ok(after.every(([x, y]) => x > -5 && x < 395 && y > 0 && y < tb), 'nodes inside the drawing after the ride: ' + JSON.stringify(after.map(a => a.map(Math.round))));
+      ok(after.every(([, y], i) => Math.abs(y - before[i][1]) < 120), 'nodes stay near where they were vertically');
+    },
   },
 };
