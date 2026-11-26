@@ -86,7 +86,10 @@ const today=()=>new Date().toISOString().slice(0,10);
 const dens=(rgb)=>rgb.map(c=>-Math.log(Math.max(.02,c)));
 
 // ======================= WebGL2 =======================
-const cv=$('gl'); const gl=cv.getContext('webgl2',{antialias:false, alpha:false, premultipliedAlpha:false, preserveDrawingBuffer:true});
+const cv=$('gl'); const NOGL=/[?&]nogl\b/.test(location.search);
+// some browsers refuse WebGL2 (graphics acceleration off, a blocklisted GPU, a lost context): retry plainly, then fall back to drawing on the CPU
+const gl= NOGL? null : (cv.getContext('webgl2',{antialias:false, alpha:false, premultipliedAlpha:false, preserveDrawingBuffer:true}) || cv.getContext('webgl2'));
+const C2= gl? null : cv.getContext('2d');
 const FLOAT_RT=!!(gl && gl.getExtension('EXT_color_buffer_float'));
 function sh(type, src){ const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s); if (!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)+'\n'+src.split('\n').map((l,i)=>(i+1)+': '+l).join('\n')); return s; }
 function prog(vs, fs){ const p=gl.createProgram(); gl.attachShader(p,sh(gl.VERTEX_SHADER,vs)); gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs)); gl.linkProgram(p); if (!gl.getProgramParameter(p,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); const u={}; const n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS); for (let i=0;i<n;i++){ const a=gl.getActiveUniform(p,i); u[a.name.replace(/\[0\]$/,'')]=gl.getUniformLocation(p,a.name); } return {p,u}; }
@@ -319,7 +322,25 @@ let peel=null, last=performance.now(), ft=[];
 function resize(){ const rot=$('stage').clientHeight>$('stage').clientWidth*1.08; if (rot!==ROT){ ROT=rot; dirty=true; cam.fit(false); if (COM.hint) $('hint').textContent=(ROT&&COM.hintTurned)||COM.hint; } const s=DPR*dprScale, w=Math.max(2,Math.round(cv.clientWidth*s)), h=Math.max(2,Math.round(cv.clientHeight*s));
   if (cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; inkFB=texRT(w,h); dirty=true; } return s; }
 let paused=false;
-function frame(now){ requestAnimationFrame(frame); if (!gl || paused) return; step(now); }
+function frame(now){ requestAnimationFrame(frame); if (paused) return; if (gl) step(now); else if (C2) cpuStep(now); }
+// the CPU bath: the same inverse transforms the scorer uses, traced per pixel at a reduced resolution; redrawn only when something changes
+let cpuKey='', cpuImg=null;
+const WAL=[.30,.19,.11], ROOM=[.09,.08,.07];
+function cpuStep(now){ const sh=Math.min(1,(devicePixelRatio||1))*(cv.clientWidth*cv.clientHeight>500000? .5 : .6);
+  const w=Math.max(2,Math.round(cv.clientWidth*sh)), h=Math.max(2,Math.round(cv.clientHeight*sh));
+  const rot=$('stage').clientHeight>$('stage').clientWidth*1.08; if (rot!==ROT){ ROT=rot; dirty=true; cam.fit(false); }
+  if (anim && now-anim.t0>anim.dur) anim=null;
+  const key=[w,h,cam.x,cam.y,cam.k,ROT,holding,ops.length].join();
+  if (!dirty && key===cpuKey) return; dirty=false; cpuKey=key;
+  if (cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; cpuImg=null; }
+  if (!cpuImg) cpuImg=C2.createImageData(w,h); const d=cpuImg.data, T= holding? MB.targetOps(COM) : ops, cols=INKS.map(k=>k[1]);
+  for (let j=0;j<h;j++){ const py=(j+.5)/sh; for (let i=0;i<w;i++){ const px=(i+.5)/sh, u=(px-cam.x)/cam.k, v=(py-cam.y)/cam.k, x=ROT? v : u, y=ROT? TH-u : v; let c;
+      if (x>=0&&x<=TW&&y>=0&&y<=TH){ const k=MB.inkAt(T,x,y); c= k<0? BATH : cols[k];
+        const e=Math.min(x,TW-x,y,TH-y), sh2= e<10? .82+.018*e : 1; c=[c[0]*sh2,c[1]*sh2,c[2]*sh2]; }
+      else if (x>=-FRAME&&x<=TW+FRAME&&y>=-FRAME&&y<=TH+FRAME){ const g=.85+.15*Math.sin(x*.35+Math.sin(y*.05)*3)*Math.sin(y*.02+1); c=[WAL[0]*g,WAL[1]*g,WAL[2]*g]; }
+      else c=ROOM;
+      const o=4*(j*w+i); d[o]=c[0]*255; d[o+1]=c[1]*255; d[o+2]=c[2]*255; d[o+3]=255; } }
+  C2.putImageData(cpuImg,0,0); }
 function step(now){ const dt=now-last; last=now; ft.push(dt); if (ft.length>40) ft.shift();
   // adaptive resolution: hold a phone near 60 fps
   if (ft.length===40){ const avg=ft.reduce((a,b)=>a+b,0)/40; if (avg>22 && dprScale>.55){ dprScale=Math.max(.55,dprScale*.85); ft=[]; } else if (avg<14 && dprScale<1){ dprScale=Math.min(1,dprScale*1.1); ft=[]; } }
@@ -449,7 +470,7 @@ let hashT=0; function setHash(){ clearTimeout(hashT); hashT=setTimeout(()=>{ try
 
 // ======================= Start =======================
 (function boot(){
-  if (!gl){ $('stage').innerHTML='<p style="padding:30px;color:#e9c987;font-size:20px">This bath needs WebGL2, which this browser does not offer.</p>'; }
+  if (!gl){ cv.style.imageRendering='auto'; if (!NOGL) RH.toast('Your browser turned down WebGL2, so the bath is drawn the simple way. For the full bath, switch on graphics acceleration (chrome://settings/system) and check chrome://gpu.', 9000); }
   else { try{ initGL(); } catch(e){ console.error(e); $('hint').textContent='The bath could not be lit: '+e.message.split('\n')[0]; } }
   const h=location.hash.slice(1); let done=false;
   if (h.startsWith('s=')){ const m=MB.decode(h.slice(2)); if (m){ openShared(m); done=true; } }

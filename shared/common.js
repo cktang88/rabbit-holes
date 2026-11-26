@@ -50,7 +50,20 @@ const RH = (() => {
   // Track hub progress: each experiment reports a 0..1 completion fraction.
   const progress = (id, frac) => { const p = load('hub', {}); p[id] = Math.max(0, Math.min(1, frac)); save('hub', p); };
 
-  return { save, load, wipe, toast, modal, rng, hashStr, fmt, progress };
+  // When the browser refuses WebGL (graphics acceleration off or a blocklisted GPU; recent Chrome no longer falls back to software), say so plainly and how to fix it.
+  const noGL = (name) => {
+    if (document.getElementById('rh-nogl')) return;
+    const d = document.createElement('div'); d.id = 'rh-nogl';
+    d.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(10,10,12,.92);color:#eee;font:16px/1.5 system-ui,sans-serif';
+    d.innerHTML = '<div style="max-width:460px"><h2 style="margin:0 0 .5em;font-size:20px">' + name + ' needs 3D graphics (WebGL), and your browser turned it down.</h2>'
+      + '<p style="margin:.4em 0">This usually means graphics acceleration is off, or Chrome has blocklisted your GPU driver. Recent Chrome no longer falls back to software 3D.</p>'
+      + '<ol style="margin:.4em 0 .8em 1.2em;padding:0"><li>Open <b>chrome://settings/system</b> and switch on <b>Use graphics acceleration when available</b>, then relaunch.</li>'
+      + '<li>Open <b>chrome://gpu</b>: "WebGL2" should say <i>Hardware accelerated</i>.</li>'
+      + '<li>Still off? Try <b>chrome://flags/#ignore-gpu-blocklist</b>, or update your graphics driver.</li></ol>'
+      + '<a href="../" style="color:#9cf">← Back to Rabbit Holes</a></div>';
+    document.body.appendChild(d);
+  };
+  return { save, load, wipe, toast, modal, rng, hashStr, fmt, progress, noGL };
 })();
 
 // On experiment pages, add a small "more like this" link beside the "← Rabbit Holes" home link.
