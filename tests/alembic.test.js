@@ -289,5 +289,14 @@ module.exports = {
         A.run(30); let best = 1e9; for (let rep = 0; rep < 3; rep++) { const t0 = performance.now(); for (let k = 0; k < 60; k++) { A.step(); A.render(); } best = Math.min(best, performance.now() - t0); } return best; });
       ok(r < 480, `60 full-tray frames took ${r.toFixed(0)} ms (budget 480 ms, i.e. 8 ms a frame on this machine)`);
     },
+    'the welcome\'s Commissions button stays on the commissions; Stay after a closed world stays; long numerals fit the book': async ({ page, ok, eq }) => {
+      await page.evaluate(() => localStorage.clear()); await page.reload(); await page.waitForSelector('.modal-actions button');
+      await page.click('.modal-actions button:has-text("Commissions")'); await page.waitForTimeout(200);
+      eq(await page.evaluate(() => [__alembic.mode, document.getElementById('bench').hidden]), ['work', true], 'Commissions opened the Assay Office');
+      // the book: VIII, XVIII and friends must not spill into the commission text, and unknowns are counted, not repeated
+      await page.setViewportSize({ width: 390, height: 844 }); await page.click('text=Book'); await page.waitForTimeout(200);
+      const b = await page.evaluate(() => ({ over: [...document.querySelectorAll('.com .n')].filter(n => n.scrollWidth > n.clientWidth).map(n => n.textContent), rep: [...document.querySelectorAll('.com .need')].filter(n => /unknown substance.*unknown substance/.test(n.textContent)).length }));
+      eq(b.over, [], 'numerals overflow'); eq(b.rep, 0, 'repeated unknowns');
+    },
   },
 };

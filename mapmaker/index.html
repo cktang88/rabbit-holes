@@ -71,6 +71,20 @@
   #sealFx.on{display:block;animation:press 2.4s ease-out forwards}
   @keyframes press{0%{transform:scale(2.6) rotate(-30deg);opacity:0}18%{transform:scale(.92) rotate(-8deg);opacity:1}24%{transform:scale(1.04) rotate(-10deg)}30%{transform:scale(1) rotate(-10deg)}80%{opacity:1}100%{transform:scale(1) rotate(-10deg);opacity:0}}
   @media (prefers-reduced-motion:reduce){#sealFx.on{animation:none;opacity:1}}
+  .goal{font-size:15.5px;line-height:1.3;margin-top:2px}
+  #step{font-size:15px;color:#fbf2da;background:#3f7f6a;padding:5px 9px;border-radius:2px;line-height:1.3}
+  #step:empty{display:none}
+  .sum{margin:4px 0;font-size:14.5px} .sum .cp{display:inline-block;border:1px solid #a88b5a;background:#f4ead0;border-radius:10px;padding:0 7px;margin:1px 2px;font-size:13px;font-style:italic}
+  .sum .cp.off{text-decoration:line-through;opacity:.55}
+  details.book summary{cursor:pointer;font-size:13.5px;color:var(--ink2);font-style:italic;min-height:28px;line-height:28px}
+  /* the first lesson: one cape, two ships, two sight lines */
+  .mm-lesson{position:fixed;inset:0;z-index:60;background:rgba(20,12,6,.78);display:flex;align-items:center;justify-content:center;padding:12px}
+  .mm-lesson[hidden]{display:none}
+  .mm-card{background:linear-gradient(#f1e4c3,#e3d1a4);border:1px solid #7a5c32;box-shadow:0 10px 40px #000a;max-width:460px;width:100%;padding:12px 14px;text-align:center}
+  .mm-card h2{margin:0 0 4px;font-family:"IM Fell English SC",serif;font-weight:400;font-size:22px}
+  .mm-say{font-size:16px;line-height:1.35;min-height:3.9em}
+  #lsCv{width:100%;max-width:420px;aspect-ratio:4/3;display:block;margin:6px auto;touch-action:none;cursor:grab;border:1px solid #7a5c32}
+  .mm-foot{display:flex;gap:8px;justify-content:center} .mm-foot button{min-height:40px}
   @media (max-width:760px){
     body{height:100dvh} .topbar{padding:4px 10px} .topbar h1{font-size:15px;white-space:nowrap} #tot{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
     main{flex-direction:column}
@@ -88,15 +102,17 @@
     <svg id="sealFx" viewBox="0 0 100 100" aria-hidden="true"><defs><radialGradient id="wx" cx="38%" cy="32%"><stop offset="0" stop-color="#e2604c"/><stop offset=".55" stop-color="#9c1f1a"/><stop offset="1" stop-color="#5a0e0a"/></radialGradient></defs><path d="M50 4 C62 6 66 2 74 10 C84 14 86 22 92 30 C96 40 94 46 97 54 C96 64 90 70 88 78 C80 86 72 88 64 94 C54 97 46 95 38 96 C28 92 22 88 14 82 C8 74 6 66 4 56 C4 46 6 40 8 30 C14 20 20 16 28 10 C36 6 42 4 50 4Z" fill="url(#wx)"/><circle cx="50" cy="50" r="33" fill="none" stroke="#6a120e" stroke-width="2.5"/><text x="50" y="47" text-anchor="middle" font-family="IM Fell English SC" font-size="14" fill="#f3c2b2">Admiralty</text><text x="50" y="64" text-anchor="middle" font-family="IM Fell English SC" font-size="11" fill="#f3c2b2">Approved</text></svg>
   </div>
   <div id="side">
-    <div><div class="sheetName" id="sheetName"></div><div class="hint" id="hint"></div></div>
+    <div><div class="sheetName" id="sheetName"></div><div class="goal" id="hint"></div></div>
+    <div id="step" role="status"></div>
     <div class="purse" id="purse"></div>
     <div><h3>Ship's logs</h3><div class="tabs" id="tabs"></div><div class="page" id="page"></div></div>
     <div><h3>Landmarks</h3><div class="feats" id="feats"></div></div>
-    <div id="pubBox"><button id="publish">Seal &amp; publish the chart</button><div class="small" style="font-style:italic;color:var(--ink2);margin-top:4px">Merchants sail by it at once. They give each mark a berth as wide as your doubt.</div></div>
+    <div id="pubBox"><button id="publish">Seal &amp; publish the chart</button><div class="small" style="font-style:italic;color:var(--ink2);margin-top:4px">Merchants steer around your doubt rings.</div></div>
     <div id="result"></div>
     <div><h3>Sheets</h3><div class="sheets" id="sheets"></div><div style="margin-top:8px" id="dailyBox"></div></div>
   </div>
 </main>
+<div class="mm-lesson" id="mmLesson" hidden><div class="mm-card"><h2>How a chart is made</h2><div class="mm-say" id="lsSay"></div><canvas id="lsCv" width="480" height="360" aria-label="Drag the cape to where the sight lines cross"></canvas><div class="mm-foot"><button id="lsSkip">Skip</button><button id="lsGo" hidden>Start sheet I</button></div></div></div>
 <script src="../shared/common.js"></script>
 <script src="../shared/fx.js"></script>
 <script src="../shared/panzoom.js"></script>
@@ -315,34 +331,34 @@ const MapSim = (() => {
 const M=MapSim, {WX,WY,POINT,dist}=M;
 const TARGETS = [60, 100, 100, 95, 90, 115, 90, 105, 132, 140];
 const SHEETS = [
-  { n: 'A Fair Copy', spec: { ports: ['W', 'E'], isles: 1, current: 0.7, logs: ['ok', 'ok'], routes: [[0, 1]] },
+  { n: 'A Fair Copy', goal: 'Drag each ship onto the port she reached, then seal the chart.', spec: { ports: ['W', 'E'], isles: 1, current: 0.7, logs: ['ok', 'ok'], routes: [[0, 1]] },
     hint: 'Two honest masters, one island, and a current nobody could see. Both ships reached port; your reckoning of them did not.', first: 'Open a log in the ship\'s book.',
     note: 'Dead reckoning: heading, speed and hours give a position, but a current carries the ship sideways unseen. Closing the traverse on a known port spreads that error back along the track.' },
-  { n: 'Two Islands', spec: { ports: ['W', 'E', 'N'], isles: 2, current: 0.7, logs: ['ok', 'ok', 'ok'], routes: [[0, 1], [2, 1]] },
+  { n: 'Two Islands', goal: 'Two islands. A cape is fixed where rays from different ships cross.', spec: { ports: ['W', 'E', 'N'], isles: 2, current: 0.7, logs: ['ok', 'ok', 'ok'], routes: [[0, 1], [2, 1]] },
     hint: 'More logs, more rays. A mark is only as good as the angle between the rays that fix it; a cape nobody saw from two sides is not on the chart at all.',
     note: 'A fix from two bearings is strongest when they cross near right angles; nearly parallel rays fix nothing.' },
-  { n: 'A Liar Aboard', spec: { ports: ['W', 'E', 'S'], isles: 2, current: 0.7, logs: ['ok', 'liar', 'ok', 'ok'], routes: [[0, 1], [2, 0]] },
+  { n: 'A Liar Aboard', goal: "One master lied. Find the log whose rays meet nobody else's, and strike it out.", spec: { ports: ['W', 'E', 'S'], isles: 2, current: 0.7, logs: ['ok', 'liar', 'ok', 'ok'], routes: [[0, 1], [2, 0]] },
     hint: 'One of these masters wrote his bearings in a tavern. His rays will not meet anyone else\'s.',
     note: 'Cartographers weighed sources: a log that disagreed with every other was set aside, however confident its author.' },
-  { n: 'The Bent Needle', spec: { ports: ['W', 'E', 'N'], isles: 2, current: 0.7, logs: ['ok', 'dev', 'ok'], routes: [[0, 1], [2, 1]] },
+  { n: 'The Bent Needle', goal: "One ship's compass was bent. Turn it until her rays meet the others'.", spec: { ports: ['W', 'E', 'N'], isles: 2, current: 0.7, logs: ['ok', 'dev', 'ok'], routes: [[0, 1], [2, 1]] },
     hint: 'One ship carried iron near her binnacle. Everything she steered and saw is turned by whole points.',
     note: 'Compass deviation: iron aboard pulls the needle. A ship whose every bearing is turned the same way can be corrected by turning them all back.' },
-  { n: 'Breakers', spec: { ports: ['W', 'E', 'S'], isles: 1, reefs: 2, current: 0.7, logs: ['ok', 'ok', 'ok'], routes: [[0, 1], [2, 1]] },
+  { n: 'Breakers', goal: 'Reefs are seen only up close. The survey sloop (10) can fix one.', spec: { ports: ['W', 'E', 'S'], isles: 1, reefs: 2, current: 0.7, logs: ['ok', 'ok', 'ok'], routes: [[0, 1], [2, 1]] },
     hint: 'Reefs are seen only when you are nearly on them. A single sighting fixes nothing: the sloop costs 10.',
     note: 'Reefs were charted from soundings and breakers seen close aboard. A reef sighted once was marked "doubtful" and given a wide berth.' },
-  { n: 'The Island That Isn\'t There', spec: { ports: ['W', 'E', 'N'], isles: 2, current: 0.7, logs: ['ok', 'phantom', 'ok', 'ok'], routes: [[0, 1], [2, 0]] },
+  { n: 'The Island That Isn\'t There', goal: 'One master swears to an island. Check what the other ships saw there.', spec: { ports: ['W', 'E', 'N'], isles: 2, current: 0.7, logs: ['ok', 'phantom', 'ok', 'ok'], routes: [[0, 1], [2, 0]] },
     hint: 'One master swears to an island. His rays agree beautifully. Read what the others saw there.',
     note: 'Phantom islands such as Hy-Brasil and Buss Island stayed on charts for centuries because removing a hazard felt riskier than keeping one.' },
-  { n: 'Lost with All Hands', spec: { ports: ['W', 'E', 'S'], isles: 2, current: 0.7, logs: ['ok', 'lost', 'ok', 'lost'], routes: [[0, 1], [2, 1]] },
+  { n: 'Lost with All Hands', goal: 'Two ships never reached port. Drag them until their noon lines agree.', spec: { ports: ['W', 'E', 'S'], isles: 2, current: 0.7, logs: ['ok', 'lost', 'ok', 'lost'], routes: [[0, 1], [2, 1]] },
     hint: 'Two logs were found in wreckage: no port to close on. Their noon latitudes and the capes they saw must place them.',
     note: 'Latitude came from the sun at noon; longitude was guesswork until the chronometer. A noon sight pins a ship north and south, never east and west.' },
-  { n: 'Shoal Water', spec: { ports: ['W', 'E', 'N', 'S'], isles: 2, reefs: 3, current: 0.6, logs: ['ok', 'ok', 'dev', 'ok'], routes: [[0, 1], [2, 3]] },
+  { n: 'Shoal Water', goal: 'Three reefs and a bent compass across two trade lanes.', spec: { ports: ['W', 'E', 'N', 'S'], isles: 2, reefs: 3, current: 0.6, logs: ['ok', 'ok', 'dev', 'ok'], routes: [[0, 1], [2, 3]] },
     hint: 'Three reefs across two trade lanes, and a bent needle among the logs.',
     note: 'The Admiralty\'s hydrographers sent survey ships precisely where trade was thickest and evidence thinnest.' },
-  { n: 'Two Liars', spec: { ports: ['W', 'E', 'S'], isles: 2, reefs: 1, current: 0.7, logs: ['ok', 'liar', 'ok', 'phantom', 'ok'], routes: [[0, 1], [2, 1]] },
+  { n: 'Two Liars', goal: 'Two liars: a careless one and a careful one.', spec: { ports: ['W', 'E', 'S'], isles: 2, reefs: 1, current: 0.7, logs: ['ok', 'liar', 'ok', 'phantom', 'ok'], routes: [[0, 1], [2, 1]] },
     hint: 'A careless liar and a careful one. Only one of them will show up in the rays.',
     note: 'A map is an argument from evidence. Its strength is not its detail but how many independent witnesses agree.' },
-  { n: 'The Admiral\'s Commission', spec: { ports: ['W', 'E', 'N', 'S'], isles: 3, reefs: 2, current: 0.7, logs: ['ok', 'dev', 'liar', 'ok', 'lost', 'ok'], routes: [[0, 1], [2, 3], [0, 3]] },
+  { n: 'The Admiral\'s Commission', goal: 'Everything at once.', spec: { ports: ['W', 'E', 'N', 'S'], isles: 3, reefs: 2, current: 0.7, logs: ['ok', 'dev', 'liar', 'ok', 'lost', 'ok'], routes: [[0, 1], [2, 3], [0, 3]] },
     hint: 'Everything at once: a current, a bent needle, a liar, a lost ship, three islands and two reefs.',
     note: 'By 1795 the Hydrographic Office existed to do exactly this: reconcile the Navy\'s logs into charts every captain could trust.' },
 ];
@@ -402,7 +418,7 @@ function copy(t){ try { navigator.clipboard.writeText(t).then(()=>RH.toast('Copi
 // ===================== side panel =====================
 const fmtBrg=(b)=>{ b=((b%360)+360)%360; const ns=b<=90||b>=270?'N':'S', ew=b<=180?'E':'W'; const a= ns==='N'? (b<=90?b:360-b) : (b<=180?180-b:b-180); return a<0.5? ns : a>89.5? (b<180?'E':'W') : `${ns} ${Math.round(a)}° ${ew}`; };
 const lat=(y)=>{ const v=24-y/20; const d=Math.floor(v), m=Math.round((v-d)*60); return `${d}°${String(m===60?0:m).padStart(2,'0')}′`; };
-function renderAll(){ const d=sheetDef(); document.getElementById('sheetName').textContent=d.n; document.getElementById('hint').textContent=d.hint||'The same evidence for everyone today. Publish when the rays agree.'; renderPurse(); renderTabs(); renderPage(); renderFeats(); renderSheets(); renderResult();
+function renderAll(){ const d=sheetDef(); document.getElementById('sheetName').textContent=d.n; document.getElementById('hint').textContent=d.goal||'The same logs for everyone today. Fix each cape, then seal the chart.'; renderPurse(); renderTabs(); renderPage(); renderFeats(); renderSheets(); renderResult();
   document.getElementById('publish').disabled=!!published; dirty=true; }
 function renderPurse(){ const d=sheetDef(); document.getElementById('purse').innerHTML=`<span>Commission target: <b>${d.target}</b> doubloons</span><span>Surveys spent: ${st.spent}</span>`; }
 function logStatus(i){ const L=logs[i], s=st.logs[i]; if (s.struck) return {txt:'struck out', cls:'bad', mark:'✗'};

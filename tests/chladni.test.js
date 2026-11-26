@@ -149,7 +149,8 @@ module.exports = {
     },
     'a shared commission link is read once: edits after it survive a reload': async ({ page, eq }) => {
       const link = await page.evaluate(() => { const X = __ch; X.openComm(X.COMMS[0]); X.sc.notes = [[1, .5]]; return X.share(); });
-      await page.goto(link); await page.waitForFunction(() => window.__ch);
+      await page.goto('about:blank'); await page.goto(link); await page.waitForFunction(() => window.__ch);
+      eq(await page.evaluate(() => __ch.sc.notes), [[1, .5]]);
       await page.click('.pm[data-k="2"]'); eq(await page.evaluate(() => __ch.sc.notes.length), 2);
       await page.reload(); await page.waitForFunction(() => window.__ch); eq(await page.evaluate(() => __ch.sc.notes.length), 2, 'the link overwrote the score on reload');
     },
