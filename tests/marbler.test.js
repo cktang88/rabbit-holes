@@ -74,6 +74,50 @@ module.exports = {
       eq(r.st[0], 's'); const ang = Math.atan2(r.we[1] - r.ws[1], r.we[0] - r.ws[0]); near(r.st[3] * Math.PI / 12, ((ang % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI), .14, 'stroke direction follows the finger on the turned trough');
       eq(r.n1, r.n0, 'a pinch inks nothing'); ok(r.k1 > r.k0 * 1.2, 'and zooms'); ok(r.sw <= 390, 'no sideways scroll');
     },
+    'Compare: a tap toggles the pattern into the bath; a tap on the bath while comparing goes back and inks nothing; undo and laying leave Compare': async ({ page, eq, ok }) => {
+      await page.evaluate(() => { const g = window.__mb; g.open(g.MB.COMMISSIONS.find(c => c.id === 'heart')); g.tool = 'drop'; });
+      await page.click('#peek'); eq(await page.evaluate(() => document.getElementById('peek').getAttribute('aria-pressed')), 'true');
+      const n0 = await page.evaluate(() => window.__mb.ops.length); const b = await page.locator('#gl').boundingBox();
+      await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); await page.waitForTimeout(50);
+      eq(await page.evaluate(() => [document.getElementById('peek').getAttribute('aria-pressed'), window.__mb.ops.length]), ['false', n0], 'the tap went back to the bath without an unseen drop');
+      await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); eq(await page.evaluate(() => window.__mb.ops.length), n0 + 1, 'and the next tap inks');
+      await page.click('#peek'); await page.click('#undoBtn');
+      eq(await page.evaluate(() => [document.getElementById('peek').getAttribute('aria-pressed'), window.__mb.ops.length]), ['false', n0], 'undo shows the bath it changed');
+      await page.click('#peek'); await page.click('#resetBtn'); eq(await page.evaluate(() => document.getElementById('peek').getAttribute('aria-pressed')), 'false');
+    },
+    'Start over clears to the ground, undo brings it back; a new move forgets the stash': async ({ page, eq }) => {
+      const r = await page.evaluate(() => { const g = window.__mb, c = g.MB.COMMISSIONS.find(c => c.id === 'heart'); g.open(c, c.recipe); const full = g.ops.length;
+        document.getElementById('resetBtn').click(); const cleared = g.ops.length; document.getElementById('undoBtn').click(); const back = g.ops.length;
+        document.getElementById('resetBtn').click(); g.push(['d', 100, 100, 10, 0]); document.getElementById('undoBtn').click(); document.getElementById('undoBtn').click();
+        return [full, cleared, back, g.ops.length, c.ground.length, c.recipe.length]; });
+      const G = r[4], R = r[5]; eq(r.slice(0, 5), [G + R, G, G + R, G, G]);
+    },
+    'laying the paper prints over several frames, not all at once; a refused clipboard says so without a page error': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(async () => { const g = window.__mb; g.open(g.freeBath(), [['d', 300, 200, 40, 0]]); // a light sheet: software GL in the test browser is slow
+        g.lay(); const k0 = g.peel.k, t = performance.now(); for (let i = 0; i < 7; i++) g.frameNow(t + i * 16); return { k0, k1: g.peel && g.peel.k }; });
+      eq(r, { k0: 1, k1: 8 });
+      await page.evaluate(() => { window.__mb.paused = true; document.querySelectorAll('.modal-bg').forEach(m => m.remove()); window.__mb.afterPeel(); });
+      await page.locator('.modal button', { hasText: 'Copy link' }).last().click(); await page.waitForTimeout(150);
+      ok(await page.evaluate(() => /Could not copy|Copied/.test(document.querySelector('.toast')?.textContent || '')), 'a toast says what happened');
+    },
+    'the battal commission is judged and explained as coverage, not likeness': async ({ page, ok }) => {
+      const t = await page.evaluate(async () => { const g = window.__mb; g.open(g.MB.COMMISSIONS.find(c => c.id === 'battal'), [['d', 300, 200, 30, 0]]); g.afterPeel(); await new Promise(r => setTimeout(r, 30)); return document.querySelector('.modal').textContent; });
+      ok(/covered/.test(t) && !/alike|pattern/i.test(t), t);
+    },
+    'without WebGL2 (?nogl) the bath is drawn on the CPU: not blank, inkable, comparable, and a moving view stays responsive': async ({ page, ok, eq }) => {
+      await page.goto('about:blank'); await page.goto('http://localhost:8765/marbler/index.html?nogl'); await ready(page); await page.evaluate(() => { window.__mb.paused = false; });
+      await page.waitForTimeout(400);
+      const px = () => page.evaluate(() => { const c = document.getElementById('gl'), g = c.getContext('2d'), d = g.getImageData(0, 0, c.width, c.height).data; const set = new Set(); for (let i = 0; i < d.length; i += 4 * 97) set.add(d[i] >> 4 << 8 | d[i + 1] >> 4 << 4 | d[i + 2] >> 4); return { colours: set.size, gl: !!window.__mb.gl, w: c.width }; });
+      const a = await px(); ok(!a.gl && a.colours > 6, 'a drawn bath: ' + JSON.stringify(a));
+      const b = await page.locator('#gl').boundingBox(); const n0 = await page.evaluate(() => { window.__mb.tool = 'drop'; return window.__mb.ops.length; });
+      await page.mouse.click(b.x + b.width * .3, b.y + b.height * .5); eq(await page.evaluate(() => window.__mb.ops.length), n0 + 1, 'a tap drops ink');
+      await page.click('#peek'); await page.waitForTimeout(150); eq(await page.evaluate(() => document.getElementById('peek').getAttribute('aria-pressed')), 'true'); await page.click('#peek');
+      const ms = await page.evaluate(async () => { const g = window.__mb, c = g.MB.COMMISSIONS.find(c => c.id === 'peacock'); g.open(c, c.recipe); await new Promise(r => setTimeout(r, 400));
+        const t = []; let l = performance.now(); await new Promise(res => { const f = (now) => { t.push(now - l); l = now; g.cam.zoomAt(300, 200, 1.01); if (t.length < 12) requestAnimationFrame(f); else res(); }; requestAnimationFrame(f); });
+        return t.slice(2).reduce((a, b) => a + b, 0) / 10; });
+      ok(ms < 120, `a frame while zooming took ${ms.toFixed(0)} ms`);
+      await page.waitForTimeout(400); const w1 = await px(); ok(w1.w >= Math.round(a.w * .95), 'it sharpens again when still: ' + w1.w + ' vs ' + a.w);
+    },
     'speed: a frame costs little on the main thread, and the resolution adapts when frames run slow': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const g = window.__mb, M = g.MB; const c = M.COMMISSIONS.find(c => c.id === 'peacock'); g.open(c, c.recipe); g.settle(); g.renderNow(9); g.gl.finish();
         const t0 = performance.now(); for (let i = 0; i < 20; i++) g.renderNow(1); const cpu = (performance.now() - t0) / 20;

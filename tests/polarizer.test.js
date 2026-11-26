@@ -219,6 +219,36 @@ module.exports = {
       ok(r.dudD1, 'a dud only ever gives D1');
       ok(r.careful[0] && r.careful[2] >= 1, 'a careful sorter passes: ' + r.careful);
     },
+    'bomb crate drawer: a stamp moves the drawer on to the next bomb; the last stamp shows the score and New crate': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { FX.setMuted(true); __pz.crateSeed(3); __pz.load(7); });
+      // real buttons: the drawer used to stay on the stamped bomb (and, after the last one, kept a dead Fire button)
+      await page.click('#crDud');
+      ok(/Bomb 2 of 20/.test(await page.textContent('#tray')), 'the drawer moved on to bomb 2');
+      for (let i = 0; i < 19; i++) await page.click('#crDud');
+      ok(await page.$('#crNew'), 'a finished crate offers New crate'); ok(!(await page.$('#crFire')), 'no dead Fire button');
+      await page.click('#crNew'); ok(/Bomb 1 of 20/.test(await page.textContent('#tray')), 'a new crate starts at bomb 1');
+      eq(await page.evaluate(() => document.getElementById('toast').classList.contains('on')), false, 'the old verdict is cleared');
+    },
+    'sealed boxes: a signed box stays signed after a reload and says so, with the way on; a lesson visit keeps the probe and the evidence': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { FX.setMuted(true); __pz.openBox(5, 1); __pz.addPart('pol', 9, 4, 30); __pz.boxFire(20); });
+      // peek at the lesson the panel links to, and come back: same photons left, same probe
+      const before = await page.evaluate(() => [__pz.bx.left, __pz.parts.length, Object.keys(__pz.bx.log).length]);
+      await page.click('[data-lesson]'); await page.click('#levels .lv[data-i="12"]');
+      eq(await page.evaluate(() => [__pz.bx.left, __pz.parts.length, Object.keys(__pz.bx.log).length]), before, 'probe and evidence survive a lesson visit');
+      await page.selectOption('[data-ci="0"]', 'pol'); await page.fill('[data-ca="0"]', '0'); await page.click('#bSign');
+      const cash = await page.evaluate(() => __pz.bxSave().cash);
+      ok((await page.textContent('#levels')).includes('$' + cash), 'the list shows the new cash');
+      await page.click('#toast'); // dismissed: the panel still says the box is done
+      ok(/Card signed/.test(await page.textContent('#goal')) && await page.$('#bNext'), 'a signed box says so and offers the next box');
+      await page.reload(); await page.waitForTimeout(600);
+      eq(await page.evaluate(() => [__pz.box.seed, __pz.bx.signed, __pz.bxSave().cash]), [5, true, cash], 'a reload does not hand back the same box unsigned');
+      await page.evaluate(() => document.getElementById('bSign').click()); // signing again only moves on
+      eq(await page.evaluate(() => [__pz.box.seed, __pz.bx.signed, __pz.bxSave().cash]), [6, false, cash], 'next box, no second payment');
+      // desktop: a long box panel scrolls inside the notes instead of running off the screen
+      await page.setViewportSize({ width: 1280, height: 680 }); await page.waitForTimeout(200);
+      const h = await page.evaluate(() => { const e = document.getElementById('hud'); return [e.scrollHeight > e.clientHeight, getComputedStyle(e).overflowY, e.getBoundingClientRect().bottom <= innerHeight]; });
+      ok(!h[0] || h[1] === 'auto', 'overflowing notes scroll'); ok(h[2], 'notes fit on screen');
+    },
     'zeno crate: more passes are safer but the loop time is shared': async ({ page, ok, near }) => {
       const r = await page.evaluate(() => { FX.setMuted(true); const X = __pz; for (let i = 0; i < 10; i++) X.SAVE.done[i] = 1; const surv = {};
         for (const N of [1, 3, 6, 12]) { let k = 0, n = 0; for (let t = 0; t < 300; t++) { X.crateSeed(t); X.load(10); const C = X.crate; C.live.fill(true); C.N = N; C.cyclesLeft = 99; const o = X.crateFire(); n++; if (o === 'D2') k++; } surv[N] = k / n; }

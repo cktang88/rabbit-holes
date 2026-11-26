@@ -90,6 +90,21 @@ module.exports = {
       await page.click('#sRedo'); ok(await waitFor(page, () => __gl.phase === 'plan' && __gl.C.month === 1)); ok(Date.now() - t0 < 5000);
       eq(await page.evaluate(() => __gl.C.cred), Math.max(0, c0 - 1));
     },
+    'closing the tab on a month\'s result does not let that month be run and booked twice': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { __gl.run(30); __gl.skipAnim(); }); ok(await waitFor(page, () => __gl.phase === 'result'));
+      const before = await page.evaluate(() => ({ hist: __gl.C.hist.length, treasury: __gl.C.treasury }));
+      await page.reload(); await page.waitForFunction(() => window.__gl && __gl.C); await page.waitForTimeout(300);
+      const r = await page.evaluate(() => ({ phase: __gl.phase, month: __gl.C.month, hist: __gl.C.hist.map(h => h.m), run: !document.getElementById('runBtn').disabled }));
+      eq(r, { phase: 'plan', month: 2, hist: [1], run: true }, 'reload opens the next month');
+      await page.evaluate(() => { __gl.run(30); __gl.skipAnim(); }); ok(await waitFor(page, () => __gl.phase === 'result'));
+      eq(await page.evaluate(() => __gl.C.hist.map(h => h.m)), [1, 2], 'each month booked once'); ok(before.hist === 1);
+    },
+    'restarting the city while a month is still animating leaves a clean, playable month 1 and the map keeps drawing': async ({ page, ok, eq }) => {
+      await page.evaluate(() => __gl.run(30)); await page.waitForTimeout(300); ok(await page.evaluate(() => __gl.phase === 'run'), 'animating');
+      await page.click('#cityBtn'); await page.click('text=Restart this city'); await page.waitForTimeout(3200);
+      eq(await page.evaluate(() => ({ phase: __gl.phase, month: __gl.C.month, hist: __gl.C.hist.length, slip: document.getElementById('slip').classList.contains('on') })), { phase: 'plan', month: 1, hist: 0, slip: false });
+      await page.evaluate(() => { __gl.run(30); __gl.skipAnim(); }); ok(await waitFor(page, () => __gl.phase === 'result'), 'the new city runs its month');
+    },
     'saves survive: progress reloads; junk, truncated or poisoned saves give a fresh city without errors': async ({ page, ok, eq }) => {
       await page.evaluate(() => { __gl.run(30); __gl.skipAnim(); }); await waitFor(page, () => __gl.phase === 'result');
       await page.evaluate(() => { __gl.nextMonth(); __gl.persist(); });

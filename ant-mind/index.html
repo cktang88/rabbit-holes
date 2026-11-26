@@ -61,6 +61,14 @@
   .rule .use{position:absolute;left:22px;right:2px;bottom:1px;height:3px;border-radius:2px;background:#7a5a3a22;overflow:hidden}
   .rule .use i{display:block;height:100%;background:var(--rc);transition:width .2s}
   .rule.fire{background:#fff3}
+  .rule.me{background:#f0cf6a66;box-shadow:inset 0 0 0 2px #5a3418}
+  .rule.dead button{opacity:.45} .rule .nr{grid-column:2/5;font-size:12.5px;color:#9a3a1a;line-height:1.1;margin-top:-2px}
+  .card .how{font-size:14px;color:#5a3418;line-height:1.25;padding:4px 4px 0}
+  .card .who{font-size:14px;color:#3a2412;background:#fff8e8a0;border-radius:6px;padding:3px 6px;margin:6px 2px 0;line-height:1.25}
+  .card .who:empty{display:none}
+  #coach{font-size:15.5px;line-height:1.3;background:#4f7a3a;color:#f4ecd4;border-radius:10px 14px 10px 12px;padding:6px 10px;box-shadow:0 2px 0 #0006}
+  #coach:empty{display:none}
+  #scentInfo{font-size:13px;color:var(--dim);width:100%;text-align:right;line-height:1.2}
   .rule.new button{border-style:dashed;text-align:center;color:#7a5a3a;grid-column:2/5}
   .rule.new.pulse button{animation:pulse 1.4s ease-in-out infinite}
   @keyframes pulse{50%{box-shadow:0 0 0 4px #c9933f88;background:#fff8e8}}
@@ -122,7 +130,9 @@
       <button id="playBtn" aria-label="Pause">⏸</button><button id="speedBtn" aria-label="Speed">1×</button><button id="restartBtn" title="Start the chamber again with this card">↺ Again</button>
       <span style="flex:1"></span>
       <button id="brushBtn" class="on" title="Your scent gland: drag on the soil to lay a little trail" aria-label="Trail brush"><span class="vial"><i id="glandFill" style="height:100%"></i></span> Trail</button><button id="wipeBtn" title="Drag on the soil to wipe scent away" aria-label="Wipe brush">Wipe</button>
+      <span id="scentInfo"></span>
     </div>
+    <div id="coach" role="status"></div>
     <div class="card" id="card" aria-label="Instinct card"></div>
     <div id="axes"></div>
     <div><div class="lbl">Chambers</div><div class="maps" id="maps"></div></div>
@@ -158,10 +168,10 @@ const AntSim = (() => {
   ];
   const ACTS = [
     { k: 'wander', n: 'wander', d: 'Walk at random. Always possible.' },
-    { k: 'pick', n: 'pick up food', d: 'Grab a crumb within reach and turn round. Skipped if none.' },
-    { k: 'home', n: 'go home', d: 'Head for the nest. In the nest: stay.' },
+    { k: 'pick', n: 'pick up food', d: 'Grab a crumb she is touching and turn round. Skipped if none.' },
+    { k: 'home', n: 'go home', d: 'Walk to the nest (and drop any food there). In the nest: stay.' },
     { k: 'mark', n: 'go home, laying trail', d: 'Head home, laying trail scent: strongest near where the walk began.' },
-    { k: 'trail', n: 'follow the trail', d: 'Steer up the strongest trail scent ahead. Skipped if none.' },
+    { k: 'trail', n: 'follow the trail', d: 'Follow green scent: yours from the brush, or a sister\'s. Skipped if there is none under her feet.' },
     { k: 'revisit', n: 'go back to my find', d: 'Walk straight to where I last found food. Forget it if it is empty. Skipped if no memory.' },
     { k: 'attack', n: 'attack', d: 'Charge the nearest enemy and bite. Skipped if none near.' },
     { k: 'flee', n: 'flee', d: 'Run from the nearest enemy. Skipped if none near.' },
@@ -397,9 +407,9 @@ AntSim.after = (colony, res, spec) => { const alive = colony - res.lost; if (res
 {
   const B = 'always>pick,carry>mark,always>trail', T = 'always>pick,carry>mark,tired>home,always>trail', F = 'danger>flee,' + T;
   AntSim.CHAMBERS = [
-    { n: 'First Crumbs', seed: 'c1', par: { t: 17, lost: 0, lines: 2 }, slots: 3, conds: ['always', 'carry'], acts: ['wander', 'pick', 'home'], start: 'always>wander',
+    { n: 'First Crumbs', seed: 'c1', par: { t: 17, lost: 0, lines: 2 }, slots: 3, conds: ['always', 'carry'], acts: ['wander', 'pick', 'home', 'trail'], start: '',
       spec: { ants: 40, t: 60, rock: 0.04, food: [{ d: [16, 30], amt: 40 }, { d: [18, 34], amt: 40 }], goal: { food: 15 } },
-      ref: 'always>pick,carry>home', hint: 'Every ant obeys this card, top line first. Tap the empty line to give them an instinct.',
+      ref: 'always>pick,carry>home', hint: 'Bring 15 crumbs home. Right now your ants only wander.',
       note: 'No ant is in charge. Each one follows a few simple rules, and the colony does what the rules add up to.' },
     { n: 'The Long Way', seed: 'c2', par: { t: 60, lost: 0, lines: 3 }, slots: 4, acts: ['mark', 'trail'],
       spec: { ants: 50, t: 75, rock: 0.05, half: 30, food: [{ d: [45, 62], amt: 90 }], goal: { food: 30 } },
@@ -487,7 +497,7 @@ let ci=0, years=null, w=null, card=[], paused=false, speed=1, brush='trail', end
 const slots=()=> years? YSLOTS : CHAMBERS[ci].slots;
 function spec(){ return years? years.sea.spec : CHAMBERS[ci].spec; }
 function seedOf(){ return years? 'y:'+years.seed+':'+years.k : CHAMBERS[ci].seed; }
-function newWorld(){ w=S.make(spec(), seedOf()); ended=false; acc=0; edits=0; winFx=null; terrainDirty=true; makeRoots(); fx=[]; seenRun={}; }
+function newWorld(){ selAnt=null; wake(600); w=S.make(spec(), seedOf()); ended=false; acc=0; edits=0; winFx=null; terrainDirty=true; makeRoots(); fx=[]; seenRun={}; }
 function openChamber(i, keepCard){ years=null; if (!open_(i)) i=0; ci=i; SAVE.cur=i; persist();
   if (!keepCard){ const own=SAVE.cards[i]; card=S.parse(own || SAVE.card || CHAMBERS[0].start); }
   if (card.length>slots()){ card=card.slice(0,slots()); setTimeout(()=>RH.toast(`Only ${slots()} lines fit on the card here: the bottom lines fell off.`,4200),300); }
@@ -514,6 +524,11 @@ function diagnose(){ const st=w.stats, out=[];
   if (st.fought>=4) out.push(`${st.fought} sisters died fighting the neighbours.`);
   if (w.spec.rain && seenRun.washed) out.push('Rain kept washing the road away. A trail is only as good as the weather.');
   if (w.spec.cold && w.stores<(w.spec.goal.keep||0)) out.push('Every ant outside the nest ate from the stores. Who really needs to be out in the cold?');
+  const g=w.spec.goal; if (!out.length && g.food && !g.keep){ const sh=shadowAt();
+    if (sh>=0) out.push(`Line ${sh+1} always applies, so the lines under it never ran. Move them above it.`);
+    else if (!hasAct('pick')) out.push('No line tells an ant to <b>pick up food</b>, so nobody carried any. Add one.');
+    else if (!card.some(r=>(ACTS[r.a].k==='home'||ACTS[r.a].k==='mark')&&!r.not&&CONDS[r.c].k!=='always')) out.push('Ants picked food up but nothing sent a <b>carrying</b> ant home. Add “when carrying food → go home”.');
+    else if (w.delivered<g.food) out.push(`${Math.floor(w.delivered)} of ${g.food} came home: the right idea, too slow. Show them the way: a scent trail (“follow the trail”, plus the brush or “go home, laying trail”).`); }
   if (!out.length && w.delivered<3 && !w.spec.goal.kill && !w.spec.goal.sack) out.push('Hardly any food came home. Watch one ant: what does it do when it finds a crumb, and then?');
   if (!out.length && w.spec.goal.sack) out.push('Your sisters never found the rival nest in force. They smell trails, not distant nests: lay them a road with the brush.');
   if (!out.length && w.spec.goal.kill) out.push('The spiders are still alive. What would make many sisters arrive at once?');
@@ -555,18 +570,29 @@ function shareYears(y){ copy(`Ant Mind · Colony Years ${y.seed} · ${y.survived
 const condTxt=(r)=> CONDS[r.c].k==='always'&&!r.not? 'always' : (r.not?'unless ':'when ')+CONDS[r.c].n;
 function renderCard(){
   const el=document.getElementById('card'), n=slots(), counts=w?w.counts:[], alive=Math.max(1,w?.alive||1);
-  let h=`<div class="head"><span>Instinct card</span><small>${card.length}/${n} lines · top line first</small></div><ol class="rules">`;
-  card.forEach((r,i)=>{ h+=`<li class="rule" style="--rc:${RC[i]}"><span class="no">${i+1}</span><button class="cond" data-i="${i}" aria-label="Line ${i+1} condition: ${condTxt(r)}">${condTxt(r)}</button><span class="ar">→</span><button class="act" data-i="${i}" aria-label="Line ${i+1} action: ${ACTS[r.a].n}">${ACTS[r.a].n}</button><span class="cnt" data-c="${i}">${counts[i]||0}</span><span class="use"><i data-u="${i}" style="width:${100*(counts[i]||0)/alive}%"></i></span></li>`; });
+  const sh=shadowAt();
+  let h=`<div class="head"><span>Instinct card</span><small>${card.length}/${n} lines</small></div><div class="how">Every ant runs this list top to bottom, every moment, and does the first line that applies. Tap an ant to see which.</div><ol class="rules">`;
+  card.forEach((r,i)=>{ const dead=sh>=0&&i>sh; h+=`<li class="rule ${dead?'dead':''}" data-line="${i}" style="--rc:${RC[i]}"><span class="no">${i+1}</span><button class="cond" data-i="${i}" title="${CONDS[r.c].d}" aria-label="Line ${i+1} condition: ${condTxt(r)}">${condTxt(r)}</button><span class="ar">→</span><button class="act" data-i="${i}" title="${ACTS[r.a].d}" aria-label="Line ${i+1} action: ${ACTS[r.a].n}">${ACTS[r.a].n}</button><span class="cnt" data-c="${i}">${counts[i]||0}</span><span class="use"><i data-u="${i}" style="width:${100*(counts[i]||0)/alive}%"></i></span>${dead?`<span class="no"></span><span class="nr">never reached: line ${sh+1} always applies first. Move this line up.</span>`:''}</li>`; });
   if (card.length<n) h+=`<li class="rule new${card.length<2&&!years&&ci===0?' pulse':''}"><span class="no">${card.length+1}</span><button class="add">+ new instinct</button></li>`;
-  h+=`</ol><div class="fallback"><span>otherwise → wander</span><span data-c="fb">${counts[card.length]||0}</span></div><div class="cardbtns"><button id="shareCardBtn">Copy card link</button>${!years&&ci>0&&SAVE.cards[ci-1]?'':''}</div>`;
-  el.innerHTML=h;
+  h+=`</ol><div class="fallback"><span title="When no line applies, an ant walks at random.">otherwise → wander</span><span data-c="fb">${counts[card.length]||0}</span></div><div class="who" id="who"></div><div class="cardbtns"><button id="shareCardBtn">Copy card link</button>${!years&&ci>0&&SAVE.cards[ci-1]?'':''}</div>`;
+  el.innerHTML=h; whoLine();
   el.querySelectorAll('.cond').forEach(b=>b.onclick=()=>pick('cond',+b.dataset.i));
   el.querySelectorAll('.act').forEach(b=>b.onclick=()=>pick('act',+b.dataset.i));
   const add=el.querySelector('.add'); if (add) add.onclick=()=>pick('act',card.length);
   document.getElementById('shareCardBtn').onclick=shareCard;
 }
+// a line that always applies and always succeeds hides every line below it
+const SURE=new Set(['wander','home','mark','alarm','rest']);
+function shadowAt(){ return card.findIndex(r=>CONDS[r.c].k==='always'&&!r.not&&SURE.has(ACTS[r.a].k)&&card.indexOf(r)<card.length-1); }
+// the ant you tapped: which line it is running right now
+let selAnt=null;
+function whoLine(){ const el=document.getElementById('who'); if (!el) return; document.querySelectorAll('#card .rule.me').forEach(e=>e.classList.remove('me'));
+  if (!selAnt){ el.textContent=''; return; }
+  if (selAnt.dead){ el.textContent='Your ant died'+(w&&w.stats.exhaust&&selAnt.stam<=0?': she walked until she dropped.':'.'); return; }
+  const i=selAnt.rule; if (i>=0&&card[i]){ const r=card[i]; el.innerHTML=`This ant is doing <b>line ${i+1}</b>: “${condTxt(r)} → ${ACTS[r.a].n}”.`; const li=document.querySelector(`#card .rule[data-line="${i}"]`); if (li) li.classList.add('me'); }
+  else el.innerHTML='This ant: no line applies, so she <b>wanders</b>.'; }
 function updCounts(){ if (!w) return; const alive=Math.max(1,w.alive||1); document.querySelectorAll('#card [data-c]').forEach(e=>{ const k=e.dataset.c==='fb'?card.length:+e.dataset.c; e.textContent=w.counts[k]||0; });
-  document.querySelectorAll('#card [data-u]').forEach(e=>{ e.style.width=(100*(w.counts[+e.dataset.u]||0)/alive)+'%'; }); }
+  document.querySelectorAll('#card [data-u]').forEach(e=>{ e.style.width=(100*(w.counts[+e.dataset.u]||0)/alive)+'%'; }); whoLine(); coach(); }
 const pk=document.getElementById('picker'), scrim=document.getElementById('scrim');
 function closePick(){ pk.classList.remove('open'); scrim.classList.remove('open'); }
 scrim.onclick=closePick;
@@ -582,7 +608,9 @@ function pick(kind,i){
   pk.querySelector('#pkX').onclick=closePick;
   pk.querySelectorAll('[data-neg]').forEach(b=>b.onclick=()=>{ neg=b.dataset.neg==='1'; if (!isNew){ card[i].not=neg; changed(); } pk.querySelectorAll('[data-neg]').forEach(x=>x.classList.toggle('cur',x===b)); });
   pk.querySelectorAll('.opts [data-k]').forEach(b=>b.onclick=()=>{ const k=+b.dataset.k;
-    if (isNew){ card.push({c:0,not:false,a:k}); changed(); closePick(); }
+    if (isNew){ const ak=ACTS[k].k, nr={c:(ak==='home'||ak==='mark')&&avail().c.has('carry')? S.CI.carry : 0, not:false, a:k}; const sh=shadowAt(), at= sh>=0? sh : card.length;
+      if (at===card.length && card.length && CONDS[card[at-1].c].k==='always'&&!card[at-1].not&&SURE.has(ACTS[card[at-1].a].k)) { card.splice(at-1,0,nr); banner(`Added above line ${at}: that line always applies, so nothing below it would run.`); } else { card.splice(at,0,nr); if (at<card.length-1) banner(`Added above line ${at+1}: that line always applies, so nothing below it would run.`); }
+      changed(); closePick(); }
     else { if (kind==='cond'){ card[i].c=k; card[i].not=neg; } else card[i].a=k; changed(); closePick(); } });
   pk.querySelectorAll('[data-mv]').forEach(b=>b.onclick=()=>{ const j=i+ +b.dataset.mv; [card[i],card[j]]=[card[j],card[i]]; changed(); closePick(); });
   const del=pk.querySelector('[data-del]'); if (del) del.onclick=()=>{ card.splice(i,1); changed(); closePick(); };
@@ -590,6 +618,19 @@ function pick(kind,i){
 }
 // an edit lands on the running colony at once: no reset needed
 function changed(){ edits++; T_({f:900+Math.random()*300,type:'triangle',dur:.06,vol:.06}); saveCard(); renderCard(); }
+// one short prompt at a time, for the first chamber: add a line, watch, paint a trail, watch them follow it
+const hasAct=(k)=>card.some(r=>ACTS[r.a].k===k), usesScent=()=>card.some(r=>ACTS[r.a].k==='trail');
+let coachT='';
+function coach(){ const el=document.getElementById('coach'); if (!el) return; let t='';
+  if (!years && ci===0 && !cleared(0) && w){ const homeLine=card.some(r=>(ACTS[r.a].k==='home'||ACTS[r.a].k==='mark')&&CONDS[r.c].k==='carry'&&!r.not);
+    if (!hasAct('pick')) t='① Tap “+ new instinct” and choose “pick up food”.';
+    else if (!homeLine) t= w.ants.some(a=>a.carry&&!a.dead)? '② Ants grab crumbs, then wander off with them. Add “go home”.' : '② Watch: ants that touch food grab it. Then add “go home”.';
+    else if (!usesScent()) t='③ Food is coming home. Add “follow the trail” so ants can follow scent.';
+    else if (!(w.painted>0.05)) t='④ Drag on the soil from the nest to the food to paint a scent trail.';
+    else t='⑤ Ants that touch your green trail follow it. It fades, and your brush refills slowly.'; }
+  if (t!==coachT){ coachT=t; el.textContent=t; } }
+function scentInfo(){ const el=document.getElementById('scentInfo'); if (!el||!w) return; const half=w.spec.still? 'never fades (still air)' : `fades by half every ${Math.round(w.half)} s`;
+  el.textContent= usesScent()||hasAct('gather')? `Trail scent ${half}. Brush ${Math.round(w.gland*100)}% full.` : 'No line follows scent: your ants ignore trails.'; }
 // ===================== side panel =====================
 function renderGoal(){
   const g=spec().goal, el=document.getElementById('goalBox');
@@ -600,7 +641,7 @@ function goalText(){ const g=spec().goal; let v,n,t;
   if (g.keep!=null){ v=Math.floor(w.stores); n=g.keep; t=`🍂 store ${v}/${n}`+(g.food?` · in ${Math.floor(w.delivered)}/${g.food}`:''); if (g.food && w.delivered<g.food) v=Math.min(v,n*w.delivered/g.food); } else if (g.kill){ v=w.kills; n=g.kill; t=`🕷 ${v}/${n}`; } else if (g.sack){ const e=w.nests[1]; v=e.maxhp-Math.max(0,e.hp); n=e.maxhp; t=`their nest ${Math.round(100*v/n)}%`; } else { v=Math.floor(w.delivered); n=g.food; t=`🍂 ${v}/${n}`; }
   if (g.maxLost!=null) t+=` · lost ${w.lost}/${g.maxLost}`; return [Math.min(1,v/n),t]; }
 function hud(){ if (!w) return; const [f,t]=goalText(); const a=document.getElementById('gText'); if (!a) return; a.textContent=t; document.getElementById('gBar').style.width=(f*100)+'%'; document.getElementById('tText').textContent=Math.max(0,Math.ceil(spec().t-w.t))+'s';
-  document.getElementById('glandFill').style.height=(w.gland*100)+'%'; updCounts(); }
+  document.getElementById('glandFill').style.height=(w.gland*100)+'%'; updCounts(); scentInfo(); }
 function renderAxes(){ const el=document.getElementById('axes'); if (years){ el.innerHTML=''; return; } const b=SAVE.best[ci], c=CHAMBERS[ci]; el.innerHTML= b? `<div class="lbl" style="font-size:18px">Your best here</div>`+axesHTML({t:b.t,lost:b.lost,lines:b.lines,stores:b.stores},c.par,c.spec.goal.keep!=null) : ''; }
 function renderMaps(){ let h=''; for (let i=0;i<CHAMBERS.length;i++){ const o=open_(i), st=starsOf(i); h+=`<button data-m="${i}" class="${i===ci&&!years?'cur':''}" ${o?'':'disabled'} title="${o?CHAMBERS[i].n:'Clear the chamber before'}">${i+1}<span class="st">${cleared(i)?'★'.repeat(st)||'·':''}</span></button>`; }
   const el=document.getElementById('maps'); el.innerHTML=h; el.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>openChamber(+b.dataset.m));
@@ -620,25 +661,29 @@ document.getElementById('brushBtn').onclick=()=>{ brush='trail'; updBtns(); };
 document.getElementById('wipeBtn').onclick=()=>{ brush=brush==='wipe'?'trail':'wipe'; updBtns(); };
 // ===================== canvas: camera and the queen's brush =====================
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d'); let cell=5;
-const cam=PanZoom(cv,{ world:()=>({x:-2,y:-6,w:W+4,h:H+8}), pad:6, min:.8, max:6 });
-function fit(){ const r=document.getElementById('cvWrap').getBoundingClientRect(); const dp=DPR(); cv.width=Math.max(1,Math.round(r.width*dp)); cv.height=Math.max(1,Math.round(r.height*dp)); if (!cam.touched) cam.fit(false); }
+const cam=PanZoom(cv,{ world:()=>({x:-2,y:-6,w:W+4,h:H+8}), pad:6, min:.8, max:6, onChange:()=>wake() });
+// the canvas repaints while the colony runs, the win bloom grows or something was touched; a paused or finished colony costs nothing
+let drawUntil=0; const wake=(ms=300)=>{ drawUntil=Math.max(drawUntil,performance.now()+ms); };
+function fit(){ const r=document.getElementById('cvWrap').getBoundingClientRect();wake(); const dp=DPR(); cv.width=Math.max(1,Math.round(r.width*dp)); cv.height=Math.max(1,Math.round(r.height*dp)); if (!cam.touched) cam.fit(false); }
 const coarse=matchMedia('(pointer:coarse)').matches; const DPR=()=>Math.min(coarse?1.5:2,devicePixelRatio||1);
 let painting=0, lastP=null, pendingE=null, pendT=0, mouseC=null;
 const toCell=(e)=>cam.toWorld(e.clientX,e.clientY);
 cv.addEventListener('contextmenu',e=>e.preventDefault());
 cv.addEventListener('pointerdown',e=>{ closePick(); if (ended || cam.gesturing || e.button===1){ painting=0; pendingE=null; return; } painting=(e.button===2||brush==='wipe')? -1 : 1; lastP=null; try { cv.setPointerCapture(e.pointerId); } catch(_){}
-  if (e.pointerType==='touch'){ pendingE={clientX:e.clientX,clientY:e.clientY}; pendT=performance.now(); } else paintAt(e); });
-const endPaint=()=>{ if (pendingE && painting && !cam.gesturing) paintAt(pendingE); pendingE=null; painting=0; lastP=null; };
+  pendingE={clientX:e.clientX,clientY:e.clientY}; pendT=performance.now(); });
+function antAt(e){ if (!w) return null; const [x,y]=toCell(e); let best=null, bd=Math.max(1.6, 14/cam.k); for (const a of w.ants){ if (a.dead||a.team) continue; const d=Math.hypot(a.x-x,a.y-y); if (d<bd){ bd=d; best=a; } } return best; }
+const endPaint=()=>{ if (pendingE && painting && !cam.gesturing){ const a=antAt(pendingE); if (a){ selAnt= selAnt===a? null : a; whoLine(); wake(); } else paintAt(pendingE); } pendingE=null; painting=0; lastP=null; };
 window.addEventListener('pointerup',endPaint); window.addEventListener('pointercancel',endPaint); window.addEventListener('blur',endPaint);
-cv.addEventListener('pointermove',e=>{ mouseC=toCell(e); if (cam.gesturing){ painting=0; pendingE=null; lastP=null; return; }
-  if (painting && pendingE){ if (performance.now()-pendT<70 && Math.hypot(e.clientX-pendingE.clientX,e.clientY-pendingE.clientY)<8) return; paintAt(pendingE); pendingE=null; }
+cv.addEventListener('pointermove',e=>{ mouseC=toCell(e); wake(); if (cam.gesturing){ painting=0; pendingE=null; lastP=null; return; }
+  if (painting && pendingE){ if (Math.hypot(e.clientX-pendingE.clientX,e.clientY-pendingE.clientY)<6) return; paintAt(pendingE); pendingE=null; }
   if (painting) paintAt(e); });
-cv.addEventListener('pointerleave',e=>{ mouseC=null; });
+cv.addEventListener('pointerleave',e=>{ mouseC=null; wake(); });
 let scrapeT=0, dryT=0;
-function paintAt(e){ if (!w || ended) return; const [cx,cy]=toCell(e); const pts=[[cx,cy]];
+function paintAt(e){ if (!w || ended) return; wake(); const [cx,cy]=toCell(e); const pts=[[cx,cy]];
   if (lastP){ const d=Math.hypot(cx-lastP[0],cy-lastP[1]); for (let t=1;t<d;t+=0.8) pts.push([lastP[0]+(cx-lastP[0])*t/d, lastP[1]+(cy-lastP[1])*t/d]); }
   lastP=[cx,cy]; let used=0; for (const [x,y] of pts) used+=S.paint(w,x,y,painting<0);
   const n=performance.now(); if (used>0 && n-scrapeT>300){ scrapeT=n; VOICE.scrape(); }
+  if (used>0 && painting>0 && !usesScent() && (paintAt.warnT==null||n-paintAt.warnT>6000)){ paintAt.warnT=n; const can=avail().a.has('trail'); banner(can? 'Your ants have no “follow the trail” line, so they ignore scent. Add one.' : 'No ant here can follow scent yet.'); }
   if (w.gland<0.01 && painting>0 && n-dryT>2500){ dryT=n; banner('Your gland is dry. It refills slowly: a good card beats a busy brush.'); } }
 window.addEventListener('keydown',e=>{ if (e.target.closest && e.target.closest('input,textarea')) return; if (e.key===' '){ paused=!paused; e.preventDefault(); updBtns(); } if (e.key==='r') document.getElementById('restartBtn').click(); if (e.key==='Escape') closePick(); });
 // ===================== sound: soil =====================
@@ -729,8 +774,9 @@ function paintBg(dpr){ if (bg.width!==cv.width||bg.height!==cv.height){ bg.width
       m.fillStyle='#6a4214'; m.beginPath(); m.ellipse(px+rr*0.2,py+rr*0.25,rr*1.15,rr*0.8,h*3,0,7); m.fill(); m.fillStyle='#e3ad48'; m.beginPath(); m.ellipse(px,py,rr*1.05,rr*0.72,h*3,0,7); m.fill(); m.fillStyle='#fff0c0'; m.beginPath(); m.arc(px-rr*0.35,py-rr*0.3,rr*0.32,0,7); m.fill(); } }
     g.drawImage(mid,0,0,W*cell,H*cell); }
 }
+let drawN=0;
 function draw(){
-  if (!w) return; if (terrainDirty) renderTerrain();
+  if (!w) return; drawN++; if (terrainDirty) renderTerrain();
   const nowT=performance.now(), dpr=DPR(); cell=cam.k; const ck=cam.x+','+cam.y+','+cam.k+','+cv.width+','+cv.height;
   // terrain and scent are composed into a cached layer at screen resolution, refreshed ten times a second; each frame is one 1:1 blit
   if (nowT-scentT>95 || scentW!==w || bgKey!==ck || terrainDirty){ scentT=nowT; scentW=w; bgKey=ck; paintScent(); paintBg(dpr); }
@@ -748,6 +794,7 @@ function draw(){
     ctx.fillStyle='#2a1418'; ctx.beginPath(); ctx.ellipse(x,y+cell*0.6,cell*1.6,cell*1.9,0,0,7); ctx.fill(); ctx.beginPath(); ctx.arc(x,y-cell*1.3,cell*1.0,0,7); ctx.fill();
     ctx.fillStyle='#ff5a3a'; ctx.fillRect(x-cell*0.5,y-cell*1.6,2,2); ctx.fillRect(x+cell*0.3,y-cell*1.6,2,2);
     ctx.fillStyle='#c0402a'; ctx.fillRect(x-15,y-cell*3.5,30*sp.hp/sp.maxhp,3); }
+  if (selAnt && !selAnt.dead && w.ants.includes(selAnt)){ const x=selAnt.x*cell, y=selAnt.y*cell; ctx.strokeStyle=selAnt.rule>=0? RC[selAnt.rule] : '#efe3c8'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,Math.max(9,cell*1.8),0,7); ctx.stroke(); }
   if (winFx) drawBloom();
   if (mouseC && !winFx){ ctx.strokeStyle=brush==='wipe'?'#efe3c8':'#a6e88a'; ctx.lineWidth=1.5; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.arc(mouseC[0]*cell,mouseC[1]*cell,2.2*cell,0,7); ctx.stroke(); ctx.setLineDash([]); }
 }
@@ -771,12 +818,12 @@ function banner(t){ const b=document.getElementById('banner'); b.textContent=t; 
 let last=performance.now(), hudT=0, hintT=0;
 function frame(now){ const dt=Math.min(0.1,(now-last)/1000); last=now;
   if (w && !paused && !ended){ acc+=dt*speed; let n=0; while (acc>=DT && n<200 && !ended){ tick(); acc-=DT; n++; } }
-  draw(); hudT+=dt; if (hudT>0.2){ hudT=0; hud(); }
-  if (!years && ci===0 && card.length<2 && w && w.t>6){ hintT+=dt; if (hintT>9){ hintT=0; banner('The ants only wander. Tap “+ new instinct” on the card.'); } }
+  if ((w && !paused && !ended) || (winFx && now-winFx.t0<3500) || now<drawUntil || (w && w.raining && !ended && !paused)) draw(); hudT+=dt; if (hudT>0.2){ hudT=0; hud(); }
+  if (!years && ci===0 && card.length===0 && w && w.t>6){ hintT+=dt; if (hintT>9){ hintT=0; banner('The ants only wander. Tap “+ new instinct” on the card.'); } }
   requestAnimationFrame(frame); }
-window.addEventListener('resize', ()=>{ fit(); });
+window.addEventListener('resize', ()=>{ fit(); wake(); });
 window.__ant={ S, get w(){ return w; }, get card(){ return card; }, setCard(t){ card=S.parse(t).slice(0,slots()); saveCard(); renderCard(); }, openChamber, startYears, get years(){ return years; }, get ci(){ return ci; }, get SAVE(){ return SAVE; }, cleanSave, avail, pick, closePick,
-  get paused(){ return paused; }, set paused(v){ paused=v; updBtns(); }, get speed(){ return speed; }, set speed(v){ speed=v; }, get ended(){ return ended; }, tick, run(n){ for (let k=0;k<n && !ended;k++) tick(); }, cam, fit, toScreen:(x,y)=>cam.toScreen(x,y), get brush(){ return brush; }, set brush(v){ brush=v; updBtns(); }, loadSeason, CHAMBERS, draw };
+  get paused(){ return paused; }, set paused(v){ paused=v; updBtns(); }, get speed(){ return speed; }, set speed(v){ speed=v; }, get ended(){ return ended; }, tick, run(n){ for (let k=0;k<n && !ended;k++) tick(); }, cam, fit, toScreen:(x,y)=>cam.toScreen(x,y), get brush(){ return brush; }, set brush(v){ brush=v; updBtns(); }, loadSeason, CHAMBERS, draw, get drawN(){ return drawN; }, get selAnt(){ return selAnt; } };
 // ===================== boot =====================
 { const h=decodeURIComponent(location.hash.slice(1)), q=Object.fromEntries(h.split('&').map(p=>p.split('=')).filter(p=>p.length===2));
   if (q.years && yearsOpen()) startYears(q.years);

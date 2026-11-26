@@ -143,8 +143,10 @@ module.exports = {
         return { lesson: q('.lesson'), nm: v.nm, line: +chip.dataset.line, rate: v.rate, chip: chip.textContent, sum: q('.sum'), rt: q('.rt'), chiplab: q('.chiplab'), purse: document.getElementById('capital').textContent }; });
       const prem = r.line * r.rate / 100, L = '£' + r.line.toLocaleString('en-GB');
       ok(r.lesson.includes(`The ${r.nm} sails`), 'no plain-language lesson on the first slip: ' + r.lesson);
-      for (const w of ['her owner pays you', '(the premium)', 'If she arrives, you keep it', `If she sinks, you pay ${L}`, '(your line)', '£' + Math.floor(prem)]) ok(r.lesson.includes(w), `lesson lacks "${w}": ${r.lesson}`);
-      ok(r.chip.includes(L) && r.chip.includes('+£' + Math.floor(prem)), 'a chip should show the line and the premium it earns: ' + r.chip);
+      for (const w of ['her owner pays you', '(the premium)', 'If she arrives, you keep it', `If she sinks, you pay ${L}`, '(your line)']) ok(r.lesson.includes(w), `lesson lacks "${w}": ${r.lesson}`);
+      const num = t => { const m = t.match(/£([\d,]+)(½)?/); return m ? +m[1].replace(/,/g, '') + (m[2] ? .5 : 0) : NaN; };
+      ok(Math.abs(num(r.lesson.split('pays you')[1]) - prem) <= .5, `the premium in the lesson should be ${prem}: ${r.lesson}`);
+      ok(r.chip.includes(L) && Math.abs(num(r.chip.split('+')[1]) - prem) <= .5, 'a chip should show the line and the premium it earns: ' + r.chip);
       ok(r.sum.includes('insured for') && r.rt.includes('rate') && r.chiplab.includes('you pay it if she sinks') && r.purse.includes('your purse'), 'numbers need plain labels');
       // sign it: the lesson gives way, and closing the sitting writes the month's account as ledger lines
       await page.click('.slip[data-i="0"] .chips button[data-act="sign"]');

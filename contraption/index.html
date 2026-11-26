@@ -82,7 +82,7 @@
     #card{margin:0 6px 4px;font-size:12.5px;padding:4px 8px;flex-wrap:wrap;gap:4px 8px} #card .n{font-size:15px} #card .t{flex-basis:100%;order:3}
     #strip i{width:11px;height:14px}
     #bin{gap:4px;justify-content:flex-start} .part{width:48px;height:54px} .part canvas{width:46px;height:36px}
-    #stage{margin:0 4px}
+    #stage{margin:0 4px} #tell{top:50px}
   }
 </style>
 </head>
@@ -157,11 +157,11 @@ function dailyBench(key){ const r=GM.rng('gentle-daily:'+key); const cargos=['eg
 function sandboxBench(cargo){ const u=unlocked(); return {id:'sandbox', n:'Sandbox', t:'Every part you have met, no goal but your own. Book → Sandbox to share it.', cargo:cargo||'egg', drop:[3,12], basket:[20,0], fixed:[], bin:Object.fromEntries(u.parts.map(t=>[t,99])), pass:0, sandbox:true}; }
 
 // ===================== State =====================
-let B=BENCHES[0], parts=[], mode='build', sel=-1, view=null, live=null, results=[], queue=[], bg=null, autoplay=null, post=0;
+let runId=0, B=BENCHES[0], parts=[], mode='build', sel=-1, view=null, live=null, results=[], queue=[], bg=null, autoplay=null, post=0;
 const binLeft=(t)=> B.sandbox? 99 : (B.bin[t]||0)-parts.filter(p=>p[0]===t).length;
 const saveBuild=()=>{ SAVE.builds[B.id]=parts.map(p=>p.slice()); persist(); };
-function openBench(b, ps){ B=b; parts=cleanParts(ps ?? SAVE.builds[b.id] ?? []); mode='build'; sel=-1; results=[]; queue=[]; bg=null; live=null; autoplay=null;
-  view=new Sim(B, parts, 0); hidePop(); renderAll(); cam.fit(false); tell('');
+function openBench(b, ps){ runId++; B=b; parts=cleanParts(ps ?? SAVE.builds[b.id] ?? []); mode='build'; sel=-1; results=[]; queue=[]; bg=null; live=null; autoplay=null;
+  view=new Sim(B, parts, 0); hidePop(); RQ.length=0; renderAll(); cam.fit(false); tell(''); // news about the last bench stops here
   const fresh=Object.keys(B.bin).filter(t=>!SAVE.seen[t]); if (!SAVE.seen[B.cargo]) fresh.push(B.cargo);
   if (fresh.length && !B.sandbox){ for (const t of fresh){ SAVE.seen[t]=1; const D=PARTS[t]||CARGO[t]; ribbon(`<span class="g">✦</span>New ${PARTS[t]?'part':'cargo'}: <b>${D.n}</b>. ${D.d}`, 4200); } persist(); }
   newParts=fresh; }
@@ -176,7 +176,8 @@ let dragging=null;
 function interest(){ const xs=[B.drop[0], B.basket[0]], ys=[B.drop[1]+1.6, 0]; for (const f of B.fixed||[]){ xs.push(f[0]-f[2], f[0]+f[2]); ys.push(f[1]+f[3]); } for (const p of parts){ xs.push(p[1]); ys.push(p[2]); }
   let x0=Math.max(0,Math.min(...xs)-3), x1=Math.min(BW,Math.max(...xs)+3), y1=Math.min(BH,Math.max(...ys)+1.5); if (x1-x0<10){ const c=(x0+x1)/2; x0=Math.max(0,c-5); x1=Math.min(BW,x0+10); } if (y1<6) y1=6;
   return {x:x0*SC-6, y:(BH-y1)*SC-6, w:(x1-x0)*SC+12, h:y1*SC+12}; }
-const cam=PanZoom(cv,{ world:interest, pad:4, min:.35, max:5, canPanFrom:e=> e.button===1 || (!dragging && hitPart(...toM(e.clientX,e.clientY))<0) });
+const cam=PanZoom(cv,{ world:interest, pad:4, min:.35, max:5, canPanFrom:e=> e.button===1 || (!dragging && hitPart(...toM(e.clientX,e.clientY))<0), onChange:()=>{ if (document.getElementById('pop').classList.contains('on')) showPop(); } }); // the part's buttons follow it when the view moves
+addEventListener('resize', ()=>{ if (document.getElementById('pop').classList.contains('on')) requestAnimationFrame(showPop); });
 const toM=(cx,cy)=>{ const [u,v]=cam.toWorld(cx,cy); return [u/SC, BH-v/SC]; };
 const toScreenM=(x,y)=>cam.toScreen(x*SC,(BH-y)*SC);
 function grain(base, dark, seed){ const c=document.createElement('canvas'); c.width=64; c.height=16; const g=c.getContext('2d'); g.fillStyle=base; g.fillRect(0,0,64,16); const r=RH.rng(seed);
@@ -322,8 +323,8 @@ window.addEventListener('pointercancel', ()=>{ fromBin=null; ghost.style.display
 
 // ===================== Running: tomorrow 1 plays live while the other nine run quietly behind it =====================
 $('runBtn').onclick=()=>{ if (mode==='build') startRun(); else stopRun(); };
-function startRun(){ mode='run'; sel=-1; hidePop(); results=new Array(FUTURES).fill(null); live=new Sim(B, parts, 0); post=0; queue=[]; for (let k=1;k<FUTURES;k++) queue.push(k); bg=null; autoplay=null; acc=0; tell(''); renderAll(); FX.sfx('tick'); }
-function stopRun(){ mode='build'; live=null; queue=[]; bg=null; autoplay=null; view=new Sim(B,parts,0); tell(''); renderAll(); }
+function startRun(){ runId++; mode='run'; sel=-1; hidePop(); results=new Array(FUTURES).fill(null); live=new Sim(B, parts, 0); post=0; queue=[]; for (let k=1;k<FUTURES;k++) queue.push(k); bg=null; autoplay=null; acc=0; tell(''); renderAll(); FX.sfx('tick'); }
+function stopRun(){ runId++; mode='build'; live=null; queue=[]; bg=null; autoplay=null; view=new Sim(B,parts,0); tell(''); renderAll(); }
 function watchFuture(k){ if (mode==='build' || !results[k]) return; live=new Sim(B, parts, k); post=0; acc=0; autoplay={k, replay:true}; tell(`Tomorrow ${k+1}: ${live.fp.why}.`); renderStrip(); }
 $('strip').addEventListener('click', e=>{ const i=e.target.closest('i'); if (i) watchFuture(+i.dataset.k); });
 let acc=0, last=performance.now();
@@ -340,13 +341,14 @@ function onLiveDone(){ const r=live.result; noteMechs(live.found); if (!autoplay
   const C=CARGO[live.ctype]; if (r.ok) FX.sfx('chime', live.k); else if (r.why==='stuck'||r.why==='lost') FX.sfx('fail'); else crackSound(live.ctype);
   tell(r.ok? `Tomorrow ${live.k+1}: safe. Hardest bump ${r.gentle}% of what it can take.` : `Tomorrow ${live.k+1}: ${r.why==='stuck'?'it got stuck':r.why==='lost'?'it fell off the bench':r.why}${live.fp.k? ' ('+live.fp.why+')' : ''}.`);
   if (!queue.length && !autoplay) allDone(); else if (autoplay && autoplay.replay && !autoplay.summary){ /* a replay the player asked for */ }
-  else if (autoplay && autoplay.summary) setTimeout(()=>{ if (mode==='run' && autoplay) summary(); }, 900); }
+  else if (autoplay && autoplay.summary){ const id=runId; setTimeout(()=>{ if (id===runId && mode==='run' && autoplay) summary(); }, 900); } }
 function crackSound(t){ if (t==='bubble') return FX.tone({f:1800,f2:600,type:'sine',dur:.08,vol:.12}); if (t==='jelly') return FX.tone({f:140,f2:60,type:'sine',dur:.25,vol:.25}); FX.tone({noise:1,f:t==='watch'?5200:3200,q:3,dur:.07,vol:.25}); FX.tone({noise:1,f:1400,q:1,dur:.16,vol:.12,delay:.03}); }
 function allDone(){ if (autoplay) return; const saved=results.filter(r=>r&&r.ok).length;
   // replay the most dramatic tomorrow that went differently from the first one
   const worst=results.findIndex((r,k)=>k>0 && r && r.ok!==results[0].ok);
-  if (worst>0){ setTimeout(()=>{ if (mode!=='run' || autoplay) return; live=new Sim(B, parts, worst); post=0; acc=0; autoplay={k:worst, fast:true, summary:true}; tell(`Tomorrow ${worst+1}: ${live.fp.why}…`); renderStrip(); }, 1100); }
-  else setTimeout(()=>{ if (mode==='run') summary(); }, 900); }
+  const id=runId; // a Reset (or a new run) in the meantime cancels what follows
+  if (worst>0){ setTimeout(()=>{ if (id!==runId || mode!=='run' || autoplay) return; live=new Sim(B, parts, worst); post=0; acc=0; autoplay={k:worst, fast:true, summary:true}; tell(`Tomorrow ${worst+1}: ${live.fp.why}…`); renderStrip(); }, 1100); }
+  else setTimeout(()=>{ if (id===runId && mode==='run') summary(); }, 900); }
 function noteMechs(found, quiet){ for (const m of found){ if (SAVE.mech[m]) continue; SAVE.mech[m]=today(); persist(); const M=MECHS.find(x=>x[0]===m); if (M) ribbon(`<span class="g">${M[2]}</span>${M[1].startsWith('Lesson')?'':'In the Book: '}<b>${M[1]}</b>`, 2600); } }
 function summary(){ if (B.sandbox){ const saved=results.filter(r=>r&&r.ok).length; tell(`${saved} of 10 tomorrows came through.`); return; }
   const saved=results.filter(r=>r.ok).length, R={saved, gentle:GM.score(results), cost:costOf(parts)}, pass=B.pass||7, ok=saved>=pass;
@@ -364,7 +366,7 @@ function summary(){ if (B.sandbox){ const saved=results.filter(r=>r&&r.ok).lengt
     ${H? `<p class="note" style="margin:4px 0">Where your machine sits among the machines the workshop's solver found for this bench:</p>${histHTML(H.cost,R.cost,'cost')}${histHTML(H.gentle,R.gentle,'hardest bump %',10)}` : ''}
     ${firstPass && B.note? `<p class="letter">${B.note}</p>` : ''}<p class="note">Cheaper, gentler and surer pull against each other. ${better?'A new best for this bench.':''}</p>`,
     [{label:'Improve it'},{label:'Copy result'},{label: BENCHES.indexOf(B)<BENCHES.length-1 && !B.daily? 'Next bench' : 'The Book'}]).then(l=>{
-      if (l==='Copy result'){ copyText(shareText()); RH.toast('Copied: the strip and a link to your machine.'); stopRun(); }
+      if (l==='Copy result'){ copyText(shareText(), ok=>RH.toast(ok? 'Copied: the strip and a link to your machine.' : 'Could not copy here. The link to your machine is in the address bar.')); stopRun(); }
       else if (l==='Next bench'){ openBench(BENCHES[BENCHES.indexOf(B)+1]); setHash(); }
       else if (l==='The Book') openBook('benches'); else stopRun(); }), 1200); }
 function histHTML(h, mine, label, step=1){ const max=Math.max(...h.map(x=>x[1])); let placed=false;
@@ -372,7 +374,8 @@ function histHTML(h, mine, label, step=1){ const max=Math.max(...h.map(x=>x[1]))
   return `<div class="hist">${bars}</div><div class="hl"><span>${label} ${h[0][0]}</span><span>${h[h.length-1][0]}</span></div>`; }
 function shareStrip(){ const c=B.cargo; return results.map(r=>r&&r.ok? OKS[c] : BADS[c]).join(''); }
 function shareText(){ const saved=results.filter(r=>r&&r.ok).length; return `The Gentle Machine · ${B.daily? 'daily '+B.id.slice(6) : B.n}\n${shareStrip()} ${saved}/10 · cost ${costOf(parts)}\n${location.origin+location.pathname}#m=${encodeMachine()}`; }
-function copyText(s){ try{ navigator.clipboard.writeText(s); }catch(_){} }
+// the clipboard can refuse (no permission, an insecure page): report what happened, never throw
+function copyText(s, done){ const cb=done||(()=>{}); try{ navigator.clipboard.writeText(s).then(()=>cb(true), ()=>cb(false)); }catch(_){ cb(false); } }
 
 // ===================== The Book =====================
 let tab='benches';
@@ -399,8 +402,8 @@ $('leaf').addEventListener('click', e=>{ const b=e.target.closest('button'); if 
   if (b.dataset.p){ openBench(pById[b.dataset.p]); setHash(); closeBook(); return; }
   if (b.dataset.daily){ openBench(dailyBench(b.dataset.daily)); setHash(); closeBook(); return; }
   if (b.dataset.sandbox){ openBench(sandboxBench(b.dataset.sandbox)); setHash(); closeBook(); return; }
-  if (b.id==='shareBtn'){ const url=location.origin+location.pathname+'#m='+encodeMachine(); history.replaceState(null,'',url); copyText(url); $('shareOut').textContent='Link copied; it is also in the address bar.'; }
-  if (b.id==='saveCopy'){ copyText($('saveTxt').value); $('saveOut').textContent='Copied.'; }
+  if (b.id==='shareBtn'){ const url=location.origin+location.pathname+'#m='+encodeMachine(); history.replaceState(null,'',url); copyText(url, ok=>{ $('shareOut').textContent= ok? 'Link copied; it is also in the address bar.' : 'Could not copy here; the link is in the address bar.'; }); }
+  if (b.id==='saveCopy'){ copyText($('saveTxt').value, ok=>{ $('saveOut').textContent= ok? 'Copied.' : 'Could not copy: select the text and copy it yourself.'; }); }
   if (b.id==='saveLoad'){ try{ const o=JSON.parse(decodeURIComponent(escape(atob($('saveTxt').value.trim())))); SAVE=cleanSave(o); persist(); $('saveOut').textContent='Restored.'; renderAll(); } catch(_){ $('saveOut').textContent='That text is not a saved book.'; } } });
 // ===================== Links: the bench and every part, exactly =====================
 function encodeMachine(){ const o={p:B.sandbox?'sandbox':B.id, c:B.sandbox?B.cargo:undefined, s:parts.map(p=>[PTYPES.indexOf(p[0]),Math.round(p[1]*4),Math.round(p[2]*4),p[3]|0])}; return btoa(JSON.stringify(o)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }

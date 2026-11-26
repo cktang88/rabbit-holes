@@ -431,6 +431,16 @@ module.exports = {
       await page.click('#levels [data-lab]'); await page.waitForTimeout(100);
       ok(await page.evaluate(() => scrollY) === 0, 'chip lab opened off-screen');
     },
+    'rotating a phone re-frames the board (it does not stay drawn in a corner)': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.reload(); await page.waitForTimeout(600); await dismissModals(page);
+      await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(400);
+      const r = await page.evaluate(() => { const N = __nand, v = N.view, cr = document.getElementById('cv').getBoundingClientRect(), l = N.L[N.SAVE.cur];
+        const pts = [[0, N.pinY(0, l.ins.length)], [760, N.pinY(0, l.outs.length)]].map(([x, y]) => [x * v.z + v.x, y * v.z + v.y]);
+        return { pts, w: cr.width, h: cr.height, z: v.z }; });
+      ok(r.pts.every(([x, y]) => x >= 0 && x <= r.w && y >= 0 && y <= r.h), 'pins off-screen after rotation: ' + JSON.stringify(r));
+      const mid = (r.pts[0][0] + r.pts[1][0]) / 2; ok(Math.abs(mid - r.w / 2) < r.w * .08 && Math.abs(r.pts[0][1] - r.h / 2) < r.h * .2, 'board not centred after rotation: ' + JSON.stringify(r));
+      ok(r.z > .45, 'still at the portrait zoom: ' + r.z);
+    },
     'phone layout: no horizontal scroll and the canvas is usable': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect() }));

@@ -155,14 +155,145 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // ================= the planet =================
-// 1° land mask rasterised from Natural Earth (see DATA-NOTICE.txt): bit (j*360+i) set = land, row j from 90°N.
+// 1° land mask rasterised from Natural Earth 1:110m (see DATA-NOTICE.txt): bit (j*360+i) set = land, row j from 90°N.
+// It shapes the idealised model's basins (Earth with its spin changed); the real Earth's coasts come from the 0.25° mask below.
 const LAND64 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADg/wEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADA/v8/AOD//z8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD+///D/////5//AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPAH/j/+//////8PAAAAgB0AAHgAAAAAAD8AAAAAAAAAAAAAAAAAAAAAAAAAAOD//wP8//////8BAACAfx4AAAAAAAAAAP4AAAAAAAAAAAAAAAAAAAAAAAA4+I73//n///////8AAAAAfwAAAAAAAAAAAAAfAAAAAAAAAAAAAAAAAAAAAOAQACDwP4D///////8BAAAAPAQAAAAAAAAAAAAYAAAAAAAAAAAAAAAAAAAAADzAgPP5H8D//////38AAAAAAAAAAAAA4AEAAAD+DwAAAAAAAAAAAAAAAAAAAIC/g7PfBwAA/v////8AAAAAAAAAAADgBwAAwP//PwAA4B8AAAAAAAAAAAAAAAAMAAD8AgAA+P////8AAAAAAAAAAABwAAAA/P//AwAAAAAAAAAAAAAAAAAAAP8Ahvc5OwAA8P///38AAAAAAAAAAAAcAADg////34cHAAcAAAAAAAAAAAAAgN9/xzf8RwAA4P///z8AAAAAAAAAAAAPAB7g//////8fgB8AAAAAAT4AAAAAAO//B3f8/wsA4P///z8AAAAAAAAAAAAPAG////////8f2f8HAAAAAAD4HwAAAAD8H/D4/38A4P///xMAAAAAAPAHAAAAgN//////////////DwAAAAD+///h/4//H+/Bg/8BwP7//w8AAAAAwP8fAAAAj9///////////////88//v//////////////////////////////DwAA/P8cgEEAAAAAAAAAAAAAAAAA8P//////////////////////////////AwAA4AwAAGAAAAAAAAAAAAAAAAAAIP7/////////////////////////////AQBg4AAAABAAAAAAAAAAAAAAAAAAAf//////////////////////////////AByADwAAAAAAAAAAAAAAAAAAAAAAQID4///////////Pw/0DAP8HAMAfAACA//F//v////////////////////8/AAP4///////////BBPAHAP4HAAAAAADg//z///////////////////////9/AID///////////8AQ8ABAPwBAAAAAAD8P/7///////////////////////9fAMD//////////z8AwA8AAPgBAAAAAAD+H/7/////////////////////Of8BAID///z//////z8AwD8AAMABAAAAAAD+P/z///////////////////9/wH8AAAD8MwD//////x8AwH8MAAAAAAAAAAD+P2D///////////////////95cAAAAACAAwD8/////38AwP8eAAAAAAAAgAGcH/D//////////////////wEAOAAAAADADgDA/////38AgP8/AAAAAAAAwANAH/T//////////////////wAAfgAAAAAwAAAA//////8PgP8/AAAAAAAAwAFwD/7/////////////////PwAAfwAAAAAGAAAA//////8/wP//AAAAAAAAwAOwA/7/////////////////DwCAPwAAAIAAAAAA/v//////8///BwAAAAAAOAcgcP//////////////////HwAAHwAAAAAAAACA+P//////4///DwAAAAAAOA74/////////////////////wUADwAAAAAAAAAA8P//////4///DwAAAAAAGD///////////////////////wUAAwAAAAAAAAAA8P//////7///FwAAAAAAAB///////////////////////wUAAgAAAAAAAAAA0P//////////CAAAAAAAgOH//////////////////////w0AAAAAAAAAAAAAYP////////8xLAAAAAAAAPz//////////////////////wwAAAAAAAAAAAAAAP7//////38HfgAAAAAAgP///////////////////////wQAAAAAAAAAAAAAAP3///////8HUAAAAAAAAP7/////////////////////fwQAAAAAAAAAAAAAAP////////+XAAAAAAAAAPz///93/D/+////////////PwwAAAAAAAAAAAAAAP////////9/AAAAAAAAAPj//f9j/g/+////////////HwAAAAAAAAAAAAAAAP////////8MAAAAAAAAAPj/+P8B/Mf/////////////DwQAAAAAAAAAAAAAAP///////z8AAAAAAAAAcPzH8/8A8I//////////////Bx4AAAAAAAAAAAAAAP///////x8AAAAAAAAA+H+Aw/8AwA/+//////////9/AA8AAAAAAAAAAAAAAP///////x8AAAAAAAAA+D8Aj//w4R/8//////////8/AAAAAAAAAAAAAAAAAP///////wMAAAAAAAAA+B8wuE/+/z/+/////////98fAAMAAAAAAAAAAAAAAP///////wMAAAAAAAAA+A8wEMf//x/+/////////0cOAAMAAAAAAAAAAAAAAP7//////wEAAAAAAAAA+A8AAI7//x/8/////////wMOAAEAAAAAAAAAAAAAAP7//////wAAAAAAAAAA+AcABob//z/8/////////zccwAEAAAAAAAAAAAAAAPz//////wAAAAAAAAAAQOB/AAQ2/////////////x8c8AEAAAAAAAAAAAAAAPj//////wAAAAAAAAAAQPx/AAAA/////////////w8Y/gEAAAAAAAAAAAAAAPD/////fwAAAAAAAAAA4P8/AAAA/////////////w+EGwAAAAAAAAAAAAAAAMD/////HwAAAAAAAAAA8P9/AACA/////////////x/AAwAAAAAAAAAAAAAAAID/////DwAAAAAAAAAA+P//BwaA/////////////x/AAAAAAAAAAAAAAAAAAID9////BwAAAAAAAAAA/P//D3+E/////////////z9AAAAAAAAAAAAAAAAAAAD5////BwAAAAAAAAAA/P//f////////////////x8AAAAAAAAAAAAAAAAAAADy/x8GBgAAAAAAAAAA/P/////v/8///////////z8AAAAAAAAAAAAAAAAAAAD0/w8ABgAAAAAAAAAA/v////+//4///////////z8AAAAAAAAAAAAAAAAAAADu/wcADgAAAAAAAACA//////8f/x/+/////////x8AAAAAAAAAAAAAAAAAAACI/wcALAAAAAAAAADA//////8//z/g/////////w8AAAAAAAAAAAAAAAAAAACQ/wcACAAAAAAAAADg//////9//r+A/////////wcAAAAAAAAAAAAAAAAAAAAQ/wMAAAAAAAAAAADg//////9//n8cgP///////ycAAAAAAAAAAAAAAAAAAAAA/gMAAAAAAAAAAADw////////+P9/AP///////xEAAAAAAAAAAAAAAAAAAAAA/AMAHQAAAAAAAADw////////+P//APz/f///fxAAAAAAAAAAAAAAAAAAAAAA+AcAYAAAAAAAAAD4////////+f9/APz/B///BgAAAAAAAAAAAAAAAAAAAAAA/AccgAEAAAAAAADw////////8f9/AOD/B/5/AAAAAAAAAAAAAAAAAQAAAAAA+A8eADgAAAAAAADw////////4f8/AOD/Afw/BgAAAAAAAAAAAAAAAAAAAAAA8J8PAPwCAAAAAADw////////4/8fAOD/APw/AgAAAAAAAAAAAAAAAAAAAAAAgP8PAAAAAAAAAADw////////x/8HAOB/APx/ADAAAAAAAAAAAAAAAAAAAAAAAP4PAAAAAAAAAAD4////////h/8BAOA/APz/ADAAAAAAAAAAAAAAAAAAAAAAAID/AAAAAAAAAAD4////////j/8AAMAPAMD/ATAAAAAAAAAAAAAAAAAAAAAAAAD/AQAAAAAAAAD4////////nx8AAMAPAMD/ATAAAAAAAAAAAAAAAAAAAAAAAAD8AAAAAAAAAAD4////////vwcAAIAPAMD/AcAAAAAAAAAAAAAAAAAAAAAAAADgAQAAAAAAAAD4////////fwAAAIAPAMD8AQABAAAAAAAAAAAAAAAAAAAAAADAAAgAAAAAAADw////////f2AAAAAPAID4AUACAAAAAAAAAAAAAAAAAAAAAADAAe9zAAAAAADg/////////34AAAAPAEBwAAgAAAAAAAAAAAAAAAAAAAAAAAAAE+9/AAAAAADA/////////38AAAAXAEAgAAQCAAAAAAAAAAAAAAAAAAAAAAAAz///AAAAAACA/////////z8AAAASAMAAAIACAAAAAAAAAAAAAAAAAAAAAAAAyP//AQAAAACA/////////z8AAAAwAIAAAEAHAAAAAAAAAAAAAAAAAAAAAAAAgP//AwAAAAAA/v///////x8AAAAwAAADAAMBAAAAAAAAAAAAAAAAAAAAAAAAwP//fwAAAAAA/A/+/////x8AAAAAAAAHAAcAAAAAAAAAAAAAAAAAAAAAAAAAgP///wAAAAAAEAD8/////w8AAAAAADAGwAcAAAAAAAAAAAAAAAAAAAAAAAAAgP///wEAAAAAAADA/////wcAAAAAAGAG4AEAAAAAAAAAAAAAAAAAAAAAAAAA4P///wEAAAAAAADA/////wMAAAAAAMAM+AMAAAAAAAAAAAAAAAAAAAAAAAAA4P///wMAAAAAAADg/////wEAAAAAAIAL/gMQAAAAAAAAAAAAAAAAAAAAAAAA8P///wMAAAAAAADg////fwAAAAAAAIAH/vMQAAAAAAAAAAAAAAAAAAAAAAAA8P///wcAAAAAAADg////PwAAAAAAAAAP/gMAAQAAAAAAAAAAAAAAAAAAAAAA+P///38AAAAAAADg////PwAAAAAAAAAO/DmAAwAAAAAAAAAAAAAAAAAAAAAA+P///38BAAAAAADA////HwAAAAAAAAA+/DkA8gAAAAAAAAAAAAAAAAAAAAAA8P////8fAAAAAACA////DwAAAAAAAAA8wChE/gcAAAAAAAAAAAAAAAAAAAAA+P////8/AAAAAACA////BwAAAAAAAAA4AEAA8B8AAAAAAAAAAAAAAAAAAAAA+P//////AQAAAAAA////BwAAAAAAAAAwAEAAxD8NAAAAAAAAAAAAAAAAAAAA+P//////AQAAAAAA////BwAAAAAAAADAAQAAxP+AAAAAAAAAAAAAAAAAAAAA8P//////AQAAAAAA/v//BwAAAAAAAACAHwAAwH8ABAAAAAAAAAAAAAAAAAAA4P//////AQAAAAAA/v//BwAAAAAAAAAAQFYEAMcAAAAAAAAAAAAAAAAAAAAA4P//////AAAAAAAA/v//DwAAAAAAAAAAAAgBAIABMAAAAAAAAAAAAAAAAAAAwP//////AAAAAAAA/v//DwAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAgP////9/AAAAAAAA/P//DwAAAAAAAAAAAAAAAQQAAAAAAAAAAAAAAAAAAAAAgP////8/AAAAAAAA/v//HyAAAAAAAAAAAACAHwQAAAAAAAAAAAAAAAAAAAAAAP////8fAAAAAAAA/v//HyAAAAAAAAAAAADADwwAAAAAAAAAAAAAAAAAAAAAAP////8fAAAAAAAA////HzAAAAAAAAAAAADsDxwAAAAAAAAAAAAAAAAAAAAAAP7///8fAAAAAAAA////DzgAAAAAAAAAAAD/DxwAAAAAAAAAAAAAAAAAAAAAAOD///8fAAAAAAAA////AxgAAAAAAAAAAAD/DxwAAAAAAAAAAAAAAAAAAAAAAOD///8fAAAAAAAA////Ax8AAAAAAAAAAMD//z4AAABAAAAAAAAAAAAAAAAAAMD///8PAAAAAAAA////AB8AAAAAAAAAAMD//z8AAAAAAAAAAAAAAAAAAAAAAMD///8PAAAAAAAA/v9/AB8AAAAAAAAAAOD//38AAAAAAAAAAAAAAAAAAAAAAMD///8PAAAAAAAA/v9/AB8AAAAAAAAAAPz///8BAAEAAAAAAAAAAAAAAAAAAMD///8HAAAAAAAA/P9/gA8AAAAAAAAAgP////8BAAIAAAAAAAAAAAAAAAAAAMD///8DAAAAAAAA/P//gA8AAAAAAAAAwP////8DAAAAAAAAAAAAAAAAAAAAAMD//38AAAAAAAAA/P9/AA8AAAAAAAAAwP////8HAAAAAAAAAAAAAAAAAAAAAOD//x8AAAAAAAAA+P9/AAcAAAAAAAAA4P////8PAAAAAAAAAAAAAAAAAAAAAOD//w8AAAAAAAAA+P8fAAIAAAAAAAAAwP////8fAAAAAAAAAAAAAAAAAAAAAOD//wcAAAAAAAAA+P8fAAAAAAAAAAAA4P////8fAAAAAAAAAAAAAAAAAAAAAOD//wcAAAAAAAAA+P8fAAAAAAAAAAAAwP////8fAAAAAAAAAAAAAAAAAAAAAOD//wcAAAAAAAAA8P8PAAAAAAAAAAAAgP////8/AAAAAAAAAAAAAAAAAAAAAOD//wMAAAAAAAAA4P8HAAAAAAAAAAAAgP////8fAAAAAAAAAAAAAAAAAAAAAPD//wMAAAAAAAAA4P8HAAAAAAAAAAAAgP////8fAAAAAAAAAAAAAAAAAAAAAPD//wEAAAAAAAAAwP8DAAAAAAAAAAAAAP////8fAAAAAAAAAAAAAAAAAAAAAOD//wAAAAAAAAAAwP8BAAAAAAAAAAAAAP8D/P8PAAAAAAAAAAAAAAAAAAAAAPD/fwAAAAAAAAAAwH8AAAAAAAAAAAAAgP8A2P8HAAAAAAAAAAAAAAAAAAAAAPD/OwAAAAAAAAAAgAEAAAAAAAAAAAAAAAcA6P8HAAAAAAAAAAAAAAAAAAAAAPj/BwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwP8DAAACAAAAAAAAAAAAAAAAAPj/BwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8DAAAEAAAAAAAAAAAAAAAAAPz/BwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8DAAAIAAAAAAAAAAAAAAAAAPj/AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGgAAAA4AAAAAAAAAAAAAAAAAPg/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcAAAAAAAAAAAAAAAAAPw/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYAAAAAAAAAAAAAAAAAPwHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOAAAAALAAAAAAAAAAAAAAAAAPwfAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOAAAIADAAAAAAAAAAAAAAAAAPgHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAMABAAAAAAAAAAAAAAAAAPwHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAAAAAAAAAAAAP4BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHgAAAAAAAAAAAAAAAAAAP4BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAAAAAAAAAAAAAAAAAAP4DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8AAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH6AAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAOAAAAAAAAAAAAAAAAAIAfAAAAAAAeeADADwAAAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAAAAAAAAAAPD/AADA/////////z8AAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAAAAAAAAAgP///wH4//////////8DAAAAAAAAAAAAAAAAAAAAADAfAAAAAAAAAAAAAADw8////wP+////////////AwAAAAAAAAAAAAAAAAAAAHA/AAAAAAAAAAA8//P//////+D/////////////HwAAAAAAAAAAAAAAAAAAAP5+AAAAAAAA5v////////////D//////////////38AAAAAAAAAAAAAAAAAAAB+AAAAAACA/////////////////////////////38AAAAAAAAAYAYA4ON/OPh/AAAAAADw/////////////////////////////x8AAAAAAADwv/MXgP////8fAAAAAADw/////////////////////////////wMAAAAAAPz///////////8HAAAAAAD+/////////////////////////////wAAAAAAAPz//////////z8AAAAAAP///////////////////////////////wAAAADA/////////////wEAAAAA8P///////////////////////////////wAAAACH////////////PwAAAPgA/////////////////////////////////wcAAAAcgP//////////fwAAAP4BwP//////////////////////////////HwAAAAAAAP7//////////wf8wD8AwP//////////////////////////////DwAAAAAA/v////////////8HAAD4////////////////////////////////HwAAAAAA+P//////////////4f///////////////////////////////////wAAAAAA/P///////////////////////////////////////////////////x8A3x8AAP7/////////////////////////////////////////////fwAAAAAA////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////';
 const LBITS = Uint8Array.from(atob(LAND64), c => c.charCodeAt(0));
 // the 1° land mask in use: the real Earth's, or a generated world's (Uncharted Seas)
 const EARTH_LM = new Uint8Array(64800); for (let k = 0; k < 64800; k++) EARTH_LM[k] = (LBITS[k >> 3] >> (k & 7)) & 1;
 let LM = EARTH_LM, SEA = null; // SEA: the generated world on the globe, or null for Earth
 const land1 = (i, j) => LM[j * 360 + i];
-const isLand = (lat, lon) => { const j = Math.max(0, Math.min(179, Math.floor(90 - lat))), i = ((Math.floor(lon + 180) % 360) + 360) % 360; return land1(i, j); };
+// on the real Earth (once its data is in) land is the 0.25° Natural Earth 1:10m mask; on a generated world, its own 1° mask
+const isLand = (lat, lon) => { if (LQ && !SEA) return LQ[Math.max(0, Math.min(719, Math.floor((90 - lat) * 4))) * 1440 + ((Math.floor((lon + 180) * 4) % 1440) + 1440) % 1440];
+  const j = Math.max(0, Math.min(179, Math.floor(90 - lat))), i = ((Math.floor(lon + 180) % 360) + 360) % 360; return land1(i, j); };
+
+// ================= the real Earth: observed currents, winds and coastlines =================
+// Everything below is measured, not modelled (sources, licences and the scripts that make these files: DATA-NOTICE.txt
+// and tools/). The idealised Stommel model further down is kept only for worlds where no data can exist: the generated
+// planets of Uncharted Seas, and Earth with its spin stopped or reversed.
+//  · land-q.bin     Natural Earth 1:10m land, islands, ice shelves and lakes, rasterised at 0.25° (≥ half a cell = land)
+//  · currents.bin   15 m currents from 21.6 million six-hourly fixes of drogued NOAA Global Drifter Program drifters,
+//                   1979-2025: per 0.5° cell a mean plus annual and semi-annual harmonics (so every day of the year has
+//                   its own field: the Somali Current reverses with the monsoon), and the eddy diffusivity measured
+//                   from the same drifters' velocity autocorrelation (Davis 1991), in 2° cells
+//  · winds.bin      RSS CCMP V3.1 10 m winds, 1993-2023, monthly means on a 1° grid, and their synoptic spread
+const ED = { ready: false, failed: false };
+const RE = 6371000, MDEG = RE * Math.PI / 180, DAY = 86400, YEARD = 365.2425; // metres per degree of latitude
+const DY2MS = MDEG / (YEARD * DAY); // 1 degree per year in m/s: the idealised model's unit
+// Leeway (the wind's push on a floating object, through the water) as a fraction of the 10 m wind speed, downwind and
+// crosswind (each object keeps to one side of the wind: Allen 2005 calls it jibing). Coefficients are the zero-intercept
+// slopes of the US Coast Guard leeway taxonomy: Allen & Plourde (1999) CG-D-08-99 and Allen (2005) CG-D-05-05, Tables
+// 3-1 and 3-2. Nobody measured a bath toy or a sneaker in a leeway trial, so each uses the nearest class:
+//  · bath toys (hollow, riding high): "medical waste, vials, small" DWL 2.95 %, CWL ±0.54 %. Ebbesmeyer & Ingraham
+//    likewise tuned OSCURS's windage for the toys on the Sitka strandings (Ebbesmeyer et al. 2007, Eos 88(1)); of the
+//    small high-floating classes this is the one whose hindcast lands at Sitka in Aug-Nov 1992 (tests/floatees.test.js).
+//  · sneakers (float sole-up, "scarcely exposed", windage "negligible": Ebbesmeyer et al. 2007): "person in water,
+//    vertical" DWL 0.48 %, CWL ±0.15 %, the class with the least exposed area.
+// The codes 22 and 6 are the cargo ids the case files and saves have always used.
+const CARGO = { 22: { k: 'duck', n: 'bath toys', dw: .0295, cw: .0054 }, 6: { k: 'shoe', n: 'sneakers', dw: .0048, cw: .0015 } };
+const cargoOf = w => CARGO[w] || CARGO[22];
+// The top metre runs faster than the 15 m drogue depth, downwind and turned by the Earth's spin. We measured it from
+// the GDP itself (tools/build_slip.py: undrogued minus drogued drifters against CCMP wind, 2° bins, per calendar month):
+// see SLIP below. (Pazan & Niiler 2001 give ~1 % of wind speed; Lumpkin et al. 2013 revise that ~50 % higher.)
+const SLIP = { n: [0.0103, -11.0], s: [0.0106, 9.0] }; // [fraction of wind speed, angle in degrees: + is left of the wind]
+// Beaching: an object in a sea cell touching the coast washes up with an e-folding time of TAU_B days (Onink et al.
+// 2021, Environ. Res. Lett. 16, 064053, best-fit beaching timescales of days); one blown or carried onto land beaches at once.
+const TAU_B = 4;
+// The wind's synoptic gusts scatter high-riding objects on top of the ocean's eddies: K_wind = (leeway × σ_wind)² × T_W,
+// with σ_wind the measured spread of daily winds about their monthly mean and T_W = 2 days, a synoptic decorrelation time.
+const T_W = 2 * DAY;
+
+async function fetchPacked(url) { // gzip(JSON header line + payload), or plain: the server may already have inflated it
+  const r = await fetch(url); if (!r.ok) throw new Error(url + ' ' + r.status);
+  let b = new Uint8Array(await r.arrayBuffer());
+  if (b[0] === 0x1f && b[1] === 0x8b) b = new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+  const nl = b.indexOf(10); return { hdr: JSON.parse(new TextDecoder().decode(b.subarray(0, nl))), body: b.subarray(nl + 1) };
+}
+let LQ = null, COAST = null; // 1440 × 720: land at 0.25°; sea cells within one cell of land
+const CO = new Float32Array(720 * 360 * 10); // per 0.5° cell: u (mean, cos, sin, cos2, sin2), then v; m/s
+let KM = null, WU = null, WV = null, WSD = null, KW = 180, KH = 90;
+async function loadEarth() {
+  const [lq, cu, wi] = await Promise.all(['data/land-q.bin', 'data/currents.bin', 'data/winds.bin'].map(fetchPacked));
+  { const q = new Uint8Array(1440 * 720), c = new Uint8Array(1440 * 720), b = lq.body;
+    for (let k = 0; k < q.length; k++) q[k] = (b[k >> 3] >> (k & 7)) & 1;
+    for (let j = 0; j < 720; j++) for (let i = 0; i < 1440; i++) { const k = j * 1440 + i; if (q[k]) continue; let n = 0;
+      for (let dj = -1; dj <= 1 && !n; dj++) { const jj = j + dj; if (jj < 0 || jj > 719) continue; for (let di = -1; di <= 1; di++) if (q[jj * 1440 + (i + di + 1440) % 1440]) { n = 1; break; } }
+      c[k] = n; }
+    LQ = q; COAST = c; }
+  { const h = cu.hdr, b = cu.body, n = h.n, mask = b.subarray(0, 720 * 360 / 8); let o = mask.length;
+    const i16 = (off, k) => { const v = b[off + 2 * k] | (b[off + 2 * k + 1] << 8); return v > 32767 ? v - 65536 : v; };
+    const cells = []; for (let k = 0; k < 720 * 360; k++) if ((mask[k >> 3] >> (k & 7)) & 1) cells.push(k);
+    const mu = o, mv = o + 2 * n; o += 4 * n;
+    const hq = q => { const s = q > 127 ? q - 256 : q, a = s / 127; return Math.sign(a) * a * a * h.hmax; };
+    cells.forEach((k, m) => { CO[k * 10] = i16(mu, m) / 1000; CO[k * 10 + 5] = i16(mv, m) / 1000; });
+    for (const [c, base] of [[1, 0], [2, 1], [3, 2], [4, 3], [6, 4], [7, 5], [8, 6], [9, 7]]) { const off = o + base * n; cells.forEach((k, m) => { CO[k * 10 + c] = hq(b[off + m]); }); }
+    o += 8 * n; KW = h.kw; KH = h.kh; KM = new Float32Array(KW * KH); for (let k = 0; k < KM.length; k++) KM[k] = Math.pow(10, 2.5 + b[o + k] / 255 * 2.5); }
+  { const h = wi.hdr, b = wi.body, N = 64800; WU = new Float32Array(12 * N); WV = new Float32Array(12 * N); WSD = new Float32Array(N);
+    for (let k = 0; k < 12 * N; k++) { WU[k] = (b[k] > 127 ? b[k] - 256 : b[k]) * h.scale; WV[k] = (b[12 * N + k] > 127 ? b[12 * N + k] - 256 : b[12 * N + k]) * h.scale; }
+    for (let k = 0; k < N; k++) WSD[k] = b[24 * N + k] * h.sdscale; }
+  ED.ready = true;
+}
+// the time of year the real fields are drawn at, as a fraction of the year from 1 January
+const PH = new Float64Array(5); let WM0 = 0, WM1 = 1, WA = 0, PHY = -1;
+function setPhase(fy) {
+  fy -= Math.floor(fy); if (fy === PHY) return; PHY = fy; const p = 2 * Math.PI * fy;
+  PH[0] = 1; PH[1] = Math.cos(p); PH[2] = Math.sin(p); PH[3] = Math.cos(2 * p); PH[4] = Math.sin(2 * p);
+  const mp = fy * 12 - .5, m0 = Math.floor(mp); WA = mp - m0; WM0 = ((m0 % 12) + 12) % 12; WM1 = (WM0 + 1) % 12; // monthly means sit mid-month
+}
+setPhase(0);
+// the 15 m current (m/s) at (lat, lon) at the phase set above: bilinear between 0.5° cell centres
+function curReal(lat, lon, out) {
+  let gy = (90 - lat) * 2 - .5; if (gy < 0) gy = 0; if (gy > 358.999) gy = 358.999;
+  const gx = (lon + 180) * 2 - .5, i0f = Math.floor(gx), fx = gx - i0f, j0 = Math.floor(gy), fy = gy - j0;
+  const ia = ((i0f % 720) + 720) % 720, ib = ia === 719 ? 0 : ia + 1;
+  const a = (j0 * 720 + ia) * 10, b = (j0 * 720 + ib) * 10, c = a + 7200, d = b + 7200;
+  const w0 = (1 - fx) * (1 - fy), w1 = fx * (1 - fy), w2 = (1 - fx) * fy, w3 = fx * fy, p1 = PH[1], p2 = PH[2], p3 = PH[3], p4 = PH[4];
+  const C = CO, ev = k => C[k] + C[k + 1] * p1 + C[k + 2] * p2 + C[k + 3] * p3 + C[k + 4] * p4;
+  out[0] = ev(a) * w0 + ev(b) * w1 + ev(c) * w2 + ev(d) * w3;
+  out[1] = ev(a + 5) * w0 + ev(b + 5) * w1 + ev(c + 5) * w2 + ev(d + 5) * w3;
+  return out;
+}
+// the 10 m wind (m/s): bilinear between 1° cell centres, linear in time between monthly means
+function windReal(lat, lon, out) {
+  let gy = 89.5 - lat; if (gy < 0) gy = 0; if (gy > 178.999) gy = 178.999;
+  const gx = lon + 179.5, i0f = Math.floor(gx), fx = gx - i0f, j0 = Math.floor(gy), fy = gy - j0;
+  const ia = ((i0f % 360) + 360) % 360, ib = ia === 359 ? 0 : ia + 1, a = j0 * 360 + ia, b = j0 * 360 + ib, c = a + 360, d = b + 360;
+  const w0 = (1 - fx) * (1 - fy), w1 = fx * (1 - fy), w2 = (1 - fx) * fy, w3 = fx * fy, o0 = WM0 * 64800, o1 = WM1 * 64800, t1 = WA, t0 = 1 - WA;
+  const U = WU, V = WV, at = (A, k) => A[o0 + k] * t0 + A[o1 + k] * t1;
+  out[0] = at(U, a) * w0 + at(U, b) * w1 + at(U, c) * w2 + at(U, d) * w3;
+  out[1] = at(V, a) * w0 + at(V, b) * w1 + at(V, c) * w2 + at(V, d) * w3;
+  return out;
+}
+const kEddy = (lat, lon) => KM[Math.max(0, Math.min(KH - 1, Math.floor((90 - lat) / 180 * KH))) * KW + ((Math.floor((lon + 180) / 360 * KW) % KW) + KW) % KW];
+const wSd = (lat, lon) => WSD[Math.max(0, Math.min(179, Math.floor(90 - lat))) * 360 + ((Math.floor(lon + 180) % 360) + 360) % 360];
+const coastQ = (lat, lon) => COAST[Math.max(0, Math.min(719, Math.floor((90 - lat) * 4))) * 1440 + ((Math.floor((lon + 180) * 4) % 1440) + 1440) % 1440];
+// is the real Earth's data driving the currents right now? (not on a generated world, not with the spin changed)
+const REAL = () => ED.ready && !SEA && rot === 1;
+// can drifters be dropped yet? (the real Earth waits for its data; if that cannot load, it falls back on the model)
+const fieldReady = () => !!CU && (!!SEA || rot !== 1 || ED.ready || ED.failed);
+// One floating object's step on the real Earth: 15 m current + measured surface slip + leeway, plus a random walk with the
+// local eddy diffusivity (and the wind's own scatter for high riders). P = [lat, lon], side = ±1 (crosswind side),
+// h in days, ph = time of year (fraction) at the start of the step. Returns 1 if it washed up.
+const CV0 = [0, 0], WV0 = [0, 0];
+function stepReal(P, side, cg, h, ph, rnd) {
+  setPhase(ph); const la = P[0], lo = P[1];
+  curReal(la, lo, CV0); windReal(la, lo, WV0);
+  const sl = la >= 0 ? SLIP.n : SLIP.s, an = sl[1] * Math.PI / 180, ca = Math.cos(an), sa = Math.sin(an), wu = WV0[0], wv = WV0[1];
+  const u = CV0[0] + sl[0] * (wu * ca - wv * sa) + cg.dw * wu - side * cg.cw * wv; // crosswind: to the right of the wind for side = +1
+  const v = CV0[1] + sl[0] * (wu * sa + wv * ca) + cg.dw * wv + side * cg.cw * wu;
+  const sd = wSd(la, lo), K = kEddy(la, lo) + (cg.dw * cg.dw + cg.cw * cg.cw) * sd * sd * T_W;
+  const hs = h * DAY, rw = Math.sqrt(2 * K * hs), g1 = (rnd() + rnd() + rnd() - 1.5) * 2, g2 = (rnd() + rnd() + rnd() - 1.5) * 2; // ~N(0,1)
+  const c = Math.max(.05, Math.cos(la * Math.PI / 180));
+  P[0] = la + (v * hs + rw * g2) / MDEG; P[1] = lo + (u * hs + rw * g1) / (MDEG * c);
+  if (P[1] > 180) P[1] -= 360; if (P[1] < -180) P[1] += 360;
+  if (P[0] > 89.9) P[0] = 89.9;
+  if (isLand(P[0], P[1])) return 1;
+  if (coastQ(P[0], P[1]) && rnd() < 1 - Math.exp(-h / TAU_B)) return 1;
+  return 0;
+}
+// how long a step may be (days): a day at most, and no further than one 0.25° cell (27.8 km) at the local current plus
+// a typical wind push, so nothing jumps across a jet or a narrow isthmus in one go
+function stepDays(P) { curReal(P[0], P[1], CV0); const s = Math.hypot(CV0[0], CV0[1]) + .25; return Math.min(1, 27800 / (s * DAY)); }
 
 // ================= ocean physics: Stommel (1948) =================
 // Steady wind-driven circulation:  r·∇²ψ + β·∂ψ/∂x = curl τ  on the real ocean basins.
@@ -213,9 +344,9 @@ const EKMAN = 1.0, DIFF = 9, WINDAGE = 22, SWW = 14; // Ekman strength, eddy dif
 const sm = (x, a, b) => x <= a ? 0 : x >= b ? 1 : (x - a) / (b - a);
 // The North Atlantic's prevailing south-westerlies (degrees north per year): they carry the Gulf Stream's floaters towards Europe.
 const swWind = (lat, lon) => SEA || lat < 30 || lat > 64 || lon < -82 || lon > 15 ? 0 : SWW * sm(lat, 30, 38) * (1 - sm(lat, 58, 64)) * sm(lon, -82, -72) * (1 - sm(lon, 0, 15));
-// velocity in degrees per year at (lat, lon), bilinear on the 2° grid. Writes into `out`: no allocation.
+// the idealised model's velocity in degrees per year at (lat, lon), bilinear on the 2° grid. Writes into `out`: no allocation.
 const VO = [0, 0];
-function vel(lat, lon, out = VO) {
+function velI(lat, lon, out = VO) {
   if (!CU) { out[0] = out[1] = 0; return out; }
   const gx = (lon + 180) / 2 - .5, gy = (90 - lat) / 2 - .5, i0 = Math.floor(gx), j0 = Math.max(0, Math.min(GH - 2, Math.floor(gy))), fx = gx - i0, fy = gy - j0;
   const ia = ((i0 % GW) + GW) % GW, ib = ia === GW - 1 ? 0 : ia + 1, k00 = j0 * GW + ia, k10 = j0 * GW + ib, k01 = k00 + GW, k11 = k10 + GW;
@@ -227,6 +358,8 @@ function vel(lat, lon, out = VO) {
   out[1] = CV[k00] * w00 + CV[k10] * w10 + CV[k01] * w01 + CV[k11] * w11 + ek;
   return out;
 }
+// the surface current in m/s at (lat, lon): measured on the real Earth (at the time of year last set), modelled elsewhere
+function vel(lat, lon, out = VO) { if (REAL()) return curReal(lat, lon, out); velI(lat, lon, out); out[0] *= DY2MS; out[1] *= DY2MS; return out; }
 
 // ================= levels =================
 const REG = {
@@ -236,7 +369,7 @@ const REG = {
 };
 const regionOf = (lat, lon) => { for (const k in REG) { const [a, b, c, d] = REG[k].box; if (lat >= a && lat <= b && lon >= c && lon <= d) return k; } return 'other'; };
 const GSBOX = [25, 45, -82, -62]; // western North Atlantic, where the Gulf Stream runs
-const kmday = degYr => degYr * 111 / 365;
+const kmday = ms => ms * 86.4; // m/s → km/day
 const LV = [
   { n: 'The 1992 Spill', drop: [44.7, 178.1], years: 2, bet: ['nawest', 'japan', 'hawaii', 'australia'],
     story: 'On 10 January 1992 a container ship lost <b>28,800 plastic bath toys</b> in a Pacific storm. Ducks, beavers, turtles and frogs. Oceanographers used them to map the currents for decades. <b>Where do you think they washed up first?</b>',
@@ -303,8 +436,8 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 2)); renderer.t
 const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(32, 1, .1, 100);
 camera.position.set(0, 1.2, 5.6);
 const controls = new OrbitControls(camera, canvas); controls.enableDamping = true; controls.minDistance = 2.4; controls.maxDistance = 9; controls.enablePan = false; controls.rotateSpeed = .5;
-scene.add(new THREE.AmbientLight('#d9c3a0', .85));
-const sun = new THREE.DirectionalLight('#ffe0b0', 2.6); sun.position.set(-4, 3.5, 2.5); camera.add(sun); scene.add(camera); // the light rides with the camera, so the side you look at is lit
+scene.add(new THREE.AmbientLight('#aab6c8', .62));
+const sun = new THREE.DirectionalLight('#fff3e2', 2.9); sun.position.set(-4, 3.5, 2.5); camera.add(sun); scene.add(camera); // the light rides with the camera, so the side you look at is lit
 // globe texture painted from the land mask and the current speed.
 // A 1-pixel-per-degree map goes up at once; the full-resolution one is built in slices.
 const TW = MOBILE ? 1024 : 1440, TH = TW / 2, TS = TW / 360;
@@ -421,7 +554,7 @@ scene.add(globe);
 const atmo = new THREE.Mesh(new THREE.SphereGeometry(1.06, 64, 48), new THREE.ShaderMaterial({
   side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
   vertexShader: 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }',
-  fragmentShader: 'varying vec3 vN; void main(){ float i = pow(.72 - dot(vN, vec3(0,0,1.)), 3.); gl_FragColor = vec4(1.,.72,.38,1.) * i * .35; }' }));
+  fragmentShader: 'varying vec3 vN; void main(){ float i = pow(.72 - dot(vN, vec3(0,0,1.)), 3.); gl_FragColor = vec4(.38,.64,1.,1.) * i * .55; }' })); // a thin blue limb of air
 scene.add(atmo);
 // the brass meridian ring and its hour circle, fixed while the globe turns inside them
 const brass = new THREE.MeshStandardMaterial({ color: '#c79d4e', metalness: .85, roughness: .32 });
@@ -446,55 +579,94 @@ function ensureOcean(r, cb) {
     if (r !== 1 && !OCEAN[1]) ensureOcean(1);
     const t0 = performance.now(), st = withEarth(() => runGen(solveGen(r))); perf.cpu[r] = +(performance.now() - t0).toFixed(1);
     if (r === 1) VS = 260 / st.vmax; // one fixed scale: every planet feels the same wind, so speeds compare honestly
-    OCEAN[r] = st; enqueue({ rot: 'paint' + r, it: paintJob(st, r) });
+    OCEAN[r] = st;
   }
   cb && cb(OCEAN[r]);
 }
-function* paintJob(st, r) { while (!baseReady || baseOf !== 'earth') { if (SEA) return; yield; } /* a world is painted over the base: Earth's texture waits for its own (re-queued on return) */ yield* paintState(st); if (rot === r && CU === st.U) { globe.material.map = st.tex; globe.material.needsUpdate = true; } }
-function applyOcean(r) { const st = OCEAN[r]; CU = st.U; CV = st.V; CSP = st.SP; globe.material.map = st.tex || quickTex; globe.material.needsUpdate = true; }
-enqueue({ it: paintBaseGen(), rot: 'base' });
+function applyOcean(r) { const st = OCEAN[r]; CU = st.U; CV = st.V; CSP = st.SP; useEarthLook(); }
+// ---- the real Earth's skin: NASA Blue Marble (topography and bathymetry), ETOPO1 relief for the lamp, a glossy sea ----
+const texL = new THREE.TextureLoader(), EL = { map: null, bump: null, rough: null };
+function useEarthLook() { if (SEA) return; const M = globe.material; M.map = EL.map || quickTex; M.bumpMap = EL.bump; M.bumpScale = 2.2; M.roughnessMap = EL.rough; M.roughness = EL.rough ? 1 : .6; M.clearcoat = EL.rough ? 0 : .55; M.needsUpdate = true; }
+const loadTex = (u, cb, srgb = true) => texL.load(u, t => { if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MOBILE ? 2 : 8; cb(t); });
+loadTex('data/earth-2k.jpg', t => { EL.map = t; useEarthLook(); if (!MOBILE) loadTex('data/earth-4k.jpg', t4 => { EL.map = t4; useEarthLook(); }); }); // the small one first, then the sharp one
+loadTex('data/relief-2k.jpg', t => { EL.bump = t; useEarthLook(); }, false);
+function earthRoughness() { // the sea is glassy (the sun's glint), the land matte
+  const c = document.createElement('canvas'); c.width = 1440; c.height = 720; const g = c.getContext('2d'), im = g.createImageData(1440, 720);
+  for (let k = 0; k < LQ.length; k++) { im.data[k * 4 + 1] = LQ[k] ? 240 : 66; im.data[k * 4 + 3] = 255; } g.putImageData(im, 0, 0); return new THREE.CanvasTexture(c);
+}
+loadEarth().then(() => { EL.rough = earthRoughness(); useEarthLook(); if (L) { renderCtrl(); renderTally(stats()); } }).catch(e => { ED.failed = true; console.warn('Earth data unavailable, using the model ocean:', e); });
 ensureOcean(1); applyOcean(1);
 const ready = Promise.resolve();
 setTimeout(() => { ensureOcean(0); ensureOcean(-1); }, 2500);
 
 // matches three.js SphereGeometry's texture wrap: u = (lon + 180) / 360 runs round from the -x axis
 const toXYZ = (lat, lon, r = 1.004, out = []) => { const a = lat * Math.PI / 180, u = (lon + 180) / 360 * Math.PI * 2, ca = Math.cos(a); out[0] = -r * ca * Math.cos(u); out[1] = r * Math.sin(a); out[2] = r * ca * Math.sin(u); return out; };
-// current streamlines: comet-tailed streaks that flow with the computed currents, brighter and warmer where the water runs fast
-const NT = MOBILE ? 1000 : 2000, TL = 14, tr = { lat: new Float32Array(NT), lon: new Float32Array(NT), age: new Float32Array(NT), sp: new Float32Array(NT), hist: new Float32Array(NT * TL * 3) };
-const trGeo = new THREE.BufferGeometry(), trPos = new Float32Array(NT * (TL - 1) * 6), trCol = new Float32Array(NT * (TL - 1) * 6);
-trGeo.setAttribute('position', new THREE.BufferAttribute(trPos, 3)); trGeo.setAttribute('color', new THREE.BufferAttribute(trCol, 3));
-const trMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
-const tracers = new THREE.LineSegments(trGeo, trMat);
-globe.add(tracers);
-function respawnTracer(i) { let lat, lon; do { lat = Math.asin(Math.random() * 2 - 1) * 180 / Math.PI; lon = Math.random() * 360 - 180; } while (isLand(lat, lon) || Math.abs(lat) > 78); tr.lat[i] = lat; tr.lon[i] = lon; tr.age[i] = 1.5 + Math.random() * 2.5; toXYZ(lat, lon, 1.003, XYZ0); for (let k = 0; k < TL; k++) tr.hist.set(XYZ0, (i * TL + k) * 3); }
-const XYZ0 = [0, 0, 0];
-for (let i = 0; i < NT; i++) respawnTracer(i);
-const camL = new THREE.Vector3(), XYZ = [0, 0, 0]; let trTick = 0;
-function moveTracers(dt) {
-  if (!CU) return;
-  camL.copy(camera.position); globe.worldToLocal(camL); camL.normalize();
-  trTick += dt; const push = trTick > 1 / 13; if (push) trTick = 0; // the tail keeps a point every 1/13 s: a second of motion
-  const H = tr.hist, P = trPos, Cc = trCol, seg = (TL - 1) * 6;
-  for (let i = 0; i < NT; i++) {
-    const hb = i * TL * 3;
-    // the far side of the globe can't be seen: just let those streaks age, and hide them
-    if (H[hb] * camL.x + H[hb + 1] * camL.y + H[hb + 2] * camL.z < -.25) { tr.age[i] -= dt; if (tr.age[i] < 0) respawnTracer(i); Cc.fill(0, i * seg, i * seg + seg); continue; }
-    const v = vel(tr.lat[i], tr.lon[i]), u = v[0], w = v[1], c = Math.max(.15, Math.cos(tr.lat[i] * Math.PI / 180));
-    tr.lat[i] += w * dt * .08; tr.lon[i] += u * dt * .08 / c; tr.age[i] -= dt;
-    if (tr.lon[i] > 180) tr.lon[i] -= 360; if (tr.lon[i] < -180) tr.lon[i] += 360;
-    if (tr.age[i] < 0 || isLand(tr.lat[i], tr.lon[i]) || Math.abs(tr.lat[i]) > 80) { respawnTracer(i); Cc.fill(0, i * seg, i * seg + seg); continue; }
-    if (push) H.copyWithin(hb + 3, hb, hb + (TL - 1) * 3);
-    toXYZ(tr.lat[i], tr.lon[i], 1.003, XYZ); H[hb] = XYZ[0]; H[hb + 1] = XYZ[1]; H[hb + 2] = XYZ[2];
-    const s = tr.sp[i] = tr.sp[i] + (Math.min(1, Math.hypot(u, w) / 90) - tr.sp[i]) * .2, life = Math.min(1, tr.age[i], (4 - tr.age[i]) * 2) * Math.max(0, Math.min(1, (80 - Math.abs(tr.lat[i])) / 14)); // fade in, fade out, and towards the poles
-    // slow water: a faint pearl thread; fast water: a bright gold-white comet
-    const r0 = .42 + s * .9, g0 = .4 + s * .62, b0 = .3 + s * .12, base = life * (.3 + s * 1.1);
-    for (let k = 0; k < TL - 1; k++) {
-      const o = i * seg + k * 6, a = hb + k * 3, f0 = base * (1 - k / (TL - 1)), f1 = base * (1 - (k + 1) / (TL - 1));
-      P[o] = H[a]; P[o + 1] = H[a + 1]; P[o + 2] = H[a + 2]; P[o + 3] = H[a + 3]; P[o + 4] = H[a + 4]; P[o + 5] = H[a + 5];
-      Cc[o] = r0 * f0; Cc[o + 1] = g0 * f0; Cc[o + 2] = b0 * f0; Cc[o + 3] = r0 * f1; Cc[o + 4] = g0 * f1; Cc[o + 5] = b0 * f1;
+let viewMonth = new Date().getMonth(); // the month the currents are drawn for, when no voyage is running (the slider)
+// ================= the currents, drawn =================
+// Long, thin streamlines of the field for one time of year (on the real Earth: the drifter climatology for that month),
+// in the spirit of NASA SVS's "Perpetual Ocean" and earth.nullschool.net. Each line is traced through the field from a
+// seed both ways; where the water is fast the line runs longer and brighter. A soft brightening glides along every line at
+// the pace of the water, so the sea visibly flows without any line ending in a blob. Built in slices off the frame loop.
+const FLN = MOBILE ? 1500 : 3600, FLP = MOBILE ? 34 : 44; // lines; points per line (half each way from the seed)
+const flowMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  uniforms: { uT: { value: 0 }, uOp: { value: 1 }, uK: { value: 1 } },
+  vertexShader: `attribute vec4 aD; uniform float uT, uOp, uK; varying vec3 vC;
+    void main() {
+      vec4 mv = modelViewMatrix * vec4(position, 1.); gl_Position = projectionMatrix * mv;
+      float f = clamp(aD.y * uK / .9, 0., 1.), g = sqrt(f);
+      float x = fract(aD.x * .09 - uT * (.05 + .32 * g) + aD.z);
+      float glide = .5 - .5 * cos(6.2831853 * x); glide *= glide;
+      vec3 n = normalize(normalMatrix * normalize(position)), e = normalize(-mv.xyz);
+      float limb = smoothstep(.0, .35, dot(n, e));
+      float a = aD.w * limb * uOp * (.10 + .55 * g) * (.38 + .9 * glide);
+      vC = mix(vec3(.30, .55, .95), vec3(.92, .97, 1.), g) * a;
+    }`,
+  fragmentShader: `varying vec3 vC; void main() { gl_FragColor = vec4(vC, 1.); }`,
+});
+const mkFlow = () => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(FLN * (FLP - 1) * 6), 3)); g.setAttribute('aD', new THREE.BufferAttribute(new Float32Array(FLN * (FLP - 1) * 8), 4)); g.setDrawRange(0, 0); const m = new THREE.LineSegments(g, flowMat.clone()); m.frustumCulled = false; globe.add(m); return m; };
+const flowA = mkFlow(), flowB = mkFlow(); // two sets: the new month fades in over the old
+const tracers = new THREE.Group(); // shown / hidden as one (kept under its old name: worlds hide their currents until the end)
+globe.remove(flowA); globe.remove(flowB); tracers.add(flowA, flowB); globe.add(tracers);
+let flowCur = flowA, flowKey = '', flowJob = null, flowAt = -1e9;
+const flowMonth = () => REAL() ? (running && ducks.length ? Math.floor(((phaseAt(simT) % 1) + 1) % 1 * 12) : viewMonth) : -1;
+const keyNow = () => (SEA ? 'w' + SEA.seed : rot === 1 && ED.ready ? 'e' : 'm' + rot) + ':' + flowMonth();
+function* buildFlow(target, key) {
+  const P = target.geometry.attributes.position.array, A = target.geometry.attributes.aD.array, V = [0, 0], pts = [], half = FLP >> 1;
+  const m = flowMonth(); if (m >= 0) setPhase((m + .5) / 12);
+  let r = 0x9e3779b9 ^ key.length * 7919; const rnd = () => { r ^= r << 13; r ^= r >>> 17; r ^= r << 5; return (r >>> 0) / 4294967296; };
+  // a step along the line, in degrees of arc: short where the water is slow, long where it is fast
+  const trace = (la, lo, dir, out) => { for (let k = 0; k < half; k++) { vel(la, lo, V); const sp = Math.hypot(V[0], V[1]); if (sp < .004) break; const ds = .12 + Math.min(.9, sp * .8), c = Math.max(.1, Math.cos(la * Math.PI / 180));
+      la += dir * V[1] / sp * ds; lo += dir * V[0] / sp * ds / c; if (lo > 180) lo -= 360; if (lo < -180) lo += 360; if (Math.abs(la) > 80 || isLand(la, lo)) break; out.push(la, lo, sp); } };
+  let v = 0, tries = 0; const XA = [0, 0, 0], XB = [0, 0, 0];
+  for (let n = 0; n < FLN && tries < FLN * 30; tries++) {
+    const la = Math.asin(rnd() * 1.94 - .97) * 180 / Math.PI, lo = rnd() * 360 - 180; if (isLand(la, lo)) continue;
+    vel(la, lo, V); const sp = Math.hypot(V[0], V[1]); if (rnd() > .3 + 2.2 * sp) continue; // more seeds where the water runs fast
+    const fw = [], bw = []; trace(la, lo, 1, fw); trace(la, lo, -1, bw);
+    pts.length = 0; for (let k = bw.length - 3; k >= 0; k -= 3) pts.push(bw[k], bw[k + 1], bw[k + 2]); pts.push(la, lo, sp); for (let k = 0; k < fw.length; k++) pts.push(fw[k]);
+    const np = pts.length / 3; if (np < 4) continue; n++;
+    const ph = rnd(); let s = 0;
+    for (let k = 0; k + 1 < np; k++) {
+      const a = k * 3, b = a + 3; if (Math.abs(pts[b + 1] - pts[a + 1]) > 30) continue;
+      toXYZ(pts[a], pts[a + 1], 1.0025, XA); toXYZ(pts[b], pts[b + 1], 1.0025, XB);
+      const d = Math.hypot(XA[0] - XB[0], XA[1] - XB[1], XA[2] - XB[2]) * 57.3, fa = Math.min(1, k / 3, (np - 1 - k) / 3), fb = Math.min(1, (k + 1) / 3, (np - 2 - k) / 3);
+      P.set(XA, v * 3); P.set(XB, v * 3 + 3);
+      A[v * 4] = s; A[v * 4 + 1] = pts[a + 2]; A[v * 4 + 2] = ph; A[v * 4 + 3] = fa; s += d;
+      A[v * 4 + 4] = s; A[v * 4 + 5] = pts[b + 2]; A[v * 4 + 6] = ph; A[v * 4 + 7] = fb; v += 2;
     }
+    if ((n & 63) === 63) { yield; if (keyNow().split(':')[0] !== key.split(':')[0]) { flowJob = null; return; } } // another world: start again
   }
-  trGeo.attributes.position.needsUpdate = trGeo.attributes.color.needsUpdate = true;
+  target.geometry.setDrawRange(0, v); target.geometry.attributes.position.needsUpdate = target.geometry.attributes.aD.needsUpdate = true;
+  target.material.uniforms.uK.value = SEA || rot !== 1 || !ED.ready ? 1.6 : 1; // the model's speeds run a little lower than the sea's
+  target.material.uniforms.uOp.value = 0; flowCur = target; flowKey = key; flowJob = null;
+}
+// called every frame: rebuild when the field or the month changes; cross-fade old to new
+function updateFlow(dt, now) {
+  for (const f of [flowA, flowB]) f.material.uniforms.uT.value = now / 1000;
+  const want = tracers.visible ? 1 : 0, k = keyNow();
+  if (want && k !== flowKey && !flowJob && fieldReady() && (now - flowAt > 1200 || k.split(':')[0] !== flowKey.split(':')[0])) { flowAt = now; const tgt = flowCur === flowA ? flowB : flowA; flowJob = { rot: 'flow', it: buildFlow(tgt, k) }; enqueue(flowJob); }
+  const op = ducks.length ? .55 : 1;
+  for (const f of [flowA, flowB]) { const u = f.material.uniforms.uOp; u.value = FX.damp(u.value, f === flowCur ? op : 0, f === flowCur ? 2.5 : 4, dt); }
 }
 // the garbage-patch ring (shown on that level)
 const PATCH = [21, 165]; // where this model's North Pacific gyre gathers floating debris
@@ -503,13 +675,32 @@ const ringAt = (R, mat) => { const pts = []; for (let a = 0; a <= 96; a++) { con
 const patchRing = ringAt(PATCH_R, new THREE.LineDashedMaterial({ color: '#b3261e', dashSize: .02, gapSize: .015, transparent: true, opacity: .8 }));
 patchRing.add(ringAt(KEEP_OUT, new THREE.LineDashedMaterial({ color: '#3a2a14', dashSize: .004, gapSize: .012, transparent: true, opacity: .75 }))); // the keep-out line for drops
 globe.add(patchRing); patchRing.visible = false;
-// ducks: a bright core and a soft halo, so they stand out from the current tracers
+// ducks (and sneakers): tiny drawn objects bobbing on the sea, not glowing dots, so they never read as current streaks
 const MAXD = 600, dGeo = new THREE.BufferGeometry(), dPos = new Float32Array(MAXD * 3), dCol = new Float32Array(MAXD * 3);
 dGeo.setAttribute('position', new THREE.BufferAttribute(dPos, 3)); dGeo.setAttribute('color', new THREE.BufferAttribute(dCol, 3));
 const dot = (inner, outer) => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, '#fff'); gr.addColorStop(inner, 'rgba(255,255,255,.95)'); gr.addColorStop(outer, 'rgba(255,255,255,.25)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); };
-const duckPts = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .04, map: dot(.45, .7), vertexColors: true, transparent: true, depthWrite: false }));
-const duckHalo = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .08, map: dot(.05, .3), color: '#ffd23a', transparent: true, opacity: .22, blending: THREE.AdditiveBlending, depthWrite: false }));
-globe.add(duckHalo); globe.add(duckPts); dGeo.setDrawRange(0, 0);
+function icon(kind) { // a 64 px sprite: a rubber duck in profile, or a sneaker; white where the vertex colour tints it
+  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); g.lineJoin = 'round';
+  g.fillStyle = 'rgba(0,10,30,.35)'; g.beginPath(); g.ellipse(32, 47, 22, 5, 0, 0, 7); g.fill(); // its shadow on the water
+  if (kind === 'shoe') {
+    g.fillStyle = '#f4f4f0'; g.strokeStyle = '#1b2430'; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(8, 44); g.lineTo(8, 30); g.quadraticCurveTo(14, 22, 24, 24); g.lineTo(34, 30); g.quadraticCurveTo(48, 32, 56, 38); g.quadraticCurveTo(58, 44, 54, 46); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#2b6fd6'; g.beginPath(); g.moveTo(20, 40); g.quadraticCurveTo(34, 30, 46, 38); g.quadraticCurveTo(34, 36, 22, 43); g.fill();
+    g.fillStyle = '#c9c4b8'; g.fillRect(8, 42, 47, 4);
+  } else {
+    g.fillStyle = '#fff'; g.strokeStyle = 'rgba(60,40,0,.85)'; g.lineWidth = 3;
+    g.beginPath(); g.ellipse(30, 38, 20, 11, 0, 0, 7); g.fill(); g.stroke();             // body
+    g.beginPath(); g.moveTo(10, 34); g.lineTo(4, 26); g.lineTo(14, 30); g.closePath(); g.fill(); g.stroke(); // tail
+    g.beginPath(); g.arc(42, 22, 10, 0, 7); g.fill(); g.stroke();                          // head
+    g.fillStyle = '#ff7a1a'; g.beginPath(); g.moveTo(50, 22); g.quadraticCurveTo(60, 22, 61, 26); g.quadraticCurveTo(56, 28, 50, 27); g.fill(); // beak
+    g.fillStyle = '#111'; g.beginPath(); g.arc(44, 19, 2, 0, 7); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const ICON = { duck: icon('duck'), shoe: icon('shoe') };
+const duckPts = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: MOBILE ? .05 : .04, map: ICON.duck, vertexColors: true, transparent: true, alphaTest: .25, depthWrite: false }));
+globe.add(duckPts); dGeo.setDrawRange(0, 0);
+const duckHalo = { visible: false }; // (the old soft halo: gone, it turned every duck into a blob)
 // red map pins: where the logbook's sightings were made (and, once solved, a black cross at the true spill)
 const pinGeo = new THREE.BufferGeometry(), pinPos = new Float32Array(6 * 3); pinGeo.setAttribute('position', new THREE.BufferAttribute(pinPos, 3));
 const pins = new THREE.Points(pinGeo, new THREE.PointsMaterial({ size: .07, map: dot(.5, .75), color: '#c42a18', transparent: true, depthWrite: false })); globe.add(pins); pinGeo.setDrawRange(0, 0);
@@ -565,9 +756,11 @@ function genCase(seed, rung) {
   }
   return { truth: [36, -66], truthMonth: 0, windage: 22, unknownDate: 0, unknownWindage: 0, budget: 12, start: [1994, 0], area: BASINS.natl.area, basin: 'natl', focus: BASINS.natl.focus, seed, rung: 1 }; // the classic, if the dice are cruel
 }
-function caseLogFor(C) { return sightingsOf(hindcast(C.truth[0], C.truth[1], C.years || 5, C.windage, 400, 7)).slice(0, 4).map(q => ({ ...q, t: q.t + (C.truthMonth || 0) / 12 })); }
+// the time of year a case's crate went over: its calendar month (mid-month), as a fraction of the year
+const casePh = (C, month) => ((((C.start[1] + month) % 12) + 12) % 12 + .5) / 12;
+function caseLogFor(C) { return sightingsOf(hindcast(C.truth[0], C.truth[1], C.years || 5, C.windage, 400, 7, casePh(C, C.truthMonth || 0))).slice(0, 4).map(q => ({ ...q, t: q.t + (C.truthMonth || 0) / 12 })); }
 // the scripted detective: survey the basin, refit the date from the residuals, try both cargoes, then refine around the best hit
-function trial(C, log, lat, lon, month, wnd) { const sim = sightingsOf(hindcast(lat, lon, C.years || 5, wnd, 400, 7)).map(q => ({ ...q, t: q.t + month / 12 })); const m = {}; for (const q of sim) m[q.r] = q;
+function trial(C, log, lat, lon, month, wnd) { const sim = sightingsOf(hindcast(lat, lon, C.years || 5, wnd, 400, 7, casePh(C, month))).map(q => ({ ...q, t: q.t + month / 12 })); const m = {}; for (const q of sim) m[q.r] = q;
   return { mis: misfit(log, sim), dts: log.map(q => m[q.r] ? Math.round((m[q.r].t - q.t) * 12) : null) }; }
 function detective(C, budget = C.budget) {
   const log = C.log || caseLogFor(C), A = C.area; let n = 0, best = { mis: 99 };
@@ -588,11 +781,11 @@ function startCaseFile(seed, rung, daily) {
   resumeCF = res;
   L.case = genCase(seed, rung); L.years = L.case.years || 5; L.focus = L.case.focus || BASINS.natl.focus; try { history.replaceState(null, '', '#case=' + seed + '-' + rung); } catch (e) {}
 }
-function caseLog(C) { return C.log ||= sightingsOf(hindcast(C.truth[0], C.truth[1], L.years, C.windage, 400, 7)).slice(0, 4).map(q => ({ ...q, t: q.t + (C.truthMonth || 0) / 12 })); }
+function caseLog(C) { return C.log ||= sightingsOf(hindcast(C.truth[0], C.truth[1], L.years, C.windage, 400, 7, casePh(C, C.truthMonth || 0))).slice(0, 4).map(q => ({ ...q, t: q.t + (C.truthMonth || 0) / 12 })); }
 const caseMonth = () => (L.case.unknownDate ? caseState.month : 0) / 12;
 const caseWnd = () => L.case.unknownWindage ? caseState.wnd : L.case.windage;
 function caseTry(lat, lon) {
-  const C = L.case, sim = sightingsOf(hindcast(lat, lon, L.years, caseWnd(), 400, 7)) /* same weather as the real spill: a perfect guess reproduces the logbook exactly */.map(q => ({ ...q, t: q.t + caseMonth() }));
+  const C = L.case, sim = sightingsOf(hindcast(lat, lon, L.years, caseWnd(), 400, 7, casePh(C, Math.round(caseMonth() * 12)))) /* same weather as the real spill: a perfect guess reproduces the logbook exactly */.map(q => ({ ...q, t: q.t + caseMonth() }));
   const log = caseLog(C), m = {}; for (const q of sim) m[q.r] = q;
   return { ll: [lat, lon], month: caseState.month, wnd: caseWnd(), mis: misfit(log, sim), rows: log.map(q => { const h = m[q.r]; return { r: q.r, d: h ? [h.at[0] - q.at[0], ((h.at[1] - q.at[1] + 540) % 360) - 180] : null, dt: h ? Math.round((h.t - q.t) * 12) : null, km: h ? Math.round(Math.hypot(q.at[0] - h.at[0], ((q.at[1] - h.at[1] + 540) % 360 - 180) * Math.cos(q.at[0] * Math.PI / 180)) * 111) : null }; }) };
 }
@@ -645,16 +838,28 @@ function renderCase() {
 }
 const windage = () => L && L.case ? L.case.windage : WINDAGE; // sneakers ride low in the water and barely feel the wind
 // ---- hindcasting: the same drift model, run silently and reproducibly (seeded), to see where and when a spill would wash up ----
-function hindcast(lat, lon, years, wnd = WINDAGE, n = 400, seed = 7) {
+function hindcast(lat, lon, years, wnd = WINDAGE, n = 400, seed = 7, ph0 = 0) {
   let a = seed >>> 0; const rnd = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
-  const arr = {}, dt = .02, sub = 4, h = dt / sub, sq = DIFF * Math.sqrt(h), V = [0, 0];
-  for (let k = 0; k < n; k++) {
-    let la = lat + (rnd() - .5) * 1.5, lo = lon + (rnd() - .5) * 1.5;
-    run: for (let t = 0; t < years; t += dt) for (let s = 0; s < sub; s++) {
-      vel(la, lo, V); const c = Math.max(.15, Math.cos(la * Math.PI / 180));
-      la += (V[1] + swWind(la, lo)) * h + (rnd() - .5) * sq; lo += ((V[0] + wnd * taux(la * Math.PI / 180)) * h + (rnd() - .5) * sq) / c;
-      if (lo > 180) lo -= 360; if (lo < -180) lo += 360;
-      if (isLand(la, lo) || Math.abs(la) > 84) { const r = regionOf(la, lo); if (r !== 'other') (arr[r] ||= []).push([t + s * h, la, lo]); break run; }
+  const arr = {};
+  if (REAL()) { // the real ocean: ph0 is the time of year of the spill (fraction from 1 January)
+    const cg = cargoOf(wnd), P = [0, 0], end = years * YEARD;
+    for (let k = 0; k < n; k++) {
+      P[0] = lat + (rnd() - .5) * .5; P[1] = lon + (rnd() - .5) * .5; const side = rnd() < .5 ? -1 : 1;
+      for (let t = 0; t < end;) {
+        const h = Math.min(stepDays(P), end - t), hit = stepReal(P, side, cg, h, ph0 + t / YEARD, rnd); t += h;
+        if (hit || Math.abs(P[0]) > 84) { const r = regionOf(P[0], P[1]); if (r !== 'other') (arr[r] ||= []).push([t / YEARD, P[0], P[1]]); break; }
+      }
+    }
+  } else {
+    const dt = .02, sub = 4, h = dt / sub, sq = DIFF * Math.sqrt(h), V = [0, 0];
+    for (let k = 0; k < n; k++) {
+      let la = lat + (rnd() - .5) * 1.5, lo = lon + (rnd() - .5) * 1.5;
+      run: for (let t = 0; t < years; t += dt) for (let s = 0; s < sub; s++) {
+        velI(la, lo, V); const c = Math.max(.15, Math.cos(la * Math.PI / 180));
+        la += (V[1] + swWind(la, lo)) * h + (rnd() - .5) * sq; lo += ((V[0] + wnd * taux(la * Math.PI / 180)) * h + (rnd() - .5) * sq) / c;
+        if (lo > 180) lo -= 360; if (lo < -180) lo += 360;
+        if (isLand(la, lo) || Math.abs(la) > 84) { const r = regionOf(la, lo); if (r !== 'other') (arr[r] ||= []).push([t + s * h, la, lo]); break run; }
+      }
     }
   }
   for (const r in arr) arr[r].sort((p, q) => p[0] - q[0]);
@@ -664,16 +869,36 @@ function hindcast(lat, lon, years, wnd = WINDAGE, n = 400, seed = 7) {
 const sightingsOf = (arr, k = 4) => Object.entries(arr).filter(([, v]) => v.length >= 6).map(([r, v]) => { const f = v.slice(0, 6); return { r, t: v[k - 1][0], at: [f.reduce((a, p) => a + p[1], 0) / f.length, f.reduce((a, p) => a + p[2], 0) / f.length] }; }).sort((p, q) => p.t - q.t);
 // how badly a hindcast fits the logbook: months of timing error plus where along the coast (3° ≈ one month); a coast it never reaches costs two years
 function misfit(log, sim) { const m = {}; for (const q of sim) m[q.r] = q; return log.reduce((a, q) => { const s2 = m[q.r]; if (!s2) return a + 24; const dl = q.at[0] - s2.at[0], dn = ((q.at[1] - s2.at[1] + 540) % 360 - 180) * Math.cos(q.at[0] * Math.PI / 180); return a + Math.abs(s2.t - q.t) * 12 + Math.hypot(dl, dn) / 3; }, 0) / log.length; }
+// the time of year (fraction from 1 January) at voyage time t (years): each voyage's clock starts on its spill date
+const phaseAt = t => { const st = calStart(); return ((st[1] % 12 + 12) % 12 + (L && L.day0 != null ? L.day0 : L && L.case ? .5 : 0)) / 12 + t; };
 function moveDucks(dtYears) {
-  if (!CU) return;
+  if (!fieldReady()) return;
   sampleTrails();
   const box = L.measure ? GSBOX : null; let mx = 0;
+  if (REAL()) {
+    const cg = cargoOf(windage()), P = [0, 0], T = dtYears * YEARD;
+    for (const d of ducks) {
+      if (d.beached) continue;
+      if (!d.side) d.side = Math.random() < .5 ? -1 : 1;
+      P[0] = d.lat; P[1] = d.lon;
+      for (let t = 0; t < T;) {
+        const h = Math.min(stepDays(P), T - t), lo0 = P[1];
+        if (box && P[0] > box[0] && P[0] < box[1] && P[1] > box[2] && P[1] < box[3]) { const sp = Math.hypot(CV0[0], CV0[1]); if (sp > mx) mx = sp; } // CV0: the current stepDays just read here
+        const hit = stepReal(P, d.side, cg, h, phaseAt(simT + t / YEARD), Math.random); t += h;
+        d.lap += ((P[1] - lo0 + 540) % 360) - 180;
+        if (hit || Math.abs(P[0]) > 84) { d.lat = P[0]; d.lon = P[1]; d.beached = regionOf(d.lat, d.lon); d.bt = simT + t / YEARD; if (d.beached !== 'other' && !landed[d.beached]) { landed[d.beached] = 1; postcard(d.beached, d.bt); } break; }
+      }
+      if (!d.beached) { d.lat = P[0]; d.lon = P[1]; }
+    }
+    if (box && mx > (meas[rot] || 0)) meas[rot] = mx;
+    return;
+  }
   for (const d of ducks) {
     if (d.beached) continue;
     const sub = 4, h = dtYears / sub, sq = DIFF * Math.sqrt(h);
     for (let s = 0; s < sub; s++) {
-      const v = vel(d.lat, d.lon), u = v[0], w = v[1], c = Math.max(.15, Math.cos(d.lat * Math.PI / 180));
-      if (box && d.lat > box[0] && d.lat < box[1] && d.lon > box[2] && d.lon < box[3]) { const sp = Math.hypot(u, w); if (sp > mx) mx = sp; }
+      const v = velI(d.lat, d.lon), u = v[0], w = v[1], c = Math.max(.15, Math.cos(d.lat * Math.PI / 180));
+      if (box && d.lat > box[0] && d.lat < box[1] && d.lon > box[2] && d.lon < box[3]) { const sp = Math.hypot(u, w) * DY2MS; if (sp > mx) mx = sp; }
       // eddies scatter the flock: a random walk on top of the mean current. Toys ride high, so the wind pushes them downwind too.
       const dl = (w + swWind(d.lat, d.lon)) * h + (Math.random() - .5) * sq, dn = ((u + windage() * taux(d.lat * Math.PI / 180)) * h + (Math.random() - .5) * sq) / c;
       d.lat += dl; d.lon += dn; d.lap += dn;
@@ -721,7 +946,7 @@ function dropAt(lat, lon) {
   if (L.westOf != null && (lon > L.westOf || lon < -100)) { FX.sfx('fail'); toast('Too far out', 'The sailor is on the American coast: drop west of 60°W.', 2200); return false; }
   if (L.dropBox && !(lat >= L.dropBox[0] && lat <= L.dropBox[1] && lon >= L.dropBox[2] && lon <= L.dropBox[3])) { FX.sfx('fail'); toast('Not in the western Atlantic', 'Drop between the Americas and 45°W: dropping next to Europe proves nothing.', 2400); return false; }
   if (L.outsidePatch && patchDist(lat, lon) < KEEP_OUT) { FX.sfx('fail'); toast('Too close to the patch', 'Drop them outside the dotted line and let the gyre do the herding.', 2200); return false; }
-  if (!CU) { toast('Still charting the oceans…', '', 1200); return false; }
+  if (!fieldReady()) { toast('Still charting the oceans…', '', 1200); return false; }
   if (L.case) {
     const A = L.case.area, lw = lon < A[2] ? lon + 360 : lon, inA = lat >= A[0] && lat <= A[1] && lw <= A[3];
     if (!inA) { FX.sfx('fail'); toast('Wrong ocean', `The sightings are all in the ${(BASINS[L.case.basin] || BASINS.natl).n}: the spill was too.`, 2000); return false; }
@@ -791,7 +1016,7 @@ function driftPath(lat, lon, years, wnd, seed) {
   let a = seed >>> 0; const rnd = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
   const path = [[0, lat, lon]], dt = .02, sub = 4, h = dt / sub, sq = DIFF * .7 * Math.sqrt(h), V = [0, 0]; let la = lat, lo = lon, nextFix = 1 / 12;
   for (let t = 0; t < years; t += dt) for (let s = 0; s < sub; s++) {
-    vel(la, lo, V); const c = Math.max(.15, Math.cos(la * Math.PI / 180));
+    velI(la, lo, V); const c = Math.max(.15, Math.cos(la * Math.PI / 180));
     la += V[1] * h + (rnd() - .5) * sq; lo += ((V[0] + wnd * taux(la * Math.PI / 180)) * h + (rnd() - .5) * sq) / c;
     if (lo > 180) lo -= 360; if (lo < -180) lo += 360;
     const tt = t + (s + 1) * h;
@@ -825,11 +1050,11 @@ function chartScore(W, strokes) {
     let num = 0, den = 0, len = 0; const V = [0, 0], segs = [];
     for (const s of strokes) for (let k = 1; k < s.length; k++) {
       const [la0, lo0] = s[k - 1], [la1, lo1] = s[k], ml = (la0 + la1) / 2, dn = ((lo1 - lo0 + 540) % 360 - 180), mo = lo0 + dn / 2, cx = dn * Math.cos(ml * Math.PI / 180), cy = la1 - la0, L1 = Math.hypot(cx, cy); if (L1 < 1e-6) continue;
-      vel(ml, mo, V); const sp = Math.hypot(V[0], V[1]); len += L1; segs.push([ml, mo, cx / L1, cy / L1]); if (sp < 1e-6 || isLand(ml, mo)) { den += L1 * .3; continue; }
+      velI(ml, mo, V); const sp = Math.hypot(V[0], V[1]); len += L1; segs.push([ml, mo, cx / L1, cy / L1]); if (sp < 1e-6 || isLand(ml, mo)) { den += L1 * .3; continue; }
       const w = L1 * Math.min(1, sp / 40); num += w * (cx * V[0] + cy * V[1]) / (L1 * sp); den += w;
     }
     // coverage: of the fast water (the quickest third of the open sea), how much has one of your arrows near it, pointing the right way?
-    const pts = []; for (let la = -70; la <= 70; la += 4) for (let lo = -178; lo < 180; lo += 4) { if (isLand(la, lo)) continue; vel(la, lo, V); pts.push([la, lo, V[0], V[1], Math.hypot(V[0], V[1])]); }
+    const pts = []; for (let la = -70; la <= 70; la += 4) for (let lo = -178; lo < 180; lo += 4) { if (isLand(la, lo)) continue; velI(la, lo, V); pts.push([la, lo, V[0], V[1], Math.hypot(V[0], V[1])]); }
     const sp = pts.map(p => p[4]).sort((a, b) => a - b), thr = sp[Math.floor(sp.length * .67)] || 0, fast = pts.filter(p => p[4] >= thr && p[4] > 0);
     let cov = 0; for (const p of fast) if (segs.some(g => arcDeg(g[0], g[1], p[0], p[1]) < 7 && (g[2] * p[2] + g[3] * p[3]) / p[4] > .5)) cov++;
     const acc = den ? num / den : 0, covF = fast.length ? cov / fast.length : 0;
@@ -867,17 +1092,16 @@ function enterWorld(nw) {
   W = nw; swapIn(W); CU = W.st.U; CV = W.st.V; CSP = W.st.SP; rot = W.rot;
   for (let k = jobs.length - 1; k >= 0; k--) if (jobs[k].world || jobs[k].rot === 'base' || String(jobs[k].rot).startsWith('paint')) jobs.splice(k, 1); // stale paint work
   quickPaint(seaQuick, W.lm);
-  seaQuickTex.needsUpdate = true; globe.material.map = seaQuickTex; globe.material.bumpMap = globe.material.roughnessMap = null; globe.material.roughness = .6; globe.material.needsUpdate = true;
+  seaQuickTex.needsUpdate = true; globe.material.map = seaQuickTex; globe.material.bumpMap = globe.material.roughnessMap = null; globe.material.roughness = .6; globe.material.clearcoat = .55; globe.material.needsUpdate = true;
   const me = W; enqueue({ rot: 'world', world: 1, it: (function* () { yield* paintBaseGen('w' + me.seed); if (W !== me || baseOf !== 'w' + me.seed) return; const c = document.createElement('canvas'); c.width = TW; c.height = TH; const cx = c.getContext('2d'), id = cx.createImageData(TW, TH); id.data.set(BASE); cx.putImageData(id, 0, 0); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MOBILE ? 2 : 8; me.tex = t; if (W === me && !me.revealed) { globe.material.map = t; globe.material.needsUpdate = true; } })() });
-  tracers.visible = false; for (let i = 0; i < NT; i++) respawnTracer(i);
+  tracers.visible = false;
   seaGeoReset();
 }
 function leaveWorld() {
   if (!SEA) return; W = null; swapOut({ LM: EARTH_LM, SEA: null, WK: 4 * 45 / 42, BELT: Math.PI / 2 / (4 * 45 / 42) * 3, WAMP: 1, rot: 1, CU, CV, CSP });
   for (let k = jobs.length - 1; k >= 0; k--) if (jobs[k].world) jobs.splice(k, 1);
-  enqueue({ it: paintBaseGen(), rot: 'base' }, true); for (const r in OCEAN) if (!OCEAN[r].tex) enqueue({ rot: 'paint' + r, it: paintJob(OCEAN[r], +r) });
-  tracers.visible = true; for (let i = 0; i < NT; i++) respawnTracer(i); seaGeoReset(); overlay.visible = false;
-  rot = 1; applyOcean(1); useMaps('earth');
+  tracers.visible = true; seaGeoReset(); overlay.visible = false;
+  rot = 1; applyOcean(1); useEarthLook();
 }
 // ---- what you see: drifter fixes, the call marker, your chart and (at the end) the true currents ----
 const SDN = 12 * 49, sdGeo = new THREE.BufferGeometry(), sdPos = new Float32Array(SDN * 3), sdCol = new Float32Array(SDN * 3);
@@ -1095,7 +1319,7 @@ function renderCtrl() {
   h += `<button class="b" id="pp" aria-label="${running ? 'Pause' : 'Play'}">${running ? '❚❚' : '▶'}</button>` + [.5, 1, 4, 12].map(s => `<button class="b ${speed === s ? 'on' : ''}" data-s="${s}">${s === .5 ? '½' : s}×</button>`).join('') + (ducks.length && !L.free && simT < L.years && !resolved ? '<button class="b" id="skipB" title="Run the rest of the voyage at once">skip<span class="lg"> to result</span></button>' : '') + `<button class="b ${follow ? 'on' : ''}" id="fol" title="Keep the camera on the flock">follow</button><span id="clock"></span>`;
   if (L.physics) h += '<span class="sep"></span><span class="hint">Earth\'s spin</span>' + [[1, 'normal'], [0, 'off'], [-1, 'reversed']].map(([v, n]) => `<button class="b ${rot === v ? 'on' : ''}" data-r="${v}">${n}${rot === v && !CU ? '…' : ''}</button>`).join('');
   $('ctrl').innerHTML = h;
-  if ($('rel')) $('rel').onclick = () => { if (L.bet && !bet) return; if (!CU) { toast('Still charting the oceans…', '', 1200); return; } ducks = []; simT = 0; drop(...L.drop, 120); };
+  if ($('rel')) $('rel').onclick = () => { if (L.bet && !bet) return; if (!fieldReady()) { toast('Still charting the oceans…', '', 1200); return; } ducks = []; simT = 0; drop(...L.drop, 120); };
   $('pp').onclick = () => { running = !running; FX.sfx('click'); renderCtrl(); };
   $('fol').onclick = () => { follow = !follow; FX.sfx('click'); renderCtrl(); };
   $('ctrl').querySelectorAll('[data-s]').forEach(b => b.onclick = () => { speed = +b.dataset.s; SAVE.speed = speed; persist(); FX.sfx('click'); renderCtrl(); });
@@ -1157,10 +1381,9 @@ function frame(now) {
   const busy = running || (follow && ducks.length) || now - hot < 500; idleT += dt0;
   if (!busy && idleT < .05) return;
   const dt = busy ? dt0 : Math.min(.1, idleT); idleT = 0;
-  trMat.opacity = FX.damp(trMat.opacity, ducks.length ? .45 : 1, 3, dt);
-  if (tracers.visible) moveTracers(dt);
+  updateFlow(dt, now);
   if (L.seas) seaFrame(dt);
-  if (running && ducks.length && simT < L.years && CU) {
+  if (running && ducks.length && simT < L.years && fieldReady()) {
     const ease = Math.min(1, (now - dropT) / 2500), dy = dt * RATE * speed * (.15 + .85 * ease * ease); simT = Math.min(L.years, simT + dy); moveDucks(dy); duckDirty = true;
     if (simT >= L.years) { running = false; renderCtrl(); }
   }
@@ -1274,7 +1497,7 @@ canvas.addEventListener('pointerdown', () => { viewTo = null; }); // grabbing th
 load(sharedCase ? LV.findIndex(l => l.endless) : sharedSea ? LV.findIndex(l => l.seas) : +SAVE.cur || 0); // a shared case link opens that case
 requestAnimationFrame(frame);
 const proj = new THREE.Vector3();
-window.__fl = { jobs, tracersObj: tracers, latLonAtXY: (x, y) => latLonAt({ clientX: x, clientY: y }), genWorld, chartScore, driftPath, ensemble, savedBy, bestAnswer, seaStart, seaTap, seaAnswer, seaNextCall, seaFinish, seaDrifter, withWorld, isLand, get W() { return W; }, get sea() { return sea; }, get SEA() { return SEA; }, dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
+window.__fl = { jobs, tracersObj: tracers, latLonAtXY: (x, y) => latLonAt({ clientX: x, clientY: y }), genWorld, chartScore, driftPath, ensemble, savedBy, bestAnswer, seaStart, seaTap, seaAnswer, seaNextCall, seaFinish, seaDrifter, withWorld, isLand, get W() { return W; }, get sea() { return sea; }, get SEA() { return SEA; }, dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return fieldReady(); }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
   screenOf: (lat, lon) => { globe.updateMatrixWorld(); camera.updateMatrixWorld(); proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>

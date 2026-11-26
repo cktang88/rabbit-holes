@@ -102,6 +102,23 @@ module.exports = {
       const r = await page.evaluate(b => { const s = window.__tm.S.ss; return { week: s.week, changed: s.tun.filter((x, i) => Math.abs(x - b[i]) > .1).length, log: s.log.length }; }, before);
       eq(r.week, 1); ok(r.changed >= 1, 'no drift'); eq(r.log, 1);
     },
+    'ringing for Sunday really plays (the Ring click is not taken as a hurry) and the pegs are locked while it plays': async ({ page, ok, eq }) => {
+      await page.click('[data-acc="L0"]'); await page.click('#perf'); await page.waitForTimeout(500);
+      eq(await page.evaluate(() => window.__tm.S.ss.phase), 'week', 'the performance was skipped at once');
+      ok((await page.textContent('#desk h2')).includes('Sunday'), 'not performing');
+      ok(await page.evaluate(() => [...document.querySelectorAll('#nud [data-d], #nud [data-t], #undoB, #resetB')].every(b => b.disabled)), 'tuning controls live during the performance');
+      const t = await page.evaluate(() => window.__tm.S.ss.tun.slice());
+      const g = await page.evaluate(() => { const n = document.querySelector('#wheel .node[data-n="7"]').getBoundingClientRect(); return [n.x + n.width / 2, n.y + n.height / 2]; });
+      await page.mouse.move(g[0], g[1]); await page.mouse.down(); await page.mouse.move(g[0], g[1] - 60, { steps: 4 }); await page.mouse.up();
+      eq(await page.evaluate(() => window.__tm.S.ss.tun), t, 'the rose retuned during the performance');
+      await page.click('#desk'); await page.waitForTimeout(500); eq(await page.evaluate(() => window.__tm.S.ss.phase), 'done');
+    },
+    'the first-week frost lesson does not linger into week two': async ({ page, ok }) => {
+      ok((await page.textContent('#coachL')).includes('frost'), 'no first coach');
+      await page.click('[data-acc="L0"]'); await page.click('#perf'); await page.waitForTimeout(300); await page.click('#desk'); await page.waitForTimeout(500);
+      await page.click('#nextW'); await page.waitForTimeout(200);
+      ok(!(await page.textContent('#coachL')).includes('frost'), 'week 2 still tells the player G is frost-flat');
+    },
     'turning back the week restores purse, reputation and pegs': async ({ page, eq }) => {
       const r = await page.evaluate(() => { const T = window.__tm, s = T.newSeason(1, 'rt'); T.toggleAccept(s, 'L0'); T.setNote(s, 4, s.tun[4] - 3);
         const snap = JSON.stringify([s.coin, s.rep, s.tun, s.acc]); T.perform(s); T.retake(s); return [snap === JSON.stringify([s.coin, s.rep, s.tun, s.acc]), s.phase, s.retakes, s.moved]; });

@@ -19,10 +19,47 @@ const YEARS = (cards, seeds, adapt) => `(() => { const S = window.__ant.S, adapt
 module.exports = {
   page: 'ant-mind/index.html',
   tests: {
-    'loads into chamber 1 with a one-line card and ants already walking': async ({ page, eq, ok }) => {
+    'loads into chamber 1 with an empty card (ants wander by default), ants already walking, and one short prompt': async ({ page, eq, ok }) => {
       const s = await page.evaluate(() => ({ ci: __ant.ci, card: __ant.S.text(__ant.card), ants: __ant.w.ants.length, t: __ant.w.t }));
-      eq(s.ci, 0); eq(s.card, 'always>wander'); ok(s.ants >= 40); ok(s.t > 0.3, 'the colony runs immediately: no intro wall');
+      eq(s.ci, 0); eq(s.card, ''); ok(s.ants >= 40); ok(s.t > 0.3, 'the colony runs immediately: no intro wall');
       ok(await page.locator('.rule.new.pulse button').isVisible(), 'the empty line invites the first tap');
+      ok(/top to bottom.*first line that applies/.test(await page.textContent('#card .how')), 'the card says plainly what it is');
+      ok(/pick up food/.test(await page.textContent('#coach')), 'the first prompt says what to add');
+    },
+    'scent: a painted trail measurably changes the paths of ants that follow scent, and does nothing for ants that cannot': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const S = __ant.S, c = S.CHAMBERS[0];
+        // paint a line from the nest outwards, then count ant-steps spent on it, with and without a follow-scent line
+        const on = (card, paint) => { const w = S.make(c.spec, c.seed), cd = S.parse(card), n = w.nests[0], ex = Math.min(S.W - 6, n.x + 40); const line = []; for (let x = n.x + 3; x < ex; x += 0.7) if (S.passable(w, x, n.y)) line.push([x, n.y]);
+          let hits = 0; for (let k = 0; k < 600; k++) { if (paint && k % 100 === 0) { w.gland = 1; for (const [x, y] of line) S.paint(w, x, y, false); } S.step(w, cd); if (k > 50) for (const a of w.ants) if (!a.dead && w.trail[S.idx(a.x | 0, a.y | 0)] > 0.1 && Math.abs(a.y - n.y) < 2.5 && a.x > n.x + 4) hits++; }
+          // without paint, count the same strip
+          return hits; };
+        const strip = (card) => { const w = S.make(c.spec, c.seed), cd = S.parse(card), n = w.nests[0]; let hits = 0; for (let k = 0; k < 600; k++) { S.step(w, cd); if (k > 50) for (const a of w.ants) if (!a.dead && Math.abs(a.y - n.y) < 2.5 && a.x > n.x + 4 && a.x < n.x + 40) hits++; } return hits; };
+        const stripP = (card) => { const w = S.make(c.spec, c.seed), cd = S.parse(card), n = w.nests[0], ex = Math.min(S.W - 6, n.x + 40); let hits = 0; for (let k = 0; k < 600; k++) { if (k % 100 === 0) { w.gland = 1; for (let x = n.x + 3; x < ex; x += 0.7) S.paint(w, x, n.y, false); } S.step(w, cd); if (k > 50) for (const a of w.ants) if (!a.dead && Math.abs(a.y - n.y) < 2.5 && a.x > n.x + 4 && a.x < n.x + 40) hits++; } return hits; };
+        return { follow: [strip('always>trail'), stripP('always>trail')], blind: [strip('always>pick'), stripP('always>pick')] }; });
+      ok(r.follow[1] > 2 * r.follow[0] + 50, 'ants with a follow-scent line crowd onto the painted trail: ' + JSON.stringify(r));
+      ok(Math.abs(r.blind[1] - r.blind[0]) <= Math.max(10, r.blind[0] * 0.05), 'ants with no scent line ignore it (paint does not change their paths): ' + JSON.stringify(r));
+    },
+    'painting with no follow-scent line warns at once; with one, the scent strength and fading are shown': async ({ page, ok }) => {
+      ok(/ignore trails/.test(await page.textContent('#scentInfo')), 'the brush says scent is useless with this card');
+      const a = await page.evaluate(() => { const n = __ant.w.nests[0]; return __ant.toScreen(n.x + 3, n.y); }), b = await page.evaluate(() => { const n = __ant.w.nests[0]; return __ant.toScreen(n.x + 12, n.y); });
+      await page.mouse.move(a[0], a[1]); await page.mouse.down(); for (let k = 1; k <= 8; k++) await page.mouse.move(a[0] + (b[0] - a[0]) * k / 8, a[1]); await page.mouse.up();
+      ok(/no “follow the trail” line.*Add one/.test(await page.textContent('#banner')), 'warns that the ants ignore the trail: ' + await page.textContent('#banner'));
+      await page.evaluate(() => __ant.setCard('always>pick,carry>home,always>trail')); await page.waitForTimeout(400);
+      ok(/fades by half every \d+ s.*Brush \d+% full/.test(await page.textContent('#scentInfo')), await page.textContent('#scentInfo'));
+    },
+    'tapping an ant shows which line she is running, and that line lights up': async ({ page, ok }) => {
+      await page.evaluate(() => { __ant.setCard('always>pick,carry>home,always>trail'); __ant.run(300); __ant.paused = true; });
+      const p = await page.evaluate(() => { const a = __ant.w.ants.find(a => !a.dead && a.team === 0 && a.carry); return __ant.toScreen(a.x, a.y); });
+      await page.mouse.click(p[0], p[1]); await page.waitForTimeout(300);
+      ok(/This ant is doing line \d|no line applies/.test(await page.textContent('#who')), await page.textContent('#who'));
+      ok(await page.locator('#card .rule.me').count() <= 1);
+    },
+    'a line under an always-applies line is flagged as never reached, and a new line goes above it': async ({ page, ok, eq }) => {
+      await page.evaluate(() => __ant.setCard('always>wander')); await page.waitForTimeout(200);
+      await page.click('.rule.new button'); await page.click('#picker .opts button:has-text("pick up food")');
+      eq(await page.evaluate(() => __ant.S.text(__ant.card)), 'always>pick,always>wander', 'inserted where ants can reach it');
+      await page.evaluate(() => __ant.setCard('always>wander,always>pick')); await page.waitForTimeout(200);
+      ok(/never reached/.test(await page.textContent('#card')), 'the dead line says why');
     },
     'every chamber: the card you arrive with fails, the reference card wins, idle fails': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const S = __ant.S, C = S.CHAMBERS; return C.map((c, i) => ({ n: c.n,
@@ -62,9 +99,10 @@ module.exports = {
       const t0 = await page.evaluate(() => __ant.w.t);
       await page.click('.rule.new button'); await page.click('#picker .opts button:has-text("pick up food")');
       const s = await page.evaluate(() => ({ t: __ant.w.t, card: __ant.S.text(__ant.card) }));
-      eq(s.card, 'always>wander,always>pick'); ok(Math.abs(s.t - t0) < 1e-9, 'the world was not reset');
-      // the new line sits below "always wander", so nobody runs it: move it up from its action picker
-      await page.click('.rule .act[data-i="1"]'); await page.click('#picker [data-mv="-1"]');
+      eq(s.card, 'always>pick'); ok(Math.abs(s.t - t0) < 1e-9, 'the world was not reset');
+      await page.click('.rule.new button'); await page.click('#picker .opts button:has-text("wander")');
+      // move lines from the action picker
+      await page.click('.rule .act[data-i="1"]'); await page.click('#picker [data-mv="-1"]'); await page.click('.rule .act[data-i="1"]'); await page.click('#picker [data-mv="-1"]');
       eq(await page.evaluate(() => __ant.S.text(__ant.card)), 'always>pick,always>wander');
       await page.evaluate(() => __ant.run(100));
       const used = await page.evaluate(() => __ant.w.counts[0] + __ant.w.ants.filter(a => a.carry).length);
@@ -74,7 +112,7 @@ module.exports = {
       eq(await page.evaluate(() => __ant.S.text(__ant.card)), 'always>pick,!carry>wander');
     },
     'locked pieces show as ? and cannot be chosen': async ({ page, ok }) => {
-      await page.click('.rule .act[data-i="0"]');
+      await page.click('.rule.new button');
       const dis = await page.locator('#picker .opts button:disabled').count(); ok(dis >= 6, 'later actions are locked in chamber 1: ' + dis);
       await page.keyboard.press('Escape');
     },
@@ -98,6 +136,13 @@ module.exports = {
       eq(s.ci, 1); eq(s.card, 'always>pick,carry>home'); ok(s.best && s.best.lines === 2);
       const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('rh:ant')));
       ok(stored.best[0] && stored.v === 2);
+    },
+    'after a win the bloom grows, then the canvas stops repainting (a finished colony costs no CPU)': async ({ page, ok }) => {
+      await page.evaluate(() => { __ant.setCard('always>pick,carry>home'); __ant.paused = true; __ant.run(2000); });
+      ok(await page.evaluate(() => __ant.ended && __ant.w.won)); await page.waitForTimeout(800);
+      const grow = await page.evaluate(() => new Promise(r => { const n = __ant.drawN; setTimeout(() => r(__ant.drawN - n), 500); })); ok(grow > 10, 'the bloom animates: ' + grow);
+      await page.waitForTimeout(3200);
+      const idle = await page.evaluate(() => new Promise(r => { const n = __ant.drawN; setTimeout(() => r(__ant.drawN - n), 1500); })); ok(idle <= 2, 'repaints after the bloom: ' + idle);
     },
     'failing shows a diagnosis and retry is one tap': async ({ page, ok }) => {
       await page.evaluate(() => { __ant.openChamber(0); __ant.paused = true; __ant.run(3000); });

@@ -29,7 +29,7 @@
   .story{color:#c9c6bd;line-height:1.55;font-size:14px;max-width:760px}
   .story i{color:var(--dim)}
   .mono{font-family:ui-monospace,"SF Mono",Menlo,monospace}
-  .txt{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:15px;line-height:1.7;letter-spacing:.06em;background:#0a0c10;border:1px solid var(--line);border-radius:8px;padding:10px 12px;word-break:break-all;white-space:pre-wrap;max-height:220px;overflow:auto}
+  .txt{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:15px;line-height:1.7;letter-spacing:.06em;background:#0a0c10;border:1px solid var(--line);border-radius:8px;padding:10px 12px;word-break:normal;overflow-wrap:anywhere;white-space:pre-wrap;max-height:220px;overflow:auto}
   .txt .u{color:#5d6475}
   .txt .wd{color:var(--good);text-shadow:0 0 8px #5fd38d55}
   .txt .wd.pop{display:inline-block;animation:snap .45s cubic-bezier(.2,1.6,.4,1)}
@@ -68,13 +68,13 @@
   .pill{display:inline-block;border:1px solid var(--line);border-radius:20px;padding:2px 10px;font-size:12px;color:var(--dim)}
   .okbanner{background:#14301f;border:1px solid var(--good);color:var(--good);border-radius:8px;padding:8px 12px;margin-top:10px}
   .padrow{display:flex;gap:0;margin:1px 0}
-  .padrow .lab{width:22px;color:var(--dim);font-size:12px;align-self:center}
-  .pc{width:17px;height:24px;display:flex;align-items:center;justify-content:center;font-family:ui-monospace,monospace;font-size:14px;cursor:text;border-bottom:1px solid #222a38}
+  .padrow .lab{width:22px;flex:none;color:var(--dim);font-size:12px;align-self:center}
+  .pc{width:17px;flex:none;height:24px;display:flex;align-items:center;justify-content:center;font-family:ui-monospace,monospace;font-size:14px;cursor:text;border-bottom:1px solid #222a38}
   .pc.k{color:var(--good);font-weight:700}
   .pc.sel{background:#3a2f17;outline:1px solid var(--accent)}
   .pc.col{background:#1b2130}
   .ruler{display:flex;margin-left:22px}
-  .ruler span{width:17px;font-size:9px;color:var(--dim);text-align:left}
+  .ruler span{width:17px;flex:none;font-size:9px;color:var(--dim);text-align:left}
   .padblock{margin-bottom:12px}
   .crib{display:flex;justify-content:space-between;gap:6px;padding:4px 6px;border-radius:6px;cursor:pointer;font-family:ui-monospace,monospace;font-size:12px}
   .crib:hover{background:var(--panel2)}
@@ -1067,7 +1067,7 @@ function caseCard(i) {
   if (v.pad) return `<div class="case"><b>Lock:</b> a one-time pad, used twice. <b>Key:</b> random letters; you will never have it, but two messages under the same pad betray each other. <b>On your desk:</b> the pad grid and crib dragging. <b>First step:</b> type a word you expect (${v.startA ? v.startA : 'THE, WILL, THAT'}) into the crib box and click the result that reads best.</div>`;
   const steps = v.steps, keyLine = steps.map(s => s.t === 'caesar' && s.k ? `a shift of ${s.k} (the story tells you)` : KEYS[s.t]).join(', then ');
   const tools = [...new Set(steps.map(s => TOOLFOR[s.t]))].map(t => TOOLS[t].name);
-  const fresh = (v.intro || []).filter(t => TOOLS[t]).map(t => `<b>New tool:</b> ${TOOLS[t].name}, ${TOOLS[t].blurb.toLowerCase()}`);
+  const fresh = (v.intro || []).filter(t => TOOLS[t]).map(t => `<b>New tool:</b> ${TOOLS[t].name}, ${TOOLS[t].blurb.toLowerCase().replace(/\.$/, "")}`);
   const hard = steps.reduce((a, s) => ['subst', 'vig', 'col', 'affine', 'rail'].includes(s.t) ? s.t : a, steps[0].t);
   // the walkthrough (tools and first step) only where a vault teaches something new; elsewhere you choose the tools yourself
   const guide = i === 0 || fresh.length > 0 || (S.hints[i] || 0) > 0;
@@ -1450,7 +1450,7 @@ $('notes').oninput = () => { workOf(cur).notes = $('notes').value; persist(); };
 // ---------- one-time pad vaults ----------
 function padHTML(i) {
   return `<div class="lbl"><span>Shared pad · ${V[i].len} letters per message</span><span class="small">Click a cell and type. Backspace clears. Arrow keys move.</span></div>
-    <div id="padGrid" tabindex="0" style="outline:none"></div>
+    <div id="padGrid" tabindex="0" style="outline:none"></div><input id="padKbd" aria-label="Type into the pad" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" style="position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0;font-size:16px">
     <div class="lbl"><span>Crib dragging</span></div>
     <div class="row"><input id="cribIn" class="mono" placeholder="e.g. THE" style="text-transform:uppercase;width:160px"><select id="cribRow"><option value="-1">in any message</option>${Array.from({ length: V[i].pad }, (_, k) => `<option value="${k}">in message ${'ABC'[k]}</option>`).join('')}</select><span class="note">Slides the word along a message and ranks where the other messages read most like English. Click a result to place it.</span></div>
     <div id="cribRes" style="margin-top:6px;max-width:640px"></div>
@@ -1458,6 +1458,13 @@ function padHTML(i) {
 }
 function wirePad(i) {
   const g = $('padGrid'), w = workOf(i), v = V[i], b = build(i);
+  const kb = $('padKbd');
+  if (kb) { const prime = () => { kb.value = '  '; }; prime(); // two spaces, so Backspace always has something to delete
+    kb.oninput = e => { if (!padSel) return prime(); const typed = letters(kb.value.toUpperCase());
+      if (e.inputType === 'deleteContentBackward' || kb.value.length < 2) g.onkeydown({ key: 'Backspace', preventDefault() {} });
+      else for (const ch of typed) g.onkeydown({ key: ch, preventDefault() {} });
+      prime(); };
+    kb.onkeydown = e => { if (/^Arrow/.test(e.key)) g.onkeydown(e); }; }
   g.onkeydown = e => {
     if (!padSel) return; const [r, c] = padSel;
     if (/^[a-zA-Z]$/.test(e.key)) { w.padKey[c] = (b.ciphers[r][c] - ix(e.key.toUpperCase()) + 26) % 26; padSel = [r, Math.min(v.len - 1, c + 1)]; }
@@ -1490,7 +1497,7 @@ function wirePad(i) {
   $('cribIn').oninput = runCrib; $('cribRow').onchange = runCrib;
 }
 function updatePad(i) {
-  const v = V[i], w = workOf(i), b = build(i), g = $('padGrid'), PER = Math.ceil(v.len / Math.ceil(v.len / 50));
+  const v = V[i], w = workOf(i), b = build(i), g = $('padGrid'), fit = Math.max(8, Math.min(50, Math.floor(((g.clientWidth || 900) - 26) / 17))), PER = Math.ceil(v.len / Math.ceil(v.len / fit)); // as many 17px cells as fit beside the row label
   let h = '';
   for (let s = 0; s < v.len; s += PER) {
     const e = Math.min(v.len, s + PER);
@@ -1507,7 +1514,7 @@ function updatePad(i) {
     h += '</div>';
   }
   g.innerHTML = h;
-  g.querySelectorAll('.pc').forEach(el => el.onclick = () => { padSel = [+el.dataset.r, +el.dataset.c]; g.focus(); update(); });
+  g.querySelectorAll('.pc').forEach(el => el.onclick = () => { padSel = [+el.dataset.r, +el.dataset.c]; const kb = $('padKbd'); if (kb && matchMedia('(pointer:coarse)').matches) kb.focus({ preventScroll: true }); else g.focus(); update(); });
   persist(); renderAnalysis();
   const ok = b.plains.every((p, r) => p.split('').every((c, j) => w.padKey[j] != null && (b.ciphers[r][j] - w.padKey[j] + 26) % 26 === ix(c)));
   if (ok && !S.solved[i]) arm(i); else disarm();
@@ -1536,6 +1543,7 @@ function alarmTick(i) {
   }
 }
 
+addEventListener('resize', () => { if (V[cur] && V[cur].pad && $('padGrid')) updatePad(cur); }); // the pad's blocks follow the width
 const help = () => RH.modal(`<h2>🔐 The Vault</h2>
   <p>Twenty-four vaults, each locked by a real historical cipher, from Caesar to reused Soviet one-time pads. Every message is generated for <i>your</i> save, so nobody can spoil the answers.</p>
   <p>Put tools on your <b>workbench</b>. They run top to bottom on the ciphertext. When the output matches the hidden message, the vault opens. Later vaults stack several ciphers, so you'll need several tools.</p>

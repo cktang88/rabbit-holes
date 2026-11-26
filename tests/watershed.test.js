@@ -57,7 +57,7 @@ module.exports = {
       const n = await page.evaluate(() => { __ws.WS.PLATES.forEach((_, j) => { __ws.SAVE.best['p' + j] = { t: 0, n: 1 }; }); return __ws.WS.PLATES.length; });
       for (let i = 0; i < n; i++) {
         await page.evaluate(i => __ws.open('p' + i, ''), i);
-        ok(await waitFor(page, `__ws.w0 && __ws.key === 'p${i}' && __ws.agents.length === 0`), 'plate ' + (i + 1) + ' opens empty');
+        ok(await waitFor(page, `__ws.w0 && __ws.key === 'p${i}' && !document.getElementById('engr').classList.contains('on') && __ws.agents.length === 0`), 'plate ' + (i + 1) + ' opens empty');
         const spot = await page.evaluate(() => { const { WS } = __ws, P = __ws.P, t = Object.keys(P.agents).find(k => k !== 'fall');
           const G = P.goal, s0 = P.sol.find(a => a.x != null), c = (G.towns && G.towns[0]) || G.at || (s0 ? [s0.x, s0.y] : [27, 18]), C = []; // try spots far from where the commission is decided first
           for (let y = 6; y <= WS.H - 8; y += 2) for (let x = 6; x <= WS.W - 6; x += 2) C.push([x, y]); C.sort((a, b) => Math.hypot(b[0] - c[0], b[1] - c[1]) - Math.hypot(a[0] - c[0], a[1] - c[1]));

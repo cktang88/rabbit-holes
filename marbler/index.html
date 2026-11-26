@@ -73,7 +73,7 @@
   <button id="bookBtn">Book</button>
 </header>
 <div id="card"><button id="peek" title="Show the pattern in the bath (tap again to go back)" aria-pressed="false"><canvas id="thumb" width="168" height="112"></canvas><span id="peekL">👁 Compare</span></button><div class="t"><span class="n" id="cN"></span> <span id="cT"></span><small id="cE"></small></div><div id="meter"></div></div>
-<div id="stage" data-play><div id="peekBanner">The pattern to match · tap “Back to bath” to return</div><canvas id="gl" aria-label="The marbling bath"></canvas><div id="hint">tap the bath</div></div>
+<div id="stage" data-play><div id="peekBanner">The pattern to match · tap the bath to go back</div><canvas id="gl" aria-label="The marbling bath"></canvas><div id="hint">tap the bath</div></div>
 <div id="tools" role="toolbar" aria-label="Inks and tools"></div>
 <div id="book" role="dialog" aria-label="The book"><div id="leaf"></div></div>
 <script src="../shared/common.js"></script>
@@ -310,8 +310,8 @@ function open(c, extra){ if (holding) setPeek(false); stash=null; COM=c; ops=c.g
   targetCache= c.recipe||c.target? MB.sample(MB.targetOps(c)) : null; $('hint').textContent=(ROT&&c.hintTurned)||c.hint||'tap the bath'; $('hint').style.opacity= (ops.length===c.ground.length && (c.hint||!ops.length))? 1 : 0; renderTools(); renderCard(); drawThumb(); dirty=true; cam.fit(false); setHash(); measure(); }
 function push(op){ stash=null; if (ops.length>=MAXOPS) return RH.toast('The bath can hold no more. Lay the paper or undo.'); ops.push(op); anim={t0:performance.now(), dur: op[0]==='d'? 650 : op[0]==='o'? 900 : 700}; dirty=true; $('hint').style.opacity=0; setHash(); measure(); renderCard(); }
 let stash=null; // what Start over cleared, so Undo can bring it back
-function reset(){ if (ops.length<=COM.ground.length) return; stash={id:COM.id, ops:ops.slice()}; ops=COM.ground.slice(); anim=null; dirty=true; setHash(); measure(); renderCard(); RH.toast('Bath cleared. Undo brings it back.'); }
-function undo(){ if (ops.length<=COM.ground.length){ if (stash && stash.id===COM.id){ ops=stash.ops; stash=null; anim=null; dirty=true; setHash(); measure(); renderCard(); } return; } stash=null; ops.pop(); anim=null; dirty=true; setHash(); measure(); renderCard(); }
+function reset(){ if (holding) setPeek(false); if (ops.length<=COM.ground.length) return; stash={id:COM.id, ops:ops.slice()}; ops=COM.ground.slice(); anim=null; dirty=true; setHash(); measure(); renderCard(); RH.toast('Bath cleared. Undo brings it back.'); }
+function undo(){ if (holding) setPeek(false); if (ops.length<=COM.ground.length){ if (stash && stash.id===COM.id){ ops=stash.ops; stash=null; anim=null; dirty=true; setHash(); measure(); renderCard(); } return; } stash=null; ops.pop(); anim=null; dirty=true; setHash(); measure(); renderCard(); }
 let likeness=null; function measure(){ clearTimeout(likeT); likeT=setTimeout(()=>{ if (COM.free){ likeness=null; } else likeness=MB.judge(COM, ops, targetCache).score; renderCard(); }, 120); }
 
 // ======================= Camera =======================
@@ -325,19 +325,22 @@ function viewFor(w,h,scale){ // screen pixels of the framebuffer → bath units
 
 // ======================= Frame =======================
 let peel=null, last=performance.now(), ft=[];
-function resize(){ const rot=$('stage').clientHeight>$('stage').clientWidth*1.08; if (rot!==ROT){ ROT=rot; dirty=true; cam.fit(false); if (COM.hint) $('hint').textContent=(ROT&&COM.hintTurned)||COM.hint; } const s=DPR*dprScale, w=Math.max(2,Math.round(cv.clientWidth*s)), h=Math.max(2,Math.round(cv.clientHeight*s));
+function turnTo(rot){ if (rot===ROT) return; ROT=rot; dirty=true; cam.fit(false); if (COM.hint) $('hint').textContent=(ROT&&COM.hintTurned)||COM.hint; }
+function resize(){ turnTo($('stage').clientHeight>$('stage').clientWidth*1.08); const s=DPR*dprScale, w=Math.max(2,Math.round(cv.clientWidth*s)), h=Math.max(2,Math.round(cv.clientHeight*s));
   if (cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; inkFB=texRT(w,h); dirty=true; } return s; }
 let paused=false;
 function frame(now){ requestAnimationFrame(frame); if (paused) return; if (gl) step(now); else if (C2) cpuStep(now); }
 // the CPU bath: the same inverse transforms the scorer uses, traced per pixel at a reduced resolution; redrawn only when something changes
-let cpuKey='', cpuImg=null;
+let cpuKey='', cpuImg=null, cpuFine=true, cpuT=0;
 const WAL=[.30,.19,.11], ROOM=[.09,.08,.07];
-function cpuStep(now){ const sh=Math.min(1,(devicePixelRatio||1))*(cv.clientWidth*cv.clientHeight>500000? .5 : .6);
-  const w=Math.max(2,Math.round(cv.clientWidth*sh)), h=Math.max(2,Math.round(cv.clientHeight*sh));
-  const rot=$('stage').clientHeight>$('stage').clientWidth*1.08; if (rot!==ROT){ ROT=rot; dirty=true; cam.fit(false); }
+// Tracing every pixel through every move costs a few hundred ms on a big sheet, so while the view or a drop is changing
+// it draws coarse (a few times cheaper) and sharpens once things have been still for a moment.
+function cpuStep(now){ const full=Math.min(1,(devicePixelRatio||1))*(cv.clientWidth*cv.clientHeight>500000? .5 : .6);
+  turnTo($('stage').clientHeight>$('stage').clientWidth*1.08);
   if (anim && now-anim.t0>anim.dur) anim=null;
-  const key=[w,h,cam.x,cam.y,cam.k,ROT,holding,ops.length].join();
-  if (!dirty && key===cpuKey) return; dirty=false; cpuKey=key;
+  const key=[cv.clientWidth,cv.clientHeight,cam.x,cam.y,cam.k,ROT,holding,ops.length].join();
+  let sh; if (dirty || key!==cpuKey){ sh= cpuKey? full*.4 : full; cpuFine= sh===full; cpuT=now; } else if (!cpuFine && now-cpuT>200){ sh=full; cpuFine=true; } else return;
+  dirty=false; cpuKey=key; const w=Math.max(2,Math.round(cv.clientWidth*sh)), h=Math.max(2,Math.round(cv.clientHeight*sh));
   if (cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; cpuImg=null; }
   if (!cpuImg) cpuImg=C2.createImageData(w,h); const d=cpuImg.data, T= holding? MB.targetOps(COM) : ops, cols=INKS.map(k=>k[1]);
   for (let j=0;j<h;j++){ const py=(j+.5)/sh; for (let i=0;i<w;i++){ const px=(i+.5)/sh, u=(px-cam.x)/cam.k, v=(py-cam.y)/cam.k, x=ROT? v : u, y=ROT? TH-u : v; let c;
@@ -379,7 +382,7 @@ function drawPaper(view,W,H,pc){ gl.useProgram(P_PAPER.p); gl.bindVertexArray(pa
 
 // ======================= Input =======================
 let gesture=null, holding=false;
-cv.addEventListener('pointerdown', e=>{ if (cam.gesturing || e.button===1 || peel) return; const [x,y]=toW(e.clientX,e.clientY); if (x<-10||y<-10||x>TW+10||y>TH+10) return;
+cv.addEventListener('pointerdown', e=>{ if (cam.gesturing || e.button===1 || peel) return; if (holding){ setPeek(false); return; } /* while comparing, the bath shows the pattern: a tap goes back rather than inking where you cannot see */ const [x,y]=toW(e.clientX,e.clientY); if (x<-10||y<-10||x>TW+10||y>TH+10) return;
   gesture={id:e.pointerId, x0:x, y0:y, x, y, t0:performance.now()}; if (tool==='drop'){ gesture.op=['d', r2(x), r2(y), 6, ink]; ops.push(gesture.op); dirty=true; $('hint').style.opacity=0; } });
 cv.addEventListener('pointermove', e=>{ if (!gesture || e.pointerId!==gesture.id) return; if (cam.gesturing){ cancelGesture(); return; } const [x,y]=toW(e.clientX,e.clientY); gesture.x=x; gesture.y=y; });
 cv.addEventListener('pointerup', e=>{ if (!gesture || e.pointerId!==gesture.id) return; const g=gesture; gesture=null; finishGesture(g); });
@@ -435,7 +438,7 @@ $('peek').addEventListener('keydown', e=>{ if (e.key==='Enter'||e.key===' '){ e.
 
 // ======================= Laying the paper =======================
 $('layBtn').onclick=()=>lay();
-function lay(){ if (peel) return; if (!gl) return afterPeel();
+function lay(){ if (peel) return; if (holding) setPeek(false); if (!gl) return afterPeel();
   // print the whole tray at a fixed resolution, eight samples a pixel
   // one sample now, the other seven over the next frames (all of them at once stalls a phone's GPU for a second)
   uploadOps(ops); inkPass(printFB, PRINT_VIEW, ops.length, 1, 0, false); dirty=true;
@@ -443,12 +446,18 @@ function lay(){ if (peel) return; if (!gl) return afterPeel();
 function afterPeel(){ const res= COM.free? null : MB.judge(COM, ops, targetCache), n=strokes(); let html, first=false;
   const code=MB.encode(COM.id, ops); SAVE.sheets.push(code); SAVE.sheets=SAVE.sheets.slice(-40);
   if (res){ const ok=res.ok; if (ok){ first=!passed(COM.id); SAVE.done[COM.id]=Math.max(SAVE.done[COM.id]||0, res.score); if (SAVE.best[COM.id]==null || n<SAVE.best[COM.id]) SAVE.best[COM.id]=n; if (COM.daily) SAVE.daily[COM.id.slice(6)]=`${Math.round(res.score*100)}% in ${n}`; }
-    html=`<h2>${ok? 'A fine sheet' : 'Not quite the pattern'}</h2><p>${Math.round(res.score*100)}% alike in <b>${n}</b> strokes${ok?'':` (it needs ${Math.round(COM.need*100)}%)`}.</p>${ok? histHTML(COM,n) : `<p class="note">Hold the little picture on the card to see the pattern over your bath. Undo walks back one move at a time.</p>`}${first&&nextUnlock()? `<p class="note">${nextUnlock()}</p>`:''}`; }
+    const cover=COM.judge==='cover';
+    html= cover? `<h2>${ok? 'A fine sheet' : 'Not covered yet'}</h2><p>${Math.round(res.score*100)}% of the bath covered in <b>${n}</b> drops${ok?'':` (it needs ${Math.round(COM.need*100)}%, in all three inks)`}.</p>${ok? '' : `<p class="note">Press and hold for bigger stones. Undo walks back one drop at a time.</p>`}`
+      : `<h2>${ok? 'A fine sheet' : 'Not quite the pattern'}</h2><p>${Math.round(res.score*100)}% alike in <b>${n}</b> strokes${ok?'':` (it needs ${Math.round(COM.need*100)}%)`}.</p>${ok? histHTML(COM,n) : `<p class="note">Tap Compare on the card to see the pattern in the bath. Undo walks back one move at a time.</p>`}`;
+    html+=`${first&&nextUnlock()? `<p class="note">${nextUnlock()}</p>`:''}`; }
   else html=`<h2>Your sheet</h2><p>${n} moves. It is in your portfolio, and a link carries it exactly.</p>`;
   persist(); renderCard();
   RH.modal(html,[{label:'Back to the bath'},{label:'Copy link'}].concat(res&&res.ok&&!COM.daily? [{label:'Next commission'}] : [])).then(l=>{ peel=null; dirty=true;
-    if (l==='Copy link'){ try{ navigator.clipboard.writeText(shareText(res,n)); }catch(_){} RH.toast('Copied: a link to this exact sheet.'); }
+    if (l==='Copy link') copyText(shareText(res,n), 'Copied: a link to this exact sheet.');
     if (l==='Next commission'){ const i=COMMISSIONS.indexOf(COM); if (i<COMMISSIONS.length-1) open(COMMISSIONS[i+1]); } }); }
+// the clipboard can refuse (no permission, an insecure page): say so instead of claiming it worked, and never throw
+function copyText(t, msg, cb){ const done=(ok)=>{ if (cb) cb(ok); else RH.toast(ok? msg : 'Could not copy here: the link is in the address bar.'); };
+  try{ navigator.clipboard.writeText(t).then(()=>done(true), ()=>done(false)); }catch(_){ done(false); } }
 function nextUnlock(){ const i=COMMISSIONS.indexOf(COM), nx=COMMISSIONS[i+1]; if (!nx) return 'That was the last commission in the book. The free bath and the daily sheet remain.'; const nt=nx.tools.filter(t=>!COM.tools.includes(t)); return nt.length? `New tool in the box: the ${TOOLS[nt[0]].n.toLowerCase()}.` : `Next: ${nx.n}.`; }
 // the workshop's estimate of how many strokes other marblers take for a pattern (synthetic: the master's count, and a spread above it)
 function histOf(c){ if (!c.recipe) return null; const k=c.recipe.length, r=MB.rng('hist:'+c.id), h=[]; for (let s=k; s<=k+9; s++){ const base=Math.exp(-Math.pow(s-k-2.2,2)/6)*100+ (s===k? 18:0); h.push([s, Math.round(base*(.8+.4*r()))]); } return h; }
@@ -474,7 +483,7 @@ $('leaf').addEventListener('click', e=>{ const b=e.target.closest('button'); if 
   if (b.dataset.daily){ open(MB.daily(b.dataset.daily)); return close(); }
   if (b.dataset.free){ open(freeBath()); return close(); }
   if (b.dataset.sheet){ const m=MB.decode(b.dataset.sheet); if (m){ openShared(m); close(); } return; }
-  if (b.dataset.x==='copy'){ try{ navigator.clipboard.writeText($('saveTxt').value); }catch(_){} $('saveOut').textContent='Copied.'; }
+  if (b.dataset.x==='copy'){ copyText($('saveTxt').value, null, ok=>{ $('saveOut').textContent= ok? 'Copied.' : 'Select the text and copy it yourself.'; }); }
   if (b.dataset.x==='restore'){ try{ SAVE=cleanSave(JSON.parse(decodeURIComponent(escape(atob($('saveTxt').value.trim()))))); persist(); $('saveOut').textContent='Restored.'; }catch(_){ $('saveOut').textContent='That is not a saved book.'; } } });
 // a link: the sheet's commission and every move
 function comById(id){ return COMMISSIONS.find(c=>c.id===id) || (/^daily:\d{4}-\d\d-\d\d$/.test(id)? MB.daily(id.slice(6)) : id==='free'? freeBath() : null); }

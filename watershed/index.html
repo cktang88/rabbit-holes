@@ -433,7 +433,7 @@ function open(k, agentStr) {
   const draw = () => { w0 = cache.get(k); if (!w0) { w0 = WS.genWorld(P); cache.set(k, w0); if (cache.size > 6) cache.delete(cache.keys().next().value); }
     if (P.goal && P.goal.min == null && w0.goalMin != null) P.goal.min = w0.goalMin; // the daily spec is rebuilt on every open; its target was worked out with the world
     preview(); cam.fit(false); renderMemo(); renderTray(); };
-  if (cache.has(k)) draw(); else { $('engr').classList.add('on'); setTimeout(() => { $('engr').classList.remove('on'); draw(); }, 40); }
+  if (cache.has(k)) draw(); else { w0 = null; $('engr').classList.add('on'); setTimeout(() => { $('engr').classList.remove('on'); draw(); }, 40); }
   try { history.replaceState(null, '', '#' + (k[0] === 'p' ? 'plate=' + (spec.i + 1) : k[0] === 'd' ? 'daily=' + k.slice(1) : 'open=' + k.slice(1)) + (agents.length && agentStr != null ? '&a=' + WS.encodeAgents(agents) : '')); } catch (e) {}
 }
 
@@ -627,16 +627,21 @@ const cam = {
   fit() { resize(); const asp = camera.aspect, port = asp < .95, vf = camera.fov * Math.PI / 180, hf = 2 * Math.atan(Math.tan(vf / 2) * asp);
     // on a tall phone screen look along the plate's long side so it fills the view
     const az = port ? -Math.PI / 2 * .92 : .14, el = .82, wide = W + 6, deep = H + 6, across = port ? deep : wide, along = port ? wide : deep;
-    const d = Math.max(across / 2 / Math.tan(hf / 2), (along * Math.sin(el) * .5 + 5) / Math.tan(vf / 2)) * 1.12;
-    controls.target.set(0, 1.5, port ? 0 : 1); camera.position.set(controls.target.x + Math.sin(az) * Math.cos(el) * d, controls.target.y + Math.sin(el) * d, controls.target.z + Math.cos(az) * Math.cos(el) * d); camera.lookAt(controls.target); controls.update(); scene.fog.near = d * .7; scene.fog.far = d * 2.1; dirty = true; this.touched = false; },
+    let d = Math.max(across / 2 / Math.tan(hf / 2), (along * Math.sin(el) * .5 + 5) / Math.tan(vf / 2)) * 1.12;
+    controls.target.set(0, 1.5, port ? 0 : 1);
+    const put = () => { camera.position.set(controls.target.x + Math.sin(az) * Math.cos(el) * d, controls.target.y + Math.sin(el) * d, controls.target.z + Math.cos(az) * Math.cos(el) * d); camera.lookAt(controls.target); camera.updateMatrixWorld(); };
+    // the near edge of the block is closer, so it looks wider than the estimate above: back off until every corner of the block is on screen
+    put(); for (let k = 0; k < 8; k++) { let m = 0; for (const cx of [-W / 2, W / 2]) for (const cz of [-H / 2, H / 2]) for (const cy of [-3.2, zTop * VS]) { vtmp.set(cx, cy, cz).project(camera); m = Math.max(m, Math.abs(vtmp.x), Math.abs(vtmp.y)); }
+      if (m <= .96) break; d *= 1 + (m - .96) * .8; put(); }
+    controls.update(); scene.fog.near = d * .7; scene.fog.far = d * 2.1; dirty = true; this.touched = false; },
   toWorld(cx, cy) { const r = cv.getBoundingClientRect(); ndc.set((cx - r.left) / r.width * 2 - 1, -(cy - r.top) / r.height * 2 + 1); ray.setFromCamera(ndc, camera);
     const hit = ray.intersectObject(terrain, false)[0]; if (hit) return [hit.point.x + W / 2, hit.point.z + H / 2];
     const p = new THREE.Vector3(); if (ray.ray.intersectPlane(seaPlane, p)) return [p.x + W / 2, p.z + H / 2]; return [-99, -99]; },
-  toScreen(x, y) { const r = cv.getBoundingClientRect(); const z = view ? view.z : w0.z; vtmp.set(X(x - .5), hAt(z, x - .5, y - .5) * VS, Zc(y - .5)).project(camera); return [r.left + (vtmp.x + 1) / 2 * r.width, r.top + (1 - vtmp.y) / 2 * r.height]; },
+  toScreen(x, y) { const r = cv.getBoundingClientRect(); const z = view ? view.z : w0 ? w0.z : new Float64Array(N); vtmp.set(X(x - .5), hAt(z, x - .5, y - .5) * VS, Zc(y - .5)).project(camera); return [r.left + (vtmp.x + 1) / 2 * r.width, r.top + (1 - vtmp.y) / 2 * r.height]; },
   get gesturing() { return false; },
 };
 controls.addEventListener('start', () => { cam.touched = true; });
-function preview() { let m = 0; for (let i = 0; i < N; i++) if (w0.z[i] > m) m = w0.z[i]; zTop = Math.max(2, m * 1.15); view = WS.cloneWorld(w0); WS.applyAgents(view, agents); lastBuilt = null; renderMemo(); }
+function preview() { if (!w0) return; let m = 0; for (let i = 0; i < N; i++) if (w0.z[i] > m) m = w0.z[i]; zTop = Math.max(2, m * 1.15); view = WS.cloneWorld(w0); WS.applyAgents(view, agents); lastBuilt = null; renderMemo(); }
 
 // ---------- notebook ----------
 const fmtT = s => s <= 0 ? 'at once' : s < 100 ? (s * 10) + ',000 years' : (s / 100).toFixed(2) + ' million years';
@@ -690,6 +695,7 @@ function hookAgent(el, t) {
   el.addEventListener('pointercancel', () => { start = null; dragging = false; ghost.className = ''; hover = null; });
 }
 function place(t, x, y) {
+  if (!w0) return;
   if (phase === 'result') backToPlan();
   if (phase !== 'plan') return;
   if (budgetLeft(t) <= 0) { snd.fail(); RH.toast('None of those left in the box. Tap one on the map to lift it.'); armed = null; renderTray(); return; }
@@ -710,7 +716,7 @@ cv.addEventListener('pointerup', e => {
   if ($('slip').classList.contains('on')) { hideSlip(); RH.toast('Tap the time bar to look back through the run.'); return; }
   const i = agentAt(e.clientX, e.clientY); if (i >= 0 && phase !== 'run') { if (phase === 'result') backToPlan(); lift(i); return; }
   // a fallen sea can be raised again by tapping it
-  const [, , x, y] = cellAt(e.clientX, e.clientY); if ((x < 0 || y < 0 || x > W || y > H) && phase !== 'run') { const s = WS.nearestSea(w0, x, y), j = agents.findIndex(a => a.t === 'fall' && a.sea === s); if (j >= 0) { if (phase === 'result') backToPlan(); lift(j); } }
+  const [, , x, y] = cellAt(e.clientX, e.clientY); if ((x < 0 || y < 0 || x > W || y > H) && phase !== 'run' && w0) { const s = WS.nearestSea(w0, x, y), j = agents.findIndex(a => a.t === 'fall' && a.sea === s); if (j >= 0) { if (phase === 'result') backToPlan(); lift(j); } }
 });
 cv.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') { if (armed) hover = cellAt(e.clientX, e.clientY).slice(2); } });
 

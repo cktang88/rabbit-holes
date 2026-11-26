@@ -105,6 +105,19 @@ module.exports = {
       const b = await page.evaluate(() => ({ pos: window.__fold.pos, valid: window.__fold.valid(window.__fold.pos) }));
       ok(b.valid); eq(b.pos[0], [0, 0]); eq(b.pos[1], [0, -1]);
     },
+    'the FAILS/WORKS stamp belongs to the folded design: editing it or opening another commission takes the stamp off': async ({ page, ok, eq }) => {
+      await page.click('#foldBtn'); await page.waitForFunction(() => window.__fold.result && !window.__fold.busy, null, { timeout: 8000 });
+      ok(await page.isVisible('#stamp.on'), 'stamped after folding');
+      const [sx, sy] = await page.evaluate(() => window.__fold.screenOf(3)); await page.mouse.click(sx, sy); await page.waitForTimeout(150);
+      eq(await page.evaluate(() => [window.__fold.result.stale, document.getElementById('stamp').classList.contains('on')]), [true, false], 'edited design is unstamped');
+      await page.click('#foldBtn'); await page.waitForFunction(() => window.__fold.result && !window.__fold.result.stale && !window.__fold.busy, null, { timeout: 8000 }); ok(await page.isVisible('#stamp.on'));
+      await page.evaluate(() => { window.__fold.SAVE.done['c:0'] = { margin: 0, oil: 0 }; window.__fold.open('c:1'); }); await page.waitForTimeout(100);
+      eq(await page.evaluate(() => [window.__fold.key, document.getElementById('stamp').classList.contains('on')]), ['c:1', false], 'a new commission opens unstamped');
+    },
+    'the Fold button keeps its label while hovered': async ({ page, ok }) => {
+      await page.hover('#foldBtn'); const c = await page.evaluate(() => { const s = getComputedStyle(document.getElementById('foldBtn')); return [s.color, s.backgroundColor]; });
+      ok(c[0] !== c[1] && !/255, 246, 220/.test(c[1]), 'hovered Fold button colours ' + c.join(' on '));
+    },
     'the Fold button runs the machine and the stamp and assay update; folding n=11 takes under 1.5 s here': async ({ page, ok }) => {
       await page.click('#foldBtn'); await page.waitForFunction(() => window.__fold.result && window.__fold.robust && window.__fold.robust.frac != null, null, { timeout: 8000 });
       ok(await page.isVisible('#stamp.on'));

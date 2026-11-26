@@ -422,5 +422,32 @@ module.exports = {
       await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(150);
       ok(!(await page.isVisible('#lvlBtn')), 'drawer button on desktop');
     },
+    'pad grid on a phone: finger-sized cells in blocks that fit, and a tap raises a keyboard that types into the pad': async ({ page, ok, eq }) => {
+      // the grid used to squeeze 42 cells into one 8px-wide row, and a tapped cell was a div no on-screen keyboard could reach
+      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+      const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+      await p.goto(page.url()); await p.waitForFunction(() => window.__vault); await p.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
+      await p.evaluate(() => { const X = window.__vault; for (let i = 0; i < X.CAMPAIGN; i++) X.S.solved[i] = { stars: 3, time: 0 }; delete X.S.solved[20]; X.openVault(20); });
+      const r = await p.evaluate(() => { const g = document.getElementById('padGrid'), c = g.querySelector('.pc').getBoundingClientRect(); return { w: c.width, fits: g.scrollWidth <= g.clientWidth + 1, blocks: g.querySelectorAll('.padblock').length, sw: document.documentElement.scrollWidth }; });
+      ok(r.w >= 16, 'cells keep their width: ' + r.w); ok(r.fits && r.sw <= 390, 'the grid fits the phone'); ok(r.blocks >= 2, 'long pads wrap into blocks');
+      await p.tap('#padGrid .pc[data-r="0"][data-c="0"]');
+      eq(await p.evaluate(() => document.activeElement.id), 'padKbd', 'a tap focuses a real text input');
+      await p.keyboard.type('ATTENTIOX'); await p.keyboard.press('Backspace'); await p.keyboard.type('N');
+      eq(await p.evaluate(() => [...document.querySelectorAll('#padGrid .padrow')][0].querySelectorAll('.pc.k').length), 9, 'typed letters land in the pad, backspace clears');
+      eq(await p.evaluate(() => [...document.querySelectorAll('#padGrid .padrow')][0].innerText.replace(/[^A-Z]/g, '').slice(1, 10)), 'ATTENTION');
+      ok(!errs.length, 'page errors: ' + errs[0]); await ctx.close();
+    },
+    'grouped ciphertext wraps between groups, never inside one; the case card reads cleanly': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
+      await page.evaluate(() => { const X = window.__vault; X.S.solved[0] = X.S.solved[1] = { stars: 3, time: 0 }; X.openVault(2); });
+      // every line of the 5-letter-grouped intercept starts at a group: a group split across two lines reads as two words
+      const lines = await page.evaluate(() => { const t = [...document.querySelectorAll('.txt')].find(e => /^[A-Z]{5} [A-Z]{5}/.test(e.textContent.trim())), r = document.createRange(), tops = new Map();
+        const n = t.firstChild && t.firstChild.nodeType === 3 ? t.firstChild : [...t.childNodes].find(x => x.nodeType === 3); const s = n.textContent;
+        for (let k = 0; k < s.length; k++) { if (s[k] === ' ') continue; r.setStart(n, k); r.setEnd(n, k + 1); const y = Math.round(r.getBoundingClientRect().top); if (!tops.has(y)) tops.set(y, k); }
+        return [...tops.values()].map(k => s.slice(k).match(/^[A-Z]*/)[0].length + ':' + (k === 0 || s[k - 1] === ' ')); });
+      ok(lines.length > 1 && lines.every(l => l.endsWith('true')), 'a line starts mid-group: ' + lines);
+      await page.evaluate(() => window.__vault.openVault(0));
+      ok(!/\.\./.test(await page.textContent('.case')), 'no doubled full stop in the case card');
+    },
   },
 };

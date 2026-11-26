@@ -9,10 +9,29 @@ const ALL = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 module.exports = {
   page: 'mapmaker/index.html',
+  // a fresh save opens on the one-time lesson; most tests start past it (the newcomer test reloads a fresh save)
+  ready: async (page) => { await page.waitForTimeout(800); await page.evaluate(() => { if (__map.lessonOn()) __map.lessonClose(); }); },
   tests: {
-    'opens straight onto sheet I: no modal, logs in the book, a hint on the chart': async ({ page, ok, eq }) => {
+    'newcomer: sheet I opens on a do-it lesson (two sight lines, drag the cape to the crossing), then a one-line goal and visual logs, raw log text hidden': async ({ page, ok, eq }) => {
+      await page.evaluate(() => localStorage.clear()); await page.reload(); await page.waitForTimeout(800);
+      ok(await page.isVisible('#lsCv'), 'the lesson shows first'); ok(/sight lines cross/.test(await page.textContent('#lsSay')));
+      const box = await page.locator('#lsCv').boundingBox(), sx = box.width / 480, sy = box.height / 360, T = await page.evaluate(() => __map.LS.truth);
+      await page.mouse.move(box.x + 96 * sx, box.y + 70 * sy); await page.mouse.down(); await page.mouse.move(box.x + T[0] * sx + 4, box.y + T[1] * sy - 3, { steps: 6 }); await page.mouse.up();
+      ok(await page.evaluate(() => __map.LS.done), 'dropping the cape on the crossing fixes it'); await page.click('#lsGo'); ok(await page.isHidden('#mmLesson'));
+      const goal = await page.textContent('#hint'); ok(goal.length < 90 && /Drag each ship onto the port/.test(goal), 'one-line goal: ' + goal);
+      ok(/Tap a captain/.test(await page.textContent('#step')), 'one short prompt says what to do');
+      await page.click('#tabs button >> nth=0'); await page.waitForTimeout(2700);
+      ok(await page.isHidden('#page .entries'), 'the raw numeric log is hidden by default'); ok(!/knots|bearing/.test(await page.locator('#page').innerText()), 'no bearings or knots on show');
+      ok(await page.locator('#page .sum .cp').count() >= 1, 'what she sighted, as chips'); ok(/Drag her ship/.test(await page.textContent('#step')));
+      const ink = await page.evaluate(() => { const A = __map, R = A.M.rays(A.S, A.st, A.logs).filter(r => r.li === 0); const cv = document.getElementById('chart'), g = cv.getContext('2d'), d = devicePixelRatio || 1; let dark = 0;
+        for (const r of R.slice(0, 4)) { const dd = A.M.dirOf(r.b), p = A.toScreen(r.o[0] + dd[0] * 4, r.o[1] + dd[1] * 4), q = cv.getBoundingClientRect(); const px = g.getImageData(Math.round((p[0] - q.left) * d) - 2, Math.round((p[1] - q.top) * d) - 2, 5, 5).data; for (let i = 0; i < px.length; i += 4) if (px[i] < 175) { dark++; break; } } return { n: R.length, dark }; });
+      ok(ink.n >= 2 && ink.dark >= 2, 'the sight lines are drawn on the chart: ' + JSON.stringify(ink));
+      await page.click('#page summary'); ok(await page.isVisible('#page .entries'), 'the logbook is one tap away');
+      await page.reload(); await page.waitForTimeout(600); ok(await page.isHidden('#mmLesson'), 'the lesson shows once');
+    },
+    'opens straight onto sheet I: no modal, logs in the book': async ({ page, ok, eq }) => {
       eq(await page.locator('.modal').count(), 0, 'no intro modal');
-      ok(await page.locator('#tabs button').count() >= 2); ok(await page.locator('#note').textContent().then(t => /log/.test(t)));
+      ok(await page.locator('#tabs button').count() >= 2);
       await page.click('#tabs button >> nth=0'); eq(await page.evaluate(() => __map.sel), 0);
       ok(await page.locator('#page .entries div').count() > 2, 'the log page lists its entries');
     },

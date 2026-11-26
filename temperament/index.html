@@ -117,7 +117,7 @@
 <div class="topbar"><a class="home" href="../index.html">← Rabbit Holes</a><h1>Temperament</h1><span class="spacer"></span><span id="hud"></span><button id="menuBtn" aria-label="Postings">☰</button></div>
 <main>
   <div id="loft" data-play>
-    <svg id="wheel" viewBox="-200 -200 400 400" aria-label="The tuning rose: twelve notes round the circle of fifths"></svg>
+    <svg id="wheel" viewBox="-207 -207 414 414" aria-label="The tuning rose: twelve notes round the circle of fifths"></svg>
     <div id="coachL"></div>
     <div id="ctl">
       <div class="candle" id="candle" aria-hidden="true"><div class="flame" id="flame"></div><div class="wick"></div><div class="wax"></div></div>
@@ -402,14 +402,14 @@ function ctlRender() {
   $('ivName').textContent = `${NM[i]}–${NM[up]} ${IV[k].n}`;
   const bt = b < .25 ? 'still: no beats' : b < 1.5 ? 'a slow wave' : b < 4 ? 'beating gently' : b < 9 ? 'beating fast' : 'a rough shimmer';
   $('ivSub').textContent = dark ? bt : `${bt} · ${QN[qual(k, d)]}${d > .6 ? ', wide' : d < -.6 ? ', narrow' : ''}`;
-  const peg = lowerPeg ? i : up, locked = !canMove(s, peg), off = s.phase !== 'week' || locked;
+  const peg = lowerPeg ? i : up, locked = !canMove(s, peg), off = s.phase !== 'week' || locked || busy; // no retuning while Sunday is being played
   $('nud').innerHTML = `<button data-d="-3" title="Much flatter" ${off ? 'disabled' : ''}>♭♭</button><button data-d="-.4" title="A hair flatter" ${off ? 'disabled' : ''}>♭</button><button id="pegSw" title="Which note the buttons move" style="min-width:52px">${NM[peg]}${locked ? '🔒' : ''}</button><button data-d=".4" title="A hair sharper" ${off ? 'disabled' : ''}>♯</button><button data-d="3" title="Much sharper" ${off ? 'disabled' : ''}>♯♯</button>` +
     P.tools.map(t => `<button class="tool" data-t="${t}" ${off || (t !== 'pure' && k !== 7) ? 'disabled' : ''} title="${t === 'pure' ? 'Tune this interval beatless' : t === 'temper' ? 'A meantone fifth: a quarter of a comma narrow' : 'An equal-tempered fifth'}">${t === 'pure' ? 'Pure' : t === 'temper' ? 'Temper' : 'Even'}</button>`).join('');
   $('nud').querySelectorAll('[data-d]').forEach(bn => bn.onclick = () => { if (setNote(s, peg, s.tun[peg] + (+bn.dataset.d))) moved(); });
   $('nud').querySelectorAll('[data-t]').forEach(bn => bn.onclick = () => { if (applyTool(s, bn.dataset.t, i, k, lowerPeg)) { FX.sfx('click'); moved(); } });
   $('pegSw').onclick = () => { lowerPeg = !lowerPeg; ctlRender(); };
   const used = s.moved.length;
-  $('pegs').innerHTML = `<span>Pegs: ${[...Array(P.free)].map((_, j) => `<span class="p ${j < used ? 'used' : ''}"></span>`).join('')}${s.paid ? ` +${s.paid}<span class="p paid"></span> −ƒ${s.paid * P.extra}` : ''}</span><span><button id="undoB" ${s.undo.length && s.phase === 'week' ? '' : 'disabled'}>↶ Undo</button> <button id="resetB" ${s.moved.length && s.phase === 'week' ? '' : 'disabled'} title="Put every peg back where it was this morning">Reset</button></span>`;
+  $('pegs').innerHTML = `<span>Pegs: ${[...Array(P.free)].map((_, j) => `<span class="p ${j < used ? 'used' : ''}"></span>`).join('')}${s.paid ? ` +${s.paid}<span class="p paid"></span> −ƒ${s.paid * P.extra}` : ''}</span><span><button id="undoB" ${s.undo.length && s.phase === 'week' && !busy ? '' : 'disabled'}>↶ Undo</button> <button id="resetB" ${s.moved.length && s.phase === 'week' && !busy ? '' : 'disabled'} title="Put every peg back where it was this morning">Reset</button></span>`;
   $('undoB').onclick = () => { if (undo(s)) moved(); };
   $('resetB').onclick = () => { resetWeek(s); moved(); };
 }
@@ -421,7 +421,7 @@ function renderAll() { wheelSVG(); ctlRender(); hudRender(); renderDesk(); }
 // ---------- the wheel: tap an interval to hear it; drag a note up or down to turn its peg ----------
 let drag = null;
 $('wheel').addEventListener('pointerdown', e => {
-  const s = ss(), node = e.target.closest('.node'), hit = e.target.closest('.hit');
+  if (busy) return; const s = ss(), node = e.target.closest('.node'), hit = e.target.closest('.hit');
   if (hit) { sel = [+hit.dataset.i, +hit.dataset.k]; lowerPeg = false; startDrone(); FX.sfx('click'); wheelSVG(); ctlRender(); coachCheck(); return; }
   if (node) { const n = +node.dataset.n;
     if (!(n === sel[0] || n === (sel[0] + sel[1]) % 12)) { sel = [(n + 5) % 12, 7]; lowerPeg = false; } // the fifth that ends on this note
@@ -432,7 +432,7 @@ $('wheel').addEventListener('pointerdown', e => {
     wheelSVG(); ctlRender(); }
 });
 $('wheel').addEventListener('pointermove', e => {
-  if (!drag || e.pointerId !== drag.pid) return; const r = $('wheel').getBoundingClientRect(), k = 400 / r.width;
+  if (!drag || e.pointerId !== drag.pid) return; const r = $('wheel').getBoundingClientRect(), k = 414 / r.width;
   const v = drag.v + (drag.y - e.clientY) * k * .08;
   if (setNote(ss(), drag.n, v, !drag.first)) { drag.first = false; retuneDrone(); wheelSVG(); ctlRender(); hudRender(); }
 });
@@ -494,10 +494,11 @@ async function hear(id) {
 async function sunday() {
   if (busy) return; const s = ss(); if (s.phase !== 'week') return;
   if (!s.acc.length && week(s).letters.length && !(await RH.modal('<h2>No letters accepted?</h2><p>Only the hymn will be played. Upkeep is still due.</p>', [{ label: 'Back', value: 0 }, { label: 'Ring anyway', value: 1 }]))) return;
-  busy = true; stopDrone(); const prog = program(s), W = week(s); showDesk();
+  busy = true; stopDrone(); ctlRender(); const prog = program(s), W = week(s); showDesk();
   // the performance: each piece plays in the tuning as it stands, its chords marked as they sound
   const d = $('desk'); d.innerHTML = `<h2>Sunday</h2><div class="sub">week ${s.week + 1} · tap to hurry</div>${prog.map(pc => letterHTML(pc, { noButtons: 1 })).join('')}`;
-  let hurry = false; d.onclick = () => { hurry = true; hush(); };
+  // armed on the next tick: the click on "Ring for Sunday" is still bubbling up through the desk and must not count as a hurry
+  let hurry = false; setTimeout(() => { if (busy) d.onclick = () => { hurry = true; hush(); }; }, 0);
   for (const pc of prog) { if (hurry) break; const el = d.querySelector(`.letter[data-id="${pc.id}"]`), e = evalPiece(s.tun, pc); el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     const ok = await playPiece(pc, j => { el.querySelectorAll('.ch').forEach((c, i) => { c.classList.toggle('now', i === j); if (i === j) c.classList.add(e.marks[j]); }); if (e.marks[j] === 'wolf') FX.shake(.3); }, .5);
     if (!ok) break; }
@@ -577,7 +578,8 @@ const COACH = [
   'Better. Tap <b>▶ Hear</b> on the cantor\'s letter to rehearse it on this organ.',
   '<b>Accept</b> the letter, then <b>ring for Sunday</b>.',
 ];
-function coachHTML() { const s = ss(); return s.seed === 'first' && s.post === 0 && S.coach < COACH.length ? `<div class="coach" id="coach">${COACH[S.coach]}</div>` : ''; }
+// the frost-on-G lesson only fits the first week's organ
+function coachHTML() { const s = ss(); return s.seed === 'first' && s.post === 0 && s.week === 0 && s.phase === 'week' && S.coach < COACH.length ? `<div class="coach" id="coach">${COACH[S.coach]}</div>` : ''; }
 function coachCheck() {
   const s = ss(); if (s.seed !== 'first' || S.coach >= COACH.length) return; const before = S.coach;
   if (S.coach === 0 && A(dev(s.tun, 0, 7)) < 7) S.coach = 1;
@@ -586,7 +588,7 @@ function coachCheck() {
   if (S.coach !== before) { persist(); const c = $('coach'); if (c) { if (S.coach < COACH.length) c.innerHTML = COACH[S.coach]; else c.remove(); } FX.sfx('chime', S.coach); }
 }
 
-$('menuBtn').onclick = () => { view = view === 'posts' ? 'week' : 'posts'; renderAll(); if (view === 'posts') showDesk(); };
+$('menuBtn').onclick = () => { if (busy) return; view = view === 'posts' ? 'week' : 'posts'; renderAll(); if (view === 'posts') showDesk(); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) stopAll(); });
 // links: #season=<post>:<seed> plays the same weeks someone else played
 { const m = location.hash.match(/season=(\d):([^&]+)/); if (m) { const p = +m[1], sd = decodeURIComponent(m[2]).slice(0, 40); if (POSTS[p] && (p <= S.open || p === 4)) { S.ss = newSeason(p, sd, { daily: /^daily:\d{4}-\d\d-\d\d$/.test(sd) ? sd.slice(6) : 0 }); persist(); } } }

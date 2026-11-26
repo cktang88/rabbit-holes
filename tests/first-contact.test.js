@@ -340,6 +340,21 @@ module.exports = {
       ok(sizes.length && sizes.every(x => x >= 16), 'field font sizes: ' + sizes);
       await ctx.close();
     },
+    'phone: a SETI hint that says "compare frames" leaves the printout visible and scrolls to those frames': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300); await closeModals(page);
+      await page.evaluate(() => { const fc = window.__fc; fc.S.tut = 7; for (let c = 0; c < 3; c++) fc.CH[c].qs.forEach((q, k) => fc.S.solved[c + ':' + k] = 1); fc.S.chapter = 3; fc.render(); });
+      await page.click('#hintBtn'); await page.waitForTimeout(400);
+      ok(/compare frames/i.test(await page.locator('.toast').last().textContent()), 'not an evidence hint');
+      ok(!(await page.evaluate(() => document.body.classList.contains('lex'))), 'the lexicon drawer covers the frames the hint points at');
+      const vis = await page.evaluate(() => [...document.querySelectorAll('#feed .tx.coach')].some(el => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }));
+      ok(vis, 'the compared frames are not on screen');
+    },
+    'tablet width: every topbar control stays on screen (it wraps rather than running off the edge)': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 800, height: 700 }); await closeModals(page);
+      await page.evaluate(() => { const fc = window.__fc; fc.S.tut = 7; fc.CH[0].qs.forEach((q, k) => fc.S.solved['0:' + k] = 1); fc.render(); }); await page.waitForTimeout(200);
+      const r = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, off: [...document.querySelectorAll('.topbar button')].filter(b => b.offsetParent && b.getBoundingClientRect().right > innerWidth + 1).map(b => b.textContent) }));
+      ok(r.sw <= 801 && !r.off.length, JSON.stringify(r));
+    },
     'phone layout has no horizontal overflow': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300); await closeModals(page);
       ok(await page.evaluate(() => document.documentElement.scrollWidth <= 392), 'overflow ' + await page.evaluate(() => document.documentElement.scrollWidth));

@@ -717,7 +717,7 @@ const META = cleanMeta(RH.load('gridlock', null));
 let C = null, snap = null, phase = 'plan', report = null;
 function persist() { try { META.city = GL.serialize(C); META.snap = snap; RH.save('gridlock', META); RH.progress('gridlock', Object.keys(META.cases).length / GL.CASES.length); } catch (e) {} }
 function newRun(seed) {
-  C = GL.newCity(seed); META.runs++; GL.startMonth(C); snap = GL.serialize(C); phase = 'plan'; report = null;
+  C = GL.newCity(seed); META.runs++; GL.startMonth(C); snap = GL.serialize(C); phase = 'plan'; report = null; anim = null; // a month still animating belongs to the old city
   try { history.replaceState(null, '', '#city=' + encodeURIComponent(C.seed)); } catch (e) {}
   hideSlip(); persist(); onCityChanged(true);
 }
@@ -725,7 +725,10 @@ function boot() {
   const h = /^#city=(.+)$/.exec(location.hash), want = h ? decodeURIComponent(h[1]).slice(0, 32) : null;
   let restored = META.city ? GL.restore(META.city) : null;
   if (META.city && !restored) setTimeout(() => RH.toast('The filing cabinet was damaged. A fresh city has been drawn up.'), 300);
-  if (restored && (!want || want === restored.seed) && !restored.over) { C = restored; snap = META.snap && GL.restore(META.snap) ? META.snap : GL.serialize(C); phase = 'plan'; onCityChanged(true); }
+  if (restored && (!want || want === restored.seed) && !restored.over) { C = restored; snap = META.snap && GL.restore(META.snap) ? META.snap : GL.serialize(C); phase = 'plan';
+    // closed mid-run or on the result slip: that month is already on the books, so open the next one rather than let it be run (and booked) twice
+    const last = C.hist[C.hist.length - 1]; if (last && last.m === C.month) { GL.startMonth(C); snap = GL.serialize(C); persist(); }
+    onCityChanged(true); }
   else newRun(want || todaySeed());
 }
 // undo a token placed this month: rebuild the month from its opening snapshot without it
@@ -738,11 +741,11 @@ function replayWithout(i) {
 function redoMonth() { // the month you just ran, again from its opening: costs a little credibility
   const D = GL.restore(snap); if (!D) return; C = D; C.cred = Math.max(0, C.cred - 1); C.acts = GL.actionsFor(C);
   // replaying keeps this month's tokens out: start the planning again
-  phase = 'plan'; report = null; hideSlip(); persist(); onCityChanged(); RH.toast('Recalled. Same month, same city: try again (−1 credibility).');
+  phase = 'plan'; report = null; anim = null; hideSlip(); persist(); onCityChanged(); RH.toast('Recalled. Same month, same city: try again (−1 credibility).');
 }
 function nextMonth() {
   if (C.over) return;
-  GL.startMonth(C); snap = GL.serialize(C); phase = 'plan'; report = null; hideSlip(); persist(); onCityChanged();
+  GL.startMonth(C); snap = GL.serialize(C); phase = 'plan'; report = null; anim = null; hideSlip(); persist(); onCityChanged(!cam.touched); // a new district may lie outside the old view
   if (C.event) { snd.key(); }
 }
 
@@ -1238,7 +1241,7 @@ addEventListener('resize', () => { if (!cam.touched) cam.fit(false); });
 
 boot();
 requestAnimationFrame(frame);
-window.__gl = { GL, get C() { return C; }, set C(v) { C = v; snap = GL.serialize(C); phase = "plan"; onCityChanged(true); }, cam, newRun, run, nextMonth, redoMonth, place, select, persist, META, cleanMeta, get phase() { return phase; }, get report() { return report; }, hitAt, shareText, get snap() { return snap; }, skipAnim() { if (anim) anim.t0 = -1e9; } };
+window.__gl = { GL, get C() { return C; }, set C(v) { C = v; snap = GL.serialize(C); phase = "plan"; anim = null; onCityChanged(true); }, cam, newRun, run, nextMonth, redoMonth, place, select, persist, META, cleanMeta, get phase() { return phase; }, get report() { return report; }, hitAt, shareText, get snap() { return snap; }, skipAnim() { if (anim) anim.t0 = -1e9; } };
 </script>
 </body>
 </html>

@@ -44,6 +44,28 @@ module.exports = {
       const r = await page.evaluate(() => { const g = window.__gm; const strip = [...document.querySelectorAll('#strip i')].map(i => i.className.trim().split(' ')[0]); const t0 = performance.now(); document.getElementById('runBtn').click(); return { strip, ms: performance.now() - t0, mode: g.mode, parts: g.parts.length, saved: g.results.filter(x => x && x.ok).length }; });
       eq(r.strip.length, 10); ok(r.strip.every(c => c === 'ok' || c === 'bad'), 'all ten shown: ' + r.strip); eq(r.mode, 'build'); eq(r.parts, 3, 'machine kept'); ok(r.ms < 200, 'reset took ' + r.ms.toFixed(0) + ' ms');
     },
+    'Reset and Run again right after a run ends: the old run\'s replay and summary never fire into the new run': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { const g = window.__gm; g.openBench(g.pById.first, g.pById.first.sol); g.startRun(); });
+      await page.waitForFunction(() => window.__gm.results.every(r => r) && window.__gm.queueLeft() === 0, null, { timeout: 30000 });
+      await page.click('#runBtn'); await page.click('#runBtn'); // Reset, Run
+      await page.waitForTimeout(1500); // past the old run's 0.9 s summary and 1.1 s replay timers
+      const r = await page.evaluate(() => { const g = window.__gm; return { mode: g.mode, k: g.live && g.live.k, modal: !!document.querySelector('.modal') }; });
+      eq(r, { mode: 'run', k: 0, modal: false }, 'the new run plays tomorrow 1, undisturbed');
+    },
+    'the part\'s buttons follow it when the bench is zoomed or panned': async ({ page, ok }) => {
+      const r = await page.evaluate(async () => { const g = window.__gm; g.openBench(g.pById.first, [['plank', 9, 4, 0]]);
+        const [sx, sy] = g.toScreenM(9, 4); const cv = document.getElementById('cv'); const ev = (t) => cv.dispatchEvent(new PointerEvent(t, { pointerId: 1, clientX: sx, clientY: sy, bubbles: true, button: 0, buttons: 1 }));
+        ev('pointerdown'); ev('pointerup'); const pop = document.getElementById('pop'); const at = () => { const p = pop.getBoundingClientRect(), [x, y] = g.toScreenM(9, 5.2); return Math.hypot(p.left + 68 - x, p.top + 50 - y); };
+        const d0 = at(); g.cam.zoomAt(sx + 60, sy + 60, 1.4); const d1 = at(); g.cam.panBy(-50, 30); return { on: pop.classList.contains('on'), d0, d1, d2: at() }; });
+      ok(r.on && r.d0 < 3 && r.d1 < 3 && r.d2 < 3, 'pop sits above its part: ' + JSON.stringify(r));
+    },
+    'news ribbons about one bench stop when another opens; on a phone the run\'s verdict is not under the zoom buttons': async ({ page, ok }) => {
+      await page.evaluate(() => { const g = window.__gm; g.openBench(g.dailyBench('2026-11-25')); g.openBench(g.sandboxBench('egg')); });
+      await page.waitForTimeout(4800); ok(await page.evaluate(() => !document.getElementById('ribbon').classList.contains('on')), 'the daily bench\'s ribbons kept coming on the sandbox');
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
+      await page.evaluate(() => { const t = document.getElementById('tell'); t.textContent = '0 of 10 tomorrows came through.'; t.classList.add('on'); });
+      ok(await page.evaluate(() => { const a = document.getElementById('tell').getBoundingClientRect(), b = document.querySelector('#stage .pz-bar').getBoundingClientRect(); return a.bottom <= b.top || a.top >= b.bottom || a.right <= b.left || a.left >= b.right; }), 'tell overlaps the zoom bar');
+    },
     'passing a bench records the best on three axes and opens the next bench': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const g = window.__gm; const before = g.benchOpen(1); g.openBench(g.pById.first, g.pById.first.sol); g.startRun();
         const R = g.GM.runAll(g.B, g.parts); g.results.splice(0, 10, ...R.res); g.summary(); return { before, after: g.benchOpen(1), best: g.SAVE.best.first, parts: g.unlocked().parts }; });
