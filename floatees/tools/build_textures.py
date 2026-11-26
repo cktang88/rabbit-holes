@@ -2,8 +2,8 @@
 """Globe textures.
   * colour: NASA Blue Marble Next Generation with topography and bathymetry, July 2004 (Stöckli et al. 2005;
     NASA Earth Observatory, public domain), 5400x2700 -> 4096x2048 (desktop) and 2048x1024 (phones, and the first
-    picture everyone sees while the big one loads). Land pixels keep their colour; open ocean is graded a touch
-    darker and bluer so current streaks read against it.
+    picture everyone sees while the big one loads). Land pixels keep their colour; the sea gets a gamma lift (bluest most)
+    so the abyss reads as deep blue under the current streaks rather than black.
   * relief: ETOPO1 ice-surface elevation (Amante & Eakins 2009, NOAA NCEI, public domain) at 5', as an 8-bit height
     map for the renderer's bump mapping (land only; the sea's own shading is already in the Blue Marble image).
 usage: build_textures.py IMG_DIR CACHE_DIR   (IMG_DIR holds bm_topobathy_jul.jpg and etopo5m.nc)"""
@@ -19,7 +19,7 @@ for W, q in [(4096, 84), (2048, 84)]:
     L = np.asarray(Image.fromarray((lf * 255).astype(np.uint8)).resize((W, W // 2), Image.BILINEAR), np.float32) / 255
     L = np.asarray(Image.fromarray((L * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(W / 4096 * 1.2)), np.float32) / 255
     sea = (1 - L)[..., None]
-    graded = im * np.array([.80, .88, 1.0]) ** 1.0 * .9                # deeper navy at sea
+    graded = 255 * (im / 255) ** np.array([.80, .78, .72])            # lift the abyssal navy so the deep sea reads blue, not black
     out = im * (1 - sea) + graded * sea
     Image.fromarray(np.clip(out, 0, 255).astype(np.uint8)).save(os.path.join(DATA, f'earth-{W // 1024}k.jpg'), quality=q, optimize=True, progressive=True)
     print('earth', W, os.path.getsize(os.path.join(DATA, f'earth-{W // 1024}k.jpg')))

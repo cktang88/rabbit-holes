@@ -382,8 +382,9 @@ const SAVE = cleanSave(RH.load('snowfall', null));
 const persist = () => { RH.save('snowfall', SAVE); RH.progress('snowfall', Math.min(1, (Object.keys(SAVE.done).length + Object.keys(SAVE.comm).length) / (CASES.length + COMMS.length))); };
 const isOpen = i => i === 0 || !!SAVE.done[i - 1] || (i === 1 && Object.keys(SAVE.seen).length >= 4);
 let grownLayers = [], cur = isOpen(SAVE.cur) ? SAVE.cur : 0, sounding, sel = 0, used = 0, grown = null, develop = 0, best = 0;
+let caseRun = 0;
 function startCase(i) {
-  cur = i; SAVE.cur = i; persist(); used = 0; grown = null; grownLayers = []; develop = 0; best = 0; sel = 0;
+  unzoom(); caseRun++; cur = i; SAVE.cur = i; persist(); used = 0; grown = null; grownLayers = []; develop = 0; best = 0; sel = 0;
   sounding = [L(-10, .07, 2)]; // the default is deliberately none of the answers: the column/plate boundary at middling humidity
   render();
 }
@@ -392,6 +393,8 @@ const $ = id => document.getElementById(id);
 const cv = $('cv'), g = cv.getContext('2d');
 // a closer look: scroll or pinch to zoom into the plates, drag to move about, ⤢ to fit again (world = the plates at rest)
 const cam = PanZoom(cv, { world: () => { const r = cv.getBoundingClientRect(); return { x: 0, y: 0, w: Math.max(1, r.width), h: Math.max(1, r.height) }; }, canPanFrom: () => true, min: 1, max: 10, pad: 0, onChange: () => drawPlates() });
+// a new case, mode or commission lays the plates out afresh: a close look at the last layout would leave them off-screen
+function unzoom() { if (cam.k !== 1 || cam.x || cam.y) cam.fit(false); }
 function drawSide(x, y, scale, cr, alpha = 1, capMax = 1e9) { // looking across: the column body, hollows and needles, and caps at both ends
   g.save(); g.translate(x, y); g.globalAlpha = alpha; g.shadowColor = '#a9c8ff'; g.shadowBlur = 8;
   const w0 = .25 * scale, h0 = cr.ax.length ? w0 : Math.max(2, w0 * .35); g.fillStyle = '#dfe9ffcc'; g.fillRect(-w0, -h0, 2 * w0, 2 * h0); // a lone plate is thin edge-on
@@ -430,7 +433,8 @@ function plateFrame(x, y, w, h, label, sub) { // a glass-plate negative: dark gl
   const gr = g.createRadialGradient(x + w / 2, y + h / 2, Math.max(0, Math.min(w, h) * .2), x + w / 2, y + h / 2, Math.max(1, Math.max(w, h) * .7)); gr.addColorStop(0, '#0000'); gr.addColorStop(1, '#3a404c55'); g.fillStyle = gr; g.fillRect(x, y, w, h);
   g.strokeStyle = '#8a92a4'; g.lineWidth = 3; g.strokeRect(x, y, w, h); g.strokeStyle = '#ffffff10'; g.lineWidth = 1; for (let k = 0; k < 6; k++) { g.beginPath(); g.moveTo(x + w * ((k * 37) % 100) / 100, y); g.lineTo(x + w * ((k * 61) % 100) / 100, y + h); g.stroke(); }
   g.fillStyle = '#efe7d2'; g.fillRect(x + 10, y + h - 34, Math.min(w - 20, 230), 26); g.fillStyle = '#2a2418'; g.font = '20px "Pinyon Script", cursive'; g.textBaseline = 'middle'; g.fillText(label, x + 16, y + h - 21);
-  if (sub) { g.fillStyle = '#9aa3b8'; g.font = '14px "IM Fell English", serif'; g.fillText(sub, x + 12, y + 14); }
+  if (sub) { g.fillStyle = '#9aa3b8'; let fs = 14; do g.font = `${fs}px "IM Fell English", serif`; while (g.measureText(sub).width > w - 24 && --fs > 10); // long names (a fern on a star on a plate…) stay inside the glass
+    g.fillText(sub, x + 12, y + 14, Math.max(10, w - 24)); }
   g.restore();
 }
 function drawPlates() {
@@ -560,7 +564,7 @@ function render() {
     <div class="note" style="margin-top:6px">Click a layer, then drag its dot on Nakaya's diagram (below the plates). ${c.chamber ? '' : 'The bars set how long the flake spends in each layer.'}</div>
     <div class="lbl"><span>Case files</span></div><div class="cases" id="cases">${CASES.map((k, i) => `<button class="${i === cur ? 'cur' : ''}" data-i="${i}" ${isOpen(i) ? '' : 'disabled'}><span>${i ? i + '. ' : ''}${k.n}</span><span class="st">${SAVE.done[i] ? '★'.repeat(SAVE.done[i]) : isOpen(i) ? '' : '🔒'}</span></button>`).join('')}</div>`;
   $('cases').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.disabled) return; document.body.classList.remove('drawer'); startCase(+b.dataset.i); });
-  $('backDraw').onclick = () => { SAVE.mode = 'draw'; persist(); renderDraw(); };
+  $('backDraw').onclick = () => { SAVE.mode = 'draw'; persist(); unzoom(); renderDraw(); };
   $('tot').textContent = `${Object.keys(SAVE.done).length}/${CASES.length} plates · ${Object.values(SAVE.done).reduce((a, b) => a + b, 0)}★`;
   renderColumn(); renderInfo(); drawPad(); drawPlates();
 }
@@ -580,7 +584,7 @@ function release(P = drawPath) {
   if (cl.wild) RH.toast(`No real air changes that fast: the flake tumbled through turbulent updrafts and came down as <b>${cl.name}</b>. Draw a calmer fall.`, 4200);
   else if (fresh) RH.toast(`First found by you: <b>${cl.name}</b> · ${cl.rar}`, 3400);
   if (cm && lastJudge.ok) setTimeout(() => { [1568, 2093, 2637].forEach((f, i) => FX.tone({ f, type: 'sine', dur: 1, vol: .05, delay: i * .1 })); RH.toast(cm.daily ? `Today's sky matched with ${(lastJudge.ink * 100).toFixed(0)} units of ink.` : `Commission delivered ${'★'.repeat(lastJudge.stars)}`, 3000); }, 900);
-  location.hash = 'fall=' + encodePath(P);
+  history.replaceState(null, '', '#fall=' + encodePath(P)); // the link to this fall, without a Back-button step for every flake
   renderDraw();
   // the bead travels down the line in step with the crystal's growth
   const anim = () => { travel = x.done ? 1 : Math.min(1, x.i / Math.max(1, x.ph.length)); drawPad(); if (travel < 1) requestAnimationFrame(anim); }; requestAnimationFrame(anim);
@@ -606,8 +610,8 @@ function renderDraw() {
       ${list}`;
   }
   $('side').innerHTML = `<div class="tabs2">${tabs.map(([k, t]) => `<button data-tab="${k}" class="${SAVE.tab === k ? 'on' : ''}">${t}</button>`).join('')}</div>${body}`;
-  $('side').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { if (b.dataset.tab === 'cases') { SAVE.mode = 'cases'; persist(); startCase(cur); return; } SAVE.tab = b.dataset.tab; lastJudge = null; persist(); renderDraw(); drawPlates(); });
-  $('side').querySelectorAll('[data-ci]').forEach(b => b.onclick = () => { SAVE.ci = +b.dataset.ci; lastJudge = null; persist(); renderDraw(); drawPlates(); document.body.classList.remove('drawer'); });
+  $('side').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { if (b.dataset.tab === 'cases') { SAVE.mode = 'cases'; persist(); startCase(cur); return; } SAVE.tab = b.dataset.tab; lastJudge = null; persist(); unzoom(); renderDraw(); drawPlates(); });
+  $('side').querySelectorAll('[data-ci]').forEach(b => b.onclick = () => { SAVE.ci = +b.dataset.ci; lastJudge = null; persist(); unzoom(); renderDraw(); drawPlates(); document.body.classList.remove('drawer'); });
   $('side').querySelectorAll('.codex [data-p]').forEach(b => b.onclick = () => release(decodePath(b.dataset.p)));
   const cl = drawLayers ? drawClass : null, seq = cl && cl.seq;
   $('padInfo').innerHTML = `<div>${cl ? `Your flake: <b>${cl.name}</b> · <span class="rar ${cl.rar}">${cl.rar}</span> · ${sizeMM(grow(drawLayers)).toFixed(1)} mm · ink ${Math.round(pathLen(drawPath) * 100)}` : '<b>Press and drag</b> on the diagram to draw the fall, then lift.'}</div>
@@ -642,7 +646,7 @@ async function launch() {
     if (cur + 1 < CASES.length && isOpen(cur + 1)) startCase(cur + 1); else render();
     return;
   }
-  if (used >= BALLOONS) { FX.tone({ f: 180, f2: 90, type: 'sawtooth', dur: .5, vol: .08 }); RH.toast('Out of balloons: the storm has passed. Study the plates and start the case again.', 4500); render(); setTimeout(() => { used = 0; grown = null; best = 0; render(); }, 2600); return; }
+  if (used >= BALLOONS) { FX.tone({ f: 180, f2: 90, type: 'sawtooth', dur: .5, vol: .08 }); RH.toast('Out of balloons: the storm has passed. Study the plates and start the case again.', 4500); render(); const run = caseRun; setTimeout(() => { if (run !== caseRun) return; /* another case opened meanwhile: leave it alone */ used = 0; grown = null; best = 0; render(); }, 2600); return; }
   render();
 }
 function shutter() { FX.tone({ noise: 1, f: 2400, q: 1.5, dur: .04, vol: .25 }); FX.tone({ noise: 1, f: 1400, q: 1.5, dur: .05, vol: .2, delay: .09 }); }
@@ -650,7 +654,7 @@ function animateDevelop() { // signature: the regrowth develops on the glass lik
   develop = 0; const t0 = performance.now(); const step = now => { develop = Math.min(1, (now - t0) / 1400); drawPlates(); if (develop < 1) requestAnimationFrame(step); }; requestAnimationFrame(step);
 }
 addEventListener('resize', () => { drawPlates(); drawPad(); });
-$('lvlBtn').onclick = e => { e.stopPropagation(); document.body.classList.toggle('drawer'); };
+$('lvlBtn').onclick = e => { e.stopPropagation(); if (!$('cases')) { SAVE.tab = 'comm'; lastJudge = null; persist(); unzoom(); renderDraw(); drawPlates(); document.body.classList.add('drawer'); return; } /* drawing on the open sky there is no list: open the commissions' */ document.body.classList.toggle('drawer'); };
 document.addEventListener('click', e => { if (document.body.classList.contains('drawer') && !e.target.closest('#cases') && e.target !== $('lvlBtn')) document.body.classList.remove('drawer'); });
 const help = () => RH.modal(`<h2>Snowfall</h2><p>In 1885 Wilson Bentley photographed his first snowflake. Later, Ukichiro Nakaya grew them in a laboratory and found that a crystal's <b>shape</b> records the <b>air</b> it grew in. Temperature decides plates or columns: plates down to −4 °C, columns and needles to −10 °C, plates, stars and ferns to −22 °C, and mixed plates and columns colder still. The <b>vapour excess over ice</b> decides how fast it grows and how branched it is. Below ice saturation a crystal sublimates; above water saturation, supercooled droplets freeze onto it (rime).</p>
   <p>A flake grows from the inside out during a fall of about 48 minutes, so its centre is its oldest part. Here you <b>draw its fall</b> across Nakaya's diagram. Real air changes smoothly, so a calm, deliberate line grows a clean crystal, while a scribble grows a tumbled, broken one. The five legendary forms in your field notes each need their real recipe. Bentley's correspondents send commissions, and the daily sky is the same for everyone. The forensic cases are under 🔎 Cases.</p>`, [{ label: 'Open the notebook' }]);

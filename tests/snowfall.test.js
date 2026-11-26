@@ -66,6 +66,9 @@ module.exports = {
       await page.evaluate(() => { const S = __snow; S.startCase(5); for (let k = 0; k < 5; k++) { S.sounding = [{ T: -2, s: .02, d: 1 }]; S.launch(); } });
       ok(await page.evaluate(() => !__snow.SAVE.done[5]), 'solved with the wrong sounding');
       await page.waitForTimeout(2900); eq(await page.evaluate(() => __snow.used), 0, 'balloons not refilled after the storm passed');
+      // run out, then open another case at once and launch there: the old storm's reset must not wipe the new case
+      await page.evaluate(() => { const S = __snow; S.startCase(5); for (let k = 0; k < 5; k++) { S.sounding = [{ T: -2, s: .02, d: 1 }]; S.launch(); } S.startCase(3); S.sounding = [{ T: -2, s: .02, d: 1 }]; S.launch(); });
+      await page.waitForTimeout(2900); eq(await page.evaluate(() => [__snow.cur, __snow.used]), [3, 1], 'the other case kept its balloon and regrowth');
     },
     'difficulty: naive play fails': async ({ page, ok }) => {
       const r = await page.evaluate(() => {
@@ -239,6 +242,21 @@ module.exports = {
       ok((await page.textContent('#side')).includes('Not quite'), 'no explanation for the wrong flake');
       await page.evaluate(() => { const S = __snow; S.release(S.COMMS[3].solver || S.COMMS[3].par); });
       ok(await page.evaluate(() => __snow.SAVE.comm[3] === 3), 'commission not recorded');
+    },
+    'a close look at the plates does not follow you into another case, mode or commission; drawing flakes adds no Back-button steps': async ({ page, ok, eq }) => {
+      const k = () => page.evaluate(() => [__snow.cam.k, __snow.cam.x, __snow.cam.y]);
+      await page.evaluate(() => { const r = document.getElementById('cv').getBoundingClientRect(); __snow.cam.zoomAt(r.left + r.width * .7, r.top + r.height * .3, 2.5); });
+      ok((await k())[0] > 2, 'zoomed'); await page.evaluate(() => __snow.startCase(1)); eq(await k(), [1, 0, 0], 'a new case starts at the whole plate');
+      await page.evaluate(() => { const r = document.getElementById('cv').getBoundingClientRect(); __snow.cam.zoomAt(r.left + 50, r.top + 50, 2); document.getElementById('backDraw').click(); }); eq(await k(), [1, 0, 0], 'back to drawing');
+      await page.evaluate(() => { const r = document.getElementById('cv').getBoundingClientRect(); __snow.cam.zoomAt(r.left + 50, r.top + 50, 2); document.querySelector('[data-tab="comm"]').click(); }); eq(await k(), [1, 0, 0], 'a commission');
+      const h0 = await page.evaluate(() => history.length);
+      await page.evaluate(() => { const P = [[.1, .5], [.3, .55], [.5, .6]]; __snow.release(P); __snow.release([[.2, .6], [.4, .62]]); __snow.release(P); });
+      eq(await page.evaluate(() => history.length), h0, 'each flake replaced the link instead of pushing history'); ok(await page.evaluate(() => /#fall=/.test(location.hash)), 'the link is in the address bar');
+    },
+    'phone: ☰ List always opens a list, even from the open sky in the draw mode': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.evaluate(() => { __snow.SAVE.tab = 'sky'; __snow.setMode('draw'); });
+      ok(await page.evaluate(() => !document.getElementById('cases')), 'the sky tab has no list'); await page.click('#lvlBtn'); await page.waitForTimeout(300);
+      ok(await page.evaluate(() => { const c = document.getElementById('cases'); if (!c) return false; const r = c.getBoundingClientRect(); return document.body.classList.contains('drawer') && r.right > 100 && r.left >= -1; }), 'the commissions list slid in');
     },
     'phone: plates are the main surface; cases open from a drawer; no sideways scroll': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);

@@ -116,7 +116,7 @@ module.exports = {
       eq(await p2.evaluate(() => [__ch.C.id, JSON.stringify(__ch.sc.notes)]), ['c3', '[[1,0.5],[3,2]]']); await p2.close();
     },
     'odd and corrupted saves load without errors': async ({ page, ok }) => {
-      for (const bad of ['null', '[]', '{"v":2,"done":5,"scores":{"c1":{"notes":[[99,3]]}},"cur":7}', '{"v":2,"scores":{"c1":{"notes":[[1,1]],"finger":[2,2]}},"cur":"w:zz"}', '{"v":1,"mode":"tune"}', '{"v":2,"cur":"nope"}']) {
+      for (const bad of ['null', '[]', '{"v":2,"done":5,"scores":{"c1":{"notes":[[99,3]]}},"cur":7}', '{"v":2,"scores":{"c1":{"notes":[[1,1]],"finger":[2,2]}},"cur":"w:zz"}', '{"v":1,"mode":"tune"}', '{"v":2,"cur":"nope"}', '{"v":2,"cur":"free","free":{"p":"nope","st":7},"scores":{"free":{"notes":[[13,2]],"holes":[[.5,.5]]}}}', '{"v":2,"cur":"free","free":5}']) {
         const p2 = await page.context().newPage(), errs = []; p2.on('pageerror', e => errs.push(e.message));
         await p2.goto(page.url()); await p2.evaluate(s => localStorage.setItem('rh:chladni', s), bad); await p2.reload(); await p2.waitForTimeout(400);
         ok(!errs.length && await p2.evaluate(() => !!__ch.C), bad + ': ' + errs.join('; ')); await p2.close();

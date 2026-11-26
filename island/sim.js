@@ -352,7 +352,7 @@
   const CH = [
     { id: 'meadow', title: 'A meadow for rabbits', years: 9, permits: 4, ark: ['rabbit', 'fox', 'shrub'], tools: ['-any', '#fence'],
       brief: 'The warden wants rabbits on the island and still a meadow worth the name: in year 8 of this chapter, twenty rabbits or more and grass over 12% of the island. Rabbits alone eat a meadow to the bone.',
-      goal: (w, y) => { const r = yc(w, 'rabbit'), g = yc(w, 'grass'); if (y >= 8 && r >= 20 && g >= .12) return 'won'; if (y >= 9) return 'lost'; return `Rabbits ${r}; grass ${(g * 100).toFixed(0)}% of 12%. Year ${y} of 8.`; } },
+      goal: (w, y) => { const r = yc(w, 'rabbit'), g = yc(w, 'grass'); if (y >= 8 && r >= 20 && g >= .12) return 'won'; if (y >= 9) return 'lost'; const now = counts(w); return `Rabbits ${now[IDX.rabbit]} (20 wanted); grass ${(now[IDX.grass] * 100).toFixed(0)}% (over 12% wanted). Year ${y} of 8.`; } },
     { id: 'cycle', title: 'Boom and bust', years: 25, permits: 5, ark: ['vole', 'owl'], tools: ['#burn'],
       brief: 'Keep foxes and rabbits together for fifteen years running, long enough to see the foxes boom, crash by at least a third, and come back.',
       goal: (w, y, c) => { let run = 0, f = []; for (let k = c.y0; k < w.years.length; k++) { const Yk = w.years[k]; if (Yk[IDX.rabbit] >= 2 && Yk[IDX.fox] >= 2) { run++; f.push(Yk[IDX.fox]); } else { run = 0; f = []; } }

@@ -33,6 +33,14 @@
   #bar button{pointer-events:auto}
   #foldBtn{font-size:16px;padding:8px 26px;letter-spacing:.2em;text-transform:uppercase}
   #foldBtn.busy{opacity:.7}
+  .term{all:unset;cursor:help;border-bottom:1px dotted currentColor;pointer-events:auto}
+  .term:hover,.term:focus-visible{background:#fff3cf;outline:none}
+  .pic{display:block;width:100%;max-width:320px;height:auto;margin:6px 0;border:1px solid var(--line)}
+  .phx{font-size:13px;margin-top:6px}
+  #phT{position:absolute;right:10px;bottom:58px;display:flex;gap:0}
+  #phT[hidden]{display:none}
+  #phT button{min-height:34px;padding:4px 10px;box-shadow:none;font-size:13px}
+  #phT button.on{background:var(--ink);color:var(--paper)}
   #stamp{position:absolute;right:14px;top:46px;transform:rotate(-8deg);border:3px solid currentColor;padding:3px 10px;font-weight:700;letter-spacing:.2em;font-size:18px;pointer-events:none;opacity:0;background:rgba(251,248,239,.8)}
   #stamp.on{animation:stamp .35s ease-out forwards}
   #stamp.ok{color:var(--good)} #stamp.no{color:var(--red)}
@@ -96,6 +104,7 @@
   <div id="stage"><div id="vig"></div><canvas id="cv" aria-label="The chain and the molecule on the bench"></canvas>
     <div id="brief"></div>
     <div id="stamp"></div>
+    <div id="phT" hidden role="group" aria-label="Water or acid"><button type="button" data-p="n">in water</button><button type="button" data-p="x">in acid</button></div>
     <div id="bar"><button id="undoBtn" aria-label="Undo" title="Undo (Ctrl+Z)">↶</button><button class="primary" id="foldBtn">Fold</button></div>
   </div>
   <aside id="note">
@@ -167,7 +176,7 @@ const Lg = (s) => s.split(' ').map(t => { const [x, y, c] = t.split(','); return
 // The commissions: each one stacks a new requirement on what came before.
 const COMMS = [
   { name: 'Wax pebble', n: 8, types: 2, lig: { A: Lg('1,1,o 2,1,o') }, req: [{ lig: 'A', pH: 'n', min: 2.0 }],
-    brief: 'Make the chain grip the wax block. Tap a bead to paint it oily, then press Fold.',
+    brief: 'Make a chain that wraps around and grips the wax block. Tap a bead to paint it oily (red), then press Fold.',
     sci: 'Oily beads hide from water by pressing against each other and against oily surfaces. That is the hydrophobic effect, and most binding pockets start with it.' },
   { name: 'The rod', n: 9, types: 2, lig: { A: Lg('1,1,o 2,1,o 3,1,o') }, req: [{ lig: 'A', pH: 'n', min: 2.0 }], oil: 4,
     brief: 'Grip the longer rod with at most 4 oily beads. Drag beads to sketch the fold you intend.',
@@ -182,25 +191,25 @@ const COMMS = [
     brief: 'Grip the block with a − face; ignore its twin with a + face.',
     sci: 'Specificity is bought with charge: oil sticks to everything, a charge only to its opposite.' },
   { name: 'Acid release', n: 10, types: 4, lig: { A: Lg('1,1,+ 2,1,o') }, req: [{ lig: 'A', pH: 'n', min: 2.0 }, { lig: 'A', pH: 'acid', max: 0.5 }],
-    brief: 'Now the water changes. Grip at pH 7, let go at pH 4, where D beads lose their charge.',
+    brief: 'Grip the + block in water, and let go of it in acid.',
     sci: 'Endosomes inside cells are acidic. Drug carriers use exactly this trick to drop their cargo once they are inside.' },
   { name: 'Acid catch', n: 10, types: 4, lig: { A: Lg('1,1,o 2,1,o') }, req: [{ lig: 'A', pH: 'acid', min: 0.3 }, { lig: 'A', pH: 'n', max: -0.3 }],
-    brief: 'The other way round: stay shut at pH 7, grip only in acid.',
+    brief: 'The other way round: stay shut in water, grip only in acid.',
     sci: 'An allosteric switch: an internal salt bridge holds the pocket shut until acid breaks it. Haemoglobin lets go of oxygen in acidic muscle the same way.' },
   { name: 'Sturdy', n: 10, types: 4, lig: { A: Lg('1,1,o 2,1,o 2,2,o') }, req: [{ lig: 'A', pH: 'n', min: 2.0 }], oil: 5, robust: .7,
-    brief: 'Real genes mutate. Grip the block, and keep working after 70% of all single-bead typos, with at most 5 oily beads.',
+    brief: 'Real genes mutate. Grip the block, and keep working after 70% of all one-bead typos, with at most 5 oily beads.',
     sci: 'Robust designs share the work over many beads, so no single change breaks them. Evolution favours them for the same reason.' },
   { name: 'Sturdy hand', n: 10, types: 4, lig: { A: Lg('1,1,o 2,1,o 2,2,o'), B: Lg('1,1,o 2,1,o 2,0,o') }, req: [{ lig: 'A', pH: 'n', min: 1.3 }, { lig: 'B', pH: 'n', max: 0.7 }], robust: .4,
     brief: 'Left hand again, now with charges, and it must survive 40% of typos.',
     sci: 'Specific and robust pull in opposite directions: specificity lives in a few precise beads, robustness in redundancy.' },
   { name: 'Smart cargo', n: 11, types: 4, lig: { A: Lg('1,1,+ 2,1,o 2,2,o'), B: Lg('1,1,- 2,1,o 2,2,o') }, req: [{ lig: 'A', pH: 'n', min: 2.0 }, { lig: 'A', pH: 'acid', max: 0.3 }, { lig: 'B', pH: 'n', max: 0.3 }],
-    brief: 'Carry the + cargo at pH 7, drop it at pH 4, and never pick up its − twin.',
+    brief: 'Carry the + cargo in water, drop it in acid, and never pick up its − twin.',
     sci: 'Three rules at once is what a real delivery protein has to satisfy, and every rule you add shrinks the set of sequences that work.' },
   { name: 'Sturdy switch', n: 10, types: 4, lig: { A: Lg('1,1,+ 2,1,o') }, req: [{ lig: 'A', pH: 'n', min: 2.0 }, { lig: 'A', pH: 'acid', max: 0.5 }], robust: .5,
     brief: 'The acid release again, but it must keep working after half of all typos.',
     sci: 'Switches are fragile: a protein balanced between two states can be tipped by one mutation. Making one robust is an open problem.' },
   { name: 'The lock', n: 11, types: 4, lig: { A: Lg('1,1,+ 2,1,o 2,2,o'), B: Lg('1,1,o 2,1,o 3,1,o') }, req: [{ lig: 'A', pH: 'n', min: 2.0 }, { lig: 'A', pH: 'acid', max: 0.5 }, { lig: 'B', pH: 'n', max: 0.7 }], robust: .4,
-    brief: 'Everything at once: grip the key at pH 7, release it in acid, ignore the oily rod, and survive 40% of typos.',
+    brief: 'Everything at once: grip the key in water, release it in acid, ignore the oily rod, and survive 40% of typos.',
     sci: 'You have done what protein designers do: written a sequence for a function, not a shape. The shape came out of the physics.' },
 ];
 // Which ensembles a commission needs: one per molecule shape plus the free chain.
@@ -319,10 +328,10 @@ function draftComm(k, opts) {
 }
 function intro() {
   const i = commIndex(key), seen = SAVE.seen;
-  if (i === 0 && !SAVE.done['c:0'] && !seen.tap) hintSoon('Tap a bead to paint it. Red beads are oily.');
+  if (i === 0 && !SAVE.done['c:0'] && !seen.tap) hintSoon('Tap one bead to paint it red (oily), then press Fold.');
   else if (i === 1 && !seen.drag) { seen.drag = 1; hintSoon('Drag a bead to bend the chain. Drag from the pinned N bead to draw a new path.'); }
   else if (i === 3 && !seen.charge) { seen.charge = 1; hintSoon('New beads: tap a bead again for K (+), and again for D (−).'); }
-  else if (i === 5 && !seen.ph) { seen.ph = 1; hintSoon('New: pH. At pH 4 the D beads lose their charge.'); }
+  else if (i === 5 && !seen.ph) { seen.ph = 1; hintSoon('New: acid. It cancels the − on D beads, so a D clasp lets go. Fold, then flip the water/acid switch.'); }
   else if (i === 7 && !seen.rob) { seen.rob = 1; hintSoon('New: sturdiness. After each fold the machine retypes every bead and folds every typo.'); }
   persist();
 }
@@ -474,7 +483,7 @@ function draw() {
   else for (const c of lig) if (c.t === '+' || c.t === '-') { ctx.font = '700 .46px "Courier Prime",monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; const s = c.t === '+' ? '+' : '−';
     ctx.fillStyle = 'rgba(10,20,30,.35)'; ctx.fillText(s, c.x + .015, c.y + .055); ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.fillText(s, c.x, c.y + .03); }
   // the chain on show: a peeked native fold, the fold animation, or your sketch. Z = height off the bench (the fold lifts the beads and sets them down).
-  let P = pos, Z = null; if (peek >= 0 && result) P = result.natives[peek].P;
+  let P = pos, Z = null; if (peek >= 0 && result && !anim) P = result.natives[peek].P;
   else if (anim) { const T = (now - anim.t0) / 900, n = anim.from.length; Z = [];
     P = anim.from.map((p, i) => { const u = Math.max(0, Math.min(1, (T - i / n * .22) / .78)), e = FX.ease.inOutCubic(u); Z.push(Math.sin(Math.PI * u) * .45); return [p[0] + (anim.to[i][0] - p[0]) * e, p[1] + (anim.to[i][1] - p[1]) * e]; });
     if (T >= 1) { anim = null; Z = null; } }
@@ -527,26 +536,74 @@ function photograph() { if (!matchMedia('(prefers-reduced-motion: reduce)').matc
 // ===================== Notebook =====================
 const ligSVG = (L) => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const c of L) { x0 = Math.min(x0, c.x); y0 = Math.min(y0, c.y); x1 = Math.max(x1, c.x); y1 = Math.max(y1, c.y); }
   const s = 9, w = (x1 - x0 + 1) * s, h = (y1 - y0 + 1) * s; return `<svg width="${w + 2}" height="${h + 2}" viewBox="-1 -1 ${w + 2} ${h + 2}" aria-hidden="true">${L.map(c => `<rect x="${(c.x - x0) * s}" y="${(c.y - y0) * s}" width="${s - 1}" height="${s - 1}" fill="${(BEN.lig[c.t] || BEN.lig.x)[1]}" stroke="#26241e" stroke-width=".6"/>${c.t === '+' || c.t === '-' ? `<text x="${(c.x - x0) * s + 4}" y="${(c.y - y0) * s + 7}" font-size="8" text-anchor="middle" fill="#fff">${c.t === '+' ? '+' : '−'}</text>` : ''}`).join('')}</svg>`; };
-function reqText(r) { const who = r.lig === 'B' ? 'decoy' : 'target';
-  if (r.min != null) return `grip the ${who} at ${PHN[r.pH]}: <b>≥ ${r.min.toFixed(1)}</b>`;
-  return r.lig === 'B' ? `ignore the decoy: grip <b>≤ ${r.max.toFixed(1)}</b>` : `let go at ${PHN[r.pH]}: grip <b>≤ ${r.max.toFixed(1)}</b>`; }
+// ---- plain words: every term can be tapped for one line; acid/base words appear only on commissions that use them ----
+const TERMS = { grip: 'Grip: how hard the folded chain holds the block. Bigger is stronger.',
+  oily: 'Oily (red) beads hate water: they huddle together and press against wax. Watery (white) beads face the water.',
+  decoy: 'Decoy: a look-alike block. Your chain must not grip it.',
+  handed: 'Left- and right-handed: mirror-image shapes. Like gloves, a pocket made for one does not fit the other.',
+  typos: 'Typos: one bead swapped for another kind, as a mutation does. A sturdy design still grips after most of them.',
+  charge: 'K beads carry +, D beads carry −. Opposites attract; like charges push apart.',
+  acid: 'Acid adds a + to every D bead, cancelling its −, so D stops attracting K beads and + faces. In acid the clasp lets go.',
+  base: 'Base takes the + off every K bead, so K stops attracting D beads and − faces. In base that clasp lets go.',
+  chain: 'Your chain as letters: H oily (red), P watery (white), K (+), D (−).',
+  margin: 'Margin: how far your weakest line clears its bar. Above 0 means every line passes.' };
+const term = (k, w) => `<button type="button" class="term" data-term="${k}">${w}</button>`;
+document.addEventListener('click', e => { const t = e.target.closest && e.target.closest('.term'); if (!t) return; e.stopPropagation(); e.preventDefault(); RH.toast(TERMS[t.dataset.term], 5200); }, true);
+const GLOSS = [[/\b(grip)\b/i, 'grip'], [/\b(oily)\b/i, 'oily'], [/\b(decoy)\b/i, 'decoy'], [/\b(typos)\b/i, 'typos'], [/\b(acid)\b/i, 'acid'], [/\b(mirror image|left-handed)\b/i, 'handed'], [/\b(K \(\+\) and D \(−\))/, 'charge']];
+const glossify = (t) => { let h = t.replace(/&/g, '&amp;').replace(/</g, '&lt;'); for (const [re, k] of GLOSS) h = h.replace(re, (m) => term(k, m)); return h; };
+const usesPH = (c) => c.req.some(r => r.pH !== 'n');
+const PHW = { n: 'in water', acid: 'in acid', base: 'in base' };
+const phw = (r) => !usesPH(C) ? '' : ' ' + (r.pH === 'n' ? 'in water' : term(r.pH, PHW[r.pH]));
+const f1 = (v) => (v < 0 ? '−' : '') + Math.abs(v).toFixed(1);
+function reqText(r) { const block = C.lig.B ? 'target' : 'block';
+  if (r.min != null) return `${term('grip', 'grip')} the ${block}${phw(r)}: at least <b>${f1(r.min)}</b>`;
+  return r.lig === 'B' ? `ignore the ${term('decoy', 'decoy')}: ${term('grip', 'grip')} at most <b>${f1(r.max)}</b>` : `let go${phw(r)}: ${term('grip', 'grip')} at most <b>${f1(r.max)}</b>`; }
+// the result in plain words, each line with what it needs, and for the first failure, what to try
+function verdict() { if (!result || result.stale) return null; const out = [];
+  C.req.forEach((r, k) => { const g = result.g[k], ok = result.sl[k] >= 0, charged = C.lig[r.lig].some(c => c.t === '+' || c.t === '-'); let txt, fix;
+    if (r.lig === 'B') { txt = `${term('decoy', 'decoy')} grip ${f1(g)} (must be ≤ ${f1(r.max)})`; fix = 'grip with beads that only touch what the target has and the decoy lacks'; }
+    else if (r.min != null) { txt = `${term('grip', 'grip')}${phw(r)} ${f1(g)} (needs ${f1(r.min)})`; fix = r.pH !== 'n' ? 'in water, hold the pocket shut with a K–D pair inside the chain; the switch breaks it' : charged && C.types > 2 ? 'put an opposite charge (K or D) against the block\'s charged face' : 'paint more beads red where they can touch the block'; }
+    else { txt = `${term('grip', 'grip')}${phw(r)} ${f1(g)} (must be ≤ ${f1(r.max)})`; fix = r.pH === 'acid' ? 'grip with D beads (−) on the + face rather than with oil, so acid can undo it' : r.pH === 'base' ? 'grip with K beads (+) on the − face rather than with oil, so base can undo it' : 'in water, keep the pocket shut: pair a K with a D inside the chain'; }
+    out.push({ txt, ok, fix }); });
+  if (C.oil != null) out.push({ txt: `used ${result.oil} ${term('oily', 'oily')} bead${result.oil === 1 ? '' : 's'} (max ${C.oil})`, ok: result.oil <= C.oil, fix: 'turn a red bead that touches nothing back to white' });
+  if (C.robust) { const need = Math.round(C.robust * 100);
+    if (!robust || robust.frac == null) out.push({ txt: `checking one-letter ${term('typos', 'typos')}… ${robust ? Math.round(robust.done / robust.total * 100) : 0}%`, ok: null });
+    else out.push({ txt: `${Math.round(robust.frac * 100)}% of one-letter ${term('typos', 'typos')} still work (needs ${need}%)`, ok: robust.frac >= C.robust, fix: 'make the grip less dependent on a single bead' }); }
+  return out; }
+const verdictHTML = (v) => { const bad = v.find(x => x.ok === false); return v.map(x => `${x.txt}${x.ok == null ? '' : x.ok ? ' ✓' : ' ✗'}`).join(' · ') + (bad ? ` <i>→ ${bad.fix}</i>` : ''); };
+// commission I: one picture of the idea before any jargon
+const WAX_PIC = `<svg class="pic" viewBox="0 0 300 92" role="img" aria-label="Oily red beads huddle against the wax block and each other; watery white beads face the water">
+  <rect x="0" y="0" width="300" height="92" fill="#e4eef2"/><path d="M0 10q15-6 30 0t30 0 30 0 30 0 30 0 30 0 30 0 30 0 30 0 30 0" stroke="#9cbccb" fill="none"/>
+  <rect x="116" y="50" width="26" height="26" fill="#d9a441" stroke="#26241e"/><rect x="142" y="50" width="26" height="26" fill="#d9a441" stroke="#26241e"/><text x="142" y="88" font-size="9" text-anchor="middle" fill="#26241e">wax</text>
+  <path d="M92 63 L104 37 L129 37 L155 37 L181 37 L193 63 L206 63" stroke="#a0781f" stroke-width="3" fill="none"/>
+  <circle cx="92" cy="63" r="9" fill="#fffdf6" stroke="#26241e"/><circle cx="104" cy="37" r="9" fill="#fffdf6" stroke="#26241e"/><circle cx="129" cy="37" r="9" fill="#c0281c" stroke="#26241e"/><circle cx="155" cy="37" r="9" fill="#c0281c" stroke="#26241e"/><circle cx="181" cy="37" r="9" fill="#fffdf6" stroke="#26241e"/><circle cx="193" cy="63" r="9" fill="#c0281c" stroke="#26241e"/><circle cx="206" cy="63" r="9" fill="#fffdf6" stroke="#26241e"/>
+  <text x="8" y="30" font-size="10" fill="#26241e">watery beads</text><text x="8" y="41" font-size="10" fill="#26241e">face the water</text>
+  <text x="214" y="30" font-size="10" fill="#b3261e">oily beads hug</text><text x="214" y="41" font-size="10" fill="#b3261e">the wax: grip</text></svg>`;
+// acid, the first time it matters: one line and the clasp shown both ways
+const PH_PIC = (p) => { const acid = p !== 'base', bead = acid ? 'D' : 'K', face = acid ? '+' : '−';
+  return `<svg class="pic" viewBox="0 0 300 64" role="img" aria-label="In water the ${bead} bead holds the ${face} face; ${PHW[p]} it lets go">
+  <text x="6" y="12" font-size="10" fill="#26241e">in water: clasp shut</text><circle cx="40" cy="38" r="12" fill="${acid ? '#2f7a3a' : '#1f4fa0'}"/><text x="40" y="42" font-size="12" text-anchor="middle" fill="#fff">${acid ? '−' : '+'}</text><rect x="54" y="26" width="24" height="24" fill="#d9a441" stroke="#26241e"/><text x="66" y="43" font-size="13" text-anchor="middle">${face}</text>
+  <text x="160" y="12" font-size="10" fill="#26241e">${PHW[p]}: it lets go</text><circle cx="188" cy="38" r="12" fill="#fffdf6" stroke="#26241e"/><text x="188" y="42" font-size="11" text-anchor="middle">${acid ? '−+' : '+−'}</text><rect x="226" y="26" width="24" height="24" fill="#d9a441" stroke="#26241e"/><text x="238" y="43" font-size="13" text-anchor="middle">${face}</text><path d="M204 38h16" stroke="#b3261e" stroke-dasharray="3 3"/></svg>`; };
 function renderNote() {
   redraw();
   const i = commIndex(key);
   document.getElementById('cLab').textContent = i >= 0 ? `Commission ${i + 1} of ${COMMS.length}` : key.startsWith('day:') ? 'Daily commission' : 'Open commission';
   document.getElementById('cName').textContent = C.name;
-  document.getElementById('cBrief').textContent = C.brief || 'Drafted by the machine. Its own best attempt set these bars.';
+  const phK = usesPH(C) ? C.req.find(r => r.pH !== 'n').pH : null;
+  document.getElementById('cBrief').innerHTML = glossify(C.brief || 'Drafted by the machine. Its own best attempt set these bars.') + (i === 0 ? WAX_PIC : '')
+    + (phK ? `<div class="phx">${PH_PIC(phK)}${phK === 'base' ? TERMS.base : TERMS.acid} Fold, then flip the switch on the bench to watch it.</div>` : '');
+  const tg = document.getElementById('phT'); tg.hidden = !phK; if (phK) { tg.querySelector('[data-p="x"]').textContent = PHW[phK]; tg.querySelector('[data-p="x"]').dataset.v = phK; const cur = curPH(); tg.querySelectorAll('button').forEach(b => b.classList.toggle('on', (b.dataset.v || 'n') === cur)); }
   const st = result && result.stale;
-  const line = result && !st ? C.req.map((r, k) => `${result.sl[k] >= 0 ? '✓' : '✗'} ${r.lig === 'B' ? 'decoy' : 'grip'}${r.pH !== 'n' ? ' ' + PHN[r.pH] : ''} ${result.g[k].toFixed(1)}`).join(' · ') + (C.oil != null ? ` · ${result.oil <= C.oil ? '✓' : '✗'} oil ${result.oil}` : '') + (C.robust ? ` · <span id="robB">${robustText()}</span> typos` : '') : '';
-  const pk = peek >= 0 && result ? `<br><span style="font-style:italic">Showing the machine's fold ${C.req[peek].lig === 'B' ? 'beside the decoy' : 'with the target'} at ${PHN[C.req[peek].pH]}. Tap the bench to go back.</span>` : '';
-  document.getElementById('brief').innerHTML = `<span>${C.brief ? C.brief.split('. ')[0].replace(/\.$/, '') + '.' : 'Meet every line of the assay.'}</span>` + (line ? `<br><span style="font-weight:700">${line}</span>` : '') + pk;
+  const v = verdict(), line = v ? `<span id="robB">${verdictHTML(v)}</span>` : '';
+  const pk = peek >= 0 && result ? `<br><span style="font-style:italic">Showing the machine's fold ${C.req[peek].lig === 'B' ? 'beside the decoy' : 'with the ' + (C.lig.B ? 'target' : 'block')}${usesPH(C) ? ' ' + PHW[C.req[peek].pH] : ''}. Tap the bench to go back.</span>` : '';
+  document.getElementById('brief').innerHTML = `<span>${C.brief ? glossify(C.brief.split('. ')[0].replace(/\.$/, '') + '.') : 'Meet every line of the assay.'}</span>` + (line ? `<br><span style="font-weight:700">${line}</span>` : '') + pk;
   let h = C.req.map((r, k) => { const v = result ? result.g[k] : null, ok = result ? result.sl[k] >= 0 : null;
     return `<div class="req ${peek === k ? 'peek' : ''} ${st ? 'stale' : ''}" data-k="${k}" role="button" tabindex="0" title="Show the machine's fold for this line">${ligSVG(C.lig[r.lig])}<span class="t">${reqText(r)}</span><span class="v ${ok == null ? '' : ok ? 'ok' : 'no'}">${v == null ? '·' : (ok ? '✓ ' : '✗ ') + v.toFixed(1)}</span></div>`; }).join('');
-  if (C.oil != null) h += `<div class="req ${st ? 'stale' : ''}"><span class="t">oily beads: <b>≤ ${C.oil}</b></span><span class="v ${result ? (result.oil <= C.oil ? 'ok' : 'no') : ''}">${result ? (result.oil <= C.oil ? '✓ ' : '✗ ') + result.oil : oilOf(seq)}</span></div>`;
-  if (C.robust) h += `<div class="req ${st ? 'stale' : ''}"><span class="t">survives typos: <b>≥ ${Math.round(C.robust * 100)}%</b></span><span class="v ${robust && robust.frac != null ? (robust.frac >= C.robust ? 'ok' : 'no') : ''}" id="robV">${robustText()}</span></div>`;
+  if (C.oil != null) h += `<div class="req ${st ? 'stale' : ''}"><span class="t">${term('oily', 'oily')} beads: at most <b>${C.oil}</b></span><span class="v ${result ? (result.oil <= C.oil ? 'ok' : 'no') : ''}">${result ? (result.oil <= C.oil ? '✓ ' : '✗ ') + result.oil : oilOf(seq)}</span></div>`;
+  if (C.robust) h += `<div class="req ${st ? 'stale' : ''}"><span class="t">still works after one-letter ${term('typos', 'typos')}: at least <b>${Math.round(C.robust * 100)}%</b></span><span class="v ${robust && robust.frac != null ? (robust.frac >= C.robust ? 'ok' : 'no') : ''}" id="robV">${robustText()}</span></div>`;
   document.getElementById('reqs').innerHTML = h;
   document.querySelectorAll('.req[data-k]').forEach(el => el.onclick = () => { if (!result || result.stale) { RH.toast('Press Fold first: the machine shows its fold for each line.'); return; } const k = +el.dataset.k; peek = peek === k ? -1 : k; anim = null; renderNote(); });
-  document.getElementById('seqLine').innerHTML = `sequence <span class="seq">${seq.map(t => `<span class="${TYPES[t]}">${TYPES[t]}</span>`).join('')}</span>` + (result && !st ? ` · your sketch ${result.sketchE} · machine's fold ${result.natives[0].e}${result.natives[0].e < result.sketchE ? ' <i>(it found a better fold than yours)</i>' : ''}` : '');
+  document.getElementById('seqLine').innerHTML = `${term('chain', 'chain')} <span class="seq">${seq.map(t => `<span class="${TYPES[t]}">${TYPES[t]}</span>`).join('')}</span>` + (result && !st ? (result.natives[0].e < result.sketchE ? ' · <i>the machine found a snugger fold than your sketch</i>' : ' · <i>it folded the way you sketched</i>') : '');
   renderAxes();
   const done = SAVE.done[key], act = [];
   const nx = i >= 0 && i + 1 < COMMS.length && done ? 'c:' + (i + 1) : null;
@@ -564,7 +621,7 @@ function renderNote() {
 }
 const robustText = () => !robust || (result && result.stale) ? '·' : robust.frac == null ? `${Math.round(robust.done / robust.total * 100)}%…` : `${robust.frac >= (C.robust || 0) ? '✓' : '✗'} ${Math.round(robust.frac * 100)}%`;
 // three axes that pull against each other; each shows the lab's spread of designs, the machine's mark and yours
-function renderAxes() { redraw(); const el = document.getElementById('axes'); for (const id of ['robV', 'robB']) { const rv = document.getElementById(id); if (rv) rv.textContent = robustText(); }
+function renderAxes() { redraw(); const el = document.getElementById('axes'); const rv = document.getElementById('robV'); if (rv) rv.textContent = robustText(); const rb = document.getElementById('robB'), v = verdict(); if (rb && v) rb.innerHTML = verdictHTML(v);
   if (!result || result.stale) { el.innerHTML = SAVE.done[key] ? axesHTML(null) : ''; return; } el.innerHTML = axesHTML(result); }
 function axesHTML(res) { const best = SAVE.done[key], H = LABH && LABH[key];
   const row = (label, cur, b, lo, hi, fmtv, goodHigh, dist) => { const W = 200, x = (v) => 4 + (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (W - 8); let bars = '';
@@ -575,9 +632,9 @@ function axesHTML(res) { const best = SAVE.done[key], H = LABH && LABH[key];
   const rob = res ? (robust && robust.frac != null ? robust.frac : null) : null;
   const leg = [H ? 'grey: the lab\'s designs' : '', best ? 'gold: your best' : '', res ? 'red: this one' : ''].filter(Boolean).join(', ');
   return `<div class="lab">How it measures up${leg ? ' (' + leg + ')' : ''}</div>`
-    + row('margin', res ? res.f : null, best?.margin, -1, 2, v => (v >= 0 ? '+' : '') + v.toFixed(1), true, H?.m)
-    + row('oil', res ? res.oil : null, best?.oil, 0, C.n, v => v, false, H?.o)
-    + row('sturdy', rob, best?.rob, 0, 1, v => Math.round(v * 100) + '%', true, H?.r); }
+    + row(term('margin', 'margin'), res ? res.f : null, best?.margin, -1, 2, v => (v >= 0 ? '+' : '') + v.toFixed(1), true, H?.m)
+    + row(term('oily', 'oily beads'), res ? res.oil : null, best?.oil, 0, C.n, v => v, false, H?.o)
+    + row(term('typos', 'sturdy'), rob, best?.rob, 0, 1, v => Math.round(v * 100) + '%', true, H?.r); }
 function renderBinder() {
   let h = '<div class="grp">THE COMMISSIONS</div>'; COMMS.forEach((c, i) => { const k = 'c:' + i, o = isOpen(k), d = SAVE.done[k];
     h += `<div class="cm ${k === key ? 'cur' : ''} ${o ? '' : 'lock'}" data-k="${k}" role="button" tabindex="0"><span class="n">${i + 1}.</span><span>${o ? c.name : '— sealed —'}</span><span class="s">${d ? `✓ ${d.oil} oil${d.rob != null ? ' · ' + Math.round(d.rob * 100) + '%' : ''}` : ''}</span></div>`; });
@@ -616,6 +673,11 @@ function setupInput() {
   window.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); } if (e.key === 'Enter' && !document.querySelector('.modal-bg') && e.target === document.body) foldNow(); });
   document.getElementById('foldBtn').onclick = () => foldNow();
   document.getElementById('undoBtn').onclick = undo;
+  // water/acid switch: after a fold, show the machine's fold in the other water, moving bead by bead
+  document.getElementById('phT').addEventListener('click', e => { const bt = e.target.closest('button'); if (!bt) return; const want = bt.dataset.v || 'n';
+    if (!result || result.stale || busy) { RH.toast('Press Fold first, then flip this to watch the fold change.'); return; } if (want === curPH()) return;
+    let k = C.req.findIndex(r => r.pH === want && r.lig === 'A'); if (k < 0) k = C.req.findIndex(r => r.pH === want); if (k < 0) return;
+    const from = (peek >= 0 ? result.natives[peek].P : pos).map(q => q.slice()); peek = k; anim = { from, to: result.natives[k].P, t0: performance.now() }; SND.tick(); renderNote(); });
   document.getElementById('binderBtn').onclick = () => setBinder(!document.body.classList.contains('binder'));
   document.getElementById('binderClose').onclick = () => setBinder(false);
 }
