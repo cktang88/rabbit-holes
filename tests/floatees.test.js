@@ -1,7 +1,9 @@
-// Floatees: Stommel ocean model on the real coastlines. Western intensification (and its reversal), every
-// voyage solvable / not solved at start / cheap tricks refused, bets locked during a run, saves.
+// Floatees: the real Earth runs on measured data (NOAA GDP drifter currents, CCMP winds, US Coast Guard leeway classes,
+// Natural Earth 10m coasts), validated against documented drifts (the 1992 bath toys, the 1990 Nike shoes, current speeds,
+// the five garbage patches); the idealised Stommel model remains for Earth with its spin changed and for generated worlds.
+// Every voyage solvable / not solved at start / cheap tricks refused, bets locked during a run, saves.
 const SEED = `(() => { let a = 12345; Math.random = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; })()`;
-const ready = page => page.waitForFunction(() => window.__fl && __fl.ready2, null, { timeout: 60000 });
+const ready = page => page.waitForFunction(() => window.__fl && __fl.ready2 && (__fl.ED.ready || __fl.ED.failed), null, { timeout: 60000 });
 const unlock = page => page.evaluate(() => { for (let i = 0; i < __fl.LV.length - 1; i++) __fl.SAVE.done[i] = 1; });
 const spin = (page, r) => page.evaluate(async r => { if (__fl.rot !== r) __fl.setSpin(r, true); while (!__fl.ready2) await new Promise(res => setTimeout(res, 100)); }, r);
 // run a voyage to the end in fixed steps, judging it like the game does
@@ -38,11 +40,21 @@ const SEA_BOTS = () => { window.seaBots = (X, seeds, rung) => {
   }
   return res; }; };
 
+// In-page drift on the real data: n objects from (lat, lon), starting at time of year ph0 (fraction from 1 January),
+// followed for `days`; returns each object's end { t (days), lat, lon, hit (washed up) }. Seeded, so the numbers are fixed.
+const DRIFT = `window.drift = (lat, lon, ph0, cg, n, days, seed = 99) => { const F = __fl.phys, P = [0, 0], res = []; let a = seed;
+  const rnd = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  for (let k = 0; k < n; k++) { P[0] = lat + (rnd() - .5) * .5; P[1] = lon + (rnd() - .5) * .5; const side = rnd() < .5 ? -1 : 1; let t = 0, hit = 0;
+    while (t < days) { t += F.advance(P, side, cg, days - t, ph0 + t / 365.2425, rnd, t); hit = F.HIT; if (hit || Math.abs(P[0]) > 84) break; }
+    res.push({ t, lat: P[0], lon: P[1], hit }); }
+  return res; }; window.qtile = (a, f) => { const s = a.slice().sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(f * s.length))]; };`;
+
 module.exports = {
   page: 'floatees/index.html',
   ready,
   tests: {
-    'Stommel: fastest North Atlantic current hugs the west; reversed spin moves it east; no spin weakens it; field is finite': async ({ page, ok, near }) => {
+    'real Gulf Stream hugs the west; the model with reversed spin moves it east; no spin weakens it; field is finite (m/s)': async ({ page, ok, near }) => {
+      ok(await page.evaluate(() => __fl.ED.ready && __fl.phys.REAL), 'the real data loaded and drives Earth');
       const prof = async () => page.evaluate(() => { let best = 0, at = 0; for (let lat = 26; lat <= 40; lat += 2) for (let lon = -80; lon <= -12; lon += .5) { const v = __fl.vel(lat, lon), s = Math.hypot(v[0], v[1]); if (s > best) { best = s; at = lon; } } return [best, at]; });
       // the game's own measurement box off the US coast (where the Gulf Stream runs)
       const box = () => page.evaluate(() => { let best = 0; for (let lat = 26; lat <= 44; lat += 1) for (let lon = -81; lon <= -63; lon += .5) { const v = __fl.vel(lat, lon); best = Math.max(best, Math.hypot(v[0], v[1])); } return best; });
@@ -55,6 +67,69 @@ module.exports = {
         const a = Array.from(__fl.vel(10, 179.999)), b = Array.from(__fl.vel(10, -179.999)); return { bad, a, b }; });
       ok(r.bad === 0, 'non-finite velocities: ' + r.bad); near(r.a[0], r.b[0], .05); near(r.a[1], r.b[1], .05);
     },
+    // ---- validation of the real-data drift against documented events (figures and sources in index.html and DATA-NOTICE.txt) ----
+    'real data, Friendly Floatees: toys lost 10 Jan 1992 at 44.7°N 178.1°E reach south-east Alaska Aug-Nov 1992': async ({ page, ok }) => {
+      // Ebbesmeyer & Ingraham 1994 (Eos 75, 425): toys near Sitka ten months after the spill (Nov 1992); Ebbesmeyer et al. 2007
+      // (Eos 88(1)): "During August-September 1992, thousands of these items beached near Sitka". Spill to Sitka ~3,200 km.
+      await page.evaluate(DRIFT);
+      const r = await page.evaluate(() => { const res = drift(44.7, 178.1, 9 / 365.2425, __fl.phys.CARGO[22], 400, 730), mo = d => d.t / 30.44;
+        const ak = res.filter(d => d.hit && d.lat > 54 && d.lat < 61 && d.lon > -141 && d.lon < -130).map(mo);
+        return { n: ak.length, first: Math.min(...ak), median: qtile(ak, .5) }; });
+      console.log('      floatees → SE Alaska: ' + JSON.stringify(r) + ' (documented: Aug-Nov 1992 = months 7-10)');
+      ok(r.n >= 20, 'toys reaching SE Alaska: ' + r.n);
+      ok(r.first >= 5.5 && r.first <= 10, 'first SE Alaska landfall at month ' + r.first.toFixed(1));
+      ok(r.median >= 6.5 && r.median <= 11, 'median SE Alaska landfall at month ' + r.median.toFixed(1));
+    },
+    'real data, Hansa Carrier: Nike shoes lost 27 May 1990 at 48°N 161°W land in BC, Washington, Oregon from Nov 1990 into 1991': async ({ page, ok }) => {
+      // Ebbesmeyer & Ingraham 1992 (Eos 73, 361): ~80,000 shoes lost 27 May 1990, 48°N 161°W; six months to a year later they
+      // washed ashore from southern Oregon to the Queen Charlotte Islands; the first reached northern Washington around Thanksgiving 1990.
+      await page.evaluate(DRIFT);
+      const r = await page.evaluate(() => { const res = drift(48, -161, (4 + 26 / 31) / 12, __fl.phys.CARGO[6], 400, 550), mo = d => d.t / 30.44;
+        const nw = res.filter(d => d.hit && d.lat > 41 && d.lat < 55 && d.lon > -134 && d.lon < -122);
+        return { n: nw.length, first: Math.min(...nw.map(mo)), median: qtile(nw.map(mo), .5), q90: qtile(nw.map(mo), .9), south: Math.min(...nw.map(d => d.lat)), north: Math.max(...nw.map(d => d.lat)) }; });
+      console.log('      shoes → BC/WA/OR: ' + JSON.stringify(r) + ' (documented: Nov 1990-spring 1991 = months 6-12)');
+      ok(r.n >= 60, 'shoes landing on BC/WA/OR: ' + r.n);
+      ok(r.first >= 5 && r.first <= 7.5, 'first landfall at month ' + r.first.toFixed(1));
+      ok(r.q90 <= 12.5, '90% landed by month ' + r.q90.toFixed(1));
+      ok(r.south < 49 && r.north > 52, `spread along the coast ${r.south.toFixed(1)}-${r.north.toFixed(1)}°N`);
+    },
+    'real data: western boundary currents run 1-2 m/s, the Circumpolar Current flows east, the Somali Current reverses with the monsoon': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = __fl, F = X.phys, V = [0, 0];
+        const mx = (la0, la1, lo0, lo1) => { let m = 0; for (let mo = 0; mo < 12; mo++) { F.setPhase((mo + .5) / 12); for (let la = la0; la <= la1; la += .25) for (let lo = lo0; lo <= lo1; lo += .25) { F.curReal(la, lo, V); m = Math.max(m, Math.hypot(V[0], V[1])); } } return m; };
+        let acc = 0, n = 0; F.setPhase(.5); for (let lo = -180; lo < 180; lo += 2) for (let la = -60; la <= -45; la++) { if (X.isLand(la, lo)) continue; F.curReal(la, lo, V); acc += V[0]; n++; }
+        const som = m => { F.setPhase((m + .5) / 12); let v = 0, k = 0; for (let la = 2; la <= 9; la += .5) for (let lo = 46; lo <= 53; lo += .5) { if (X.isLand(la, lo)) continue; F.curReal(la, lo, V); v += V[1]; k++; } return v / k; };
+        return { gs: mx(25, 42, -81, -60), ku: mx(25, 38, 122, 145), acc: acc / n, somJan: som(0), somJul: som(6) }; });
+      console.log('      speeds m/s: ' + JSON.stringify(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, +v.toFixed(3)]))));
+      ok(r.gs >= 1 && r.gs <= 2.2, 'Gulf Stream core ' + r.gs); ok(r.ku >= .9 && r.ku <= 2.2, 'Kuroshio core ' + r.ku);
+      ok(r.acc > .05, 'Antarctic Circumpolar Current (45-60°S) mean eastward ' + r.acc);
+      ok(r.somJul > .15 && r.somJan < .05, `Somali Current: Jul ${r.somJul} northward, Jan ${r.somJan}`);
+    },
+    'real data: drifters released everywhere gather in the five subtropical gyres within 10 years (van Sebille 2012, Maximenko 2012)': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = __fl, F = X.phys; F.BEACH.on = false; let a = 5;
+        const rnd = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+        const cg = { dw: 0, cw: 0 }, P = [0, 0], fin = [], all = [];
+        for (let la = -60; la <= 60; la += 3) for (let lo = -180; lo < 180; lo += 3) { if (X.isLand(la, lo)) continue; all.push([la, lo]); P[0] = la; P[1] = lo; let t = 0; const days = 3652;
+          while (t < days) { t += F.advance(P, 1, cg, days - t, t / 365.2425, rnd); if (Math.abs(P[0]) > 84) break; } fin.push([P[0], P[1]]); }
+        F.BEACH.on = true;
+        const box = { NPac: [22, 40, -165, -125], SPac: [-40, -20, -125, -85], NAtl: [20, 38, -70, -35], SAtl: [-38, -22, -35, 5], IndO: [-38, -22, 60, 105] }, inb = (b, [la, lo]) => la >= b[0] && la <= b[1] && lo >= b[2] && lo <= b[3];
+        const en = {}; for (const k in box) en[k] = (fin.filter(p => inb(box[k], p)).length / fin.length) / (all.filter(p => inb(box[k], p)).length / all.length);
+        let best = 0, at = null; for (let la = 10; la <= 50; la += 2) for (let lo = 140; lo <= 240; lo += 2) { const n = fin.filter(([q, o]) => q >= la && q < la + 6 && ((o + 360) % 360) >= lo && ((o + 360) % 360) < lo + 6).length; if (n > best) { best = n; at = [la + 3, lo + 3 - 360]; } }
+        return { en, at }; });
+      console.log('      garbage patches, concentration vs uniform: ' + JSON.stringify(Object.fromEntries(Object.entries(r.en).map(([k, v]) => [k, +v.toFixed(1)]))) + ', densest N Pacific box at ' + r.at);
+      for (const k in r.en) ok(r.en[k] > 1.5, `${k} gyre gathers debris: ×${r.en[k].toFixed(2)}`);
+      ok(Math.hypot(r.at[0] - 32, (r.at[1] + 145) * .85) < 10, 'the Great Pacific Garbage Patch near 32°N 145°W: ' + r.at);
+    },
+    'real data: leeway from the Coast Guard classes, eddy diffusivity 10^3-10^4 m²/s from drifter statistics, 0.25° coasts': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const F = __fl.phys, K = []; for (let la = -60; la <= 60; la += 5) for (let lo = -180; lo < 180; lo += 5) if (!__fl.isLand(la, lo)) K.push(F.kEddy(la, lo)); K.sort((a, b) => a - b);
+        return { duck: F.CARGO[22].dw, shoe: F.CARGO[6].dw, k10: K[Math.floor(K.length * .1)], k50: K[K.length >> 1], k90: K[Math.floor(K.length * .9)], gs: F.kEddy(37, -65), gyre: F.kEddy(25, -40),
+          // 0.25° coastline: Long Island, Oahu and Kauai are land; Long Island Sound and the Strait of Gibraltar are sea
+          coast: [__fl.isLand(40.85, -72.9), __fl.isLand(21.45, -157.95), __fl.isLand(22.05, -159.5), !__fl.isLand(41.1, -72.9), !__fl.isLand(35.95, -5.6)] }; });
+      console.log('      leeway & K: ' + JSON.stringify(r));
+      ok(r.duck >= .01 && r.duck <= .04 && r.shoe < .01, 'leeway fractions: toys ' + r.duck + ', shoes ' + r.shoe);
+      ok(r.k10 > 500 && r.k90 < 2e4 && r.k50 > 1000 && r.k50 < 1e4, `K percentiles ${r.k10} / ${r.k50} / ${r.k90}`);
+      ok(r.gs > 2 * r.gyre, `eddies stir the Gulf Stream (${r.gs.toFixed(0)}) harder than the gyre interior (${r.gyre.toFixed(0)})`);
+      ok(r.coast.every(Boolean), 'fine coastline: ' + r.coast);
+    },
     'no voyage is won before any drop; every voyage is solvable with a sensible drop': async ({ page, ok }) => {
       await unlock(page);
       const st = await page.evaluate(() => __fl.LV.map((l, i) => { __fl.load(i); return !!(l.win && l.win(__fl.stats())); }));
@@ -62,7 +137,7 @@ module.exports = {
       await page.evaluate(() => { __fl.load(0); __fl.bet = 'nawest'; });
       const v0 = await page.evaluate(async seed => { eval(seed); const X = __fl; X.load(0); X.bet = 'nawest'; X.drop(...X.LV[0].drop, 120); for (let t = 0; t < 2 && !X.won && !X.resolved; t += .02) { X.step(.02); X.check(); } return [X.won, X.stats().first]; }, SEED);
       ok(v0[0], 'bet on North America: first ashore was ' + v0[1]);
-      const cases = [[1, 30, -78], [2, 25, -150], [4, 25, -70, -1], [5, -55, -60]];
+      const cases = [[1, 37, -72], [2, 35, -170], [4, 25, -70, -1], [5, -55, -60]];
       for (const [lv, lat, lon, rot] of cases) { const r = await voyage(page, lv, lat, lon, { rot }); ok(r.won, `voyage ${lv} not won: ` + JSON.stringify(r)); }
       // Why the West: measure with spin on, then off
       const m = await page.evaluate(async seed => { eval(seed); const X = __fl; X.load(3);
@@ -73,8 +148,8 @@ module.exports = {
     'cheap tricks are refused; a miss explains how close it was': async ({ page, ok, eq }) => {
       await unlock(page);
       // a drop right inside the garbage patch, or next to Europe on the backwards planet, or off Europe for the bottle
-      eq((await voyage(page, 2, 21, 165)).rejected, true, 'drop inside the patch');
-      eq((await voyage(page, 2, 25, 160)).rejected, true, 'drop inside the patch ring edge');
+      eq((await voyage(page, 2, 33, -147)).rejected, true, 'drop inside the patch');
+      eq((await voyage(page, 2, 25, -150)).rejected, true, 'drop inside the patch ring edge');
       eq((await voyage(page, 4, 45, -20, { rot: -1 })).rejected, true, 'drop next to Europe');
       eq((await voyage(page, 1, 50, -20)).rejected, true, 'bottle dropped mid-Atlantic');
       eq((await voyage(page, 1, 40, 10)).rejected, true, 'land / Mediterranean');
@@ -85,7 +160,7 @@ module.exports = {
       await page.evaluate(() => __fl.load(0)); eq(await page.evaluate(() => __fl.dropAt(30, -140)), false);
       // and a miss explains how close it was
       
-      const r = await voyage(page, 1, 25, -98); // Gulf of Mexico: few reach Britain
+      const r = await voyage(page, 1, 25, -95); // Gulf of Mexico: few reach Britain
       ok(r.resolved && !r.won, JSON.stringify(r));
       const t = await page.textContent('#toast'); ok(/need 15/.test(t) && /Britain/.test(t), t);
         },
@@ -121,16 +196,16 @@ module.exports = {
     },
     'stars reward a better drop; postcards arrive for new coasts; the success is a stamped beachcomber report': async ({ page, ok, eq }) => {
       await unlock(page);
-      const r = await page.evaluate(async seed => { eval(seed); const X = __fl; X.load(1); X.dropAt(30, -78); let wonAt = -1;
+      const r = await page.evaluate(async seed => { eval(seed); const X = __fl; X.load(1); X.dropAt(37, -72); let wonAt = -1;
         for (let t = 0; t < 3 && !X.resolved; t += .02) { X.step(.02); X.simT = Math.min(3, X.simT); X.check(); if (X.won && wonAt < 0) wonAt = X.simT; }
         return { wonAt, resolved: X.resolved, stars: X.SAVE.stars[1], cards: Object.keys(X.SAVE.cards), att: X.attempts, report: X.reportOn, uk: X.stats().regions.uk }; }, SEED);
       ok(r.wonAt > 0 && r.wonAt < 3, 'goal reached mid-voyage at ' + r.wonAt);
       ok(r.resolved, 'voyage ran to the end and was graded');
-      eq(r.stars, r.uk >= 45 ? 3 : r.uk >= 30 ? 2 : 1, 'stars match the final count ' + r.uk);
+      eq(r.stars, r.uk >= 27 ? 3 : r.uk >= 22 ? 2 : 1, 'stars match the final count ' + r.uk);
       ok(r.cards.includes('uk'), 'a postcard from Britain: ' + r.cards);
       ok(r.report, 'beachcomber report shown');
       ok(/CONFIRMED/.test(await page.textContent('#report')));
-      eq(r.att.length, 1); ok(/30°N 78°W/.test(await page.textContent('#tally')), 'logbook shows the drop');
+      eq(r.att.length, 1); ok(/37°N 72°W/.test(await page.textContent('#tally')), 'logbook shows the drop');
       // stars never go down on a worse replay
       const r2 = await page.evaluate(async seed => { eval(seed); const X = __fl; document.getElementById('rclose').click(); X.load(1); X.dropAt(25, -95);
         for (let t = 0; t < 3 && !X.resolved; t += .02) { X.step(.02); X.simT = Math.min(3, X.simT); X.check(); } return X.SAVE.stars[1]; }, SEED);
@@ -268,7 +343,7 @@ module.exports = {
     },
     'uncharted seas: a chart is scored against the true flow (along it scores high, against it and at random score low)': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const X = __fl, W = X.genWorld(9090, 2);
-        const along = X.withWorld(W, () => { const out = [], V = [0, 0]; for (let la = -54; la <= 54; la += 12) for (let lo = -174; lo < 180; lo += 24) { if (X.isLand(la, lo)) continue; let a = la, o = lo; const st = [[a, o]]; for (let k = 0; k < 10; k++) { X.vel(a, o, V); const sp = Math.hypot(V[0], V[1]); if (sp < 1) break; a += V[1] / sp * 1.6; o += V[0] / sp * 1.6 / Math.cos(a * Math.PI / 180); if (X.isLand(a, o)) break; st.push([a, o]); } if (st.length > 3) out.push(st); } return out; });
+        const along = X.withWorld(W, () => { const out = [], V = [0, 0]; for (let la = -54; la <= 54; la += 12) for (let lo = -174; lo < 180; lo += 24) { if (X.isLand(la, lo)) continue; let a = la, o = lo; const st = [[a, o]]; for (let k = 0; k < 10; k++) { X.vel(a, o, V); const sp = Math.hypot(V[0], V[1]); if (sp < .0035) break; /* 1°/year, in m/s */ a += V[1] / sp * 1.6; o += V[0] / sp * 1.6 / Math.cos(a * Math.PI / 180); if (X.isLand(a, o)) break; st.push([a, o]); } if (st.length > 3) out.push(st); } return out; });
         let s = 3; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
         const random = along.map(st => { const a = (rnd() - .5) * 100, o = rnd() * 360 - 180, h = rnd() * 6.28; return Array.from({ length: 8 }, (_, k) => [a + Math.sin(h) * k * 1.6, o + Math.cos(h) * k * 1.6]); });
         return { along: X.chartScore(W, along), against: X.chartScore(W, along.map(st => st.slice().reverse())), random: X.chartScore(W, random), none: X.chartScore(W, []) }; });

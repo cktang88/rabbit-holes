@@ -1,3 +1,93 @@
-Land mask derived from Natural Earth 1:110m land polygons (public domain)
-via the world-atlas package (ISC, Copyright 2012-2019 Michael Bostock),
-rasterised to a 1-degree grid.
+Floatees / Uncharted Seas: data sources, licences and citations
+==================================================================
+
+On the real Earth the game's ocean is driven by observations. Everything in floatees/data/ is produced offline by
+the scripts in floatees/tools/ (Python 3 + numpy, numcodecs, netCDF4, pyshp, Pillow); the page itself never calls a
+data server. Regenerate with (CACHE is any scratch directory):
+
+  tools/fetch_gdp.py CACHE/gdp                 (~1.6 GB from AWS, no login)
+  tools/fetch_winds.py CACHE/wind              (~1.6 GB from NOAA CoastWatch ERDDAP, no login)
+  tools/build_land.py NE_DIR CACHE             (Natural Earth shapefiles unzipped in NE_DIR)
+  tools/build_currents.py CACHE/gdp CACHE      (needs data/land-q.bin)
+  tools/build_winds.py CACHE
+  tools/build_slip.py CACHE/gdp CACHE          (prints the surface-slip coefficients hard-coded as SLIP in index.html)
+  tools/build_textures.py IMG_DIR CACHE        (IMG_DIR: Blue Marble JPEG and ETOPO1 netCDF, see below)
+
+Files (about 3.4 MB in total; phones skip earth-4k.jpg, about 2.3 MB):
+  data/currents.bin  1.2 MB  15 m surface currents, 0.5 deg, mean + annual + semi-annual harmonics; eddy diffusivity, 2 deg
+  data/winds.bin     0.7 MB  10 m wind, 1 deg, 12 monthly means + synoptic standard deviation
+  data/land-q.bin    11 kB   land/sea mask, 0.25 deg
+  data/earth-2k.jpg  0.3 MB  globe colour, 2048x1024 (loaded first)
+  data/earth-4k.jpg  1.1 MB  globe colour, 4096x2048 (desktop only)
+  data/relief-2k.jpg 0.1 MB  land relief for the renderer's bump map
+
+
+1. Surface currents and eddy diffusivity: NOAA Global Drifter Program (public domain, US Government work)
+   Lumpkin, R.; Centurioni, L. (2019). NOAA Global Drifter Program quality-controlled 6-hour interpolated data from
+   ocean surface drifting buoys. NOAA National Centers for Environmental Information. https://doi.org/10.25921/7ntx-z961
+   Version December 2024 (1979-02-15 to 2025-01-20; 28,706 drifters; 48.8 million 6-hourly fixes), read from the NOAA
+   Open Data Dissemination bucket s3://noaa-oar-hourly-gdp-pds/experimental/gdp6h_ragged_dec24.zarr ("freely available").
+   Processing (tools/build_currents.py): only fixes with the 15 m drogue attached (21.6 million); per 0.5 deg bin a
+   least-squares fit of mean + annual + semi-annual harmonics (after Lumpkin & Johnson 2013, J. Geophys. Res. 118, 2992;
+   Laurindo, Mariano & Lumpkin 2017, Deep-Sea Res. I 124, 73), with adaptive Gaussian smoothing of the normal
+   equations (>= 400 fixes) and a ridge on the harmonics; gaps (sea ice) filled by Laplace interpolation.
+   Eddy diffusivity: Davis (1991, J. Mar. Res. 49, 711) single-particle diffusivity, the integral of the lagged covariance
+   of each drifter's residual velocity, averaged over lags 3-5 days, in 2 deg bins (cf. Zhurbas & Oh 2004, J. Geophys.
+   Res. 109, C05015). Result: median 3,200 m2/s, 5-95 % range 820-14,700 m2/s; Lagrangian time scale 1.9 days.
+   Surface slip (tools/build_slip.py): undrogued minus drogued drifters regressed on CCMP wind: 1.28 % of wind speed
+   (3 deg right of the wind) north of 5N, 1.32 % (4 deg left) south of 5S; cf. Pazan & Niiler (2001, J. Atmos. Oceanic
+   Technol. 18, 476), about 1 %, and Lumpkin et al. (2013, J. Atmos. Oceanic Technol. 30, 2797), about 50 % higher.
+   The AOML-hosted climatology of Laurindo et al. (2017) itself could not be downloaded from this build environment:
+   www.aoml.noaa.gov returned HTTP 403 (CloudFront) to scripted requests, and erddap.aoml.noaa.gov closed the
+   connection. The climatology here is therefore recomputed from the same raw GDP data.
+
+2. Winds: RSS CCMP V3.1 (Creative Commons Attribution 4.0 International)
+   Mears, C.; Lee, T.; Ricciardulli, L.; Wang, X.; Wentz, F. (2022). RSS Cross-Calibrated Multi-Platform (CCMP)
+   6-hourly ocean vector wind analysis on 0.25 deg grid, Version 3.1. Remote Sensing Systems, Santa Rosa, CA.
+   https://doi.org/10.56236/RSS-uv6h31 . CCMP Version-3.1 vector wind analyses are produced by Remote Sensing Systems.
+   Data are available at www.remss.com. Read through NOAA CoastWatch ERDDAP (dataset ccmp_31), every 14th 6-hourly field
+   1993-2023 on a 1 deg grid (~3,200 fields), averaged per calendar month.
+
+3. Leeway (the wind's push on each floating object): US Coast Guard search-and-rescue leeway taxonomy (US Government
+   work). Allen, A.A.; Plourde, J.V. (1999). Review of Leeway: Field Experiments and Implementation. US Coast Guard R&D
+   Center, Report CG-D-08-99. Allen, A.A. (2005). Leeway Divergence. Report CG-D-05-05, Tables 3-1 and 3-2 (taken from
+   the copy distributed with OpenDrift, opendrift/models/OBJECTPROP.DAT). Classes used (zero-intercept slopes):
+   bath toys: "medical waste, vials, small", downwind 2.95 %, crosswind +-0.54 % of the 10 m wind; after the toys
+   leaked (Ebbesmeyer et al. 2007) relaxing with an e-folding time of 270 days towards
+   sneakers / waterlogged toys: "person in water, vertical", downwind 0.48 %, crosswind +-0.15 %.
+   Synoptic gusts add a diffusivity (leeway x sigma_wind)^2 x 2 days. Beaching: e-folding 4 days in sea cells touching
+   the coast (cf. Onink et al. 2021, Environ. Res. Lett. 16, 064053); immediate on reaching land.
+   Wave-driven Stokes drift is not added separately: Coast Guard leeway coefficients are measured relative to the
+   near-surface water and already include the drift caused by wind and waves on the object (Allen & Plourde 1999).
+   A Stokes drift climatology (ERA5 "u/v-component of surface Stokes drift") needs a Copernicus Climate Data Store
+   account and API key (cds.climate.copernicus.eu), which this build environment did not have.
+
+4. Coastlines: Natural Earth 1:10m physical vectors, version 5 (public domain). https://www.naturalearthdata.com/
+   ne_10m_land, ne_10m_minor_islands, ne_10m_antarctic_ice_shelves_polys, ne_10m_lakes, rasterised at 0.25 deg
+   (land when at least half of 64 samples in the cell are land).
+   The idealised model (Earth with its spin changed) still uses the old 1 deg mask from Natural Earth 1:110m land
+   polygons via the world-atlas package (ISC, Copyright 2012-2019 Michael Bostock).
+
+5. Globe imagery: NASA Blue Marble Next Generation with topography and bathymetry, July 2004 (NASA Earth
+   Observatory, public domain). Stockli, R.; Vermote, E.; Saleous, N.; Simmon, R.; Herring, D. (2005). The Blue Marble
+   Next Generation: a true color earth dataset including seasonal dynamics from MODIS. NASA Earth Observatory.
+   Relief: ETOPO1 1 arc-minute global relief model (ice surface), read at 5' from NOAA CoastWatch ERDDAP (etopo180).
+   Amante, C.; Eakins, B.W. (2009). ETOPO1 1 Arc-Minute Global Relief Model. NOAA Technical Memorandum NESDIS NGDC-24.
+   https://doi.org/10.7289/V5C8276M (public domain).
+
+6. The events the drift is checked against (tests/floatees.test.js)
+   Ebbesmeyer, C.C.; Ingraham, W.J. (1992). Shoe spill in the North Pacific. Eos 73(34), 361. (Hansa Carrier, 27 May
+   1990, 48N 161W; shoes ashore from southern Oregon to the Queen Charlotte Islands six months to a year later.)
+   Ebbesmeyer, C.C.; Ingraham, W.J. (1994). Pacific toy spill fuels ocean current pathways research. Eos 75(37), 425.
+   (10 January 1992, 44.7N 178.1E; toys near Sitka ten months later.)
+   Ebbesmeyer, C.C.; Ingraham, W.J.; Royer, T.C.; Grosch, C.E. (2007). Tub toys orbit the Pacific Subarctic Gyre. Eos
+   88(1), 1. (Toys beached near Sitka in August-September 1992; windage "substantial" for a quarter of the first orbit.)
+   van Sebille, E.; England, M.H.; Froyland, G. (2012). Origin, dynamics and evolution of ocean garbage patches from
+   observed surface drifters. Environ. Res. Lett. 7, 044040.
+   Maximenko, N.; Hafner, J.; Niiler, P. (2012). Pathways of marine debris derived from trajectories of Lagrangian
+   drifters. Mar. Pollut. Bull. 65, 51-62.
+   Lebreton, L. et al. (2018). Evidence that the Great Pacific Garbage Patch is rapidly accumulating plastic. Sci. Rep.
+   8, 4666.
+
+Generated worlds (Uncharted Seas) and Earth with its spin stopped or reversed use the idealised Stommel (1948) model,
+since no observations of them can exist.

@@ -132,6 +132,16 @@
   #view{position:fixed;left:16px;bottom:16px;display:flex;gap:8px;z-index:3}
   #view .b{width:36px;height:36px;padding:0;font-size:17px;line-height:1}
   @media (max-width:860px),(max-height:500px){#view{left:auto;bottom:auto;right:6px;top:50%;transform:translateY(-50%);flex-direction:column;gap:6px}#view .b{width:34px;height:34px}}
+  /* the currents' month dial and the data credit: a small dark glass plate under the globe */
+  #mon{position:fixed;left:16px;bottom:68px;width:250px;padding:6px 10px 5px;border-radius:3px;background:rgba(9,18,32,.78);color:#dbe6f2;font:12px "Courier Prime",monospace;box-shadow:0 8px 20px -8px rgba(0,0,0,.8);z-index:2}
+  #mon .row{display:flex;align-items:center;gap:8px} #mon label{white-space:nowrap} #mon b{color:#fff;letter-spacing:.06em}
+  #monR{flex:1;min-width:0;height:28px;margin:0;accent-color:#9cc8ff;background:transparent}
+  #monR:disabled{opacity:.45}
+  #cred{font-size:10px;line-height:1.3;color:#9fb3c8;margin-top:1px}
+  #cred a{color:inherit}
+  body.seamode #mon{display:none}
+  @media (max-width:860px){ #mon{left:8px;width:min(46vw,200px);padding:4px 8px 3px;font-size:11px} #cred{font-size:9px} }
+  @media (max-height:500px) and (min-width:560px){ #mon{left:6px;bottom:auto;top:calc(100vh - 150px);width:250px} }
   @media (pointer:coarse){select{font-size:16px!important}}
   @media (prefers-reduced-motion:reduce){.pcard{animation:none}#report.on .conf{animation:none;opacity:1;transform:translate(-50%,-50%) rotate(-12deg)}}
 </style>
@@ -143,6 +153,7 @@
 <div id="ctrl" class="chip"></div>
 <div id="tally" class="chip"></div>
 <div id="view" aria-label="Globe view"><button class="b" id="vIn" aria-label="Zoom in">+</button><button class="b" id="vOut" aria-label="Zoom out">−</button><button class="b" id="vReset" aria-label="Reset view" title="Reset view">⟲</button></div>
+<div id="mon"><div class="row"><label for="monR">Currents <b id="monL">JAN</b></label><input type="range" id="monR" min="0" max="11" step="1" value="0" aria-label="Month of the currents shown"></div><div id="cred">data: NOAA Global Drifter Program · RSS CCMP V3.1 winds · USCG leeway · Natural Earth · NASA Blue Marble</div></div>
 <div id="tip"></div>
 <div id="toast"></div>
 <div id="cards" aria-live="polite"></div>
@@ -189,8 +200,11 @@ const DY2MS = MDEG / (YEARD * DAY); // 1 degree per year in m/s: the idealised m
 //    small high-floating classes this is the one whose hindcast lands at Sitka in Aug-Nov 1992 (tests/floatees.test.js).
 //  · sneakers (float sole-up, "scarcely exposed", windage "negligible": Ebbesmeyer et al. 2007): "person in water,
 //    vertical" DWL 0.48 %, CWL ±0.15 %, the class with the least exposed area.
+//  · the toys did not stay that way: "for a quarter of the first orbit, the toys floated with substantial windage, but
+//    thereafter ... developed leaks and their specific gravity kept them barely afloat" (Ebbesmeyer et al. 2007). So a toy's
+//    leeway relaxes towards the low class (lw, lc) with an e-folding time of `leak` days (a quarter orbit ≈ 270 days).
 // The codes 22 and 6 are the cargo ids the case files and saves have always used.
-const CARGO = { 22: { k: 'duck', n: 'bath toys', dw: .0295, cw: .0054 }, 6: { k: 'shoe', n: 'sneakers', dw: .0048, cw: .0015 } };
+const CARGO = { 22: { k: 'duck', n: 'bath toys', dw: .0295, cw: .0054, leak: 270, lw: .0048, lc: .0015 }, 6: { k: 'shoe', n: 'sneakers', dw: .0048, cw: .0015 } };
 const cargoOf = w => CARGO[w] || CARGO[22];
 // The top metre runs faster than the 15 m drogue depth, downwind and turned by the Earth's spin. We measured it from
 // the GDP itself (tools/build_slip.py: undrogued minus drogued drifters against CCMP wind, 2° bins, per calendar month):
@@ -274,28 +288,30 @@ const REAL = () => ED.ready && !SEA && rot === 1;
 // can drifters be dropped yet? (the real Earth waits for its data; if that cannot load, it falls back on the model)
 const fieldReady = () => !!CU && (!!SEA || rot !== 1 || ED.ready || ED.failed);
 // One floating object's step on the real Earth: 15 m current + measured surface slip + leeway, plus a random walk with the
-// local eddy diffusivity (and the wind's own scatter for high riders). P = [lat, lon], side = ±1 (crosswind side),
-// h in days, ph = time of year (fraction) at the start of the step. Returns 1 if it washed up.
-const CV0 = [0, 0], WV0 = [0, 0];
-function stepReal(P, side, cg, h, ph, rnd) {
-  setPhase(ph); const la = P[0], lo = P[1];
+// local eddy diffusivity (and the wind's own scatter for high riders). P = [lat, lon], side = ±1 (crosswind side), ph =
+// time of year (fraction) at the start of the step, age = days afloat. The step is hMax days at most, a day at most, and no
+// further than one 0.25° cell (27.8 km) at the local current plus a typical wind push, so nothing jumps a jet or an isthmus.
+// Returns the step taken (days); HIT is set to 1 if the object washed up.
+const CV0 = [0, 0], WV0 = [0, 0]; let HIT = 0;
+function advance(P, side, cg, hMax, ph, rnd, age = 0) {
+  if (Math.abs(ph - PHY - Math.round(ph - PHY)) > .0014) setPhase(ph); // the fields change slowly: refresh twice a day
+  const la = P[0], lo = P[1], f = cg.leak ? Math.exp(-age / cg.leak) : 1, dw = cg.leak ? cg.lw + (cg.dw - cg.lw) * f : cg.dw, cw = cg.leak ? cg.lc + (cg.cw - cg.lc) * f : cg.cw;
   curReal(la, lo, CV0); windReal(la, lo, WV0);
+  const h = Math.min(hMax, 1, 27800 / ((Math.hypot(CV0[0], CV0[1]) + .25) * DAY));
   const sl = la >= 0 ? SLIP.n : SLIP.s, an = sl[1] * Math.PI / 180, ca = Math.cos(an), sa = Math.sin(an), wu = WV0[0], wv = WV0[1];
-  const u = CV0[0] + sl[0] * (wu * ca - wv * sa) + cg.dw * wu - side * cg.cw * wv; // crosswind: to the right of the wind for side = +1
-  const v = CV0[1] + sl[0] * (wu * sa + wv * ca) + cg.dw * wv + side * cg.cw * wu;
-  const sd = wSd(la, lo), K = kEddy(la, lo) + (cg.dw * cg.dw + cg.cw * cg.cw) * sd * sd * T_W;
+  const u = CV0[0] + sl[0] * (wu * ca - wv * sa) + dw * wu - side * cw * wv; // crosswind: to the right of the wind for side = +1
+  const v = CV0[1] + sl[0] * (wu * sa + wv * ca) + dw * wv + side * cw * wu;
+  const sd = wSd(la, lo), K = kEddy(la, lo) + (dw * dw + cw * cw) * sd * sd * T_W;
   const hs = h * DAY, rw = Math.sqrt(2 * K * hs), g1 = (rnd() + rnd() + rnd() - 1.5) * 2, g2 = (rnd() + rnd() + rnd() - 1.5) * 2; // ~N(0,1)
   const c = Math.max(.05, Math.cos(la * Math.PI / 180));
   P[0] = la + (v * hs + rw * g2) / MDEG; P[1] = lo + (u * hs + rw * g1) / (MDEG * c);
   if (P[1] > 180) P[1] -= 360; if (P[1] < -180) P[1] += 360;
   if (P[0] > 89.9) P[0] = 89.9;
-  if (isLand(P[0], P[1])) { if (BEACH.on) return 1; P[0] = la; P[1] = lo; return 0; }
-  if (BEACH.on && coastQ(P[0], P[1]) && rnd() < 1 - Math.exp(-h / TAU_B)) return 1;
-  return 0;
+  HIT = 0;
+  if (isLand(P[0], P[1])) { if (BEACH.on) HIT = 1; else { P[0] = la; P[1] = lo; } }
+  else if (BEACH.on && coastQ(P[0], P[1]) && rnd() < 1 - Math.exp(-h / TAU_B)) HIT = 1;
+  return h;
 }
-// how long a step may be (days): a day at most, and no further than one 0.25° cell (27.8 km) at the local current plus
-// a typical wind push, so nothing jumps across a jet or a narrow isthmus in one go
-function stepDays(P) { curReal(P[0], P[1], CV0); const s = Math.hypot(CV0[0], CV0[1]) + .25; return Math.min(1, 27800 / (s * DAY)); }
 
 // ================= ocean physics: Stommel (1948) =================
 // Steady wind-driven circulation:  r·∇²ψ + β·∂ψ/∂x = curl τ  on the real ocean basins.
@@ -373,17 +389,17 @@ const regionOf = (lat, lon) => { for (const k in REG) { const [a, b, c, d] = REG
 const GSBOX = [25, 45, -82, -62]; // western North Atlantic, where the Gulf Stream runs
 const kmday = ms => ms * 86.4; // m/s → km/day
 const LV = [
-  { n: 'The 1992 Spill', drop: [44.7, 178.1], years: 2, bet: ['nawest', 'japan', 'hawaii', 'australia'],
+  { n: 'The 1992 Spill', drop: [44.7, 178.1], day0: 9 / 31, years: 2, bet: ['nawest', 'japan', 'hawaii', 'australia'],
     story: 'On 10 January 1992 a container ship lost <b>28,800 plastic bath toys</b> in a Pacific storm. Ducks, beavers, turtles and frogs. Oceanographers used them to map the currents for decades. <b>Where do you think they washed up first?</b>',
     goal: 'Where did the first toy wash up? Place your bet, then release the ducks.' },
   { n: 'Message in a Bottle', years: 3, focus: [40, -50], target: 'uk', westOf: -60,
     story: 'A sailor on the coast of <b>Florida or the Carolinas</b> wants to send a bottle to <b>Britain</b>. The Atlantic is wide, but a river runs through it, and the wind is on your side.',
-    goal: 'Drop ducks off the American coast (west of 60°W) so that <b>at least 15</b> of 100 reach Britain & Ireland within 3 years. ★★ 30, ★★★ 45.', win: S => S.regions.uk >= 15, score: S => [S.regions.uk, 15, 'reached Britain & Ireland'], stars: [15, 30, 45], card: 'uk' },
+    goal: 'Drop ducks off the American coast (west of 60°W) so that <b>at least 15</b> of 100 reach Britain & Ireland within 3 years. ★★ 22, ★★★ 27.', win: S => S.regions.uk >= 15, score: S => [S.regions.uk, 15, 'reached Britain & Ireland'], stars: [15, 22, 27], card: 'uk' },
   { n: 'Garbage Patch', years: 6, focus: [25, -175], patch: 1, need: 30, outsidePatch: 1,
     story: 'Some ducks never reach shore. The currents circle round each ocean basin and collect drifting things in the middle. That\'s why there\'s a <b>Great Pacific Garbage Patch</b>.',
     goal: 'Drop ducks <b>outside</b> the dotted line and let the currents herd them in: get <b>30</b> trapped, still floating, inside the red ring after 6 years. ★★ 38, ★★★ 45.', win: S => S.t >= 6 && S.patch >= 30, score: S => [S.patch, 30, 'ended up in the patch'], stars: [30, 38, 45], card: 'patch', instant: 1 },
   { n: 'Why the West?', years: 1, focus: [35, -60], physics: 1, measure: 1,
-    story: 'Every ocean\'s fastest current hugs its <b>western</b> side (the Gulf Stream, the Kuroshio, the Brazil Current). Is that Earth\'s spin? Do the experiment: measure the current with the spin on, then <b>stop the Earth</b> and measure again.',
+    story: 'Every ocean\'s fastest current hugs its <b>western</b> side (the Gulf Stream, the Kuroshio, the Brazil Current). Is that Earth\'s spin? Do the experiment: measure the real current (drifter data) with the spin on, then <b>stop the Earth</b> and measure again on a model Earth.',
     goal: 'Drop ducks just off the US East Coast with Earth\'s spin <b>normal</b>, then again with it <b>off</b>. The tally records the fastest current your ducks ride in the western Atlantic.', win: S => S.meas[1] > 0 && S.meas[0] > 0 && S.meas[1] >= 1.25 * S.meas[0], instant: 1, card: 'useast' },
   { n: 'Backwards Planet', years: 3, focus: [35, -35], physics: 1, dropBox: [0, 50, -100, -45],
     story: 'What if Earth spun the other way? The sun would rise in the west, and the western boundary currents would move to the <b>eastern</b> sides of the oceans.',
@@ -397,16 +413,16 @@ const LV = [
   { n: 'Case 2: Sneakers', years: 6, focus: [32, -50], case: { truth: [40, -56], windage: 6, budget: 12, start: [1991, 4], area: [5, 50, -98, -10] },
     story: 'In 1990 the <i>Hansa Carrier</i> lost 61,000 Nike trainers in the Pacific, and Ebbesmeyer tracked them the same way. Here the shoes are from a crate lost in the Atlantic in May 1991. Shoes float low in the water, so the wind hardly pushes them: they ride the current itself, and they take different roads from ducks.',
     goal: 'Find the spill: match the logbook within <b>3 months</b> average error, using at most <b>12 hindcasts</b>. These drift like shoes, not ducks. ★★ within 2, ★★★ within 1.2.' },
-  { n: 'Case 3: No Name, No Date', years: 5, focus: [32, -50], case: { truth: [33, -70], truthMonth: 7, windage: 22, budget: 12, start: [1996, 0], unknownDate: 1, area: [5, 50, -98, -10] },
+  { n: 'Case 3: No Name, No Date', years: 5, focus: [32, -50], case: { truth: [38, -50], truthMonth: 7, windage: 22, budget: 12, start: [1996, 0], unknownDate: 1, area: [5, 50, -98, -10] },
     story: 'Bath toys with no maker\'s mark have been washing up for two years. Nobody reported a spill. To pin it down you need <b>where</b> and <b>when</b>: set the spill month on the dial, and use the hindcasts to fix the rest. If every sighting comes out early, what does that tell you?',
     goal: 'Match the logbook within <b>3 months</b> average error, with at most <b>12 hindcasts</b>. ★★ within 2, ★★★ within 1.2.' },
   { n: 'Open Ocean', years: Infinity, free: 1, physics: 1,
     story: 'A sandbox. Drop ducks anywhere, change the planet, and watch for decades.', goal: 'No goal. Have fun.', win: () => false },
   { n: 'Case Files', years: 5, focus: [30, -50], endless: 1, openAfter: 6, case: null,
-    story: 'The beachcomber network never sleeps. Every case file is a new spill somewhere in the North Atlantic, the North Pacific or the South Atlantic, generated from the same current model. Solve one and the next is harder: first you must also find <b>when</b>, then <b>what</b> was spilled (ducks ride the wind, sneakers don\'t), then with less computer time. Run out of hindcasts on any case and the run is over.',
+    story: 'The beachcomber network never sleeps. Every case file is a new spill somewhere in the North Atlantic, the North Pacific or the South Atlantic, generated from the same drift model: real currents, real winds. Solve one and the next is harder: first you must also find <b>when</b>, then <b>what</b> was spilled (ducks ride the wind, sneakers don\'t), then with less computer time. Run out of hindcasts on any case and the run is over.',
     goal: 'Solve as many cases in a row as you can.', win: () => false },
   { n: 'Uncharted Seas', years: Infinity, seas: 1, focus: [20, 0],
-    story: 'A new world every time: its own continents, its own spin, its own winds, and the same physics as Earth. Nobody has charted its seas. Read the currents from what your drifters report, <b>draw the chart</b>, then use it to answer the distress calls. At the end the true currents are laid over your chart.',
+    story: 'A new world every time: its own continents, its own spin, its own winds, and the textbook physics of Earth\'s oceans (no drifter has ever charted it, so here the currents come from a model). Nobody has charted its seas. Read the currents from what your drifters report, <b>draw the chart</b>, then use it to answer the distress calls. At the end the true currents are laid over your chart.',
     goal: 'Chart the world, rescue the crews.', win: () => false },
 ];
 
@@ -434,7 +450,9 @@ let L, ducks = [], simT = 0, running = false, speed = 1, rot = 1, bet = null, wo
 const $ = id => document.getElementById(id);
 const canvas = $('gl');
 let renderer; try { renderer = new THREE.WebGLRenderer({ canvas, antialias: !MOBILE, alpha: true }); } catch (e) { RH.noGL('Uncharted Seas'); throw e; } renderer.setClearColor(0, 0);
-renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 2)); renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
+renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 2));
+// a software renderer (no GPU: SwiftShader, llvmpipe) draws a plainer globe: no relief or gloss maps, fewer current lines
+const SOFTGL = !/[?&]hq\b/.test(location.search) && (() => { try { const g = renderer.getContext(), x = g.getExtension('WEBGL_debug_renderer_info'); return /swiftshader|llvmpipe|software/i.test(x ? g.getParameter(x.UNMASKED_RENDERER_WEBGL) : ''); } catch (e) { return false; } })(); renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
 const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(32, 1, .1, 100);
 camera.position.set(0, 1.2, 5.6);
 const controls = new OrbitControls(camera, canvas); controls.enableDamping = true; controls.minDistance = 2.4; controls.maxDistance = 9; controls.enablePan = false; controls.rotateSpeed = .5;
@@ -588,13 +606,13 @@ function ensureOcean(r, cb) {
 function applyOcean(r) { const st = OCEAN[r]; CU = st.U; CV = st.V; CSP = st.SP; useEarthLook(); }
 // ---- the real Earth's skin: NASA Blue Marble (topography and bathymetry), ETOPO1 relief for the lamp, a glossy sea ----
 const texL = new THREE.TextureLoader(), EL = { map: null, bump: null, rough: null };
-function useEarthLook() { if (SEA) return; const M = globe.material; M.map = EL.map || quickTex; M.bumpMap = EL.bump; M.bumpScale = 2.2; M.roughnessMap = EL.rough; M.roughness = EL.rough ? 1 : .6; M.clearcoat = EL.rough ? 0 : .55; M.specularIntensity = EL.rough ? .5 : 1; M.needsUpdate = true; }
+function useEarthLook() { if (SEA) return; const M = globe.material; M.map = EL.map || quickTex; M.bumpMap = SOFTGL ? null : EL.bump; M.bumpScale = 2.2; M.roughnessMap = SOFTGL ? null : EL.rough; M.roughness = EL.rough ? SOFTGL ? .55 : 1 : .6; M.clearcoat = EL.rough ? 0 : .55; M.specularIntensity = EL.rough ? .38 : 1; M.needsUpdate = true; }
 const loadTex = (u, cb, srgb = true) => texL.load(u, t => { if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = MOBILE ? 2 : 8; cb(t); });
 loadTex('data/earth-2k.jpg', t => { EL.map = t; useEarthLook(); if (!MOBILE) loadTex('data/earth-4k.jpg', t4 => { EL.map = t4; useEarthLook(); }); }); // the small one first, then the sharp one
 loadTex('data/relief-2k.jpg', t => { EL.bump = t; useEarthLook(); }, false);
 function earthRoughness() { // the sea is glassy (the sun's glint), the land matte
   const c = document.createElement('canvas'); c.width = 1440; c.height = 720; const g = c.getContext('2d'), im = g.createImageData(1440, 720);
-  for (let k = 0; k < LQ.length; k++) { im.data[k * 4 + 1] = LQ[k] ? 240 : 82; im.data[k * 4 + 3] = 255; } g.putImageData(im, 0, 0); return new THREE.CanvasTexture(c);
+  for (let k = 0; k < LQ.length; k++) { im.data[k * 4 + 1] = LQ[k] ? 240 : 96; im.data[k * 4 + 3] = 255; } g.putImageData(im, 0, 0); return new THREE.CanvasTexture(c);
 }
 loadEarth().then(() => { EL.rough = earthRoughness(); useEarthLook(); if (L) { renderCtrl(); renderTally(stats()); } }).catch(e => { ED.failed = true; console.warn('Earth data unavailable, using the model ocean:', e); });
 ensureOcean(1); applyOcean(1);
@@ -603,26 +621,27 @@ setTimeout(() => { ensureOcean(0); ensureOcean(-1); }, 2500);
 
 // matches three.js SphereGeometry's texture wrap: u = (lon + 180) / 360 runs round from the -x axis
 const toXYZ = (lat, lon, r = 1.004, out = []) => { const a = lat * Math.PI / 180, u = (lon + 180) / 360 * Math.PI * 2, ca = Math.cos(a); out[0] = -r * ca * Math.cos(u); out[1] = r * Math.sin(a); out[2] = r * ca * Math.sin(u); return out; };
+const XYZ = [0, 0, 0];
 let viewMonth = new Date().getMonth(); // the month the currents are drawn for, when no voyage is running (the slider)
 // ================= the currents, drawn =================
 // Long, thin streamlines of the field for one time of year (on the real Earth: the drifter climatology for that month),
 // in the spirit of NASA SVS's "Perpetual Ocean" and earth.nullschool.net. Each line is traced through the field from a
 // seed both ways; where the water is fast the line runs longer and brighter. A soft brightening glides along every line at
 // the pace of the water, so the sea visibly flows without any line ending in a blob. Built in slices off the frame loop.
-const FLN = MOBILE ? 1500 : 3600, FLP = MOBILE ? 34 : 44; // lines; points per line (half each way from the seed)
+const FLN = MOBILE || SOFTGL ? 1200 : 2600, FLP = MOBILE || SOFTGL ? 32 : 40; // lines; points per line (half each way from the seed)
 const flowMat = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   uniforms: { uT: { value: 0 }, uOp: { value: 1 }, uK: { value: 1 } },
   vertexShader: `attribute vec4 aD; uniform float uT, uOp, uK; varying vec3 vC;
     void main() {
       vec4 mv = modelViewMatrix * vec4(position, 1.); gl_Position = projectionMatrix * mv;
-      float f = clamp(aD.y * uK / .9, 0., 1.), g = sqrt(f);
+      float f = clamp(aD.y * uK / .6, 0., 1.), g = pow(f, .65);
       float x = fract(aD.x * .09 - uT * (.05 + .32 * g) + aD.z);
       float glide = .5 - .5 * cos(6.2831853 * x); glide *= glide;
       vec3 n = normalize(normalMatrix * normalize(position)), e = normalize(-mv.xyz);
       float limb = smoothstep(.0, .35, dot(n, e));
-      float a = aD.w * limb * uOp * (.10 + .55 * g) * (.38 + .9 * glide);
-      vC = mix(vec3(.30, .55, .95), vec3(.92, .97, 1.), g) * a;
+      float a = aD.w * limb * uOp * (.12 + .95 * g) * (.42 + .95 * glide);
+      vC = mix(vec3(.32, .58, .98), vec3(.95, .98, 1.), g) * a;
     }`,
   fragmentShader: `varying vec3 vC; void main() { gl_FragColor = vec4(vC, 1.); }`,
 });
@@ -668,10 +687,13 @@ function updateFlow(dt, now) {
   const want = tracers.visible ? 1 : 0, k = keyNow();
   if (want && k !== flowKey && !flowJob && fieldReady() && (now - flowAt > 1200 || k.split(':')[0] !== flowKey.split(':')[0])) { flowAt = now; const tgt = flowCur === flowA ? flowB : flowA; flowJob = { rot: 'flow', it: buildFlow(tgt, k) }; if (!flowKey) runGen(flowJob.it); else enqueue(flowJob); } // the first set at once
   const op = ducks.length ? .55 : 1;
-  for (const f of [flowA, flowB]) { const u = f.material.uniforms.uOp; u.value = FX.damp(u.value, f === flowCur ? op : 0, f === flowCur ? 2.5 : 4, dt); }
+  for (const f of [flowA, flowB]) { const u = f.material.uniforms.uOp; u.value = FX.damp(u.value, f === flowCur ? op : 0, f === flowCur ? 2.5 : 4, dt); f.visible = f === flowCur || u.value > .01; } // a faded set costs nothing
 }
 // the garbage-patch ring (shown on that level)
-const PATCH = [21, 165]; // where this model's North Pacific gyre gathers floating debris
+// where the North Pacific's real surface currents gather floating debris: the densest 6° box after a ten-year uniform
+// release in these fields is centred on 33°N 147°W (tests/floatees.test.js), as the mapped Great Pacific Garbage Patch is,
+// about 32°N 145°W (Lebreton et al. 2018, Sci. Rep. 8, 4666; Maximenko et al. 2012, Mar. Poll. Bull. 65, 51)
+const PATCH = [33, -147];
 const PATCH_R = 12, KEEP_OUT = 14; // ducks inside PATCH_R count as in the patch; drops must be outside KEEP_OUT (the drawn dotted ring)
 const ringAt = (R, mat) => { const pts = []; for (let a = 0; a <= 96; a++) { const t = a / 96 * Math.PI * 2, la = PATCH[0] + R * Math.sin(t), lo = PATCH[1] + R * Math.cos(t) / Math.cos(PATCH[0] * Math.PI / 180); pts.push(new THREE.Vector3(...toXYZ(la, lo, 1.006))); } const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat); l.computeLineDistances(); return l; };
 const patchRing = ringAt(PATCH_R, new THREE.LineDashedMaterial({ color: '#b3261e', dashSize: .02, gapSize: .015, transparent: true, opacity: .8 }));
@@ -726,7 +748,7 @@ function drop(lat, lon, n = 100) {
     if (ducks.length + n > MAXD) ducks.splice(0, ducks.length + n - MAXD);
     toast('Duck limit', `${MAXD} ducks at most: the oldest ones were fished out.`, 2200);
   }
-  for (let i = 0; i < n && ducks.length < MAXD; i++) ducks.push({ lat: lat + (Math.random() - .5) * 1.5, lon: lon + (Math.random() - .5) * 1.5, beached: null, lap: 0, bt: 0 });
+  for (let i = 0; i < n && ducks.length < MAXD; i++) ducks.push({ lat: lat + (Math.random() - .5) * (REAL() ? .5 : 1.5), lon: lon + (Math.random() - .5) * (REAL() ? .5 : 1.5), beached: null, lap: 0, bt: 0, t0: simT });
   won = false; resolved = false; // every drop is a fresh attempt
   running = true; duckDirty = true; dropT = performance.now(); FX.sfx('pop'); FX.sfx('whoosh'); renderCtrl(); if (L.bet) renderBets();
 }
@@ -848,8 +870,8 @@ function hindcast(lat, lon, years, wnd = WINDAGE, n = 400, seed = 7, ph0 = 0) {
     for (let k = 0; k < n; k++) {
       P[0] = lat + (rnd() - .5) * .5; P[1] = lon + (rnd() - .5) * .5; const side = rnd() < .5 ? -1 : 1;
       for (let t = 0; t < end;) {
-        const h = Math.min(stepDays(P), end - t), hit = stepReal(P, side, cg, h, ph0 + t / YEARD, rnd); t += h;
-        if (hit || Math.abs(P[0]) > 84) { const r = regionOf(P[0], P[1]); if (r !== 'other') (arr[r] ||= []).push([t / YEARD, P[0], P[1]]); break; }
+        t += advance(P, side, cg, end - t, ph0 + t / YEARD, rnd, t);
+        if (HIT || Math.abs(P[0]) > 84) { const r = regionOf(P[0], P[1]); if (r !== 'other') (arr[r] ||= []).push([t / YEARD, P[0], P[1]]); break; }
       }
     }
   } else {
@@ -884,11 +906,11 @@ function moveDucks(dtYears) {
       if (!d.side) d.side = Math.random() < .5 ? -1 : 1;
       P[0] = d.lat; P[1] = d.lon;
       for (let t = 0; t < T;) {
-        const h = Math.min(stepDays(P), T - t), lo0 = P[1];
-        if (box && P[0] > box[0] && P[0] < box[1] && P[1] > box[2] && P[1] < box[3]) { const sp = Math.hypot(CV0[0], CV0[1]); if (sp > mx) mx = sp; } // CV0: the current stepDays just read here
-        const hit = stepReal(P, d.side, cg, h, phaseAt(simT + t / YEARD), Math.random); t += h;
+        const lo0 = P[1], in0 = box && P[0] > box[0] && P[0] < box[1] && P[1] > box[2] && P[1] < box[3];
+        t += advance(P, d.side, cg, T - t, phaseAt(simT + t / YEARD), Math.random, (simT - (d.t0 || 0)) * YEARD + t);
+        if (in0) { const sp = Math.hypot(CV0[0], CV0[1]); if (sp > mx) mx = sp; } // CV0: the current at the step's start
         d.lap += ((P[1] - lo0 + 540) % 360) - 180;
-        if (hit || Math.abs(P[0]) > 84) { d.lat = P[0]; d.lon = P[1]; d.beached = regionOf(d.lat, d.lon); d.bt = simT + t / YEARD; if (d.beached !== 'other' && !landed[d.beached]) { landed[d.beached] = 1; postcard(d.beached, d.bt); } break; }
+        if (HIT || Math.abs(P[0]) > 84) { d.lat = P[0]; d.lon = P[1]; d.beached = regionOf(d.lat, d.lon); d.bt = simT + t / YEARD; if (d.beached !== 'other' && !landed[d.beached]) { landed[d.beached] = 1; postcard(d.beached, d.bt); } break; }
       }
       if (!d.beached) { d.lat = P[0]; d.lon = P[1]; }
     }
@@ -918,10 +940,12 @@ function updateDuckGeo() {
   let v = 0; const A = [0, 0, 0], B = [0, 0, 0];
   for (const d of ducks) { const t = d.tr; if (!t || d.beached) continue; const m = t.length / 2;
     for (let k = 0; k < m; k++) { const la0 = t[k * 2], lo0 = t[k * 2 + 1], la1 = k + 1 < m ? t[k * 2 + 2] : d.lat, lo1 = k + 1 < m ? t[k * 2 + 3] : d.lon; if (Math.abs(lo1 - lo0) > 20) continue;
-      toXYZ(la0, lo0, 1.007, A); toXYZ(la1, lo1, 1.007, B); const f0 = (k / m) * .8, f1 = ((k + 1) / m) * .8; trlPos.set(A, v * 3); trlPos.set(B, v * 3 + 3);
+      toXYZ(la0, lo0, 1.007, A); toXYZ(la1, lo1, 1.007, B); const f0 = (k / m) * .3, f1 = ((k + 1) / m) * .3; // a faint wake, not a comet tail trlPos.set(A, v * 3); trlPos.set(B, v * 3 + 3);
       trlCol[v * 3] = f0; trlCol[v * 3 + 1] = f0 * .82; trlCol[v * 3 + 2] = f0 * .25; trlCol[v * 3 + 3] = f1; trlCol[v * 3 + 4] = f1 * .82; trlCol[v * 3 + 5] = f1 * .25; v += 2; if (v >= trlPos.length / 3 - 2) break; } }
   trlGeo.setDrawRange(0, v); trlGeo.attributes.position.needsUpdate = trlGeo.attributes.color.needsUpdate = true;
-  for (let i = 0; i < ducks.length; i++) { const d = ducks[i]; toXYZ(d.lat, d.lon, 1.008, XYZ); dPos[i * 3] = XYZ[0]; dPos[i * 3 + 1] = XYZ[1]; dPos[i * 3 + 2] = XYZ[2]; dCol[i * 3] = 1; dCol[i * 3 + 1] = d.beached ? .45 : .9; dCol[i * 3 + 2] = d.beached ? .2 : .1; }
+  const shoe = cargoOf(windage()).k === 'shoe', ic = shoe ? ICON.shoe : ICON.duck; if (duckPts.material.map !== ic) { duckPts.material.map = ic; duckPts.material.needsUpdate = true; }
+  const ca = shoe ? [1, 1, 1] : [1, .86, .16], cb = shoe ? [.62, .62, .62] : [.72, .56, .22]; // afloat; washed up
+  for (let i = 0; i < ducks.length; i++) { const d = ducks[i], c = d.beached ? cb : ca; toXYZ(d.lat, d.lon, 1.008, XYZ); dPos[i * 3] = XYZ[0]; dPos[i * 3 + 1] = XYZ[1]; dPos[i * 3 + 2] = XYZ[2]; dCol[i * 3] = c[0]; dCol[i * 3 + 1] = c[1]; dCol[i * 3 + 2] = c[2]; }
   dGeo.setDrawRange(0, ducks.length); dGeo.attributes.position.needsUpdate = dGeo.attributes.color.needsUpdate = true;
 }
 
@@ -1329,9 +1353,16 @@ function renderCtrl() {
   $('ctrl').querySelectorAll('[data-r]').forEach(b => b.onclick = () => { const r = +b.dataset.r; if (r === rot) return; FX.sfx('boom'); FX.shake(.4); setSpin(r); });
   layout();
 }
-function layout() { // keep the tally clear of the control bar on narrow screens
-  if (innerWidth <= 860 && innerHeight > 500) { const c = $('ctrl').getBoundingClientRect(); $('tally').style.bottom = (innerHeight - c.top + 30) + 'px'; } else $('tally').style.bottom = '';
+function layout() { // keep the tally (and the month dial) clear of the control bar on narrow screens
+  if (innerWidth <= 860 && innerHeight > 500) { const c = $('ctrl').getBoundingClientRect(); $('tally').style.bottom = (innerHeight - c.top + 30) + 'px'; $('mon').style.bottom = (innerHeight - c.top + 30) + 'px'; } else { $('tally').style.bottom = ''; $('mon').style.bottom = ''; }
 }
+// the month dial: drag it to see the seasons change the currents; during a voyage it follows the voyage's own calendar
+function renderMon() {
+  const R = $('monR'), live = running && ducks.length && REAL(), m = flowMonth();
+  R.disabled = !REAL() || live; if (m >= 0 && +R.value !== m) R.value = m;
+  $('monL').textContent = REAL() ? MONTHS[m] : rot === 0 ? 'model, no spin' : rot === -1 ? 'model, reversed' : ED.failed ? 'model' : '…';
+}
+$('monR').oninput = e => { viewMonth = +e.target.value; renderMon(); };
 function patchDist(lat, lon) { const dLat = lat - PATCH[0], dLon = ((lon - PATCH[1] + 540) % 360) - 180; return Math.hypot(dLat, dLon * Math.cos(PATCH[0] * Math.PI / 180)); }
 function stats() {
   const regions = {}; for (const k in REG) regions[k] = 0; regions.other = 0;
@@ -1395,7 +1426,7 @@ function frame(now) {
     cen.set(0, 0, 0); let n = 0; for (let i = 0; i < ducks.length; i++) if (!ducks[i].beached) { cen.x += dPos[i * 3]; cen.y += dPos[i * 3 + 1]; cen.z += dPos[i * 3 + 2]; n++; }
     if (n && cen.lengthSq() > 1e-6) { globe.localToWorld(cen); const dist = camera.position.length(); tmpV.copy(cen).normalize().multiplyScalar(dist); camera.position.lerp(tmpV, 1 - Math.exp(-dt * 1.5)).setLength(dist); }
   }
-  tallyT += dt; if (tallyT > .2) { tallyT = 0; const S = stats(); renderTally(S); check(S); layout(); }
+  tallyT += dt; if (tallyT > .2) { tallyT = 0; const S = stats(); renderTally(S); check(S); layout(); renderMon(); }
   if (viewTo) { // eased dolly / reset: slerp the direction, ease the distance
     const k = 1 - Math.exp(-dt * 7), a = camera.position.clone().normalize(), b = viewTo.v.clone().normalize(), dist = camera.position.length() + (viewTo.d - camera.position.length()) * k;
     a.lerp(b, k).normalize(); camera.position.copy(a.multiplyScalar(dist)); hot = now;
@@ -1487,7 +1518,7 @@ function check(S) {
   }
 }
 const LESSON = [
-  'In November 1992, ten months after the spill, the first toys reached Sitka, Alaska. In 30 runs of this model, North America came first every time. Some real toys later froze into Arctic ice and drifted into the Atlantic. One turned up in Scotland 15 years later.',
+  'Beachcombers found the first toys near Sitka, Alaska, in August to November 1992, eight to ten months after the spill (Ebbesmeyer & Ingraham 1994; Ebbesmeyer et al. 2007). On the real currents and winds here, toys reach south-east Alaska after 7 to 9 months, and in 30 runs North America came first every time. Some real toys later froze into Arctic ice and drifted into the Atlantic. One turned up in Scotland 15 years later.',
   'The Gulf Stream and the North Atlantic Drift, helped along by the south-westerly winds, are why Britain is green while Labrador, at the same latitude, is frozen.',
   'Floating plastic collects in the slow centres of the five subtropical gyres. The Pacific patch is about three times the size of France.',
   'With no spin, the gyres go sluggish and symmetric: no fast western boundary current. Henry Stommel showed in 1948 that the variation of Earth\'s spin with latitude (the β effect) causes the Gulf Stream.',
@@ -1499,7 +1530,7 @@ canvas.addEventListener('pointerdown', () => { viewTo = null; }); // grabbing th
 load(sharedCase ? LV.findIndex(l => l.endless) : sharedSea ? LV.findIndex(l => l.seas) : +SAVE.cur || 0); // a shared case link opens that case
 requestAnimationFrame(frame);
 const proj = new THREE.Vector3();
-window.__fl = { jobs, tracersObj: tracers, phys: { BEACH, stepReal, stepDays, cargoOf, setPhase, curReal, windReal, kEddy, CARGO, SLIP, get REAL() { return REAL(); } }, get flowInfo() { return { key: flowKey, want: keyNow(), job: !!flowJob, n: flowCur.geometry.drawRange.count, op: flowCur.material.uniforms.uOp.value, vis: tracers.visible }; }, ED, latLonAtXY: (x, y) => latLonAt({ clientX: x, clientY: y }), genWorld, chartScore, driftPath, ensemble, savedBy, bestAnswer, seaStart, seaTap, seaAnswer, seaNextCall, seaFinish, seaDrifter, withWorld, isLand, get W() { return W; }, get sea() { return sea; }, get SEA() { return SEA; }, dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return fieldReady(); }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
+window.__fl = { jobs, tracersObj: tracers, three: { globe, renderer, atmo, scene, EL }, phys: { BEACH, advance, get HIT() { return HIT; }, cargoOf, setPhase, curReal, windReal, kEddy, CARGO, SLIP, get REAL() { return REAL(); } }, get flowInfo() { return { key: flowKey, want: keyNow(), job: !!flowJob, n: flowCur.geometry.drawRange.count, op: flowCur.material.uniforms.uOp.value, vis: tracers.visible }; }, ED, latLonAtXY: (x, y) => latLonAt({ clientX: x, clientY: y }), genWorld, chartScore, driftPath, ensemble, savedBy, bestAnswer, seaStart, seaTap, seaAnswer, seaNextCall, seaFinish, seaDrifter, withWorld, isLand, get W() { return W; }, get sea() { return sea; }, get SEA() { return SEA; }, dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return fieldReady(); }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
   screenOf: (lat, lon) => { globe.updateMatrixWorld(); camera.updateMatrixWorld(); proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>

@@ -124,6 +124,7 @@ module.exports = {
       await page.evaluate(() => { __soap.SAVE.preds.square = 'h'; __soap.go(2); __soap.act('lift'); }); await page.waitForFunction(() => __soap.st.out, null, { timeout: 30000 });
       let s = await page.evaluate(() => ({ o: __soap.st.out, rec: __soap.SAVE.rec.c0, card: document.getElementById('card').textContent }));
       ok(s.o.acc && s.o.tru && !s.o.cle, 'unmarked lift: accepted but no foresight ' + JSON.stringify(s.o)); eq(s.rec.s, 'at'); ok(s.card.includes('foresight'));
+      ok(!/Your marks missed/.test(s.card) && /No pencil marks/.test(s.card), 'an unmarked lift is not told its (absent) marks missed: ' + s.card.slice(0, 200));
       await page.evaluate(() => { __soap.fig.setMarks(__soap.BAKED[0][3].map(([x, y]) => [x + .03, y - .02])); __soap.act('lift'); }); await page.waitForFunction(() => !__soap.st.anim && __soap.st.lifts === 2, null, { timeout: 30000 });
       s = await page.evaluate(() => ({ o: __soap.st.out, rec: __soap.SAVE.rec.c0 })); ok(s.o.cle && s.o.f < .05, 'marked lift earns foresight'); eq(s.rec.s, 'atc'); eq(s.rec.first, 1);
       eq(await page.evaluate(() => [__soap.chOpen(3), __soap.accepted()]), [false, 1]);
