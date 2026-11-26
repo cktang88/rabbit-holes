@@ -350,5 +350,21 @@ module.exports = {
       await closeModals(page);
       ok(await page.evaluate(() => document.documentElement.scrollWidth <= 392), 'horizontal overflow');
     },
+    'phone: opening the story re-fits the bench (no squashed canvas), and the instruction is visible in landscape too': async ({ page, ok, eq }) => {
+      const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }); const p = await ctx.newPage();
+      await p.goto(page.url()); await p.waitForTimeout(900); await p.evaluate(() => document.querySelectorAll('.modal-bg').forEach(m => m.remove()));
+      const fit = () => p.evaluate(() => { const c = document.getElementById('cv'), r = c.getBoundingClientRect(), d = devicePixelRatio || 1; return Math.max(Math.abs(r.width * d - c.width), Math.abs(r.height * d - c.height)); });
+      ok(await fit() <= 1, 'bench backing store does not match its box at load: ' + await fit());
+      await p.locator('#info .story').tap(); await p.waitForTimeout(300);
+      ok(await p.evaluate(() => document.querySelector('#info .story').classList.contains('open')), 'story did not open');
+      ok(await fit() <= 1, 'bench squashed after the story opened: ' + await fit());
+      // a tap on a piece still lands on it after the layout change
+      await p.evaluate(() => { const o = window.__opt; o.placed = [{ t: 'mirror', id: 0, x: 14, y: 8, a: 45 }]; o.sel = -1; o.recompute(); });
+      const s = await p.evaluate(() => { const o = window.__opt, dpr = devicePixelRatio || 1, c = document.getElementById('cv').getBoundingClientRect(), q = new DOMMatrix(o.VT()).transformPoint(new DOMPoint(14, 8)); return { x: c.left + q.x / dpr, y: c.top + q.y / dpr }; });
+      await p.touchscreen.tap(s.x, s.y); await p.waitForTimeout(100); ok(await p.evaluate(() => window.__opt.sel === 0), 'tap after the story opened missed the mirror');
+      await p.setViewportSize({ width: 844, height: 390 }); await p.evaluate(() => window.__opt.loadLevel(0)); await p.waitForTimeout(300);
+      ok(await p.evaluate(() => { const st = document.querySelector('#info .story'); return st.getBoundingClientRect().height > 10 && getComputedStyle(st).display !== 'none'; }), 'no instruction in landscape');
+      await ctx.close();
+    },
   },
 };

@@ -282,12 +282,13 @@ function bxSave() { const S = obj(SAVE.bx), own = obj(S.own); const o = { cash: 
 let box = null, bx = null; // the box on the bench, and this box's session: photons left, evidence, destroyed?
 function boxLevel(base) {
   const h = /box=(\d+)-(\d)/.exec(location.hash), S = bxSave();
+  const restored = !box; // the page just (re)loaded: the box comes back from the link or the save
   if (!box) box = h ? genBox(+h[1], +h[2]) : genBox(S.seed, S.bg);
   if (box.daily == null) box.daily = !h && !!S.d;
   SAVE.bx = { ...S, seed: box.seed, bg: box.grade, d: box.daily ? 1 : 0 };
   try { history.replaceState(null, '', '#box=' + box.seed + '-' + box.grade); } catch (e) {}
   bx = { left: box.budget, log: {}, destroyed: false, shots: 0, signed: false };
-  if (S.fin && S.fin.slice(2) === box.seed + '-' + box.grade) { bx.left = 0; if (S.fin[0] === 'x') bx.destroyed = true; else bx.signed = true; } // finished before a reload: it stays finished
+  if (restored && S.fin && S.fin.slice(2) === box.seed + '-' + box.grade) { bx.left = 0; if (S.fin[0] === 'x') bx.destroyed = true; else bx.signed = true; } // finished before a reload: it stays finished
   return { ...base, sources: [S0(1, 4, 0)], fixed: boxParts(box), tray: { ...S.own }, test: () => false };
 }
 function openBox(seed, grade, daily) { box = genBox(seed, grade); box.daily = !!daily; load(LV.findIndex(l => l.box)); }
@@ -869,7 +870,7 @@ function crateFire() {
 function crateStamp(sayLive) {
   if (!crate || crate.done) return; const live = crate.live[crate.i], pts = live ? (sayLive ? (crate.cur || []).includes('D2') ? PTS.live : 0 : PTS.missLive) : (sayLive ? PTS.missDud : PTS.dud);
   // a live bomb stamped LIVE only scores if it was certified (a D2 click): an unproven guess earns nothing
-  crate.score += pts; crate.log.push({ live, res: sayLive ? 'LIVE' : 'DUD', pts }); FX.sfx('place'); nextBomb();
+  crate.score += pts; crate.log.push({ live, res: sayLive ? 'LIVE' : 'DUD', pts }); FX.sfx('place'); nextBomb(); renderTray(); need = true;
 }
 function nextBomb() {
   crate.cur = []; crate.i++;
@@ -896,7 +897,7 @@ function renderTray() {
     if ($('crFire')) { $('crFire').onclick = () => crateFire(); $('crLive').onclick = () => crateStamp(true); $('crDud').onclick = () => crateStamp(false); }
     if ($('crR')) $('crR').oninput = e => { crate.R = +e.target.value / 100; e.target.nextElementSibling.textContent = e.target.value + '%'; };
     if ($('crN')) $('crN').oninput = e => { crate.N = +e.target.value; e.target.nextElementSibling.textContent = e.target.value; };
-    if ($('crNew')) $('crNew').onclick = () => { newCrate(); FX.sfx('pop'); renderTray(); };
+    if ($('crNew')) $('crNew').onclick = () => { newCrate(); hideToast(); FX.sfx('pop'); renderTray(); };
     fit(); return; }
   $('tray').innerHTML = Object.entries(L.tray).filter(([, n]) => !L.box || n > 0).map(([t, n]) => `<button class="pc ${tool === t ? 'on' : ''}" data-t="${t}">${NAMES[t]} <i>${n - used(t)}</i></button>`).join('') +
     (L.box ? (phoneUI() ? '' : `<button class="b" id="bf1">Fire 1</button><button class="b" id="bf10">Fire 10</button><button class="b" id="bf50">Fire 50</button>`) : L.fire ? `<button class="b" id="f1">Fire 1 photon</button><button class="b" id="f20">Fire 20</button>` : `<button class="b ghost" id="f20">Fire 20 photons</button>`) + `<button class="b ghost" id="rst">${L.box ? 'Clear' : 'Reset'}</button>`;

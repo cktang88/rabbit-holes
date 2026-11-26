@@ -137,6 +137,37 @@ module.exports = {
       const s = await page.evaluate(() => [__ruin.S.seed, __ruin.S.mode, __ruin.shareLink(), __ruin.shareText()]);
       eq(s.slice(0, 2), ['zebra', 'career']); ok(s[2].endsWith('#seed=zebra') && s[3].includes('zebra'));
     },
+    'a fresh player is taught the first slip in plain words: the premium now, kept if she arrives, the line paid if she sinks': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const S = __ruin.S, sl = document.querySelector('.slip[data-i="0"]'), v = S.voy[S.slips[0].vid], chip = sl.querySelector('.chips button[data-act="sign"]');
+        const q = c => (sl.querySelector(c) || {}).textContent || '';
+        return { lesson: q('.lesson'), nm: v.nm, line: +chip.dataset.line, rate: v.rate, chip: chip.textContent, sum: q('.sum'), rt: q('.rt'), chiplab: q('.chiplab'), purse: document.getElementById('capital').textContent }; });
+      const prem = r.line * r.rate / 100, L = '£' + r.line.toLocaleString('en-GB');
+      ok(r.lesson.includes(`The ${r.nm} sails`), 'no plain-language lesson on the first slip: ' + r.lesson);
+      for (const w of ['her owner pays you', '(the premium)', 'If she arrives, you keep it', `If she sinks, you pay ${L}`, '(your line)', '£' + Math.floor(prem)]) ok(r.lesson.includes(w), `lesson lacks "${w}": ${r.lesson}`);
+      ok(r.chip.includes(L) && r.chip.includes('+£' + Math.floor(prem)), 'a chip should show the line and the premium it earns: ' + r.chip);
+      ok(r.sum.includes('insured for') && r.rt.includes('rate') && r.chiplab.includes('you pay it if she sinks') && r.purse.includes('your purse'), 'numbers need plain labels');
+      // sign it: the lesson gives way, and closing the sitting writes the month's account as ledger lines
+      await page.click('.slip[data-i="0"] .chips button[data-act="sign"]');
+      ok(!(await page.$('.slip[data-i="0"] .lesson')), 'lesson should go once signed'); ok((await page.textContent('#pane')).includes('close the sitting'), 'next step not taught');
+      await page.click('#closeBtn'); await page.waitForFunction(() => !__ruin.busy && __ruin.S.t === 1, null, { timeout: 5000 }); await close(page);
+      const acct = await page.evaluate(() => { const a = document.querySelector('.acct'); return a && { text: a.textContent, rows: __ruin.S.acct.rows, cap: __ruin.S.cap }; });
+      ok(acct && acct.text.includes('Premiums you took for signing'), 'no account of the month');
+      const rows = acct.rows, sum = rows.slice(1, -1).reduce((x, rw) => x + rw[1], rows[0][1]);
+      ok(Math.abs(sum - acct.cap) < .01 && Math.abs(rows[rows.length - 1][1] - acct.cap) < .01, 'the account should add up to the purse: ' + JSON.stringify(rows));
+    },
+    'every later slip shows why it is priced so: each sea and month, ship, captain, the odds and the break-even': async ({ page, ok }) => {
+      await page.click('.slip[data-i="0"] .chips button[data-act="sign"]');
+      const r = await page.evaluate(() => { const S = __ruin.S, i = S.slips.findIndex(s => s.k === 'v' && s.st === 'open'), el = document.querySelector(`.slip[data-i="${i}"] details.why`), v = S.voy[S.slips[i].vid];
+        el.open = true; return { text: el.textContent, rate: v.rate, legs: __ruin.ROUTES[v.r].legs.length, rows: el.querySelectorAll('.wr').length, est: __ruin.reckon(v).p }; });
+      const pc = (r.rate % 1 ? Math.floor(r.rate) + '½' : r.rate) + '%';
+      ok(r.text.includes(`Why ${pc}?`) && r.text.includes(`pays if her true risk is under ${pc}`), 'no break-even: ' + r.text);
+      ok(r.text.includes(`you risk £${Math.round(100 / r.rate)} to win £1`), 'no odds');
+      ok(r.text.includes('Ship:') && r.text.includes('Captain:') && r.rows >= r.legs + 3, 'reasons missing');
+      ok(r.est > 0 && r.est < .6, 'ledger guess out of range ' + r.est);
+      // the chart's dangers follow the war: privateers marked in home waters in wartime, not in peacetime
+      const d = await page.evaluate(() => { const S = __ruin.S, out = [S.t]; out.push(__ruin.dangers().home.raid); S.t = 20; __ruin.render(); out.push(__ruin.dangers().home.raid); return out; });
+      ok(d[1] === false && d[2] === true, 'privateers on the chart: ' + d);
+    },
     'phone (390x844): chart, a whole slip with its chips, and Close the sitting are on screen together; a tap signs': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(400);
       const vis = sel => page.evaluate(sel => { const e = document.querySelector(sel); if (!e) return false; const r = e.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight && r.height > 0 && r.left >= 0 && r.right <= innerWidth; }, sel);

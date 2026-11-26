@@ -374,13 +374,13 @@ function dailySpec(seed){ const r=M.rngOf('daily:'+seed); const kinds=['ok','ok'
 function cleanSave(s){ if (!s||typeof s!=='object'||Array.isArray(s)||s.v!==2) s={v:2};
   const best={}; if (s.best&&typeof s.best==='object') for (const k in s.best){ const n=+k, b=s.best[k]; if (Number.isInteger(n)&&n>=0&&n<SHEETS.length&&b&&typeof b==='object'&&Number.isFinite(+b.coins)) best[n]={coins:Math.max(-999,Math.min(9999,+b.coins|0)), stars:Math.max(0,Math.min(3,+b.stars|0))}; }
   const daily={}; if (s.daily&&typeof s.daily==='object') for (const [k,v] of Object.entries(s.daily).slice(-60)) if (/^[\w-]{1,24}$/.test(k)&&Number.isFinite(+v)) daily[k]=Math.max(-999,Math.min(9999,+v|0));
-  return {v:2, best, daily, cur:Number.isInteger(s.cur)&&s.cur>=0&&s.cur<SHEETS.length?s.cur:0}; }
+  return {v:2, best, daily, taught:s.taught?1:0, cur:Number.isInteger(s.cur)&&s.cur>=0&&s.cur<SHEETS.length?s.cur:0}; }
 const SAVE=cleanSave(RH.load('mapmaker2',null));
 const open_=(i)=>i===0||!!SAVE.best[i-1]||!!SAVE.best[i];
 if (!open_(SAVE.cur)) SAVE.cur=0;
 const persist=()=>{ RH.save('mapmaker2',SAVE); RH.progress('mapmaker',Object.keys(SAVE.best).length/SHEETS.length); };
 // ===================== state =====================
-let si=0, daily=null, S=null, st=null, logs=[], est={}, sel=0, published=null, anim=null, dirty=true;
+let si=0, daily=null, S=null, st=null, logs=[], est={}, sel=0, published=null, anim=null, dirty=true, voy=0;
 const sheetDef=()=> daily? daily : SHEETS[si];
 function openSheet(i, dailySeed){
   daily=null; if (dailySeed){ daily=dailySpec(dailySeed); daily.seed=dailySeed; } else { if (!open_(i)) i=0; si=i; SAVE.cur=i; persist(); }
@@ -405,8 +405,8 @@ function publish(){ if (published) return; recompute(); const sc=M.score(S,st,es
   persist(); renderAll(); setTimeout(()=>{ if (published){ sc.runs.forEach(r=>r.wreck&&WRECK()); renderResult(); } }, 2600);
 }
 function renderResult(){ const el=document.getElementById('result'); if (!published){ el.innerHTML=''; return; } const sc=published.sc, d=sheetDef();
-  const rows=sc.runs.map(r=>`<tr><td>${S.T.ports[S.routes[r.i].from].name} → ${S.T.ports[S.routes[r.i].to].name}</td><td>${r.wreck?`<b style="color:#9c1f1a">wrecked on ${r.wreck.on}</b>`:`${Math.round(r.len)} lg (${Math.round(r.len-r.direct)} out of her way)`}</td><td>${r.fee>0?'+':''}${r.fee}</td></tr>`).join('');
-  const mk=sc.marks.map(m=>`<tr><td>${m.f}</td><td>${m.phantom?'<i>no such place</i>':m.ok?`true spot inside your ±${m.r.toFixed(1)}`:`<b style="color:#9c1f1a">${m.d.toFixed(1)} lg off, outside ±${m.r.toFixed(1)}</b>`}</td><td>${m.v>0?'+':''}${m.v}</td></tr>`).join('');
+  const rows=sc.runs.map(r=>{ const det=Math.round(r.len-r.direct); return `<tr><td>${S.T.ports[S.routes[r.i].from].name} → ${S.T.ports[S.routes[r.i].to].name}</td><td>${r.wreck?`<b style="color:#9c1f1a">wrecked on ${r.wreck.on}: your chart showed open sea</b>`: det>1? `arrived; ${det} leagues of detour around your doubt rings` : 'arrived by the short way'}</td><td>${r.fee>0?'+':''}${r.fee}</td></tr>`; }).join('');
+  const mk=sc.marks.map(m=>`<tr><td>${m.f}</td><td>${m.phantom?'<i>no such place: the Admiralty fines you</i>':m.ok?`truly lies inside your doubt ring: paid`:`<b style="color:#9c1f1a">truly lies ${m.d.toFixed(1)} lg away, outside your ring: fined</b>`}</td><td>${m.v>0?'+':''}${m.v}</td></tr>`).join('');
   el.innerHTML=`<div class="res"><h3>${published.won?'The Admiralty is pleased':'The Admiralty is not pleased'} ${'★'.repeat(published.stars)}</h3><table>${rows}${mk}${st.spent?`<tr><td>Survey voyages</td><td></td><td>−${st.spent}</td></tr>`:''}<tr><td><b>Total</b></td><td>target ${d.target}</td><td><b>${sc.coins}</b></td></tr></table>
     <p style="margin:6px 0;font-style:italic">The red ink is the coast as it truly lies.</p><div class="ctrl"><button id="redraw">Redraw this sheet</button>${published.won&&!daily&&si+1<SHEETS.length?'<button id="nextSheet">Next sheet →</button>':''}${daily?'<button id="shareDaily">Copy result</button>':''}</div></div>`;
   document.getElementById('redraw').onclick=()=>openSheet(si, daily&&daily.seed);
@@ -418,36 +418,46 @@ function copy(t){ try { navigator.clipboard.writeText(t).then(()=>RH.toast('Copi
 // ===================== side panel =====================
 const fmtBrg=(b)=>{ b=((b%360)+360)%360; const ns=b<=90||b>=270?'N':'S', ew=b<=180?'E':'W'; const a= ns==='N'? (b<=90?b:360-b) : (b<=180?180-b:b-180); return a<0.5? ns : a>89.5? (b<180?'E':'W') : `${ns} ${Math.round(a)}° ${ew}`; };
 const lat=(y)=>{ const v=24-y/20; const d=Math.floor(v), m=Math.round((v-d)*60); return `${d}°${String(m===60?0:m).padStart(2,'0')}′`; };
-function renderAll(){ const d=sheetDef(); document.getElementById('sheetName').textContent=d.n; document.getElementById('hint').textContent=d.goal||'The same logs for everyone today. Fix each cape, then seal the chart.'; renderPurse(); renderTabs(); renderPage(); renderFeats(); renderSheets(); renderResult();
+function renderAll(){ const d=sheetDef(); document.getElementById('sheetName').textContent=d.n; document.getElementById('hint').textContent=d.goal||'The same logs for everyone today. Fix each cape, then seal the chart.'; renderPurse(); renderTabs(); renderPage(); renderFeats(); renderSheets(); renderResult(); renderStep();
   document.getElementById('publish').disabled=!!published; dirty=true; }
 function renderPurse(){ const d=sheetDef(); document.getElementById('purse').innerHTML=`<span>Commission target: <b>${d.target}</b> doubloons</span><span>Surveys spent: ${st.spent}</span>`; }
 function logStatus(i){ const L=logs[i], s=st.logs[i]; if (s.struck) return {txt:'struck out', cls:'bad', mark:'✗'};
   const tr=M.track(S,L,s), end=tr[tr.length-1];
-  if (L.to!=null){ const gap=dist(end,S.T.ports[L.to].p); return gap<0.3? {txt:`Traverse closed on ${S.T.ports[L.to].name}`, cls:'ok', mark:'✓'} : {txt:`She reached ${S.T.ports[L.to].name}, but your reckoning ends ${gap.toFixed(1)} leagues away. Drag her last position onto the port.`, cls:'bad', mark:'○'}; }
+  if (L.to!=null){ const gap=dist(end,S.T.ports[L.to].p); return gap<0.3? {txt:`✓ On ${S.T.ports[L.to].name}: her track is corrected.`, cls:'ok', mark:'✓'} : {txt:`A hidden current pushed her ${gap.toFixed(0)} leagues off. Drag the ship ⛵ onto ${S.T.ports[L.to].name}.`, cls:'bad', mark:'○'}; }
   const miss=L.noons.map(nn=>{ const k=L.entries.findIndex(e=>e.t>=nn.t); return Math.abs(tr[Math.max(1,k+1)][1]-nn.lat); }); const mx=miss.length? Math.max(...miss):0;
-  return mx<0.8? {txt:'Lost at sea: her noon latitudes agree with your track. Her sightings of known capes must place her east or west.', cls:'ok', mark:'≈'} : {txt:`Lost at sea, no port to close on. Her noon latitude is ${mx.toFixed(1)} leagues from your track. Drag her last position.`, cls:'bad', mark:'○'}; }
+  return mx<0.8? {txt:'≈ Her noon lines agree. Slide her east or west until her rays meet the others\'.', cls:'ok', mark:'≈'} : {txt:`Lost at sea: no port to close on. Drag the ship ⛵ until her track touches the green noon lines (now ${mx.toFixed(1)} leagues off).`, cls:'bad', mark:'○'}; }
 function logAgree(i){ let s=0,n=0; for (const e of Object.values(est)) if (e.fixed) for (const r of e.rays) if (r.li===i&&r.on&&e.logs>=2){ s+=Math.min(r.res,10); n++; } return n? s/n : null; }
 function renderTabs(){ const el=document.getElementById('tabs'); el.innerHTML=logs.map((L,i)=>{ const s=logStatus(i); return `<button data-l="${i}" class="${i===sel?'sel':''} ${st.logs[i].struck?'struck':''}" aria-label="Log of ${L.cap}">${L.cap.replace('Capt. ','')}<span class="st">${s.mark}</span></button>`; }).join('');
-  el.querySelectorAll('[data-l]').forEach(b=>b.onclick=()=>{ sel=+b.dataset.l===sel? -1 : +b.dataset.l; renderTabs(); renderPage(); dirty=true; if (sel>=0) frameLog(sel); }); }
-function renderPage(){ const el=document.getElementById('page'); if (sel<0||!logs[sel]){ el.innerHTML='<i>Choose a log. Its dead-reckoned track is inked on the chart; each sighting throws a pencil ray towards what was seen.</i>'; return; }
+  el.querySelectorAll('[data-l]').forEach(b=>b.onclick=()=>{ sel=+b.dataset.l===sel? -1 : +b.dataset.l; voy=performance.now(); renderTabs(); renderPage(); renderStep(); dirty=true; if (sel>=0) frameLog(sel); }); }
+function renderPage(){ const el=document.getElementById('page'); if (sel<0||!logs[sel]){ el.innerHTML='<i>Tap a captain to watch her voyage on the chart.</i>'; return; }
   const L=logs[sel], s=st.logs[sel], status=logStatus(sel), ag=logAgree(sel);
-  let h=`<div class="cap">${L.cap}${L.kind==='survey'?' <small>(Admiralty instruments)</small>':''}</div><div>${S.T.ports[L.from].name} → ${L.to!=null?S.T.ports[L.to].name:'<i>never arrived</i>'} · ${Math.round(L.T)} hours</div><div class="entries">`;
+  const saw={}; L.entries.forEach((e,k)=>e.sights.forEach((g,j)=>{ const nm=g.reef?'breakers ('+g.f+')':g.f; saw[nm]=saw[nm]||!s.off[k+':'+j]; }));
+  let h=`<div class="cap">${L.cap}${L.kind==='survey'?' <small>(Admiralty instruments)</small>':''}</div><div class="sum">${S.T.ports[L.from].name} → ${L.to!=null?S.T.ports[L.to].name:'<i>never arrived</i>'} · ${Math.round(L.T)} h<br>Sighted: ${Object.keys(saw).length? Object.entries(saw).map(([n,on])=>`<span class="cp ${on?'':'off'}">${n}</span>`).join('') : '<i>nothing</i>'}</div><details class="book"><summary>Show the logbook</summary><div class="entries">`;
   let day=0; L.entries.forEach((e,k)=>{ const h0=e.t-e.dur; h+=`<div><b>${Math.floor(h0)}–${Math.floor(e.t)} h</b> steered ${fmtBrg(e.hd)}, ${e.spd} knots.`; e.sights.forEach((g,j)=>{ const off=s.off[k+':'+j]; h+=` <span class="sight ${off?'off':''}">${g.reef?'Breakers':g.f} bearing ${fmtBrg(g.b)}.</span>`; }); if (e.nothing) h+=` <span class="sight">Looked for ${e.nothing}: open sea.</span>`; else if (e.clear) h+=' No land in sight.'; h+='</div>';
     L.noons.filter(nn=>nn.t>h0&&nn.t<=e.t).forEach(nn=>h+=`<div><b>Noon</b> latitude by the sun ${lat(nn.lat)}.</div>`); });
-  h+=`</div><div class="ctrl"><span class="lbl">Compass</span><button data-dv="-1" aria-label="Turn compass one point west">◀ W</button><span class="needle">${s.dev? Math.abs(s.dev)+' point'+(Math.abs(s.dev)>1?'s':'')+' '+(s.dev>0?'east':'west') : 'as read'}</span><button data-dv="1" aria-label="Turn compass one point east">E ▶</button></div>`;
+  h+=`</div></details><div class="ctrl"><span class="lbl">Compass</span><button data-dv="-1" aria-label="Turn compass one point west">◀ W</button><span class="needle">${s.dev? Math.abs(s.dev)+' point'+(Math.abs(s.dev)>1?'s':'')+' '+(s.dev>0?'east':'west') : 'as read'}</span><button data-dv="1" aria-label="Turn compass one point east">E ▶</button></div>`;
   h+=`<div class="status ${status.cls}">${status.txt}</div>`;
-  if (ag!=null) h+=`<div class="small" style="margin-top:4px">Her rays miss the agreed marks by ${ag.toFixed(1)} leagues on average<div class="agree"><i style="width:${Math.min(100,ag*12)}%"></i></div></div>`;
+  if (ag!=null) h+=`<div class="small" style="margin-top:4px">${ag>2.5&&!s.struck? `<b style="color:#9c1f1a">Her rays miss the others' by ${ag.toFixed(1)} leagues.</b> A bent compass? Turn it ◀ ▶. If nothing helps, she lied: strike her out.` : `Her rays miss the others' by ${ag.toFixed(1)} leagues.`}<div class="agree"><i style="width:${Math.min(100,ag*12)}%"></i></div></div>`;
   h+=`<div class="ctrl" style="margin-top:6px">${L.to!=null&&status.cls==='bad'?'<button id="closeBtn">Close on port</button>':''}<button id="strikeBtn">${s.struck?'Trust this log again':'Strike out this log'}</button></div>`;
   el.innerHTML=h;
   el.querySelectorAll('[data-dv]').forEach(b=>b.onclick=()=>{ const was=L.to!=null&&logStatus(sel).cls==='ok'; setDev(sel, s.dev + +b.dataset.dv); if (was){ closeOn(sel); recompute(); } renderTabs(); renderPage(); renderFeats(); });
   const cb=document.getElementById('closeBtn'); if (cb) cb.onclick=()=>{ closeOn(sel); recompute(); CLICK(); renderAll(); };
+  renderStep();
   document.getElementById('strikeBtn').onclick=()=>toggleStrike(sel);
 }
 function renderFeats(){ const el=document.getElementById('feats'); const list=Object.values(est).sort((a,b)=>(a.kind>b.kind?1:-1)||a.f.localeCompare(b.f));
-  el.innerHTML=list.length? list.map(e=>{ const warn=e.fixed&&e.contra>0; const d= e.fixed? `±${e.r.toFixed(1)} lg · ${e.logs} log${e.logs>1?'s':''}${e.contra?` · ${e.contra} saw open sea there`:''}` : `${e.n} ray${e.n===1?'':'s'}: not yet fixed`;
+  el.innerHTML=list.length? list.map(e=>{ const warn=e.fixed&&e.contra>0; const d= e.fixed? `doubt ±${e.r.toFixed(1)} lg · ${e.logs} ship${e.logs>1?'s':''}${e.contra?` · ${e.contra} saw open sea there`:''}` : `${e.n} sight line${e.n===1?'':'s'}: not fixed yet`;
     return `<div class="feat ${warn?'warn':''}"><input type="checkbox" data-f="${e.f}" ${e.on?'checked':''} ${e.fixed&&!published?'':'disabled'} aria-label="Put ${e.f} on the chart"><span class="n">${e.kind==='reef'?'⁂ ':''}${e.f}<br><span class="d">${d}</span></span><span></span>${!published&&(!e.fixed||e.r>2.5)?`<button data-s="${e.f}" title="Send the survey sloop: costs 10">Survey · 10</button>`:'<span></span>'}</div>`; }).join('') : '<i>Nothing sighted yet.</i>';
   el.querySelectorAll('[data-f]').forEach(c=>c.onchange=()=>{ st.feats[c.dataset.f]={on:c.checked}; recompute(); dirty=true; });
   el.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>survey(b.dataset.s)); }
+// one short prompt: the next thing to do on this sheet
+function renderStep(){ const el=document.getElementById('step'); if (!el||!S) return; if (published){ el.textContent=''; return; }
+  const open=logs.map((L,i)=>i).filter(i=>!st.logs[i].struck&&logStatus(i).cls==='bad');
+  if (sel<0 && open.length===logs.length) { el.textContent='Tap a captain in the ship\'s logs below to watch her voyage.'; return; }
+  if (open.length){ const i=open.includes(sel)? sel : open[0], L=logs[i]; el.textContent= i!==sel? `Next: open ${L.cap.replace('Capt. ','')}'s log.` : L.to!=null? `Drag her ship ⛵ onto ${S.T.ports[L.to].name}.` : 'Drag her ship ⛵ until her track meets the green noon lines.'; return; }
+  const miss=logs.map((L,i)=>i).filter(i=>!st.logs[i].struck&&(logAgree(i)??0)>2.5); if (miss.length){ el.textContent=`${logs[miss[0]].cap.replace('Capt. ','')}'s rays miss everyone else's. Turn her compass, or strike her out.`; return; }
+  const ghost=Object.values(est).find(e=>e.fixed&&e.on&&e.contra>0); if (ghost){ el.textContent=`Other ships saw open sea at ${ghost.f}. Untick it if you doubt it.`; return; }
+  el.textContent='The rays agree. Seal & publish the chart.'; }
 function renderSheets(){ const el=document.getElementById('sheets'); el.innerHTML=SHEETS.map((s,i)=>`<button data-s="${i}" class="${i===si&&!daily?'cur':''}" ${open_(i)?'':'disabled'} title="${s.n}">${['I','II','III','IV','V','VI','VII','VIII','IX','X'][i]}<span class="s">${'★'.repeat(SAVE.best[i]?.stars||0)}</span></button>`).join('');
   el.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>openSheet(+b.dataset.s));
   const dOpen=!!SAVE.best[2]; const k=todayKey();
@@ -558,17 +568,25 @@ function drawChart(){
   }
   // logs: dead-reckoned tracks, noon latitudes and sighting rays
   const R=M.rays(S,st,logs);
-  logs.forEach((L,i)=>{ const s=st.logs[i], tr=M.track(S,L,s), on=i===sel, struck=s.struck;
+  // the chosen log sails out: her track inks itself and each sighting's ray appears as she passes
+  const va= sel>=0&&!published? Math.min(1,(now-voy)/2400) : 1, vReach= sel>=0? va*(L0len()) : 0;
+  function L0len(){ return logs[sel]? logs[sel].entries.length : 0; }
+  logs.forEach((L,i)=>{ const s=st.logs[i], tr0=M.track(S,L,s), on=i===sel, struck=s.struck; let tr=tr0;
+    if (on && va<1){ const j=Math.floor(vReach), u=vReach-j; tr=tr0.slice(0,j+1); if (tr0[j+1]) tr.push([tr0[j][0]+(tr0[j+1][0]-tr0[j][0])*u, tr0[j][1]+(tr0[j+1][1]-tr0[j][1])*u]); }
     g.save(); g.setLineDash(on?[k*0.8,k*0.45]:[k*0.5,k*0.6]); ink(g,k,()=>{ g.beginPath(); tr.forEach((p,j)=>j?g.lineTo(p[0]*k,p[1]*k):g.moveTo(p[0]*k,p[1]*k)); }, on?Math.max(1.4,k*0.2):Math.max(.8,k*0.09), struck?'rgba(46,32,21,.25)': on?'#2e2015':'rgba(46,32,21,.55)', on?0.4:0.15); g.restore();
     if (on){ // noon latitude checks
-      L.noons.forEach(nn=>{ const kk=L.entries.findIndex(e=>e.t>=nn.t), p=tr[Math.max(1,kk+1)], ok=Math.abs(p[1]-nn.lat)<0.8; g.strokeStyle= ok?'rgba(63,127,106,.9)':'rgba(156,31,26,.9)'; g.lineWidth=Math.max(1,k*0.12); g.beginPath(); g.moveTo((p[0]-4)*k,nn.lat*k); g.lineTo((p[0]+4)*k,nn.lat*k); g.stroke(); g.setLineDash([2,3]); g.beginPath(); g.moveTo(p[0]*k,p[1]*k); g.lineTo(p[0]*k,nn.lat*k); g.stroke(); g.setLineDash([]);
+      L.noons.forEach(nn=>{ const kk=L.entries.findIndex(e=>e.t>=nn.t), p=tr0[Math.max(1,kk+1)], ok=Math.abs(p[1]-nn.lat)<0.8; g.strokeStyle= ok?'rgba(63,127,106,.9)':'rgba(156,31,26,.9)'; g.lineWidth=Math.max(1,k*0.12); g.beginPath(); g.moveTo((p[0]-4)*k,nn.lat*k); g.lineTo((p[0]+4)*k,nn.lat*k); g.stroke(); g.setLineDash([2,3]); g.beginPath(); g.moveTo(p[0]*k,p[1]*k); g.lineTo(p[0]*k,nn.lat*k); g.stroke(); g.setLineDash([]);
         g.font=`italic ${Math.max(9,k*1.2)}px "IM Fell English"`; g.fillStyle=g.strokeStyle; g.textAlign='left'; g.fillText('noon '+lat(nn.lat),(p[0]+4.3)*k,nn.lat*k+k*0.4); });
       // the ship at her last reckoned position: drag her
       const e=tr[tr.length-1]; ship(g,e[0]*k,e[1]*k,k*1.3,'#2e2015',0); g.strokeStyle='rgba(156,31,26,.7)'; g.lineWidth=1.5; g.beginPath(); g.arc(e[0]*k,e[1]*k,Math.max(14,k*2.2),0,7); g.stroke();
       if (L.to!=null){ const p=S.T.ports[L.to].p, gap=dist(e,p); if (gap>0.3){ g.setLineDash([3,4]); g.strokeStyle='rgba(156,31,26,.6)'; g.beginPath(); g.moveTo(e[0]*k,e[1]*k); g.lineTo(p[0]*k,p[1]*k); g.stroke(); g.setLineDash([]); } } } });
-  for (const r of R){ const e=est[r.f], on=r.li===sel; if (!on && sel>=0 && !(e&&e.fixed)) continue; const d=M.dirOf(r.b), L=e&&e.fixed? Math.max(4,Math.min(40,(e.p[0]-r.o[0])*d[0]+(e.p[1]-r.o[1])*d[1]+5)) : 26;
+  const tipped={};
+  for (const r of R){ const e=est[r.f], on=r.li===sel; if (!on && sel>=0 && !(e&&e.fixed)) continue; if (on && va<1 && r.k+1>vReach) continue; const d=M.dirOf(r.b), L=e&&e.fixed? Math.max(4,Math.min(40,(e.p[0]-r.o[0])*d[0]+(e.p[1]-r.o[1])*d[1]+5)) : 26;
     const bad= e&&e.fixed&&r.on&&r.res>Math.max(2,e.r*0.9); g.strokeStyle= !r.on? 'rgba(46,32,21,.12)' : bad? 'rgba(156,31,26,.55)' : on? 'rgba(46,32,21,.55)' : 'rgba(90,70,45,.22)'; g.lineWidth= on? Math.max(.8,k*0.08) : Math.max(.5,k*0.05);
-    if (!r.on) g.setLineDash([2,4]); g.beginPath(); g.moveTo(r.o[0]*k,r.o[1]*k); g.lineTo((r.o[0]+d[0]*L)*k,(r.o[1]+d[1]*L)*k); g.stroke(); g.setLineDash([]); }
+    if (!r.on) g.setLineDash([2,4]); g.beginPath(); g.moveTo(r.o[0]*k,r.o[1]*k); g.lineTo((r.o[0]+d[0]*L)*k,(r.o[1]+d[1]*L)*k); g.stroke(); g.setLineDash([]);
+    // on the chosen log, a little cape (or breakers) at the end of each sight line, named once
+    if (on && r.on && !(e&&e.fixed)){ const tx=(r.o[0]+d[0]*L)*k, ty=(r.o[1]+d[1]*L)*k, z=Math.max(5,k*0.9); g.fillStyle='rgba(90,60,30,.75)'; g.beginPath(); g.moveTo(tx-z,ty+z*0.5); g.lineTo(tx-z*0.2,ty-z*0.6); g.lineTo(tx+z*0.3,ty-z*0.1); g.lineTo(tx+z,ty+z*0.5); g.closePath(); g.fill();
+      if (!tipped[r.f]){ tipped[r.f]=1; g.font=`italic ${Math.max(10,k*1.2)}px "IM Fell English"`; g.fillStyle='rgba(46,32,21,.8)'; g.textAlign='left'; g.fillText(r.f,tx+z*1.2,ty+z*0.4); } } }
   // landmarks where the rays cross, with their doubt rings
   for (const e of Object.values(est)){ if (!e.fixed) continue; const [x,y]=e.p, dim=!e.on;
     g.save(); g.globalAlpha=dim?0.35:1; g.setLineDash([k*0.35,k*0.35]); g.strokeStyle= e.contra?'rgba(156,31,26,.75)':'rgba(156,31,26,.5)'; g.lineWidth=Math.max(1,k*0.1); g.beginPath(); g.arc(x*k,y*k,e.r*k,0,7); g.stroke(); g.setLineDash([]);
@@ -599,6 +617,8 @@ function ship(g,x,y,s,col,ang,wreck){ g.save(); g.translate(x,y); g.rotate(ang||
 const toW=(e)=>cam.toWorld(e.clientX,e.clientY);
 function hitHandle(e){ if (sel<0||published||!S) return false; const tr=M.track(S,logs[sel],st.logs[sel]), p=tr[tr.length-1], q=cam.toScreen(p[0],p[1]); return Math.hypot(q[0]-e.clientX,q[1]-e.clientY)<Math.max(22,cam.k*2.2); }
 function hitTrack(e){ if (!S) return -1; const w=toW(e), tol=Math.max(1,14/cam.k); let best=-1, bd=tol; logs.forEach((L,i)=>{ const tr=M.track(S,L,st.logs[i]); for (let j=0;j<tr.length-1;j++){ const d=M.polyDist? segD(w,tr[j],tr[j+1]) : 9; if (d<bd){ bd=d; best=i; } } }); return best>=0? best : false; }
+function legNote(e){ const w=toW(e), L=logs[sel], tr=M.track(S,L,st.logs[sel]); let bj=0, bd=1e9; for (let j=0;j<tr.length-1;j++){ const d=segD(w,tr[j],tr[j+1]); if (d<bd){ bd=d; bj=j; } } const en=L.entries[bj];
+  note(`Hours ${Math.floor(en.t-en.dur)}–${Math.floor(en.t)}: ${en.spd} knots, steering ${fmtBrg(en.hd)}${en.sights.length?' · saw '+en.sights.map(g=>g.f).join(', '):''}`); }
 function segD(p,a,b){ const dx=b[0]-a[0], dy=b[1]-a[1], L=dx*dx+dy*dy||1; const t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L)); return Math.hypot(p[0]-a[0]-t*dx,p[1]-a[1]-t*dy); }
 function hitRay(e){ if (sel<0||!S) return null; const w=toW(e), tol=Math.max(0.8,10/cam.k); let best=null, bd=tol; for (const r of M.rays(S,st,logs)){ if (r.li!==sel) continue; const d=M.dirOf(r.b), q=[r.o[0]+d[0]*40,r.o[1]+d[1]*40], dd=segD(w,r.o,q); if (dd<bd){ bd=dd; best=r; } } return best; }
 let down=null;
@@ -608,14 +628,14 @@ cv.addEventListener('pointermove',e=>{ if (!dragging||cam.gesturing) return; con
   if (L.to!=null){ s.drift=dragging.d0.slice(); s.drift=[dragging.d0[0]+w[0]-dragging.start[0], dragging.d0[1]+w[1]-dragging.start[1]]; const tr=M.track(S,L,s), en=tr[tr.length-1], p=S.T.ports[L.to].p; if (dist(en,p)<2.5){ s.drift=[s.drift[0]+p[0]-en[0], s.drift[1]+p[1]-en[1]]; if (!dragging.snapped){ dragging.snapped=1; CLICK(); } } else dragging.snapped=0; }
   if (performance.now()-(dragging.sc||0)>120){ dragging.sc=performance.now(); SCRATCH(); }
   recompute(); });
-const endDrag=(e)=>{ if (dragging){ dragging=null; cv.classList.remove('drag'); renderTabs(); renderPage(); renderFeats(); return; }
+const endDrag=(e)=>{ if (dragging){ dragging=null; cv.classList.remove('drag'); renderTabs(); renderPage(); renderFeats(); renderStep(); return; }
   if (down && e && Math.hypot(e.clientX-down.x,e.clientY-down.y)<6 && performance.now()-down.t<600){ const r=hitRay(e); if (r && !published){ const s=st.logs[r.li], id=r.id; if (s.off[id]) delete s.off[id]; else s.off[id]=1; recompute(); renderPage(); renderFeats(); note(s.off[id]?`You strike out that sighting of ${r.f}.`:`You trust that sighting of ${r.f} again.`); }
-    else { const h=hitTrack(e); if (h!==false && h!==sel){ sel=h; renderTabs(); renderPage(); dirty=true; } } }
+    else { const h=hitTrack(e); if (h!==false && h!==sel){ sel=h; voy=performance.now(); renderTabs(); renderPage(); dirty=true; } else if (h!==false && h===sel) legNote(e); } }
   down=null; };
 window.addEventListener('pointerup',endDrag); window.addEventListener('pointercancel',()=>{ dragging=null; down=null; });
 document.getElementById('publish').onclick=publish;
 window.addEventListener('resize',fitChart);
-function loop(){ const animating= published && performance.now()-published.t0<4200; if (dirty||animating||dragging||(published&&published.sc.wrecks)){ dirty=false; drawChart(); } requestAnimationFrame(loop); }
+function loop(){ const animating= (published && performance.now()-published.t0<4200) || (sel>=0 && !published && performance.now()-voy<2500); if (dirty||animating||dragging||(published&&published.sc.wrecks)){ dirty=false; drawChart(); } requestAnimationFrame(loop); }
 // bots for the chart room. Each takes (M, S) and returns { st, est } ready to publish.
 // The navigator: a competent chart-maker the game uses to set the daily target (and the tests use as the adaptive bot)
 const NAV = {
@@ -654,9 +674,35 @@ NAV.noSurvey = (M, S) => NAV.competent(M, S, { noSurvey: true });
 // the day's target scales with the work: trade lanes, capes and reefs (calibrated against the navigator bot)
 function dailyTarget(d){ const S2=M.sheet(d.spec,'daily:'+d.seed); const caps=Object.values(S2.T.feats).filter(f=>f.kind==='cape').length; return Math.round(1.05*(S2.routes.length*30+caps*5+S2.T.reefs.length*4)); }
 
-window.__map={ M, NAV, get S(){ return S; }, get st(){ return st; }, get logs(){ return logs; }, get est(){ return est; }, recompute, openSheet, publish, closeOn, setDev, toggleStrike, survey, get published(){ return published; }, get sel(){ return sel; }, set sel(v){ sel=v; renderTabs(); renderPage(); dirty=true; }, SHEETS, get SAVE(){ return SAVE; }, cleanSave, cam, toScreen:(x,y)=>cam.toScreen(x,y), get si(){ return si; }, get daily(){ return daily; }, dailySpec, renderAll };
+// ===================== the first lesson: one cape, two sight lines, drag the cape to where they cross =====================
+const LS={ cape:[96,70], truth:[318,118], ships:[[70,300,[20,340]],[430,268,[470,350]]], done:false, drag:false };
+const lsCv=document.getElementById('lsCv'), lsG=lsCv.getContext('2d');
+function lessonOpen(){ LS.cape=[96,70]; LS.done=false; LS.t0=performance.now(); document.getElementById('mmLesson').hidden=false; document.getElementById('lsGo').hidden=true;
+  document.getElementById('lsSay').innerHTML='Two ships both sighted <b>Ram Head</b>. Where their sight lines cross is where it really is.<br><b>Drag the cape there.</b>'; lessonDraw(); }
+function lessonClose(){ document.getElementById('mmLesson').hidden=true; SAVE.taught=1; persist(); renderStep(); }
+const lessonOn=()=>!document.getElementById('mmLesson').hidden;
+function lessonDraw(){ const g=lsG, W=lsCv.width, H=lsCv.height, t=Math.min(1,(performance.now()-(LS.t0||0))/1500);
+  g.fillStyle='#ecdcb2'; g.fillRect(0,0,W,H); g.strokeStyle='rgba(46,32,21,.12)'; g.lineWidth=1; for (let x=0;x<W;x+=40){ g.beginPath(); g.moveTo(x,0); g.lineTo(x,H); g.stroke(); } for (let y=0;y<H;y+=40){ g.beginPath(); g.moveTo(0,y); g.lineTo(W,y); g.stroke(); }
+  for (const [x,y,[fx,fy]] of LS.ships){ g.setLineDash([6,5]); g.strokeStyle='#2e2015'; g.lineWidth=2; g.beginPath(); g.moveTo(fx,fy); g.lineTo(x,y); g.stroke(); g.setLineDash([]);
+    // the sight line: drawn out from the ship towards the cape
+    const dx=LS.truth[0]-x, dy=LS.truth[1]-y, L=Math.hypot(dx,dy), ext=(L+70)*t; g.strokeStyle='rgba(46,32,21,.6)'; g.lineWidth=1.6; g.beginPath(); g.moveTo(x,y); g.lineTo(x+dx/L*ext,y+dy/L*ext); g.stroke();
+    ship(g,x,y,13,'#2e2015',0); }
+  if (t<1) requestAnimationFrame(lessonDraw);
+  // the cape marker: a little headland in a ring
+  const [cx,cy]=LS.cape; g.fillStyle=LS.done?'#3f7f6a':'#9c1f1a'; g.strokeStyle=g.fillStyle; g.lineWidth=2.5; g.beginPath(); g.arc(cx,cy,18,0,7); g.stroke();
+  g.beginPath(); g.moveTo(cx-11,cy+7); g.lineTo(cx-3,cy-8); g.lineTo(cx+3,cy-2); g.lineTo(cx+11,cy+7); g.closePath(); g.fill();
+  g.font='italic 17px "IM Fell English", Georgia'; g.fillStyle='#2e2015'; g.textAlign='left'; g.fillText('Ram Head',cx+22,cy-10);
+  if (LS.done){ g.strokeStyle='rgba(63,127,106,.9)'; g.setLineDash([4,4]); g.beginPath(); g.arc(cx,cy,30,0,7); g.stroke(); g.setLineDash([]); } }
+const lsPt=(e)=>{ const r=lsCv.getBoundingClientRect(); return [(e.clientX-r.left)*lsCv.width/r.width,(e.clientY-r.top)*lsCv.height/r.height]; };
+lsCv.addEventListener('pointerdown',e=>{ if (LS.done) return; const p=lsPt(e); if (Math.hypot(p[0]-LS.cape[0],p[1]-LS.cape[1])<44){ LS.drag=true; try{ lsCv.setPointerCapture(e.pointerId); }catch(_){} } });
+lsCv.addEventListener('pointermove',e=>{ if (!LS.drag) return; LS.cape=lsPt(e); lessonDraw(); });
+lsCv.addEventListener('pointerup',()=>{ if (!LS.drag) return; LS.drag=false; const d=Math.hypot(LS.cape[0]-LS.truth[0],LS.cape[1]-LS.truth[1]);
+  if (d<26){ LS.cape=LS.truth.slice(); LS.done=true; CLICK(); document.getElementById('lsSay').innerHTML='Yes: Ram Head is fixed. Every cape on your charts is placed this way, where sight lines cross.<br>On the real sheets the game finds the crossings; your job is to fix the ships so the lines are true.'; document.getElementById('lsGo').hidden=false; }
+  else document.getElementById('lsSay').innerHTML=`Not quite: that is ${Math.round(d/8)} leagues from where the two lines cross. <b>Drop it on the crossing.</b>`; lessonDraw(); });
+document.getElementById('lsSkip').onclick=lessonClose; document.getElementById('lsGo').onclick=lessonClose;
+window.__map={ lessonOpen, lessonClose, lessonOn, LS, M, NAV, get S(){ return S; }, get st(){ return st; }, get logs(){ return logs; }, get est(){ return est; }, recompute, openSheet, publish, closeOn, setDev, toggleStrike, survey, get published(){ return published; }, get sel(){ return sel; }, set sel(v){ sel=v; renderTabs(); renderPage(); dirty=true; }, SHEETS, get SAVE(){ return SAVE; }, cleanSave, cam, toScreen:(x,y)=>cam.toScreen(x,y), get si(){ return si; }, get daily(){ return daily; }, dailySpec, renderAll };
 { const h=decodeURIComponent(location.hash.slice(1)), q=Object.fromEntries(h.split('&').map(p=>p.split('=')).filter(p=>p.length===2));
-  if (q.survey && /^[\w-]{1,24}$/.test(q.survey)) openSheet(0,q.survey); else openSheet(SAVE.cur); }
+  if (q.survey && /^[\w-]{1,24}$/.test(q.survey)) openSheet(0,q.survey); else { openSheet(SAVE.cur); if (!SAVE.taught && !SAVE.best[0]) lessonOpen(); } }
 requestAnimationFrame(loop);
 </script>
 </body>
