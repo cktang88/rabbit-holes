@@ -127,6 +127,9 @@
 <script src="../shared/fx.js"></script>
 <script src="../shared/panzoom.js"></script>
 <script>
+// toasts one at a time (a fast run of generations can thaw a law and make discoveries at once; stacked, they cover the cards)
+const toastQ=(()=>{ const q=[]; let busy=false; const pump=()=>{ if (!q.length){ busy=false; return; } busy=true; const [m,ms]=q.shift(); const t=q.length? Math.min(ms,2200) : ms; RH.toast(m,t); setTimeout(pump,t+250); };
+  return (m,ms=2600)=>{ if (q.some(x=>x[0]===m)) return; q.push([m,ms]); if (q.length>3) q.splice(0,q.length-3); if (!busy) pump(); }; })();
 'use strict';
 const LAWS = [
   {k:'G', n:'Gravity', short:'Gravity', d:'How strongly everything pulls on everything else.', def:2,
@@ -503,7 +506,7 @@ function act(t) {
   if (a && a.t === 'p') SND.prune();
   const newLaw = thawed(cos, cos.gen + 1).length > thawBefore && !cos.over ? thawOrder(cos)[thawBefore] : null;
   observe(false); render();
-  if (newLaw) { justThawed = newLaw; const l = LAWS.find(x => x.k === newLaw); RH.toast(`<b>${l.n}</b> can now change. ${l.d}`, 5200); }
+  if (newLaw) { justThawed = newLaw; const l = LAWS.find(x => x.k === newLaw); toastQ(`<b>${l.n}</b> can now change. ${l.d}`, 5200); }
   if (cos.over) setTimeout(finishCosmos, 700);
 }
 let justThawed = null;
@@ -520,7 +523,7 @@ function observe(quiet) {
   if (C.U.some(u => u.kind === 'minds' && u.raw >= 2.5 && u.gen > 0)) mark('props', 'V', 'Proposition V');
   if (C.over && C.over.why === 'time') { const avg = F.reduce((t, u) => t + u.raw, 0) / F.length; if (avg > C.U[0].raw) mark('props', 'VI', 'Proposition VI'); if (C.mindsGen >= C.start.par) mark('props', 'VII', 'Proposition VII'); }
   persist();
-  if (!quiet && got.length) { SND.chord(); RH.toast('Discovered: ' + got.map(n => `<b>${n}</b>`).join(', '), 3600); }
+  if (!quiet && got.length) { SND.chord(); toastQ('Discovered: ' + got.map(n => `<b>${n}</b>`).join(', '), 3600); }
 }
 function finishCosmos() {
   const C = cos, st = starsOf(C), start = C.start.n;
@@ -661,7 +664,7 @@ function drawWatch(now) {
   const o = run.o, last = o.stages.findIndex(s => s.status === 'broken'), end = last >= 0 ? last : o.stages.filter(s => s.status !== 'none').length - 1;
   const k = Math.max(0, Math.min(end, Math.floor((now - run.t0) / STEP_MS))), age = k >= end ? 1 : ((now - run.t0) % STEP_MS) / STEP_MS;
   drawScene(Math.max(0, k), o, age, now);
-  if (run.auto && k >= end && now - run.t0 > (end + 1) * STEP_MS + 1200) { run.auto = 0; closeWatch(); RH.toast(`It made <b>${cos.U[0].raw.toFixed(1)}</b> black holes\u2019 worth of children. Each black hole buds a universe: tap <b>Let it bud</b>.`, 5000); return; }
+  if (run.auto && k >= end && now - run.t0 > (end + 1) * STEP_MS + 1200) { run.auto = 0; closeWatch(); toastQ(`It made <b>${cos.U[0].raw.toFixed(1)}</b> black holes\u2019 worth of children. Each black hole buds a universe: tap <b>Let it bud</b>.`, 5000); return; }
   if (k !== run.k) { run.k = k; const st = o.stages[k]; $('why').innerHTML = `<b>${st.name}.</b> ${st.plain}`; SND.stage(st.status); }
   if (age < .3 && k < end) { ctx.globalAlpha = 1 - age / .3; ctx.textAlign = 'center'; ctx.fillStyle = GOLD; ctx.font = `300 ${Math.min(52, W / 9)}px "Cormorant Garamond", serif`; ctx.fillText(STAGES[k], W / 2, H * .5); ctx.globalAlpha = 1; }
 }
@@ -735,7 +738,7 @@ function share() {
   const per = []; for (let g = 1; g <= C.gen; g++) per.push(C.U.filter(x => x.gen === g && x.kind === 'minds').length);
   const bars = per.map(n => ' ▁▂▃▄▅▆▇█'[Math.min(8, n)]).join('');
   const t = `Universe Seed${curDaily ? ' · ' + curDaily : ''} · ${C.start.n}\n${'✦'.repeat(starsOf(C))} ${C.mindsGen} minds-generations · ${C.born} universes born\n${bars}\n${location.origin + location.pathname}#c=${C.seed}${curStartIdx != null ? '.' + curStartIdx : ''}:${acts}`;
-  try { navigator.clipboard.writeText(t).then(() => RH.toast('Copied. The link replays your whole tree.'), () => RH.modal(`<h2>Share</h2><pre>${t}</pre>`)); } catch (e) { RH.modal(`<h2>Share</h2><pre>${t}</pre>`); }
+  try { navigator.clipboard.writeText(t).then(() => toastQ('Copied. The link replays your whole tree.'), () => RH.modal(`<h2>Share</h2><pre>${t}</pre>`)); } catch (e) { RH.modal(`<h2>Share</h2><pre>${t}</pre>`); }
 }
 async function newCosmosDialog() {
   const v = await RH.modal(`<h2>Another cosmos</h2><p>Each cosmos begins from a different universe. <b>Today’s cosmos</b> is the same for everyone today.</p>`, [{ label: 'Stay', value: 0 }, { label: 'Today’s', value: 2 }, { label: 'A new seed', value: 1 }]);

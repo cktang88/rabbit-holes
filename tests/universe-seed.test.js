@@ -58,6 +58,12 @@ module.exports = {
       const txt = await page.textContent('#front'); ok(/varies/.test(txt) && /buds/.test(txt), 'cards say what they vary and what they bud');
       ok(await page.evaluate(() => [...document.querySelectorAll('#front .card .ln')].every(e => e.textContent.length > 8)), 'every card has a cause line');
     },
+    'toasts come one at a time: budding fast (laws thaw, discoveries land) never stacks them over the cards': async ({ page, ok }) => {
+      await dismiss(page); let most = 0;
+      for (let i = 0; i < 8; i++) { await page.click('#letB'); most = Math.max(most, await page.locator('.toast').count()); }
+      for (let i = 0; i < 10; i++) { await page.waitForTimeout(150); most = Math.max(most, await page.locator('.toast').count()); }
+      ok(most <= 1, 'at most one toast on screen: ' + most);
+    },
     'watching one universe replays its history link by link (the original stage pictures), then back to the tree': async ({ page, ok, eq }) => {
       await dismiss(page);
       await page.click('#front .card >> nth=0'); await page.click('#wB');

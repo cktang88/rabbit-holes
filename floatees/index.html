@@ -200,6 +200,7 @@ const SLIP = { n: [0.0128, -3.0], s: [0.0132, 4.2] }; // [fraction of wind speed
 // Beaching: an object in a sea cell touching the coast washes up with an e-folding time of TAU_B days (Onink et al.
 // 2021, Environ. Res. Lett. 16, 064053, best-fit beaching timescales of days); one blown or carried onto land beaches at once.
 const TAU_B = 4;
+const BEACH = { on: true }; // off: objects that meet the shore stay at sea (as in the transition-matrix maps the garbage-patch test compares with)
 // The wind's synoptic gusts scatter high-riding objects on top of the ocean's eddies: K_wind = (leeway × σ_wind)² × T_W,
 // with σ_wind the measured spread of daily winds about their monthly mean and T_W = 2 days, a synoptic decorrelation time.
 const T_W = 2 * DAY;
@@ -288,8 +289,8 @@ function stepReal(P, side, cg, h, ph, rnd) {
   P[0] = la + (v * hs + rw * g2) / MDEG; P[1] = lo + (u * hs + rw * g1) / (MDEG * c);
   if (P[1] > 180) P[1] -= 360; if (P[1] < -180) P[1] += 360;
   if (P[0] > 89.9) P[0] = 89.9;
-  if (isLand(P[0], P[1])) return 1;
-  if (coastQ(P[0], P[1]) && rnd() < 1 - Math.exp(-h / TAU_B)) return 1;
+  if (isLand(P[0], P[1])) { if (BEACH.on) return 1; P[0] = la; P[1] = lo; return 0; }
+  if (BEACH.on && coastQ(P[0], P[1]) && rnd() < 1 - Math.exp(-h / TAU_B)) return 1;
   return 0;
 }
 // how long a step may be (days): a day at most, and no further than one 0.25° cell (27.8 km) at the local current plus
@@ -1498,7 +1499,7 @@ canvas.addEventListener('pointerdown', () => { viewTo = null; }); // grabbing th
 load(sharedCase ? LV.findIndex(l => l.endless) : sharedSea ? LV.findIndex(l => l.seas) : +SAVE.cur || 0); // a shared case link opens that case
 requestAnimationFrame(frame);
 const proj = new THREE.Vector3();
-window.__fl = { jobs, tracersObj: tracers, phys: { stepReal, stepDays, cargoOf, setPhase, curReal, windReal, kEddy, CARGO, SLIP, get REAL() { return REAL(); } }, get flowInfo() { return { key: flowKey, want: keyNow(), job: !!flowJob, n: flowCur.geometry.drawRange.count, op: flowCur.material.uniforms.uOp.value, vis: tracers.visible }; }, ED, latLonAtXY: (x, y) => latLonAt({ clientX: x, clientY: y }), genWorld, chartScore, driftPath, ensemble, savedBy, bestAnswer, seaStart, seaTap, seaAnswer, seaNextCall, seaFinish, seaDrifter, withWorld, isLand, get W() { return W; }, get sea() { return sea; }, get SEA() { return SEA; }, dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return fieldReady(); }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
+window.__fl = { jobs, tracersObj: tracers, phys: { BEACH, stepReal, stepDays, cargoOf, setPhase, curReal, windReal, kEddy, CARGO, SLIP, get REAL() { return REAL(); } }, get flowInfo() { return { key: flowKey, want: keyNow(), job: !!flowJob, n: flowCur.geometry.drawRange.count, op: flowCur.material.uniforms.uOp.value, vis: tracers.visible }; }, ED, latLonAtXY: (x, y) => latLonAt({ clientX: x, clientY: y }), genWorld, chartScore, driftPath, ensemble, savedBy, bestAnswer, seaStart, seaTap, seaAnswer, seaNextCall, seaFinish, seaDrifter, withWorld, isLand, get W() { return W; }, get sea() { return sea; }, get SEA() { return SEA; }, dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return fieldReady(); }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
   screenOf: (lat, lon) => { globe.updateMatrixWorld(); camera.updateMatrixWorld(); proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>
