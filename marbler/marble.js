@@ -76,7 +76,7 @@ add({id:'line', n:'A single line', era:'First lesson', hint:'drag down through t
   ground:stoneGround([0,1,2,9],'line',150).concat(bullseye(300,200,[0,2,1,6,2,9],12,22)), recipe:[['s',300,200,6]], need:0.9});
 add({id:'heart', n:'The heart', era:'Ottoman, 17th c.', t:'Two pulls through a bullseye make a heart. Down, then down again beside it.', tools:['drop','band','stylus'], inks:[0,1,2],
   ground:stoneGround([0,2,1,9],'heart',150).concat(bullseye(300,200,[1,2,0,6],12,22)), recipe:[['s',300,200,18]], need:0.9});
-add({id:'battal', n:'Battal (stone)', era:'Istanbul, 16th c.', t:'The oldest ebru: drops and nothing else. Tap, and hold for bigger stones, until three inks cover three quarters of the bath.', tools:['drop'], inks:[0,1,2], ground:[], recipe:null, judge:'cover', need:.75});
+add({id:'battal', n:'Battal (stone)', era:'Istanbul, 16th c.', t:'The oldest ebru: drops and nothing else. Tap, and hold for bigger stones, until three inks cover three quarters of the bath.', tools:['drop'], inks:[0,1,2], ground:[], recipe:null, judge:'cover', need:.75, hint:'tap to drop ink · press and hold for a bigger stone'});
 add({id:'gelgit', n:'Gel-git', era:'Turkish "come-go"', t:'Rake the striped ground one way, then back between the first tines.', tools:['drop','band','stylus','rake'], inks:[0,1,2,3],
   ground:stripesGround([0,2,1,3]), recipe:[['k',300,200,6],['k',337.5,200,18]], need:0.85});
 add({id:'nonpareil', n:'Nonpareil', era:'England, 18th c.', t:'Gel-git, then a fine comb drawn across it. The commonest bookbinder\'s paper.', tools:['drop','band','stylus','rake','comb'], inks:[0,1,2,3],

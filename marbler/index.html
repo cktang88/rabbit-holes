@@ -23,7 +23,11 @@
   #card .n{font:600 20px "Cormorant SC",serif;color:var(--red);white-space:nowrap}
   #card .t{flex:1;min-width:0}
   #card .t small{display:block;color:var(--ink2);font-style:italic;font-size:13.5px}
-  #thumb{width:84px;height:56px;border:1px solid #6d4f25;box-shadow:inset 0 0 6px #0005;flex:none;cursor:pointer;touch-action:none;image-rendering:auto}
+  #peek{flex:none;display:flex;flex-direction:column;align-items:stretch;padding:3px;gap:2px;min-height:0;background:linear-gradient(#3a271a,#24170e);border:1px solid #120a05;border-radius:4px;cursor:pointer;touch-action:none;box-shadow:0 2px 0 #000}
+  #peek:hover{filter:brightness(1.15)} #peek[aria-pressed="true"]{background:linear-gradient(#c79a3c,#8a6420);box-shadow:0 0 0 2px #f3d27a,0 0 14px #f3c35a}
+  #peekL{font:600 13px/1.1 "Cormorant Garamond",serif;color:#f3e2bd;text-align:center;letter-spacing:.03em} #peek[aria-pressed="true"] #peekL{color:#2a1a08}
+  #thumb{width:84px;height:56px;display:block;border:1px solid #6d4f25;box-shadow:inset 0 0 6px #0005;image-rendering:auto;pointer-events:none}
+  #peekBanner{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:4;padding:6px 14px;background:#f3d27aee;color:#2a1a08;font:600 16px "Cormorant Garamond",serif;border-radius:3px;box-shadow:0 3px 10px #000a;pointer-events:none;display:none;white-space:nowrap}
   #meter{font-size:13.5px;color:var(--ink2);text-align:right;white-space:nowrap;flex:none} #meter b{font-size:19px;color:var(--ink);display:block}
   #stage{flex:1;min-height:0;position:relative}
   #gl{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
@@ -55,7 +59,7 @@
   .toast-wrap{bottom:96px;top:auto} .toast{background:#f4ead4;color:var(--ink);border:1px solid #6d4f25;border-radius:2px;font:16px "Cormorant Garamond",serif}
   @media (max-width:640px){
     header{padding:4px 8px;gap:6px} h1{font-size:20px} header a.home{font-size:0} header a.home::before{content:"←";font-size:20px} .rh-like{display:none} header button{padding:4px 9px;font-size:15px}
-    #card{margin:0 6px 4px;font-size:14px;gap:8px;padding:5px 8px} #card .n{font-size:16px} #card .t small{display:none} #thumb{width:66px;height:44px}
+    #card{margin:0 6px 4px;font-size:14px;gap:8px;padding:5px 8px} #card .n{font-size:16px} #card .t small{display:none} #thumb{width:66px;height:44px} #peekL{font-size:12px}
     #tools{gap:4px;padding:4px 4px 8px} .cup{width:30px;height:30px} .tool{width:40px;height:38px} .tool svg{width:26px;height:26px} .div{display:none}
   }
 </style>
@@ -68,8 +72,8 @@
   <button id="layBtn" class="lay">Lay the paper</button>
   <button id="bookBtn">Book</button>
 </header>
-<div id="card"><canvas id="thumb" width="168" height="112" title="Hold to see the pattern over your bath"></canvas><div class="t"><span class="n" id="cN"></span> <span id="cT"></span><small id="cE"></small></div><div id="meter"></div></div>
-<div id="stage" data-play><canvas id="gl" aria-label="The marbling bath"></canvas><div id="hint">tap the bath</div></div>
+<div id="card"><button id="peek" title="Show the pattern in the bath (tap again to go back)" aria-pressed="false"><canvas id="thumb" width="168" height="112"></canvas><span id="peekL">👁 Compare</span></button><div class="t"><span class="n" id="cN"></span> <span id="cT"></span><small id="cE"></small></div><div id="meter"></div></div>
+<div id="stage" data-play><div id="peekBanner">The pattern to match · tap “Back to bath” to return</div><canvas id="gl" aria-label="The marbling bath"></canvas><div id="hint">tap the bath</div></div>
 <div id="tools" role="toolbar" aria-label="Inks and tools"></div>
 <div id="book" role="dialog" aria-label="The book"><div id="leaf"></div></div>
 <script src="../shared/common.js"></script>
@@ -301,11 +305,13 @@ function freeBath(){ const u=unlocked(); return {id:'free', n:'Free bath', era:'
 
 let COM=COMMISSIONS[0], ops=[], tool='drop', ink=0, anim=null, dirty=true, inkK=0, targetCache=null, likeT=0;
 const strokes=()=>ops.length-COM.ground.length;
-function open(c, extra){ COM=c; ops=c.ground.concat(extra||[]); tool=c.tools.includes(tool)? tool : c.tools[0]; ink=c.inks.includes(ink)? ink : c.inks[0]; anim=null; peel=null;
+function open(c, extra){ if (holding) setPeek(false); stash=null; COM=c; ops=c.ground.concat(extra||[]); tool=c.tools.includes(tool)? tool : c.tools[0]; ink=c.inks.includes(ink)? ink : c.inks[0]; anim=null; peel=null;
   if (c.recipe && !extra){ const code=c.recipe[0][0]; tool={s:'stylus',c:'comb',k:'rake',w:'wave',o:'swirl'}[code]||tool; }
   targetCache= c.recipe||c.target? MB.sample(MB.targetOps(c)) : null; $('hint').textContent=(ROT&&c.hintTurned)||c.hint||'tap the bath'; $('hint').style.opacity= (ops.length===c.ground.length && (c.hint||!ops.length))? 1 : 0; renderTools(); renderCard(); drawThumb(); dirty=true; cam.fit(false); setHash(); measure(); }
-function push(op){ if (ops.length>=MAXOPS) return RH.toast('The bath can hold no more. Lay the paper or undo.'); ops.push(op); anim={t0:performance.now(), dur: op[0]==='d'? 650 : op[0]==='o'? 900 : 700}; dirty=true; $('hint').style.opacity=0; setHash(); measure(); renderCard(); }
-function undo(){ if (ops.length<=COM.ground.length) return; ops.pop(); anim=null; dirty=true; setHash(); measure(); renderCard(); }
+function push(op){ stash=null; if (ops.length>=MAXOPS) return RH.toast('The bath can hold no more. Lay the paper or undo.'); ops.push(op); anim={t0:performance.now(), dur: op[0]==='d'? 650 : op[0]==='o'? 900 : 700}; dirty=true; $('hint').style.opacity=0; setHash(); measure(); renderCard(); }
+let stash=null; // what Start over cleared, so Undo can bring it back
+function reset(){ if (ops.length<=COM.ground.length) return; stash={id:COM.id, ops:ops.slice()}; ops=COM.ground.slice(); anim=null; dirty=true; setHash(); measure(); renderCard(); RH.toast('Bath cleared. Undo brings it back.'); }
+function undo(){ if (ops.length<=COM.ground.length){ if (stash && stash.id===COM.id){ ops=stash.ops; stash=null; anim=null; dirty=true; setHash(); measure(); renderCard(); } return; } stash=null; ops.pop(); anim=null; dirty=true; setHash(); measure(); renderCard(); }
 let likeness=null; function measure(){ clearTimeout(likeT); likeT=setTimeout(()=>{ if (COM.free){ likeness=null; } else likeness=MB.judge(COM, ops, targetCache).score; renderCard(); }, 120); }
 
 // ======================= Camera =======================
@@ -383,7 +389,7 @@ function finishGesture(g){ if (tool==='drop'){ ops.pop(); const r=dropR(g); push
   else if (tool==='band'){ const l=MB.strokeFromDrag('stylus', g.x0, g.y0, g.x, g.y); push(['b', l[1], l[2], l[3]%12, TOOLS.band.halfw, ink]); }
   else push(MB.strokeFromDrag(tool, g.x0, g.y0, g.x, g.y));
   FX.tone({noise:1,f:900,q:.7,dur:.35,vol:.05,attack:.08}); }
-const dropR=(g)=> Math.round(Math.min(64, 10+ (performance.now()-g.t0)/1000*38));
+const dropR=(g)=>{ const cover=COM.judge==='cover'; return Math.round(Math.min(cover? 90 : 64, (cover? 22 : 10)+ (performance.now()-g.t0)/1000*(cover? 70 : 38))); };
 // while a drop is held it grows; while a line tool is dragged, its line is shown
 function liveGesture(){ if (!gesture) return; if (tool==='drop' && gesture.op){ gesture.op[3]=dropR(gesture); dirty=true; } }
 setInterval(liveGesture, 33);
@@ -403,22 +409,26 @@ requestAnimationFrame(drawOverlay);
 
 // ======================= UI =======================
 const ICON={band:'<path d="M3 15h24" stroke-width="4"/><path d="M3 9h24M3 21h24" stroke-width="1"/>', drop:'<circle cx="15" cy="17" r="7"/><circle cx="15" cy="17" r="3.5"/>', stylus:'<path d="M15 3v24"/><path d="M12 22l3 5 3-5"/>', comb:'<path d="M4 6h22"/><path d="M6 6v18M10 6v18M14 6v18M18 6v18M22 6v18M26 6v18"/>',
-  rake:'<path d="M4 6h22"/><path d="M6 6v19M15 6v19M24 6v19"/>', wave:'<path d="M3 15c3-7 6-7 8 0s5 7 8 0 5-7 8 0"/>', swirl:'<path d="M15 15m-2 0a2 2 0 1 0 4 0a5 5 0 1 0-10 0a8 8 0 1 0 16 0a11 11 0 1 0-22 0"/>', undo:'<path d="M9 9l-5 5 5 5"/><path d="M4 14h13a8 8 0 0 1 0 16"/>'};
+  rake:'<path d="M4 6h22"/><path d="M6 6v19M15 6v19M24 6v19"/>', wave:'<path d="M3 15c3-7 6-7 8 0s5 7 8 0 5-7 8 0"/>', swirl:'<path d="M15 15m-2 0a2 2 0 1 0 4 0a5 5 0 1 0-10 0a8 8 0 1 0 16 0a11 11 0 1 0-22 0"/>', undo:'<path d="M9 9l-5 5 5 5"/><path d="M4 14h13a8 8 0 0 1 0 16"/>', reset:'<path d="M24 9a10 10 0 1 0 2 8"/><path d="M25 3v7h-7"/>'};
 function renderTools(){ const u=COM.tools, inks=COM.inks;
   $('tools').innerHTML= inks.map(k=>`<button class="cup ${k===ink?'on':''}" data-ink="${k}" style="background:radial-gradient(circle at 35% 30%,${rgbCss(INKS[k][1],1.25)},${rgbCss(INKS[k][1],.8)})" title="${INKS[k][0]}" aria-label="${INKS[k][0]} ink"></button>`).join('')
    +'<span class="div"></span>'+['drop','band','stylus','rake','comb','wave','swirl'].filter(t=>u.includes(t)).map(t=>`<button class="tool ${t===tool?'on':''}" data-tool="${t}" title="${TOOLS[t].n}: ${TOOLS[t].d}" aria-label="${TOOLS[t].n}"><svg viewBox="0 0 30 30">${ICON[t]}</svg></button>`).join('')
-   +`<span class="div"></span><button class="tool" id="undoBtn" title="Undo" aria-label="Undo"><svg viewBox="0 0 30 30">${ICON.undo}</svg></button>`; }
+   +`<span class="div"></span><button class="tool" id="undoBtn" title="Undo" aria-label="Undo"><svg viewBox="0 0 30 30">${ICON.undo}</svg></button><button class="tool" id="resetBtn" title="Start over: clear the bath (undo brings it back)" aria-label="Start over"><svg viewBox="0 0 30 30">${ICON.reset}</svg></button>`; }
 const rgbCss=(c,k)=>`rgb(${c.map(v=>Math.round(Math.min(1,v*k)*255)).join(',')})`;
-$('tools').addEventListener('click', e=>{ const b=e.target.closest('button'); if (!b) return; if (b.id==='undoBtn') return undo(); if (b.dataset.ink){ ink=+b.dataset.ink; tool='drop'; } if (b.dataset.tool) tool=b.dataset.tool; renderTools(); FX.sfx('tick'); });
+$('tools').addEventListener('click', e=>{ const b=e.target.closest('button'); if (!b) return; if (b.id==='undoBtn') return undo(); if (b.id==='resetBtn') return reset(); if (b.dataset.ink){ ink=+b.dataset.ink; tool='drop'; } if (b.dataset.tool) tool=b.dataset.tool; renderTools(); FX.sfx('tick'); });
 function renderCard(){ $('cN').textContent=COM.n; $('cT').textContent=COM.t; $('cE').textContent=COM.era||'';
-  const best=SAVE.best[COM.id]; $('meter').innerHTML= COM.free? `${strokes()} moves` : `<b>${likeness==null?'–':Math.round(likeness*100)+'%'}</b>alike · ${strokes()} strokes${best!=null?`<br>best ${best}`:''}`;
-  $('thumb').style.display= COM.free? 'none' : ''; }
+  const best=SAVE.best[COM.id]; $('meter').innerHTML= COM.free? `${strokes()} moves` : `<b>${likeness==null?'–':Math.round(likeness*100)+'%'}</b>${COM.judge==='cover'? `covered of ${Math.round(COM.need*100)}% · ${strokes()} drops` : `alike · ${strokes()} strokes`}${best!=null?`<br>best ${best}`:''}`;
+  $('peek').style.display= (COM.free || !COM.recipe && !COM.target)? 'none' : ''; }
 // the pattern to match, drawn on the CPU from the same maths
 function drawThumb(){ const c=$('thumb'), g=c.getContext('2d'); if (COM.free) return; const w=c.width, h=c.height, img=g.createImageData(w,h), T=MB.targetOps(COM);
   for (let j=0;j<h;j++) for (let i=0;i<w;i++){ const k=MB.inkAt(T,(i+.5)*TW/w,(j+.5)*TH/h), col=k<0? BATH : INKS[k][1], o=4*(j*w+i); img.data[o]=col[0]*255; img.data[o+1]=col[1]*255; img.data[o+2]=col[2]*255; img.data[o+3]=255; }
   g.putImageData(img,0,0); }
-$('thumb').addEventListener('pointerdown', e=>{ holding=true; dirty=true; e.preventDefault(); });
-for (const ev of ['pointerup','pointercancel','pointerleave']) $('thumb').addEventListener(ev, ()=>{ if (holding){ holding=false; dirty=true; } });
+// Compare: a tap toggles the pattern into the bath; a long press peeks only while held
+let peekT0=0, peekWas=false;
+function setPeek(on){ holding=on; dirty=true; $('peek').setAttribute('aria-pressed', on); $('peekL').textContent= on? '✕ Back to bath' : '👁 Compare'; $('peekBanner').style.display= on? 'block':'none'; }
+$('peek').addEventListener('pointerdown', e=>{ peekT0=performance.now(); peekWas=holding; if (!holding) setPeek(true); e.preventDefault(); });
+for (const ev of ['pointerup','pointercancel']) $('peek').addEventListener(ev, ()=>{ if (!peekT0) return; const long=performance.now()-peekT0>450; peekT0=0; if (long || peekWas) setPeek(false); });
+$('peek').addEventListener('keydown', e=>{ if (e.key==='Enter'||e.key===' '){ e.preventDefault(); setPeek(!holding); } });
 
 // ======================= Laying the paper =======================
 $('layBtn').onclick=()=>lay();

@@ -879,10 +879,15 @@ function syncLawFoot() { document.getElementById('lwDish').hidden = solvedN() < 
 function frameOf(h) { let x0 = LAW.G, y0 = LAW.G, x1 = 0, y1 = 0; for (const g of h) for (let i = 0; i < LAW.NN; i++) if (g[i]) { const x = i % LAW.G, y = (i / LAW.G) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } if (x1 < x0) return { o: 16, n: 16 }; const n = Math.min(LAW.G, Math.max(12, x1 - x0 + 5, y1 - y0 + 5)); const cx = (x0 + x1 + 1) / 2, cy = (y0 + y1 + 1) / 2; return { ox: Math.round(cx - n / 2), oy: Math.round(cy - n / 2), n }; }
 function drawSlide(c, fr, h, t, ghost) { const x = c.getContext('2d'), w = c.width, n = fr.n, k = w / n, ox = fr.ox ?? fr.o, oy = fr.oy ?? fr.o; x.fillStyle = ghost ? 'rgba(30,20,10,.25)' : '#e9c57d'; x.clearRect(0, 0, w, w); if (!ghost) x.fillRect(0, 0, w, w);
   const cur = h[Math.min(t, h.length - 1)]; x.fillStyle = ghost ? '#f6eed8' : '#7a2a14';
-  for (let yy = 0; yy < n; yy++) for (let xx = 0; xx < n; xx++) { const gx = xx + ox, gy = yy + oy; if (gx < 0 || gy < 0 || gx >= LAW.G || gy >= LAW.G) continue; if (cur[gy * LAW.G + gx]) { x.beginPath(); x.arc((xx + .5) * k, (yy + .5) * k, k * .44, 0, 7); x.fill(); } } }
+  const dots = (fr2) => { let any = false; for (let yy = 0; yy < n; yy++) for (let xx = 0; xx < n; xx++) { const gx = xx + ox, gy = yy + oy; if (gx < 0 || gy < 0 || gx >= LAW.G || gy >= LAW.G) continue; if (fr2[gy * LAW.G + gx]) { any = true; x.beginPath(); x.arc((xx + .5) * k, (yy + .5) * k, k * .44, 0, 7); x.fill(); } } return any; };
+  if (dots(cur) || ghost) return;
+  // the dish emptied: show where the seed was, faintly, and say so, so an empty dish never looks like a bug
+  x.globalAlpha = .22; dots(h[0]); x.globalAlpha = 1; x.fillStyle = '#5a2412'; x.textAlign = 'center'; x.font = `italic ${Math.round(w / 16)}px "IM Fell English", Georgia, serif`;
+  const dead = h.findIndex(f => !f.some(v => v)); x.fillText(dead > 0 ? 'everything died by gen ' + dead : 'everything died', w / 2, w * .62);
+  x.font = `${Math.round(w / 26)}px Georgia, serif`; x.fillText('flip a switch to change the law', w / 2, w * .62 + w / 14); }
 let lawT = 0;
 function sizeSlide() { const st = document.querySelector('.lw-stage'), sl = document.querySelector('.lw-slide'); const z = Math.max(120, Math.min(st.clientWidth - 16, st.clientHeight - 8)); if (sl.offsetWidth !== z) { sl.style.width = sl.style.height = z + 'px'; } }
-function lawFrame(now) { if (mode !== 'law' || !LM.h) return; if (now - lawT < 90) return; lawT = now;
+function lawFrame(now) { if (mode !== 'law' || !LM.h) return; if (now - lawT < (LM.h.length < 16 ? 320 : 90)) return; lawT = now;
   if (LM.t >= LM.h.length - 1) { if (++LM.pause > 10) { LM.t = 0; LM.pause = 0; } } else LM.t++; LM.gt = LM.gt >= LM.gh.length - 1 ? 0 : LM.gt + 1;
   sizeSlide(); drawSlide(document.getElementById('lwCv'), LM.fr, LM.h, LM.t, false); drawSlide(document.getElementById('lwGhost'), LM.gfr, LM.gh, LM.gt, true);
   document.getElementById('lwGen').textContent = 'gen ' + LM.t; if (LM.pz === PZ[0] && !LM.touched && !S.law[PZ[0].id] && now - LM.opened > 6000 && !document.querySelector('#lwBits .hint')) renderLawBits(); }
