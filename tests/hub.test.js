@@ -67,6 +67,17 @@ module.exports = {
       await Promise.all([page.waitForNavigation(), page.click('article.card[data-id="vault"] .thumb')]);
       ok(page.url().includes('/vault/index.html'));
     },
+    'search keeps a space typed between words (multi-word search)': async ({ page, eq }) => {
+      await page.click('#q'); await page.keyboard.type('bee ', { delay: 30 }); await page.waitForTimeout(300);
+      await page.keyboard.type('keep', { delay: 30 }); await page.waitForTimeout(300);
+      eq(await page.inputValue('#q'), 'bee keep');
+    },
+    'deep link to a similar view on a phone scrolls the results into view': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(page.url().split('#')[0] + '#like=nand'); await page.reload(); await page.waitForTimeout(600);
+      const top = await page.evaluate(() => document.querySelector('#view h2').getBoundingClientRect().top);
+      ok(top >= 0 && top < 844, 'similar view heading off-screen at ' + top);
+    },
     'mobile: filter bar fits, no horizontal page scroll': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
       ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'page scrolls sideways');

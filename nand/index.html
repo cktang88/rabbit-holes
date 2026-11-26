@@ -469,7 +469,7 @@ function runTests(){
   res.innerHTML = `<canvas id="scope"></canvas><div class="ok">✓ All ${tests.length} tests passed with ${g} NAND${g===1?'':'s'}. ${'★'.repeat(st)}${'☆'.repeat(3-st)}</div>`+
     (g<goldOf(l)? `<div class="ok">You beat the gold count of ${goldOf(l)}.</div>` : g>goldOf(l)? `<div class="dim">${g<=l.par? `Par met. Gold is ${goldOf(l)} NAND: open up your chips and share gates between them.` : `Par is ${l.par}, gold ${goldOf(l)}. Can you get it lower?`}</div>`:'')+
     (SAVE.cur+1<L.length? `<button class="primary next" id="nextBtn">Next: ${L[SAVE.cur+1].id} →</button>` : '');
-  const nb=document.getElementById('nextBtn'); if (nb) nb.onclick=()=>showCircuit(SAVE.cur+1);
+  const nb=document.getElementById('nextBtn'); if (nb) nb.onclick=()=>{ showCircuit(SAVE.cur+1); toStage(); };
   drawScope(l, trace, -1); startPackaging(l.id, g);
   if (prev==null){
     RH.toast(`<b>${l.id}</b> added to your parts.`);
@@ -587,7 +587,7 @@ function draw(){
   const l=lv(); const H=Math.max(pinY(l.ins.length-1,l.ins.length), pinY(l.outs.length-1,l.outs.length))+60;
   ctx.strokeStyle='rgba(236,235,223,.55)'; ctx.lineWidth=1.2; ctx.setLineDash([]); ctx.strokeRect(W_IN-96,6,W_OUT-W_IN+200,H);
   ctx.fillStyle=PCB.silk; ctx.font=FONT(11,'600'); ctx.textAlign='left';
-  ctx.fillText(`NAND-TO-EVERYTHING  ${SAVE.cur+1}. ${l.id}  REV A`, W_IN-88, 22);
+  ctx.fillText(l.lab? `NAND-TO-EVERYTHING  CHIP LAB ${l.seed}  REV A` : `NAND-TO-EVERYTHING  ${SAVE.cur+1}. ${l.id}  REV A`, W_IN-88, 22);
   ctx.textAlign='right'; ctx.fillText('© 1976 HOBBY ELECTRONICS', W_OUT+96, H+1);
   ctx.textAlign='left'; ctx.font=FONT(9); ctx.fillText('INPUTS', W_IN-88, 36); ctx.textAlign='right'; ctx.fillText('OUTPUTS', W_OUT+96, 36);
   // copper traces from pins to the board edge
@@ -806,6 +806,8 @@ function addComp(type){ FX.sfx('place');
 // ======================= UI =======================
 function unlocked(i){ return i===0 || SAVE.best[L[i-1].id]!=null; }
 function softUnlocked(){ return SAVE.best.PC!=null; }
+// Phone layout stacks the board above the side panel: after picking a level down in the list, bring the new board into view.
+function toStage(){ if (matchMedia('(max-width:760px)').matches && scrollY>0) scrollTo(0,0); }
 function renderLevels(){
   const acts={1:'Act I · Logic',2:'Act II · Arithmetic',3:'Act III · Memory',4:'Act IV · Processor'};
   let h='', last=0;
@@ -816,9 +818,9 @@ function renderLevels(){
   h+=`<div class="act">Act V · Software${softUnlocked()?'':' 🔒'}</div>`;
   SW.forEach((s,i)=>{ const r=SAVE.soft[s.id]; h+=`<div class="lv ${softOn&&softCur===i?'cur':''} ${softUnlocked()?'':'locked'}" data-s="${i}"><span>${s.name}</span><span class="stars">${r? '★'.repeat(r.stars)+'☆'.repeat(3-r.stars):''}</span></div>`; });
   const el=document.getElementById('levels'); el.innerHTML=h;
-  el.querySelectorAll('[data-i]').forEach(d=> d.onclick=()=>{ const i=+d.dataset.i; if(!unlocked(i)) return; showCircuit(i); });
-  el.querySelectorAll('[data-lab]').forEach(d=> d.onclick=()=>{ if (labUnlocked()) showLab(todayKey()); });
-  el.querySelectorAll('[data-s]').forEach(d=> d.onclick=()=>{ if(!softUnlocked()) return; showSoft(+d.dataset.s); });
+  el.querySelectorAll('[data-i]').forEach(d=> d.onclick=()=>{ const i=+d.dataset.i; if(!unlocked(i)) return; showCircuit(i); toStage(); });
+  el.querySelectorAll('[data-lab]').forEach(d=> d.onclick=()=>{ if (labUnlocked()){ showLab(todayKey()); toStage(); } });
+  el.querySelectorAll('[data-s]').forEach(d=> d.onclick=()=>{ if(!softUnlocked()) return; showSoft(+d.dataset.s); toStage(); });
   const done = Object.keys(SAVE.best).length + Object.keys(SAVE.soft).length;
   document.getElementById('total').textContent = `${done} / ${L.length+SW.length} solved`;
 }
@@ -1014,6 +1016,7 @@ function stepCpu(c){
   c.pc=next;
 }
 function showSoft(i){
+  labOn=false; try { if (location.hash.startsWith('#chip=')) history.replaceState(null,'',location.pathname); } catch(e){}
   softOn=true; softCur=i; document.getElementById('stage').style.display='none'; document.getElementById('soft').classList.add('on');
   document.getElementById('testBtn').style.display='none'; document.getElementById('resetBtn').style.display='none';
   document.getElementById('palette').innerHTML='<span class="dim small">Software levels use the instruction set, not parts.</span>';

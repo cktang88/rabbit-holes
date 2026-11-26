@@ -52,6 +52,42 @@ module.exports = {
       ok(await waitFor(page, () => __ws.phase === 'result', 5000)); ok(Date.now() - t0 < 5000, 'retry took ' + (Date.now() - t0));
       eq(await page.evaluate(() => __ws.agents.length), 1, 'agents kept between tries');
     },
+    'every plate, after a failed run: Try again returns to the start, a tap anywhere in the agent\'s ring lifts it back into the box, ↺ empties the board': async ({ page, ok, eq }) => {
+      // user report: The Lava Flow did not get back to a playable start after failing (the box stayed empty, taps on the lava's ring did nothing, ↺ did nothing)
+      const n = await page.evaluate(() => { __ws.WS.PLATES.forEach((_, j) => { __ws.SAVE.best['p' + j] = { t: 0, n: 1 }; }); return __ws.WS.PLATES.length; });
+      for (let i = 0; i < n; i++) {
+        await page.evaluate(i => __ws.open('p' + i, ''), i);
+        ok(await waitFor(page, `__ws.w0 && __ws.key === 'p${i}' && __ws.agents.length === 0`), 'plate ' + (i + 1) + ' opens empty');
+        const spot = await page.evaluate(() => { const { WS } = __ws, P = __ws.P, t = Object.keys(P.agents).find(k => k !== 'fall');
+          for (let y = 10; y <= WS.H - 10; y += 3) for (let x = 12; x <= WS.W - 12; x += 3) if (!WS.simulate(__ws.w0, P, [{ t, x, y }]).ok) return { t, x, y, r: WS.AGENTS[t].r, budget: P.agents[t] }; return null; });
+        ok(spot, 'plate ' + (i + 1) + ': a failing spot exists');
+        await page.evaluate(s => __ws.place(s.t, s.x + .5, s.y + .5), spot); await page.waitForTimeout(100);
+        await page.evaluate(() => { __ws.startRun(); __ws.hurry(); }); ok(await waitFor(page, () => __ws.phase === 'result', 8000), 'run finished');
+        ok(/Not yet/.test(await page.textContent('#slip')), 'plate ' + (i + 1) + ' failed');
+        await page.click('#sAgain'); await page.waitForTimeout(150);
+        eq(await page.evaluate(() => [__ws.phase, __ws.run, document.body.classList.contains('running'), document.getElementById('slip').classList.contains('on'), document.getElementById('clockT').textContent]), ['plan', null, false, false, 'today'], 'plate ' + (i + 1) + ' back at the start');
+        // tap on the near side of the drawn ring (radius r + .6), inside it
+        const [sx, sy] = await page.evaluate(s => __ws.cam.toScreen(s.x + .5, s.y + .5 + s.r + .3), spot);
+        await page.mouse.click(sx, sy); await page.waitForTimeout(100);
+        eq(await page.evaluate(t => [__ws.agents.length, document.querySelector(`.ag[data-t="${t}"] i`).textContent], spot.t), [0, String(spot.budget)], 'plate ' + (i + 1) + ': tap inside the ring lifts the ' + spot.t);
+        // ↺ at the start puts placed agents back in the box
+        await page.evaluate(s => __ws.place(s.t, s.x + .5, s.y + .5), spot); eq(await page.evaluate(() => __ws.agents.length), 1);
+        await page.click('#resetBtn'); eq(await page.evaluate(() => [__ws.agents.length, __ws.SAVE.placed[__ws.key]]), [0, ''], 'plate ' + (i + 1) + ': ↺ empties the board');
+      }
+    },
+    '↺ during a run goes back to the start and clears the running layout': async ({ page, eq }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.evaluate(() => { __ws.open('p0', 'l12.8'); __ws.startRun(); }); await page.waitForTimeout(300);
+      await page.evaluate(() => document.getElementById('resetBtn').click()); await page.waitForTimeout(100);
+      eq(await page.evaluate(() => [__ws.phase, document.body.classList.contains('running'), getComputedStyle(document.getElementById('story')).display !== 'none', __ws.agents.length]), ['plan', false, true, 1]);
+    },
+    'today\'s plate opened a second time keeps its target (cached world)': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { location.hash = '#daily=2026-03-04'; }); ok(await waitFor(page, () => __ws.key === 'd2026-03-04' && __ws.w0 && __ws.P.goal.min > 0, 8000));
+      const m = await page.evaluate(() => __ws.P.goal.min);
+      await page.evaluate(() => { location.hash = '#plate=1'; }); ok(await waitFor(page, () => __ws.key === 'p0'));
+      await page.evaluate(() => { location.hash = '#daily=2026-03-04'; }); ok(await waitFor(page, () => __ws.key === 'd2026-03-04' && __ws.w0));
+      eq(await page.evaluate(() => [__ws.P.goal.min, /NaN/.test(document.getElementById('goal').textContent)]), [m, false]);
+    },
     'tap a placed agent to lift it again': async ({ page, eq }) => {
       await page.evaluate(() => { __ws.open('p0', ''); }); await waitFor(page, () => __ws.w0 && __ws.key === 'p0');
       await page.evaluate(() => __ws.place(Object.keys(__ws.P.agents)[0], 30.5, 20.5)); eq(await page.evaluate(() => __ws.agents.length), 1);

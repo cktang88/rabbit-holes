@@ -45,6 +45,11 @@
   .chip img{width:34px;height:34px;display:block}
   .chip .d{font:600 12px "Cormorant Garamond",serif;color:var(--rosin)}
   .chip.now{outline:2px solid var(--rosin)}
+  .chip.drag{opacity:.55;outline:2px dashed var(--rosin)}
+  body.free .chip{touch-action:none}
+  body.free #tgt{display:none}
+  #freeRow{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px} #freeRow label{display:flex;align-items:center;gap:4px;font-size:15px}
+  #freeRow select.b{padding:2px 6px;font-size:15px}
   .chip .x{position:absolute;top:-8px;right:-8px;width:22px;height:22px;min-height:0;min-width:0;padding:0;border-radius:50%;font-size:13px;line-height:20px}
   #pal{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:5px}
   .pm{display:flex;flex-direction:column;align-items:center;padding:3px 2px 1px;gap:0;min-height:58px}
@@ -300,6 +305,11 @@ function workshop(seed) {
   const finger = r() < .4 ? [.15 + r() * .7, .15 + r() * .7] : null;
   return { id: 'w:' + seed, ch: 3, n: seed.startsWith('daily:') ? 'Today\'s commission' : 'Workshop piece', shape, start, pal: [...Array(M).keys()], tools: ['finger', 'drill'], finger, ref, par: len, seed, text: `${SHAPES[shape].n} plate, ${STARTS[start].n}.` };
 }
+// free composing: any plate, any of its notes, no target and no stars
+const FREE_PLATES = { square: { n: 'Square', shape: 'square', holes: [] }, circle: { n: 'Round', shape: 'circle', holes: [] }, guitar: { n: 'Guitar', shape: 'guitar', holes: [] },
+  bell: { n: 'Bell', shape: 'bell', holes: [] }, star: { n: 'Star', shape: 'star', holes: [] }, drilled: { n: 'Drilled square', shape: 'square', holes: [[.5, .5]] } };
+function freeComm(p, st) { if (!FREE_PLATES[p]) p = 'square'; if (!STARTS[st]) st = 'even'; const F = FREE_PLATES[p];
+  return { id: 'free', free: true, ch: 4, n: 'Free composing', plate: p, shape: F.shape, holes: F.holes, start: st, pal: [...Array(14).keys()], tools: ['finger', 'drill'], ref: [], par: 0, text: '' }; }
 // apprentice composers: each tries random scores with the commission's notes and keeps its best. Their spread is the histogram.
 const BOT_HOLES = [[.5, .5], [.3, .3], [.7, .3], [.5, .75]]; // apprentices drill only where the workshop's template says
 function apprentice(c, b, tries = 16, n = 300) { // one apprentice: random scores (and, if he has them, a random finger or hole), keeps his best
@@ -327,19 +337,35 @@ const unlocked = i => i === 0 || !!SAVE.done[COMMS[i - 1].id];
 const workshopOpen = () => COMMS.filter(c => c.ch <= 1).every(c => SAVE.done[c.id]);
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const GHOST = {};
-let C = null, sc = null, sand = null, playing = null, tool = null, preview = null, lastMatch = null, ghost = false, botCache = {};
+let freeImg = null, C = null, sc = null, sand = null, playing = null, tool = null, preview = null, lastMatch = null, ghost = false, botCache = {};
 const curPlate = () => plateOf(C.shape, sc.holes);
 const curCfg = () => ({ shape: C.shape, start: C.start, finger: sc.finger, holes: sc.holes });
 const stars = (c, m, notes) => m >= .9 && notes <= c.par ? 3 : m >= .9 ? 2 : m >= .8 ? 1 : 0;
 function openComm(c) {
-  C = c; SAVE.cur = c.id; const saved = SAVE.scores[c.id];
-  sc = saved ? JSON.parse(JSON.stringify(saved)) : { notes: [], finger: null, holes: [] }; sc.holes ||= []; sc.finger ??= null;
+  C = c; SAVE.cur = c.id; const saved = SAVE.scores[c.id]; document.body.classList.toggle('free', !!c.free);
+  if (c.free) SAVE.free = { p: c.plate, st: c.start }; else if (/score=/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search); // a link is read once: later edits are the player's own
+  sc = saved ? JSON.parse(JSON.stringify(saved)) : { notes: [], finger: null, holes: c.free ? c.holes.map(h => h.slice()) : [] }; sc.holes ||= []; sc.finger ??= null;
   if (!c.tools?.includes('finger')) sc.finger = null; if (!c.tools?.includes('drill')) sc.holes = [];
   sc.notes = sc.notes.filter(([k]) => k < curPlate().modes.length);
-  tool = null; preview = null; lastMatch = null; playing = null; resetSand(); botsLater(c); persist(); renderPanel(); drawTarget(); requestDraw();
+  tool = null; preview = null; lastMatch = null; playing = null; resetSand(); if (!c.free) botsLater(c); if (c.free) freeHash(); persist(); renderPanel(); drawTarget(); requestDraw();
 }
 const resetSand = () => { sand = sandStart(curPlate(), C.start, NS); if (typeof resetVis === 'function' && cv) resetVis(); };
-const saveScore = () => { SAVE.scores[C.id] = JSON.parse(JSON.stringify(sc)); persist(); };
+const saveScore = () => { SAVE.scores[C.id] = JSON.parse(JSON.stringify(sc)); persist(); if (C.free) freeHash(); };
+// a free composition lives in the address bar, so the link is always the piece as it stands
+const freeLink = () => location.origin + location.pathname + '#score=' + encodeURIComponent(btoa(JSON.stringify({ c: 'free', p: C.plate, st: C.start, s: sc })));
+const freeHash = () => { try { history.replaceState(null, '', freeLink().slice(location.origin.length)); } catch (e) {} };
+function setFree(p, st) { // another plate (its own holes, the finger lifted) or another sand: the score's notes carry over where the plate has them
+  const samePlate = p === C.plate; C = freeComm(p, st); SAVE.free = { p: C.plate, st: C.start };
+  if (!samePlate) { sc.holes = C.holes.map(h => h.slice()); sc.finger = null; } sc.notes = sc.notes.filter(([k]) => k < curPlate().modes.length);
+  preview = null; playing = null; tool = null; resetSand(); saveScore(); renderPanel(); requestDraw(); }
+function saveImage() { // the plate as it stands, cropped from the bench, as a PNG
+  snap = () => { const k = cam.k, x0 = Math.max(0, cam.x - .03 * k), y0 = Math.max(0, cam.y - .03 * k), x1 = Math.min(W, cam.x + 1.03 * k), y1 = Math.min(H, cam.y + 1.03 * k);
+    const sw = Math.max(1, Math.round((x1 - x0) * dpr)), sh = Math.max(1, Math.round((y1 - y0) * dpr)), s = Math.min(1, 1600 / Math.max(sw, sh)), c = document.createElement('canvas'); c.width = Math.round(sw * s); c.height = Math.round(sh * s);
+    const g = c.getContext('2d'); g.fillStyle = '#2a1a0d'; g.fillRect(0, 0, c.width, c.height); for (const src of [cv, ov]) g.drawImage(src, x0 * dpr, y0 * dpr, sw, sh, 0, 0, c.width, c.height);
+    freeImg = { w: c.width, h: c.height };
+    c.toBlob(b => { if (!b) return RH.toast('The picture could not be saved here.'); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `sand-score-${C.plate || C.shape}.png`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }, 'image/png'); };
+  requestDraw(); }
+let snap = null;
 
 // ---------- audio ----------
 const tone = (f, beats = .6) => FX.tone({ f, type: 'sine', dur: Math.max(.15, beats * BEAT_MS / 1000), vol: .1, attack: .02 });
@@ -365,6 +391,7 @@ function noteOn(F, k, f) { // what the plate does while a note sounds: the field
 }
 async function finished() {
   if (slow > 20) { VN = Math.max(6000, Math.round(VN * .7)); slow = 0; } // too slow on this device: fewer grains next time
+  if (C.free) { saveScore(); renderPanel(); return; }
   const m = matchOf(C, sand), n = sc.notes.length, st = stars(C, m, n), prev = SAVE.done[C.id]; lastMatch = m; saveScore(); renderScore();
   if (st && (!prev || st > prev.stars || (st === prev.stars && m > prev.match))) {
     SAVE.done[C.id] = { stars: Math.max(st, prev?.stars || 0), match: Math.max(m, prev?.match || 0), notes: prev ? Math.min(prev.notes, n) : n };
@@ -389,15 +416,29 @@ function renderScore() {
   const pl = curPlate(), now = playing?.ni;
   $('score').innerHTML = sc.notes.map(([k, d], i) => `<div class="chip ${playing && now === i ? 'now' : ''}" data-i="${i}" title="Tap to change its length"><img src="${thumb(pl, k, sc.finger)}" alt=""><span class="d">${noteName(pl.modes[k].hz)} · ${DUR_TXT[d]}</span>${playing ? '' : `<button class="b x" data-x="${i}" aria-label="Remove">×</button>`}</div>`).join('') || '<span class="note" style="padding:6px">Empty. Tap the notes below.</span>';
   const beats = sc.notes.reduce((a, [, d]) => a + d, 0);
-  $('scoreNote').textContent = sc.notes.length ? `${sc.notes.length} note${sc.notes.length > 1 ? 's' : ''} · ${beats} beat${beats === 1 ? '' : 's'} · par ${C.par}` : `par ${C.par} notes`;
-  document.querySelectorAll('.chip').forEach(el => el.onclick = e => { if (playing) return; const i = +el.dataset.i;
+  $('scoreNote').textContent = sc.notes.length ? `${sc.notes.length} note${sc.notes.length > 1 ? 's' : ''} · ${beats} beat${beats === 1 ? '' : 's'}${C.free ? ' · drag to reorder' : ' · par ' + C.par}` : C.free ? 'any notes, any order' : `par ${C.par} notes`;
+  document.querySelectorAll('.chip').forEach(el => el.onclick = e => { if (playing || dragged) return; const i = +el.dataset.i;
     if (e.target.dataset.x != null) { sc.notes.splice(i, 1); saveScore(); renderScore(); return; }
     const n = sc.notes[i]; n[1] = DURS[(DURS.indexOf(n[1]) + 1) % DURS.length]; preview = n[0]; tone(pl.modes[n[0]].hz, n[1]); saveScore(); renderScore(); requestDraw(); });
 }
+// drag a note in the score to move it
+let drag = null, dragged = false;
+function moveNote(i, j) { if (i === j || i < 0 || j < 0 || i >= sc.notes.length || j >= sc.notes.length) return; const [n] = sc.notes.splice(i, 1); sc.notes.splice(j, 0, n); saveScore(); renderScore(); }
+$('score').addEventListener('pointerdown', e => { const el = e.target.closest('.chip'); if (!el || playing || e.target.closest('.x')) return; drag = { i: +el.dataset.i, x: e.clientX, y: e.clientY, id: e.pointerId, on: false }; });
+addEventListener('pointermove', e => { if (!drag || e.pointerId !== drag.id) return; if (!drag.on && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return; drag.on = true;
+  const over = document.elementFromPoint(e.clientX, e.clientY)?.closest('.chip'); if (over && +over.dataset.i !== drag.i) { const j = +over.dataset.i; moveNote(drag.i, j); drag.i = j; }
+  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('drag', +c.dataset.i === drag.i)); });
+for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, e => { if (!drag || e.pointerId !== drag.id) return; if (drag.on) { dragged = true; setTimeout(() => { dragged = false; }, 0); document.querySelectorAll('.chip.drag').forEach(c => c.classList.remove('drag')); } drag = null; });
 function renderPanel() {
   const pl = curPlate(), d = SAVE.done[C.id];
   $('cTitle').textContent = C.n; $('cText').textContent = C.text;
-  $('meter').innerHTML = (lastMatch != null ? `match <b>${Math.round(lastMatch * 100)}%</b> ` : 'match <b>–</b> ') + (d ? `<span class="stars">${'★'.repeat(d.stars)}${'☆'.repeat(3 - d.stars)}</span>` : '<span class="note">80% delivers</span>');
+  if (C.free) {
+    $('cText').innerHTML = `<div id="freeRow"><label>Plate <select class="b" id="fPlate">${Object.entries(FREE_PLATES).map(([k, v]) => `<option value="${k}" ${k === C.plate ? 'selected' : ''}>${v.n}</option>`).join('')}</select></label><label>Sand <select class="b" id="fStart">${Object.entries(STARTS).map(([k, v]) => `<option value="${k}" ${k === C.start ? 'selected' : ''}>${v.n}</option>`).join('')}</select></label></div>`;
+    $('meter').innerHTML = '<div class="row"><button class="b" id="fLink">Copy link</button><button class="b" id="fImg">Save image</button></div>';
+    $('fPlate').onchange = e => setFree(e.target.value, C.start); $('fStart').onchange = e => setFree(C.plate, e.target.value);
+    $('fLink').onclick = () => { const l = freeLink(); navigator.clipboard?.writeText(l).then(() => RH.toast('Link copied: it opens this plate and score.'), () => RH.toast('Your link is in the address bar.')); if (!navigator.clipboard) RH.toast('Your link is in the address bar.'); };
+    $('fImg').onclick = () => saveImage();
+  } else $('meter').innerHTML = (lastMatch != null ? `match <b>${Math.round(lastMatch * 100)}%</b> ` : 'match <b>–</b> ') + (d ? `<span class="stars">${'★'.repeat(d.stars)}${'☆'.repeat(3 - d.stars)}</span>` : '<span class="note">80% delivers</span>');
   $('pal').innerHTML = C.pal.filter(k => k < pl.modes.length).map(k => { const F = fieldOf(pl, k, sc.finger); return `<button class="b pm ${F.dead ? 'dead' : ''}" data-k="${k}" title="${F.dead ? 'Choked by the finger' : 'Add this note'}"><img src="${thumb(pl, k, sc.finger)}" alt=""><span>${noteName(pl.modes[k].hz)}</span></button>`; }).join('');
   document.querySelectorAll('.pm').forEach(b => b.onclick = () => { if (playing) return; const k = +b.dataset.k; if (sc.notes.length >= 12) return RH.toast('Twelve notes is the longest score.'); sc.notes.push([k, 1]); preview = k; tone(pl.modes[k].hz); saveScore(); renderScore(); requestDraw(); });
   const T = C.tools || [];
@@ -405,7 +446,7 @@ function renderPanel() {
   if ($('tFinger')) $('tFinger').onclick = () => { tool = tool === 'finger' ? null : 'finger'; renderPanel(); RH.toast(tool ? (sc.finger ? 'Tap the plate to move the finger, or tap the finger to lift it.' : 'Tap the plate where the finger should rest.') : 'Finger tool put down.'); };
   if ($('tDrill')) $('tDrill').onclick = () => { tool = tool === 'drill' ? null : 'drill'; renderPanel(); if (tool) RH.toast('Tap the plate to drill (up to 3 holes); tap a hole to fill it.'); };
   const i = COMMS.indexOf(C), next = C.ch === 3 ? null : COMMS[i + 1];
-  $('nextBtn').style.display = d && (next || C.ch === 3) ? '' : 'none'; $('nextBtn').textContent = C.ch === 3 ? 'Another ▶' : 'Next ▶';
+  $('nextBtn').style.display = !C.free && d && (next || C.ch === 3) ? '' : 'none'; $('nextBtn').textContent = C.ch === 3 ? 'Another ▶' : 'Next ▶';
   renderScore();
 }
 
@@ -596,9 +637,9 @@ function draw(now) {
   frameMs = frameMs * .9 + Math.min(100, dt) * .1;
   if (playing && frameMs > 24 && VN > 6000) slow++; else slow = Math.max(0, slow - 1);
   const pl = curPlate();
-  if (!glOK) { drawFlat(pl); return requestAnimationFrame(draw); }
+  if (!glOK) { drawFlat(pl); if (snap) { const f = snap; snap = null; f(); } return requestAnimationFrame(draw); }
   if (sdfKey !== pl.key) { upload(texSDF, 512, 512, sdfOf(pl)); sdfKey = pl.key; }
-  const tk = C.id + '|' + C.ref.length; if (tKey !== tk) { upload(texT, HS, HS, heightOf(GHOST[C.id] ||= perform(cfgOf(C), C.ref, 9000), new Uint8Array(HS * HS))); tKey = tk; }
+  const tk = C.id + '|' + C.ref.length; if (!C.free && tKey !== tk) { upload(texT, HS, HS, heightOf(GHOST[C.id] ||= perform(cfgOf(C), C.ref, 9000), new Uint8Array(HS * HS))); tKey = tk; }
   if (dirtyH) { upload(texH, HS, HS, heightOf(vis, Hbuf)); dirtyH = false; }
   if (!playing && !note.hold) note.amp *= Math.pow(.88, dt / 16);
   gl.viewport(0, 0, cv.width, cv.height); gl.disable(gl.BLEND);
@@ -607,7 +648,7 @@ function draw(now) {
   const sz = cv.width + 'x' + cv.height; if (staticSize !== sz) { if (texStatic) gl.deleteTexture(texStatic); texStatic = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texStatic); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, cv.width, cv.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texStatic, 0); gl.bindFramebuffer(gl.FRAMEBUFFER, null); staticSize = sz; staticKey = ''; }
   const sk = [cam.x, cam.y, cam.k, W, H, dpr, pl.key, clampOn].join();
   gl.uniform3f(u.uCam, cam.x, cam.y, cam.k); gl.uniform2f(u.uRes, W, H); gl.uniform1f(u.uDpr, dpr); gl.uniform1f(u.uTime, T); gl.uniform1f(u.uAmp, Math.min(1, note.amp)); gl.uniform1f(u.uW, note.w);
-  gl.uniform1f(u.uGhost, ghost ? 1 : .7); gl.uniform1f(u.uClamp, clampOn); gl.uniform1f(u.uHasU, note.k >= 0 ? 1 : 0);
+  gl.uniform1f(u.uGhost, C.free ? 0 : ghost ? 1 : .7); gl.uniform1f(u.uClamp, clampOn); gl.uniform1f(u.uHasU, note.k >= 0 ? 1 : 0);
   [[texSDF, 'tSDF'], [texH, 'tH'], [texU, 'tU'], [texT, 'tT']].forEach(([t, n], i) => { gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, t); gl.uniform1i(u[n], i); });
   if (staticKey !== sk) { gl.uniform1f(u.uStatic, 1); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); quadDraw(); gl.bindFramebuffer(gl.FRAMEBUFFER, null); staticKey = sk; }
   gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, texStatic); gl.uniform1i(u.tStatic, 4); gl.uniform1f(u.uStatic, 0); quadDraw();
@@ -623,6 +664,7 @@ function draw(now) {
   gl.uniform1f(g.uShadow, 1); gl.drawArrays(gl.POINTS, 0, m); gl.uniform1f(g.uShadow, 0); gl.drawArrays(gl.POINTS, 0, m);
   [l1, l2, l3].forEach(l => gl.disableVertexAttribArray(l));
   drawOverlay(pl);
+  if (snap) { const f = snap; snap = null; f(); } // read the canvas in the same task it was drawn
   requestAnimationFrame(draw);
 }
 function drawFlat(pl) { // no WebGL: the plain drawing, so the game still works
@@ -631,7 +673,7 @@ function drawFlat(pl) { // no WebGL: the plain drawing, so the game still works
   og.fillStyle = '#f7ecd0'; const ps = Math.max(1.6 / k, .002); for (let i = 0; i < vis.n; i++) if (!vis.lost[i]) og.fillRect(vis.sx[i] - ps / 2, vis.sy[i] - ps / 2, ps, ps);
 }
 function drawTarget() { // the commission's picture, drawn by its hidden score, as a small engraving
-  const t = $('tgt'), x = t.getContext('2d'), T = perform(cfgOf(C), C.ref, 6000), pl = plateOf(C.shape, C.holes || []);
+  if (C.free) return; const t = $('tgt'), x = t.getContext('2d'), T = perform(cfgOf(C), C.ref, 6000), pl = plateOf(C.shape, C.holes || []);
   x.setTransform(1, 0, 0, 1, 0, 0); x.fillStyle = '#2a1a0d'; x.fillRect(0, 0, 192, 192);
   const gr = x.createLinearGradient(0, 0, 192, 192); gr.addColorStop(0, '#d9b36a'); gr.addColorStop(.5, '#a87a34'); gr.addColorStop(1, '#7b5a24');
   x.fillStyle = gr; x.beginPath(); SHAPES[pl.shape].polys.forEach(P => { P.forEach(([px, py], k) => k ? x.lineTo(px * 192, py * 192) : x.moveTo(px * 192, py * 192)); x.closePath(); }); x.fill();
@@ -656,25 +698,27 @@ $('listBtn').onclick = () => {
   let h = '<h2>Commissions</h2><div class="clist">'; let last = -1;
   COMMS.forEach((c, i) => { if (c.ch !== last) { last = c.ch; h += `<div class="ch">${CH[c.ch]}</div>`; } const d = SAVE.done[c.id]; h += `<button data-c="${c.id}" ${unlocked(i) ? '' : 'disabled'}><span>${c.n}</span><span class="stars">${d ? '★'.repeat(d.stars) + '☆'.repeat(3 - d.stars) : unlocked(i) ? '' : '🔒'}</span></button>`; });
   const dd = SAVE.daily?.date === today() ? ` · ${Math.round(SAVE.daily.best * 100)}%` : '';
-  h += `<div class="ch">${CH[3]}</div><button data-w="daily" ${workshopOpen() ? '' : 'disabled'}><span>Today's commission${dd}</span><span>${workshopOpen() ? '' : '🔒 after chapter II'}</span></button><button data-w="new" ${workshopOpen() ? '' : 'disabled'}><span>A new workshop piece</span><span></span></button></div>`;
+  h += `<div class="ch">${CH[3]}</div><button data-w="daily" ${workshopOpen() ? '' : 'disabled'}><span>Today's commission${dd}</span><span>${workshopOpen() ? '' : '🔒 after chapter II'}</span></button><button data-w="new" ${workshopOpen() ? '' : 'disabled'}><span>A new workshop piece</span><span></span></button><div class="ch">Free composing</div><button data-free="1"><span>Compose freely</span><span class="note">any plate, any note</span></button></div>`;
   RH.modal(h, [{ label: 'Close' }]);
   document.querySelectorAll('.clist [data-c]').forEach(b => b.onclick = () => { document.querySelector('.modal-bg')?.remove(); openComm(COMMS.find(c => c.id === b.dataset.c)); });
+  document.querySelector('.clist [data-free]').onclick = () => { document.querySelector('.modal-bg')?.remove(); const f = obj(SAVE.free); openComm(freeComm(f.p, f.st)); };
   document.querySelectorAll('.clist [data-w]').forEach(b => b.onclick = () => { document.querySelector('.modal-bg')?.remove(); openComm(workshop(b.dataset.w === 'daily' ? 'daily:' + today() : Math.random().toString(36).slice(2, 9))); });
 };
 const help = () => RH.modal(`<h2>A score for sand</h2><p>Bow a brass plate and sand dances off the parts that move, onto the still <b>nodal lines</b>. Each note of the plate pushes the sand its own way.</p>
   <p>A commission shows a picture in sand. Write the <b>score</b> that draws it: tap notes to add them, tap a note in your score to change its length, then <b>Play</b>. While a note sounds the sand flows; when it stops, the sand stops. Order matters.</p>
-  <p>Hold the picture to lay it over the plate. 80% delivers; 90% in par notes or fewer earns three stars.</p>`, [{ label: 'Compose' }]);
+  <p>Hold the picture to lay it over the plate. 80% delivers; 90% in par notes or fewer earns three stars.</p><p>Or compose freely (from <b>Commissions</b>): any plate, any note, no target.</p>`, [{ label: 'Compose' }]);
 $('helpBtn').onclick = help;
 addEventListener('resize', resize);
 // #score= links carry a commission and its score
-function share() { const link = location.origin + location.pathname + '#score=' + encodeURIComponent(btoa(JSON.stringify({ c: C.id, s: sc }))); navigator.clipboard?.writeText(link).catch(() => {}); return link; }
+function share() { if (C.free) { const l = freeLink(); navigator.clipboard?.writeText(l).catch(() => {}); return l; } const link = location.origin + location.pathname + '#score=' + encodeURIComponent(btoa(JSON.stringify({ c: C.id, s: sc }))); navigator.clipboard?.writeText(link).catch(() => {}); return link; }
 (() => { const m = location.hash.match(/score=([^&]+)/); let c = COMMS.find(x => x.id === SAVE.cur) || COMMS[0], s = null;
-  if (m) try { const o = JSON.parse(atob(decodeURIComponent(m[1]))); const cc = typeof o.c === 'string' && (o.c.startsWith('w:') ? workshop(o.c.slice(2)) : COMMS.find(x => x.id === o.c)); if (cc && okScore(o.s)) { c = cc; s = o.s; } } catch (e) { /* a broken link opens the workshop as usual */ }
+  if (m) try { const o = JSON.parse(atob(decodeURIComponent(m[1]))); const cc = o.c === 'free' ? freeComm(o.p, o.st) : typeof o.c === 'string' && (o.c.startsWith('w:') ? workshop(o.c.slice(2)) : COMMS.find(x => x.id === o.c)); if (cc && okScore(o.s)) { c = cc; s = o.s; } } catch (e) { /* a broken link opens the workshop as usual */ }
   if (SAVE.cur.startsWith('w:') && !m) c = workshop(SAVE.cur.slice(2));
+  if (SAVE.cur === 'free' && !s) { const f = obj(SAVE.free); c = freeComm(f.p, f.st); }
   if (s) SAVE.scores[c.id] = s;
   openComm(c); })();
 resize(); requestAnimationFrame(draw);
-window.__ch = { gfx: () => ({ gl: glOK, VN, frameMs: Math.round(frameMs), grains: vis.n }), set slow(v) { slow = v; }, finished, noteOn, note, G, COMMS, SQ, plateOf, fieldOf, perform, matchOf, density, similarity, apprentices, workshop, stars, openComm, play, share, get C() { return C; }, get sc() { return sc; }, get sand() { return sand; }, get playing() { return playing; }, get cam() { return cam; }, SAVE, NS, BEAT_MS, BEAT_STEPS, okScore, set tool(t) { tool = t; } };
+window.__ch = { gfx: () => ({ gl: glOK, VN, frameMs: Math.round(frameMs), grains: vis.n }), set slow(v) { slow = v; }, finished, noteOn, note, G, COMMS, SQ, plateOf, fieldOf, perform, matchOf, density, similarity, apprentices, workshop, stars, openComm, play, share, get C() { return C; }, get sc() { return sc; }, get sand() { return sand; }, get playing() { return playing; }, freeComm, setFree, moveNote, saveImage, get freeImg() { return freeImg; }, get cam() { return cam; }, SAVE, NS, BEAT_MS, BEAT_STEPS, okScore, set tool(t) { tool = t; } };
 </script>
 </body>
 </html>

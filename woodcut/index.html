@@ -908,7 +908,18 @@ function drawTooltip() {
   g.fillStyle = 'rgba(30,23,18,.93)'; g.beginPath(); g.roundRect(x, y, w, h, 8 * dpr); g.fill(); g.font = `${fs}px Spectral,Georgia,serif`; g.textAlign = 'left';
   rows.forEach(([lbl, col, nm], k) => { const yy = y + 8 * dpr + k * lh; g.fillStyle = css(col); g.fillRect(x + 8 * dpr, yy, 22 * dpr, 13 * dpr); g.strokeStyle = 'rgba(255,255,255,.25)'; g.strokeRect(x + 8 * dpr, yy, 22 * dpr, 13 * dpr); g.fillStyle = '#f4ead8'; g.fillText(lbl + (nm ? ': ' + nm : ''), x + 38 * dpr, yy + 11 * dpr, w - 46 * dpr); });
 }
+// a block with no pencil lines (untraced commissions, the free studio) must still say what to do before the first cut
+function blankHint() { if (touched || anim || finished || strokes || passes.length) return ''; if (L.untraced) return 'No pencil lines on this block: read the commission. To carve a shape, outline it with the V-gouge, then tap inside it with Region.'; if (L.studio && !T) return 'A blank block. Tap ✎ Prompt for a subject, or carve anything: drag a gouge, then pick an ink and pull.'; return ''; }
+function drawBlankHint() {
+  const s = blankHint(); if (!s) return; const fs = Math.max(11 * dpr, Math.min(15 * dpr, B.s / 26)), lh = fs * 1.35, mw = B.s * .78;
+  g.font = `600 ${fs}px Spectral,Georgia,serif`; const lines = []; let cur = '';
+  for (const w of s.split(' ')) { const t = cur ? cur + ' ' + w : w; if (g.measureText(t).width > mw && cur) { lines.push(cur); cur = w; } else cur = t; } if (cur) lines.push(cur);
+  const h = lines.length * lh + fs * 1.2, w = mw + fs * 1.6, x = B.x + (B.s - w) / 2, y = B.y + (B.s - h) / 2;
+  g.fillStyle = 'rgba(30,23,18,.8)'; g.beginPath(); g.roundRect(x, y, w, h, 8 * dpr); g.fill();
+  g.fillStyle = '#ffd08a'; g.textAlign = 'center'; lines.forEach((l, k) => g.fillText(l, B.x + B.s / 2, y + fs * .6 + lh * k + fs));
+}
 function drawAffordance(now) {
+  drawBlankHint();
   if (touched || Li !== 0 || anim) return; const k = .5 + .5 * Math.sin(now / 260), [x, y] = b2s(30, 30);
   g.strokeStyle = `rgba(255,208,138,${.5 + .5 * k})`; g.lineWidth = 3 * dpr; g.beginPath(); g.arc(x, y, (14 + 8 * k) * dpr, 0, 7); g.stroke();
   g.fillStyle = '#ffd08a'; g.font = `600 ${13 * dpr}px Spectral,Georgia,serif`; g.textAlign = 'left'; g.fillText('tap the background to carve it away', x + 30 * dpr, y + 5 * dpr);
@@ -1151,7 +1162,7 @@ window.__wc = {
   greedyCarve() { let n = 0; T.regions.forEach(r => { let un = 0, e = 0; for (const i of r.px) { if (uncut[i]) un++; const j = i * 3; e += Math.hypot(plab[j] - T.tlab[j], plab[j + 1] - T.tlab[j + 1], plab[j + 2] - T.tlab[j + 2]); }
     if (un && e / r.px.length < 6) { carveComp(r.comp); n++; } }); if (n) { strokes += n; blockDirty = pvDirty = true; } return n; },
   lightOrder: () => L.inks.map((_, k) => k).sort((a, b) => lightness(L.inks[b]) - lightness(L.inks[a])),
-  get anchor() { return anchor; }, tipRows,
+  get anchor() { return anchor; }, tipRows, blankHint: () => blankHint(),
   over, cover, lin, I, ftT, dE, lum, rleEnc, rleDec, wipSave, rLeft, PASS, NLV, SAVE, get GAL() { return GAL; }, get undoN() { return undo.length; }, pullBtn, applyPull,
   get anim() { return anim; }, get draws() { return draws; }, cam, blockToScreen: (x, y) => { const [dx, dy] = b2s(x, y); return cam.toScreen(dx / dpr, dy / dpr); }, get uncutAt() { return (x, y) => uncut[(y | 0) * R + (x | 0)]; }, _tgt: () => targetCv.toDataURL(), layout, get boxes() { return { B, PR, TC, dpr }; },
 };

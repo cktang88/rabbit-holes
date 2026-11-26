@@ -272,5 +272,13 @@ module.exports = {
         ev('pointerdown', 1, x); ev('pointerdown', 2, x + 30); for (let i = 1; i <= 6; i++) { ev('pointermove', 1, x - i * 8); ev('pointermove', 2, x + 30 + i * 8); } ev('pointerup', 1, x - 48); ev('pointerup', 2, x + 78); });
       eq(await page.evaluate(() => __wc.strokes), s0, 'a pinch carved');
     },
+    'a block with no pencil lines (untraced commission, free studio) says what to do until the first cut': async ({ page, ok, eq }) => {
+      const r = await page.evaluate(() => { const W = __wc, out = {};
+        W.load(0); out.traced = W.blankHint();
+        W.load(10); out.untraced = W.blankHint(); W.gouge([[100, 100], [140, 100]]); out.afterCut = W.blankHint();
+        W.load(W.NLV); out.studio = W.blankHint(); W.load(W.NLV, { prompt: W.makePrompt(7) }); out.prompt = W.blankHint(); return out; });
+      eq(r.traced, '', 'traced block needs no extra hint'); ok(/V-gouge/.test(r.untraced) && /Region/.test(r.untraced), 'untraced hint: ' + r.untraced);
+      eq(r.afterCut, '', 'hint stays after the first cut'); ok(/Prompt/.test(r.studio), 'studio hint: ' + r.studio); eq(r.prompt, '', 'hint stays with a prompt');
+    },
   },
 };
