@@ -699,8 +699,11 @@ function sideShift(P0, L) {
   const n = P0.length, SEP = Math.round(6 / DS), RAMP = Math.round(20 / DS), C2 = LOOP_W * LOOP_W, o = new Float64Array(n);
   for (let it = 0; it < 5; it++) {
     const px = i => P0[i][0] + L[i][0] * o[i], pz = i => P0[i][2] + L[i][2] * o[i], lev = new Float64Array(n); let run = 0, any = false;
-    for (let i = 0; i < n; i++) { let def = 0; const xi = px(i), yi = P0[i][1], zi = pz(i);
-      for (let j = 0; j < i - SEP; j++) { const dx = px(j) - xi, dy = P0[j][1] - yi, dz = pz(j) - zi, d2 = dx * dx + dy * dy + dz * dz; if (d2 < C2) def = Math.max(def, LOOP_W - Math.sqrt(d2)); }
+    const cell = new Map(), key = (a, b, c) => a * 73856093 ^ b * 19349663 ^ c * 83492791, cx = i => Math.floor(px(i) / LOOP_W), cy = i => Math.floor(P0[i][1] / LOOP_W), cz = i => Math.floor(pz(i) / LOOP_W);
+    for (let i = 0; i < n; i++) { const k = key(cx(i), cy(i), cz(i)); (cell.get(k) || cell.set(k, []).get(k)).push(i); } // a grid, so only near samples are compared
+    for (let i = 0; i < n; i++) { let def = 0; const xi = px(i), yi = P0[i][1], zi = pz(i), a = cx(i), b = cy(i), c = cz(i);
+      for (let da = -1; da <= 1; da++) for (let db = -1; db <= 1; db++) for (let dc = -1; dc <= 1; dc++) for (const j of cell.get(key(a + da, b + db, c + dc)) || []) { if (j >= i - SEP) continue;
+        const dx = px(j) - xi, dy = P0[j][1] - yi, dz = pz(j) - zi, d2 = dx * dx + dy * dy + dz * dz; if (d2 < C2) def = Math.max(def, LOOP_W - Math.sqrt(d2)); }
       if (def > .01) any = true; run = Math.max(run, o[i] + (def > .01 ? def * 1.08 : 0)); lev[i] = run; }
     if (!any) break;
     for (let i = 0; i < n; i++) { let v = lev[i]; for (let k = i + 1; k <= Math.min(n - 1, i + RAMP); k++) { const h = 1 - (k - i) / RAMP; v = Math.max(v, lev[k] * h * h * (3 - 2 * h)); } o[i] = v; }
