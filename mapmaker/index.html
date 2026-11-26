@@ -46,6 +46,7 @@
   .entries div{padding:1px 0} .entries b{font-style:normal;color:var(--ink);font-weight:400}
   .entries .sight{color:#6a2a10} .entries .off{text-decoration:line-through;opacity:.55}
   .ctrl{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px}
+  .ctrl[hidden],[hidden]{display:none!important}
   .ctrl .lbl{font-size:14px;min-width:66px}
   .needle{min-width:84px;text-align:center;font-size:15px}
   .status{font-size:14.5px;margin-top:4px}
@@ -78,12 +79,13 @@
   .sum .cp.off{text-decoration:line-through;opacity:.55}
   details.book summary{cursor:pointer;font-size:13.5px;color:var(--ink2);font-style:italic;min-height:28px;line-height:28px}
   /* the first lesson: one cape, two ships, two sight lines */
-  .mm-lesson{position:fixed;inset:0;z-index:60;background:rgba(20,12,6,.78);display:flex;align-items:center;justify-content:center;padding:12px}
+  .mm-lesson{position:fixed;inset:0;z-index:60;background:rgba(20,12,6,.78);display:flex;align-items:safe center;justify-content:center;padding:12px;overflow:auto}
   .mm-lesson[hidden]{display:none}
   .mm-card{background:linear-gradient(#f1e4c3,#e3d1a4);border:1px solid #7a5c32;box-shadow:0 10px 40px #000a;max-width:460px;width:100%;padding:12px 14px;text-align:center}
   .mm-card h2{margin:0 0 4px;font-family:"IM Fell English SC",serif;font-weight:400;font-size:22px}
   .mm-say{font-size:16px;line-height:1.35;min-height:3.9em}
-  #lsCv{width:100%;max-width:420px;aspect-ratio:4/3;display:block;margin:6px auto;touch-action:none;cursor:grab;border:1px solid #7a5c32}
+  #lsCv{width:min(100%,420px,calc((100dvh - 210px) * 4 / 3));aspect-ratio:4/3;display:block;margin:6px auto;touch-action:none;cursor:grab;border:1px solid #7a5c32}
+  @media (max-height:500px){ .mm-card{padding:6px 10px} .mm-card h2{font-size:18px;margin:0} .mm-say{font-size:14px;min-height:0} #lsCv{width:min(100%,calc((100dvh - 150px) * 4 / 3));margin:4px auto} }
   .mm-foot{display:flex;gap:8px;justify-content:center} .mm-foot button{min-height:40px}
   @media (max-width:760px){
     body{height:100dvh} .topbar{padding:4px 10px} .topbar h1{font-size:15px;white-space:nowrap} #tot{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -112,7 +114,7 @@
     <div><h3>Sheets</h3><div class="sheets" id="sheets"></div><div style="margin-top:8px" id="dailyBox"></div></div>
   </div>
 </main>
-<div class="mm-lesson" id="mmLesson" hidden><div class="mm-card"><h2>How a chart is made</h2><div class="mm-say" id="lsSay"></div><canvas id="lsCv" width="480" height="360" aria-label="Drag the cape to where the sight lines cross"></canvas><div class="mm-foot"><button id="lsSkip">Skip</button><button id="lsGo" hidden>Start sheet I</button></div></div></div>
+<div class="mm-lesson modal-bg" id="mmLesson" role="dialog" aria-label="How a chart is made" hidden><div class="mm-card"><h2>How a chart is made</h2><div class="mm-say" id="lsSay"></div><canvas id="lsCv" width="480" height="360" aria-label="Drag the cape to where the sight lines cross"></canvas><div class="mm-foot"><button id="lsSkip">Skip</button><button id="lsGo" hidden>Start sheet I</button></div></div></div>
 <script src="../shared/common.js"></script>
 <script src="../shared/fx.js"></script>
 <script src="../shared/panzoom.js"></script>
@@ -678,10 +680,10 @@ function dailyTarget(d){ const S2=M.sheet(d.spec,'daily:'+d.seed); const caps=Ob
 // ===================== the first lesson: one cape, two sight lines, drag the cape to where they cross =====================
 const LS={ cape:[96,70], truth:[318,118], ships:[[70,300,[20,340]],[430,268,[470,350]]], done:false, drag:false };
 const lsCv=document.getElementById('lsCv'), lsG=lsCv.getContext('2d');
-function lessonOpen(){ LS.cape=[96,70]; LS.done=false; LS.t0=performance.now(); document.getElementById('mmLesson').hidden=false; document.getElementById('lsGo').hidden=true;
+function lessonOpen(){ LS.cape=[96,70]; LS.done=false; LS.t0=performance.now(); const le=document.getElementById('mmLesson'); if (!le) return; le.hidden=false; document.getElementById('lsGo').hidden=true;
   document.getElementById('lsSay').innerHTML='Two ships both sighted <b>Ram Head</b>. Where their sight lines cross is where it really is.<br><b>Drag the cape there.</b>'; lessonDraw(); }
-function lessonClose(){ document.getElementById('mmLesson').hidden=true; SAVE.taught=1; persist(); renderStep(); }
-const lessonOn=()=>!document.getElementById('mmLesson').hidden;
+function lessonClose(){ const e=document.getElementById('mmLesson'); if (e) e.hidden=true; SAVE.taught=1; persist(); renderStep(); }
+const lessonOn=()=>{ const e=document.getElementById('mmLesson'); return !!e && !e.hidden; };
 function lessonDraw(){ const g=lsG, W=lsCv.width, H=lsCv.height, t=Math.min(1,(performance.now()-(LS.t0||0))/1500);
   g.fillStyle='#ecdcb2'; g.fillRect(0,0,W,H); g.strokeStyle='rgba(46,32,21,.12)'; g.lineWidth=1; for (let x=0;x<W;x+=40){ g.beginPath(); g.moveTo(x,0); g.lineTo(x,H); g.stroke(); } for (let y=0;y<H;y+=40){ g.beginPath(); g.moveTo(0,y); g.lineTo(W,y); g.stroke(); }
   for (const [x,y,[fx,fy]] of LS.ships){ g.setLineDash([6,5]); g.strokeStyle='#2e2015'; g.lineWidth=2; g.beginPath(); g.moveTo(fx,fy); g.lineTo(x,y); g.stroke(); g.setLineDash([]);

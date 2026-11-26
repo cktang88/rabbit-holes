@@ -27,6 +27,7 @@ module.exports = {
         for (const r of R.slice(0, 4)) { const dd = A.M.dirOf(r.b), p = A.toScreen(r.o[0] + dd[0] * 4, r.o[1] + dd[1] * 4), q = cv.getBoundingClientRect(); const px = g.getImageData(Math.round((p[0] - q.left) * d) - 2, Math.round((p[1] - q.top) * d) - 2, 5, 5).data; for (let i = 0; i < px.length; i += 4) if (px[i] < 175) { dark++; break; } } return { n: R.length, dark }; });
       ok(ink.n >= 2 && ink.dark >= 2, 'the sight lines are drawn on the chart: ' + JSON.stringify(ink));
       await page.click('#page summary'); ok(await page.isVisible('#page .entries'), 'the logbook is one tap away');
+      ok(await page.isHidden('#page [data-dv]') && await page.isHidden('#strikeBtn'), 'tools for later troubles (compass, strike) stay out of sheet I');
       await page.reload(); await page.waitForTimeout(600); ok(await page.isHidden('#mmLesson'), 'the lesson shows once');
     },
     'opens straight onto sheet I: no modal, logs in the book': async ({ page, ok, eq }) => {

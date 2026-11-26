@@ -118,6 +118,22 @@ module.exports = {
       await page.hover('#foldBtn'); const c = await page.evaluate(() => { const s = getComputedStyle(document.getElementById('foldBtn')); return [s.color, s.backgroundColor]; });
       ok(c[0] !== c[1] && !/255, 246, 220/.test(c[1]), 'hovered Fold button colours ' + c.join(' on '));
     },
+    'a newcomer\'s commission 1 says what to do in plain words: no pH anywhere, the plain goal line and the oily-beads picture': async ({ page, ok }) => {
+      const r = await page.evaluate(() => ({ text: document.body.innerText, brief: document.getElementById('brief').innerText, pic: !!document.querySelector('#brief svg.pic'), sw: !document.getElementById('phT').hidden }));
+      ok(!/\bpH\b/.test(r.text), 'pH shown on commission 1'); ok(/Make a chain that wraps around and grips the wax block\./.test(r.brief), 'plain goal line: ' + r.brief);
+      ok(r.pic, 'picture of oily beads hugging the wax'); ok(!r.sw, 'no water/acid switch yet');
+      await page.click('#foldBtn'); await page.waitForFunction(() => window.__fold.result && !window.__fold.busy, null, { timeout: 8000 }); await page.waitForTimeout(100);
+      const b = await page.evaluate(() => document.getElementById('brief').innerText); ok(/grip [−\d.]+ \(needs 2\.0\) ✗ → /.test(b), 'plain result with a fix: ' + b); ok(!/\bpH\b/.test(await page.evaluate(() => document.body.innerText)), 'pH after folding');
+      await page.click('#reqs .term'); ok(await page.waitForSelector('.toast', { timeout: 2000 }).then(() => true, () => false), 'tap a term to explain it');
+    },
+    'acid appears with its own explanation and a water/acid switch that animates the machine\'s fold': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { const F = window.__fold; for (let i = 0; i < 5; i++) F.SAVE.done['c:' + i] = { margin: 0, oil: 0 }; F.open('c:5'); });
+      const t = await page.evaluate(() => document.getElementById('note').innerText); ok(/Acid adds a \+ to every D bead/.test(t), 'acid explained'); ok(!/\bpH\b/.test(t), 'no pH jargon');
+      ok(await page.isVisible('#phT'), 'switch shown');
+      await page.click('#foldBtn'); await page.waitForFunction(() => window.__fold.result && !window.__fold.busy, null, { timeout: 8000 });
+      await page.click('#phT button[data-p="x"]'); const k = await page.evaluate(() => window.__fold.peek); eq(await page.evaluate(k => window.__fold.C.req[k].pH, k), 'acid');
+      ok(await page.evaluate(() => document.querySelector('#phT button[data-p="x"]').classList.contains('on')), 'switch shows acid');
+    },
     'the Fold button runs the machine and the stamp and assay update; folding n=11 takes under 1.5 s here': async ({ page, ok }) => {
       await page.click('#foldBtn'); await page.waitForFunction(() => window.__fold.result && window.__fold.robust && window.__fold.robust.frac != null, null, { timeout: 8000 });
       ok(await page.isVisible('#stamp.on'));

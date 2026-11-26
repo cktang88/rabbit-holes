@@ -690,16 +690,29 @@ function endRide() {
 // from the turns, roll from the banks. Phone budget: pixel ratio ≤ 1.5, ~20 draw calls (props merged, trees and
 // guests instanced), ~30k triangles.
 const V3 = { on: false, want: true, chase: false, frames: null, key: '', bob: 0, dt: 1 / 60 };
+const LOOP_W = 2.4; // a real loop steps sideways by about a track width, so its exit passes beside its entry, not through it
 function trackFrames(S) { // per sample: position, forward, up (rolled by the bank), side
-  return S.map(p => {
+  const n = S.length, bk = S.map(p => p.bank * Math.sign(p.kh || 0)), B = new Float64Array(n), W = 10;
+  // a bank is set per node, so on its own it would snap on at the node: the steel twists into it over ~5 m each side
+  for (let i = 0; i < n; i++) { let a = 0, c = 0; for (let k = Math.max(0, i - W); k <= Math.min(n - 1, i + W); k++) { const wt = W + 1 - Math.abs(k - i); a += bk[k] * wt; c += wt; } B[i] = a / c; }
+  const loops = th => { const m = Math.floor(th / (2 * Math.PI)), u = clamp((th - 2 * Math.PI * m - Math.PI / 2) / Math.PI, 0, 1); return m + u * u * (3 - 2 * u); }; // 0 → 1 over each turn through the vertical
+  const F = S.map((p, i) => {
     const ch = Math.cos(p.head), shh = Math.sin(p.head), ct = Math.cos(p.th), st = Math.sin(p.th);
     const fwd = [ct * ch, st, ct * shh], upE = [-st * ch, ct, -st * shh], L = [-shh, 0, ch];
-    const b = p.bank * Math.sign(p.kh || 0), cb = Math.cos(b), sb = Math.sin(b);
+    const b = B[i], cb = Math.cos(b), sb = Math.sin(b), sh = LOOP_W * loops(p.th);
     const up = [upE[0] * cb + L[0] * sb, upE[1] * cb + L[1] * sb, upE[2] * cb + L[2] * sb];
-    const side = [fwd[1] * up[2] - fwd[2] * up[1], fwd[2] * up[0] - fwd[0] * up[2], fwd[0] * up[1] - fwd[1] * up[0]];
-    return { p: [p.X, p.y, p.Z], fwd, up, side };
+    return { p: [p.X + L[0] * sh, p.y, p.Z + L[2] * sh], fwd, up };
   });
+  // forward from the positions themselves (central differences), so the car points along the rails it rides, sideways drift included
+  for (let i = 0; i < n; i++) { const a = F[Math.max(0, i - 1)].p, b = F[Math.min(n - 1, i + 1)].p, d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], l = Math.hypot(...d);
+    if (l > 1e-6) F[i].fwd = d.map(v => v / l); const f = F[i].fwd, u = F[i].up, k = u[0] * f[0] + u[1] * f[1] + u[2] * f[2], u2 = [u[0] - f[0] * k, u[1] - f[1] * k, u[2] - f[2] * k], ul = Math.hypot(...u2) || 1;
+    F[i].up = u2.map(v => v / ul); const U = F[i].up; F[i].side = [f[1] * U[2] - f[2] * U[1], f[2] * U[0] - f[0] * U[2], f[0] * U[1] - f[1] * U[0]]; }
+  return F;
 }
+// a frame anywhere along the track: u is a fractional sample index; positions and directions interpolate between samples
+function frameAt(u) { const F = V3.frames, n = F.length, i = clamp(Math.floor(u), 0, n - 1), j = Math.min(n - 1, i + 1), t = clamp(u - i, 0, 1), L = (a, b) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  return { p: L(F[i].p, F[j].p), fwd: nrm(L(F[i].fwd, F[j].fwd)), up: nrm(L(F[i].up, F[j].up)) }; }
+const nrm = u => { const l = Math.hypot(u[0], u[1], u[2]) || 1; return [u[0] / l, u[1] / l, u[2] / l]; };
 // one geometry from many parts, each with its own colour (or a colour function of position) and transform
 function mergeParts(T, parts) {
   const pos = [], nor = [], col = [], c = new T.Color();
@@ -826,7 +839,8 @@ function v3Build() {
     M.count = k; sc.add(M); }
   // track: rails and spine in one mesh, ties and supports instanced
   { const parts = [], tube = (off, rad, sides, color) => {
-      const pos = [], idx = [], rings = []; for (let i = 0; i < F.length; i += 3) rings.push(i); if (rings[rings.length - 1] !== F.length - 1) rings.push(F.length - 1);
+      // a ring every 1.5 m on the straights, every 0.5 m where the track bends or twists, so the car never cuts a visible corner
+      const pos = [], idx = [], rings = [0], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; for (let i = 1; i < F.length - 1; i++) { const l = F[rings[rings.length - 1]]; if (i - rings[rings.length - 1] >= 3 || dot(l.fwd, F[i].fwd) < .9985 || dot(l.up, F[i].up) < .9985) rings.push(i); } rings.push(F.length - 1);
       rings.forEach((i, r2) => { const f = F[i], c = [f.p[0] + f.side[0] * off[0] + f.up[0] * off[1], f.p[1] + f.side[1] * off[0] + f.up[1] * off[1], f.p[2] + f.side[2] * off[0] + f.up[2] * off[1]];
         for (let s = 0; s < sides; s++) { const a = s / sides * Math.PI * 2, ca = Math.cos(a) * rad, sa = Math.sin(a) * rad; pos.push(c[0] + f.side[0] * ca + f.up[0] * sa, c[1] + f.side[1] * ca + f.up[1] * sa, c[2] + f.side[2] * ca + f.up[2] * sa); }
         if (r2) for (let s = 0; s < sides; s++) { const a = (r2 - 1) * sides + s, b = (r2 - 1) * sides + (s + 1) % sides, c2 = r2 * sides + s, d = r2 * sides + (s + 1) % sides; idx.push(a, c2, b, b, c2, d); } });
@@ -848,7 +862,7 @@ function v3Build() {
 }
 function v3Size() { if (!V3.r) return; V3.r.setSize(innerWidth, innerHeight, false); V3.cam.aspect = innerWidth / innerHeight; V3.cam.updateProjectionMatrix(); }
 function v3Open() {
-  if (!v3Init()) return false; V3.chaseP = null; V3.chaseD = null; v3Build(); v3Size();
+  if (!v3Init()) return false; V3.chaseP = null; V3.chaseD = null; V3.cg = null; v3Build(); v3Size();
   V3.on = true; $('v3').classList.add('on'); $('v3fx').classList.add('on'); document.body.classList.add('ride3'); pv.style.display = 'none'; $('povL').style.display = 'none'; wakeTools();
   if (play) v3Frame(play); return true;
 }
@@ -858,17 +872,21 @@ function toggle3D() { V3.want = !V3.on; if (V3.on) { v3Close(); if (play) { pv.s
 let toolsT = 0; function wakeTools() { $('tools').classList.remove('idle'); clearTimeout(toolsT); toolsT = setTimeout(() => { if (V3.on) $('tools').classList.add('idle'); }, 2000); }
 addEventListener('pointermove', () => V3.on && wakeTools()); addEventListener('pointerdown', () => V3.on && wakeTools());
 // where the front seat is at playback position (sample k plus fraction f): interpolated between physics samples
+// (The gaze used to blend toward the sample 1.5 m ahead by the fraction between samples, then snap back at every sample:
+// a 25 Hz sawtooth in the view at speed. Now it aims at a point a fixed distance down the track, which moves continuously.)
+const LOOK = 4; // metres down the track the rider looks
 function seatAt(p) {
-  const R = last.r, F = V3.frames, i0 = R.idx[p.k] ?? 0, i1 = R.idx[Math.min(R.idx.length - 1, p.k + 1)] ?? i0, a = F[i0], b = F[i1], f = p.f;
-  const L = (u, v) => [u[0] + (v[0] - u[0]) * f, u[1] + (v[1] - u[1]) * f, u[2] + (v[2] - u[2]) * f], nz = u => { const l = Math.hypot(...u) || 1; return [u[0] / l, u[1] / l, u[2] / l]; };
-  const ah = F[Math.min(F.length - 1, i0 + 3)]; // look a little ahead, as a rider does
-  return { p: L(a.p, b.p), fwd: nz(L(L(a.fwd, b.fwd), ah.fwd)), tfwd: nz(L(a.fwd, b.fwd)), up: nz(L(a.up, b.up)), i: i0 };
+  const R = last.r, i0 = R.idx[p.k] ?? 0, i1 = R.idx[Math.min(R.idx.length - 1, p.k + 1)] ?? i0, u = i0 + (i1 - i0) * p.f, here = frameAt(u), ah = frameAt(u + LOOK / DS);
+  const d = [ah.p[0] + ah.up[0] * EYE - here.p[0] - here.up[0] * EYE, ah.p[1] + ah.up[1] * EYE - here.p[1] - here.up[1] * EYE, ah.p[2] + ah.up[2] * EYE - here.p[2] - here.up[2] * EYE];
+  return { p: here.p, fwd: Math.hypot(...d) > .5 ? nrm(d) : here.fwd, tfwd: here.fwd, up: here.up, i: i0, u };
 }
+// a critically damped spring, exact for any frame time: x chases target T without overshoot
+function spring(x, v, T, w, dt) { const e = Math.exp(-w * dt); for (let k = 0; k < 3; k++) { const e0 = x[k] - T[k], c2 = v[k] + w * e0; x[k] = T[k] + (e0 + c2 * dt) * e; v[k] = (c2 - w * (e0 + c2 * dt)) * e; } }
 function carMatrix(T, q) { const fw = new T.Vector3(...q.fwd), up = new T.Vector3(...q.up), rt = fw.clone().cross(up).normalize(); up.crossVectors(rt, fw).normalize(); return new T.Matrix4().makeBasis(rt, up, fw.clone().negate()).setPosition(q.p[0], q.p[1], q.p[2]); }
 function v3Frame(p) {
-  const T = window.THREE, R = last.r, s = seatAt(p), v = R.v[p.k] || 0, gg = R.gs[p.k] ?? 1, F = V3.frames, camE = V3.cam, dt = V3.dt;
+  const T = window.THREE, R = last.r, s = seatAt(p), v = (R.v[p.k] || 0) + ((R.v[p.k + 1] ?? R.v[p.k] ?? 0) - (R.v[p.k] || 0)) * p.f, gg = R.gs[p.k] ?? 1, F = V3.frames, camE = V3.cam, dt = V3.dt;
   // the train: front car at the seat, two more behind
-  for (let k = 0; k < 3; k++) { const q = k ? { p: F[Math.max(0, s.i - k * 6)].p, fwd: F[Math.max(0, s.i - k * 6)].fwd, up: F[Math.max(0, s.i - k * 6)].up } : { p: s.p, fwd: s.tfwd, up: s.up }; V3.train.setMatrixAt(k, carMatrix(T, q)); }
+  for (let k = 0; k < 3; k++) { const q = k ? frameAt(Math.max(0, s.u - k * 6)) : { p: s.p, fwd: s.tfwd, up: s.up }; V3.train.setMatrixAt(k, carMatrix(T, q)); } // every car rides between samples, not from sample to sample
   V3.train.instanceMatrix.needsUpdate = true;
   { const [gh] = V3.groundAt(s.p[0], s.p[2]), hgt = Math.max(0, s.p[1] - gh), k = 1 / (1 + hgt / 12); V3.shadow.position.set(s.p[0], gh + .1, s.p[2]); V3.shadow.scale.set(3.2 + hgt * .05, 8 + hgt * .08, 1); V3.shadow.rotation.z = -Math.atan2(s.tfwd[2], s.tfwd[0]) + Math.PI / 2; V3.shadow.material.opacity = k; }
   // floating up off the seat in airtime, pressed down under high g
@@ -876,11 +894,16 @@ function v3Frame(p) {
   if (!V3.chase) {
     // a rider looks about: the gaze is pulled 40% toward the horizon while the car is upright
     const up0 = new T.Vector3(...s.up), f0 = new T.Vector3(...s.fwd), lv = new T.Vector3(f0.x, 0, f0.z), w = (camE.aspect < 1 ? .65 : .4) * clamp((up0.y - .3) / .4, 0, 1); // tall phone screens see less to the sides, so look further out
-    const gaze = lv.lengthSq() > 1e-4 ? f0.clone().lerp(lv.normalize(), w).normalize() : f0;
-    const sh = Math.max(0, Math.abs(gg - 1) - 1.5) * .025 * (play && play.speed ? 1 : 0), j = () => (Math.random() - .5) * sh, e = EYE + V3.bob;
+    const want = lv.lengthSq() > 1e-4 ? f0.clone().lerp(lv.normalize(), w).normalize() : f0;
+    // the head follows the gaze and the track's up through a critically damped spring: no snaps, no overshoot, ~0.1 s behind
+    if (!V3.cg || (play && play.fast) || dt > .25) { V3.cg = want.toArray(); V3.cgv = [0, 0, 0]; V3.cu = [...s.up]; V3.cuv = [0, 0, 0]; }
+    else { const sub = Math.ceil(dt / (1 / 120)); for (let q = 0; q < sub; q++) { spring(V3.cg, V3.cgv, want.toArray(), 22, dt / sub); spring(V3.cu, V3.cuv, s.up, 22, dt / sub); } }
+    const gaze = new T.Vector3(...V3.cg).normalize(), upS = new T.Vector3(...V3.cu);
+    // a faint rumble at high g: smooth (a few hertz, a centimetre or so), never a random jump per frame
+    const sh = Math.max(0, Math.abs(gg - 1) - 1.5) * .006 * (play && play.speed ? 1 : 0), tt = play ? play.simT : 0, j = q => sh * Math.sin(tt * (31 + q * 7) + q * 2.1), e = EYE + V3.bob;
     const fe = .1;
-    camE.position.set(s.p[0] + s.up[0] * e + s.tfwd[0] * fe + j(), s.p[1] + s.up[1] * e + s.tfwd[1] * fe + j(), s.p[2] + s.up[2] * e + s.tfwd[2] * fe + j());
-    const right = gaze.clone().cross(up0).normalize(), up = new T.Vector3().crossVectors(right, gaze).normalize();
+    camE.position.set(s.p[0] + s.up[0] * e + s.tfwd[0] * fe + j(0), s.p[1] + s.up[1] * e + s.tfwd[1] * fe + j(1), s.p[2] + s.up[2] * e + s.tfwd[2] * fe + j(2));
+    let right = gaze.clone().cross(upS); if (right.lengthSq() < 1e-6) right = gaze.clone().cross(up0); right.normalize(); const up = new T.Vector3().crossVectors(right, gaze).normalize();
     camE.quaternion.setFromRotationMatrix(new T.Matrix4().makeBasis(right, up, gaze.clone().negate()));
   } else {
     const back = F[Math.max(0, s.i - 30)], dx0 = s.p[0] - back.p[0], dz0 = s.p[2] - back.p[2], hz0 = Math.hypot(dx0, dz0);
@@ -1007,6 +1030,9 @@ window.__coaster = { spline, resample, geometry, simulate: ride, scores, footpri
   startRide, get play() { return play; }, V3, v3Open, v3Close, toggle3D, cycleSpeed, seatAt: () => play && V3.frames && seatAt(play),
   // headless playback at a given speed with fixed frame steps: what a player sees at 1x, 2x, 4x
   playback(speed, dt = 1 / 60) { const sc = scores(design, site), R = sc.r, p = { k: 0, f: 0, simT: 0, peak: -9, low: 9, visited: 0 }, ks = []; let frames = 0; while (!advance(p, R, dt * speed) && frames < 1e6) { frames++; ks.push(p.k); } return { peak: p.peak, low: p.low, visited: p.visited, frames, n: R.t.length, stats: sc.st, thrill: sc.thrill, comfort: sc.comfort }; },
+  // the camera's path, frame by frame at a fixed rate, for measuring how smooth the ride feels: eye position, forward, up, fov
+  trace3d(dt = 1 / 60, max = 6000) { if (!play || !V3.on) return null; const out = []; play.speed = play.speed || 1; for (let k = 0; k < max; k++) { const end = advance(play, last.r, dt * play.speed); V3.dt = dt; v3Frame(play); const c = V3.cam; c.updateMatrixWorld(); const e = c.matrixWorld.elements;
+      out.push({ p: [c.position.x, c.position.y, c.position.z], f: [-e[8], -e[9], -e[10]], u: [e[4], e[5], e[6]], fov: c.fov, k: play.k, g: last.r.gs[play.k] }); if (end) break; } return out; },
   bench3d(n = 60) { if (!play || !V3.on) return null; const t0 = performance.now(); for (let k = 0; k < n; k++) { advance(play, last.r, 1 / 60 * (play.speed || 1)); v3Frame(play); V3.r.getContext().finish(); } return { ms: (performance.now() - t0) / n, tris: V3.r.info.render.triangles, calls: V3.r.info.render.calls, pr: V3.r.getPixelRatio() }; },
   get live() { return live; }, get sel() { return sel; }, set sel(v) { sel = v; renderInsp(); kick(); }, get selG() { return selG; }, tangents, stamp, smooth, groups, groupOf, handleOf, arms, ELS, loopShape, openDrawer, guests, dailyStart, screenOf: (x, y) => [sx(x) / dpr, sy(y) / dpr], SAVE };
 

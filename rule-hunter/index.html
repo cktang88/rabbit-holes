@@ -153,7 +153,7 @@
   .lw-tip[hidden]{display:none}
   .m3{display:grid;grid-template-columns:repeat(3,13px);gap:2px;flex:0 0 auto} .m3 i{width:13px;height:13px;border:1px solid #9c8462;background:#efe0b8;box-sizing:border-box} .m3 i.l{background:#7a2a14;border-color:#7a2a14} .m3 i.c{outline:2px solid #8b1e1e;outline-offset:-1px} .m3 i.c.d{background:#efe0b8}
   /* the first lesson: a 5x5 piece of the dish to tap and count */
-  .lw-lesson{position:absolute;inset:0;z-index:8;display:flex;align-items:center;justify-content:center;background:rgba(20,12,6,.82);padding:10px;overflow:auto}
+  .lw-lesson{position:absolute;inset:0;z-index:8;display:flex;align-items:safe center;justify-content:center;background:rgba(20,12,6,.82);padding:10px;overflow:auto}
   .lw-lesson[hidden]{display:none}
   .ls-card{background:#f6eed8;color:#3b2a1a;border:1px solid #3b2a1a;box-shadow:0 0 0 4px #f6eed8,0 0 0 5px #3b2a1a,8px 10px 24px rgba(0,0,0,.6);padding:12px 14px;max-width:420px;width:100%;text-align:center}
   .ls-card h3{margin:0 0 4px;font-family:"IM Fell English SC",serif;font-weight:400;font-size:21px}
@@ -183,6 +183,8 @@
   .lw-list .pz.locked{opacity:.5}
   @media (max-height:520px) and (min-width:600px){ body.law #law{display:grid;grid-template-columns:1fr minmax(320px,48%);grid-template-rows:auto auto auto 1fr auto auto auto}
     .lw-head{grid-column:2;grid-row:1} .lw-goal{grid-column:2;grid-row:2;font-size:13px} .lw-stage{grid-column:1;grid-row:1/span 7} #lwRes{grid-column:2;grid-row:3} .lw-ctl{grid-column:2;grid-row:5} .lw-bits{grid-column:2;grid-row:6} .lw-foot{grid-column:2;grid-row:7} .lw-row{font-size:13px!important} .lw-ctl button{min-height:32px} .lw-card h3{font-size:16px} .lw-ax b{font-size:17px} .lw-ax .dim{display:none} .lw-ax canvas{height:14px} .lw-card{padding:2px 8px;margin:3px 0;gap:4px 10px} .lw-card button{min-height:30px;padding:0 8px} .lw-bits button{min-height:34px} .lw-foot{padding-bottom:6px} .lw-foot button{min-height:36px} }
+  @media (max-height:520px){ .ls-card{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;align-items:center;max-width:640px;padding:8px 12px} .ls-card h3{grid-column:1/-1;font-size:18px;margin:0} .ls-grid{grid-row:2/span 3;grid-template-columns:repeat(5,40px)} .ls-grid button{width:40px;height:40px} .ls-say{font-size:14.5px;min-height:0;margin:0} .ls-law{font-size:14px;margin:0} .ls-foot{margin-top:2px} }
+  @media (max-height:520px) and (min-width:600px){ body.law #law{overflow-y:auto} #lwRes{min-height:auto} .lw-ctl,.lw-bits,.lw-foot,.lw-goal,.lw-head{min-height:auto} }
   @media (max-width:700px){ .lw-ghost{width:38%} .lw-bits button{min-height:36px;font-size:15px} .lw-head b{font-size:18px} .lw-goal{font-size:14px} .lw-row{font-size:14px} .ls-grid{grid-template-columns:repeat(5,42px)} .ls-grid button{width:42px;height:42px} .ls-say{font-size:15px} }
 </style>
 </head>
@@ -204,7 +206,7 @@
     <div class="lw-bits" id="lwBits"></div>
     <div class="lw-foot"><button id="lwUndo">Start rule</button><button id="lwNext" class="primary" hidden>Next law</button><button id="lwShelf" hidden>Shelf</button><button id="lwAll">All laws</button><button id="lwDish">Open dish</button></div>
     <div class="lw-tip" id="lwTip" hidden></div>
-    <div class="lw-lesson" id="lwLesson" hidden></div>
+    <div class="lw-lesson modal-bg" id="lwLesson" role="dialog" aria-label="How the dish works" hidden></div>
   </section>
   <aside id="sheet" aria-label="Field journal">
     <div class="tabs"><button data-t="laws">Laws</button><button data-t="rule">Rule</button><button data-t="lab">Breed</button><button data-t="guide" class="on">Guide</button><button data-t="bounty">Prizes</button><button data-t="map">Map</button><button class="x" id="sheetX" aria-label="Close the journal">×</button></div>
@@ -394,6 +396,12 @@ function colonyBox(){ const ox=new Uint8Array(W), oy=new Uint8Array(H); for (let
   const a=span(ox,W), b=span(oy,H); return a? box({x:a.c, y:b.c, w:a.len, h:b.len}) : box({x:W/2, y:H/2, w:48, h:48}); }
 function fitTo(c){ layout(); pinned=box(c); try { cam.fit(false); } finally { pinned=null; } cam.touched=true; }  // automatic framings are not refitted on resize
 function fitColonies(){ layout(); cam.fit(false); }
+// a settled soup can leave its last colonies outside the opening view: an empty dish on screen reads as broken, so
+// when nothing alive is in view (and you have not just moved the camera), frame what is left
+let lastTouch=-1e9;
+function liveInView(){ const x0=Math.floor(-cam.x/cam.k), y0=Math.floor(-cam.y/cam.k), nx=Math.ceil(scr.w/cam.k)+1, ny=Math.ceil(scr.h/cam.k)+1; let n=0;
+  for (let yy=0; yy<Math.min(ny,H); yy++){ const y=mod(y0+yy,H)*W; for (let xx=0; xx<Math.min(nx,W); xx++) if (grid[y+mod(x0+xx,W)]) { if (++n>2) return n; } } return n; }
+function reframeIfEmpty(){ if (mode!=='dish' || drawing || performance.now()-lastTouch<6000 || !scr.w) return false; let any=false; for (let i=0;i<W*H;i++) if (grid[i]) { any=true; break; } if (!any || liveInView()) return false; fitColonies(); dirty=true; return true; }
 // the opening view: the middle of the 48-cell soup, cells at least 8 CSS px even on a phone
 function fitSoup(){ layout(); pinned={x:W/2-21, y:H/2-21, w:42, h:42}; try { cam.fit(false); } finally { pinned=null; } cam.touched=true; }
 // Click a colony to put it under the lens on its own (a focused, one-object scan).
@@ -436,7 +444,8 @@ function setCell(k,v){ if (grid[k]!==v){ paint.undo.push([k,grid[k]]); grid[k]=v
 function paintTo(px,py){ const [x,y]=dishToCell(px,py); const k=y*W+x; if (k===paint.last) return; const lx=paint.last%W, ly=(paint.last/W)|0;
   let dx=mod(x-lx+W/2,W)-W/2, dy=mod(y-ly+H/2,H)-H/2; const n=Math.max(Math.abs(dx),Math.abs(dy));
   for (let i=1;i<=n;i++){ const xx=mod(Math.round(lx+dx*i/n),W), yy=mod(Math.round(ly+dy*i/n),H); setCell(yy*W+xx, paint.v); } paint.last=k; draw(); }
-cv.addEventListener('pointerdown', e=>{ e.preventDefault(); const p=local(e); ptrs.set(e.pointerId,p);
+cv.addEventListener('wheel', ()=>{ lastTouch=performance.now(); }, {passive:true});
+cv.addEventListener('pointerdown', e=>{ lastTouch=performance.now(); e.preventDefault(); const p=local(e); ptrs.set(e.pointerId,p);
   if (narrow() && document.body.classList.contains('sheet')) closeSheet();
   if (ptrs.size===1){ tap={p0:p, multi:false};
     if (drawing){ try{ cv.setPointerCapture(e.pointerId); }catch(_){} const [x,y]=dishToCell(...p); const k=y*W+x; paint={v:grid[k]?0:1, last:k, undo:[]}; setCell(k,paint.v); SND.lens(); draw(); } }
@@ -983,12 +992,12 @@ syncCtl();
 // The first lesson, before any jargon: a 5x5 piece of the dish holding the first law's three cells, under its starting law.
 // Tap an empty cell to see it count its neighbours, tap a live one, then run a step or two: the puzzle follows from it.
 const LS = { g: null, stage: 0, pick: null, gen: 0 }, L5 = 5;
-const lessonOn = () => !document.getElementById('lwLesson').hidden;
+const lessonOn = () => { const e = document.getElementById('lwLesson'); return !!e && !e.hidden; };
 const lsCount = (g, i) => { const x = i % L5, y = (i / L5) | 0; let n = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < L5 && Y < L5) n += g[Y * L5 + X]; } return n; };
 const lsRule = () => LAW.parse(PZ[0].start);
-function lessonOpen() { LS.g = new Uint8Array(25); for (const i of [11, 12, 13]) LS.g[i] = 1; LS.stage = 0; LS.pick = null; LS.gen = 0; LS.say = 'Each square is a <b>cell</b>: dark ones are alive. Every step, each cell counts its 8 <b>neighbours</b> (the cells touching it, corners too).<br><b>Tap an empty cell</b> to count.'; document.getElementById('lwLesson').hidden = false; renderLesson(); }
-function lessonClose() { document.getElementById('lwLesson').hidden = true; S.taught = 1; persist(); LM.opened = performance.now(); renderLawBits(); }
-function renderLesson() { const r = lsRule(), g = LS.g, el = document.getElementById('lwLesson'); const pk = LS.pick, nbs = new Set();
+function lessonOpen() { LS.g = new Uint8Array(25); for (const i of [11, 12, 13]) LS.g[i] = 1; LS.stage = 0; LS.pick = null; LS.gen = 0; LS.say = 'Each square is a <b>cell</b>: dark ones are alive. Every step, each cell counts its 8 <b>neighbours</b> (the cells touching it, corners too).<br><b>Tap an empty cell</b> to count.'; const e = document.getElementById('lwLesson'); if (e) e.hidden = false; renderLesson(); }
+function lessonClose() { const e = document.getElementById('lwLesson'); if (e) e.hidden = true; S.taught = 1; persist(); LM.opened = performance.now(); renderLawBits(); }
+function renderLesson() { const r = lsRule(), g = LS.g, el = document.getElementById('lwLesson'); if (!el) return; const pk = LS.pick, nbs = new Set();
   if (pk != null) { const x = pk % L5, y = (pk / L5) | 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const X = x + dx, Y = y + dy; if ((dx || dy) && X >= 0 && Y >= 0 && X < L5 && Y < L5) nbs.add(Y * L5 + X); } }
   let cells = ''; for (let i = 0; i < 25; i++) { const c = lsCount(g, i), show = LS.all || i === pk; const nx = LS.all ? (g[i] ? (r.s >> c) & 1 : (r.b >> c) & 1) : null;
     cells += `<button data-i="${i}" class="${g[i] ? 'l' : ''} ${nbs.has(i) ? 'nb' : ''} ${i === pk ? 'me' : ''} ${LS.stage === 0 && i === 7 && pk == null ? 'pulse' : ''} ${LS.stage === 1 && i === 12 && pk !== 12 ? 'pulse' : ''} ${nx != null && !g[i] && nx ? 'born' : ''} ${nx != null && g[i] && !nx ? 'dies' : ''}" aria-label="${g[i] ? 'live' : 'empty'} cell">${show && (c || g[i] || i === pk) ? c : ''}</button>`; }
@@ -1013,7 +1022,7 @@ document.getElementById('lwShelf').onclick = () => { LM.shelfOpen = !LM.shelfOpe
 document.getElementById('lwNext').onclick = () => { const i = PZ.indexOf(LM.pz); if (i >= 0 && PZ[i + 1]) openLaw(PZ[i + 1]); else { toast('Drafting the next law…'); ensureAhead(); } };
 document.getElementById('lwAll').onclick = () => openSheet('laws');
 document.getElementById('lwDish').onclick = () => { S.dishSeen = 1; setMode('dish'); };
-window.__rh={ lessonOpen, lessonClose, lessonOn, explain, goalText, chipTip, setMode, openLaw, openDaily, PZ, LM, get mode(){ return mode; }, renderLaws, CLASSIC, neighbours, renderNbrs, get NB(){ return NB; }, lam, toast, syncBreed, breed, shelf, todayGoal, GOALS, OPS, ruleName, renderLab, predict, maybePredict, NOTES, noteFor, bitsOf, testDrawing, setDrawing, get pending(){ return pending; }, examineAt, catalog, autoUnlocked, dishToCell, cellToClient, cam, get view(){ return view; }, setView, zoomAt, fitColonies, fitSoup, fps, openSheet, closeSheet, showTab, refreshImage, render, stepGrid, components, normalize, canon, unwrap, analyzeObject, growthCheck, classifyRule, parseRule, ruleStr, speedStr, nameFor, scan, setRule, soup, tick, checkBounties, renderBounties, BOUNTIES, claimed, W, H,
+window.__rh={ reframeIfEmpty, liveInView, get lastTouch(){ return lastTouch; }, set lastTouch(v){ lastTouch=v; }, lessonOpen, lessonClose, lessonOn, explain, goalText, chipTip, setMode, openLaw, openDaily, PZ, LM, get mode(){ return mode; }, renderLaws, CLASSIC, neighbours, renderNbrs, get NB(){ return NB; }, lam, toast, syncBreed, breed, shelf, todayGoal, GOALS, OPS, ruleName, renderLab, predict, maybePredict, NOTES, noteFor, bitsOf, testDrawing, setDrawing, get pending(){ return pending; }, examineAt, catalog, autoUnlocked, dishToCell, cellToClient, cam, get view(){ return view; }, setView, zoomAt, fitColonies, fitSoup, fps, openSheet, closeSheet, showTab, refreshImage, render, stepGrid, components, normalize, canon, unwrap, analyzeObject, growthCheck, classifyRule, parseRule, ruleStr, speedStr, nameFor, scan, setRule, soup, tick, checkBounties, renderBounties, BOUNTIES, claimed, W, H,
   get S(){ return S; }, get grid(){ return grid; }, get gen(){ return gen; }, setBudget(n){ growthBudget=n; }, get running(){ return running; }, set running(v){ running=v; }, get auto(){ return auto; },
   place(pts, ox=70, oy=70){ grid.fill(0); gen=0; for (const [x,y] of pts) grid[(oy+y)*W+ox+x]=1; draw(); } };
 // Main loop: step, repaint only what changed, and keep a frame clock (the tests read it to check 60fps).
@@ -1022,7 +1031,7 @@ let slowF=0;
 function loop(now){ lawFrame(now||performance.now()); if (running && mode!=='law'){ const sp=+document.getElementById('speed').value;
     // past 400 generations the soup has mostly settled: slow to a watchable 30 a second (the assistant keeps full speed)
     if (auto) tick(Math.max(sp,10)); else if (gen<400) tick(sp); else if (++slowF%2===0) tick(1); autoStep(); }
-  stepNbrs(now||performance.now());
+  stepNbrs(now||performance.now()); if (running && (now||0)-(loop.rf||0)>2000){ loop.rf=now||0; if (reframeIfEmpty()) log('The colonies drifted out of view: framed them.'); }
   if (gen!==lastGen){ refreshImage(); lastGen=gen; }
   if (dirty || lensMark) render();
   const bet=!!pending; if (document.body.classList.contains('betting')!==bet) document.body.classList.toggle('betting',bet);

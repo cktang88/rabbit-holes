@@ -56,6 +56,13 @@ module.exports = {
       await page.click('#lwNext'); eq(await page.evaluate(() => __rh.LM.pz.id), 'hold');
       await page.click('#lwBits button[data-k="s"][data-i="0"]'); ok(/Not yet: /.test(await page.textContent('#lwRes')), 'says what the seed did instead');
     },
+    'dish: when the last colonies sit outside the view (and you have not just moved it), the view frames them instead of showing an empty dish': async ({ page, ok, eq }) => {
+      await noBet(page); await page.waitForTimeout(200);
+      await page.evaluate(() => { const R = __rh; R.place([[0, 0], [1, 0], [0, 1], [1, 1]], 5, 5); R.setView(100, 100, 8); R.lastTouch = -1e9; });
+      eq(await page.evaluate(() => __rh.liveInView()), 0, 'set up: nothing alive on screen');
+      ok(await page.evaluate(() => __rh.reframeIfEmpty()), 'reframed'); ok(await page.evaluate(() => __rh.liveInView()) > 0, 'the block is in view');
+      await page.evaluate(() => { __rh.setView(100, 100, 8); __rh.lastTouch = performance.now(); }); ok(!(await page.evaluate(() => __rh.reframeIfEmpty())), 'a camera you just moved is left alone');
+    },
     'lawmaker: every law is solvable at par by its ghost rule, and no rule fewer switches away obeys': async ({ page, ok }) => {
       const r = await page.evaluate(() => __rh.PZ.map(pz => { const g = LAW.parse(pz.ghost), c = LAW.check(pz, g); const tight = pz.par <= 2 ? LAW.search(pz, pz.par - 1).length === 0 : true; return [pz.id, !!c && c.flips === pz.par, tight, !LAW.check(pz, LAW.parse(pz.start))]; }));
       ok(r.length >= 16, r.length + ' laws'); for (const [id, a, b, c] of r) { ok(a, id + ' ghost obeys at par'); ok(b, id + ' par is the minimum'); ok(c, id + ' the start does not already obey'); }
