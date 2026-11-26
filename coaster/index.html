@@ -23,6 +23,7 @@
   #brief p{margin:4px 0;font-size:14.5px;line-height:1.38}
   #brief b{color:var(--red)}
   .req{margin:6px 0 0;padding:0;list-style:none;font-size:13.5px}
+  .req li.tip{column-span:all;font-size:12.5px;color:#6b5536;margin-top:3px;line-height:1.3} .req li.tip::before{content:'⌒ ';color:#2f8f4e}
   .req li::before{content:'▢ ';color:#6b5536}.req li.ok::before{content:'☑ ';color:var(--teal)}.req li.bad::before{content:'☒ ';color:var(--red)}
   #comSel{width:100%;margin-top:6px;font:16px "Architects Daughter",cursive;background:#fbf3df;color:var(--ink);border:0;border-bottom:2px solid var(--ink);border-radius:0}
   /* the readout: an engineer's gauge strip */
@@ -327,6 +328,21 @@ function checkReq(c, sc) {
   return rows;
 }
 const ROWS_ONLY = c => checkReq(c, { ok: false, st: { inv: 0, gmax: 9, gmin: -9, air: 0, latmax: 9 }, cost: 1e9, fp: { d: 1e9 }, r: { S: [{ head: 0 }] }, thrill: 0, comfort: 0 }).map(r => r[0]);
+// Airtime: the seat g drops under AIR (riders float). Over a crest, seat g = (g·cosθ − v²/r)/g, so it needs v² / r > ~0.8 g:
+// come over the top fast (a big drop before it) and keep the crest tightly rounded (small r).
+const AIR = .2, AIR_TIP = 'Airtime = the moment riders float out of their seats (seat g under 0.2). Get it by cresting a hill fast: speed² ÷ crest radius must beat gravity. A big drop, then a small, tightly rounded hump.';
+function crests(S, R) { // each hill top the train goes over upright, with the lowest seat g the prediction gives near it
+  const out = [], n = S.length, lift = design.lift ?? 1; if (!R || !R.gs) return out;
+  for (let i = 3; i < n - 3; i++) { const p = S[i]; if (S[Math.max(0, i - 6)].seg < lift || Math.cos(p.th) < .3 || !(p.y >= S[i - 1].y && p.y > S[i + 1].y)) continue; if (out.length && i - out[out.length - 1].i < 8) continue;
+    let gmin = 9, v = 0, k = 0; for (let j = Math.max(0, i - 6); j <= Math.min(n - 1, i + 6); j++) if (R.gs[j] != null && R.gs[j] < gmin) { gmin = R.gs[j]; v = R.v[j]; k = S[j].kv || 0; }
+    if (gmin === 9) continue; // the train never got here
+    const need = k < -1e-3 ? Math.sqrt(G * (Math.cos(p.th) - AIR) / -k) : Infinity; out.push({ i, x: p.x, y: p.y, g: gmin, v, need, air: gmin < AIR, close: gmin < .6 }); }
+  return out;
+}
+function crestText(c) { const kmh = v => Math.round(v * 3.6);
+  if (c.air) return `Airtime here: ${c.g.toFixed(1)} g at ${kmh(c.v)} km/h.`;
+  if (!isFinite(c.need) || c.need > c.v * 1.6) return `No airtime: ${c.g.toFixed(1)} g. Make this crest tighter (a smaller, rounder hump)${isFinite(c.need) ? `: as it is, it needs ${kmh(c.need)} km/h and you have ${kmh(c.v)}` : ''}.`;
+  return `No airtime yet (${c.g.toFixed(1)} g): needs ${kmh(c.need)} km/h here, you have ${kmh(c.v)}. Drop further before it, or make it tighter.`; }
 const dailyScore = sc => Math.round(sc.thrill + sc.comfort - sc.cost / 5);
 
 // ================= state =================
@@ -395,6 +411,9 @@ function draw() {
   { let lab = 0; const mark = (i, t, dy) => { const p = S[i]; g.fillStyle = '#ff6b57'; g.font = `700 ${14 * dpr}px "Courier Prime"`; g.textAlign = 'center'; g.fillText(t, sx(p.x), sy(p.y) + (dy - 18 * lab++) * dpr); };
     if (R && R.kink >= 0) mark(R.kink, 'KINK', -16); if (R && R.stall >= 0) mark(R.stall, 'STALLED', -16); }
   if (R && R.crash >= 0) { const p = S[R.crash]; g.fillStyle = '#ff6b57'; g.font = `700 ${14 * dpr}px "Courier Prime"`; g.textAlign = 'center'; g.fillText('HITS THE GROUND', sx(p.x), sy(p.y) + 22 * dpr); }
+  // hill crests, coloured by the predicted seat g over them: green floats (airtime), yellow nearly, grey no
+  if (!play && R) for (const c of crests(S, R)) { const X = sx(c.x), Y = sy(c.y) - 20 * dpr; g.beginPath(); g.arc(X, Y, 7 * dpr, 0, 7); g.fillStyle = c.air ? '#3fd27a' : c.close ? '#f2d03d' : 'rgba(207,230,255,.35)'; g.fill(); g.lineWidth = 1.5 * dpr; g.strokeStyle = '#123a66'; g.stroke();
+    if (c.air) { g.fillStyle = '#3fd27a'; g.font = `700 ${11 * dpr}px "Courier Prime"`; g.textAlign = 'center'; g.fillText('air', X, Y - 11 * dpr); } }
   // nodes (drag handles)
   if (!play) design.nodes.forEach((n, i) => {
     const X = sx(n.x), Y = sy(n.y), r = (i === sel ? 13 : 10) * dpr;
@@ -438,7 +457,8 @@ function drawStrip(S, R) { // seat g against distance along the track, with the 
   g.fillStyle = 'rgba(207,230,255,.5)'; let seg = -1; for (let i = 0; i < n; i++) if (S[i].seg !== seg) { seg = S[i].seg; g.fillRect(gx(i), b - 4 * dpr, 1 * dpr, 4 * dpr); }
   // curvature (faint): |κ| scaled so a 4 m radius fills the strip
   g.strokeStyle = 'rgba(207,230,255,.35)'; g.beginPath(); for (let i = 0; i < n; i += 2) { const y = b - clamp(Math.abs(S[i].k || 0) * 4, 0, 1) * h; i ? g.lineTo(gx(i), y) : g.moveTo(gx(i), y); } g.stroke();
-  if (R && R.gs.length) { g.lineWidth = 2 * dpr; for (let i = 1; i < R.gs.length; i++) { const v = R.gs[i]; g.strokeStyle = v > 5 ? '#ff4b3a' : v > 3.5 ? '#ffa25a' : v < .2 ? '#7cf2ff' : '#ffffff'; g.beginPath(); g.moveTo(gx(R.idx[i - 1]), gy(R.gs[i - 1])); g.lineTo(gx(R.idx[i]), gy(v)); g.stroke(); } }
+  if (R && R.gs.length) { const lift = design.lift ?? 1; g.fillStyle = 'rgba(63,210,122,.28)'; for (let i = 0; i < R.gs.length; i++) if (R.gs[i] < AIR && S[R.idx[i]].seg >= lift) g.fillRect(gx(R.idx[i]) - 1 * dpr, t, 2 * dpr + (r - l) / n, h); // the moments of airtime
+    g.lineWidth = 2 * dpr; for (let i = 1; i < R.gs.length; i++) { const v = R.gs[i]; g.strokeStyle = v > 5 ? '#ff4b3a' : v > 3.5 ? '#ffa25a' : v < .2 ? '#7cf2ff' : '#ffffff'; g.beginPath(); g.moveTo(gx(R.idx[i - 1]), gy(R.gs[i - 1])); g.lineTo(gx(R.idx[i]), gy(v)); g.stroke(); } }
   g.fillStyle = '#cfe6ff'; g.textAlign = 'right'; g.fillText(R ? 'seat g · curvature' : 'curvature', r - 4 * dpr, t + 9 * dpr);
   if (play) { g.fillStyle = '#e2493b'; g.fillRect(gx(play.i) - 1 * dpr, t, 2 * dpr, h); }
   if (sel >= 0 && !play) { const i0 = S.findIndex(p => p.seg >= sel); if (i0 >= 0) { g.fillStyle = '#ff6b57'; g.fillRect(gx(sel >= design.nodes.length - 1 ? n - 1 : i0) - 1 * dpr, t, 2 * dpr, h); } }
@@ -503,6 +523,7 @@ cv.addEventListener('pointerdown', e => {
   if (arm) { dragA = arm; snapshot(); FX.sfx('tick'); kick(); return; }
   const hd = hitHandle(px, py);
   if (hd) { dragH = { el: hd, h0: hd.h, w0: hd.w, x: wx(px), y: wy(py) }; selG = hd.id; sel = -1; snapshot(); renderInsp(); closeDrawer(); FX.sfx('tick'); kick(); return; }
+  { const R = (last && last.r) || (live && live.r), c = R && crests(design.S || geometry(design), R).find(c => Math.hypot(sx(c.x) - px, sy(c.y) - 20 * dpr - py) < 11 * dpr); if (c) { toast(crestText(c)); FX.sfx('tick'); kick(); return; } } // a crest's dot: what it needs for airtime
   const h = hitNode(px, py);
   if (h >= 0) { dragN = h; dragN0 = { x: design.nodes[h].x, y: design.nodes[h].y, moved: false }; sel = h; selG = design.nodes[h].g || 0; snapshot(); renderInsp(); closeDrawer(); FX.sfx('tick'); kick(); return; }
   sel = -1; selG = 0; renderInsp(); closeDrawer(); pan = { x: px, y: py, ox: cam.ox, oy: cam.oy }; kick();
@@ -979,6 +1000,7 @@ function showResult(sc) {
     <div class="scores"><div>thrill<b>${sc.thrill}</b></div><div>comfort<b>${sc.comfort}</b></div><div>cost<b>£${sc.cost}k</b></div><div>plan<b>${Math.round(sc.fp.w)}×${Math.round(sc.fp.d)}</b></div></div>
     <div style="font-family:'Courier Prime';font-size:13px">top ${Math.round(sc.st.vmax * 3.6)} km/h · peak ${sc.st.gmax.toFixed(1)} g · low ${sc.st.gmin.toFixed(1)} g · side ${sc.st.latmax.toFixed(1)} g · airtime ${sc.st.air.toFixed(1)} s · inversions ${sc.st.inv}</div>
     <ul class="req">${rows.map(r => `<li class="${r[1] ? 'ok' : 'bad'}">${r[0]}</li>`).join('')}</ul>
+    ${C.req.air || sc.st.air > 0 ? `<div class="airline" style="font-size:15px;margin:2px 0">${sc.st.air.toFixed(1)} s of airtime ${C.req.air ? (sc.st.air >= C.req.air ? '✓' : `✗ (needs ${C.req.air} s: the green dots on the drawing show which crests float)`) : '✓'}</div>` : ''}
     ${pass && hist && hist.length ? `<canvas id="hist" width="600" height="110"></canvas><div style="font-size:13px">${C.daily ? 'Score' : 'Cost'} against ${hist.length} designs by other drafters: better than ${pct}%.${C.daily ? ` Today's score: <b>${mine}</b> (best ${SAVE.best[C.id]}).` : ''}</div>` : ''}
     <div class="guests">${guests(sc).map(([w, q]) => `<div>${q}<em>${w}</em></div>`).join('')}</div>
     <div class="row3"><button class="t" id="rShare">Share design</button><button class="t" id="rEdit">Keep drafting</button>${pass && COMS.indexOf(C) < COMS.length - 1 ? '<button class="t ride" id="rNext">Next →</button>' : ''}</div>`;
@@ -1010,7 +1032,7 @@ function renderTools() {
   on('tReset', () => { snapshot(); design = { nodes: C.start(), lift: 1 }; sel = -1; changed(); renderInsp(); fit(); });
   on('tSkip', () => { play.fast = 1e6; }); on('tSpd', cycleSpeed); on('t3d', toggle3D); on('tCam', () => { V3.chase = !V3.chase; V3.chaseP = null; renderTools(); if (play) v3Frame(play); });
 }
-function renderReq() { $('cReq').innerHTML = (last && last.ok !== undefined && last.r ? checkReq(C, last).map(r => `<li class="${r[1] ? 'ok' : 'bad'}">${r[0]}</li>`) : ROWS_ONLY(C).map(r => `<li>${r}</li>`)).join(''); }
+function renderReq() { $('cReq').innerHTML = (last && last.ok !== undefined && last.r ? checkReq(C, last).map(r => `<li class="${r[1] ? 'ok' : 'bad'}">${r[0]}</li>`) : ROWS_ONLY(C).map(r => `<li>${r}</li>`)).join('') + (C.req.air ? `<li class="tip" id="airTip">${AIR_TIP}</li>` : ''); }
 function renderSel() {
   const open = i => i === 0 || COMS[i].free || COMS[i].daily && SAVE.done.first || SAVE.done[COMS[i - 1].id];
   $('comSel').innerHTML = COMS.map((c, i) => `<option value="${i}" ${c === C ? 'selected' : ''} ${open(i) ? '' : 'disabled'}>${c.daily ? '☀ ' : ''}${c.n}${SAVE.done[c.id] ? ' ' + '★'.repeat(SAVE.done[c.id]) : open(i) ? '' : ' 🔒'}</option>`).join('');
@@ -1055,7 +1077,7 @@ window.__coaster = { spline, resample, geometry, simulate: ride, scores, footpri
   trace3d(dt = 1 / 60, max = 6000) { if (!play || !V3.on) return null; const out = []; play.speed = play.speed || 1; for (let k = 0; k < max; k++) { const end = advance(play, last.r, dt * play.speed); V3.dt = dt; v3Frame(play); const c = V3.cam; c.updateMatrixWorld(); const e = c.matrixWorld.elements;
       out.push({ p: [c.position.x, c.position.y, c.position.z], f: [-e[8], -e[9], -e[10]], u: [e[4], e[5], e[6]], fov: c.fov, k: play.k, g: last.r.gs[play.k] }); if (end) break; } return out; },
   bench3d(n = 60) { if (!play || !V3.on) return null; const t0 = performance.now(); for (let k = 0; k < n; k++) { advance(play, last.r, 1 / 60 * (play.speed || 1)); v3Frame(play); V3.r.getContext().finish(); } return { ms: (performance.now() - t0) / n, tris: V3.r.info.render.triangles, calls: V3.r.info.render.calls, pr: V3.r.getPixelRatio() }; },
-  get live() { return live; }, get sel() { return sel; }, set sel(v) { sel = v; renderInsp(); kick(); }, get selG() { return selG; }, tangents, trackFrames, LOOP_W, TRACK_W, stamp, smooth, groups, groupOf, handleOf, arms, ELS, loopShape, openDrawer, guests, dailyStart, screenOf: (x, y) => [sx(x) / dpr, sy(y) / dpr], SAVE };
+  get live() { return live; }, get sel() { return sel; }, set sel(v) { sel = v; renderInsp(); kick(); }, get selG() { return selG; }, tangents, crests: () => crests(design.S || geometry(design), (last && last.r) || (live && live.r)), crestsOnScreen: () => crests(design.S || geometry(design), (last && last.r) || (live && live.r)).map(c => ({ ...c, sx: sx(c.x) / dpr, sy: (sy(c.y) - 20 * dpr) / dpr })), AIR, trackFrames, LOOP_W, TRACK_W, stamp, smooth, groups, groupOf, handleOf, arms, ELS, loopShape, openDrawer, guests, dailyStart, screenOf: (x, y) => [sx(x) / dpr, sy(y) / dpr], SAVE };
 
 // ================= boot =================
 resize();
