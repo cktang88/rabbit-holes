@@ -690,16 +690,34 @@ function endRide() {
 // from the turns, roll from the banks. Phone budget: pixel ratio ≤ 1.5, ~20 draw calls (props merged, trees and
 // guests instanced), ~30k triangles.
 const V3 = { on: false, want: true, chase: false, frames: null, key: '', bob: 0, dt: 1 / 60 };
-const LOOP_W = 2.4; // a real loop steps sideways by about a track width, so its exit passes beside its entry, not through it
+// The design is a side profile, so in 3-D a loop's exit would run straight through its entry (and any part of the ride that
+// comes back over itself would cross it). A real loop steps sideways by a track width and some clearance: wherever the track
+// would pass within CLEAR of track it has already laid, the later section is moved sideways, eased in over RAMP metres of
+// track (a smoothstep in arc length) and banked a little into the move. Visual only: the physics rides the 2-D profile.
+const LOOP_W = 2.4, TRACK_W = 1.25; // centreline clearance between sections; rail to rail width
+function sideShift(P0, L) {
+  const n = P0.length, SEP = Math.round(6 / DS), RAMP = Math.round(20 / DS), C2 = LOOP_W * LOOP_W, o = new Float64Array(n);
+  for (let it = 0; it < 5; it++) {
+    const px = i => P0[i][0] + L[i][0] * o[i], pz = i => P0[i][2] + L[i][2] * o[i], lev = new Float64Array(n); let run = 0, any = false;
+    for (let i = 0; i < n; i++) { let def = 0; const xi = px(i), yi = P0[i][1], zi = pz(i);
+      for (let j = 0; j < i - SEP; j++) { const dx = px(j) - xi, dy = P0[j][1] - yi, dz = pz(j) - zi, d2 = dx * dx + dy * dy + dz * dz; if (d2 < C2) def = Math.max(def, LOOP_W - Math.sqrt(d2)); }
+      if (def > .01) any = true; run = Math.max(run, o[i] + (def > .01 ? def * 1.08 : 0)); lev[i] = run; }
+    if (!any) break;
+    for (let i = 0; i < n; i++) { let v = lev[i]; for (let k = i + 1; k <= Math.min(n - 1, i + RAMP); k++) { const h = 1 - (k - i) / RAMP; v = Math.max(v, lev[k] * h * h * (3 - 2 * h)); } o[i] = v; }
+    const t = Float64Array.from(o); for (let i = 0; i < n; i++) { let a = 0, c = 0; for (let k = Math.max(0, i - 4); k <= Math.min(n - 1, i + 4); k++) { a += t[k]; c++; } o[i] = Math.max(t[i] * .999, a / c); } // iron out the corners where ramps meet
+  }
+  return o;
+}
 function trackFrames(S) { // per sample: position, forward, up (rolled by the bank), side
   const n = S.length, bk = S.map(p => p.bank * Math.sign(p.kh || 0)), B = new Float64Array(n), W = 10;
+  const Ls = S.map(p => [-Math.sin(p.head), 0, Math.cos(p.head)]), off = sideShift(S.map(p => [p.X, p.y, p.Z]), Ls);
+  for (let i = 1; i < n - 1; i++) bk[i] += Math.atan(clamp((off[i + 1] - 2 * off[i] + off[i - 1]) / (DS * DS) * 12, -.35, .35)); // lean into the sideways step
   // a bank is set per node, so on its own it would snap on at the node: the steel twists into it over ~5 m each side
   for (let i = 0; i < n; i++) { let a = 0, c = 0; for (let k = Math.max(0, i - W); k <= Math.min(n - 1, i + W); k++) { const wt = W + 1 - Math.abs(k - i); a += bk[k] * wt; c += wt; } B[i] = a / c; }
-  const loops = th => { const m = Math.floor(th / (2 * Math.PI)), u = clamp((th - 2 * Math.PI * m - Math.PI / 2) / Math.PI, 0, 1); return m + u * u * (3 - 2 * u); }; // 0 → 1 over each turn through the vertical
   const F = S.map((p, i) => {
     const ch = Math.cos(p.head), shh = Math.sin(p.head), ct = Math.cos(p.th), st = Math.sin(p.th);
     const fwd = [ct * ch, st, ct * shh], upE = [-st * ch, ct, -st * shh], L = [-shh, 0, ch];
-    const b = B[i], cb = Math.cos(b), sb = Math.sin(b), sh = LOOP_W * loops(p.th);
+    const b = B[i], cb = Math.cos(b), sb = Math.sin(b), sh = off[i];
     const up = [upE[0] * cb + L[0] * sb, upE[1] * cb + L[1] * sb, upE[2] * cb + L[2] * sb];
     return { p: [p.X + L[0] * sh, p.y, p.Z + L[2] * sh], fwd, up };
   });
@@ -1034,7 +1052,7 @@ window.__coaster = { spline, resample, geometry, simulate: ride, scores, footpri
   trace3d(dt = 1 / 60, max = 6000) { if (!play || !V3.on) return null; const out = []; play.speed = play.speed || 1; for (let k = 0; k < max; k++) { const end = advance(play, last.r, dt * play.speed); V3.dt = dt; v3Frame(play); const c = V3.cam; c.updateMatrixWorld(); const e = c.matrixWorld.elements;
       out.push({ p: [c.position.x, c.position.y, c.position.z], f: [-e[8], -e[9], -e[10]], u: [e[4], e[5], e[6]], fov: c.fov, k: play.k, g: last.r.gs[play.k] }); if (end) break; } return out; },
   bench3d(n = 60) { if (!play || !V3.on) return null; const t0 = performance.now(); for (let k = 0; k < n; k++) { advance(play, last.r, 1 / 60 * (play.speed || 1)); v3Frame(play); V3.r.getContext().finish(); } return { ms: (performance.now() - t0) / n, tris: V3.r.info.render.triangles, calls: V3.r.info.render.calls, pr: V3.r.getPixelRatio() }; },
-  get live() { return live; }, get sel() { return sel; }, set sel(v) { sel = v; renderInsp(); kick(); }, get selG() { return selG; }, tangents, stamp, smooth, groups, groupOf, handleOf, arms, ELS, loopShape, openDrawer, guests, dailyStart, screenOf: (x, y) => [sx(x) / dpr, sy(y) / dpr], SAVE };
+  get live() { return live; }, get sel() { return sel; }, set sel(v) { sel = v; renderInsp(); kick(); }, get selG() { return selG; }, tangents, trackFrames, LOOP_W, TRACK_W, stamp, smooth, groups, groupOf, handleOf, arms, ELS, loopShape, openDrawer, guests, dailyStart, screenOf: (x, y) => [sx(x) / dpr, sy(y) / dpr], SAVE };
 
 // ================= boot =================
 resize();
