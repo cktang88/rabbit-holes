@@ -147,6 +147,12 @@ module.exports = {
         ok(s.open >= 0 && s.open < 14 && s.card > 20 && ['design', 'cast', 'tune', 'ring'].includes(s.stage) && s.okBells && s.okRec, 'broken by ' + junk + ' → ' + JSON.stringify(s));
       }
     },
+    'no WebGL: the page says so plainly and the foundry still works in flat section': async ({ page, ok, eq }) => {
+      await page.goto(page.url().split('?')[0] + '?lite&nogl'); await ready(page);
+      ok(await page.isVisible('#rh-nogl'), 'noGL message'); eq(await page.evaluate(() => __bell.ok3d), false);
+      const r = await page.evaluate(() => { const b = __bell.bell(), f0 = __bell.G.bellModes(b).f.nominal; __bell.doShave(.85, __bell.G.maxCut(b) * .5); __bell.finish(); return [f0, b.cuts.length]; });
+      await page.waitForTimeout(300); eq(r[1], 1); ok(await page.evaluate(f0 => __bell.G.bellModes(__bell.bell()).f.nominal < f0, r[0]), 'the cut still lowers the bell');
+    },
     'phone (390x844): the foundry fills the screen; UI stays off most of it; no tiny buttons': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(500);
       const r = await page.evaluate(() => { const a = id => { const e = document.getElementById(id).getBoundingClientRect(); return e.width * e.height / (innerWidth * innerHeight); };

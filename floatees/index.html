@@ -138,10 +138,10 @@
   #monR{flex:1;min-width:0;height:28px;margin:0;accent-color:#9cc8ff;background:transparent}
   #monR:disabled{opacity:.45}
   #cred{font-size:10px;line-height:1.3;color:#9fb3c8;margin-top:1px}
-  #cred a{color:inherit}
-  body.seamode #mon{display:none}
-  @media (max-width:860px){ #mon{left:8px;width:min(46vw,200px);padding:4px 8px 3px;font-size:11px} #cred{font-size:9px} }
-  @media (max-height:500px) and (min-width:560px){ #mon{left:6px;bottom:auto;top:calc(100vh - 150px);width:250px} }
+  #cred a{color:inherit} #cred .trk{white-space:nowrap;cursor:pointer;color:#ffcf8a} #cred .trk input{vertical-align:-2px;margin:0 2px 0 0;accent-color:#ffb347}
+  body.seamode #mon{display:none} #cred .sm{display:none}
+  @media (max-width:860px){ #mon{left:8px;width:min(46vw,200px);padding:4px 8px 3px;font-size:11px} #cred{font-size:9px} #cred .lg{display:none} #cred .sm{display:inline} }
+  @media (max-height:500px) and (min-width:560px){ #mon{left:6px;bottom:6px;top:auto;width:262px;padding:3px 8px 2px;font-size:11px} #cred{font-size:9px} #cred .lg{display:none} #cred .sm{display:inline} }
   @media (pointer:coarse){select{font-size:16px!important}}
   @media (prefers-reduced-motion:reduce){.pcard{animation:none}#report.on .conf{animation:none;opacity:1;transform:translate(-50%,-50%) rotate(-12deg)}}
 </style>
@@ -153,7 +153,7 @@
 <div id="ctrl" class="chip"></div>
 <div id="tally" class="chip"></div>
 <div id="view" aria-label="Globe view"><button class="b" id="vIn" aria-label="Zoom in">+</button><button class="b" id="vOut" aria-label="Zoom out">−</button><button class="b" id="vReset" aria-label="Reset view" title="Reset view">⟲</button></div>
-<div id="mon"><div class="row"><label for="monR">Currents <b id="monL">JAN</b></label><input type="range" id="monR" min="0" max="11" step="1" value="0" aria-label="Month of the currents shown"></div><div id="cred">data: NOAA Global Drifter Program · RSS CCMP V3.1 winds · USCG leeway · Natural Earth · NASA Blue Marble</div></div>
+<div id="mon"><div class="row"><label for="monR">Currents <b id="monL">JAN</b></label><input type="range" id="monR" min="0" max="11" step="1" value="0" aria-label="Month of the currents shown"></div><div id="cred"><span class="lg">data: NOAA Global Drifter Program · RSS CCMP V3.1 winds · USCG leeway · Natural Earth · NASA Blue Marble</span><span class="sm">data: NOAA drifters · CCMP winds · NASA</span> <label class="trk"><input type="checkbox" id="trkC"> real drifter tracks</label></div></div>
 <div id="tip"></div>
 <div id="toast"></div>
 <div id="cards" aria-live="polite"></div>
@@ -358,7 +358,10 @@ function* solveGen(rot) {
 // One solution, texture and canvas per rotation state, computed once and kept.
 const OCEAN = {};
 let CU = null, CV = null, CSP = null, VS = 0; // current field; VS: degrees per year per model unit, fixed by the real Earth's solution
-const EKMAN = 1.0, DIFF = 9, WINDAGE = 22, SWW = 14; // Ekman strength, eddy diffusion (° per √year), windage (° per year per unit wind), south-westerly drift
+// The idealised model's own knobs (generated worlds, and Earth with its spin changed; the real Earth uses the measured
+// diffusivity, CCMP winds and Coast Guard leeway above): Ekman strength, eddy diffusion (° per √year), windage (° per year
+// per unit wind; 22 is also the bath toys' cargo id), south-westerly drift
+const EKMAN = 1.0, DIFF = 9, WINDAGE = 22, SWW = 14;
 const sm = (x, a, b) => x <= a ? 0 : x >= b ? 1 : (x - a) / (b - a);
 // The North Atlantic's prevailing south-westerlies (degrees north per year): they carry the Gulf Stream's floaters towards Europe.
 const swWind = (lat, lon) => SEA || lat < 30 || lat > 64 || lon < -82 || lon > 15 ? 0 : SWW * sm(lat, 30, 38) * (1 - sm(lat, 58, 64)) * sm(lon, -82, -72) * (1 - sm(lon, 0, 15));
@@ -614,7 +617,7 @@ function earthRoughness() { // the sea is glassy (the sun's glint), the land mat
   const c = document.createElement('canvas'); c.width = 1440; c.height = 720; const g = c.getContext('2d'), im = g.createImageData(1440, 720);
   for (let k = 0; k < LQ.length; k++) { im.data[k * 4 + 1] = LQ[k] ? 240 : 96; im.data[k * 4 + 3] = 255; } g.putImageData(im, 0, 0); return new THREE.CanvasTexture(c);
 }
-loadEarth().then(() => { EL.rough = earthRoughness(); useEarthLook(); if (L) { renderCtrl(); renderTally(stats()); } }).catch(e => { ED.failed = true; console.warn('Earth data unavailable, using the model ocean:', e); });
+loadEarth().then(() => { EL.rough = earthRoughness(); useEarthLook(); for (const l of LV) if (l.case) delete l.case.log; if (L && L.case && !ducks.length) load(SAVE.cur); /* a case opened before the data came: its logbook is redrawn from the real ocean */ if (L) { renderCtrl(); renderTally(stats()); } }).catch(e => { ED.failed = true; console.warn('Earth data unavailable, using the model ocean:', e); });
 ensureOcean(1); applyOcean(1);
 const ready = Promise.resolve();
 setTimeout(() => { ensureOcean(0); ensureOcean(-1); }, 2500);
@@ -628,7 +631,7 @@ let viewMonth = new Date().getMonth(); // the month the currents are drawn for, 
 // in the spirit of NASA SVS's "Perpetual Ocean" and earth.nullschool.net. Each line is traced through the field from a
 // seed both ways; where the water is fast the line runs longer and brighter. A soft brightening glides along every line at
 // the pace of the water, so the sea visibly flows without any line ending in a blob. Built in slices off the frame loop.
-const FLN = MOBILE || SOFTGL ? 1200 : 2600, FLP = MOBILE || SOFTGL ? 32 : 40; // lines; points per line (half each way from the seed)
+const FLN = SOFTGL ? 1200 : MOBILE ? 1800 : 2600, FLP = MOBILE || SOFTGL ? 32 : 40; // lines; points per line (half each way from the seed)
 const flowMat = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   uniforms: { uT: { value: 0 }, uOp: { value: 1 }, uK: { value: 1 } },
@@ -1363,6 +1366,16 @@ function renderMon() {
   $('monL').textContent = REAL() ? MONTHS[m] : rot === 0 ? 'model, no spin' : rot === -1 ? 'model, reversed' : ED.failed ? 'model' : '…';
 }
 $('monR').oninput = e => { viewMonth = +e.target.value; renderMon(); };
+// real drifter tracks: 240 GDP drifters, a year of each (tools/build_tracks.py), loaded only when asked for
+let trkObj = null;
+$('trkC').onchange = async e => {
+  if (!trkObj) { try { const { body: b, hdr } = await fetchPacked('data/tracks.bin'), dv = new DataView(b.buffer, b.byteOffset, b.byteLength), pos = [], A = [0, 0, 0], B = [0, 0, 0]; let o = 0;
+      for (let k = 0; k < hdr.n; k++) { const n = dv.getUint16(o, true); o += 2; let pa = null; for (let i = 0; i < n; i++) { const la = dv.getInt16(o, true) / 100, lo = dv.getInt16(o + 2, true) / 100; o += 4; if (pa && Math.abs(lo - pa[1]) < 30) { toXYZ(pa[0], pa[1], 1.004, A); toXYZ(la, lo, 1.004, B); pos.push(...A, ...B); } pa = [la, lo]; } }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      trkObj = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: '#ffb347', transparent: true, opacity: .5, blending: THREE.AdditiveBlending, depthWrite: false })); globe.add(trkObj);
+    } catch (err) { e.target.checked = false; toast('Tracks unavailable', '', 1500); return; } }
+  trkObj.visible = e.target.checked && !SEA; FX.sfx('click');
+};
 function patchDist(lat, lon) { const dLat = lat - PATCH[0], dLon = ((lon - PATCH[1] + 540) % 360) - 180; return Math.hypot(dLat, dLon * Math.cos(PATCH[0] * Math.PI / 180)); }
 function stats() {
   const regions = {}; for (const k in REG) regions[k] = 0; regions.other = 0;
