@@ -59,7 +59,9 @@ module.exports = {
         await page.evaluate(i => __ws.open('p' + i, ''), i);
         ok(await waitFor(page, `__ws.w0 && __ws.key === 'p${i}' && __ws.agents.length === 0`), 'plate ' + (i + 1) + ' opens empty');
         const spot = await page.evaluate(() => { const { WS } = __ws, P = __ws.P, t = Object.keys(P.agents).find(k => k !== 'fall');
-          for (let y = 10; y <= WS.H - 10; y += 3) for (let x = 12; x <= WS.W - 12; x += 3) if (!WS.simulate(__ws.w0, P, [{ t, x, y }]).ok) return { t, x, y, r: WS.AGENTS[t].r, budget: P.agents[t] }; return null; });
+          const G = P.goal, s0 = P.sol.find(a => a.x != null), c = (G.towns && G.towns[0]) || G.at || [s0.x, s0.y], C = []; // try spots far from where the commission is decided first
+          for (let y = 6; y <= WS.H - 8; y += 2) for (let x = 6; x <= WS.W - 6; x += 2) C.push([x, y]); C.sort((a, b) => Math.hypot(b[0] - c[0], b[1] - c[1]) - Math.hypot(a[0] - c[0], a[1] - c[1]));
+          for (const [x, y] of C) if (!WS.simulate(__ws.w0, P, [{ t, x, y }]).ok) return { t, x, y, r: WS.AGENTS[t].r, budget: P.agents[t] }; return null; });
         ok(spot, 'plate ' + (i + 1) + ': a failing spot exists');
         await page.evaluate(s => __ws.place(s.t, s.x + .5, s.y + .5), spot); await page.waitForTimeout(100);
         await page.evaluate(() => { __ws.startRun(); __ws.hurry(); }); ok(await waitFor(page, () => __ws.phase === 'result', 8000), 'run finished');

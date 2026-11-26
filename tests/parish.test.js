@@ -126,5 +126,17 @@ module.exports = {
       ok(cov.lastBottom <= cov.barTop + 1 || cov.scrollable, 'help text hidden under the button: ' + JSON.stringify(cov)); ok(cov.modalBottom <= cov.vh, 'modal fits the screen');
       await ctx.close();
     },
+    'a full pincushion lists every pin as a link, the hint shows once, and the Letters tab counts letters': async ({ page, ok, eq }) => {
+      await closeModals(page);
+      const r = await page.evaluate(() => { const P = window.__parish, V = P.V, used = new Set();
+        for (let n = 0; n < 6; n++) { const s = V.slots.find(s => s.truth != null && V.base[s.key].length >= 2 && !used.has(s.key) && !(s.key in P.G.sealed)); used.add(s.key); P.pin(s.key, V.base[s.key].find(x => x !== s.truth)); }
+        const first = P.G.pins[0], e = V.slotOf[first[0]].e; P.focus(V.reg[e].id === e ? (e === 0 ? 1 : 0) : 0);
+        const links = [...document.querySelectorAll('#slip .jam [data-go]')].map(a => +a.dataset.go);
+        const hints = [...document.querySelectorAll('#slip .hint')].filter(h => /three pinned threads/.test(h.textContent)).length;
+        document.querySelector('#slip .jam [data-go]').click();
+        return { pins: P.G.pins.length, links, want: P.G.pins.map(([k]) => V.slotOf[k].e), focus: P.G.focus, hints, badge: document.getElementById('bdL').textContent, nL: V.letters.length }; });
+      eq(r.pins, 6); eq(r.links, r.want, 'jam links'); eq(r.focus, r.want[0], 'a jam link opens the pinned entry');
+      eq(r.hints, 1, 'the pin hint is printed twice'); eq(r.badge, '0/' + r.nL, 'Letters tab badge');
+    },
   },
 };

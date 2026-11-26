@@ -24,7 +24,27 @@ const noBet = (page) => page.evaluate(() => { if (__rh.mode !== 'dish') { __rh.s
 
 module.exports = {
   page: 'rule-hunter/index.html',
+  // a fresh player first gets the 5x5 lesson; most tests start past it (the newcomer test below reloads a fresh save)
+  ready: async (page) => { await page.waitForTimeout(800); await page.evaluate(() => { if (__rh.lessonOn()) __rh.lessonClose(); }); },
   tests: {
+    'newcomer: before any jargon, a 5x5 lesson to tap and count; then plain-language rows, a plain goal, step controls and plain failures': async ({ page, ok, eq }) => {
+      await page.evaluate(() => localStorage.clear()); await page.reload(); await page.waitForTimeout(800);
+      ok(await page.isVisible('#lwLesson .ls-grid'), 'the teaching step shows first'); eq(await page.locator('.ls-grid button').count(), 25);
+      ok(!/\bB\d|\/S\d/.test(await page.textContent('#lwLesson')), 'no B/S notation in the lesson');
+      await page.click('.ls-grid button[data-i="7"]'); eq(await page.textContent('.ls-grid button[data-i="7"]'), '3', 'the tapped empty cell shows its neighbour count');
+      ok(/3 live neighbours.*comes alive/.test(await page.textContent('#lsSay')));
+      await page.click('.ls-grid button[data-i="12"]'); ok(/2 live neighbours.*dies/.test(await page.textContent('#lsSay')), 'a live cell dies by its count');
+      await page.click('#lsGo'); await page.click('#lsGo'); await page.click('#lsGo'); await page.click('#lsGo');
+      ok(/blink forever/.test(await page.textContent('#lsSay'))); await page.click('#lsTry'); ok(await page.isHidden('#lwLesson'), 'the lesson closes onto the first law');
+      eq(await page.evaluate(() => __rh.S.taught), 1);
+      const rows = await page.$$eval('#lwBits .lw-row', els => els.map(e => e.textContent)); ok(/^Born: an empty cell comes alive/.test(rows[0]) && /^Stays alive: a live cell survives/.test(rows[1]), JSON.stringify(rows));
+      ok(/Goal: make it blink forever.*one switch/i.test(await page.textContent('#lwGoal')), 'the goal in plain words'); eq(await page.textContent('.lw-ghost span'), 'goal');
+      ok(/died by step 2.*stays alive with 1 or 2.*Stays alive row/.test(await page.textContent('#lwRes')), 'says why it fails and which row to look at: ' + await page.textContent('#lwRes'));
+      await page.hover('#lwBits button[data-k="s"][data-i="2"]'); ok(await page.isVisible('#lwTip .m3'), 'a chip shows a 3x3 picture'); eq(await page.locator('#lwTip .m3 i.l').count(), 3, 'two neighbours plus the live centre');
+      await page.click('#lwPlay'); await page.click('#lwRestart'); await page.click('#lwStep'); await page.click('#lwStep'); await page.waitForTimeout(300); eq(await page.evaluate(() => [__rh.LM.playing, __rh.LM.t]), [false, 2], 'step pauses and advances one generation at a time');
+      await page.click('#lwCounts'); eq(await page.evaluate(() => __rh.LM.counts), true);
+      await page.reload(); await page.waitForTimeout(600); ok(await page.isHidden('#lwLesson'), 'the lesson is shown once');
+    },
     'lawmaker: the first law is playable at once (no text to read): a seed, its ghost, the switches; one flip obeys': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => ({ mode: __rh.mode, modal: !!document.querySelector('.modal'), id: __rh.LM.pz.id, bits: document.querySelectorAll('#lwBits button').length, title: document.getElementById('lwTitle').textContent }));
       eq(r.mode, 'law'); eq(r.modal, false, 'no intro screen'); eq(r.id, 'blink'); eq(r.bits, 18); ok(/beat in 2/.test(r.title), r.title);

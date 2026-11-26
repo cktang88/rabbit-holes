@@ -414,6 +414,23 @@ module.exports = {
         return { rw, tries, firstOrder, beatMedian, n }; });
       ok(r.rw / r.tries <= .02, 'random circuits pass ' + r.rw + '/' + r.tries); ok(r.beatMedian >= r.n * .5, 'the best designs beat the median on most chips: ' + r.beatMedian + '/' + r.n);
     },
+    'leaving the chip lab for a software level drops lab mode and the #chip link; a reload returns to that program': async ({ page, eq, ok }) => {
+      await solveAll(page); await dismissModals(page);
+      await page.evaluate(() => __nand.showLab('abc')); ok(page.url().includes('#chip=abc'));
+      await page.evaluate(() => __nand.showSoft(2));
+      eq(await page.evaluate(() => [__nand.labOn, __nand.softOn, location.hash]), [false, true, '']);
+      eq(await page.$$eval('#levels .lv.cur', e => e.length), 1, 'one current entry in the level list');
+      const p2 = await reopen(page); await dismissModals(p2);
+      eq(await p2.evaluate(() => [__nand.softOn, __nand.softCur]), [true, 2]); eq(p2.errs, []);
+      await p2.evaluate(() => __nand.showCircuit(3)); const p3 = await reopen(p2); eq(await p3.evaluate(() => [__nand.softOn, __nand.SAVE.cur]), [false, 3]);
+    },
+    'phone: picking a level from the list (below the board) scrolls the new board into view': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await dismissModals(page); await solveAll(page, 7); await dismissModals(page);
+      await page.click('#levels [data-i="2"]'); await page.waitForTimeout(100);
+      ok(await page.evaluate(() => scrollY) === 0, 'still scrolled down to the level list');
+      await page.click('#levels [data-lab]'); await page.waitForTimeout(100);
+      ok(await page.evaluate(() => scrollY) === 0, 'chip lab opened off-screen');
+    },
     'phone layout: no horizontal scroll and the canvas is usable': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(100);
       const r = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, cv: document.getElementById('cv').getBoundingClientRect() }));

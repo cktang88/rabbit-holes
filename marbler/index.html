@@ -354,6 +354,7 @@ function step(now){ const dt=now-last; last=now; ft.push(dt); if (ft.length>40) 
   const view=[cam.x*s, H-cam.y*s, cam.k*s, H-cam.y*s];
   const showOps= holding? MB.targetOps(COM) : ops;
   let t=1; if (anim && !holding){ const u=Math.min(1,(now-anim.t0)/anim.dur); t=1-Math.pow(1-u,2.4); if (u>=1){ anim=null; dirty=true; } else dirty=true; }
+  printMore();
   if (dirty){ uploadOps(showOps); inkK=0; dirty=false; lastView=view.join(); }
   if (inkK<8 && !(anim && inkK>0)){ inkPass(inkFB, view, showOps.length, anim&&!holding? t : 1, inkK); inkK++; }
   else if (anim){ inkPass(inkFB, view, showOps.length, t, 0); }
@@ -366,6 +367,8 @@ function step(now){ const dt=now-last; last=now; ft.push(dt); if (ft.length>40) 
   if (pc) drawPaper(view,W,H,pc);
 }
 let lastView='';
+const PRINT_VIEW=[0, 800, 1200/TW, 800];
+function printMore(){ if (!peel || peel.k>=8) return; uploadOps(peel.ops); inkPass(printFB, PRINT_VIEW, peel.ops.length, 1, peel.k++, false); dirty=true; }
 // the peel: the sheet settles (wetting through), then lifts from the left edge and rolls away; then it lies print up
 function peelState(now){ const u=(now-peel.t0)/1000; if (u<.9) return {phase:0, wet:Math.min(1,u/.8), c:-1, lift:(1-Math.min(1,u/.35))*40, sheet:0};
   if (u<3.1){ const v=(u-.9)/2.2, e=v*v*(3-2*v); return {phase:1, wet:1, c:e*(TW+180)-10, lift:0, sheet:0}; }
@@ -434,8 +437,9 @@ $('peek').addEventListener('keydown', e=>{ if (e.key==='Enter'||e.key===' '){ e.
 $('layBtn').onclick=()=>lay();
 function lay(){ if (peel) return; if (!gl) return afterPeel();
   // print the whole tray at a fixed resolution, eight samples a pixel
-  uploadOps(ops); const v=[0, 800, 1200/TW, 800]; for (let k=0;k<8;k++) inkPass(printFB, v, ops.length, 1, k, false); dirty=true;
-  peel={t0:performance.now()}; FX.tone({noise:1,f:400,q:.4,dur:.6,vol:.08,attack:.2}); setTimeout(()=>FX.tone({noise:1,f:2400,q:.8,dur:1.4,vol:.05,attack:.4}),900); }
+  // one sample now, the other seven over the next frames (all of them at once stalls a phone's GPU for a second)
+  uploadOps(ops); inkPass(printFB, PRINT_VIEW, ops.length, 1, 0, false); dirty=true;
+  peel={t0:performance.now(), k:1, ops:ops.slice()}; FX.tone({noise:1,f:400,q:.4,dur:.6,vol:.08,attack:.2}); setTimeout(()=>FX.tone({noise:1,f:2400,q:.8,dur:1.4,vol:.05,attack:.4}),900); }
 function afterPeel(){ const res= COM.free? null : MB.judge(COM, ops, targetCache), n=strokes(); let html, first=false;
   const code=MB.encode(COM.id, ops); SAVE.sheets.push(code); SAVE.sheets=SAVE.sheets.slice(-40);
   if (res){ const ok=res.ok; if (ok){ first=!passed(COM.id); SAVE.done[COM.id]=Math.max(SAVE.done[COM.id]||0, res.score); if (SAVE.best[COM.id]==null || n<SAVE.best[COM.id]) SAVE.best[COM.id]=n; if (COM.daily) SAVE.daily[COM.id.slice(6)]=`${Math.round(res.score*100)}% in ${n}`; }

@@ -122,6 +122,43 @@ module.exports = {
         ok(!errs.length && await p2.evaluate(() => !!__ch.C), bad + ': ' + errs.join('; ')); await p2.close();
       }
     },
+    'free composing: opens from the commission list, plays a 3-note score on a non-square plate with no target or stars, reorders, saves an image; its link restores it': async ({ page, ok, eq }) => {
+      await page.click('#listBtn'); await page.click('.clist [data-free]');
+      eq(await page.evaluate(() => [__ch.C.id, __ch.C.plate, !!document.querySelector('#fPlate')]), ['free', 'square', true]);
+      await page.selectOption('#fPlate', 'bell'); await page.selectOption('#fStart', 'heap');
+      eq(await page.evaluate(() => [__ch.C.shape, __ch.C.start, document.querySelectorAll('.pm').length]), ['bell', 'heap', 14]); // the plate's full note set
+      for (const k of [3, 0, 9]) await page.click(`.pm[data-k="${k}"]`);
+      ok(await page.evaluate(() => getComputedStyle(document.getElementById('tgt')).display === 'none' && !/match|deliver/i.test(document.getElementById('panel').innerText)), 'no target or match in free mode');
+      await page.click('#playBtn'); await page.waitForFunction(() => !__ch.playing, null, { timeout: 8000 });
+      const after = await page.evaluate(() => ({ moved: (() => { const X = __ch, a = X.perform({ shape: 'bell', start: 'heap', finger: null, holes: [] }, []), s = X.sand; let d = 0; for (let i = 0; i < s.n; i++) d += Math.hypot(s.sx[i] - a.sx[i], s.sy[i] - a.sy[i]); return d / s.n; })(), done: Object.keys(__ch.SAVE.done).length, toast: document.querySelector('.toast')?.textContent || '' }));
+      ok(after.moved > .01 && after.done === 0 && !/★/.test(after.toast), 'played without stars: ' + JSON.stringify(after));
+      // drag the first note to the end
+      const a = await page.locator('.chip[data-i="0"]').boundingBox(), b = await page.locator('.chip[data-i="2"]').boundingBox();
+      await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2); await page.mouse.down(); for (let i = 1; i <= 6; i++) await page.mouse.move(a.x + a.width / 2 + (b.x - a.x) * i / 6, a.y + a.height / 2); await page.mouse.up();
+      eq(await page.evaluate(() => __ch.sc.notes.map(n => n[0])), [0, 9, 3]);
+      await page.click('.chip[data-i="1"] .x'); eq(await page.evaluate(() => __ch.sc.notes.map(n => n[0])), [0, 3]);
+      await page.click(`.pm[data-k="5"]`);
+      const dl = page.waitForEvent('download', { timeout: 5000 }); await page.click('#fImg'); const d = await dl;
+      ok(/\.png$/.test(d.suggestedFilename()) && (await page.evaluate(() => __ch.freeImg.w)) > 100, 'image saved');
+      const link = await page.evaluate(() => __ch.share()); ok(link.includes('#score='), link);
+      const p2 = await (await page.context().browser().newContext()).newPage(); await p2.goto(link); await p2.waitForFunction(() => window.__ch);
+      eq(await p2.evaluate(() => [__ch.C.id, __ch.C.shape, __ch.C.start, JSON.stringify(__ch.sc.notes), document.querySelectorAll('.chip').length]), ['free', 'bell', 'heap', '[[0,1],[3,1],[5,1]]', 3]);
+      await p2.close();
+      await page.reload(); await page.waitForFunction(() => window.__ch); eq(await page.evaluate(() => [__ch.C.id, __ch.C.plate, __ch.sc.notes.length]), ['free', 'bell', 3], 'free piece survives a reload');
+      await page.click('#listBtn'); await page.click('.clist [data-c="c1"]'); ok(await page.evaluate(() => !location.hash), 'leaving free mode drops its link from the address bar');
+    },
+    'a shared commission link is read once: edits after it survive a reload': async ({ page, eq }) => {
+      const link = await page.evaluate(() => { const X = __ch; X.openComm(X.COMMS[0]); X.sc.notes = [[1, .5]]; return X.share(); });
+      await page.goto(link); await page.waitForFunction(() => window.__ch);
+      await page.click('.pm[data-k="2"]'); eq(await page.evaluate(() => __ch.sc.notes.length), 2);
+      await page.reload(); await page.waitForFunction(() => window.__ch); eq(await page.evaluate(() => __ch.sc.notes.length), 2, 'the link overwrote the score on reload');
+    },
+    'the baked bench re-renders after a zoom or a plate change (no feedback loop in the bake)': async ({ page, ok }) => {
+      const warn = []; page.on('console', m => { if (/feedback loop/i.test(m.text())) warn.push(m.text()); });
+      await page.evaluate(() => { const r = document.getElementById('view').getBoundingClientRect(); __ch.cam.zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1.6); }); await page.waitForTimeout(300);
+      await page.evaluate(() => __ch.openComm(__ch.freeComm('star', 'even'))); await page.waitForTimeout(300);
+      ok(!warn.length, warn[0]);
+    },
     'no sideways scroll at phone sizes; the plate gets most of the screen': async ({ page, ok }) => {
       for (const vp of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
         await page.setViewportSize(vp); await page.waitForTimeout(250);

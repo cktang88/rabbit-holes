@@ -58,7 +58,7 @@
   #toast.on{opacity:1;transform:translate(-50%,-50%) rotate(-1deg) scale(1)}
   #toast small{display:block;font:400 14px/1.55 "IBM Plex Mono",monospace;color:#25304a;margin-top:6px}
   #toast small b{color:#000}
-  #toast .b{pointer-events:auto;font-size:13px;padding:7px 14px;margin:12px 8px 0 0}
+  #toast .b{pointer-events:auto;font:13px "IBM Plex Mono",monospace;padding:7px 14px;margin:12px 8px 0 0}
   #toast:not(.on) .b{pointer-events:none}
   #toast .stamp{position:absolute;right:16px;top:12px;font:600 15px "IBM Plex Mono";letter-spacing:.15em;color:#b3261e;border:2px solid #b3261e;padding:2px 8px;transform:rotate(8deg);opacity:.8;border-radius:2px}
   #padMin{display:none} #storyT{display:none}
@@ -130,7 +130,7 @@
     #padMin{display:inline-block}
     #padBox.min #pad{display:none}
     #stat{left:8px;right:8px;max-width:none;padding:5px 10px;font-size:11px;line-height:1.45}
-    #toast{left:50%;font-size:32px;max-width:92vw} #toast small{font-size:12px}
+    #toast{left:50%;font-size:32px;max-width:92vw;width:92vw} #toast small{font-size:12px}
   }
 </style>
 </head>
@@ -284,7 +284,7 @@ function load(i, retry = false) {
   $('padT').innerHTML = L.hinges === 1 ? '<b>One hinge.</b> A scallop can only open and close. Drag left and right to set the stroke.' : '<b>Shape space.</b> Each point is a pose (two hinge angles; hover to see it). <b>Draw a loop</b>: the swimmer repeats it. Amber pushes forward, blue back; switch the map to see turning.';
   $('asym').hidden = L.hinges !== 1; $('asym').classList.toggle('on', asym); $('slots').hidden = L.hinges === 1; $('slots').style.display = L.hinges === 1 ? 'none' : '';
   renderSlots();
-  $('padBox').classList.toggle('body', !!L.body); $('padBox').classList.remove('running'); $('bodyPanel').hidden = !L.body; bd = null; if (L.body) bodyInit();
+  $('padBox').classList.toggle('body', !!L.body); $('padBox').classList.remove('running'); $('bodyPanel').hidden = !L.body; bodyInit.keep = !fresh && bd && L.body === 'tail' ? { L, n: bd.n, A: bd.A } : null; bd = null; if (L.body) bodyInit();
   document.body.classList.toggle('live', !!L.live); $('loopIt').hidden = !L.live; $('loopIt').disabled = true;
   document.body.classList.toggle('pond', !!L.pond);
   if (L.pond) { $('padT').innerHTML = '<b>The founder\'s stroke.</b> Draw a loop: its area is how far each stroke goes, its length and the rate are what it costs. A selected cell\'s stroke shows dashed.'; pondInit(); }
@@ -333,7 +333,7 @@ const taste = (x, y) => Math.exp(-Math.hypot(x - L.food[0], y - L.food[1]) / L.s
 function bodyInit() {
   bodyRng = RH.rng(bodySeed != null ? bodySeed : (Math.random() * 1e9) | 0);
   if (L.body === 'coli') { bd = { t: 0, mode: 'run', tt: 0, taste: [], sense: 0, spin: 0 }; L.target = L.food; L.tr = L.foodR; }
-  else { bd = { t: 0, x: 0, E: 0, n: 1.5, A: .2, running: false, ph: 0 }; L.line = L.dist; }
+  else { const k = bodyInit.keep && bodyInit.keep.L === L ? bodyInit.keep : null; bd = { t: 0, x: 0, E: 0, n: k ? k.n : 1.5, A: k ? k.A : .2, running: false, ph: 0 }; L.line = L.dist; }
   St.t = 0; St.eaten = false; renderBody();
 }
 function tumble() { if (!bd || L.body !== 'coli' || bd.mode === 'tumble' || won || failed) return; bd.mode = 'tumble'; bd.tt = COLI.TUMBLE; const r = bodyRng; sw.phi += (r() < .5 ? -1 : 1) * Math.max(.2, (68 + 30 * gauss(r)) * Math.PI / 180); FX.sfx('whoosh'); }
@@ -365,11 +365,12 @@ function renderBody() {
     $('swimB').onclick = () => { if (won || failed) return; bd.running = !bd.running; $('swimB').textContent = bd.running ? 'Pause' : 'Swim'; FX.sfx('click'); }; }
 }
 function bodyHUD() {
-  if (L.body === 'coli') { $('bt').textContent = bd.t.toFixed(1); $('bm').textContent = bd.mode === 'run' ? 'running' : 'tumbling';
+  if (L.body === 'coli') { $('bt').textContent = Math.min(bd.t, L.time).toFixed(1); $('bm').textContent = failed ? 'stopped' : bd.mode === 'run' ? 'running' : 'tumbling';
     const c = $('tasteC'), x = c.getContext('2d'), w = c.width, h = c.height, T = bd.taste; x.fillStyle = '#0d0e0d'; x.fillRect(0, 0, w, h);
     x.strokeStyle = 'rgba(227,164,58,.18)'; for (let k = 1; k < 4; k++) { x.beginPath(); x.moveTo(0, k * h / 4); x.lineTo(w, k * h / 4); x.stroke(); }
     if (T.length > 1) { const lo = Math.min(...T), hi = Math.max(...T), sp = Math.max(hi - lo, T[T.length - 1] * .08); x.strokeStyle = '#e3a43a'; x.lineWidth = 3; x.beginPath(); T.forEach((v, i) => { const px = w - (T.length - 1 - i) * w / 23, py = h - 8 - (v - (lo + hi) / 2 + sp / 2) / sp * (h - 16); i ? x.lineTo(px, py) : x.moveTo(px, py); }); x.stroke(); } }
-  else { $('bt').textContent = bd.t.toFixed(1); $('bU').textContent = bd.running ? bd.U.toFixed(1) : '–'; $('bX').textContent = bd.x.toFixed(1); $('bE').textContent = bd.E.toFixed(0);
+  else { if (failed && $('swimB').textContent !== 'Reset to retry') { $('swimB').textContent = 'Reset to retry'; $('swimB').onclick = () => { load(SAVE.cur, true); FX.sfx('pop'); }; }
+    $('bt').textContent = bd.t.toFixed(1); $('bU').textContent = bd.running ? bd.U.toFixed(1) : '–'; $('bX').textContent = bd.x.toFixed(1); $('bE').textContent = bd.E.toFixed(0);
     $('gE').style.width = Math.min(100, bd.E / L.ebudget * 100) + '%'; $('gE').classList.toggle('over', bd.E > L.ebudget); $('gT').style.width = Math.min(100, bd.t / L.time * 100) + '%'; }
 }
 
@@ -683,6 +684,8 @@ function layout() {
   viewCY = FX.clamp((top + bot) / 2 / innerHeight, .3, .7);
   // the free span between the side panels (desktop and landscape phones); the swimmer and its goal are framed inside it
   const hud = $('hud').getBoundingClientRect(), side = !narrow || innerHeight <= 500, lv = $('levels').getBoundingClientRect();
+  // side layouts: the log is no wider than the slide above it, so the zoom keys at hud.right never cover its text
+  $('stat').style.maxWidth = side ? Math.max(200, hud.right - parseFloat(getComputedStyle($('stat')).left)) + 'px' : '';
   const left = side ? hud.right : 0, right = side ? Math.min(pb.left, lv.width ? lv.left : innerWidth) : innerWidth;
   viewCX = FX.clamp((left + right) / 2 / innerWidth, .3, .7); freeW = Math.max(200, right - left); freeH = Math.max(160, bot - top);
   { const sb = $('stat').getBoundingClientRect(), lowest = Math.min(pb.top, sb.height ? sb.top : pb.top), b = (innerHeight - lowest + 24) + 'px'; for (const id of ['thumbL', 'thumbR']) if ($(id).style.bottom !== b) $(id).style.bottom = b; }
@@ -975,7 +978,7 @@ function renderPondRow() {
   $('pShare').onclick = () => { pondHash(); try { navigator.clipboard.writeText(location.href); } catch (e) {} flash = ['Link copied: this pond and your founder', performance.now()]; };
 }
 function pondEnd() {
-  pEnded = true; const A = assay, P = pondP, n = A.score, st = pondStars(A, P), S = pondSave(), ch = champion(A);
+  pEnded = true; pArm = false; const A = assay, P = pondP, n = A.score, st = pondStars(A, P), S = pondSave(), ch = champion(A);
   S.best[P.key] = Math.max(S.best[P.key] || 0, n); const ks = Object.keys(S.best); while (ks.length > 40) delete S.best[ks.shift()];
   if (st >= 2) S.top = Math.max(S.top, Math.min(9, P.tier + 1)); SAVE.pond = { ...S, seed: P.seed >>> 0, tier: P.tier }; if (st) { SAVE.done[SAVE.cur] = 1; SAVE.stars[SAVE.cur] = Math.max(SAVE.stars[SAVE.cur] || 0, st); } persist(); renderLevels();
   pSel = ch; FX.sfx(st ? 'win' : 'fail'); if (st) shutter = performance.now();
@@ -1112,7 +1115,7 @@ $('lvsel').onchange = e => { FX.sfx('click'); load(+e.target.value); };
 const goNext = () => { if (SAVE.cur < LV.length - 1) { FX.sfx('click'); $('toast').classList.remove('on'); load(SAVE.cur + 1); } };
 $('next').onclick = goNext;
 function toast(big, small, ms = 7000, next = false, retry = false, stamp = false) {
-  const t = $('toast'); t.innerHTML = (stamp ? '<span class="stamp">OBSERVED</span>' : '') + big + (small ? `<small>${small}</small>` : '') + (next && SAVE.cur < LV.length - 1 ? '<button class="b on" id="tnext">Next level ▸</button>' : '') + (retry ? '<button class="b on" id="tretry">↺ Try again with this loop</button>' : '');
+  const t = $('toast'); t.innerHTML = (stamp ? '<span class="stamp">OBSERVED</span>' : '') + big + (small ? `<small>${small}</small>` : '') + (next && SAVE.cur < LV.length - 1 ? '<button class="b on" id="tnext">Next level ▸</button>' : '') + (retry ? `<button class="b on" id="tretry">↺ Try again${L.body === 'tail' ? ' with this stroke' : L.body ? '' : ' with this loop'}</button>` : '');
   if ($('tnext')) $('tnext').onclick = goNext;
   if ($('tretry')) $('tretry').onclick = () => { load(SAVE.cur, true); FX.sfx('pop'); };
   t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), ms);
@@ -1124,6 +1127,7 @@ function failHint() {
   return `You got ${got.toFixed(2)} of ${need} body lengths in ${L.maxCycles} strokes (${pct}%). ` + (pct < 50 ? 'Draw a <b>bigger</b> loop that sits over the brightest amber (or darkest blue, run backwards) patch.' : 'Nearly! Make the loop a bit bigger.');
 }
 function hintText() {
+  if (failed) return 'Press Reset to try again.';
   if (L.waitAct && !St.acted) return 'Your move: drag left–right on the pad.';
   if (St.blocked) return 'Blocked by a sand grain. Press ↺ reverse or pick another loop to back away.';
   if (L.hinges === 1 && St.cycles >= 2 && !won) return asym ? 'Fast one way, slow the other: still no net progress.' : 'Try fast open, slow close. Does speed help?';
@@ -1159,13 +1163,13 @@ function frame(now) {
   if (L.body === 'coli' && !won && !failed && St.t > L.time) { failed = true; FX.sfx('fail'); toast('Starved', 'Time ran out before you found the food. Runs that make the taste rise should last longer.', 9000, false, true); }
   if (!won && !failed && L.fail && L.fail(St)) { failed = true; FX.sfx('fail'); toast(St.eaten ? 'Eaten' : L.body === 'tail' ? (St.t > L.time ? 'Too slow' : 'Out of energy') : 'Out of ' + (L.budget ? 'energy' : 'strokes'), St.eaten ? 'The current swept you into the ciliate\'s mouth. Run straight away from it, and don\'t tumble close in.' : L.body === 'tail' ? 'Every stroke is a trade: bigger and longer waves are faster but cost far more. Find the cheapest stroke that is still fast enough.' : failHint(), 9000, false, true); }
   if (L.body && bd) bodyHUD();
-  if (L.body && bd) { const sh = L.body === 'coli' ? `time <b>${bd.t.toFixed(1)}</b> / ${L.time} s · ${bd.mode === 'run' ? 'running' : '<b>tumbling</b>'}${L.wall ? '<br><span class="hint">Pressed against the glass: runs curve clockwise.</span>' : ''}` : `swum <b>${bd.x.toFixed(1)}</b> / ${L.dist} body lengths · energy <b>${bd.E.toFixed(0)}</b> / ${L.ebudget} · ${bd.t.toFixed(1)} / ${L.time} s`; if (sh !== lastStat) { $('stat').innerHTML = sh; lastStat = sh; } if (++frameN % 60 === 0) layout(); render(now); return; }
+  if (L.body && bd) { const sh = (L.body === 'coli' ? `time <b>${Math.min(bd.t, L.time).toFixed(1)}</b> / ${L.time} s · ${failed ? 'stopped' : bd.mode === 'run' ? 'running' : '<b>tumbling</b>'}${L.wall ? '<br><span class="hint">Pressed against the glass: runs curve clockwise.</span>' : ''}` : `swum <b>${bd.x.toFixed(1)}</b> / ${L.dist} body lengths · energy <b>${bd.E.toFixed(0)}</b> / ${L.ebudget} · ${bd.t.toFixed(1)} / ${L.time} s`) + (failed ? `<br><span class="hint">${St.eaten ? 'Eaten' : L.body === 'coli' ? 'Starved' : St.t > L.time ? 'Too slow' : 'Out of energy'}: press Reset to try again.</span>` : ''); if (sh !== lastStat) { $('stat').innerHTML = sh; lastStat = sh; } if (++frameN % 60 === 0) layout(); render(now); return; }
   if (L.live && dish) { const Lp = live.last, tr = dish.chemo && live.taste.length > 4 ? live.taste[live.taste.length - 1] - live.taste[live.taste.length - 5] : 0;
     const sh = `time <b>${live.t.toFixed(1)}</b> / ${dish.limit} s · strokes <b>${live.loops}</b>` + (Lp ? `<br>last stroke: <b>${Lp.fwd >= 0 ? '+' : ''}${Lp.fwd.toFixed(2)}</b> BL${Math.abs(Lp.turn) >= 1 ? `, ${Math.abs(Lp.turn).toFixed(0)}° ${Lp.turn > 0 ? 'left' : 'right'}` : ''} (loop area ${Math.abs(Lp.area).toFixed(1)})` : '<br><span class="hint">Your move: drag a loop on the stage.</span>')
       + (dish.chemo && !St.reached ? `<br>taste ${'▮'.repeat(Math.round((live.taste[live.taste.length - 1] || 0) * 10))}${'▯'.repeat(10 - Math.round((live.taste[live.taste.length - 1] || 0) * 10))} ${tr > .004 ? '<b>rising</b>' : tr < -.004 ? '<span class="hint">falling</span>' : 'steady'}` : '') + (St.blocked ? '<br><span class="hint">Pressed against a grain: loop the other way to back off.</span>' : '') + (flash && performance.now() - flash[1] < 1800 ? `<br>${flash[0]}` : '');
     if (sh !== lastStat) { $('stat').innerHTML = sh; lastStat = sh; } if (++frameN % 60 === 0) layout(); render(now); renderPad(); return; }
   const hint = hintText();
-  const sh = `strokes <b>${St.strokes.toFixed(1)}</b>${L.maxCycles ? ` / ${L.maxCycles}` : ''} · moved <b>${St.dist.toFixed(2)}</b> body lengths<br>turned <b>${(St.phi * 180 / Math.PI).toFixed(0)}°</b>${L.budget ? ` · energy <b style="color:${St.energy > L.budget ? '#b3261e' : '#000'}">${St.energy.toFixed(1)}</b> / ${L.budget}` : L.par ? ` · energy <b>${St.energy.toFixed(1)}</b> (★★★ ≤ ${L.par})` : ''}${pred ? `<br>this loop: ${pred.dx >= 0 ? '+' : ''}${pred.dx.toFixed(2)} BL, turn ${pred.turn >= 0 ? '+' : ''}${pred.turn.toFixed(0)}°, energy ${pred.e.toFixed(1)} per stroke` : ''}${hint ? `<br><span class="hint">${hint}</span>` : ''}`;
+  const sh = `strokes <b>${St.strokes.toFixed(1)}</b>${L.maxCycles ? ` / ${L.maxCycles}` : ''} · moved <b>${St.dist.toFixed(2)}</b> body lengths<br>turned <b>${(Math.round(St.phi * 180 / Math.PI) || 0)}°</b>${L.budget ? ` · energy <b style="color:${St.energy > L.budget ? '#b3261e' : '#000'}">${St.energy.toFixed(1)}</b> / ${L.budget}` : L.par ? ` · energy <b>${St.energy.toFixed(1)}</b> (★★★ ≤ ${L.par})` : ''}${pred ? `<br>this loop: ${pred.dx >= 0 ? '+' : ''}${pred.dx.toFixed(2)} BL, turn ${pred.turn >= 0 ? '+' : ''}${pred.turn.toFixed(0)}°, energy ${pred.e.toFixed(1)} per stroke` : ''}${hint ? `<br><span class="hint">${hint}</span>` : ''}`;
   if (sh !== lastStat) { $('stat').innerHTML = sh; lastStat = sh; }
   if (++frameN % 60 === 0) layout();
   render(now); renderPad();
