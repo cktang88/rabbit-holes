@@ -90,6 +90,44 @@ module.exports = {
       }
       await page.evaluate(() => { __coaster.ride(); document.querySelector('#result #rShare').click(); }); await page.waitForTimeout(100); // a refused clipboard is no page error
     },
+    'the 3D front seat is smooth through a loop and a banked turn: no snaps in where it looks, no up-vector flip, never inside the track': async ({ page, ok }) => {
+      await page.waitForFunction(() => window.THREE, null, { timeout: 10000 });
+      for (const [ci, id] of [[1, 'loop'], [3, 'turn']]) {
+        const r = await page.evaluate(([ci, id]) => { const X = __coaster; X.load(ci); X.design = { nodes: X.REF[id](), lift: 1 }; X.startRide(); if (!X.V3.on) X.v3Open(); const tr = X.trace3d(1 / 60, 6000, false), F = X.V3.frames;
+          const ang = (a, b) => Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])));
+          let maxF = 0, maxU = 0, maxAcc = 0, minUpDot = 1, prevW = 0, clear = 1e9; const n = tr.length;
+          for (let i = 1; i < n; i++) { const w = ang(tr[i].f, tr[i - 1].f); maxF = Math.max(maxF, w); maxU = Math.max(maxU, ang(tr[i].u, tr[i - 1].u)); if (i > 1) maxAcc = Math.max(maxAcc, Math.abs(w - prevW) * 3600); prevW = w;
+            minUpDot = Math.min(minUpDot, tr[i].u[0] * tr[i - 1].u[0] + tr[i].u[1] * tr[i - 1].u[1] + tr[i].u[2] * tr[i - 1].u[2]); }
+          for (const t of tr) for (const f of F) clear = Math.min(clear, Math.hypot(f.p[0] - t.p[0], f.p[1] - t.p[1], f.p[2] - t.p[2]));
+          X.v3Close(); return { n, maxF, maxU, maxAcc, minUpDot, clear, inv: X.last.st.inv }; }, [ci, id]);
+        ok(r.n > 300, id + ' ride traced: ' + r.n);
+        ok(r.maxF < .09 && r.maxU < .09, `${id}: the view turns at most ${(r.maxF * 57.3).toFixed(1)}° (up ${(r.maxU * 57.3).toFixed(1)}°) in a 60 fps frame`);
+        ok(r.maxAcc < 40, `${id}: angular acceleration peaks at ${r.maxAcc.toFixed(0)} rad/s² (a snap is hundreds)`);
+        ok(r.minUpDot > .99, `${id}: the up vector never flips: ${r.minUpDot}`);
+        ok(r.clear > 1.2, `${id}: the eye stays ${r.clear.toFixed(2)} m clear of every bit of track centreline`);
+        if (id === 'loop') ok(r.inv >= 1, 'the loop inverts');
+      }
+    },
+    'loops step sideways in 3D: no two non-adjacent sections of the track pass closer than a track width plus clearance': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = __coaster, out = {}; for (const id of ['loop', 'thrill', 'first']) { const F = X.trackFrames(X.geometry({ nodes: X.REF[id](), lift: 1 })); let m = 1e9;
+        for (let i = 0; i < F.length; i++) for (let j = 0; j < i - 12; j++) m = Math.min(m, Math.hypot(F[i].p[0] - F[j].p[0], F[i].p[1] - F[j].p[1], F[i].p[2] - F[j].p[2]));
+        let kink = 0; for (let i = 1; i < F.length; i++) kink = Math.max(kink, Math.acos(Math.min(1, F[i].fwd[0] * F[i - 1].fwd[0] + F[i].fwd[1] * F[i - 1].fwd[1] + F[i].fwd[2] * F[i - 1].fwd[2])));
+        out[id] = { m, kink }; } return { out, need: X.TRACK_W + 1, W: X.LOOP_W }; });
+      for (const [id, v] of Object.entries(r.out)) { ok(v.m >= r.need && v.m >= r.W - .05, `${id}: closest approach ${v.m.toFixed(2)} m (needs ${r.need})`); ok(v.kink < .15, `${id}: no kink where the track steps sideways (${v.kink.toFixed(3)} rad per 0.5 m)`); }
+    },
+    'airtime is taught: the tip shows on an airtime commission, a big drop into a tight crest shows green, tapping it explains, and the ride records it': async ({ page, ok, eq }) => {
+      await page.evaluate(() => __coaster.load(2)); // Family Coaster needs 0.8 s of airtime
+      ok(await page.evaluate(() => { const e = document.getElementById('airTip'); return !!e && e.offsetHeight > 0 && /float/.test(e.textContent); }), 'the airtime line is visible');
+      ok(await page.evaluate(() => __coaster.crests().every(c => !c.air)), 'the starting hump does not float');
+      await page.evaluate(() => { __coaster.design = { nodes: __coaster.REF.family(), lift: 1 }; });
+      const cs = await page.evaluate(() => __coaster.crestsOnScreen()); const c = cs.find(c => c.air); ok(c, 'a tight crest after a big drop is green: ' + JSON.stringify(cs.map(c => c.g)));
+      await page.mouse.click(c.sx, c.sy); ok(await page.evaluate(() => /Airtime here/.test(document.getElementById('toastC').textContent)), 'tapping the crest explains it');
+      await page.evaluate(() => { __coaster.design = { nodes: [[0, 2], [30, 18], [50, 8], [70, 3], [95, 10], [120, 3], [150, 3]].map(([x, y]) => ({ x, y })), lift: 1 }; });
+      const flat = await page.evaluate(() => __coaster.crestsOnScreen()); await page.mouse.click(flat[0].sx, flat[0].sy);
+      ok(await page.evaluate(() => /km\/h|tighter/.test(document.getElementById('toastC').textContent)), 'a grey crest says what it needs');
+      await page.evaluate(() => { __coaster.design = { nodes: __coaster.REF.family(), lift: 1 }; __coaster.ride(); });
+      ok(await page.evaluate(() => __coaster.last.st.air >= .8 && /s of airtime ✓/.test(document.getElementById('result').textContent)), 'the result names the airtime');
+    },
     'speed-up: playback at 1x, 2x and 4x visits every physics sample and gives identical peaks and scores': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; return [1, 2, 4].map(s => K.playback(s)); });
       const [a, b, c] = r;

@@ -966,7 +966,7 @@ function v3Frame(p) {
   // grey-out above 4.5 g, a pale flash of float below 0 g
   const dim = clamp((gg - 4.5) / 1.5, 0, 1), fl = gg < 0 ? clamp(-gg, 0, 1) * .25 : 0;
   $('v3fx').style.background = dim > 0 ? `radial-gradient(ellipse at center, rgba(0,0,0,${dim * .55}) ${Math.round(60 - dim * 45)}%, rgba(0,0,0,${.3 + dim * .65}) 100%)` : fl ? `rgba(255,255,255,${fl})` : 'radial-gradient(ellipse at center, transparent 70%, rgba(0,0,0,.25) 100%)';
-  V3.r.render(V3.scene, camE);
+  if (!V3.noRender) V3.r.render(V3.scene, camE);
 }
 addEventListener('resize', () => v3Size());
 
@@ -1074,8 +1074,8 @@ window.__coaster = { spline, resample, geometry, simulate: ride, scores, footpri
   // headless playback at a given speed with fixed frame steps: what a player sees at 1x, 2x, 4x
   playback(speed, dt = 1 / 60) { const sc = scores(design, site), R = sc.r, p = { k: 0, f: 0, simT: 0, peak: -9, low: 9, visited: 0 }, ks = []; let frames = 0; while (!advance(p, R, dt * speed) && frames < 1e6) { frames++; ks.push(p.k); } return { peak: p.peak, low: p.low, visited: p.visited, frames, n: R.t.length, stats: sc.st, thrill: sc.thrill, comfort: sc.comfort }; },
   // the camera's path, frame by frame at a fixed rate, for measuring how smooth the ride feels: eye position, forward, up, fov
-  trace3d(dt = 1 / 60, max = 6000) { if (!play || !V3.on) return null; const out = []; play.speed = play.speed || 1; for (let k = 0; k < max; k++) { const end = advance(play, last.r, dt * play.speed); V3.dt = dt; v3Frame(play); const c = V3.cam; c.updateMatrixWorld(); const e = c.matrixWorld.elements;
-      out.push({ p: [c.position.x, c.position.y, c.position.z], f: [-e[8], -e[9], -e[10]], u: [e[4], e[5], e[6]], fov: c.fov, k: play.k, g: last.r.gs[play.k] }); if (end) break; } return out; },
+  trace3d(dt = 1 / 60, max = 6000, render = true) { if (!play || !V3.on) return null; const out = []; V3.noRender = !render; play.speed = play.speed || 1; for (let k = 0; k < max; k++) { const end = advance(play, last.r, dt * play.speed); V3.dt = dt; v3Frame(play); const c = V3.cam; c.updateMatrixWorld(); const e = c.matrixWorld.elements;
+      out.push({ p: [c.position.x, c.position.y, c.position.z], f: [-e[8], -e[9], -e[10]], u: [e[4], e[5], e[6]], fov: c.fov, k: play.k, g: last.r.gs[play.k] }); if (end) break; } V3.noRender = false; return out; },
   bench3d(n = 60) { if (!play || !V3.on) return null; const t0 = performance.now(); for (let k = 0; k < n; k++) { advance(play, last.r, 1 / 60 * (play.speed || 1)); v3Frame(play); V3.r.getContext().finish(); } return { ms: (performance.now() - t0) / n, tris: V3.r.info.render.triangles, calls: V3.r.info.render.calls, pr: V3.r.getPixelRatio() }; },
   get live() { return live; }, get sel() { return sel; }, set sel(v) { sel = v; renderInsp(); kick(); }, get selG() { return selG; }, tangents, crests: () => crests(design.S || geometry(design), (last && last.r) || (live && live.r)), crestsOnScreen: () => crests(design.S || geometry(design), (last && last.r) || (live && live.r)).map(c => ({ ...c, sx: sx(c.x) / dpr, sy: (sy(c.y) - 20 * dpr) / dpr })), AIR, trackFrames, LOOP_W, TRACK_W, stamp, smooth, groups, groupOf, handleOf, arms, ELS, loopShape, openDrawer, guests, dailyStart, screenOf: (x, y) => [sx(x) / dpr, sy(y) / dpr], SAVE };
 
