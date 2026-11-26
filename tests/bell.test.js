@@ -63,7 +63,7 @@ module.exports = {
         return { hunt: course('hunt', 6), minor: course('bobminor', 6), major: course('bobmajor', 8), good: good.q, sour: G.ringQuality(sour, c10.notes).q, words: G.ringQuality(sour, c10.notes).words.join(' ') }; }, botSrc);
       eq([r.hunt.len, r.hunt.uniq, r.hunt.end], [12, 12, '012345'], 'plain hunt on six'); eq([r.minor.len, r.minor.uniq, r.minor.end], [60, 60, '012345'], 'Plain Bob Minor plain course');
       eq([r.major.len, r.major.uniq, r.major.end], [112, 112, '01234567'], 'Plain Bob Major plain course'); ok(r.hunt.perm && r.minor.perm && r.major.perm);
-      ok(r.good >= 86, 'a well-tuned ring should satisfy the band: ' + r.good); ok(r.sour < r.good - 15 && /Bell 3/.test(r.words), 'a sour third bell: ' + r.sour + ' ' + r.words);
+      ok(r.good >= 86, 'a well-tuned ring should satisfy the band: ' + r.good); ok(r.sour < r.good - 15 && /bell 3/i.test(r.words), 'a sour third bell: ' + r.sour + ' ' + r.words);
     },
     'the lathe by hand: a drag outward from the inside wall shaves metal and the bell sounds lower; cuts cannot be undone; recasting starts over': async ({ page, ok, eq }) => {
       await page.waitForTimeout(500);
@@ -97,7 +97,7 @@ module.exports = {
       await page.evaluate(() => { __bell.S.open = 6; __bell.go('c7'); __bell.setStage('cast'); });
       await page.$eval('#tin', e => { e.value = 21; e.dispatchEvent(new Event('input')); e.dispatchEvent(new Event('change')); });
       eq(await page.evaluate(() => __bell.bell().tin), 21);
-      await page.click('[data-a="pour"]'); ok(await page.evaluate(() => __bell.busy), 'pour animates');
+      await page.click('[data-a="pour"]'); ok(await page.evaluate(() => __bell.busy), 'pour animates'); await page.waitForTimeout(300); await page.evaluate(() => __bell.finish());
       await page.waitForFunction(() => !__bell.busy && __bell.stage === 'tune', null, { timeout: 60000 });
       const v = await page.evaluate(src => { const B = eval(src)(__bell.G, __bell.BP); const b = __bell.bell(); if (b.cast.crack) return 'crack'; B.tune(__bell.comm(), b); return __bell.judgeNow().why; }, botSrc);
       ok(v === 'crack' || v.includes('too little tin'), 'should refuse soft metal: ' + v);

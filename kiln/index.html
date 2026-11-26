@@ -1015,7 +1015,7 @@ function frame() { if (!ok3d) return; const obj = view.target === 'pot' ? pot &&
 function layoutCamera() { if (!ok3d) return;
   const W = innerWidth, H = innerHeight, fr = freeRect(), fovV = camera.fov * Math.PI / 180;
   // fit the piece in the free part of the screen (not under the bench or ticket)
-  const need = view.size / 2 / Math.tan(fovV / 2) * H / Math.max(80, fr.h) * 1.7, needW = view.size / 2 / Math.tan(fovV / 2) / (W / H) * W / Math.max(80, fr.w) * 1.5;
+  const need = view.size / 2 / Math.tan(fovV / 2) * H / Math.max(80, fr.h) * 2, needW = view.size / 2 / Math.tan(fovV / 2) / (W / H) * W / Math.max(80, fr.w) * 1.75;
   view.dist = Math.max(need, needW) / view.zoom;
   camera.setViewOffset(W, H, W / 2 - (fr.x + fr.w / 2), H / 2 - (fr.y + fr.h / 2), W, H);
   placeCamera(); }
@@ -1073,22 +1073,22 @@ function startAnim(items, s, onDone) {
   const L = timeline(s); anim = { t: 0, items, s, L, onDone, pinged: false };
   items.forEach(it => { setMaterial(it.mat, it.res, it.seed); const U = it.mat.userData.U; U.uMelt.value = 0; U.uGrow.value = 0; U.uCrackShow.value = 0; });
   useGas(s.atm === 'red'); document.getElementById('led').style.display = 'block'; document.body.classList.add('firing');
-  if (!bloom) { composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: mob ? 0 : 4 })); composer.addPass(new RenderPass(scene, camera)); bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .7, .6, .78); composer.addPass(bloom); composer.addPass(new OutputPass()); resize(); }
+  if (!bloom) { composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: mob ? 0 : 4 })); composer.addPass(new RenderPass(scene, camera)); bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .42, .5, .86); composer.addPass(bloom); composer.addPass(new OutputPass()); resize(); }
   bloom.enabled = true; FX.sfx('place'); roar(s); wake(); }
 function finishMat(it) { const U = it.mat.userData.U; U.uMelt.value = it.res ? it.res.M * .999 + .001 : 0; U.uGrow.value = 1; U.uCrackShow.value = 1; U.uGlow.value.setRGB(0, 0, 0); }
 function stepAnim(dt) { const a = anim; a.t += dt; const L = a.L, T = tempAt(a, a.t), bb = blackbody(T), I = glowI(T);
   // studio light fades while the door is shut
   const doorShut = sm(0, .3, a.t) * (1 - sm(L.total - L.open, L.total, a.t));
   studio.k = 1 - doorShut * .97; keyL.intensity = 85 * studio.k; fillL.intensity = .5 * studio.k; rimL.intensity = 1.1 * studio.k; hemi.intensity = .22 * studio.k + .05; scene.environmentIntensity = .55 * studio.k + .15 * I;
-  bricksMat.emissive.setRGB(bb[0] * I * 2.2, bb[1] * I * 2.2, bb[2] * I * 2.2); coilsMat.emissive.setRGB(bb[0] * I * 3.4, bb[1] * I * 3.2, bb[2] * I * 3);
+  bricksMat.emissive.setRGB(bb[0] * I * 1.5, bb[1] * I * 1.5, bb[2] * I * 1.5); coilsMat.emissive.setRGB(bb[0] * I * 3, bb[1] * I * 2.8, bb[2] * I * 2.6);
   if (portMat) portMat.color.setRGB(Math.min(1, .2 + I * 2) * (a.s.atm === 'red' ? 1 : 0), .35 * I * 2, .6 * I * 2 * (a.s.atm === 'red' ? 1 : 0));
   glowL.color.setRGB(...bb); glowL.intensity = I * 60;
-  renderer.toneMappingExposure = .9 / (1 + I * 1.4);
+  renderer.toneMappingExposure = .9 / (1 + I * 2.2);
   const inHold = a.t > L.heat + L.hold + L.cool1 && a.t < L.heat + L.hold + L.cool1 + L.xhold, cooled = a.t > L.heat + L.hold;
   for (const it of a.items) { const U = it.mat.userData.U, r = it.res; if (!r) continue;
     U.uMelt.value = clamp(sm(r.Tm - 260, r.Tm - 40, Math.min(T, a.s.peak) + (cooled ? 999 : 0)) * r.M) * .999 + .001;
     if (cooled) U.uMelt.value = r.M * .999 + .001;
-    U.uGlow.value.setRGB(bb[0] * I * 1.6, bb[1] * I * 1.6, bb[2] * I * 1.6);
+    const lag = a.t < L.heat ? .55 + .45 * a.t / L.heat : 1, Ip = I * lag * 1.15; U.uGlow.value.setRGB(bb[0] * Ip, bb[1] * Ip, bb[2] * Ip);
     const gs = L.heat + L.hold + L.cool1 * .4; U.uGrow.value = r.crystals ? clamp((a.t - gs) / (L.cool1 * .6 + L.xhold + L.cool2 * .4)) : 0;
     U.uCrackShow.value = sm(L.total - L.open * .9, L.total, a.t); }
   if (!a.pinged && a.t > L.total - L.open * .8) { a.pinged = true; const cz = Math.max(...a.items.map(it => it.res ? it.res.craze : 0)); if (cz > .03) ping(cz); FX.sfx('place'); }
