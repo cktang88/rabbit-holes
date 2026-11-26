@@ -21,7 +21,11 @@
   button.primary{background:var(--blue);color:#fbf8ef;border-color:#0e1d40;box-shadow:2px 2px 0 #0e1d40;font-weight:700}
   main{flex:1;display:flex;min-height:0;position:relative;overflow-x:clip}
   #stage{flex:1;position:relative;min-width:0;background:#f4f1e7}
-  #cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+  #cv,#gl{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+  #gl{pointer-events:none}
+  #vig{position:absolute;inset:0;pointer-events:none;background:radial-gradient(120% 95% at 42% 38%,rgba(0,0,0,0) 45%,rgba(52,38,20,.14) 72%,rgba(40,28,14,.36) 100%)}
+  body.gl #vig{display:block} #vig{display:none}
+  body.gl #stage{background:#d8d1c2}
   #brief{position:absolute;left:10px;top:10px;right:10px;pointer-events:none;font-size:14px;line-height:1.3}
   #brief span{background:rgba(251,248,239,.92);padding:3px 7px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
   #bar{position:absolute;left:0;right:0;bottom:10px;display:flex;justify-content:center;gap:10px;pointer-events:none}
@@ -88,7 +92,7 @@
 <body>
 <div class="topbar"><a class="home" href="../index.html">← Rabbit Holes</a><h1>Fold</h1><span class="spacer"></span><button id="binderBtn" aria-expanded="false">Commissions</button></div>
 <main>
-  <div id="stage"><canvas id="cv" aria-label="The chain and the molecule on the bench"></canvas>
+  <div id="stage"><div id="vig"></div><canvas id="cv" aria-label="The chain and the molecule on the bench"></canvas>
     <div id="brief"></div>
     <div id="stamp"></div>
     <div id="bar"><button id="undoBtn" aria-label="Undo" title="Undo (Ctrl+Z)">↶</button><button class="primary" id="foldBtn">Fold</button></div>
@@ -422,7 +426,7 @@ let cam = null;
 function bounds() { if (!C) return { x: -2, y: -3, w: 12, h: 8 }; const pts = [...pos, ...C.lig.A.map(c => [c.x, c.y])]; if (C.lig.B) pts.push(...C.lig.B.map(c => [c.x, c.y]));
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
   const top = innerWidth < 760 ? 1.8 : 1.2; let b = { x: x0 - 1.2, y: y0 - top - .3, w: x1 - x0 + 2.4, h: y1 - y0 + top + 2.2 };
-  const r = cv.getBoundingClientRect(), minW = Math.max(b.w, r.width / 62), minH = Math.max(b.h, r.height / 62); // never closer than about 62 px per site
+  const r = cv.getBoundingClientRect(), px = innerWidth < 760 ? 62 : 84, minW = Math.max(b.w, r.width / px), minH = Math.max(b.h, r.height / px); // never closer than about 62 px per site (84 on a desk-sized screen)
   return { x: b.x - (minW - b.w) / 2, y: b.y - (minH - b.h) / 2, w: minW, h: minH }; }
 let grain = null; function grainPat() { if (grain) return grain; const t = document.createElement('canvas'); t.width = t.height = 128; const g = t.getContext('2d'), im = g.createImageData(128, 128), r = RH.rng(5);
   for (let i = 0; i < im.data.length; i += 4) { const v = 230 + r() * 25 | 0; im.data[i] = v; im.data[i + 1] = v - 3; im.data[i + 2] = v - 12; im.data[i + 3] = 26; } g.putImageData(im, 0, 0); return grain = ctx.createPattern(t, 'repeat'); }
@@ -441,43 +445,66 @@ function drawBlock(c, alpha) { const col = BEN.lig[c.t] || BEN.lig.x, s = .86; c
   ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = .02; for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.moveTo(c.x - s / 2, c.y + k * .12); ctx.quadraticCurveTo(c.x, c.y + k * .12 + .05, c.x + s / 2, c.y + k * .12); ctx.stroke(); }
   if (c.t === '+' || c.t === '-') { ctx.fillStyle = '#fff'; ctx.font = '700 .5px "Courier Prime",monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(c.t === '+' ? '+' : '−', c.x, c.y + .02); }
   ctx.globalAlpha = 1; }
-let needDraw = true; const redraw = () => { needDraw = true; };
+let needDraw = true; const redraw = () => { needDraw = true; }; window.__foldRedraw = redraw;
+// Thread between two contact points, drawn only where it is not hidden inside a bead (r0, r1 = radius to skip at each end)
+function threadSeg(a, b, r0, r1, col, w, dash) { const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L;
+  const ax = a.x + ux * r0, ay = a.y + uy * r0, bx = b.x - ux * r1, by = b.y - uy * r1; if (L - r0 - r1 <= .02) return;
+  ctx.lineCap = 'round'; ctx.setLineDash(dash || []);
+  if (!dash) { ctx.globalAlpha = .22; ctx.strokeStyle = col; ctx.lineWidth = w * 3.2; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.globalAlpha = 1; }
+  ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+  if (!dash) { ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = w * .3; ctx.setLineDash([.05, .05]); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); }
+  ctx.setLineDash([]); }
 function draw() {
   // redraw only when something changed: an idle bench costs nothing
   if (!needDraw && !anim && flash <= 0 && !drag) { requestAnimationFrame(draw); return; } needDraw = false;
-  const r = cv.getBoundingClientRect(), d = Math.min(2, devicePixelRatio || 1), now = performance.now();
+  const r = cv.getBoundingClientRect(), d = Math.min(2, devicePixelRatio || 1), now = performance.now(), G = !!(window.FOLD3D && window.FOLD3D.ok);
   if (cv.width !== Math.round(r.width * d) || cv.height !== Math.round(r.height * d)) { cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d); }
-  ctx.setTransform(d, 0, 0, d, 0, 0); ctx.fillStyle = BEN.paper; ctx.fillRect(0, 0, r.width, r.height); ctx.fillStyle = grainPat(); ctx.fillRect(0, 0, r.width, r.height);
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  if (G) ctx.clearRect(0, 0, r.width, r.height); else { ctx.fillStyle = BEN.paper; ctx.fillRect(0, 0, r.width, r.height); ctx.fillStyle = grainPat(); ctx.fillRect(0, 0, r.width, r.height); }
   if (!C || !cam) { requestAnimationFrame(draw); return; }
   const k = cam.k; ctx.setTransform(d * k, 0, 0, d * k, d * cam.x, d * cam.y);
   const x0 = Math.floor(-cam.x / k) - 1, y0 = Math.floor(-cam.y / k) - 1, x1 = x0 + r.width / k + 3, y1 = y0 + r.height / k + 3;
-  // graph paper: one major line per lattice site, a faint chessboard (each step along the chain changes colour)
-  ctx.fillStyle = 'rgba(70,120,150,.06)'; for (let x = x0; x < x1; x++) for (let y = y0; y < y1; y++) if (((x + y) % 2 + 2) % 2 === 0) ctx.fillRect(x - .5, y - .5, 1, 1);
-  ctx.strokeStyle = BEN.major; ctx.lineWidth = 1 / k; ctx.beginPath(); for (let x = x0; x < x1; x++) { ctx.moveTo(x - .5, y0); ctx.lineTo(x - .5, y1); } for (let y = y0; y < y1; y++) { ctx.moveTo(x0, y - .5); ctx.lineTo(x1, y - .5); } ctx.stroke();
+  // graph paper (the WebGL bench carries its own): one major line per lattice site, a faint chessboard (each step along the chain changes colour)
+  if (!G) { ctx.fillStyle = 'rgba(70,120,150,.06)'; for (let x = x0; x < x1; x++) for (let y = y0; y < y1; y++) if (((x + y) % 2 + 2) % 2 === 0) ctx.fillRect(x - .5, y - .5, 1, 1);
+    ctx.strokeStyle = BEN.major; ctx.lineWidth = 1 / k; ctx.beginPath(); for (let x = x0; x < x1; x++) { ctx.moveTo(x - .5, y0); ctx.lineTo(x - .5, y1); } for (let y = y0; y < y1; y++) { ctx.moveTo(x0, y - .5); ctx.lineTo(x1, y - .5); } ctx.stroke(); }
   // the molecule
-  const lig = curLig(); for (const c of lig) drawBlock(c, 1);
-  // the chain on show: a peeked native fold, the fold animation, or your sketch
-  let P = pos; if (peek >= 0 && result) P = result.natives[peek].P;
-  else if (anim) { const t = Math.min(1, (now - anim.t0) / 650), e = FX.ease.inOutCubic(t); P = anim.from.map((p, i) => [p[0] + (anim.to[i][0] - p[0]) * e, p[1] + (anim.to[i][1] - p[1]) * e]); if (t >= 1) anim = null; }
+  const lig = curLig(); if (!G) for (const c of lig) drawBlock(c, 1);
+  else for (const c of lig) if (c.t === '+' || c.t === '-') { ctx.font = '700 .46px "Courier Prime",monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; const s = c.t === '+' ? '+' : '−';
+    ctx.fillStyle = 'rgba(10,20,30,.35)'; ctx.fillText(s, c.x + .015, c.y + .055); ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.fillText(s, c.x, c.y + .03); }
+  // the chain on show: a peeked native fold, the fold animation, or your sketch. Z = height off the bench (the fold lifts the beads and sets them down).
+  let P = pos, Z = null; if (peek >= 0 && result) P = result.natives[peek].P;
+  else if (anim) { const T = (now - anim.t0) / 900, n = anim.from.length; Z = [];
+    P = anim.from.map((p, i) => { const u = Math.max(0, Math.min(1, (T - i / n * .22) / .78)), e = FX.ease.inOutCubic(u); Z.push(Math.sin(Math.PI * u) * .45); return [p[0] + (anim.to[i][0] - p[0]) * e, p[1] + (anim.to[i][1] - p[1]) * e]; });
+    if (T >= 1) { anim = null; Z = null; } }
   // your sketch, in pencil, once the machine has replaced it with the real fold
-  if (sketch && !anim && result && !result.stale && movedCount(sketch, result.natives[0].P)) { ctx.save(); ctx.strokeStyle = 'rgba(40,40,40,.4)'; ctx.setLineDash([.12, .12]); ctx.lineWidth = .05; ctx.beginPath(); sketch.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.stroke();
-    sketch.forEach(p => { ctx.beginPath(); ctx.arc(p[0], p[1], .2, 0, 7); ctx.stroke(); }); ctx.setLineDash([]); ctx.fillStyle = 'rgba(40,40,40,.6)'; ctx.font = 'italic .32px "Courier Prime",monospace'; ctx.textAlign = 'left'; const e = sketch[sketch.length - 1]; ctx.fillText('your sketch', e[0] + .3, e[1] + .5); ctx.restore(); }
-  for (let i = 1; i < P.length; i++) rod(P[i - 1], P[i], .13);
+  if (sketch && !anim && result && !result.stale && movedCount(sketch, result.natives[0].P)) { ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (let pass = 0; pass < 2; pass++) { const j = pass ? .025 : 0; ctx.strokeStyle = pass ? 'rgba(55,55,60,.22)' : 'rgba(55,55,60,.5)'; ctx.lineWidth = pass ? .035 : .028;
+      ctx.beginPath(); sketch.forEach((p, i) => { const q = [p[0] + Math.sin(i * 7.1 + pass) * j, p[1] + Math.cos(i * 3.3 + pass) * j]; i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }); ctx.stroke();
+      sketch.forEach((p, i) => { ctx.beginPath(); ctx.ellipse(p[0] + j, p[1] - j, .2 + pass * .015, .19, i, 0, 6.4); ctx.stroke(); }); }
+    ctx.fillStyle = 'rgba(55,55,60,.7)'; ctx.font = 'italic .3px "Courier Prime",monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; const e = sketch[sketch.length - 1]; ctx.fillText('your sketch', e[0] + .3, e[1] + .5); ctx.restore(); }
+  if (!G) for (let i = 1; i < P.length; i++) rod(P[i - 1], P[i], .13);
   // contacts: red cotton thread for oily pairs, blue–green twine for salt bridges, a pencil zigzag for like charges
   const S = (peek >= 0 && result) ? result.S.split('').map(ch => TYPES.indexOf(ch)) : seq, pH = curPH();
   if (!anim) { const m = new Map(P.map((p, i) => [K(p[0], p[1]), i]));
-    const thread = (a, b, e) => { if (!e) return; ctx.strokeStyle = e > 0 ? 'rgba(60,60,60,.6)' : e === -2 && (FE.eff(S[a.i ?? 0], pH) === 1) ? '#b3261e' : '#2a6a7a'; ctx.lineWidth = e > 0 ? .03 : .06; ctx.setLineDash(e > 0 ? [.05, .05] : []);
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo((a.x + b.x) / 2 + .06, (a.y + b.y) / 2 + .08, b.x, b.y); ctx.stroke(); ctx.setLineDash([]); };
-    for (let i = 0; i < P.length; i++) for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) { const j = m.get(K(P[i][0] + dx, P[i][1] + dy)); if (j !== undefined && j > i + 1) thread({ x: P[i][0], y: P[i][1], i }, { x: P[j][0], y: P[j][1] }, FE.BB[FE.eff(S[i], pH)][FE.eff(S[j], pH)]); }
-    for (const c of lig) for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) { const j = m.get(K(c.x + dx, c.y + dy)); if (j !== undefined) thread({ x: P[j][0], y: P[j][1], i: j }, { x: c.x + dx * -.4, y: c.y + dy * -.4 }, FE.BB[FE.eff(S[j], pH)][{ x: 0, o: 1, '+': 2, '-': 3 }[c.t]]); } }
+    const thread = (a, b, e, rb) => { if (!e) return; const col = e > 0 ? 'rgba(60,60,60,.6)' : e === -2 && (FE.eff(S[a.i ?? 0], pH) === 1) ? '#c0281c' : '#1f7f8f';
+      if (G) threadSeg(a, b, .3, rb, col, e > 0 ? .025 : .05, e > 0 ? [.05, .05] : null);
+      else { ctx.strokeStyle = col; ctx.lineWidth = e > 0 ? .03 : .06; ctx.setLineDash(e > 0 ? [.05, .05] : []); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo((a.x + b.x) / 2 + .06, (a.y + b.y) / 2 + .08, b.x, b.y); ctx.stroke(); ctx.setLineDash([]); } };
+    for (let i = 0; i < P.length; i++) for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) { const j = m.get(K(P[i][0] + dx, P[i][1] + dy)); if (j !== undefined && j > i + 1) thread({ x: P[i][0], y: P[i][1], i }, { x: P[j][0], y: P[j][1] }, FE.BB[FE.eff(S[i], pH)][FE.eff(S[j], pH)], .27); }
+    for (const c of lig) for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) { const j = m.get(K(c.x + dx, c.y + dy)); if (j !== undefined) thread({ x: P[j][0], y: P[j][1], i: j }, { x: c.x + dx * (G ? .43 : -.4), y: c.y + dy * (G ? .43 : -.4) }, FE.BB[FE.eff(S[j], pH)][{ x: 0, o: 1, '+': 2, '-': 3 }[c.t]], 0); } }
   // beads
-  P.forEach((p, i) => { const t = S[i], te = FE.eff(t, pH); let R = .3; const lift = (drag && drag.i === i && drag.moved) ? .08 : 0;
-    ball(p[0], p[1], R, te !== t ? BEN.ball[0] : BEN.ball[t], lift); // a neutralised charge looks like a watery bead, with its sign pencilled on
-    const lab = i === 0 ? 'N' : t === 2 ? '+' : t === 3 ? '−' : ''; if (lab) { ctx.fillStyle = t === 0 || te !== t ? (te !== t ? BEN.ball[t][1] : '#333') : '#fff'; ctx.font = '700 .3px "Courier Prime",monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(lab, p[0], p[1] - lift + .02); }
+  const lifts = [];
+  P.forEach((p, i) => { const t = S[i], te = FE.eff(t, pH); let R = .3; const lift = (drag && drag.i === i && drag.moved) ? .08 : 0; lifts.push((Z ? Z[i] : 0) + lift * 3);
+    if (!G) ball(p[0], p[1], R, te !== t ? BEN.ball[0] : BEN.ball[t], lift); // a neutralised charge looks like a watery bead, with its sign pencilled on
+    const lab = i === 0 ? 'N' : t === 2 ? '+' : t === 3 ? '−' : ''; if (lab) { const ly = p[1] - (G ? 0 : lift) + .02;
+      ctx.font = '700 .3px "Courier Prime",monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      if (G && (t === 0 || te !== t)) { ctx.fillStyle = te !== t ? BEN.ball[t][2] : 'rgba(60,52,40,.85)'; ctx.fillText(lab, p[0], ly); }
+      else if (G) { ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillText(lab, p[0] + .012, ly + .022); ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.fillText(lab, p[0], ly); }
+      else { ctx.fillStyle = t === 0 || te !== t ? (te !== t ? BEN.ball[t][1] : '#333') : '#fff'; ctx.fillText(lab, p[0], ly); } }
     // weak sites, after the typo test: a red ring where a substitution breaks the design
-    if (robust && robust.frac != null && result && !result.stale && result.f >= 0 && peek < 0 && !anim && robust.weak[i]) { ctx.strokeStyle = `rgba(179,38,30,${.3 + .23 * robust.weak[i]})`; ctx.lineWidth = .05; ctx.setLineDash([.08, .06]); ctx.beginPath(); ctx.arc(p[0], p[1], R + .1, 0, 7); ctx.stroke(); ctx.setLineDash([]); } });
+    if (robust && robust.frac != null && result && !result.stale && result.f >= 0 && peek < 0 && !anim && robust.weak[i]) { ctx.strokeStyle = `rgba(179,38,30,${.3 + .23 * robust.weak[i]})`; ctx.lineWidth = G ? .03 : .05; ctx.setLineDash(G ? [.06, .05] : [.08, .06]); ctx.beginPath(); ctx.arc(p[0], p[1], R + (G ? .08 : .1), 0, 7); ctx.stroke(); ctx.setLineDash([]); } });
   // the pin through bead N
-  { const p = P[0]; ctx.strokeStyle = BEN.brassD; ctx.lineWidth = .06; ctx.beginPath(); ctx.arc(p[0], p[1], .4, 0, 7); ctx.stroke(); ctx.lineWidth = .03; for (let a = 0; a < 4; a++) { ctx.beginPath(); ctx.moveTo(p[0] + Math.cos(a * 1.571 + .785) * .4, p[1] + Math.sin(a * 1.571 + .785) * .4); ctx.lineTo(p[0] + Math.cos(a * 1.571 + .785) * .52, p[1] + Math.sin(a * 1.571 + .785) * .52); ctx.stroke(); } }
+  if (!G) { const p = P[0]; ctx.strokeStyle = BEN.brassD; ctx.lineWidth = .06; ctx.beginPath(); ctx.arc(p[0], p[1], .4, 0, 7); ctx.stroke(); ctx.lineWidth = .03; for (let a = 0; a < 4; a++) { ctx.beginPath(); ctx.moveTo(p[0] + Math.cos(a * 1.571 + .785) * .4, p[1] + Math.sin(a * 1.571 + .785) * .4); ctx.lineTo(p[0] + Math.cos(a * 1.571 + .785) * .52, p[1] + Math.sin(a * 1.571 + .785) * .52); ctx.stroke(); } }
+  else window.FOLD3D.render({ W: r.width, H: r.height, cam: { x: cam.x, y: cam.y, k }, P, Z: lifts, T: P.map((p, i) => FE.eff(S[i], pH)), lig });
   if (flash > 0) { flash = Math.max(0, flash - .04); ctx.setTransform(d, 0, 0, d, 0, 0); ctx.fillStyle = `rgba(255,255,255,${flash})`; ctx.fillRect(0, 0, r.width, r.height); }
   requestAnimationFrame(draw);
 }
@@ -492,7 +519,7 @@ const SND = {
 // Signature moment: the working design is photographed and pasted into the notebook.
 function photograph() { if (!matchMedia('(prefers-reduced-motion: reduce)').matches) flash = .9; SND.shutter();
   setTimeout(() => { try { const r = cv.getBoundingClientRect(), o = document.createElement('canvas'), w = 260, h = Math.round(w * r.height / r.width); o.width = w; o.height = h; const g = o.getContext('2d');
-    g.filter = 'sepia(.55) contrast(1.1)'; g.drawImage(cv, 0, 0, w, h); const box = document.getElementById('photos'), fig = document.createElement('figure'); fig.className = 'photo';
+    g.filter = 'sepia(.35) contrast(1.08)'; if (window.FOLD3D && window.FOLD3D.ok) { window.FOLD3D.flush(); g.drawImage(window.FOLD3D.canvas, 0, 0, w, h); } g.drawImage(cv, 0, 0, w, h); const box = document.getElementById('photos'), fig = document.createElement('figure'); fig.className = 'photo';
     fig.innerHTML = `<img alt="photograph of the working design" src="${o.toDataURL('image/jpeg', .7)}"><figcaption>${C.name}: ${seqStr()}</figcaption>`; box.prepend(fig); while (box.children.length > 3) box.lastChild.remove(); } catch (e) {} }, 700); }
 
 // ===================== Notebook =====================
@@ -604,6 +631,107 @@ requestAnimationFrame(draw);
 window.__fold = { FE, COMMS, TYPES, evaluate, grip, robustOf, robustGen, runGen, botGen, genComm, genCommGen, cleanSave, validComm, open, paint, foldNow, undo, valid, pullTo, drawTo, relay, isOpen,
   get C() { return C; }, get key() { return key; }, get seq() { return seq.slice(); }, set seq(v) { seq = v.slice(); stale(); }, get pos() { return pos; }, set pos(P) { pos = P; }, get result() { return result; }, get robust() { return robust; }, get busy() { return busy; },
   get SAVE() { return SAVE; }, get cam() { return cam; }, get peek() { return peek; }, screenOf(i) { return cam.toScreen(pos[i][0], pos[i][1]); }, seqStr, record };
+</script>
+<script type="importmap">{"imports":{"three":"../shared/vendor/three/build/three.module.min.js"}}</script>
+<script type="module">
+// The bench in WebGL: an overhead studio photograph of Kendrew's model. Lit glossy beads with a subsurface rim, brass rods,
+// a wax-and-ceramic target molecule, soft shadows and contact occlusion on an enamel bench ruled as graph paper.
+// The 2-D canvas above it keeps every mark that is ink or pencil: labels, threads, the sketch, weak-site rings.
+import * as THREE from 'three';
+(() => {
+  const stage = document.getElementById('stage'), top = document.getElementById('cv');
+  const glc = document.createElement('canvas'); glc.id = 'gl'; glc.setAttribute('aria-hidden', 'true'); stage.insertBefore(glc, stage.firstChild);
+  let R; try { R = new THREE.WebGLRenderer({ canvas: glc, antialias: true, powerPreference: 'high-performance' }); if (!R.getContext()) throw 0; } catch (e) { glc.remove(); return; }
+  const DPR = Math.min(2, devicePixelRatio || 1); R.setPixelRatio(DPR);
+  R.shadowMap.enabled = true; R.shadowMap.type = THREE.PCFSoftShadowMap;
+  R.toneMapping = THREE.ACESFilmicToneMapping; R.toneMappingExposure = .82; R.outputColorSpace = THREE.SRGBColorSpace;
+  const scene = new THREE.Scene(), cam = new THREE.OrthographicCamera(-1, 1, 1, -1, .1, 100); cam.position.set(0, 0, 40);
+  // ---- studio: a warm sweep with two softboxes, baked into a prefiltered environment for reflections and soft fill ----
+  { const env = new THREE.Scene();
+    env.add(new THREE.Mesh(new THREE.SphereGeometry(40, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide, depthWrite: false,
+      vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }',
+      fragmentShader: 'varying vec3 vP; void main(){ float h = normalize(vP).z; vec3 c = mix(vec3(.30,.27,.23), vec3(.95,.92,.86), smoothstep(-.3,.9,h)); gl_FragColor = vec4(c,1.); }' })));
+    const box = (w, h, x, y, z, I, tint) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(tint).multiplyScalar(I), side: THREE.DoubleSide })); m.position.set(x, y, z); m.lookAt(0, 0, 0); env.add(m); };
+    box(18, 12, -12, 14, 26, 7, 0xfff4e4); box(26, 5, 22, -10, 14, 2.2, 0xdde8ff); box(8, 30, 30, 8, 4, 1.2, 0xffffff);
+    const pm = new THREE.PMREMGenerator(R); scene.environment = pm.fromScene(env, .015).texture; scene.environmentIntensity = .7; pm.dispose(); }
+  const key = new THREE.DirectionalLight(0xffeed6, 2.6); key.castShadow = true; key.shadow.mapSize.setScalar(Math.min(innerWidth, innerHeight) < 600 ? 1024 : 2048); key.shadow.radius = 7; key.shadow.blurSamples = 12; key.shadow.bias = -.0004;
+  const KDIR = new THREE.Vector3(-.62, .78, .8).normalize(); scene.add(key, key.target);
+  // ---- the bench: off-white enamel, graph-paper lattice (a line between sites, a faint chessboard), fine tooth ----
+  const tc = document.createElement('canvas'), TS = 256; tc.width = tc.height = TS * 2; { const g = tc.getContext('2d'), im = g.createImageData(TS * 2, TS * 2);
+    let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+    for (let y = 0; y < TS * 2; y++) for (let x = 0; x < TS * 2; x++) { const o = (y * TS * 2 + x) * 4, chk = ((x / TS | 0) + (y / TS | 0)) % 2 ? 0 : 5, v = 219 - chk + rnd() * 8;
+      im.data[o] = v; im.data[o + 1] = v - 4; im.data[o + 2] = v - 14; im.data[o + 3] = 255; }
+    g.putImageData(im, 0, 0); g.strokeStyle = 'rgba(64,104,132,.30)'; g.lineWidth = 3; g.beginPath(); for (const q of [0, TS, TS * 2]) { g.moveTo(q, 0); g.lineTo(q, TS * 2); g.moveTo(0, q); g.lineTo(TS * 2, q); } g.stroke();
+    g.strokeStyle = 'rgba(64,104,132,.10)'; g.lineWidth = 1.5; g.beginPath(); for (let q = TS / 4; q < TS * 2; q += TS / 4) if (q % TS) { g.moveTo(q, 0); g.lineTo(q, TS * 2); g.moveTo(0, q); g.lineTo(TS * 2, q); } g.stroke(); }
+  const tex = new THREE.CanvasTexture(tc); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(100, 100); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = Math.min(8, R.capabilities.getMaxAnisotropy());
+  const bench = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ map: tex, roughness: .9, metalness: 0, envMapIntensity: .45 })); bench.position.set(.5, -.5, 0); bench.receiveShadow = true; scene.add(bench);
+  // ---- contact occlusion: a soft dark pool under everything that touches the bench ----
+  const blob = (sq) => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+    if (sq) { g.filter = 'blur(10px)'; g.fillStyle = '#000'; g.fillRect(26, 26, 76, 76); } else { const r = g.createRadialGradient(64, 64, 0, 64, 64, 64); r.addColorStop(0, 'rgba(0,0,0,1)'); r.addColorStop(.35, 'rgba(0,0,0,.55)'); r.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = r; g.fillRect(0, 0, 128, 128); }
+    const t = new THREE.CanvasTexture(c); return new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, color: 0x2a1c0c, opacity: .55 }); };
+  const aoBead = blob(false), aoBlock = blob(true), quad = new THREE.PlaneGeometry(1, 1);
+  // ---- materials: glossy beads with a subsurface rim (light bleeding through the edge), polished brass, wax and glazed ceramic ----
+  const sss = (m, col, amt, pow = 2.2) => { m.onBeforeCompile = (sh) => { sh.uniforms.uSSS = { value: new THREE.Color(col).multiplyScalar(amt) };
+      sh.fragmentShader = 'uniform vec3 uSSS;\n' + sh.fragmentShader.replace('#include <opaque_fragment>', `{ float f = 1. - saturate(dot(normal, normalize(vViewPosition))); outgoingLight += uSSS * pow(f, ${pow.toFixed(2)}) * (.55 + .45 * saturate(dot(normal, vec3(-.3,.45,.84)))); }\n#include <opaque_fragment>`); };
+    m.customProgramCacheKey = () => 'sss' + col + amt + pow; return m; };
+  const phys = (o) => new THREE.MeshPhysicalMaterial(o);
+  const BEAD = [
+    sss(phys({ color: 0xf2ede2, roughness: .32, clearcoat: 1, clearcoatRoughness: .06, sheen: .4, sheenColor: 0xfff2dc }), 0xffe6c4, .22),   // P: ivory, watery
+    sss(phys({ color: 0xb8321c, roughness: .22, clearcoat: 1, clearcoatRoughness: .04 }), 0xff6a2a, .55, 2.6),                             // H: oily, amber-red lacquer
+    sss(phys({ color: 0x1d4fb0, roughness: .2, clearcoat: 1, clearcoatRoughness: .05 }), 0x4aa0ff, .45, 2.4),                              // K: +, cobalt glaze
+    sss(phys({ color: 0x1f8a4c, roughness: .22, clearcoat: 1, clearcoatRoughness: .05 }), 0x60e69a, .4, 2.4) ];                            // D: −, emerald glaze
+  const brass = phys({ color: 0xd2a650, metalness: 1, roughness: .26, clearcoat: .4, clearcoatRoughness: .2 });
+  const LIG = { o: sss(phys({ color: 0xb8761a, emissive: 0x4a2004, roughness: .5, clearcoat: .85, clearcoatRoughness: .18, sheen: .6, sheenColor: 0xffc878, sheenRoughness: .45 }), 0xffa030, 1.1, 1.2),
+    '+': sss(phys({ color: 0x5a7fc8, roughness: .3, clearcoat: 1, clearcoatRoughness: .1 }), 0x7fb0ff, .25),
+    '-': sss(phys({ color: 0x4e9a62, roughness: .3, clearcoat: 1, clearcoatRoughness: .1 }), 0x8fe0a0, .25),
+    x: phys({ color: 0xb9b2a2, roughness: .75 }) };
+  // ---- geometry ----
+  const sphere = new THREE.SphereGeometry(.3, 48, 32), rodG = new THREE.CylinderGeometry(.062, .062, 1, 20, 1, true), capG = new THREE.SphereGeometry(.062, 16, 8);
+  // tiles of the target: superellipsoids (a rounded cube with a softly domed top), with a melted-wax ripple in the normals
+  const tile = (() => { const g = new THREE.SphereGeometry(1, 40, 28), a = g.attributes.position, v = new THREE.Vector3(), sp = (x, e) => Math.sign(x) * Math.pow(Math.abs(x), e);
+    for (let i = 0; i < a.count; i++) { v.fromBufferAttribute(a, i); a.setXYZ(i, sp(v.x, .22) * .43, sp(v.y, .22) * .43, sp(v.z, .7) * .2 + .2); }
+    g.computeVertexNormals(); const uv = g.attributes.uv; for (let i = 0; i < a.count; i++) uv.setXY(i, a.getX(i) * .9 + .5, a.getY(i) * .9 + .5); return g; })();
+  const ripple = (() => { const N = 128, c = document.createElement('canvas'); c.width = c.height = N; const g = c.getContext('2d'), im = g.createImageData(N, N); let s = 3; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+    const h = new Float32Array(N * N); for (let k = 0; k < 9; k++) { const cx = rnd() * N, cy = rnd() * N, r = 10 + rnd() * 30, A = rnd() - .4; for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { let dx = Math.abs(x - cx), dy = Math.abs(y - cy); dx = Math.min(dx, N - dx); dy = Math.min(dy, N - dy); h[y * N + x] += A * Math.exp(-(dx * dx + dy * dy) / (r * r)); } }
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const o = (y * N + x) * 4, hx = h[y * N + (x + 1) % N] - h[y * N + (x + N - 1) % N], hy = h[((y + 1) % N) * N + x] - h[((y + N - 1) % N) * N + x];
+      im.data[o] = 128 - hx * 300; im.data[o + 1] = 128 - hy * 300; im.data[o + 2] = 255; im.data[o + 3] = 255; }
+    g.putImageData(im, 0, 0); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; })();
+  LIG.o.normalMap = ripple; LIG.o.normalScale.set(1.3, 1.3); LIG.o.clearcoatNormalMap = ripple; LIG.o.clearcoatNormalScale.set(.8, .8); LIG.x.normalMap = ripple; LIG.x.normalScale.set(.3, .3);
+  const ringG = new THREE.TorusGeometry(.43, .028, 12, 64), spikeG = new THREE.CylinderGeometry(.018, .018, .14, 8);
+  const pool = (make) => { const a = []; return { get(i) { while (a.length <= i) { const m = make(); scene.add(m); a.push(m); } a[i].visible = true; return a[i]; }, hide(n) { for (let i = n; i < a.length; i++) a[i].visible = false; } }; };
+  const beads = pool(() => { const m = new THREE.Mesh(sphere, BEAD[0]); m.castShadow = m.receiveShadow = true; return m; });
+  const beadAO = pool(() => { const m = new THREE.Mesh(quad, aoBead.clone()); m.renderOrder = 1; return m; });
+  const rods = pool(() => { const m = new THREE.Mesh(rodG, brass); m.castShadow = true; m.receiveShadow = true; return m; });
+  const blocks = pool(() => { const m = new THREE.Mesh(tile, LIG.x); m.castShadow = m.receiveShadow = true; return m; });
+  const blockAO = pool(() => { const m = new THREE.Mesh(quad, aoBlock); m.renderOrder = 1; m.scale.set(1.25, 1.25, 1); return m; });
+  const pin = new THREE.Group(); { const ring = new THREE.Mesh(ringG, brass); ring.castShadow = true; pin.add(ring);
+    for (let a = 0; a < 4; a++) { const sp = new THREE.Mesh(spikeG, brass); const an = a * Math.PI / 2 + Math.PI / 4; sp.position.set(Math.cos(an) * .5, Math.sin(an) * .5, 0); sp.rotation.z = an + Math.PI / 2; sp.castShadow = true; pin.add(sp); } }
+  pin.position.z = .035; scene.add(pin);
+  const UP = new THREE.Vector3(0, 1, 0), va = new THREE.Vector3(), vb = new THREE.Vector3(), vd = new THREE.Vector3();
+  let last = null, W = 0, H = 0;
+  function render(st) {
+    last = st; if (st.W !== W || st.H !== H) { W = st.W; H = st.H; R.setSize(W, H, false); }
+    const k = st.cam.k; cam.left = -st.cam.x / k; cam.right = (W - st.cam.x) / k; cam.top = st.cam.y / k; cam.bottom = -(H - st.cam.y) / k; cam.updateProjectionMatrix();
+    const P = st.P, Z = st.Z; let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    const grow = (x, y) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); };
+    P.forEach((p, i) => { const z = .3 + (Z[i] || 0), b = beads.get(i); b.position.set(p[0], -p[1], z); b.material = BEAD[st.T[i]] || BEAD[0]; grow(p[0], p[1]);
+      const ao = beadAO.get(i), lift = Z[i] || 0, s = .95 + lift * 1.4; ao.position.set(p[0] + .04, -p[1] - .05, .002); ao.scale.set(s, s, 1); ao.material.opacity = .62 / (1 + lift * 5); });
+    beads.hide(P.length); beadAO.hide(P.length);
+    for (let i = 1; i < P.length; i++) { const m = rods.get(i - 1); va.set(P[i - 1][0], -P[i - 1][1], .3 + (Z[i - 1] || 0)); vb.set(P[i][0], -P[i][1], .3 + (Z[i] || 0));
+      vd.subVectors(vb, va); const L = vd.length(); m.position.addVectors(va, vb).multiplyScalar(.5); m.scale.set(1, L, 1); m.quaternion.setFromUnitVectors(UP, vd.divideScalar(L || 1)); }
+    rods.hide(Math.max(0, P.length - 1));
+    st.lig.forEach((c, i) => { const m = blocks.get(i); m.position.set(c.x, -c.y, 0); m.material = LIG[c.t] || LIG.x; blockAO.get(i).position.set(c.x + .05, -c.y - .06, .001); grow(c.x, c.y); });
+    blocks.hide(st.lig.length); blockAO.hide(st.lig.length);
+    if (P.length) pin.position.set(P[0][0], -P[0][1], .035);
+    // the key light follows the model so its shadow map stays sharp wherever the bench is panned
+    const cx = (x0 + x1) / 2, cy = -(y0 + y1) / 2, ext = Math.max(x1 - x0, y1 - y0) / 2 + 3;
+    key.target.position.set(cx, cy, 0); key.position.set(cx + KDIR.x * 20, cy + KDIR.y * 20, KDIR.z * 20);
+    const sc = key.shadow.camera; sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 1; sc.far = 45; sc.updateProjectionMatrix();
+    R.render(scene, cam);
+  }
+  document.body.classList.add('gl'); window.FOLD3D = { ok: true, canvas: glc, render, flush() { if (last) render(last); } };
+  if (window.__foldRedraw) window.__foldRedraw();
+})();
 </script>
 </body>
 </html>

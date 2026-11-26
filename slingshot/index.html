@@ -226,8 +226,12 @@ const fieldTex = new THREE.DataTexture(new Float32Array(PH.NB * 4), PH.NB, 1, TH
 const GLSL_COMMON = `
   #define PI 3.14159265
   #define TAU 6.2831853
-  uniform sampler2D uSig, uStruct; uniform vec3 uSun;
+  uniform sampler2D uSig, uStruct; uniform vec3 uSun; uniform float uGhost;
   vec2 fineAt(float r){ vec2 t = texture2D(uStruct, vec2((r - 1.15) / 2.3, .5)).rg; return vec2(t.x * 255. / 110., t.y); }
+  // the primordial haze: a faint, purely visual debris disc shown over an empty problem, fading as real dust is poured (never scored)
+  float ghostTau(float r){ if (uGhost <= 0.) return 0.; float env = smoothstep(1.32, 1.62, r) * smoothstep(3.3, 2.55, r);
+    float lumps = .55 + .25 * sin(r * 7.3 + 1.1) + .2 * sin(r * 17.9) ; float gap = 1. - .85 * exp(-pow((r - 2.47) / .035, 2.)) - .6 * exp(-pow((r - 1.86) / .02, 2.));
+    return uGhost * .1 * env * max(lumps, .1) * gap * (.35 + .65 * fineAt(r).x); }
   float tauAt(float r){ if (r < ${PH.A0.toFixed(3)} || r > ${PH.A1.toFixed(3)}) return 0.; return texture2D(uSig, vec2((r - ${PH.A0.toFixed(3)}) / ${(PH.A1 - PH.A0).toFixed(3)}, .5)).r; }
   // 1 in sunlight, ~0 inside the planet's shadow (an oblate ball, flattened 10%)
   float planetShadow(vec3 p){ vec3 q = vec3(p.x, p.y / .9, p.z), L = normalize(vec3(uSun.x, uSun.y / .9, uSun.z)); float t = dot(q, L); if (t > 0.) return 1.; return smoothstep(.97, 1.03, length(q - t * L)); }
@@ -279,7 +283,7 @@ const planetMat = new THREE.ShaderMaterial({ uniforms: { uSig: { value: sigTex }
       float nl = dot(n, L), mu = max(dot(n, V), 0.);
       vec3 base = bands(vP);
       // the rings' shadow: follow the sunbeam from this point to the ring plane
-      float sh = 1.; if (w.y * L.y < 0.) { float t = -w.y / L.y; vec3 h = w + L * t; float rr = length(h.xz), tau = tauAt(rr) * mix(fineAt(rr).x, 1., .6); sh = mix(.04, 1., exp(-tau / max(abs(L.y), .05))); }
+      float sh = 1.; if (w.y * L.y < 0.) { float t = -w.y / L.y; vec3 h = w + L * t; float rr = length(h.xz), tau = tauAt(rr) * mix(fineAt(rr).x, 1., .6) + ghostTau(rr); sh = mix(.04, 1., exp(-tau / max(abs(L.y), .05))); }
       float diff = smoothstep(-.08, .55, nl) * (.35 + .65 * max(nl, 0.));
       float limb = pow(mu, .38);
       vec3 col = base * diff * limb * sh * vec3(1.35, 1.3, 1.22);
@@ -369,7 +373,7 @@ const sheetMat = new THREE.ShaderMaterial({ uniforms: { uMoon: { value: null }, 
     void main(){ float r = length(vW.xz), th = atan(vW.z, vW.x);
       // follow the streamlines back: the grains here came from orbit a, shifted by the moons' wakes and waves
       vec3 fx = vec3(0., 1., 1.); float a = r; if (uNM > 0) { fx = moonFx(r, th, .5); a = r - fx.x; fx = moonFx(a, th, .5); a = r - fx.x; }
-      float tau0 = tauAt(a) * fx.y * fx.z; if (tau0 < .002) discard;
+      float tau0 = (tauAt(a) + ghostTau(a)) * fx.y * fx.z; if (tau0 < .002) discard;
       // fade the finest ringlets out where a pixel spans many of them (no moiré at grazing angles)
       vec2 fs = fineAt(a); fs.x = mix(fs.x, 1., smoothstep(.0006, .004, fwidth(r))); float tau = tau0 * fs.x;
       vec3 V = normalize(uCam - vW), L = normalize(uSun); float mu = max(abs(V.y), .02), mu0 = max(abs(L.y), .02), c = dot(-L, V);
@@ -387,6 +391,7 @@ const sheetMat = new THREE.ShaderMaterial({ uniforms: { uMoon: { value: null }, 
       gl_FragColor = vec4(col, cov); }`, premultipliedAlpha: true, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor });
 const sheet = new THREE.Mesh(new THREE.RingGeometry(PH.A0, PH.A1, 512, 1), sheetMat); sheet.rotation.x = -Math.PI / 2; scene.add(sheet);
 
+const GHOST = { value: 0 }; sheetMat.uniforms.uGhost = GHOST; planetMat.uniforms.uGhost = GHOST; let ghostGoal = 0;
 sheetMat.uniforms.uMoon = dustMat.uniforms.uMoon; sheetMat.uniforms.uMoonB = dustMat.uniforms.uMoonB; sheetMat.uniforms.uNM = dustMat.uniforms.uNM; sheetMat.uniforms.uTime = dustMat.uniforms.uTime;
 const dustGeo = new THREE.BufferGeometry(); { const ref = new Float32Array(CAP * 2); for (let i = 0; i < CAP; i++) { ref[i * 2] = (i % SIZE + .5) / SIZE; ref[i * 2 + 1] = (Math.floor(i / SIZE) + .5) / SIZE; } dustGeo.setAttribute('ref', new THREE.BufferAttribute(ref, 2)); dustGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(CAP * 3), 3)); }
 const dust = new THREE.Points(dustGeo, dustMat); dust.frustumCulled = false; dust.renderOrder = 2; scene.add(dust);
@@ -420,8 +425,10 @@ function syncMoons() { const U = dustMat.uniforms; U.uNM.value = G.moons.length;
 const growObj = new THREE.Group(); growObj.add(new THREE.Mesh(moonGeo, moonMat), new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({ color: 0xffe2a0, transparent: true, opacity: .3, blending: THREE.AdditiveBlending, depthWrite: false }))); scene.add(growObj);
 
 // ===================== Camera: a slow cinematic drift you can take over =====================
-const VIEWS = [{ n: 'Oblique', az: 2.35, el: .38, d: 9.5 }, { n: 'Backlit', az: .55 + Math.PI, el: .07, d: 9 }, { n: 'Overhead', az: 1.4, el: 1.32, d: 9 }, { n: 'Edge-on', az: 2.0, el: .012, d: 10 }, { n: 'Close', az: 2.9, el: .22, d: 5.2 }, { n: 'Underside', az: 1.9, el: -.32, d: 8.5 }];
+const VIEWS = [{ n: 'Three-quarter', az: 3.02, el: .27, d: 9.2 }, { n: 'Oblique', az: 2.35, el: .38, d: 9.5 }, { n: 'Backlit', az: .55 + Math.PI, el: .07, d: 9 }, { n: 'Overhead', az: 1.4, el: 1.32, d: 9 }, { n: 'Edge-on', az: 2.0, el: .012, d: 10 }, { n: 'Close', az: 2.9, el: .22, d: 5.2 }, { n: 'Underside', az: 1.9, el: -.32, d: 8.5 }];
 const cam = { az: VIEWS[0].az, el: VIEWS[0].el, d: VIEWS[0].d, idle: 0 }, camGoal = { ...cam }; let viewI = 0;
+// first load: drift in from far out, low over the ring plane
+if (!/[?&]lite\b/.test(location.search) && !matchMedia('(prefers-reduced-motion: reduce)').matches) Object.assign(cam, { az: VIEWS[0].az - .5, el: .08, d: 15 });
 function placeCamera() { const hf = Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect), k = Math.max(1, 3.25 / Math.tan(hf) / 9.5); camera.position.set(Math.cos(cam.el) * Math.cos(cam.az), Math.sin(cam.el), Math.cos(cam.el) * Math.sin(cam.az)).multiplyScalar(cam.d * k); camera.lookAt(0, -.05, 0);
   for (const u of [planetMat.uniforms.uCam, halo.material.uniforms.uCam, sheetMat.uniforms.uCam, dustMat.uniforms.uCam]) u.value.copy(camera.position); }
 function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); composer.setPixelRatio(pixelRatio); composer.setSize(w, h); bloom.resolution.set(w * pixelRatio * .5, h * pixelRatio * .5); camera.aspect = w / h; camera.updateProjectionMatrix(); }
@@ -531,7 +538,8 @@ function frame(now) {
   cam.idle += dtR; if (cam.idle > 6 && !drag) camGoal.az += dtR * .025;
   cam.az += (camGoal.az - cam.az) * Math.min(1, dtR * 2.2); cam.el += (camGoal.el - cam.el) * Math.min(1, dtR * 2.2); cam.d += (camGoal.d - cam.d) * Math.min(1, dtR * 2.2);
   placeCamera(); syncMoons();
-  guide.visible = PH.total(G.S) < 4000 && key === '0'; if (guide.visible) guide.material.opacity = .25 + .25 * Math.sin(now / 400);
+  const tot = PH.total(G.S); guide.visible = tot < 4000 && key === '0'; if (guide.visible) guide.material.opacity = .16 + .14 * Math.sin(now / 400);
+  ghostGoal = key === '0' ? Math.max(0, 1 - tot / 8000) : 0; GHOST.value += (ghostGoal - GHOST.value) * Math.min(1, dtR * 1.5);
   planetMat.uniforms.uTime.value = G.t; dustMat.uniforms.uTime.value = G.t;
   composer.render();
   // adaptive quality: hold 60 fps on phones by lowering pixel ratio, then the number of grains drawn

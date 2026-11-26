@@ -40,6 +40,13 @@
   #card .read b{font-weight:600}
   #card .opt{display:flex;align-items:center;gap:8px;text-align:left}
   #card .opt svg{width:34px;height:34px;flex:0 0 auto}
+  #card .seals{float:right;letter-spacing:.2em;font-size:13px} #card .seals i{font-style:normal;color:#b9ab92} #card .seals i.on{color:#7b2d26}
+  #card .book{margin-top:8px} #card .ladder{display:flex;gap:3px;flex-wrap:nowrap;align-items:center}
+  #card .ladder i{display:block;flex:1 1 0;max-width:13px;height:13px;border:1px solid #5d554a;cursor:pointer;font-style:normal;font-size:11px;line-height:12px;text-align:center}
+  #card .ladder i.f{margin-left:5px} #card .ladder i.ok{background:#b9ab92} #card .ladder i.gold{background:#7b2d26;border-color:#7b2d26} #card .ladder i.lk{opacity:.3;cursor:default}
+  #card .ladder i.cur{outline:2px solid #17140f;outline-offset:1px} #card .ladder i.sun{max-width:none;flex:0 0 auto;border:none;margin-left:6px;font-size:14px}
+  #card .small{font-size:12.5px;color:var(--ink2)} #card .hist{width:120px;height:18px;vertical-align:middle;margin-right:6px} #card .hs{display:flex;align-items:center}
+  #card button.dim{opacity:.45} #nav button.lock{color:#4b463e} #nav button.lock::after{content:"·";margin-left:1px}
   #legend{position:fixed;right:20px;bottom:20px;width:220px;z-index:4;font-family:"Bodoni Moda",serif;font-size:11px;letter-spacing:.12em;color:#a59d8e;text-transform:uppercase}
   #legend canvas{width:100%;height:14px;display:block;margin:4px 0 2px;border:1px solid #3a3731}
   #legend .ax{display:flex;justify-content:space-between;text-transform:none;letter-spacing:0;font-family:"Crimson Pro",serif;font-size:13px}
@@ -60,6 +67,7 @@
     #card h2{font-size:20px;margin:0 0 4px}
     #card p{font-size:15.5px;line-height:1.3;margin:0 0 5px}
     #legend{display:none}
+    #card .hs .small{display:none} #card .read{gap:4px 10px;font-size:13.5px;margin:2px 0 4px} #card .book{margin-top:5px} #card button{min-height:32px;padding:2px 10px}
   }
   @media (max-height:500px) and (min-width:600px){
     #card{left:10px;bottom:10px;width:290px;max-height:58%;padding:10px 12px}
@@ -275,7 +283,7 @@ function lift(plate, marks) { return Net.build(plate.pins, plate.solids, marks).
 // foresight: how close the marks were to where the junctions came to rest. Unmatched junctions cost up to .5; stray marks cost .5 each
 function foresight(N, marks) { const J = N.junctions(); if (!J.length && !marks.length) return 0; let e = 0, used = new Set();
   for (const [x, y] of J) { let bd = .5, bi = -1; marks.forEach(([u, v], k) => { const d = Math.hypot(u - x, v - y); if (d < bd) { bd = d; bi = k; } }); e += bd; if (bi >= 0) used.add(bi); }
-  e += .5 * (marks.length - used.size); return e / Math.max(1, J.length); }
+  marks.forEach((m, k) => { if (!used.has(k) && !(N.sol || []).some(o => solidDist(o, m[0], m[1]) < .25)) e += .5; }); return e / Math.max(1, J.length); }
 // =====================================================================================================
 //  COMMISSIONS: a ladder of generated plates. Each is a set of pins (towns) and, later, solids (walls and posts).
 //  The player pencils junction marks on the glass and lifts; the film is born from them and relaxes.
@@ -306,17 +314,43 @@ function genPlate(id, c) {
   return { id, tier, pins: pins.map(p => p.map(q)), solids: solids.map(o => o.t === 'post' ? { t: 'post', c: o.c.map(q), r: q(o.r) } : { t: 'wall', a: o.a.map(q), b: o.b.map(q) }) };
 }
 // a daily plate: the first candidate where the obvious film is a trap (a few quick random dips beat it by 2.5%)
-function dailyPlate(day) { let pl;
-  for (let c = 0; c < 12; c++) { pl = genPlate('d:' + day, c); const L0 = lift(pl, []).length(), r = RH.rng('dq' + c); let Lq = L0;
-    for (let t = 0; t < 8; t++) Lq = Math.min(Lq, Net.build(pl.pins, pl.solids, [], r, .7).settle(900, r).length()); if (L0 > Lq * 1.025) break; }
-  pl.name = 'Today\'s commission'; pl.day = day; return pl; }
+const dailyMemo = {};
+function dailyPlate(day) { if (dailyMemo[day]) return JSON.parse(dailyMemo[day]); let pick = null;
+  for (let c = 0; c < 12; c++) { const pl = genPlate('d:' + day, c), L0 = lift(pl, []).length(), r = RH.rng('dq' + c); let Lq = L0;
+    for (let t = 0; t < 5; t++) Lq = Math.min(Lq, Net.build(pl.pins, pl.solids, [], r, .7).rest(r).length()); if (!pick || L0 / Lq > pick[0]) pick = [L0 / Lq, pl]; if (L0 > Lq * 1.025) break; }
+  const pl = pick[1]; pl.name = 'Today\'s commission'; pl.day = day; dailyMemo[day] = JSON.stringify(pl); return pl; }
 function plateFor(id) {
   if (typeof id === 'string') return dailyPlate(id.replace(/^d:/, ''));
-  if (id === 0) return { id, name: CNAMES[0], pins: [[-1.4, -.62], [1.4, -.62], [1.4, .62], [-1.4, .62]], solids: [], tier: 0, best: 4.9497 };
+  if (id === 0) return { id, name: CNAMES[0], pins: [[-1.4, -.62], [1.4, -.62], [1.4, .62], [-1.4, .62]], solids: [], tier: 0, best: BAKED[0][1], hist: BAKED[0][2] };
   const B = BAKED[id], pl = B ? genPlate(id, B[0]) : genPlate(id, 0); pl.name = CNAMES[id]; if (B) { pl.best = B[1]; pl.hist = B[2]; } return pl;
 }
-// baked by bake() below: [candidate, best length, quantiles of 24 random dips] for each commission
-const BAKED = {};
+// baked by bake() below (then bestFor on the chosen layout): [candidate, best length, quantiles of 24 random dips, the best network's junctions]
+const BAKED = {
+  0: [0,4.9477,[4.9477,4.9477,4.9477,4.9477,4.9477,4.9477,4.9477,4.9477,4.9477],[[1.042,0],[-1.042,0]]],
+  1: [1,4.3371,[4.3371,4.3371,4.4127,4.4127,4.4127,4.4294,4.4294,4.8319,4.832],[[-0.476,0.249],[0.266,0.113],[-0.939,-0.297]]],
+  2: [17,3.8428,[3.8428,3.8428,3.9036,3.9036,4.022,4.022,4.105,4.1556,4.1556],[[0.146,-0.992],[0.405,0.107]]],
+  3: [10,5.0138,[5.0138,5.0138,5.0138,5.0221,5.0221,5.1452,5.1452,5.258,5.2604],[[0.749,0.449],[0.322,0.222],[-0.247,0.578]]],
+  4: [0,4.2641,[4.2641,4.2641,4.2641,4.4014,4.4037,4.4037,4.409,4.4369,4.5333],[[-0.083,0.104],[0.806,0.096]]],
+  5: [21,6.9935,[6.9935,6.9935,7.0186,7.1654,7.1854,7.2003,7.2468,7.5972,8.6718],[[1.405,-0.062],[0.826,1.233],[-0.829,-0.048]]],
+  6: [20,3.7687,[3.7687,3.7687,3.7687,3.7687,3.8924,3.8924,3.934,4.4804,4.4804],[[0.434,0.256]]],
+  7: [13,4.8629,[4.8629,4.8629,4.9991,5.2272,5.3865,5.4092,5.4243,5.4903,5.6525],[[0.049,0.368]]],
+  8: [11,5.1279,[5.1279,5.1279,5.253,5.253,5.2875,5.5625,5.5661,5.9389,6.991],[[-0.65,0.466]]],
+  9: [97,4.7833,[4.7833,4.8297,4.9518,4.9683,5.0178,5.064,5.1668,5.4827,6.0649],[[-0.653,-0.736],[-0.099,-1.049]]],
+  10: [23,4.2116,[4.2026,4.3962,4.3962,4.3962,4.3962,4.4393,4.7729,5.4029,5.5208],[[-1.014,0.741]]],
+  11: [1,4.6123,[4.6123,4.6123,4.8199,5.2816,5.284,5.4725,5.4854,6.2153,6.8146],[[-0.668,-1.078]]],
+  12: [31,4.8979,[4.8979,4.9422,4.959,4.959,4.9922,5.0051,5.1019,5.6301,5.9757],[[1.235,0.59]]],
+  13: [2,5.46,[5.46,5.46,5.5892,5.5892,5.6799,5.7227,6.4353,6.4353,6.5011],[[-1.149,0.534],[-0.365,0.533]]],
+  14: [9,5.4085,[5.4085,5.4854,5.5471,5.624,5.6278,5.6331,5.8957,6.1911,6.9265],[[-0.471,-0.002],[-0.019,1.481]]],
+  15: [9,5.1236,[5.1236,5.2433,5.5407,5.589,5.6632,5.7135,5.9838,6.3512,6.6339],[[0.784,-0.103],[0.95,-0.34]]],
+  16: [4,5.3319,[5.3319,5.364,5.489,5.6056,5.6763,5.8307,6.0415,6.2803,6.7247],[[0.342,0.876],[-0.116,-0.381]]],
+  17: [5,5.4237,[5.3643,5.4237,5.6786,5.7236,5.8467,5.9859,6.1209,6.8427,7.3415],[[-0.76,-1.263],[0.533,0.452]]],
+  18: [28,5.0717,[5.1806,5.1928,5.2356,5.2447,5.3391,5.3423,5.818,6.068,6.5786],[[-1.14,0.311],[-0.579,0.388],[1.616,-0.642]]],
+  19: [3,4.1157,[4.2802,4.2802,4.2878,4.3914,4.3991,4.5819,4.6841,4.9805,5.7904],[[-1.013,0.55],[0.354,-0.685],[0.299,-1.544]]],
+  20: [1,4.7393,[4.7393,5.1159,5.1486,5.1685,5.2967,5.4269,5.4645,5.6145,5.6774],[[-1.103,-1.02],[0.849,0.097],[0.597,-0.724]]],
+  21: [8,5.5654,[5.529,5.8097,5.8925,5.9103,6.0297,6.1581,6.381,6.5409,6.7244],[[-0.814,-0.857],[-0.895,0.721]]],
+  22: [3,5.0584,[5.0584,5.2473,5.328,5.4548,5.5431,5.64,5.8297,6.2257,6.5106],[[0.064,0.269],[-1.324,0.564]]],
+  23: [4,6.8373,[6.8756,7.0492,7.1348,7.222,7.2472,7.3338,7.4535,7.8793,8.8777],[[1.207,-0.242]]]
+};
 const side = (w, p) => Math.sign((w.b[0] - w.a[0]) * (p[1] - w.a[1]) - (w.b[1] - w.a[1]) * (p[0] - w.a[0]));
 // the craft of a surveyor who has learned soap: from a network, try the other way each bridge could lie (a T1 flip), try
 // dropping a junction, and try leaning on a solid; keep whatever is shorter. Every try is one lift.
@@ -334,10 +368,10 @@ function candidates(plate, N) {
 function fermat(A, B, C) { let x = (A[0] + B[0] + C[0]) / 3, y = (A[1] + B[1] + C[1]) / 3; // Weiszfeld
   for (let i = 0; i < 60; i++) { let sx = 0, sy = 0, sw = 0; for (const q of [A, B, C]) { const d = Math.hypot(q[0] - x, q[1] - y); if (d < 1e-6) return null; sx += q[0] / d; sy += q[1] / d; sw += 1 / d; } x = sx / sw; y = sy / sw; } return [x, y]; }
 function* improveG(plate, marks, budget = 60) {
-  let N = lift(plate, marks), L = N.length(), used = 1; yield;
+  let N = lift(plate, marks), L = N.length(), used = 1, tried = marks; yield;
   for (let again = true; again && used < budget;) { again = false;
-    for (const c of candidates(plate, N)) { if (used >= budget) break; const M = lift(plate, c); used++; yield; if (M.length() < L - 1e-4) { N = M; L = M.length(); again = true; break; } } }
-  return { N, L, marks: N.junctions(), used };
+    for (const c of candidates(plate, N)) { if (used >= budget) break; const M = lift(plate, c); used++; yield; if (M.length() < L - 1e-4) { N = M; L = M.length(); tried = c; again = true; break; } } }
+  return { N, L, marks: N.junctions(), tried, used };
 }
 const run = g => { for (;;) { const o = g.next(); if (o.done) return o.value; } };
 const improve = (plate, marks, budget) => run(improveG(plate, marks, budget));
@@ -346,7 +380,7 @@ function* bestG(plate, dips = 24) {
   const r = RH.rng('best:' + plate.id), hist = [], top = [];
   for (let t = 0; t < dips; t++) { const N = Net.build(plate.pins, plate.solids, [], r, .7).rest(r); hist.push(+N.length().toFixed(4)); top.push(N); yield; }
   top.sort((a, b) => a.length() - b.length()); let best = Infinity, bm = null;
-  for (const N of [lift(plate, []), ...top.slice(0, 3)]) { const o = yield* improveG(plate, N.junctions(), 50); if (o.L < best) { best = o.L; bm = o.marks; } }
+  for (const N of [lift(plate, []), ...top.slice(0, 3)]) { const o = yield* improveG(plate, N.junctions(), 50); if (o.L < best) { best = o.L; bm = o.tried; } }
   hist.sort((a, b) => a - b); return { best: +best.toFixed(4), marks: bm.map(m => m.map(v => +v.toFixed(3))), hist: [0, 3, 6, 9, 12, 15, 18, 21, 23].map(i => hist[i]) };
 }
 const bestFor = plate => run(bestG(plate));
@@ -676,7 +710,7 @@ function makePins(pins, opts = {}) {
   geo.setDrawRange(0, 0); const film = new THREE.Mesh(geo, mat); film.frustumCulled = false; film.renderOrder = 2; stage.add(film);
   const F = { kind: 'pins', pins: pins.map(p => p.slice()), film, mat, yr: [-PLATE_H, PLATE_H], net: null, pinMeshes: [], guess: null };
   F.addPinMesh = (p, i) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, PLATE_H * 2 + .04, 20), steel); m.castShadow = true; m.position.set(p[0], 0, p[1]); stage.add(m);
-    const cap = knob(new V3(p[0], PLATE_H + .09, p[1]), brass, .085); stage.add(cap); handles.push({ mesh: cap, kind: 'pin', i, stem: m }); F.pinMeshes.push(m); };
+    const cap = knob(new V3(p[0], PLATE_H + .09, p[1]), brass, .085); stage.add(cap); if (!opts.fixed) handles.push({ mesh: cap, kind: 'pin', i, stem: m }); F.pinMeshes.push(m); };
   F.pins.forEach(F.addPinMesh);
   F.solids = (opts.solids || []).map(o => JSON.parse(JSON.stringify(o))); F.solidMeshes = [];
   F.addSolidMesh = o => { let m;
@@ -707,7 +741,7 @@ function makePins(pins, opts = {}) {
   return F;
 }
 const glassSlip = new THREE.MeshPhysicalMaterial({ color: 0xcfe6f0, roughness: .12, metalness: 0, transparent: true, opacity: .34, envMapIntensity: 2.6, clearcoat: 1, clearcoatRoughness: .04, depthWrite: false });
-const glassRod = new THREE.MeshPhysicalMaterial({ color: 0xd8ecf4, roughness: .05, metalness: 0, transparent: true, opacity: .3, envMapIntensity: 3, clearcoat: 1, clearcoatRoughness: .02, depthWrite: false });
+const glassRod = new THREE.MeshPhysicalMaterial({ color: 0xcfe6f2, roughness: .04, metalness: 0, transparent: true, opacity: .2, envMapIntensity: 3, clearcoat: 1, clearcoatRoughness: .02, depthWrite: false });
 const markInk = new THREE.MeshStandardMaterial({ color: 0xf0c98a, emissive: 0x6a3d12, roughness: .5, metalness: .2 });
 const markGeo = new THREE.BoxGeometry(.2, .014, .028);
 function markMesh() { const g = new THREE.Group(); for (const r of [Math.PI / 4, -Math.PI / 4]) { const b = new THREE.Mesh(markGeo, markInk); b.rotation.y = r; g.add(b); } return g; }
@@ -729,6 +763,34 @@ function makeFrame(kind, offsets) {
   F.syncBorders = () => { let k = 0; for (const l of F.lines) for (let q = 0; q + 1 < l.length; q++) k = setBorder(F.borders, k, S.get(l[q]), S.get(l[q + 1]), .007); F.borders.count = k; F.borders.instanceMatrix.needsUpdate = true; F.borders.visible = !F.hidden && F.film.visible; };
   F.rebuild(); return F;
 }
+// ---------- figure: two coaxial rings and the catenoid between them ----------
+// r(y) = a·cosh(y/a) through rings of radius R a gap h apart: R = a·cosh(h/2a). With u = h/2a that is cosh(u)/u = 2R/h, which has a
+// solution only while h/R ≤ 2/min(cosh u/u) ≈ 1.3255. The stable film is the fatter of the two (u below the minimum at u₀ ≈ 1.19968).
+const CAT_R = 1.05, CAT_U0 = 1.1996786, CAT_HMAX = 2 / (Math.cosh(CAT_U0) / CAT_U0), CAT_Y0 = -1.0;
+function catenoid(R, h) { const k = 2 * R / h, f = u => Math.cosh(u) / u - k; if (f(CAT_U0) > 0) return null; let lo = 1e-6, hi = CAT_U0; for (let i = 0; i < 80; i++) { const m = (lo + hi) / 2; if (f(m) > 0) lo = m; else hi = m; }
+  const a = h / (2 * lo); return { a, neck: a, A: Math.PI * a * (h + a * Math.sinh(h / a)) }; }
+function makeRings() {
+  clearStage(); const SEG = mob ? 56 : 80, ROWS = mob ? 28 : 40, mat = filmMaterial(), geo = new THREE.BufferGeometry(), pos = new Float32Array((SEG + 1) * (ROWS + 1) * 3), idx = [];
+  for (let j = 0; j < ROWS; j++) for (let i = 0; i < SEG; i++) { const a = j * (SEG + 1) + i, b = a + SEG + 1; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setIndex(idx); const film = new THREE.Mesh(geo, mat); film.frustumCulled = false; film.renderOrder = 2; stage.add(film);
+  const discs = [0, 1].map(() => { const m = new THREE.Mesh(new THREE.CircleGeometry(CAT_R, 72), mat); m.rotation.x = -Math.PI / 2; m.renderOrder = 2; m.visible = false; stage.add(m); return m; });
+  const ringM = [0, 1].map(() => { const m = new THREE.Mesh(new THREE.TorusGeometry(CAT_R, .032, 14, 120), steel); m.rotation.x = Math.PI / 2; m.castShadow = true; stage.add(m); return m; });
+  stage.add(tube(new V3(-CAT_R, CAT_Y0, 0), new V3(-CAT_R - .25, CAT_Y0 - .8, 0), .028));
+  const F = { kind: 'rings', film, mat, h: .8, yr: [CAT_Y0, CAT_Y0 + .8], cat: { A: 0, snapped: false, s: 0 } };
+  const top = knob(new V3(CAT_R, CAT_Y0 + F.h, 0), brass, .085); stage.add(top); handles.push({ mesh: top, kind: 'gap', i: 0 });
+  F.reset = () => { F.h = .8; F.cat.snapped = false; F.cat.s = 0; film.visible = true; discs.forEach(d => d.visible = false); F.update(); };
+  F.update = (dt = 0) => { const h = F.h, c = F.cat, sol = catenoid(CAT_R, h);
+    ringM[0].position.set(0, CAT_Y0, 0); ringM[1].position.set(0, CAT_Y0 + h, 0); top.position.set(CAT_R, CAT_Y0 + h, 0); F.yr = [CAT_Y0, CAT_Y0 + h];
+    discs[0].position.set(0, CAT_Y0, 0); discs[1].position.set(0, CAT_Y0 + h, 0);
+    if (!c.snapped && !sol) { c.snapped = true; c.s = 1e-3; FX.sfx('pop'); const g = (h / CAT_R); SAVE.neck.push(+g.toFixed(3)); SAVE.neck = SAVE.neck.slice(-12); persist(); }
+    if (c.snapped) { c.s = Math.min(1, c.s + dt * 3.2); if (c.s >= 1 && film.visible) { film.visible = false; discs.forEach(d => d.visible = true); burst(new V3(0, CAT_Y0 + h / 2, 0), .5); } }
+    const a0 = sol ? sol.a : catenoid(CAT_R, CAT_R * CAT_HMAX * .9999).a; c.A = sol ? sol.A : 2 * Math.PI * CAT_R * CAT_R;
+    for (let j = 0; j <= ROWS; j++) { const y = -h / 2 + h * j / ROWS; let r = a0 * Math.cosh(y / a0);
+      if (c.snapped) { const t = FX.ease.inOutCubic(c.s), q = Math.abs(y) / (h / 2); r = r * (1 - t) + t * CAT_R * Math.pow(q, 3); } // the neck pinches off
+      for (let i = 0; i <= SEG; i++) { const th = i / SEG * Math.PI * 2, k = (j * (SEG + 1) + i) * 3; pos[k] = r * Math.cos(th); pos[k + 1] = CAT_Y0 + h / 2 + y; pos[k + 2] = r * Math.sin(th); } }
+    geo.attributes.position.needsUpdate = true; geo.computeVertexNormals(); };
+  F.update(); return F;
+}
 // ---------- figure: bubbles from a wand ----------
 const WAND = new V3(-1.7, .15, .2), WAND_R = .42, WAND_A = new V3(1, 0, .75).normalize();
 function makeBubbles() {
@@ -748,19 +810,38 @@ function wallMesh() { const g = new THREE.CircleGeometry(1, 64, 0, Math.PI * 2);
 //  CHAPTERS
 // =====================================================================================================
 const CH = [
-  { k: 'ring', n: 'I', t: 'The lazy skin' }, { k: 'three', n: 'II', t: 'Three pins' }, { k: 'roads', n: 'III', t: 'Soap plans roads' },
-  { k: 'frames', n: 'IV', t: 'Into three dimensions' }, { k: 'bubbles', n: 'V', t: 'Bubbles' }, { k: 'sandbox', n: 'VI', t: 'Your frame' },
+  { k: 'ring', n: 'I', t: 'The lazy skin' }, { k: 'three', n: 'II', t: 'Three pins' }, { k: 'roads', n: 'III', t: 'The surveyor\'s book' },
+  { k: 'frames', n: 'IV', t: 'Into three dimensions', need: 4 }, { k: 'bubbles', n: 'V', t: 'Bubbles', need: 10 }, { k: 'sandbox', n: 'VI', t: 'Your frame', need: 16 },
 ];
-const SAVE = (() => { const s = RH.load('soap', null); const ok = s && typeof s === 'object' && Array.isArray(s.seen);
-  return { ch: ok && Number.isInteger(s.ch) && s.ch >= 0 && s.ch < CH.length ? s.ch : 0, seen: ok ? s.seen.filter(x => Number.isInteger(x) && x >= 0 && x < CH.length).slice(0, 6) : [], preds: ok && s.preds && typeof s.preds === 'object' ? s.preds : {},
-    best: ok && s.best && typeof s.best === 'object' ? Object.fromEntries(Object.entries(s.best).filter(([k, v]) => typeof k === 'string' && Number.isFinite(v)).slice(0, 50)) : {} }; })();
-const persist = () => { RH.save('soap', SAVE); RH.progress('hypothesis', SAVE.seen.length / CH.length); };
+// ---------- the save: every field checked, anything odd dropped ----------
+const isNum = Number.isFinite, isObj = o => o && typeof o === 'object' && !Array.isArray(o);
+const cleanMarks = m => Array.isArray(m) ? m.filter(p => Array.isArray(p) && isNum(p[0]) && isNum(p[1]) && Math.hypot(p[0], p[1]) < 2.2).slice(0, 12).map(p => [+p[0], +p[1]]) : [];
+const keyOk = k => /^c([0-9]|1[0-9]|2[0-3])$/.test(k) || /^d:\d{4}-\d\d-\d\d$/.test(k);
+const SAVE = (() => { const s = RH.load('soap', null); const ok = isObj(s);
+  const rec = {}, marks = {}, bk = {};
+  if (ok && isObj(s.rec)) for (const [k, v] of Object.entries(s.rec).slice(0, 400)) if (keyOk(k) && isObj(v) && isNum(v.L) && v.L > 0)
+    rec[k] = { L: +v.L, f: isNum(v.f) ? +v.f : 9, n: Number.isInteger(v.n) && v.n > 0 ? v.n : 1, first: Number.isInteger(v.first) && v.first > 0 ? v.first : 0, s: typeof v.s === 'string' ? v.s.replace(/[^atch]/g, '').slice(0, 4) : '' };
+  if (ok && isObj(s.marks)) for (const [k, v] of Object.entries(s.marks).slice(0, 400)) if (keyOk(k)) marks[k] = cleanMarks(v);
+  if (ok && isObj(s.bk)) for (const [k, v] of Object.entries(s.bk).slice(0, 60)) if (keyOk(k) && isObj(v) && isNum(v.best) && Array.isArray(v.hist) && v.hist.every(isNum)) bk[k] = { best: +v.best, hist: v.hist.slice(0, 9) };
+  const nums = a => Array.isArray(a) ? a.filter(isNum).slice(-12) : [];
+  return { ch: ok && Number.isInteger(s.ch) && s.ch >= 0 && s.ch < CH.length ? s.ch : 0, seen: ok && Array.isArray(s.seen) ? [...new Set(s.seen.filter(x => Number.isInteger(x) && x >= 0 && x < CH.length))] : [],
+    preds: ok && isObj(s.preds) ? Object.fromEntries(Object.entries(s.preds).filter(([k, v]) => typeof v === 'string' && k.length < 12).slice(0, 12)) : {},
+    cur: ok && Number.isInteger(s.cur) && s.cur >= 0 && s.cur < NCOMM ? s.cur : 0, rec, marks, bk, g2: nums(ok && s.g2), neck: nums(ok && s.neck), streak: ok && isObj(s.streak) && typeof s.streak.d === 'string' && Number.isInteger(s.streak.n) ? { d: s.streak.d.slice(0, 10), n: Math.max(0, Math.min(9999, s.streak.n)) } : { d: '', n: 0 } }; })();
+const accepted = () => { let n = 0; for (let i = 0; i < NCOMM; i++) if ((SAVE.rec['c' + i] || {}).s?.includes('a')) n++; return n; };
+const sealCount = () => { let n = 0; for (let i = 0; i < NCOMM; i++) n += ((SAVE.rec['c' + i] || {}).s || '').replace(/[^atc]/g, '').length; return n; };
+const open = i => i === 0 || (SAVE.rec['c' + (i - 1)] || {}).s?.includes('a');
+const chOpen = i => !CH[i].need || accepted() >= CH[i].need || SAVE.seen.includes(i);
+const persist = () => { RH.save('soap', SAVE); RH.progress('hypothesis', Math.min(1, (SAVE.seen.length + sealCount() / 3) / (CH.length + NCOMM))); };
 let ch = SAVE.ch, st = {}; // per-chapter state
 const card = document.getElementById('card'), nav = document.getElementById('nav');
-function renderNav() { nav.innerHTML = CH.map((c, i) => `<button data-c="${i}" class="${i === ch ? 'on' : ''} ${SAVE.seen.includes(i) ? 'seen' : ''}" title="${c.t}">${c.n}</button>`).join(''); }
-nav.onclick = e => { const b = e.target.closest('[data-c]'); if (b) go(+b.dataset.c); };
-const camGoal = { p: new V3(2.6, .9, 6.4), t: new V3(0, .1, 0) };
-function setCam(p, t, snap) { const Z = innerWidth / innerHeight < .8 ? 1.5 : innerWidth / innerHeight < 1.2 ? 1.15 : 1; p = t.clone().add(p.clone().sub(t).multiplyScalar(Z)); camGoal.p.copy(p); camGoal.t.copy(t); if (snap) { camera.position.copy(p); controls.target.copy(t); } }
+function renderNav() { nav.innerHTML = CH.map((c, i) => `<button data-c="${i}" class="${i === ch ? 'on' : ''} ${SAVE.seen.includes(i) ? 'seen' : ''} ${chOpen(i) ? '' : 'lock'}" title="${chOpen(i) ? c.t : `${c.t}: opens after ${c.need} commissions`}">${c.n}</button>`).join(''); }
+nav.onclick = e => { const b = e.target.closest('[data-c]'); if (!b) return; const i = +b.dataset.c; if (!chOpen(i)) { FX.sfx('tick'); RH.toast(`Plate ${CH[i].n} opens after ${CH[i].need} accepted commissions (you have ${accepted()}).`); return; } go(i); };
+const camGoal = { p: new V3(2.6, .9, 6.4), t: new V3(0, .1, 0), on: true };
+// frame a disc of radius r seen along dir so it fits the screen (on a phone, above the caption card)
+function fitCam(t, dir, r, snap) { const v = camera.fov * Math.PI / 360, h = Math.atan(Math.tan(v) * camera.aspect), ph = innerWidth < 760 && camera.aspect < 1;
+  const d = Math.min(14, r / Math.sin(Math.min(ph ? v * .62 : v * .9, h * .95))), T = t.clone(); if (ph) T.z += .9; else if (innerWidth >= 760) T.x -= .5;
+  camGoal.p.copy(T).addScaledVector(dir.clone().normalize(), d); camGoal.t.copy(T); camGoal.on = true; if (snap) { camera.position.copy(camGoal.p); controls.target.copy(T); } }
+function setCam(p, t, snap) { const Z = innerWidth / innerHeight < .8 ? 1.5 : innerWidth / innerHeight < 1.2 ? 1.15 : 1; p = t.clone().add(p.clone().sub(t).multiplyScalar(Z)); camGoal.p.copy(p); camGoal.t.copy(t); camGoal.on = true; if (snap) { camera.position.copy(p); controls.target.copy(t); } }
 const OPT_SVG = {
   x: '<svg viewBox="0 0 34 34"><g stroke="currentColor" stroke-width="1.6" fill="none"><path d="M5 5L29 29M29 5L5 29"/></g><g fill="currentColor"><circle cx="5" cy="5" r="2.4"/><circle cx="29" cy="5" r="2.4"/><circle cx="5" cy="29" r="2.4"/><circle cx="29" cy="29" r="2.4"/></g></svg>',
   ring: '<svg viewBox="0 0 34 34"><g stroke="currentColor" stroke-width="1.6" fill="none"><rect x="10" y="10" width="14" height="14"/><path d="M5 5L10 10M29 5L24 10M5 29L10 24M29 29L24 24"/></g><g fill="currentColor"><circle cx="5" cy="5" r="2.4"/><circle cx="29" cy="5" r="2.4"/><circle cx="5" cy="29" r="2.4"/><circle cx="29" cy="29" r="2.4"/></g></svg>',
@@ -771,30 +852,83 @@ const OPT_SVG = {
   big: '<svg viewBox="0 0 34 34"><g stroke="currentColor" stroke-width="1.4" fill="none"><circle cx="12" cy="17" r="10"/><circle cx="25.5" cy="17" r="6"/><path d="M21 12.2Q18.4 17 21 21.8"/></g></svg>',
   small: '<svg viewBox="0 0 34 34"><g stroke="currentColor" stroke-width="1.4" fill="none"><circle cx="12" cy="17" r="10"/><circle cx="25.5" cy="17" r="6"/><path d="M21 12.2Q23.6 17 21 21.8"/></g></svg>',
   flat: '<svg viewBox="0 0 34 34"><g stroke="currentColor" stroke-width="1.4" fill="none"><circle cx="12" cy="17" r="10"/><circle cx="25.5" cy="17" r="6"/><path d="M21 12.2V21.8"/></g></svg>',
+  r1: '<svg viewBox="0 0 34 34"><g stroke="currentColor" stroke-width="1.4" fill="none"><ellipse cx="17" cy="9" rx="11" ry="2.5"/><ellipse cx="17" cy="21" rx="11" ry="2.5"/><path d="M6 9Q12 15 6 21M28 9Q22 15 28 21"/></g></svg>',
+  r13: '<svg viewBox="0 0 34 34"><g stroke="currentColor" stroke-width="1.4" fill="none"><ellipse cx="17" cy="6" rx="11" ry="2.5"/><ellipse cx="17" cy="27" rx="11" ry="2.5"/><path d="M6 6Q15 16.5 6 27M28 6Q19 16.5 28 27"/></g></svg>',
+  dd: '<svg viewBox="0 0 34 34"><g stroke="currentColor" stroke-width="1.4" fill="none"><ellipse cx="17" cy="4" rx="8" ry="2"/><ellipse cx="17" cy="30" rx="8" ry="2"/><path d="M9 4Q16 17 9 30M25 4Q18 17 25 30"/></g></svg>',
 };
 function predictHTML(id, q, opts) {
   const done = SAVE.preds[id];
-  return `<p class="hint">${q}</p><div class="row">${opts.map(([k, label, right]) => `<button class="opt ${done ? (right ? 'right' : done === k ? 'wrong' : '') : ''}" data-pred="${id}" data-k="${k}" data-right="${right ? 1 : 0}">${OPT_SVG[k] || ''}<span>${label}</span></button>`).join('')}</div>`;
+  return `${q ? `<p class="hint">${q}</p>` : ''}<div class="row">${opts.map(([k, label, right]) => `<button class="opt ${done ? (right ? 'right' : done === k ? 'wrong' : '') : ''}" data-pred="${id}" data-k="${k}" data-right="${right ? 1 : 0}">${OPT_SVG[k] || ''}<span>${label}</span></button>`).join('')}</div>`;
 }
 card.addEventListener('click', e => {
   const p = e.target.closest('[data-pred]'); if (p) { if (SAVE.preds[p.dataset.pred]) return; SAVE.preds[p.dataset.pred] = p.dataset.k; persist(); FX.sfx(p.dataset.right === '1' ? 'chime' : 'pop', 4); reveal(p.dataset.pred, p.dataset.k); return; }
+  const c = e.target.closest('[data-cm]'); if (c) { const i = c.dataset.cm === 'd' ? 'd' : +c.dataset.cm; if (i === 'd' ? accepted() >= 6 : open(i)) { FX.sfx('click'); commSetup(i === 'd' ? 'd:' + todayKey() : i); dipNow(true); text(); } else { FX.sfx('tick'); RH.toast(i === 'd' ? 'The daily commission opens after 6 accepted.' : 'Deliver the one before it first.'); } return; }
   const b = e.target.closest('[data-act]'); if (b) act(b.dataset.act, b);
 });
 function go(i, opts = {}) {
   ch = Math.max(0, Math.min(CH.length - 1, i)); SAVE.ch = ch; if (!SAVE.seen.includes(ch)) SAVE.seen.push(ch); persist(); renderNav(); st = {};
   const k = CH[ch].k; if (!opts.snap) FX.sfx('whoosh');
   if (k === 'ring') { fig = makeRing(opts.bend || [0, 0, 0, 0]); setCam(new V3(2.4, .8, 6.2), new V3(0, -.05, 0), opts.snap); }
-  if (k === 'three') { fig = makePins([[-1.2, -.75], [1.3, -.55], [.05, 1.25]], { empty: true }); setCam(new V3(0, 3.3, 5.4), new V3(0, -.35, 0), opts.snap); }
-  if (k === 'roads') { st.stage = SAVE.preds.square ? 'towns' : 'square'; if (st.stage === 'square') fig = makePins([[-1, -1], [1, -1], [1, 1], [-1, 1]], { empty: true }); else townsSetup(); setCam(new V3(0, 3.6, 5.6), new V3(0, -.35, 0), opts.snap); }
+  if (k === 'three') { fig = makePins([[-1.2, -.75], [1.3, -.55], [.05, 1.25]], { empty: true }); fitCam(new V3(0, 0, 0), new V3(0, 1, .9), 2.3, opts.snap); }
+  if (k === 'roads') { if (SAVE.preds.square || opts.comm) commSetup(opts.comm ?? SAVE.cur); else { st.stage = 'square'; fig = makePins([[-1, -1], [1, -1], [1, 1], [-1, 1]], { empty: true }); } fitCam(new V3(0, 0, 0), new V3(0, 1, .55), 2.3, opts.snap); }
   if (k === 'frames') { st.kind = 'cube'; fig = makeFrame('cube'); fig.hidden = !SAVE.preds.cube; fig.film.visible = !fig.hidden; setCam(new V3(3.4, 2.4, 5.8), new V3(0, -.1, 0), opts.snap); }
   if (k === 'bubbles') { fig = makeBubbles(); setCam(new V3(.4, .7, 7.4), new V3(0, .2, 0), opts.snap); }
   if (k === 'sandbox') sandbox(opts.share);
   dipNow(true); text();
 }
-function townsSetup(pins) {
-  const r = RH.rng(st.seed || (st.seed = 'towns:' + todayKey())); st.stage = 'towns';
-  const P = pins || (() => { const n = 6, out = []; let g = 0; while (out.length < n && g++ < 500) { const a = r() * Math.PI * 2, d = Math.sqrt(r()) * 1.75, p = [Math.cos(a) * d, Math.sin(a) * d]; if (out.every(q => Math.hypot(q[0] - p[0], q[1] - p[1]) > .7)) out.push(p); } return out; })();
-  fig = makePins(P); st.mst = mst(P); st.best = bestKnown(P, st.seed); st.mine = Infinity; st.settled = false;
+// ---------- the surveyor's book: commissions ----------
+const ckey = id => typeof id === 'string' ? id : 'c' + id;
+function commSetup(id) {
+  if (typeof id === 'number') { id = Math.max(0, Math.min(NCOMM - 1, id | 0)); while (id > 0 && !open(id)) id--; SAVE.cur = id; persist(); }
+  const plate = plateFor(id), key = ckey(id); st = { stage: 'comm', id, key, plate, lifts: 0, best: plate.best, hist: plate.hist };
+  if (st.best == null && SAVE.bk[key]) { st.best = SAVE.bk[key].best; st.hist = SAVE.bk[key].hist; }
+  if (st.best == null) st.job = bestG(plate); // worked out a few milliseconds per frame while you think
+  fig = makePins(plate.pins, { empty: true, solids: plate.solids, fixed: true }); fig.setMarks(SAVE.marks[key] || []);
+}
+function finishJob() { if (!st.job) return; const r = run(st.job); st.job = null; st.best = r.best; st.hist = r.hist; SAVE.bk[st.key] = { best: r.best, hist: r.hist }; persist(); }
+function stepJob() { if (!st.job) return; const t0 = performance.now(); while (performance.now() - t0 < (mob ? 6 : 10)) { const o = st.job.next(); if (o.done) { const r = o.value; st.job = null; st.best = r.best; st.hist = r.hist; SAVE.bk[st.key] = { best: r.best, hist: r.hist }; persist(); updateReadout(); return; } } }
+function doLift() {
+  if (!st.plate || st.anim) return; const marks = fig.marks.map(m => m.slice()); st.lifts++; st.liftMarks = marks;
+  st.res = lift(st.plate, marks); fig.net = Net.build(st.plate.pins, st.plate.solids, marks); st.rnd = RH.rng('lift'); st.anim = true; st.out = null; fig.showLanding(null); dipNow(); text();
+}
+// a lift has come to rest: score it on three axes, and keep the record
+function settled() {
+  st.anim = false; finishJob(); const N = st.res, L = N.length(), marks = st.liftMarks, f = foresight(N, marks), R = SAVE.rec[st.key] || { L: Infinity, f: 9, n: 0, first: 0, s: '' };
+  st.animL = fig.net.length(); fig.net = N; fig.sync(); R.n++;
+  let beat = false; if (L < st.best - 1e-3) { beat = true; st.best = +L.toFixed(4); if (typeof st.id === 'string') SAVE.bk[st.key] = { best: st.best, hist: st.hist || [] }; }
+  const acc = L <= st.best * (1 + TOL), tru = L <= st.best + 2e-3, cle = acc && f <= .12 && !st.hint && !R.s.includes('h');
+  const was = R.s; let s = R.s; if (acc && !s.includes('a')) { s += 'a'; R.first = R.n; } if (tru && !s.includes('t')) s += 't'; if (cle && !s.includes('c')) s += 'c'; if (st.hint && !s.includes('h')) s += 'h';
+  R.s = s; R.L = Math.min(R.L, L); if (acc) R.f = Math.min(R.f, f); SAVE.rec[st.key] = R;
+  st.out = { L, f, acc, tru, cle, beat, gap: L / st.best - 1, newSeal: s.replace(/h/g, '').length > was.replace(/h/g, '').length };
+  if (typeof st.id === 'string' && acc && !was.includes('a')) { const y = new Date(Date.parse(st.id.slice(2)) - 864e5).toISOString().slice(0, 10); SAVE.streak = { d: st.id.slice(2), n: SAVE.streak.d === y ? SAVE.streak.n + 1 : 1 }; }
+  persist(); renderNav(); fig.showLanding(N, marks, st.hint ? st.ghost : null);
+  if (beat) { FX.sfx('win'); RH.toast('Shorter than the best network known for this plate. It is the new best.'); }
+  else if (st.out.newSeal) FX.sfx(acc && !was.includes('a') ? 'win' : 'chime', 4); else FX.sfx('tick');
+  if (acc && !was.includes('a')) { const n = accepted(); const u = CH.find(c => c.need === n); if (u) setTimeout(() => RH.toast(`Plate ${u.n} is open: ${u.t}.`), 900); if (n === 6) setTimeout(() => RH.toast('The daily commission is open: ☼ at the end of the book.'), 1800); }
+  text();
+}
+const pct = x => (x >= 0 ? '+' : '−') + Math.abs(x * 100).toFixed(1) + '%';
+const sealHTML = s => `<span class="seals" title="✦ accepted (within 1% of the best known) · ◆ the shortest known · ◉ foresight: every junction marked within 0.12, no stray marks, no hint"><i class="${s.includes('a') ? 'on' : ''}">✦</i><i class="${s.includes('t') ? 'on' : ''}">◆</i><i class="${s.includes('c') ? 'on' : ''}">◉</i></span>`;
+function ladderHTML() { let h = '<span class="ladder">'; for (let i = 0; i < NCOMM; i++) { const s = (SAVE.rec['c' + i] || {}).s || '';
+    h += `<i data-cm="${i}" title="${i + 1}. ${CNAMES[i]}" class="${i === st.id ? 'cur ' : ''}${!open(i) ? 'lk' : s.includes('a') ? (s.replace(/[^atc]/g, '').length === 3 ? 'gold' : 'ok') : ''}${i % 6 === 0 && i ? ' f' : ''}"></i>`; }
+  return h + `<i data-cm="d" title="Today's commission" class="sun ${typeof st.id === 'string' ? 'cur ' : ''}${accepted() >= 6 ? '' : 'lk'}">☼</i></span>`; }
+function histHTML() { const H = st.hist; if (!H || !H.length || !st.out) return ''; const lo = Math.min(H[0], st.out.L, st.best), hi = Math.max(H[H.length - 1], st.out.L) + 1e-6, x = v => 4 + (v - lo) / (hi - lo) * 112;
+  const beat = H.filter(v => st.out.L < v - 1e-4).length / H.length;
+  return `<svg class="hist" viewBox="0 0 120 18" aria-label="your film against 24 free dips">${H.map(v => `<rect x="${x(v) - 1}" y="5" width="2" height="9" fill="#5d554a" opacity=".55"/>`).join('')}<rect x="${x(st.best) - .6}" y="2" width="1.2" height="14" fill="#2f5b7a"/><rect x="${x(st.out.L) - 1.2}" y="0" width="2.4" height="18" fill="#7b2d26"/></svg><span class="small">${beat >= .99 ? 'shorter than every free dip' : st.out.L <= H[0] + 1e-4 ? 'as short as the best free dip' : `shorter than ${Math.round(beat * 100)}% of free dips`}</span>`; }
+const FOLIO_TIP = ['Tap the glass to pencil where junctions will form; drag a mark to move it, tap it to rub it out. Then lift: the film is born from your marks and settles.',
+  'A glass wall. Films may end anywhere on it and slide until they meet it square, at <b>90°</b>; whatever touches it is joined through it for free.',
+  'Glass posts. No film can pass through one, but films may end on it, square on, and a post joins whatever touches it.',
+  'Walls and posts together. Lean on the glass, or go round it.'];
+function commText() {
+  const P = st.plate, R = SAVE.rec[st.key] || { s: '' }, daily = typeof st.id === 'string', tier = P.tier, O = st.out;
+  let h = `<div class="fig">${daily ? `Daily · ${st.id.slice(2)}${SAVE.streak.n > 1 && SAVE.streak.d === st.id.slice(2) ? ` · ${SAVE.streak.n}-day run` : ''}` : `Commission ${st.id + 1} of ${NCOMM} · ${FOLIOS[tier].t}`} ${sealHTML(R.s)}</div><h2>${P.name}</h2>`;
+  if (st.anim) h += `<p>The film is born from your ${st.liftMarks.length ? st.liftMarks.length + ' mark' + (st.liftMarks.length > 1 ? 's' : '') : 'pins alone'} and slides toward the least length it can reach…</p>`;
+  else if (!O) h += `<p>${daily ? 'Everyone gets the same plate today.' : (st.id % 6 === 0 || !SAVE.rec[st.key]) ? FOLIO_TIP[daily ? 0 : tier] : 'Join every pin with the shortest film.'} ${!fig.marks.length && !daily && st.id < 2 ? '' : ''}</p>`;
+  else h += `<p>${O.beat ? '<b>A new best.</b> ' : O.tru ? '<b>The shortest network known.</b> ' : O.acc ? '<b>Accepted.</b> Within 1% of the best known. ' : `<b>${pct(O.gap)}</b> longer than the best known. ${st.lifts >= 3 && !st.hint ? 'The bridges could lie the other way.' : 'Soap stops at the nearest minimum, not the best one.'} `}${O.acc && !O.cle ? (O.f > .12 ? `Your marks missed by ${O.f.toFixed(2)} on average: <i>◉ needs 0.12.</i>` : st.hint || R.s.includes('h') ? '' : '') : ''}</p>`;
+  h += `<div class="read" id="readout"></div>`;
+  h += `<div class="row"><button data-act="lift" class="go">${st.lifts ? 'Lift again' : 'Lift'}</button><button data-act="clear">Clear</button>${O && !O.acc && st.lifts >= 3 && !st.hint ? '<button data-act="hint">Hint</button>' : ''}${!daily && st.id + 1 < NCOMM ? `<button data-act="cnext" class="${open(st.id + 1) ? '' : 'dim'}">Next →</button>` : ''}</div>`;
+  h += `<div class="book">${ladderHTML()}</div>`;
+  return h;
 }
 const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 function text() {
@@ -803,58 +937,69 @@ function text() {
     <p>Its colours are its thickness. Light reflected from the film's front and back interferes; as the liquid drains, the bands slide down, the top thins to <b>black</b>, and then it pops.</p><div class="row"><button data-act="dip">Dip again</button><button data-act="next" class="go">Next plate →</button></div>`;
   if (k === 'three') {
     if (!st.revealed) h += `<p>Two glass plates, three steel pins, one dip in the soap.</p><p class="hint">Tap the glass where you think the three films will meet.</p>`;
-    else h += `<p>${st.err != null ? `You were <b>${st.err.toFixed(2)}</b> from the junction. ` : ''}The films meet at exactly <b>120°</b>, always. Each pulls with the same tension, and three equal pulls balance only at 120°.</p>
+    else h += `<p>${st.err != null ? `You were <b>${st.err.toFixed(2)}</b> from the junction${SAVE.g2.length > 1 ? ` <span class="small">(your guesses: ${SAVE.g2.slice(-5).map(v => v.toFixed(2)).join(' → ')})</span>` : ''}. ` : ''}The films meet at exactly <b>120°</b>, always. Each pulls with the same tension, and three equal pulls balance only at 120°.</p>
       <div class="read" id="readout"></div><p>Drag a pin outward. Once a corner of the triangle opens past 120°, the junction dives into that pin.</p><div class="row"><button data-act="again">Guess again</button><button data-act="next" class="go">Next plate →</button></div>`;
   }
   if (k === 'roads') {
     if (st.stage === 'square') h += SAVE.preds.square ? '' : predictHTML('square', 'Four pins at the corners of a square. What will the film do?', [['x', 'Cross in the middle'], ['ring', 'Ring round the middle'], ['h', 'Two junctions and a bridge', 1]]);
-    if (st.stage === 'square' && SAVE.preds.square) h += `<p>The cross is unstable: four films can't balance at one point, so it splits into two 120° junctions with a bridge. The bridge can lie either way, and the dip decides which.</p><div class="row"><button data-act="dip">Dip again</button><button data-act="towns" class="go">Six towns →</button></div>`;
-    if (st.stage === 'towns') h += `<p>Six towns, one dip: the film is a road network joining them all, usually shorter than straight roads between the towns. But soap settles on <i>a</i> short answer, not always <i>the</i> shortest, and sometimes on a worse one. Dip again until you match the best.</p>
-      <div class="read" id="readout"></div><div class="row"><button data-act="dip" class="go">Lift &amp; dip again</button><button data-act="newtowns">New towns</button><button data-act="next">Next plate →</button></div>`;
+    if (st.stage === 'square' && SAVE.preds.square) h += `<p>The cross is unstable: four films can't balance at one point, so it splits into two 120° junctions with a bridge. The bridge could lie either way, and the start decides which: soap finds <i>a</i> minimum, not always <i>the</i> minimum.</p><div class="row"><button data-act="dip">Dip again</button><button data-act="book" class="go">Open the surveyor's book →</button></div>`;
+    if (st.stage === 'comm') h = commText();
   }
   if (k === 'frames') {
-    if (!SAVE.preds.cube) h += `<p>Now a cube of wire, dipped and lifted out. What does the soap make inside it?</p>` + predictHTML('cube', '', [['faces', 'A film on every face'], ['centre', 'All films meet at the centre'], ['square', 'A little square floats in the middle', 1]]);
-    else h += `<p>Thirteen films and a floating square. Plateau found the rules in 1873, by then blind and relying on others' eyes: three films meet along a line at <b>120°</b>, and four such lines meet at a point at <b>109.47°</b>. Jean Taylor proved them in 1976.</p>
-      <div class="read" id="readout"></div><p>Drag a corner to warp the frame.</p><div class="row"><button data-act="cube" class="${st.kind === 'cube' ? 'on' : ''}">Cube</button><button data-act="tetra" class="${st.kind === 'tetra' ? 'on' : ''}">Tetrahedron</button><button data-act="dip">Dip again</button><button data-act="next" class="go">Next →</button></div>`;
+    if (st.kind === 'rings') h += SAVE.preds.neck ? `<p>Two rings, one film: a <b>catenoid</b>, the only soap surface of revolution. Drag the top ring up. Past a gap of 1.06 radii the film is <i>larger</i> than two flat discs, yet it holds; at <b>1.33</b> there is no catenoid left, and the neck snaps.</p><div class="read" id="readout"></div>`
+      : `<p>Two rings, one film between them, waisted like an hourglass.</p>` + predictHTML('neck', 'Pull the rings apart. When does the neck snap?', [['r1', 'When the gap equals the radius'], ['r13', 'At about 1⅓ radii', 1], ['dd', 'At the diameter']]);
+    else if (!SAVE.preds.cube) h += `<p>Now a cube of wire, dipped and lifted out. What does the soap make inside it?</p>` + predictHTML('cube', '', [['faces', 'A film on every face'], ['centre', 'All films meet at the centre'], ['square', 'A little square floats in the middle', 1]]);
+    else h += `<p>Thirteen films and a floating square. Plateau found the rules in 1873, by then blind: three films meet along a line at <b>120°</b>, and four such lines meet at a point at <b>109.47°</b>. Jean Taylor proved them in 1976.</p>
+      <div class="read" id="readout"></div><p>Drag a corner to warp the frame.</p>`;
+    if (SAVE.preds.cube || st.kind === 'rings') h += `<div class="row"><button data-act="cube" class="${st.kind === 'cube' ? 'on' : ''}">Cube</button><button data-act="tetra" class="${st.kind === 'tetra' ? 'on' : ''}">Tetrahedron</button><button data-act="rings" class="${st.kind === 'rings' ? 'on' : ''}">Two rings</button><button data-act="dip">Dip again</button></div>`;
   }
   if (k === 'bubbles') {
     if (!SAVE.preds.wall) h += `<p>A big bubble and a small one touch and join. The wall between them is curved.</p>` + predictHTML('wall', 'Which way does the wall bulge?', [['big', 'Into the big one', 1], ['small', 'Into the small one'], ['flat', 'It stays flat']]);
-    else h += `<p>A small bubble's pressure is higher (Laplace: it scales as 1/r), so the wall bulges into the bigger one, with curvature exactly <b>1/r<sub>small</sub> − 1/r<sub>big</sub></b>. That this is the least area for two volumes was only proved in 2002.</p><p class="hint">Press and hold anywhere to blow; let go to release.</p><div class="row"><button data-act="next" class="go">Your frame →</button></div>`;
+    else h += `<p>A small bubble's pressure is higher (Laplace: it scales as 1/r), so the wall bulges into the bigger one, with curvature exactly <b>1/r<sub>small</sub> − 1/r<sub>big</sub></b>. That this is the least area for two volumes was only proved in 2002.</p><p class="hint">Press and hold anywhere to blow; let go to release.</p>`;
   }
   if (k === 'sandbox') h += `<p>Everything at once. Choose a frame, bend it, dip it, and share the link: whoever opens it gets your frame.</p>
-    <div class="row"><button data-act="sb-ring" class="${fig.kind === 'ring' ? 'on' : ''}">Ring</button><button data-act="sb-pins" class="${fig.kind === 'pins' ? 'on' : ''}">Pins</button><button data-act="sb-tetra" class="${fig.kind === 'tetra' ? 'on' : ''}">Tetra</button><button data-act="sb-cube" class="${fig.kind === 'cube' ? 'on' : ''}">Cube</button><button data-act="sb-bubbles" class="${fig.kind === 'bubbles' ? 'on' : ''}">Bubbles</button></div>
-    <div class="row">${fig.kind === 'pins' ? '<button data-act="addpin">+ pin</button><button data-act="delpin">− pin</button>' : ''}${fig.kind !== 'bubbles' ? '<button data-act="dip">Dip</button>' : ''}<button data-act="share" class="go">Share frame</button></div><div class="read" id="readout"></div>`;
+    <div class="row"><button data-act="sb-ring" class="${fig.kind === 'ring' ? 'on' : ''}">Ring</button><button data-act="sb-pins" class="${fig.kind === 'pins' ? 'on' : ''}">Pins</button><button data-act="sb-tetra" class="${fig.kind === 'tetra' ? 'on' : ''}">Tetra</button><button data-act="sb-cube" class="${fig.kind === 'cube' ? 'on' : ''}">Cube</button><button data-act="sb-rings" class="${fig.kind === 'rings' ? 'on' : ''}">Rings</button><button data-act="sb-bubbles" class="${fig.kind === 'bubbles' ? 'on' : ''}">Bubbles</button></div>
+    <div class="row">${fig.kind === 'pins' ? '<button data-act="addpin">+ pin</button><button data-act="delpin">− pin</button><button data-act="addpost">+ post</button>' : ''}${fig.kind !== 'bubbles' ? '<button data-act="dip">Dip</button>' : ''}<button data-act="share" class="go">Share frame</button></div><div class="read" id="readout"></div>`;
   card.innerHTML = h; updateReadout();
 }
 function updateReadout() {
   const el = document.getElementById('readout'); if (!el) return; const k = CH[ch].k;
+  if (st.stage === 'comm') { const O = st.out, R = SAVE.rec[st.key];
+    el.innerHTML = `${O ? `<span>film <b>${O.L.toFixed(3)}</b></span>` : `<span>${fig.marks.length} mark${fig.marks.length === 1 ? '' : 's'}</span>`}<span>best known ${st.best != null ? st.best.toFixed(3) : '<i>…</i>'}</span>${O ? `<span>foresight <b>${O.f.toFixed(2)}</b></span>` : ''}<span>lift ${st.lifts}${R && R.first ? ` <span class="small">(accepted in ${R.first})</span>` : ''}</span>${O ? `<span class="hs">${histHTML()}</span>` : ''}`; return; }
   if (fig.kind === 'pins' && fig.net) { const L = fig.net.length(), M = mst(fig.pins), ang = fig.net.junctionAngles();
-    if (k === 'roads' && st.stage === 'towns') el.innerHTML = `<span>soap <b>${L.toFixed(2)}</b></span><span>straight roads ${st.mst.toFixed(2)}</span><span>best known ${st.best.toFixed(2)}</span><span>your best ${isFinite(st.mine) ? st.mine.toFixed(2) : '–'}</span>`;
-    else el.innerHTML = `<span>film <b>${L.toFixed(2)}</b></span><span>straight roads ${M.toFixed(2)} (${Math.round((1 - L / M) * 100)}% saved)</span>${ang.length ? `<span>junctions ${[...new Set(ang.map(a => Math.round(a)))].join('°, ')}°</span>` : ''}`; }
+    el.innerHTML = `<span>film <b>${L.toFixed(2)}</b></span><span>straight roads ${M.toFixed(2)} (${Math.round((1 - L / M) * 100)}% saved)</span>${ang.length ? `<span>junctions ${[...new Set(ang.map(a => Math.round(a)))].join('°, ')}°</span>` : ''}`; }
   if ((fig.kind === 'cube' || fig.kind === 'tetra') && st.angles) el.innerHTML = `<span>films meet at <b>${st.angles}°</b></span><span>area ${fig.S.area().toFixed(2)}</span>`;
   if (fig.kind === 'ring') el.innerHTML = `<span>film area <b>${fig.S.area().toFixed(2)}</b></span>`;
+  if (fig.kind === 'rings') { const c = fig.cat; el.innerHTML = c.snapped ? `<span>gap <b>${(fig.h / CAT_R).toFixed(2)}</b> radii</span><span><b>snapped</b> into two discs, area ${(2 * Math.PI * CAT_R * CAT_R).toFixed(2)}</span><span class="small">${SAVE.neck.length ? 'your snap guesses: ' + SAVE.neck.slice(-4).map(v => v.toFixed(2)).join(' → ') : ''}</span>`
+    : `<span>gap <b>${(fig.h / CAT_R).toFixed(2)}</b> radii</span><span>film ${c.A.toFixed(2)}</span><span>two discs ${(2 * Math.PI * CAT_R * CAT_R).toFixed(2)}</span>${c.A > 2 * Math.PI * CAT_R * CAT_R ? '<span><i>bigger, yet it holds</i></span>' : ''}`; }
 }
 function act(a) {
   FX.sfx('click');
   if (a === 'next') return go(ch + 1);
-  if (a === 'dip') { if (fig.kind === 'pins') { fig.dip(); st.settled = false; } dipNow(); return; }
+  if (a === 'dip') { if (st.stage === 'comm') return doLift(); if (fig.kind === 'pins') { fig.dip(); st.settled = false; } if (fig.kind === 'rings') fig.reset(); dipNow(); updateReadout(); return; }
   if (a === 'again') { st.revealed = false; fig.net = null; if (st.guessMesh) stage.remove(st.guessMesh); text(); return; }
-  if (a === 'towns') { townsSetup(); dipNow(); text(); return; }
-  if (a === 'newtowns') { st.seed = 'towns:' + Math.random().toString(36).slice(2, 8); townsSetup(); dipNow(); text(); return; }
+  if (a === 'book') { commSetup(SAVE.cur); dipNow(true); text(); return; }
+  if (a === 'lift') return doLift();
+  if (a === 'clear') { fig.setMarks([]); SAVE.marks[st.key] = []; persist(); fig.showLanding(null); updateReadout(); return; }
+  if (a === 'hint') { st.hint = true; st.ghost = (typeof st.id === 'number' && BAKED[st.id] && BAKED[st.id][3]) || improve(st.plate, [], 40).tried; fig.showLanding(st.res, st.liftMarks || [], st.ghost); RH.toast('Blue dots: the junctions of the best network known. ◉ is off for this plate now.'); text(); return; }
+  if (a === 'cnext') { if (!open(st.id + 1)) { RH.toast('Accept this one first: within 1% of the best known.'); return; } commSetup(st.id + 1); dipNow(true); text(); return; }
   if (a === 'cube' || a === 'tetra') { st.kind = a; fig = makeFrame(a); dipNow(); text(); return; }
-  if (a.startsWith('sb-')) { const k = a.slice(3); fig = k === 'ring' ? makeRing() : k === 'pins' ? makePins([[-1.3, -.6], [1.2, -.9], [.9, 1.1], [-.8, 1.2], [0, 0]]) : k === 'bubbles' ? makeBubbles() : makeFrame(k); camFor(fig.kind); dipNow(); text(); return; }
+  if (a === 'rings') { st.kind = 'rings'; fig = makeRings(); setCam(new V3(3, 1.1, 6), new V3(0, -.25, 0)); dipNow(); text(); return; }
+  if (a.startsWith('sb-')) { const k = a.slice(3); fig = k === 'ring' ? makeRing() : k === 'pins' ? makePins([[-1.3, -.6], [1.2, -.9], [.9, 1.1], [-.8, 1.2], [0, 0]]) : k === 'bubbles' ? makeBubbles() : k === 'rings' ? makeRings() : makeFrame(k); camFor(fig.kind); dipNow(); text(); return; }
   if (a === 'addpin' && fig.pins.length < 9) { const p = [(Math.random() - .5) * 2.4, (Math.random() - .5) * 2.4]; fig.pins.push(p); fig.addPinMesh(p, fig.pins.length - 1); fig.dip(); dipNow(); text(); return; }
-  if (a === 'delpin' && fig.pins.length > 2) { const p = fig.pins.slice(0, -1); fig = makePins(p); dipNow(); text(); return; }
+  if (a === 'delpin' && fig.pins.length > 2) { const p = fig.pins.slice(0, -1); fig = makePins(p, { solids: fig.solids }); dipNow(); text(); return; }
+  if (a === 'addpost' && fig.solids.length < 3) { for (let g = 0; g < 80; g++) { const c = [(Math.random() - .5) * 2.6, (Math.random() - .5) * 2.6], r = .22 + Math.random() * .18; if (Math.hypot(...c) < 1.7 && fig.pins.every(p => Math.hypot(p[0] - c[0], p[1] - c[1]) > r + .25) && fig.solids.every(o => solidDist(o, ...c) > r + .3)) { const o = { t: 'post', c, r }; fig.solids.push(o); fig.addSolidMesh(o); break; } } fig.dip(); dipNow(); text(); return; }
   if (a === 'share') return share();
 }
 function camFor(kind) {
-  if (kind === 'ring') setCam(new V3(2.4, .8, 6.2), new V3(0, -.05, 0)); else if (kind === 'pins') setCam(new V3(0, 3.6, 5.6), new V3(0, -.35, 0));
-  else if (kind === 'bubbles') setCam(new V3(0, .6, 7.4), new V3(0, .2, 0)); else setCam(new V3(3.4, 2.4, 5.8), new V3(0, -.1, 0));
+  if (kind === 'ring') setCam(new V3(2.4, .8, 6.2), new V3(0, -.05, 0)); else if (kind === 'pins') fitCam(new V3(0, 0, 0), new V3(0, 1, .7), 2.3);
+  else if (kind === 'bubbles') setCam(new V3(0, .6, 7.4), new V3(0, .2, 0)); else if (kind === 'rings') setCam(new V3(3, 1.1, 6), new V3(0, -.25, 0)); else setCam(new V3(3.4, 2.4, 5.8), new V3(0, -.1, 0));
 }
 function reveal(id, k) {
   if (id === 'square') { fig.net = Net.dip(fig.pins, 0, 0); st.settled = false; dipNow(); text(); }
   if (id === 'cube') { fig.hidden = false; fig.film.visible = true; dipNow(); text(); }
   if (id === 'wall') { text(); spawnPair(); }
+  if (id === 'neck') { text(); }
 }
 // ---------- the dip: sink the figure into the dish, then lift it out with a fresh, thick film ----------
 function dipNow(instant) { dipping = instant ? 0 : 1; dipT = 0; if (instant) stage.position.y = 0; if (fig) { fig.age = 0; if (fig.mat) { fig.mat.userData.U.uSeed.value = Math.random() * 50; fig.mat.userData.U.uPopR.value = 0; } fig.popped = false; if (fig.film && !fig.hidden) fig.film.visible = true; } if (!instant) FX.sfx('whoosh'); }
@@ -862,52 +1007,73 @@ function dipNow(instant) { dipping = instant ? 0 : 1; dipT = 0; if (instant) sta
 function encode() {
   const r2 = x => Math.round(x * 100) / 100;
   if (fig.kind === 'ring') return { f: 'ring', b: fig.bend.map(r2) };
-  if (fig.kind === 'pins') return { f: 'pins', p: fig.pins.map(p => p.map(r2)) };
+  if (fig.kind === 'pins') return { f: 'pins', p: fig.pins.map(p => p.map(r2)), ...(fig.solids.length ? { s: fig.solids.filter(o => o.t === 'post').map(o => [r2(o.c[0]), r2(o.c[1]), r2(o.r)]) } : {}) };
   if (fig.kind === 'cube' || fig.kind === 'tetra') return { f: fig.kind, o: fig.off.map(v => [r2(v.x), r2(v.y), r2(v.z)]) };
+  if (fig.kind === 'rings') return { f: 'rings' };
   return { f: 'bubbles' };
 }
 function decode(s) {
   try { const o = JSON.parse(decodeURIComponent(atob(s))); const num = x => Number.isFinite(x) ? Math.max(-2.2, Math.min(2.2, x)) : 0;
     if (o.f === 'ring' && Array.isArray(o.b) && o.b.length === 4) return { f: 'ring', b: o.b.map(x => Math.max(-.9, Math.min(.9, num(x)))) };
-    if (o.f === 'pins' && Array.isArray(o.p) && o.p.length >= 2 && o.p.length <= 9) return { f: 'pins', p: o.p.map(q => { const x = num(q[0]), y = num(q[1]), L = Math.hypot(x, y), k = L > 1.95 ? 1.95 / L : 1; return [x * k, y * k]; }) };
+    if (o.f === 'pins' && Array.isArray(o.p) && o.p.length >= 2 && o.p.length <= 9 && o.p.every(Array.isArray)) { const p = o.p.map(q => { const x = num(q[0]), y = num(q[1]), L = Math.hypot(x, y), k = L > 1.95 ? 1.95 / L : 1; return [x * k, y * k]; });
+      const s = Array.isArray(o.s) ? o.s.filter(Array.isArray).slice(0, 3).map(q => ({ t: 'post', c: [Math.max(-1.6, Math.min(1.6, num(q[0]))), Math.max(-1.6, Math.min(1.6, num(q[1])))], r: Math.max(.15, Math.min(.45, num(q[2]))) })).filter(o => p.every(q => solidDist(o, ...q) > .1)) : [];
+      return { f: 'pins', p, s }; }
     if ((o.f === 'cube' || o.f === 'tetra') && Array.isArray(o.o) && o.o.length === (o.f === 'cube' ? 8 : 4)) return { f: o.f, o: o.o.map(v => [0, 1, 2].map(k => Math.max(-.45, Math.min(.45, num(v && v[k]))))) };
-    if (o.f === 'bubbles') return { f: 'bubbles' };
+    if (o.f === 'bubbles' || o.f === 'rings') return { f: o.f };
   } catch (e) {}
   return null;
 }
 const encodeStr = o => btoa(encodeURIComponent(JSON.stringify(o)));
 function shareLink() { return location.href.split('#')[0] + '#frame=' + encodeStr(encode()); }
-function share() { const l = shareLink(); RH.modal(`<h2>Your frame</h2><p>Whoever opens this link lifts the same frame out of the dish:</p><span class="mono">${l}</span>`, [{ label: 'Close' }, { label: 'Copy link', value: 'c' }]).then(v => { if (v === 'c') { try { navigator.clipboard.writeText(l); RH.toast('Copied'); } catch (e) {} } }); }
+function shareLine() { const R = SAVE.rec[st.key], daily = typeof st.id === 'string'; if (!R) return null;
+  const seals = ['a', 't', 'c'].map((c, i) => R.s.includes(c) ? '✦◆◉'[i] : '·').join('');
+  return `Soap · ${daily ? 'daily ' + st.id.slice(2) : `${st.plate.name} (${st.id + 1}/${NCOMM})`} · ${seals} · ${pct(R.L / st.best - 1)} · foresight ${R.f < 9 ? R.f.toFixed(2) : '–'} · ${R.first ? `accepted on lift ${R.first}` : `${R.n} lifts`}${daily && SAVE.streak.n > 1 ? ` · ${SAVE.streak.n}-day run` : ''} 🫧`; }
+function share() {
+  if (st.stage === 'comm') { const line = shareLine(), l = location.href.split('#')[0] + (typeof st.id === 'string' ? '#daily' : ''), txt = line ? line + '\n' + l : l;
+    RH.modal(`<h2>${line ? 'Your survey' : 'This plate'}</h2><p>${line ? 'A line that gives nothing away about the answer:' : 'Lift it first, and there will be a score to share.'}</p><span class="mono">${txt.replace(/\n/g, '<br>')}</span>`, [{ label: 'Close' }, { label: 'Copy', value: 'c' }]).then(v => { if (v === 'c') { try { navigator.clipboard.writeText(txt); RH.toast('Copied'); } catch (e) {} } }); return; }
+  const l = shareLink(); RH.modal(`<h2>Your frame</h2><p>Whoever opens this link lifts the same frame out of the dish:</p><span class="mono">${l}</span>`, [{ label: 'Close' }, { label: 'Copy link', value: 'c' }]).then(v => { if (v === 'c') { try { navigator.clipboard.writeText(l); RH.toast('Copied'); } catch (e) {} } }); }
 function sandbox(sh) {
   const o = sh || { f: 'ring', b: [.45, -.45, .45, -.45] };
-  fig = o.f === 'ring' ? makeRing(o.b) : o.f === 'pins' ? makePins(o.p) : o.f === 'bubbles' ? makeBubbles() : makeFrame(o.f, o.o);
+  fig = o.f === 'ring' ? makeRing(o.b) : o.f === 'pins' ? makePins(o.p, { solids: o.s || [] }) : o.f === 'bubbles' ? makeBubbles() : o.f === 'rings' ? makeRings() : makeFrame(o.f, o.o);
   camFor(fig.kind); if (!sh) setCam(camGoal.p, camGoal.t, true);
 }
 
 // =====================================================================================================
 //  INPUT: knobs, pins and corners drag; elsewhere the view orbits; in Plate II a tap is your guess
 // =====================================================================================================
-const controls = new OrbitControls(camera, cv); controls.enableDamping = true; controls.enablePan = false; controls.minDistance = 3.5; controls.maxDistance = 12; controls.maxPolarAngle = Math.PI * .56; controls.rotateSpeed = .6;
+const controls = new OrbitControls(camera, cv); controls.enableDamping = true; controls.enablePan = true; controls.screenSpacePanning = true; controls.minDistance = 3.5; controls.maxDistance = 15; controls.maxPolarAngle = Math.PI * .56; controls.rotateSpeed = .6;
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); let drag = null;
 function setNdc(e) { const r = cv.getBoundingClientRect(); ndc.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1); ray.setFromCamera(ndc, camera); }
 function pickHandle() { let best = null, bd = 1e9; for (const h of handles) { const p = h.mesh.getWorldPosition(new V3()), d = ray.ray.distanceToPoint(p); if (d < .28 && d < bd) { bd = d; best = h; } } return best; }
 function planeHit(y) { const p = new V3(); return ray.ray.intersectPlane(new THREE.Plane(new V3(0, 1, 0), -y), p) ? p : null; }
+let tap = null;
+const marksChanged = () => { if (st.stage === 'comm') { SAVE.marks[st.key] = fig.marks.map(m => m.map(v => +v.toFixed(3))); persist(); } updateReadout(); };
 addEventListener('pointerdown', e => {
-  if (e.target !== cv || !fig) return; setNdc(e);
+  if (e.target !== cv || !fig) return; setNdc(e); tap = null;
   const h = pickHandle();
-  if (h) { e.stopImmediatePropagation(); drag = { h, x: e.clientX, y: e.clientY, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new V3()).negate(), h.mesh.getWorldPosition(new V3())) }; h.mesh.material = brassHot; FX.sfx('tick'); cv.setPointerCapture(e.pointerId); return; }
+  if (h && h.kind === 'gap' && CH[ch].k === 'frames' && !SAVE.preds.neck) { RH.toast('Make your guess first.'); return; }
+  if (h) { e.stopImmediatePropagation(); drag = { h, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, moved: false, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new V3()).negate(), h.mesh.getWorldPosition(new V3())) }; if (h.mesh.isMesh) h.mesh.material = brassHot; else h.mesh.scale.setScalar(1.4); FX.sfx('tick'); cv.setPointerCapture(e.pointerId); return; }
   if (CH[ch].k === 'three' && !st.revealed) { const p = planeHit(0); if (p && Math.hypot(p.x, p.z) < PLATE_R) { e.stopImmediatePropagation(); guess(p); return; } }
   if (fig.kind === 'bubbles' && (CH[ch].k === 'sandbox' || SAVE.preds.wall)) { e.stopImmediatePropagation(); fig.blowing = { r: WAND_R * 1.02, t: 0 }; FX.sfx('whoosh'); cv.setPointerCapture(e.pointerId); return; }
+  if (st.stage === 'comm' && e.isPrimary) tap = { x: e.clientX, y: e.clientY, t: performance.now() }; // a tap pencils a mark; a drag still orbits the view
 }, true);
 addEventListener('pointermove', e => {
-  if (!drag) return; setNdc(e); const h = drag.h;
+  if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) tap = null;
+  if (!drag) return; setNdc(e); const h = drag.h; if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) > 5) drag.moved = true;
   if (h.kind === 'bend') { const dy = (e.clientY - drag.y) / cv.clientHeight * 3.2; drag.y = e.clientY; fig.bend[h.i] = Math.max(-.9, Math.min(.9, fig.bend[h.i] - dy)); fig.rebuild(); }
+  if (h.kind === 'gap') { const dy = (e.clientY - drag.y) / cv.clientHeight * 3.4; drag.y = e.clientY; fig.h = Math.max(.25, Math.min(1.8 * CAT_R, fig.h - dy)); }
+  if (h.kind === 'mark' && drag.moved) { const p = planeHit(PLATE_H + .05); if (p) { const L = Math.hypot(p.x, p.z), k = L > 2.05 ? 2.05 / L : 1; fig.marks[h.i] = [p.x * k, p.z * k]; h.mesh.position.set(p.x * k, PLATE_H + .05, p.z * k); } }
   if (h.kind === 'pin') { const p = planeHit(PLATE_H + .09); if (p) { const L = Math.hypot(p.x, p.z), k = L > 1.95 ? 1.95 / L : 1; fig.pins[h.i] = [p.x * k, p.z * k]; if (fig.net) { fig.net.n[h.i].x = p.x * k; fig.net.n[h.i].y = p.z * k; }
       h.mesh.position.set(p.x * k, PLATE_H + .09, p.z * k); h.stem.position.set(p.x * k, 0, p.z * k); st.settled = false; } }
   if (h.kind === 'corner') { const p = new V3(); if (ray.ray.intersectPlane(drag.plane, p)) { const o = p.sub(fig.base[h.i]); o.clampLength(0, .45); fig.off[h.i].copy(o); fig.rebuild(); } }
 }, true);
 addEventListener('pointerup', e => {
-  if (drag) { drag.h.mesh.material = brass; drag = null; if (fig.kind === 'pins' && CH[ch].k === 'roads') st.mineDirty = true; return; }
+  if (drag) { const h = drag.h; if (h.mesh.isMesh) h.mesh.material = brass; else h.mesh.scale.setScalar(1);
+    if (h.kind === 'mark') { if (!drag.moved) { fig.marks.splice(h.i, 1); fig.setMarks(fig.marks); FX.sfx('tick'); } marksChanged(); }
+    drag = null; return; }
+  if (tap && st.stage === 'comm' && performance.now() - tap.t < 500 && fig.marks.length < 12) { setNdc(e); const p = planeHit(PLATE_H + .05);
+    if (p && Math.hypot(p.x, p.z) < 2.05 && st.plate.solids.every(o => solidDist(o, p.x, p.z) > .04)) { fig.setMarks([...fig.marks, [p.x, p.z]]); FX.sfx('tick'); marksChanged(); } }
+  tap = null;
   if (fig && fig.kind === 'bubbles' && fig.blowing) release();
 }, true);
 function guess(p) {
@@ -916,6 +1082,7 @@ function guess(p) {
   fig.dip(p.x, p.z); st.settled = false;
   // the true junction, for the score: relax a copy to the end
   const ref = Net.dip(fig.pins, p.x, p.z).settle(2500); const j = ref.n.find(q => q.on && !q.pin); st.err = j ? Math.hypot(j.x - p.x, j.y - p.z) : null;
+  if (st.err != null) { SAVE.g2.push(+st.err.toFixed(3)); SAVE.g2 = SAVE.g2.slice(-12); persist(); }
   text();
 }
 // ---------- bubbles ----------
@@ -986,7 +1153,8 @@ function frame(now) {
   const dt = Math.min(.05, (now - last) / 1000); last = now; clock.t += dt; frames++;
   // quality tier: if the phone struggles, render fewer pixels and drop the bloom
   if (!HQ && !LITE && frames > 30 && frames < 400) { slow = slow * .95 + (dt > .024 ? 1 : 0) * .05; if (slow > .5 && (dpr > 1 || bloom.enabled)) { if (bloom.enabled) bloom.enabled = false; else dpr = Math.max(1, dpr - .35); resize(); slow = 0; } }
-  camera.position.lerp(camGoal.p, drag ? 0 : .045); controls.target.lerp(camGoal.t, .06); if (camera.position.distanceTo(camGoal.p) < .05) camGoal.p.copy(camera.position);
+  // glide to a plate's view, then leave the camera to the player (orbit, pinch-zoom, two-finger pan)
+  if (camGoal.on) { camera.position.lerp(camGoal.p, drag ? 0 : .045); controls.target.lerp(camGoal.t, .06); if (camera.position.distanceTo(camGoal.p) < .05 && controls.target.distanceTo(camGoal.t) < .02) camGoal.on = false; }
   controls.update();
   if (fig) {
     // dip animation
@@ -995,8 +1163,9 @@ function frame(now) {
     const fresh = dipping ? Math.max(0, 1 - (dipT - .5) * 2) : 0;
     if (fig.mat) { const U = fig.mat.userData.U; U.uTime.value = clock.t; U.uAge.value = fig.age / 26; U.uFresh.value = fresh; U.uYR.value.set(fig.yr[0] + stage.position.y, fig.yr[1] + stage.position.y); }
     if (fig.S) { if (!fig.hidden) fig.S.relax(mob ? 8 : 14); syncFilm(fig.film); if (fig.syncBorders) fig.syncBorders(); if ((fig.kind === 'cube' || fig.kind === 'tetra') && frames % 20 === 0) { const i = [...fig.S.lineNb.keys()][3]; const a = borderAngle(fig.S, i); st.angles = a ? a.map(Math.round).join('°, ') : null; updateReadout(); } }
-    if (fig.kind === 'pins' && fig.net) { for (let k = 0; k < (mob ? 18 : 30); k++) fig.net.step(.012, .012); fig.sync();
-      if (frames % 15 === 0) { updateReadout(); if (CH[ch].k === 'roads' && st.stage === 'towns') { const L = fig.net.length(); if (st.lastL && Math.abs(st.lastL - L) < 1e-4 && !st.settled) { st.settled = true; if (L < st.mine - 1e-3) { st.mine = L; if (L <= st.best + .005) { FX.sfx('win'); RH.toast('You matched the best known network.'); } } } st.lastL = L; } } }
+    if (st.stage === 'comm') { stepJob(); if (st.anim && dipT > .5 || st.anim && !dipping) { for (let k = 0; k < 4; k++) if (fig.net.tick(st.rnd)) { settled(); break; } } if (fig.net) fig.sync(); }
+    else if (fig.kind === 'pins' && fig.net) { for (let k = 0; k < (mob ? 18 : 30); k++) fig.net.step(.012, .012); fig.sync(); if (frames % 15 === 0) updateReadout(); }
+    if (fig.kind === 'rings') { fig.update(dt); if (frames % 6 === 0) updateReadout(); }
     if (fig.kind === 'bubbles') { stepBubbles(dt); fig.wandMat.userData.U.uTime.value = clock.t; fig.wandMat.userData.U.uAge.value = .2; }
     // a film left long enough drains to black at the top and pops; the next dip brings it back
     if (fig.mat && !fig.popped && fig.age > 70 && fig.kind !== 'bubbles') { fig.popped = true; const U = fig.mat.userData.U; U.uPop.value.set(0, fig.yr[1] - .2, 0); st.popT = 0; FX.sfx('pop'); burst(new V3(0, fig.yr[1] - .3, 0), 1); }
@@ -1014,7 +1183,7 @@ function boot() {
   composer.addPass(new RenderPass(scene, camera)); bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .32, .55, .82); bloom.enabled = !mob && !LITE; if (LITE) renderer.shadowMap.enabled = false; composer.addPass(bloom); composer.addPass(new OutputPass());
   resize(); addEventListener('resize', resize); drawLegend();
   const m = location.hash.match(/frame=([^&]+)/), sh = m && decode(m[1]);
-  if (sh) { ch = CH.length - 1; go(ch, { share: sh, snap: true }); } else go(SAVE.ch, { snap: true });
+  if (sh) { ch = CH.length - 1; go(ch, { share: sh, snap: true }); } else if (/daily/.test(location.hash)) go(2, { comm: 'd:' + todayKey(), snap: true }); else go(SAVE.ch, { snap: true });
   addEventListener('hashchange', () => { const m2 = location.hash.match(/frame=([^&]+)/), s2 = m2 && decode(m2[1]); if (s2) go(CH.length - 1, { share: s2 }); });
   document.getElementById('shareBtn').onclick = share;
   document.getElementById('muteBtn').onclick = e => { FX.setMuted(!FX.muted); e.target.textContent = FX.muted ? '♪̸' : '♪'; };
@@ -1022,9 +1191,10 @@ function boot() {
   requestAnimationFrame(frame);
 }
 boot();
-window.__soap = { filmR, filmRGB, Net, mst, plateFor, genPlate, dailyPlate, bake, bestG, lift, bestFor, improve, foresight, candidates, solidProj, solidDist, fermat, NCOMM, TOL, soapDip, bestKnown, buildTetra, buildCube, buildRing, borderAngle, doubleBubble, encode, decode, encodeStr, shareLink, go, act,
+window.__soap = { filmR, filmRGB, Net, mst, plateFor, genPlate, BAKED, CNAMES, dailyPlate, bake, bestG, lift, bestFor, improve, foresight, candidates, solidProj, solidDist, fermat, NCOMM, TOL, soapDip, bestKnown, buildTetra, buildCube, buildRing, borderAngle, doubleBubble, encode, decode, encodeStr, shareLink, go, act,
   settle: () => { dipNow(true); if (fig.net) fig.net.settle(2000); if (fig.S) fig.S.relax(300); }, spawnPair, blow: () => { if (fig.kind === 'bubbles') fig.blowing = { r: WAND_R * 1.02 }; }, release: () => fig.blowing && release(),
-  get fig() { return fig; }, get ch() { return ch; }, get st() { return st; }, SAVE, CH, get dpr() { return dpr; }, get bloomOn() { return bloom && bloom.enabled; }, renderer, ringZ };
+  get fig() { return fig; }, get ch() { return ch; }, get st() { return st; }, SAVE, CH, get dpr() { return dpr; }, camera, controls, camGoal, catenoid, CAT_HMAX, accepted, chOpen, shareLine, ckey,
+  toScreen: (x, y, z) => { camera.updateMatrixWorld(); const v = new V3(x, y, z).applyMatrix4(stage.matrixWorld).project(camera), r = cv.getBoundingClientRect(); return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height]; }, get bloomOn() { return bloom && bloom.enabled; }, renderer, ringZ };
 </script>
 </body>
 </html>

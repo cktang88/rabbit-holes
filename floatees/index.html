@@ -122,7 +122,7 @@
     #levels{display:none} #lvsel{display:block}
     #hud{top:6px;left:6px;right:auto;width:270px;max-height:calc(100vh - 60px);overflow:auto;padding:8px 12px}
     #hud h1{font-size:18px;margin:0 0 2px} #goal{font-size:11.5px;margin-top:4px} #bets{gap:4px;margin-top:4px}
-    #ctrl{left:282px;right:6px;bottom:6px;transform:none;max-width:none;padding:4px 6px;gap:4px} #ctrl .sep,#ctrl .hint{display:none} #ctrl .b{padding:3px 7px;font-size:11px}
+    #ctrl{left:282px;right:6px;bottom:6px;transform:none;max-width:none;padding:4px 6px;gap:4px} #ctrl .sep,#ctrl .hint,#ctrl .lg{display:none} #clock{position:absolute;right:6px;top:-22px;font-size:11px;padding:1px 6px} #ctrl .b{padding:3px 7px;font-size:11px}
     #tally{right:6px;top:6px;bottom:auto;width:170px;padding:5px 8px;font-size:10.5px;line-height:1.35;max-height:44vh;overflow:hidden}
     #cards{left:6px;right:auto;top:auto;bottom:6px;transform:scale(.6);transform-origin:0 100%}
     #report{transform:translate(-50%,-50%) scale(.75) rotate(6deg)} #report.on{transform:translate(-50%,-50%) scale(.75) rotate(-2deg)}
@@ -703,7 +703,7 @@ const ray = new THREE.Raycaster(), m2 = new THREE.Vector2();
 let downAt = null;
 function latLonAt(e) {
   const r = canvas.getBoundingClientRect(); m2.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1); ray.setFromCamera(m2, camera);
-  const hit = ray.intersectObject(globe)[0]; if (!hit) return null;
+  const hit = ray.intersectObject(globe, false)[0]; if (!hit) return null; // the sphere only: not its lines and points (a Line's pick threshold is a whole world unit)
   const p = globe.worldToLocal(hit.point.clone()).normalize(); let lon = Math.atan2(p.z, -p.x) * 180 / Math.PI - 180; if (lon < -180) lon += 360; return [Math.asin(p.y) * 180 / Math.PI, lon];
 }
 canvas.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; seaPointer(e, 'down'); });
@@ -1274,8 +1274,8 @@ canvas.addEventListener('pointerdown', () => { viewTo = null; }); // grabbing th
 load(sharedCase ? LV.findIndex(l => l.endless) : sharedSea ? LV.findIndex(l => l.seas) : +SAVE.cur || 0); // a shared case link opens that case
 requestAnimationFrame(frame);
 const proj = new THREE.Vector3();
-window.__fl = { jobs, tracersObj: tracers, latLonAtXY: (x, y) => latLonAt({ clientX: x, clientY: y }), lookAt: (la, lo) => { L.focus = [la + 12, lo]; homeView(true); }, genWorld, chartScore, driftPath, ensemble, savedBy, bestAnswer, seaStart, seaTap, seaAnswer, seaNextCall, seaFinish, seaDrifter, withWorld, isLand, get W() { return W; }, get sea() { return sea; }, get SEA() { return SEA; }, dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
-  screenOf: (lat, lon) => { proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
+window.__fl = { jobs, tracersObj: tracers, latLonAtXY: (x, y) => latLonAt({ clientX: x, clientY: y }), genWorld, chartScore, driftPath, ensemble, savedBy, bestAnswer, seaStart, seaTap, seaAnswer, seaNextCall, seaFinish, seaDrifter, withWorld, isLand, get W() { return W; }, get sea() { return sea; }, get SEA() { return SEA; }, dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return !!CU; }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
+  screenOf: (lat, lon) => { globe.updateMatrixWorld(); camera.updateMatrixWorld(); proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>
 </html>
