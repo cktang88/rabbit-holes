@@ -758,9 +758,10 @@ const CLIP = [new THREE.Plane(new V3(-1, 0, 0), 0), new THREE.Plane(new V3(0, 0,
 const SEG = LITE ? 48 : mob ? 112 : 160;
 const outerCv = mk(mob ? 1024 : 2048, mob ? 512 : 1024), outerRough = mk(outerCv.width / 2, outerCv.height / 2), outerBump = mk(outerCv.width, outerCv.height);
 const innerCv = mk(64, 512), innerRough = mk(64, 512), innerAni = mk(64, 512);
-const outerMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 1, roughness: 1, envMapIntensity: 1.15, clipIntersection: true, side: THREE.FrontSide, emissive: 0xff4a0c, emissiveIntensity: 0 });
-const innerMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 1, roughness: 1, envMapIntensity: 1.25, clipIntersection: true, anisotropy: 1, emissive: 0xff4a0c, emissiveIntensity: 0 });
-const capMat = new THREE.MeshPhysicalMaterial({ color: 0xd9a066, metalness: 1, roughness: .24, envMapIntensity: 1.4, side: THREE.DoubleSide, clearcoat: .3, clearcoatRoughness: .2, emissive: 0xff4a0c, emissiveIntensity: 0 });
+const PhysMat = LITE ? THREE.MeshStandardMaterial : THREE.MeshPhysicalMaterial;
+const outerMat = new PhysMat({ color: 0xffffff, metalness: 1, roughness: 1, envMapIntensity: 1.15, clipIntersection: true, side: THREE.FrontSide, emissive: 0xff4a0c, emissiveIntensity: 0 });
+const innerMat = new PhysMat({ color: 0xffffff, metalness: 1, roughness: 1, envMapIntensity: 1.25, clipIntersection: true, anisotropy: 1, emissive: 0xff4a0c, emissiveIntensity: 0 });
+const capMat = new PhysMat({ color: 0xd9a066, metalness: 1, roughness: .24, envMapIntensity: 1.4, side: THREE.DoubleSide, clearcoat: .3, clearcoatRoughness: .2, emissive: 0xff4a0c, emissiveIntensity: 0 });
 let texOuter, texOuterR, texOuterB, texInner, texInnerR, texInnerA;
 if (ok3d) {
   texOuter = tex(outerCv); texOuterR = tex(outerRough, false); texOuterB = tex(outerBump, false); [texOuter, texOuterR, texOuterB].forEach(t => t.wrapS = THREE.RepeatWrapping);
@@ -977,8 +978,8 @@ function fitView(target, radius, elev, azim, shiftUp = 0) {
 const uiShift = () => innerWidth < 760 ? .055 : innerHeight < 500 ? .02 : .03;
 function viewFor(st) {
   const H = bellTop || 1.5;
-  if (st === 'design') return fitView(new V3(.1, .2 + H * .52, 0), H * .78, .16, .36, uiShift());
-  if (st === 'tune') return fitView(new V3(.15, TABLE_Y + H * .55, 0), H * .8, .5, .32, uiShift());
+  if (st === 'design') return fitView(new V3(.1, .2 + H * .5, 0), H * 1.0, .14, .36, uiShift());
+  if (st === 'tune') return fitView(new V3(.1, TABLE_Y + H * .5, 0), H * 1.12, .42, .3, uiShift());
   if (st === 'cast') return fitView(new V3(.2, 1.35, 0), 1.95, .2, .45, uiShift());
   return fitView(new V3(0, 1.75, 0), Math.max(2.6, (ringBells.length || 3) * .62), .22, 1.05, uiShift());
 }
@@ -1374,7 +1375,7 @@ function go(id, snap = false) {
 //  FRAME LOOP
 // =====================================================================================================
 function resize() { if (!ok3d) { dirty = 2; return; } renderer.setPixelRatio(dpr); renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.fov = innerWidth / innerHeight < .8 ? 38 : 30; camera.updateProjectionMatrix(); if (composer) { composer.setPixelRatio(dpr); composer.setSize(innerWidth, innerHeight); } drawStrip(); const v = viewFor(stage); camGoal = v; dirty = 3; }
-let last = performance.now(), slowT = 0, frames = 0, T = 0;
+let last = performance.now(), slowT = 0, frames = 0, T = 0, compiled = false;
 function frame(now) {
   requestAnimationFrame(frame); const dt = Math.min(.05, (now - last) / 1000); last = now; T += dt;
   let active = false;
@@ -1408,6 +1409,7 @@ function frame(now) {
       for (let q = 0; q < mine.length; q++) { const s = mine[q], sw = ringing.gap * ringing.n * 1.6, t0 = s.t - sw * .62; side = q % 2 ? -1 : 1; if (tnow < t0) { ang = (PI - .12) * (q % 2 ? 1 : -1) * -1; break; } if (tnow < t0 + sw) { const k = ease((tnow - t0) / sw); ang = (PI - .12) * (side * (1 - 2 * k)) * -1; break; } ang = (PI - .12) * side; }
       rb.piv.rotation.z = ang; });
     if (tnow > ringing.total + 1.5) { const r = ringing; ringing = null; renderPanel(); if (r.onEnd) r.onEnd(); } active = true; }
+  if (!compiled) return;
   if (dirty > 0 || active || (drag && drag.kind === 'shave')) {
     if (ok3d) { if (bloom) bloom.enabled = !mob && !LITE || !!castAnim || sparksLive > 0; (bloom && bloom.enabled ? composer.render() : renderer.render(scene, camera)); }
     drawOverlay(T); dirty = Math.max(0, dirty - 1); frames++;
@@ -1432,6 +1434,7 @@ function boot() {
   go(S.cur, true);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { newSkin(); drawStrip(); dirty = 3; });
   requestAnimationFrame(frame); window.__bell.ready = true;
+  if (ok3d) { const done = () => { compiled = true; dirty = 3; }; try { renderer.compileAsync(scene, camera).then(done, done); } catch (e) { done(); } setTimeout(done, LITE ? 1500 : 6000); } else compiled = true;
 }
 window.__bell = { G, BP, get S() { return S; }, set S(v) { S = v; }, comm, work, bell, act, go, setStage, get stage() { return stage; }, deliver, pourNow, doShave, strike, judgeNow, judgeRing, startRinging, stopRinging, get ringing() { return ringing; },
   shareLine, shareLink, handles, toScreen, fromScreen, nearInner, get curSec() { return curSec; }, get busy() { return busy(); }, finish: () => { if (castAnim) castAnim.t = 99; if (cutAnim) cutAnim.t = 1; }, camera, get controls() { return controls; }, get dpr() { return dpr; }, ok3d, renderer, stagesFor, has, save, reload: () => { S = G.sanitize(RH.load('bellfounder', null)); go(S.cur, true); }, noteOf, ringBellsData, ready: false };

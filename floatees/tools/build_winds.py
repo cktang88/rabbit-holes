@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pack the CCMP V3.1 monthly wind climatology (fetch_winds.py) for the game.
 winds.bin = gzip( JSON header line + payload ):  1 deg grid, row 0 centred at 89.5N, col 0 at 179.5W
-  u[12][180*360] int8, v[12][180*360] int8   (m/s = q * 0.125)
+  u[12][180*360] int8, v[12][180*360] int8   (m/s = q * 0.15)
   sd[180*360] uint8   synoptic standard deviation of one wind component about its monthly mean, all months (m/s = q * 0.05)
 usage: build_winds.py CACHE_DIR"""
 import sys, os, json, gzip, numpy as np
@@ -22,9 +22,9 @@ def regrid(F):
 U, V = regrid(u), regrid(v); SD = np.sqrt(np.clip(regrid(var).mean(0), 0, None))
 np.savez(os.path.join(C, 'winds_1deg.npz'), u=U, v=V, sd=SD)
 q = lambda F, s: np.clip(np.round(F / s), -127, 127).astype(np.int8)
-hdr = {'fmt': 'floatees-winds-1', 'w': 360, 'h': 180, 'scale': .125, 'sdscale': .05,
+hdr = {'fmt': 'floatees-winds-1', 'w': 360, 'h': 180, 'scale': .15, 'sdscale': .05,
        'src': 'RSS CCMP V3.1 10 m wind, 1993-2023, every 14th 6-hourly field (~3,200), monthly means'}
-raw = (json.dumps(hdr) + '\n').encode() + q(U, .125).tobytes() + q(V, .125).tobytes() + np.clip(np.round(SD / .05), 0, 255).astype(np.uint8).tobytes()
+raw = (json.dumps(hdr) + '\n').encode() + q(U, .15).tobytes() + q(V, .15).tobytes() + np.clip(np.round(SD / .05), 0, 255).astype(np.uint8).tobytes()
 open(os.path.join(DATA, 'winds.bin'), 'wb').write(gzip.compress(raw, 9, mtime=0))
 print('winds.bin', len(raw), '->', os.path.getsize(os.path.join(DATA, 'winds.bin')))
 sp = np.hypot(U, V); print('monthly mean wind speed max', sp.max().round(1), 'median', np.median(sp).round(1), 'synoptic sd median', np.median(SD).round(2))

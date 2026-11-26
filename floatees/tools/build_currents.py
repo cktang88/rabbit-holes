@@ -68,7 +68,8 @@ for sig in [.7, 1.4, 2.8, 5.6, 11.2]:
     print('sigma', sig, 'cells', len(jj), flush=True)
 
 # ocean cells of the 0.5 deg grid: any of its four 0.25 deg cells is sea in the physics land mask
-land_q = np.unpackbits(np.fromfile(os.path.join(DATA, 'land-q.bin'), np.uint8), bitorder='little')[:1440 * 720].reshape(720, 1440).astype(bool)
+_lq = gzip.decompress(open(os.path.join(DATA, 'land-q.bin'), 'rb').read()); _lq = _lq[_lq.index(b'\n') + 1:]
+land_q = np.unpackbits(np.frombuffer(_lq, np.uint8), bitorder='little')[:1440 * 720].reshape(720, 1440).astype(bool)
 ocean = (~land_q).reshape(H, 2, W, 2).any((1, 3))
 have = ocean & np.isfinite(coef[0])
 print('ocean cells', ocean.sum(), 'with drifter estimate', have.sum(), flush=True)

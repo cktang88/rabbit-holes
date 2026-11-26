@@ -195,7 +195,8 @@ const cargoOf = w => CARGO[w] || CARGO[22];
 // The top metre runs faster than the 15 m drogue depth, downwind and turned by the Earth's spin. We measured it from
 // the GDP itself (tools/build_slip.py: undrogued minus drogued drifters against CCMP wind, 2° bins, per calendar month):
 // see SLIP below. (Pazan & Niiler 2001 give ~1 % of wind speed; Lumpkin et al. 2013 revise that ~50 % higher.)
-const SLIP = { n: [0.0103, -11.0], s: [0.0106, 9.0] }; // [fraction of wind speed, angle in degrees: + is left of the wind]
+const SLIP = { n: [0.0128, -3.0], s: [0.0132, 4.2] }; // [fraction of wind speed, angle in degrees: + is left of the wind]; measured:
+// 11,305 northern and 8,134 southern bin-months, 1.3 % either way: between Pazan & Niiler's 1 % and Lumpkin et al.'s +50 %
 // Beaching: an object in a sea cell touching the coast washes up with an e-folding time of TAU_B days (Onink et al.
 // 2021, Environ. Res. Lett. 16, 064053, best-fit beaching timescales of days); one blown or carried onto land beaches at once.
 const TAU_B = 4;
@@ -436,8 +437,8 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 2)); renderer.t
 const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(32, 1, .1, 100);
 camera.position.set(0, 1.2, 5.6);
 const controls = new OrbitControls(camera, canvas); controls.enableDamping = true; controls.minDistance = 2.4; controls.maxDistance = 9; controls.enablePan = false; controls.rotateSpeed = .5;
-scene.add(new THREE.AmbientLight('#aab6c8', .62));
-const sun = new THREE.DirectionalLight('#fff3e2', 2.9); sun.position.set(-4, 3.5, 2.5); camera.add(sun); scene.add(camera); // the light rides with the camera, so the side you look at is lit
+scene.add(new THREE.AmbientLight('#c4cedc', 1.05));
+const sun = new THREE.DirectionalLight('#fff3e2', 2.3); sun.position.set(-2.4, 2.2, 4.2); camera.add(sun); scene.add(camera); // the light rides with the camera, so the side you look at is lit
 // globe texture painted from the land mask and the current speed.
 // A 1-pixel-per-degree map goes up at once; the full-resolution one is built in slices.
 const TW = MOBILE ? 1024 : 1440, TH = TW / 2, TS = TW / 360;
@@ -592,7 +593,7 @@ loadTex('data/earth-2k.jpg', t => { EL.map = t; useEarthLook(); if (!MOBILE) loa
 loadTex('data/relief-2k.jpg', t => { EL.bump = t; useEarthLook(); }, false);
 function earthRoughness() { // the sea is glassy (the sun's glint), the land matte
   const c = document.createElement('canvas'); c.width = 1440; c.height = 720; const g = c.getContext('2d'), im = g.createImageData(1440, 720);
-  for (let k = 0; k < LQ.length; k++) { im.data[k * 4 + 1] = LQ[k] ? 240 : 66; im.data[k * 4 + 3] = 255; } g.putImageData(im, 0, 0); return new THREE.CanvasTexture(c);
+  for (let k = 0; k < LQ.length; k++) { im.data[k * 4 + 1] = LQ[k] ? 240 : 120; im.data[k * 4 + 3] = 255; } g.putImageData(im, 0, 0); return new THREE.CanvasTexture(c);
 }
 loadEarth().then(() => { EL.rough = earthRoughness(); useEarthLook(); if (L) { renderCtrl(); renderTally(stats()); } }).catch(e => { ED.failed = true; console.warn('Earth data unavailable, using the model ocean:', e); });
 ensureOcean(1); applyOcean(1);
@@ -654,7 +655,7 @@ function* buildFlow(target, key) {
       A[v * 4] = s; A[v * 4 + 1] = pts[a + 2]; A[v * 4 + 2] = ph; A[v * 4 + 3] = fa; s += d;
       A[v * 4 + 4] = s; A[v * 4 + 5] = pts[b + 2]; A[v * 4 + 6] = ph; A[v * 4 + 7] = fb; v += 2;
     }
-    if ((n & 63) === 63) { yield; if (keyNow().split(':')[0] !== key.split(':')[0]) { flowJob = null; return; } } // another world: start again
+    if ((n & 255) === 255) { yield; if (keyNow().split(':')[0] !== key.split(':')[0]) { flowJob = null; return; } } // another world: start again
   }
   target.geometry.setDrawRange(0, v); target.geometry.attributes.position.needsUpdate = target.geometry.attributes.aD.needsUpdate = true;
   target.material.uniforms.uK.value = SEA || rot !== 1 || !ED.ready ? 1.6 : 1; // the model's speeds run a little lower than the sea's
@@ -664,7 +665,7 @@ function* buildFlow(target, key) {
 function updateFlow(dt, now) {
   for (const f of [flowA, flowB]) f.material.uniforms.uT.value = now / 1000;
   const want = tracers.visible ? 1 : 0, k = keyNow();
-  if (want && k !== flowKey && !flowJob && fieldReady() && (now - flowAt > 1200 || k.split(':')[0] !== flowKey.split(':')[0])) { flowAt = now; const tgt = flowCur === flowA ? flowB : flowA; flowJob = { rot: 'flow', it: buildFlow(tgt, k) }; enqueue(flowJob); }
+  if (want && k !== flowKey && !flowJob && fieldReady() && (now - flowAt > 1200 || k.split(':')[0] !== flowKey.split(':')[0])) { flowAt = now; const tgt = flowCur === flowA ? flowB : flowA; flowJob = { rot: 'flow', it: buildFlow(tgt, k) }; if (!flowKey) runGen(flowJob.it); else enqueue(flowJob); } // the first set at once
   const op = ducks.length ? .55 : 1;
   for (const f of [flowA, flowB]) { const u = f.material.uniforms.uOp; u.value = FX.damp(u.value, f === flowCur ? op : 0, f === flowCur ? 2.5 : 4, dt); }
 }
@@ -1497,7 +1498,7 @@ canvas.addEventListener('pointerdown', () => { viewTo = null; }); // grabbing th
 load(sharedCase ? LV.findIndex(l => l.endless) : sharedSea ? LV.findIndex(l => l.seas) : +SAVE.cur || 0); // a shared case link opens that case
 requestAnimationFrame(frame);
 const proj = new THREE.Vector3();
-window.__fl = { jobs, tracersObj: tracers, latLonAtXY: (x, y) => latLonAt({ clientX: x, clientY: y }), genWorld, chartScore, driftPath, ensemble, savedBy, bestAnswer, seaStart, seaTap, seaAnswer, seaNextCall, seaFinish, seaDrifter, withWorld, isLand, get W() { return W; }, get sea() { return sea; }, get SEA() { return SEA; }, dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return fieldReady(); }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
+window.__fl = { jobs, tracersObj: tracers, get flowInfo() { return { key: flowKey, want: keyNow(), job: !!flowJob, n: flowCur.geometry.drawRange.count, op: flowCur.material.uniforms.uOp.value, vis: tracers.visible }; }, ED, latLonAtXY: (x, y) => latLonAt({ clientX: x, clientY: y }), genWorld, chartScore, driftPath, ensemble, savedBy, bestAnswer, seaStart, seaTap, seaAnswer, seaNextCall, seaFinish, seaDrifter, withWorld, isLand, get W() { return W; }, get sea() { return sea; }, get SEA() { return SEA; }, dateOf, BASINS, get camDist() { return camera.position.length(); }, get camPos() { return camera.position.toArray(); }, get viewTo() { return viewTo; }, LV, load, drop, dropAt, stats, vel, ready, perf, OCEAN, setSpin, step: y => { moveDucks(y); simT += y; duckDirty = true; }, get ducks() { return ducks; }, set bet(v) { bet = v; }, get rot() { return rot; }, hindcast, sightingsOf, misfit, get ready2() { return fieldReady(); }, SAVE, check: () => check(stats()), get won() { return won; }, get resolved() { return resolved; }, get speed() { return speed; }, get level() { return L; }, patchDist, get simT() { return simT; }, set simT(v) { simT = v; }, genCase, detective, startCaseFile, get run() { return run; }, todaySeed, skipToEnd, RATE, get caseState() { return caseState; }, caseLog: () => caseLog(L.case), caseTry, lookAt: (lat, lon) => { globe.rotation.y = 0; camera.position.copy(new THREE.Vector3(...toXYZ(lat, lon)).normalize().multiplyScalar(5.4)); controls.update(); }, get attempts() { return attempts; }, grade, get reportOn() { return $('report').classList.contains('on'); },
   screenOf: (lat, lon) => { globe.updateMatrixWorld(); camera.updateMatrixWorld(); proj.set(...toXYZ(lat, lon, 1)); globe.localToWorld(proj); const vis = proj.clone().sub(camera.position).dot(proj) < 0; proj.project(camera); return [(proj.x + 1) / 2 * innerWidth, (1 - proj.y) / 2 * innerHeight, vis]; } };
 </script>
 </body>

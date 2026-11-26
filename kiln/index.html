@@ -1,0 +1,1475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Kiln</title>
+<meta name="description" content="Glaze chemistry: mix oxides, program the kiln, and open the door on what the fire made.">
+<link rel="stylesheet" href="../shared/common.css">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ======== World: a potter's studio at the mouth of a kiln. Bisque test tiles, a clay-dusted recipe card pinned
+   by the wheel, and a kiln controller whose orange LEDs count the heat. Ink is iron-brown; the accent is ember. ======== */
+:root{--bisque:#e4d9c6;--bisque2:#d6c8af;--grog:#b9a78a;--ink:#2a2018;--ink2:#6e5c49;--char:#17120f;--char2:#221b16;--ember:#d9572a;--ember2:#f08a3c;--led:#ff7a35;--cel:#7fa694;--kaki:#9a4a24;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;--serif:"Shippori Mincho","Hiragino Mincho ProN",Georgia,serif;font-family:var(--serif)}
+html,body{margin:0;height:100%;overflow:hidden;background:#120e0b;color:var(--ink);font-family:var(--serif);-webkit-tap-highlight-color:transparent}
+#gl,#c2d{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
+#c2d{background:radial-gradient(ellipse at 50% 60%,#3a2c22,#120e0b 75%)}
+button{font-family:var(--serif);border-radius:2px}
+/* top bar: transparent strip, only its children catch the pointer */
+.top{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;padding:8px 12px;z-index:20;pointer-events:none;background:none;border:0}
+.top>*{pointer-events:auto}
+.top a.home{color:#cdbfa9;text-decoration:none;font-size:14px;text-shadow:0 1px 2px #000}
+.top h1{margin:0 0 0 4px;font-weight:800;font-size:22px;letter-spacing:.42em;color:#f1e6d3;text-shadow:0 1px 8px #000a}
+.top .spacer{flex:1;pointer-events:none}
+.tb{background:rgba(23,18,15,.55);border:1px solid #6b5947;color:#eadcc5;min-height:34px;min-width:34px;padding:0 10px;font-size:14px;cursor:pointer;letter-spacing:.06em}
+.tb:hover{border-color:#e9d9bf}
+.tb .n{font-family:var(--mono);font-size:11px;opacity:.7;margin-left:4px}
+/* bisque: the material every panel is made of */
+.bisque{background:
+  radial-gradient(circle at 20% 30%,rgba(120,92,62,.10) 0 1px,transparent 1.5px) 0 0/7px 9px,
+  radial-gradient(circle at 70% 60%,rgba(90,64,40,.13) 0 .8px,transparent 1.3px) 0 0/11px 6px,
+  radial-gradient(circle at 40% 80%,rgba(255,255,255,.35) 0 .8px,transparent 1.4px) 0 0/13px 10px,
+  linear-gradient(170deg,#e9dfcd,#dccfb8);box-shadow:inset 0 0 0 1px rgba(255,255,255,.35),inset 0 -14px 30px rgba(120,90,60,.10),0 8px 30px rgba(0,0,0,.45);border:1px solid #a8957a}
+/* the commission ticket, pinned top-left */
+#ticket{position:fixed;left:12px;top:52px;z-index:12;width:min(360px,calc(100vw - 24px));padding:10px 12px 10px 12px;display:grid;grid-template-columns:44px 1fr;gap:4px 10px;cursor:pointer;color:var(--ink)}
+#ticket .sw{grid-row:span 2;width:44px;height:44px;border-radius:50%;box-shadow:inset 0 -6px 10px rgba(0,0,0,.25),inset 0 4px 6px rgba(255,255,255,.35),0 1px 0 #fff8;border:1px solid #8d7a61}
+#ticket .who{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink2)}
+#ticket .tt{font-size:18px;font-weight:800;line-height:1.1}
+#ticket .ask{grid-column:1/-1;font-size:14px;line-height:1.35;color:#3b2f24;display:none;margin-top:4px}
+#ticket.open .ask{display:block}
+#ticket .want{grid-column:1/-1;font-size:12px;color:var(--ink2);display:none;font-family:var(--mono)}
+#ticket.open .want{display:block}
+#ticket .seals{position:absolute;right:10px;top:8px;font-family:var(--mono);font-size:12px;letter-spacing:.2em;color:var(--kaki)}
+/* the bench: recipe card + kiln controller */
+#bench{position:fixed;z-index:14;display:flex;flex-direction:column;color:var(--ink)}
+#bench .tabs{display:flex;gap:0;border-bottom:1px solid #a8957a}
+#bench .tabs button{flex:1;background:none;border:0;border-right:1px solid rgba(168,149,122,.6);min-height:38px;font-size:14px;font-weight:600;color:var(--ink2);cursor:pointer;letter-spacing:.08em}
+#bench .tabs button.on{color:var(--ink);background:rgba(255,255,255,.35);box-shadow:inset 0 -3px 0 var(--ember)}
+#bench .tabs button.hide{display:none}
+#bench .tabs .exp{flex:0 0 42px;font-size:16px}
+.pane{overflow-y:auto;overflow-x:hidden;padding:8px 12px;flex:1;min-height:0;overscroll-behavior:contain}
+.pane[hidden]{display:none}
+.row2{display:grid;grid-template-columns:22px minmax(0,1fr) 92px 46px 30px;align-items:center;gap:6px;min-height:40px;border-bottom:1px dashed rgba(110,92,73,.25)}
+.jar{width:20px;height:22px;border-radius:3px 3px 5px 5px;border:1px solid rgba(60,40,25,.45);box-shadow:inset 0 3px 0 rgba(255,255,255,.4),inset 0 -4px 6px rgba(0,0,0,.18)}
+.row2 .nm{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row2 .nm small{font-family:var(--mono);font-size:10px;color:var(--ink2);margin-left:4px}
+.row2 .v{font-family:var(--mono);font-size:14px;text-align:right}
+.row2 .x{background:none;border:1px solid transparent;color:var(--ink2);min-width:30px;min-height:30px;cursor:pointer;font-size:16px;padding:0}
+.row2 .x:hover{border-color:#a8957a}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;background:none;margin:0;cursor:pointer;touch-action:pan-y}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:linear-gradient(#a08b6f,#c4b294);box-shadow:inset 0 1px 2px rgba(0,0,0,.35)}
+input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:linear-gradient(#a08b6f,#c4b294)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;margin-top:-7px;border-radius:50% 50% 50% 50%/60% 60% 40% 40%;background:radial-gradient(circle at 35% 30%,#fff9,transparent 40%),var(--thumb,#7a4a2a);border:1px solid #3a2414;box-shadow:0 2px 3px rgba(0,0,0,.35)}
+input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--thumb,#7a4a2a);border:1px solid #3a2414}
+.addjar{margin:8px 0 2px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.btn{background:rgba(255,255,255,.4);border:1px solid #a8957a;color:var(--ink);min-height:34px;padding:0 12px;font-size:14px;cursor:pointer}
+.btn:hover{background:rgba(255,255,255,.65)}
+.picker{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:6px;margin:6px 0}
+.picker button{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.35);border:1px solid #b5a284;min-height:36px;font-size:13px;text-align:left;padding:2px 6px;cursor:pointer;color:var(--ink)}
+.picker button .jar{flex:0 0 16px;height:18px}
+.picker button.new{box-shadow:0 0 0 2px var(--ember)}
+.unity{font-family:var(--mono);font-size:11.5px;color:var(--ink2);line-height:1.5;margin-top:8px;padding-top:6px;border-top:1px solid rgba(110,92,73,.3)}
+.unity b{color:var(--ink);font-weight:500}
+/* the kiln controller: a black box with LED digits */
+#kilnPane{background:linear-gradient(#211a15,#17120f);color:#d9c9b0}
+.ctl{display:grid;grid-template-columns:76px minmax(0,1fr) 74px;align-items:center;gap:8px;min-height:38px}
+.ctl label{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a89478}
+.ctl .v{font-family:var(--mono);font-size:15px;color:var(--led);text-shadow:0 0 6px rgba(255,110,40,.6);text-align:right;white-space:nowrap}
+.ctl input[type=range]::-webkit-slider-runnable-track{background:linear-gradient(#0c0907,#2e251e);box-shadow:inset 0 1px 2px #000}
+.ctl input[type=range]{--thumb:#c9b79c}
+#curve{width:100%;height:92px;display:block;border:1px solid #3d3229;background:#0e0b09;margin-bottom:6px}
+.seg{display:flex;border:1px solid #5d4c3c;margin:4px 0}
+.seg button{flex:1;background:none;border:0;border-right:1px solid #5d4c3c;color:#bda98b;min-height:34px;font-size:13px;cursor:pointer;letter-spacing:.05em}
+.seg button:last-child{border-right:0}
+.seg button.on{background:#3a2c20;color:#ffd9b8;box-shadow:inset 0 -2px 0 var(--led)}
+.seg button:disabled{opacity:.35}
+.note{font-size:12px;color:#9c8770;margin:4px 0;line-height:1.35}
+#glazePane .note{color:var(--ink2)}
+/* fire row */
+.fire{display:flex;gap:8px;padding:8px 10px;border-top:1px solid #a8957a;align-items:stretch;background:rgba(0,0,0,.04)}
+.fire .modes{display:flex;flex:1;border:1px solid #a8957a;min-width:0}
+.fire .modes button{flex:1;background:none;border:0;border-right:1px solid #c2b092;font-size:12.5px;min-height:44px;cursor:pointer;color:var(--ink2);padding:0 2px;line-height:1.1}
+.fire .modes button:last-child{border-right:0}
+.fire .modes button.on{background:rgba(255,255,255,.55);color:var(--ink);font-weight:600;box-shadow:inset 0 -3px 0 var(--ink)}
+.fire .modes button small{display:block;font-family:var(--mono);font-size:10px;opacity:.75;font-weight:400}
+#fireBtn{flex:0 0 96px;background:radial-gradient(ellipse at 50% 0%,#f6a35c,#d9572a 55%,#9b3416);color:#fff3e3;border:1px solid #6d230e;font-weight:800;font-size:18px;letter-spacing:.22em;cursor:pointer;text-shadow:0 1px 2px #5a1a08;box-shadow:inset 0 2px 0 rgba(255,255,255,.35),0 3px 10px rgba(217,87,42,.45)}
+#fireBtn:disabled{filter:grayscale(.7) brightness(.8);cursor:default}
+#fireBtn.pulse{animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:inset 0 2px 0 rgba(255,255,255,.35),0 0 22px 6px rgba(240,138,60,.7)}}
+.mini{display:none;padding:6px 12px;font-family:var(--mono);font-size:12px;color:var(--ink2);gap:6px;flex-wrap:nowrap;overflow:hidden;white-space:nowrap}
+.mini .chip{display:inline-flex;align-items:center;gap:4px;margin-right:8px}
+.mini .chip .jar{width:12px;height:14px}
+/* the kiln controller readout while firing */
+#led{position:fixed;left:50%;top:54px;transform:translateX(-50%);z-index:16;font-family:var(--mono);color:var(--led);font-size:30px;letter-spacing:.08em;text-shadow:0 0 10px rgba(255,100,30,.8),0 0 2px #fff3;background:rgba(10,7,5,.78);border:1px solid #4d3a2a;padding:4px 14px;display:none;pointer-events:none;white-space:nowrap}
+#led small{font-size:13px;color:#c79a74;margin-left:10px;text-shadow:none}
+/* result card */
+#result{position:fixed;z-index:18;display:none;color:var(--ink);padding:12px 14px;max-height:calc(100% - 120px);overflow:auto}
+#result.show{display:block;animation:rise .35s cubic-bezier(.2,.9,.3,1.2)}
+@keyframes rise{from{transform:translateY(16px);opacity:0}}
+#result h3{margin:0 0 6px;font-size:17px;font-weight:800}
+#result .lik{display:flex;align-items:center;gap:12px}
+#result .dial{width:64px;height:64px;flex:0 0 64px}
+#result ul{margin:6px 0 6px 18px;padding:0;font-size:14px;line-height:1.35}
+#result .axes{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0;font-family:var(--mono);font-size:12px}
+#result .axes div{border:1px solid #b5a284;padding:4px 6px;background:rgba(255,255,255,.3)}
+#result .axes b{display:block;font-size:15px;font-weight:500}
+#result .axes .good{box-shadow:inset 0 -3px 0 #6b8f5a}
+#result .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+#result .x{position:absolute;right:6px;top:4px;background:none;border:0;font-size:20px;min-width:32px;min-height:32px;cursor:pointer;color:var(--ink2)}
+.stamp{display:inline-block;border:3px double #a8271a;color:#a8271a;font-weight:800;letter-spacing:.2em;padding:2px 10px;transform:rotate(-6deg);font-size:16px;margin-left:auto;opacity:.9}
+.stamp.no{border-color:#6e5c49;color:#6e5c49}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px;margin:6px 0}
+.tiles button{background:none;border:0;padding:0;cursor:pointer;text-align:center;font-family:var(--mono);font-size:11px;color:var(--ink2);min-height:30px}
+.tiles canvas{width:100%;display:block;filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))}
+.tiles button.best canvas{outline:2px solid var(--ember);outline-offset:2px}
+/* drawer: the shelf of fired tiles, the commission book, Seger's chart */
+#drawer{position:fixed;inset:0;z-index:30;display:none;background:rgba(12,9,7,.55)}
+#drawer.show{display:block}
+#drawer .sheet{position:absolute;right:0;top:0;bottom:0;width:min(560px,100vw);display:flex;flex-direction:column;color:var(--ink)}
+#drawer .head{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #a8957a}
+#drawer .head .tabs2{display:flex;gap:4px;flex:1}
+#drawer .head .tabs2 button{min-height:36px}
+#drawer .head .tabs2 button.on{background:rgba(255,255,255,.7);box-shadow:inset 0 -3px 0 var(--ember)}
+#drawer .body{overflow:auto;padding:10px 12px;flex:1}
+.shelfrow{border-bottom:6px solid #6e573f;box-shadow:0 6px 0 #4a3a2a;margin:0 0 22px;padding:4px 2px 2px}
+.shelfrow h4{margin:0 0 4px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink2)}
+.book li{list-style:none;border-bottom:1px dashed rgba(110,92,73,.35);padding:8px 2px;display:grid;grid-template-columns:30px 1fr auto;gap:8px;align-items:center;cursor:pointer}
+.book ul{padding:0;margin:0}
+.book li.lock{opacity:.5;cursor:default}
+.book li .k{font-family:var(--mono);font-size:12px;color:var(--ink2)}
+.book li .t{font-weight:600}
+.book li .t small{display:block;font-weight:400;font-size:12px;color:var(--ink2)}
+.book li .s{font-family:var(--mono);color:var(--kaki);letter-spacing:.15em}
+.book li.cur{background:rgba(255,255,255,.35)}
+#chart{width:100%;display:block;border:1px solid #a8957a;background:#f3ecdf}
+.detail{font-family:var(--mono);font-size:12.5px;line-height:1.5}
+.toast-wrap{bottom:auto;top:96px}
+.toast{background:#efe5d3;color:var(--ink);border:1px solid #a8957a;border-radius:2px;font-family:var(--serif)}
+.modal{background:#e9dfcd;color:var(--ink);border-radius:2px;border:1px solid #a8957a;font-family:var(--serif)}
+.modal button{background:rgba(255,255,255,.4);color:var(--ink);border:1px solid #a8957a;border-radius:2px}
+.modal button.primary{background:var(--ember);color:#fff;border-color:#7a2a10}
+/* ---------- layouts ---------- */
+/* desktop and tablets: the bench is a column on the right */
+@media (min-width:900px){
+  #bench{right:12px;top:52px;bottom:12px;width:372px}
+  #result{left:12px;bottom:12px;width:min(400px,calc(100vw - 420px))}
+}
+/* phones, portrait: the bench is a sheet along the bottom, folded down until you open it */
+@media (max-width:899px) and (min-aspect-ratio:1/100) and (max-aspect-ratio:1/1){
+  #bench{left:0;right:0;bottom:0;max-height:60vh;border-left:0;border-right:0;border-bottom:0}
+  #bench.fold .pane{display:none}
+  #bench.fold .mini{display:flex}
+  #ticket{top:46px;left:8px;width:calc(100vw - 16px);grid-template-columns:34px 1fr;padding:6px 10px}
+  #ticket .sw{width:34px;height:34px}
+  #ticket .tt{font-size:16px}
+  #result{left:8px;right:8px;bottom:8px;max-height:58vh}
+  .top h1{font-size:18px;letter-spacing:.3em}
+  .top a.home{font-size:13px}
+  #led{top:auto;bottom:calc(var(--benchH,150px) + 10px);font-size:24px}
+}
+/* phones on their side: a narrow column on the right */
+@media (max-width:899px) and (min-aspect-ratio:1/1){
+  #bench{right:0;top:0;bottom:0;width:min(33vw,320px);border-right:0;border-top:0;border-bottom:0}
+  #bench .fire{flex-wrap:wrap}
+  #bench .fire .modes{flex:1 1 100%}
+  #bench .fire #fireBtn{flex:1 1 100%;min-height:42px}
+  #ticket{top:44px;width:min(300px,calc(67vw - 24px));padding:5px 8px;grid-template-columns:28px 1fr}
+  #ticket .sw{width:28px;height:28px}
+  #ticket .tt{font-size:14px}
+  #ticket .who{display:none}
+  #result{left:8px;bottom:8px;width:calc(67vw - 24px);max-height:calc(100vh - 60px)}
+  .top{right:34vw}
+  .top h1{font-size:16px}
+}
+@media (prefers-reduced-motion:reduce){#fireBtn.pulse{animation:none}#result.show{animation:none}}
+</style>
+</head>
+<body>
+<canvas id="gl" aria-label="The kiln: drag to turn the pot, pinch or scroll to zoom"></canvas>
+<header class="top"><a class="home" href="../index.html">← Rabbit Holes</a><h1>KILN</h1><span class="spacer"></span>
+  <button class="tb" id="bookBtn" title="The commission book">Book</button><button class="tb" id="shelfBtn" title="Your shelf of fired tiles">Shelf<span class="n" id="shelfN"></span></button><button class="tb" id="muteBtn" title="Sound">♪</button></header>
+<section id="ticket" class="bisque" aria-live="polite"></section>
+<aside id="bench" class="bisque">
+  <nav class="tabs" id="tabs"><button data-tab="A" class="on">Glaze A</button><button data-tab="B" class="hide">B</button><button data-tab="C" class="hide">C</button><button data-tab="K">Kiln</button><button class="exp" id="expBtn" title="Open the bench">▴</button></nav>
+  <div class="mini" id="mini"></div>
+  <div class="pane" id="glazePane"></div>
+  <div class="pane" id="kilnPane" hidden></div>
+  <div class="fire"><div class="modes" id="modes"></div><button id="fireBtn" class="pulse">FIRE</button></div>
+</aside>
+<div id="led"></div>
+<section id="result" class="bisque"></section>
+<div id="drawer"><div class="sheet bisque"><div class="head"><div class="tabs2" id="dtabs"></div><button class="btn" id="dclose" title="Close">✕</button></div><div class="body" id="dbody"></div></div></div>
+<script src="../shared/common.js"></script>
+<script src="../shared/fx.js"></script>
+<script>
+// ======================================================================================================
+//  GLAZE CHEMISTRY. Pure functions, no DOM: recipe (weights of raw materials) -> oxide analysis -> unity
+//  (Seger) formula -> what a firing schedule does to it. Every visual property of the fired pot comes out of
+//  this: melt, gloss, opacity, colour as light passes through glass of a given thickness over a clay body,
+//  iron saturation, copper colloids, zinc-silicate crystals, expansion mismatch, crawling and pinholes.
+// ======================================================================================================
+const KILN = (() => {
+  const clamp = (x, a = 0, b = 1) => x < a ? a : x > b ? b : x, sm = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+  const MW = { SiO2: 60.08, Al2O3: 101.96, B2O3: 69.62, Li2O: 29.88, Na2O: 61.98, K2O: 94.2, MgO: 40.3, CaO: 56.08, SrO: 103.62, BaO: 153.33, ZnO: 81.38,
+    Fe2O3: 159.69, CuO: 79.55, CoO: 74.93, MnO: 70.94, Cr2O3: 151.99, SnO2: 150.71, ZrO2: 123.22, TiO2: 79.87 };
+  const OX = Object.keys(MW), FLUX = ['Li2O', 'Na2O', 'K2O', 'MgO', 'CaO', 'SrO', 'BaO', 'ZnO'];
+  // Raw materials: oxide analysis (weight % of the fired material), loss on ignition, price $/kg, raw colour, and when it reaches your shelf.
+  // add: a colorant/opacifier, weighed as a percentage on top of the 100 parts of base.
+  const MATS = [
+    { id: 'feldspar', n: 'Potash feldspar', ox: { K2O: 10.1, Na2O: 3.1, CaO: .4, Al2O3: 18.4, SiO2: 67.9 }, loi: .3, $: 1.6, raw: '#ece2d6', tier: 0 },
+    { id: 'whiting', n: 'Whiting', ox: { CaO: 56.1 }, loi: 43.9, carb: 1, $: .8, raw: '#f3f1ea', tier: 0 },
+    { id: 'kaolin', n: 'Kaolin', ox: { Al2O3: 37.6, SiO2: 45.7, Fe2O3: .55, TiO2: .6, K2O: .2 }, loi: 13.9, clay: 1, $: .9, raw: '#efe8da', tier: 0 },
+    { id: 'silica', n: 'Silica', ox: { SiO2: 100 }, loi: 0, $: .7, raw: '#f7f7f4', tier: 0 },
+    { id: 'iron', n: 'Red iron oxide', ox: { Fe2O3: 100 }, loi: 0, add: 1, $: 2.2, raw: '#8b2f1d', tier: 1 },
+    { id: 'talc', n: 'Talc', ox: { MgO: 31.9, SiO2: 63.4, CaO: .5 }, loi: 4.2, $: 1.2, raw: '#eef0ea', tier: 1 },
+    { id: 'cobalt', n: 'Cobalt carbonate', ox: { CoO: 63 }, loi: 37, carb: 1, add: 1, $: 70, raw: '#8a5a96', tier: 2 },
+    { id: 'dolomite', n: 'Dolomite', ox: { CaO: 30.4, MgO: 21.7 }, loi: 47.9, carb: 1, $: .9, raw: '#ece8df', tier: 2 },
+    { id: 'neph', n: 'Nepheline syenite', ox: { Na2O: 9.8, K2O: 4.6, CaO: .7, Al2O3: 23.3, SiO2: 60.7 }, loi: .5, $: 1.9, raw: '#efebe3', tier: 3 },
+    { id: 'fritB', n: 'Boron frit', ox: { Na2O: 10.3, CaO: 20.1, B2O3: 23.1, SiO2: 46.5 }, loi: 0, $: 3.6, raw: '#f1f1ee', tier: 3 },
+    { id: 'copper', n: 'Copper carbonate', ox: { CuO: 64.3 }, loi: 35.7, carb: 1, add: 1, $: 14, raw: '#4a9a7a', tier: 5 },
+    { id: 'tin', n: 'Tin oxide', ox: { SnO2: 100 }, loi: 0, add: 1, $: 42, raw: '#f6f5f1', tier: 5 },
+    { id: 'wollast', n: 'Wollastonite', ox: { CaO: 48.3, SiO2: 51.7 }, loi: 0, $: 1.3, raw: '#f2f0e9', tier: 10 },
+    { id: 'strontium', n: 'Strontium carbonate', ox: { SrO: 70.2 }, loi: 29.8, carb: 1, $: 6, raw: '#f4f4f1', tier: 10 },
+    { id: 'chrome', n: 'Chrome oxide', ox: { Cr2O3: 100 }, loi: 0, add: 1, $: 22, raw: '#3f6c36', tier: 11 },
+    { id: 'zinc', n: 'Zinc oxide', ox: { ZnO: 100 }, loi: 0, $: 5, raw: '#f8f7f0', tier: 11 },
+    { id: 'rutile', n: 'Rutile', ox: { TiO2: 88, Fe2O3: 10 }, loi: 0, add: 1, $: 8, raw: '#8d532d', tier: 12 },
+    { id: 'titanium', n: 'Titanium dioxide', ox: { TiO2: 100 }, loi: 0, add: 1, $: 6, raw: '#f8f8f5', tier: 12 },
+    { id: 'fritS', n: 'Soda frit', ox: { Na2O: 15.3, K2O: 2.4, CaO: 6.3, Al2O3: 3.7, B2O3: 2.6, SiO2: 69.7 }, loi: 0, $: 3.9, raw: '#f0f0ec', tier: 13 },
+    { id: 'lithium', n: 'Lithium carbonate', ox: { Li2O: 40.4 }, loi: 59.6, carb: 1, $: 28, raw: '#f9f9f8', tier: 13 },
+    { id: 'manganese', n: 'Manganese dioxide', ox: { MnO: 81.6 }, loi: 0, add: 1, $: 4.5, raw: '#2c2825', tier: 15 },
+    { id: 'zircon', n: 'Zircopax', ox: { ZrO2: 66, SiO2: 33 }, loi: 0, add: 1, $: 4.2, raw: '#f4f2ed', tier: 15 },
+  ];
+  const M = Object.fromEntries(MATS.map((m, i) => [m.id, Object.assign(m, { i })]));
+  // Clay bodies: thermal expansion (x1e-6/K), fired colour in oxidation / reduction (linear RGB), iron speckle, and the most heat it takes.
+  const BODIES = {
+    porcelain: { n: 'Porcelain', coe: 6.15, ox: [.86, .84, .80], red: [.80, .82, .83], speck: 0, max: 1330 },
+    buff: { n: 'Buff stoneware', coe: 6.45, ox: [.66, .52, .34], red: [.42, .31, .22], speck: .5, max: 1330 },
+    dark: { n: 'Iron stoneware', coe: 6.6, ox: [.30, .17, .10], red: [.13, .085, .065], speck: .25, max: 1320 },
+    stonepaste: { n: 'Stonepaste', coe: 7.7, ox: [.84, .82, .76], red: [.78, .78, .76], speck: 0, max: 1180 },
+    earthen: { n: 'Terracotta', coe: 7.35, ox: [.55, .19, .08], red: [.22, .13, .09], speck: 0, max: 1170 },
+  };
+  const hex2lin = h => { const n = parseInt(h.slice(1), 16), f = c => { c /= 255; return c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4); }; return [f(n >> 16 & 255), f(n >> 8 & 255), f(n & 255)]; };
+  const lin2srgb = c => c <= .0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - .055;
+  const lin2hex = c => '#' + c.map(v => Math.round(clamp(lin2srgb(clamp(v))) * 255).toString(16).padStart(2, '0')).join('');
+  const lab = c => { const f = t => t > .008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+    const X = (.4124 * c[0] + .3576 * c[1] + .1805 * c[2]) / .95047, Y = .2126 * c[0] + .7152 * c[1] + .0722 * c[2], Z = (.0193 * c[0] + .1192 * c[1] + .9505 * c[2]) / 1.08883;
+    return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))]; };
+  const dE = (a, b) => { const p = lab(a), q = lab(b); return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]); };
+
+  // ---------- recipe -> analysis ----------
+  // a recipe is { materialId: weight }. Base materials are normalised to 100; additions are % on top.
+  function analyze(recipe) {
+    let base = 0; for (const k in recipe) if (M[k] && !M[k].add && recipe[k] > 0) base += recipe[k];
+    const wt = Object.fromEntries(OX.map(o => [o, 0])); let loi = 0, carb = 0, clay = 0, cost = 0, tot = 0;
+    if (base <= 0) return null;
+    for (const k in recipe) { const m = M[k], w = +recipe[k]; if (!m || !(w > 0)) continue; const p = w / base * 100; tot += p; cost += p * m.$;
+      for (const o in m.ox) wt[o] += p * m.ox[o] / 100; loi += p * m.loi / 100; if (m.carb) carb += p * m.loi / 100; if (m.clay) clay += p; }
+    const mol = Object.fromEntries(OX.map(o => [o, wt[o] / MW[o]])), fs = FLUX.reduce((s, o) => s + mol[o], 0);
+    const u = Object.fromEntries(OX.map(o => [o, fs > 1e-9 ? mol[o] / fs : 0]));
+    const totMol = OX.reduce((s, o) => s + mol[o], 0) || 1;
+    // thermal expansion: additive, by mole fraction (Appen-style coefficients, x1e-6/K per unit fraction)
+    const A = { SiO2: 3.5, Al2O3: -.4, B2O3: -2.2, Li2O: 27, Na2O: 41, K2O: 46, MgO: 4.5, CaO: 13.5, SrO: 16, BaO: 20, ZnO: 3, Fe2O3: 5.5, CuO: 3, CoO: 5, MnO: 10, Cr2O3: 5, SnO2: -4.5, ZrO2: -6, TiO2: -1.5 };
+    let coe = 0; for (const o of OX) coe += mol[o] / totMol * A[o];
+    const add = { Fe: wt.Fe2O3, Cu: wt.CuO, Co: wt.CoO, Mn: wt.MnO, Cr: wt.Cr2O3, Sn: wt.SnO2, Zr: wt.ZrO2, Ti: wt.TiO2 };
+    return { u, wt, add, loi, carb, clay, talc: (recipe.talc || 0) / base * 100, zinc: (recipe.zinc || 0) / base * 100, cost: cost / tot, coe: +coe.toFixed(2), flux: fs };
+  }
+
+  // the temperature (°C of heat-work) at which this glaze melts to a smooth glass
+  function tMature(a, atm) {
+    const u = a.u, Si = u.SiO2, Al = u.Al2O3, B = u.B2O3;
+    if (a.flux < 1e-6) return 1800;
+    const alk = u.Na2O + u.K2O, nFlux = FLUX.filter(o => u[o] > .08).length; // mixed fluxes form lower eutectics
+    const col = u.Fe2O3 * (atm === 'red' ? 2 : .7) + u.MnO * .8 + u.CuO * .7 + u.CoO * .7;
+    return 1212 + 40 * (Si - 3) + 165 * (Al - .35) - 150 * B / (1 + .6 * B) - 330 * (alk - .3) - 520 * u.Li2O + 120 * u.ZnO + 25 * u.BaO + 30 * u.MgO * (u.MgO > .45 ? 3 : 1)
+      - 10 * Math.min(3, Math.max(0, nFlux - 1)) - 110 * Math.min(.6, col);
+  }
+
+  // ---------- schedule ----------
+  // { peak °C, ramp °C/h (last stretch), hold min, cool °C/h (400 = switch off and let it fall), xt crystal-hold °C (0 = none), xh hours, atm 'ox'|'red' }
+  const SCHED0 = { peak: 1220, ramp: 150, hold: 0, cool: 400, xt: 0, xh: 0, atm: 'ox' };
+  function heatwork(s) { return s.peak + 16 * Math.log2(1 + s.hold / 10) + clamp(30 * Math.log10(150 / s.ramp), -20, 25); }
+  // the cooling curve as [T, hours] samples, for crystal growth and the time spent in the devitrification window
+  function coolPath(s) { const pts = [], dT = 5; let T = s.peak, t = 0; const rate = T2 => s.cool >= 400 ? Math.max(90, 520 * (T2 - 150) / 1150) : s.cool; // a kiln switched off cools fast when hot, slowly when cool
+    let held = !(s.xt > 0 && s.xh > 0 && s.xt < s.peak);
+    while (T > 700) { if (!held && T - dT <= s.xt) { // fall to the crystal hold, then sit there
+        const d0 = (T - s.xt) / rate(T); t += d0; T = s.xt; held = true; const n = Math.max(1, Math.round(s.xh * 8)); for (let i = 0; i < n; i++) { t += s.xh / n; pts.push([T, t, s.xh / n]); } continue; }
+      const d = dT / rate(T); t += d; T -= dT; pts.push([T, t, d]); }
+    return pts; }
+  function fuel(s) { // kWh-ish: heating the load, holding against wall losses, powered cooling and crystal holds
+    const loss = T => .9 * Math.pow(Math.max(0, T - 20) / 1000, 1.7) * 10, heatH = (s.peak - 600) / s.ramp + 580 / 220;
+    let f = (s.peak - 20) / 1000 * 20 + loss(s.peak) * .55 * heatH + loss(s.peak) * s.hold / 60;
+    if (s.cool < 400) f += loss(s.peak - 150) * .5 * Math.min(6, 300 / s.cool);
+    if (s.xt && s.xh) f += loss(s.xt) * s.xh;
+    return +(f * (s.atm === 'red' ? 1.3 : 1)).toFixed(1); }
+  function hours(s) { const p = coolPath(s); return +((s.peak - 600) / s.ramp + 580 / 220 + s.hold / 60 + p[p.length - 1][1] + 4).toFixed(1); }
+
+  // ---------- firing: everything the kiln does to the glaze ----------
+  // returns { ok, Tm, Te, M (maturity), F (fluidity), run, gloss, rough, matte, S (scatter), lut(t), crystals, craze, ... }
+  function fire(recipe, sched, bodyId = 'porcelain', app = 1) {
+    const s = Object.assign({}, SCHED0, sched), body = BODIES[bodyId] || BODIES.porcelain, red = s.atm === 'red';
+    const a = analyze(recipe); if (!a) return null;
+    const u = a.u, Si = u.SiO2, Al = u.Al2O3, B = u.B2O3, alk = u.Na2O + u.K2O + u.Li2O, Ca = u.CaO, Mg = u.MgO, Zn = u.ZnO, Ba = u.BaO, Sr = u.SrO;
+    const ad = a.add, Tm = tMature(a, s.atm), Te = heatwork(s), over = Te - Tm;
+    const M = sm(-95, 0, over);                           // maturity: 0 sintered powder .. 1 glass
+    const vis = .55 + 1.9 * Al + .07 * Si + .35 * Mg - .45 * B / (1 + B) - .2 * alk + .03 * (ad.Zr + ad.Sn); // viscosity of the melt
+    const F = clamp(over / 100, 0, 2.5) / Math.max(.35, vis) * .8;  // fluidity at peak
+    const run = Math.max(0, over - 25) / (55 * Math.max(.35, vis)) * Math.pow(app, 1.3);
+    const path = coolPath(s); let win = 0; for (const [T, , dt] of path) if (T <= 1160 && T >= 880) win += dt;
+    const slow = sm(.9, 3.2, win);                            // time spent where crystals can form while cooling
+    // -- matting: crystals and undissolved alumina
+    const SiAl = Si / Math.max(.01, Al);
+    const mAl = sm(6.5, 4.2, SiAl) * sm(.2, .38, Al);
+    const mMg = sm(.18, .34, Mg) * sm(3.5, 2.4, Si) * (.55 + .45 * slow);
+    const mCa = sm(.5, .72, Ca) * sm(3.2, 2.3, Si) * slow;
+    const mBa = sm(.12, .3, Ba) * sm(3.3, 2.3, Si) * (.5 + .5 * slow), mSr = sm(.25, .5, Sr) * sm(2.9, 2, Si) * .7 * slow;
+    const mTi = sm(3.5, 8, ad.Ti) * (.4 + .6 * slow) * .8;
+    const ironX = Math.max(0, ad.Fe - (3.2 + 2.6 * Ca + 1.2 * B + 1.6 * alk - .8 * Al)); // iron beyond what the glass can dissolve
+    const kaki = sm(2.5, 6, ironX) * sm(-30, 40, over) * (red ? 1 : .8) * (.06 + .94 * slow);
+    let matte = 1 - (1 - mAl) * (1 - mMg) * (1 - mCa) * (1 - mBa) * (1 - mSr) * (1 - mTi);
+    matte *= 1 - clamp((over - 50) / 150, 0, .6);                 // overfiring dissolves them back
+    // -- zinc silicate (willemite) crystals: need zinc, almost no alumina, a fluid melt, then time at 1000-1150 °C
+    const sat = sm(.28, .55, Zn) * sm(.2, .06, Al) * sm(2.9, 2, Si) * sm(-10, 60, over);
+    let crystals = null;
+    if (sat > .02) {
+      const dissolve = sm(Tm + 40, Tm + 150, Te);                  // a hotter peak dissolves the seeds left in the melt
+      let n = 0, cohorts = [];
+      for (const [T, , dt] of path) {
+        const g = 2.6 * Math.exp(-Math.pow((T - 1095) / 48, 2)) * sat; // radial growth, mm per hour
+        const nuc = sat * (1 + ad.Ti * .45) * 34 * Math.exp(-Math.pow((T - 1010) / 45, 2)) * dt * (1.15 - dissolve); // new crystals per 100 cm²
+        for (const c of cohorts) c.r += g * dt;
+        if (nuc > .01) { cohorts.push({ n: nuc, r: .05 }); n += nuc; }
+      }
+      const seeds = 3 * sat * (1.1 - dissolve) * (1 + ad.Ti * .3);   // leftover undissolved seeds start growing first
+      cohorts.unshift({ n: seeds, r: 0 }); { let r0 = 0; for (const [T, , dt] of path) r0 += 2.6 * Math.exp(-Math.pow((T - 1095) / 48, 2)) * sat * dt; cohorts[0].r = r0; } n += seeds;
+      cohorts = cohorts.filter(c => c.r > .4 && c.n > .02);
+      const cover = cohorts.reduce((s2, c) => s2 + c.n * Math.PI * c.r * c.r / 10000, 0);
+      const big = cohorts.length ? Math.max(...cohorts.map(c => c.r)) : 0, cnt = cohorts.filter(c => c.r >= 1.2).reduce((s2, c) => s2 + c.n, 0);
+      if (cnt > .05 && big > 1.2) crystals = { n: +cnt.toFixed(2), r: +big.toFixed(2), cover: +Math.min(1, 1 - Math.exp(-cover)).toFixed(3), cohorts: cohorts.map(c => [+c.n.toFixed(3), +c.r.toFixed(2)]) };
+      if (crystals) matte = 1 - (1 - matte) * (1 - crystals.cover * .3);
+    }
+    const gloss = clamp(M * (1 - .92 * matte) - Math.max(0, ad.Cu - 4) * .03);
+    // -- scatter (opacity), per mm of glaze
+    const pinkA = sm(1.2, 4, ad.Sn) * sm(.25, .5, Ca) * sm(.06, .01, Zn) * sm(.005, .05, ad.Cr) * (red ? .35 : 1);
+    let S = ad.Sn * .9 + ad.Zr * .6 + ad.Ti * .25 + matte * 5.5 + (1 - M) * 14 + M * sm(.45, .8, Ca) * .9 * (1 - sm(.2, .8, F)) + ad.Cr * 3 + kaki * 3;
+    // chun-like opal: boron and calcium separate into tiny droplets in a slowly cooled glass
+    S += sm(.08, .25, B) * sm(.35, .6, Ca) * slow * 1.6;
+    // -- absorption per mm (linear RGB), per weight % of each colourant
+    const alkF = clamp(alk / Math.max(.2, alk + Ca + Mg + Ba + Sr)), feD = Math.min(ad.Fe, ad.Fe - ironX), rr = red ? .8 : .1;
+    const Fe2 = feD * rr, Fe3 = feD * (1 - rr), dis = .3 + .7 * M;
+    const k = [0, 0, 0], addK = (c, w) => { k[0] += c[0] * w * dis; k[1] += c[1] * w * dis; k[2] += c[2] * w * dis; };
+    addK([.11, .42, 1.3], Fe3);                                  // ferric iron: amber
+    addK([.75, .3, .22 + .1 * alkF], Fe2);                     // ferrous iron: celadon blue-green
+    addK([.02, .12, .55], Fe2 * ad.Ti * .9);                   // iron-titanium charge transfer pushes celadon towards yellow-green
+    addK([1.6, 1.55, 1.45], ironX);                             // saturated iron: black
+    const coMg = sm(.2, .4, Mg) * (1 - sm(.15, .4, Zn));
+    addK([6 * (1 - coMg) + 2.2 * coMg, 4.3 + 1.2 * coMg, .3 + .6 * coMg], ad.Co); // cobalt: blue, magenta-violet in magnesia
+    // copper: in oxidation Cu2+ (green in lime glazes, turquoise in alkaline ones); in reduction metallic colloid (red)
+    const cuRedA = red ? sm(.05, .3, F + .15) * sm(-40, 0, over) : 0, Cu = ad.Cu;
+    if (Cu > 0) {
+      const cuOx = Cu * (1 - cuRedA), cuRd = Cu * cuRedA;
+      const tq = clamp(alkF * 1.25 + (Ba + Sr) * .6);
+      addK([1.5 + .4 * (1 - tq), .2 + .35 * (1 - tq), 1.2 * (1 - tq) + .12], cuOx);
+      const tinHelp = .6 + .4 * sm(0, 1, ad.Sn);
+      addK([1.5, 9 * tinHelp, 6 * tinHelp], cuRd);
+      const liver = Math.max(0, cuRd - 1.1); addK([1.1, .9, .7], liver * liver * 1.5);
+      const blk = Math.max(0, Cu - 4); addK([.6, .5, .6], blk);
+    }
+    // manganese: brown in lime glazes, purple in alkaline ones
+    addK([.4 + .15 * alkF, .6 + .7 * alkF, .85 - .45 * alkF], ad.Mn * (red ? .6 : 1));
+    // chrome: green, brown with zinc; consumed into pink when tin and lime are there
+    const crG = ad.Cr * (1 - pinkA * .85), znCr = sm(.03, .12, Zn);
+    addK([.95 - .3 * znCr, .22 + .5 * znCr, 1.1 + .1 * znCr], crG);
+    // the scattering pigment colour (what tin/zircon/matte crystals look like, before tinting by the glass)
+    const pig = [.9, .88, .84];
+    if (pinkA > 0) { const p = Math.min(1, ad.Cr / .15) * pinkA; pig[0] = .9 - .35 * p; pig[1] = .88 - .78 * p; pig[2] = .84 - .66 * p; }
+    if (ad.Ti > 1) { const v = sm(1, 6, ad.Ti); pig[2] += .03 * v; pig[1] += .01 * v; }   // rutile/titania opal reads faintly blue-white
+    const bodyC = red ? body.red : body.ox;
+    // -- rust: hematite crystals at the surface of iron-saturated glazes, strongest where the glaze is thin
+    const rustC = red ? [.30, .095, .035] : [.36, .12, .035];
+    const rustAt = t => clamp(sm(.5, 3.5, ironX) * (.55 + .9 * slow) * Math.exp(-t / .25) + kaki);
+    const raw = rawColor(recipe);
+    const colorAt = (t, tint = 1, sc = S) => {
+      const o = 1 - Math.exp(-sc * t), T2 = k.map(x => Math.exp(-2 * x * tint * t)), Ts = k.map(x => Math.exp(-x * tint * Math.min(t, 2.4 / Math.max(.4, sc))));
+      let c = [0, 1, 2].map(i => (1 - o) * bodyC[i] * T2[i] + o * pig[i] * Ts[i]);
+      const r = rustAt(t); c = c.map((v, i) => v * (1 - r) + rustC[i] * r);
+      if (M < 1) c = c.map((v, i) => v * M + raw[i] * (1 - M) * (.3 + .7 * Math.min(1, t * 2)) + bodyC[i] * (1 - M) * Math.max(0, .7 - t * 2) * .5);
+      return c; };
+    // -- hare's fur: iron-rich streaks drawn down by the flowing glaze
+    const fur = sm(1, 4, ironX) * sm(.45, 1.1, F) * (1 - kaki * .8);
+    const furC = red ? [.36, .2, .1] : [.42, .22, .08];
+    // -- oil spots: iron gives off oxygen near the peak; a short hold and a quick cool freeze the burst bubbles as silvery spots
+    const oil = sm(5.5, 8, ad.Fe) * sm(25, 70, over) * (1 - sm(5, 35, s.hold)) * sm(170, 320, s.cool) * (1 - kaki);
+    // -- rutile variegation: titania + iron in a fluid glass cooled with time to separate
+    const variegate = sm(2, 6, ad.Ti) * sm(.15, .6, F) * (.35 + .65 * slow) * sm(.4, 2, ad.Fe + ad.Co * 3 + ad.Cu);
+    const varC = colorAt(.8, .35, S + 6).map((v, i) => v * .8 + [.06, .11, .2][i]);
+    // -- expansion fit
+    const d = a.coe - body.coe;
+    const craze = M > .5 ? clamp((d - .32) / 1.3) * (.7 + .3 * app) : 0;
+    const shiver = M > .5 ? clamp((-d - 1.5) / 1.1) : 0;
+    // -- defects
+    const shrink = a.clay + a.talc * .35 + a.zinc * .5;
+    const crawl = clamp((shrink - 24) / 16 + (app - 1) * .9 + (Mg * .6 + Al * .45 - .5) * .7) * sm(.2, .6, M);
+    const pin = clamp(sm(3, 14, a.carb) * clamp(s.ramp / 180, .35, 1.6) * (.6 + .9 * clamp(vis - .6)) * (1 - clamp(s.hold / 45 + Math.max(0, over) / 110)) * (s.cool >= 400 ? 1.15 : 1) + (1 - M) * .5 * sm(.2, .6, M));
+    const ranOff = run > 2.6, slump = s.peak > body.max;
+    // -- copper volatilises off thin edges: copper reds go clear at the rim
+    const cuRim = Cu > 0 && red ? sm(.1, .5, F) * .9 : 0;
+    // -- surface roughness
+    const rough = clamp(.05 + .55 * (1 - gloss) + .3 * (1 - M));
+    const N = 48, TM = 2.4, lut = [];
+    for (let i = 0; i < N; i++) { const t = (i + .5) / N * TM, thin = Math.exp(-t / .3);
+      let c = colorAt(t); if (cuRim) { const cl = colorAt(t, 1 - cuRim * thin * .95); c = cl; }
+      lut.push(c); }
+    const alt = [], crys = [];
+    for (let i = 0; i < N; i++) { const t = (i + .5) / N * TM; alt.push(fur > variegate ? furC.map((v, j) => v * (.7 + .3 * Math.exp(-t)) + lut[i][j] * .15) : varC); }
+    // crystal colour: willemite takes up cobalt (blue) and manganese (amber); the ground keeps the rest
+    if (crystals) { const kc = [ad.Co * 2.6 * 1.6, ad.Co * 1.35 * 1.6, ad.Co * .12]; const mn = ad.Mn;
+      for (let i = 0; i < N; i++) { const t = (i + .5) / N * TM, tt = Math.min(t, .9);
+        crys.push([0, 1, 2].map(j => (.86 - [.0, .1, .35][j] * sm(0, 3, mn)) * Math.exp(-kc[j] * tt) * (1 - .25 * sm(0, 2, ad.Cu) * (j !== 1)) - .05 * sm(0, 3, ad.Fe) * (j === 2))); } }
+    // representative colours (what the client sees): the middle of a wall, and the thin break at an edge
+    const mid = .62 * app, thinT = .22 * app;
+    let main = colorAt(mid), brk = colorAt(thinT);
+    if (crystals) { const cv = crystals.cover; main = main.map((v, i) => v * (1 - cv) + crys[Math.min(N - 1, mid / TM * N | 0)][i] * cv); }
+    if (fur > .15) main = main.map((v, i) => v * (1 - fur * .15) + furC[i] * fur * .15);
+    if (variegate > .15) main = main.map((v, i) => v * (1 - variegate * .3) + varC[i] * variegate * .3);
+    const res = { ok: !ranOff && !slump, a, s, body: bodyId, app, Tm: Math.round(Tm), Te: Math.round(Te), M, F, vis, run, gloss, rough, matte, S, slow, ironX, kaki, fur, oil, variegate, crystals, craze, shiver, crawl, pin, ranOff, slump, cuRim,
+      coe: a.coe, d: +d.toFixed(2), lut, alt, crys, TM, main, brk, raw, opac: 1 - Math.exp(-S * mid), cost: +a.cost.toFixed(2), fuel: fuel(s), hours: hours(s), bodyC };
+    return res;
+  }
+  function rawColor(recipe) { let c = [0, 0, 0], w = 0; for (const k in recipe) { const m = M[k], q = +recipe[k]; if (!m || !(q > 0)) continue; const ww = m.add ? q * 3.5 : q, l = hex2lin(m.raw); c = c.map((v, i) => v + l[i] * ww); w += ww; } return w ? c.map(v => v / w) : [.8, .8, .8]; }
+
+  // ---------- judging: how close is a fired pot to what the client asked for ----------
+  // target: { col, brk?, gloss, gtol?, op?, craze: 'none'|'want'|'any', crys?: {r, n:[lo,hi]}, fur?, var?, oil? }
+  function judge(r, T) {
+    if (!r) return { lik: 0, notes: ['There is no glaze to fire.'], pass: false };
+    const notes = []; let sc = 100; const pen = (p, why) => { if (p > .5) { sc -= p; notes.push([p, why]); } };
+    if (r.slump) return { lik: 0, pass: false, notes: ['The terracotta slumped and bloated: that clay cannot take this heat.'] };
+    if (r.ranOff) return { lik: 0, pass: false, notes: ['The glaze ran off the foot and welded the pot to the shelf.'] };
+    const tc = hex2lin(T.col), e = dE(r.main, tc);
+    const L1 = lab(r.main), L2 = lab(tc);
+    const cw = T.cw || 1;
+    if (e > 3) { const d = [L1[0] - L2[0], L1[1] - L2[1], L1[2] - L2[2]], why = [];
+      if (Math.abs(d[0]) > 5) why.push(d[0] > 0 ? 'too light' : 'too dark');
+      const C1 = Math.hypot(L1[1], L1[2]), C2 = Math.hypot(L2[1], L2[2]);
+      if (C2 - C1 > 7) why.push('too dull, not enough colour'); else if (C1 - C2 > 9) why.push('too strong a colour');
+      const hd = Math.atan2(L1[2], L1[1]) - Math.atan2(L2[2], L2[1]), hw = Math.atan2(Math.sin(hd), Math.cos(hd));
+      if (Math.min(C1, C2) > 6 && Math.abs(hw) > .22) { const h2 = Math.atan2(L2[2], L2[1]); why.push(hueWord(Math.atan2(L1[2], L1[1]), h2)); }
+      pen(e * 1.25 * cw, 'The colour is off: ' + (why.join(', ') || 'not quite the shade') + '.'); }
+    if (T.brk) { const e2 = dE(r.brk, hex2lin(T.brk)); if (e2 > 6) pen(e2 * .5, 'The edges should break to ' + nameColor(hex2lin(T.brk)) + '; yours go ' + nameColor(r.brk) + '.'); }
+    const gt = T.gtol ?? .18; const gd = r.gloss - T.gloss;
+    if (Math.abs(gd) > gt) pen((Math.abs(gd) - gt) * 110, gd > 0 ? 'Too glossy: they wanted ' + (T.gloss < .3 ? 'a dry, stony matte' : 'a soft satin') + '.' : (r.M < .7 ? 'Underfired: the glaze never fully melted. It feels like sandpaper.' : 'Too dull: they wanted ' + (T.gloss > .8 ? 'a glassy shine' : 'more sheen') + '.'));
+    if (T.op != null) { const od = r.opac - T.op; if (Math.abs(od) > .2) pen((Math.abs(od) - .2) * 70, od > 0 ? 'Too opaque: they wanted to see depth, into the glaze.' : 'Too transparent: they wanted it to hide the clay.'); }
+    if (T.craze === 'none' && r.craze > .04) pen(12 + r.craze * 60, 'It crazed: a web of fine cracks. It will leak and stain.');
+    if (T.craze === 'want' && r.craze < .45) pen((.45 - r.craze) * 110, r.craze > .05 ? 'The crackle is too sparse and too fine.' : 'They wanted a crackled surface, and yours is whole.');
+    if (r.shiver > .05) pen(15 + r.shiver * 60, 'Shivering: slivers of glaze flaked off the rim.');
+    if (r.crawl > .06) pen(10 + r.crawl * 70, 'The glaze crawled, pulling back into beads and leaving bare clay.');
+    if (r.pin > .12) pen(r.pin * 40, 'Pinholes: the surface is pocked.');
+    if (r.run > 1.25 && !T.runOK) pen((r.run - 1.25) * 30, 'It ran: thick drips gather at the foot.');
+    if (T.crys) { const c = r.crystals;
+      if (!c || c.r < 1) pen(55, 'They wanted crystals, and there are none to see.');
+      else { if (c.r < T.crys.r) pen((T.crys.r - c.r) / T.crys.r * 45, 'The crystals are too small.');
+        if (c.n > T.crys.n[1]) pen(Math.min(40, (c.n - T.crys.n[1]) / T.crys.n[1] * 25), 'Too many crystals: they crowd each other into a mat.');
+        if (c.n < T.crys.n[0]) pen(Math.min(40, (T.crys.n[0] - c.n) / T.crys.n[0] * 40), 'Too few crystals: they wanted a field of them.'); } }
+    else if (r.crystals && r.crystals.r > 2 && r.crystals.cover > .08) pen(14, 'Odd crystals have bloomed all over it.');
+    if (T.fur) { if (r.fur < T.fur) pen((T.fur - r.fur) * 70, 'No hare\'s fur: the streaks never came.'); } else if (r.fur > .35) pen((r.fur - .35) * 25, 'Unwanted brown streaks run down it.');
+    if (T.var) { if (r.variegate < T.var) pen((T.var - r.variegate) * 70, 'It should be mottled and streaky, and it is flat.'); }
+    if (T.oil) { if (r.oil < T.oil) pen((T.oil - r.oil) * 80, 'No oil spots: they wanted silver spots scattered over the black.'); }
+    const lik = Math.round(clamp(sc, 0, 100));
+    notes.sort((x, y) => y[0] - x[0]);
+    return { lik, pass: lik >= PASS, notes: notes.map(n => n[1]) };
+  }
+  const PASS = 75;
+  const HUES = [[.12, 'rose'], [.5, 'red'], [.9, 'rust'], [1.3, 'amber'], [1.65, 'yellow'], [2.4, 'green'], [2.9, 'blue-green'], [-2.7, 'teal'], [-1.4, 'blue'], [-.8, 'violet'], [-.35, 'plum']];
+  const hueName = (h, L = 50) => { let best = HUES[0], bd = 9; for (const n of HUES) { const dd = Math.abs(Math.atan2(Math.sin(h - n[0]), Math.cos(h - n[0]))); if (dd < bd) { bd = dd; best = n; } }
+    return best[1] === 'rust' && L > 55 ? 'orange' : best[1]; };
+  function hueWord(h1, h2) { const a = hueName(h1), b = hueName(h2); return a !== b ? 'it reads ' + a + ', not ' + b : (Math.atan2(Math.sin(h1 - h2), Math.cos(h1 - h2)) > 0 ? 'a shade too warm' : 'a shade too cool'); }
+  function nameColor(c) { const L = lab(c), C = Math.hypot(L[1], L[2]), h = Math.atan2(L[2], L[1]);
+    const light = L[0] > 75 ? 'pale ' : L[0] < 25 ? 'dark ' : '';
+    if (C < 8) return L[0] > 80 ? 'white' : L[0] < 20 ? 'black' : light + 'grey';
+    return light + hueName(h, L[0]); }
+
+  // ---------- the commission book ----------
+  // each: who asks, what they want (target), on which clay and form; tiles par; what finishing it brings to the studio.
+  // ref: a known answer (used only to set the cost and fuel pars, and by the tests).
+  const C10 = { peak: 1285, ramp: 100, hold: 15, cool: 400, atm: 'ox' }, C10R = { ...C10, atm: 'red' };
+  const COMMS = [
+    { id: 'clear', n: 'A clear glaze', who: 'A tea merchant', ask: 'A glass-clear glaze for my porcelain cups. It must not craze: cracks hold old tea.', body: 'porcelain', form: 'cup',
+      T: { col: '#efebe3', gloss: .95, op: .3, craze: 'none' }, par: 5, gift: 'Red iron oxide and talc arrive on the shelf.',
+      ref: [{ feldspar: 35, silica: 35, whiting: 20, kaolin: 10 }, { peak: 1290, ramp: 100, hold: 20 }, 1] },
+    { id: 'honey', n: 'Honey', who: 'A beekeeper', ask: 'A jar the colour of dark honey held up to a window: amber, clear, glossy, paler where it thins.', body: 'porcelain', form: 'jar',
+      T: { col: '#b37a27', brk: '#d6b46a', gloss: .95, craze: 'none' }, par: 6, gift: 'Cobalt and dolomite arrive. You start Seger\'s notebook: the unity formula of every glaze you mix.',
+      ref: [{ feldspar: 40, silica: 30, whiting: 20, kaolin: 10, iron: 4 }, C10, 1] },
+    { id: 'matteblue', n: 'Matte blue', who: 'An architect', ask: 'Lamp bases in a deep blue that does not shine. Stone, not glass. No crazing, no crawling.', body: 'buff', form: 'cylinder',
+      T: { col: '#4f6bd0', gloss: .35, gtol: .14, craze: 'none' }, par: 12, gift: 'Nepheline syenite and a boron frit arrive. A dilatometer now reads each glaze\'s expansion.',
+      ref: [{ feldspar: 40, silica: 15, whiting: 26, kaolin: 22, talc: 4, cobalt: 1.2 }, { ...C10, cool: 90 }, 1] },
+    { id: 'fit', n: 'Make it fit', who: 'A restaurant', ask: 'Our clear glaze crazes on these porcelain bowls and the health inspector is unhappy. Keep it clear and glossy; stop the cracks. Here is our recipe.', body: 'porcelain', form: 'bowl',
+      start: { neph: 50, silica: 20, whiting: 15, kaolin: 15 }, T: { col: '#eeeae0', gloss: .95, op: .35, craze: 'none' }, par: 6, gift: 'The gas kiln is yours: fire in reduction, starving the flame of air.',
+      ref: [{ neph: 30, silica: 30, whiting: 15, kaolin: 15, talc: 10 }, C10, 1] },
+    { id: 'celadon', n: 'Song celadon', who: 'A museum shop', ask: 'A copy of a Longquan vase: the soft blue-green of jade, glassy but deep, as though you could see into it. Thick, so it pools.', body: 'porcelain', form: 'vase',
+      T: { col: '#9dbdaa', brk: '#c4d6cc', gloss: .9, op: .5, craze: 'none' }, par: 10, gift: 'Copper carbonate and tin oxide arrive.',
+      ref: [{ feldspar: 40, silica: 30, whiting: 20, kaolin: 10, iron: 1.2 }, C10R, 1.4] },
+    { id: 'cugreen', n: 'Copper green', who: 'A garden centre', ask: 'Planters in a fresh leaf green, glossy, a little darker where it pools.', body: 'buff', form: 'jar',
+      T: { col: '#4d9f6d', gloss: .9, craze: 'none' }, par: 6, gift: 'A dark iron-bearing stoneware body arrives from the clay merchant.',
+      ref: [{ feldspar: 40, silica: 30, whiting: 20, kaolin: 10, copper: 2.5 }, C10, 1] },
+    { id: 'oxblood', n: 'Oxblood', who: 'A collector', ask: 'Sang de boeuf: the deep red of the Qing imperial kilns, glossy, the rim gone pale where the glaze ran thin.', body: 'porcelain', form: 'meiping',
+      T: { col: '#9a1d33', brk: '#c6627e', gloss: .9, runOK: 1 }, par: 12, gift: null,
+      ref: [{ feldspar: 35, silica: 25, whiting: 15, kaolin: 5, fritB: 20, copper: 1, tin: 1 }, { ...C10R, peak: 1270 }, 1] },
+    { id: 'tenmoku', n: 'Tenmoku', who: 'A tea master', ask: 'A tea bowl, black as lacquer, that breaks to rust brown at the rim and on every ridge.', body: 'dark', form: 'chawan',
+      T: { col: '#27170e', brk: '#553a2a', gloss: .9, craze: 'none' }, par: 8, gift: null,
+      ref: [{ feldspar: 40, silica: 30, whiting: 20, kaolin: 10, iron: 9 }, C10R, 1] },
+    { id: 'harefur', n: 'Hare\'s fur', who: 'The tea master, again', ask: 'Now a Jian bowl: black, with fine brown streaks running down from the rim like the fur of a hare.', body: 'dark', form: 'chawan',
+      T: { col: '#3a281a', gloss: .85, fur: .5, runOK: 1 }, par: 10, gift: null,
+      ref: [{ feldspar: 40, silica: 25, whiting: 25, kaolin: 10, iron: 9 }, { ...C10R, peak: 1300, hold: 30 }, 1.2] },
+    { id: 'kaki', n: 'Persimmon', who: 'A farmhouse inn', ask: 'Kaki: a rusty persimmon red-brown all over, like the iron-red jars of Mashiko.', body: 'dark', form: 'jar',
+      T: { col: '#93542f', gloss: .75, gtol: .3, craze: 'none' }, par: 10, gift: 'Wollastonite and strontium carbonate arrive.',
+      ref: [{ feldspar: 40, silica: 30, whiting: 20, kaolin: 10, iron: 12 }, { ...C10R, cool: 80 }, 1] },
+    { id: 'ge', n: 'Ge crackle', who: 'A dealer in old things', ask: 'Ge ware: a soft, fat, grey-green surface covered with a network of crackle. The cracks are the point.', body: 'porcelain', form: 'dish',
+      T: { col: '#cfdccd', gloss: .4, gtol: .2, craze: 'want' }, par: 10, gift: 'Chrome oxide and zinc oxide arrive.',
+      ref: [{ neph: 50, silica: 15, whiting: 15, kaolin: 20, iron: .8 }, { ...C10R, cool: 100 }, 1.3] },
+    { id: 'pink', n: 'Chrome-tin pink', who: 'A wedding planner', ask: 'Cups in a warm rose pink, glossy and opaque. Not green, not brown.', body: 'porcelain', form: 'cup',
+      T: { col: '#c35d75', gloss: .9, craze: 'none' }, par: 12, gift: 'Rutile and titanium dioxide arrive.',
+      ref: [{ feldspar: 30, silica: 30, whiting: 25, kaolin: 15, tin: 6, chrome: .2 }, C10, 1] },
+    { id: 'rutile', n: 'Floating blue', who: 'A gallery', ask: 'A vase in a mottled, streaky blue that shifts as you turn it, like a winter sky.', body: 'buff', form: 'bottle',
+      T: { col: '#7988b4', gloss: .75, gtol: .25, var: .55, runOK: 1 }, par: 12, gift: 'A soda frit and lithium carbonate arrive, with a white stonepaste body from Iznik.',
+      ref: [{ feldspar: 35, silica: 20, whiting: 20, kaolin: 10, fritB: 15, rutile: 7, cobalt: 1 }, { ...C10, cool: 120 }, 1] },
+    { id: 'turq', n: 'Persian turquoise', who: 'A tile restorer', ask: 'The turquoise of the Isfahan domes, glossy, on stonepaste. Low fired. It must not craze, or rain will get in.', body: 'stonepaste', form: 'bowl',
+      T: { col: '#36b3a0', gloss: .9, craze: 'none' }, par: 14, gift: 'A new program for the kiln controller: hold the kiln at a set temperature while it cools.',
+      ref: [{ fritS: 55, kaolin: 18, silica: 15, fritB: 9, copper: 3 }, { peak: 1080, ramp: 150, hold: 15, cool: 400 }, .8] },
+    { id: 'crysbig', n: 'Crystals', who: 'A jeweller', ask: 'A vase with a few big crystals, flowers of ice a finger wide, scattered on the glaze.', body: 'porcelain', form: 'bottle',
+      T: { col: '#f0eee9', gloss: .8, gtol: .25, crys: { r: 9, n: [2, 14] }, runOK: 1, cw: .5 }, par: 14, gift: 'Manganese dioxide and zircopax arrive.',
+      ref: [{ fritS: 50, zinc: 25, silica: 20, titanium: 5 }, { peak: 1250, ramp: 150, hold: 10, cool: 400, xt: 1100, xh: 4 }, 1] },
+    { id: 'plum', n: 'Plum', who: 'A florist', ask: 'Low-fired vases on stonepaste in a clear, glossy aubergine purple.', body: 'stonepaste', form: 'vase',
+      T: { col: '#622445', gloss: .9, craze: 'none' }, par: 10, gift: 'A terracotta body arrives for the sandbox.',
+      ref: [{ fritS: 50, kaolin: 12, silica: 18, fritB: 15, talc: 5, manganese: 4 }, { peak: 1080, ramp: 150, hold: 15 }, 1] },
+    { id: 'crysblue', n: 'A field of blue', who: 'The jeweller, again', ask: 'Now dozens of small, blue crystals crowding a vase, like frost on a window at night.', body: 'porcelain', form: 'vase',
+      T: { col: '#7b90e5', gloss: .8, gtol: .25, crys: { r: 2, n: [30, 120] }, runOK: 1 }, par: 14, gift: null,
+      ref: [{ fritS: 50, zinc: 25, silica: 20, titanium: 5, cobalt: 1 }, { peak: 1250, ramp: 150, hold: 10, cool: 400, xt: 1040, xh: 3 }, 1] },
+    { id: 'oil', n: 'Oil spot', who: 'The tea master, last of all', ask: 'Yuteki: a black bowl scattered with silver spots like drops of oil on water.', body: 'dark', form: 'chawan',
+      T: { col: '#27170e', gloss: .9, oil: .6 }, par: 14, gift: null,
+      ref: [{ feldspar: 40, silica: 30, whiting: 20, kaolin: 10, iron: 9 }, { peak: 1300, ramp: 150, hold: 0, cool: 400, atm: 'red' }, 1] },
+  ];
+  // what the studio holds after n commissions are done
+  const unlocked = n => ({ mats: MATS.filter(m => m.tier <= n).map(m => m.id), seger: n >= 2, dil: n >= 3, gas: n >= 4, xhold: n >= 14,
+    bodies: ['porcelain', ...(n >= 2 ? ['buff'] : []), ...(n >= 6 ? ['dark'] : []), ...(n >= 13 ? ['stonepaste'] : []), ...(n >= 16 ? ['earthen'] : [])] });
+  const pars = c => { const [r, s, app] = c.ref, x = fire(r, s, c.body, app); return { cost: +(x.cost * 1.25).toFixed(2), fuel: +(x.fuel * 1.15).toFixed(0), tiles: c.par }; };
+
+  // ---------- the daily commission: a glaze generated from the date, fired, and described back as a target ----------
+  function dailyComm(key) {
+    const r = rngOf('kiln-daily:' + key), pick = a => a[Math.floor(r() * a.length)], rr = (a, b) => a + r() * (b - a), q = x => Math.round(x * 4) / 4;
+    const fam = pick(['iron', 'cobalt', 'copper', 'matte', 'satin', 'crackle']);
+    const rec = { feldspar: q(rr(25, 45)), silica: q(rr(15, 35)), whiting: q(rr(10, 28)), kaolin: q(rr(5, 22)) };
+    if (r() < .5) rec.talc = q(rr(3, 12)); if (r() < .3) rec.dolomite = q(rr(5, 15));
+    const s = { peak: 5 * Math.round(rr(1250, 1300) / 5), ramp: pick([80, 100, 150]), hold: pick([0, 10, 20, 30]), cool: pick([400, 400, 150, 90]), xt: 0, xh: 0, atm: pick(['ox', 'red']) };
+    if (fam === 'iron') rec.iron = q(rr(.8, 11)); if (fam === 'cobalt') rec.cobalt = q(rr(.25, 2)); if (fam === 'copper') { rec.copper = q(rr(.5, 4)); if (s.atm === 'red') rec.tin = 1; }
+    if (fam === 'matte') { rec.kaolin += 10; rec.silica = Math.max(0, rec.silica - 12); rec[pick(['iron', 'cobalt', 'copper'])] = q(rr(.5, 3)); }
+    if (fam === 'satin') { rec.whiting += 8; s.cool = 90; rec.iron = q(rr(1, 6)); }
+    if (fam === 'crackle') { rec.neph = q(rr(35, 55)); rec.feldspar = 0; rec.iron = q(rr(.5, 2)); }
+    const body = pick(['porcelain', 'buff', 'dark']), x = fire(rec, s, body, 1);
+    const T = { col: lin2hex(x.main), brk: lin2hex(x.brk), gloss: +x.gloss.toFixed(2), gtol: .16, craze: x.craze > .2 ? 'want' : x.craze < .02 ? 'none' : 'any' };
+    if (x.fur > .5) T.fur = +(x.fur * .8).toFixed(2); if (x.variegate > .5) T.var = +(x.variegate * .8).toFixed(2);
+    const surf = x.gloss > .8 ? 'glossy' : x.gloss > .45 ? 'satin' : 'matte';
+    const ok = x.ok && x.M > .9 && x.crawl < .05 && x.pin < .12 && x.run < 1.25 && judge(x, T).pass;
+    return { id: 'd:' + key, daily: key, n: 'Daily: ' + nameColor(x.main) + ', ' + surf, who: 'Today\'s client', ask: 'A ' + surf + ' ' + nameColor(x.main) + ' glaze' + (T.craze === 'want' ? ', crackled all over' : '') + ', breaking to ' + nameColor(x.brk) + ' at the edges. Fired how you like.', body, form: pick(['jar', 'bowl', 'vase', 'cup']),
+      T, par: 10, ref: [rec, s, 1], ok };
+  }
+  // the date's commission, skipping any draw that turned out to be unfirable
+  const daily = key => { for (let i = 0; i < 20; i++) { const d = dailyComm(i ? key + '#' + i : key); if (d.ok) { d.id = 'd:' + key; d.daily = key; return d; } } return dailyComm(key); };
+  function rngOf(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } let a = h >>> 0;
+    return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  return { COMMS, unlocked, pars, daily, rngOf, MATS, M, MW, OX, FLUX, BODIES, SCHED0, analyze, tMature, heatwork, coolPath, fuel, hours, fire, judge, PASS, hex2lin, lin2hex, lab, dE, nameColor, clamp, sm, rawColor };
+})();
+</script>
+<script type="importmap">{"imports":{"three":"../shared/vendor/three/build/three.module.min.js","three/addons/":"../shared/vendor/three/addons/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+const K = KILN, V3 = THREE.Vector3, clamp = K.clamp, sm = K.sm;
+const LITE = /[?&]lite/.test(location.search), NOGL = /[?&]nogl/.test(location.search);
+const mob = matchMedia('(pointer:coarse)').matches || Math.min(innerWidth, innerHeight) < 600;
+
+// =====================================================================================================
+//  POT FORMS. Each is an outer profile (radius, height in mm) from the foot ring up to the rim. The wheel
+//  leaves throwing ridges; the rim is rounded; the inside wall follows the outside at the clay's thickness.
+// =====================================================================================================
+const FORMS = {
+  cup: { pts: [[27, 6], [29, 9], [33, 22], [37, 45], [40, 70], [41.5, 86]], w: 3.6, glazeLine: 9 },
+  jar: { pts: [[40, 6], [43, 10], [55, 28], [70, 62], [75, 95], [68, 130], [50, 150], [44, 158], [46, 166]], w: 5, glazeLine: 13 },
+  cylinder: { pts: [[44, 6], [47, 10], [50, 30], [50, 90], [49.5, 140], [49, 168], [50, 174]], w: 5, glazeLine: 12 },
+  bowl: { pts: [[30, 7], [33, 10], [48, 22], [70, 42], [88, 64], [97, 78]], w: 4.5, glazeLine: 12 },
+  vase: { pts: [[40, 6], [43, 10], [55, 22], [59, 40], [60, 115], [57, 128], [36, 152], [22, 165], [21, 200], [23, 222], [25, 230]], w: 4.5, glazeLine: 12 },
+  meiping: { pts: [[38, 6], [41, 10], [46, 40], [58, 100], [76, 160], [79, 180], [68, 205], [35, 224], [19, 230], [20, 240], [24, 246]], w: 5, glazeLine: 14 },
+  chawan: { pts: [[20, 6], [22, 9], [30, 14], [46, 30], [57, 48], [61, 58], [59.6, 62], [61, 67], [63, 74]], w: 4, glazeLine: 22 },
+  dish: { pts: [[48, 5], [51, 8], [70, 16], [96, 26], [112, 34], [116, 40]], w: 4.5, glazeLine: 9 },
+  bottle: { pts: [[36, 6], [39, 10], [62, 30], [82, 70], [80, 110], [60, 140], [26, 168], [18, 182], [18, 205], [22, 218], [26, 224]], w: 4.5, glazeLine: 12 },
+};
+const catmull = (pts, n) => { const out = []; for (let i = 0; i < pts.length - 1; i++) { const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+  for (let k = 0; k < n; k++) { const t = k / n, t2 = t * t, t3 = t2 * t; out.push([0, 1].map(j => .5 * (2 * p1[j] + (-p0[j] + p2[j]) * t + (2 * p0[j] - 5 * p1[j] + 4 * p2[j] - p3[j]) * t2 + (-p0[j] + 3 * p1[j] - 3 * p2[j] + p3[j]) * t3))); } }
+  out.push(pts[pts.length - 1]); return out; };
+const resample = (pts, ds) => { const L = [0]; for (let i = 1; i < pts.length; i++) L.push(L[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const tot = L[L.length - 1], n = Math.max(2, Math.round(tot / ds)), out = []; let k = 0;
+  for (let q = 0; q <= n; q++) { const d = tot * q / n; while (k < L.length - 2 && L[k + 1] < d) k++; const f = (d - L[k]) / Math.max(1e-9, L[k + 1] - L[k]); out.push([pts[k][0] + (pts[k + 1][0] - pts[k][0]) * f, pts[k][1] + (pts[k + 1][1] - pts[k][1]) * f]); }
+  return out; };
+// normal (pointing to the right of travel = out of the clay) for a polyline in (r, y)
+function profNormals(P) { return P.map((p, i) => { const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1; return [dy / l, -dx / l]; }); }
+// the full cross-section: underside of the foot, outer wall, rounded rim, inner wall, inner floor. zone: 0 bare clay, 1 outside, 2 rim, 3 inside
+function buildProfile(form, seed = 1) {
+  const F = FORMS[form] || FORMS.cup, rnd = K.rngOf('throw:' + form + seed);
+  let outer = resample(catmull(F.pts, 14), 1.1);
+  const H = outer[outer.length - 1][1];
+  // throwing ridges: a slow spiral of finger marks, fading at foot and rim
+  const ph = rnd() * 6.3, lam = 8 + rnd() * 3;
+  outer = outer.map(([r, y], i) => { const f = sm(F.glazeLine, F.glazeLine + 15, y) * sm(H, H - 10, y); return [r + f * (.32 * Math.sin(y / lam * 6.283 + ph) + .14 * Math.sin(y / (lam * .43) * 6.283 + 2 * ph)), y]; });
+  const on = profNormals(outer), w = F.w;
+  // inner wall: offset inward by the clay wall
+  let inner = outer.map(([r, y], i) => [r - on[i][0] * w, y - on[i][1] * w]).filter(([r, y]) => y > 10 + w && r > 1).reverse();
+  const floorY = inner.length ? inner[inner.length - 1][1] : 14;
+  // rim: a half round
+  const top = outer[outer.length - 1], it = inner[0] || [top[0] - w, top[1]], cx = (top[0] + it[0]) / 2, cy = (top[1] + it[1]) / 2, rr = Math.hypot(top[0] - it[0], top[1] - it[1]) / 2;
+  const a0 = Math.atan2(top[1] - cy, top[0] - cx), rim = []; for (let k = 1; k < 10; k++) { const a = a0 + Math.PI * k / 10; rim.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a)]); }
+  // the inner floor, sagging a little toward the middle
+  const fl = [], r0 = inner.length ? inner[inner.length - 1][0] : 10; for (let k = 1; k <= Math.ceil(r0 / 1.2); k++) { const r = r0 * (1 - k / Math.ceil(r0 / 1.2)); fl.push([r, floorY - 1.5 * (1 - r / r0)]); }
+  // underside: foot ring trimmed and the recess inside it
+  const f0 = outer[0], under = [[0, 4], [f0[0] - 8, 4], [f0[0] - 6, 1], [f0[0] - 4, 0], [f0[0] - 1, .3]];
+  const P = [...under, ...outer, ...rim, ...inner, ...fl];
+  const zone = [...under.map(() => 0), ...outer.map(([, y]) => y < F.glazeLine ? 0 : 1), ...rim.map(() => 2), ...inner.map(() => 3), ...fl.map(() => 3)];
+  return finishProfile(P, zone, 'lathe');
+}
+// an L-shaped test tile seen from the side (z, y): it stands on its foot; grooves and a ridge show how the glaze breaks and pools
+function tileProfile() {
+  const P = [], Z = [], add = (z, y, zo) => { P.push([z, y]); Z.push(zo); };
+  // bottom (bare), front edge of the foot, the foot's top, up the face with two grooves and a ridge, over the top, down the back
+  for (let z = -4; z <= 20; z += 2) add(z, 0, 0);
+  add(21.5, 1.5, 0); add(22, 4, 1); add(21, 5.6, 1);
+  for (let z = 19; z >= 5; z -= 1.5) add(z, 6, 1);
+  add(3.6, 6.8, 1);
+  for (let y = 8; y <= 70; y += 1) { let z = 3; if (y > 26 && y < 31) z = 3 - 1.6 * Math.sin((y - 26) / 5 * Math.PI); if (y > 42 && y < 47) z = 3 - 1.6 * Math.sin((y - 42) / 5 * Math.PI); if (y > 56 && y < 60) z = 3 + 1.2 * Math.sin((y - 56) / 4 * Math.PI); add(z, y, 1); }
+  for (let k = 1; k < 8; k++) { const a = Math.PI * k / 8; add(3 * Math.cos(a), 70 + 3 * Math.sin(a), 2); }
+  for (let y = 70; y >= 1; y -= 1.5) add(-3, y, y > 22 ? 1 : 0);
+  add(-3.6, .3, 0);
+  return finishProfile(P, Z, 'sweep');
+}
+function finishProfile(P, zone, kind) {
+  const n = P.length, N = profNormals(P), s = new Float32Array(n), kap = new Float32Array(n);
+  for (let i = 1; i < n; i++) s[i] = s[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]);
+  for (let i = 1; i < n - 1; i++) { const a1 = Math.atan2(P[i][1] - P[i - 1][1], P[i][0] - P[i - 1][0]), a2 = Math.atan2(P[i + 1][1] - P[i][1], P[i + 1][0] - P[i][0]); let d = a2 - a1; d = Math.atan2(Math.sin(d), Math.cos(d)); kap[i] = d / Math.max(.3, (s[i + 1] - s[i - 1]) / 2); }
+  // smooth the curvature a little, it drives how the glaze thins and pools
+  for (let it = 0; it < 3; it++) for (let i = 1; i < n - 1; i++) kap[i] = (kap[i - 1] + 2 * kap[i] + kap[i + 1]) / 4;
+  const h0 = new Float32Array(n);
+  for (let i = 0; i < n; i++) { if (!zone[i]) continue; let h = Math.exp(-kap[i] * 1.7); h = clamp(h, .3, 2.2); if (zone[i] === 3 && N[i][1] > 0) h += .55 * N[i][1]; if (N[i][1] > .3 && zone[i] === 1) h += .2 * N[i][1]; h0[i] = h; }
+  return { P, N, s, kap, zone, h0, kind, S: s[n - 1], H: Math.max(...P.map(p => p[1])), R: Math.max(...P.map(p => p[0])) };
+}
+// glaze running down the profile under gravity: a thin viscous film moves as h^3 times the slope
+function flow(pr, run, allowFoot) {
+  const n = pr.P.length, h = Float32Array.from(pr.h0), Y = pr.P.map(p => p[1]);
+  const glz = i => pr.zone[i] > 0 || (allowFoot && h[i] > .02);
+  if (run > .02) {
+    const steps = 160, dt = Math.min(3, run) * 2.2 / steps, q = new Float32Array(n);
+    for (let st = 0; st < steps; st++) {
+      for (let i = 0; i < n - 1; i++) { q[i] = 0; const ds = Math.max(.3, pr.s[i + 1] - pr.s[i]), slope = (Y[i] - Y[i + 1]) / ds;
+        const up = slope > 0 ? i : i + 1, dn = slope > 0 ? i + 1 : i; if (!(pr.zone[up] > 0 || h[up] > .02)) continue;
+        if (!(pr.zone[dn] > 0) && !allowFoot) continue; if (pr.kind === 'lathe' && pr.P[dn][0] < .5 && pr.zone[dn] === 0) continue;
+        let f = dt * Math.abs(slope) * h[up] * h[up] * h[up]; f = Math.min(f, .25 * h[up]); q[i] = slope > 0 ? f : -f; }
+      for (let i = 0; i < n - 1; i++) { h[i] -= q[i]; h[i + 1] += q[i]; }
+    }
+  }
+  return h;
+}
+
+// =====================================================================================================
+//  GEOMETRY: the profile turned on the wheel (lathe) or swept along a test tile, with per-vertex glaze thickness
+// =====================================================================================================
+function buildGeometry(pr, segs) {
+  const n = pr.P.length, lathe = pr.kind === 'lathe', J = segs, width = 46;
+  const nv = n * (J + 1) + (lathe ? 0 : 2 * n);
+  const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3), uv = new Float32Array(nv * 2), aT = new Float32Array(nv), aG = new Float32Array(nv), aThin = new Float32Array(nv);
+  for (let j = 0; j <= J; j++) { const u = j / J, th = u * Math.PI * 2, c = Math.cos(th), sn = Math.sin(th);
+    for (let i = 0; i < n; i++) { const k = j * n + i, [r, y] = pr.P[i], [nr, ny] = pr.N[i];
+      if (lathe) { pos.set([r * c, y, -r * sn], k * 3); nor.set([nr * c, ny, -nr * sn], k * 3); }
+      else { const x = (u - .5) * width; pos.set([x, y, r], k * 3); nor.set([0, ny, nr], k * 3); }
+      uv.set([u, pr.s[i] / pr.S], k * 2); } }
+  const idx = [];
+  for (let j = 0; j < J; j++) for (let i = 0; i < n - 1; i++) { const a = j * n + i, b = (j + 1) * n + i; if (lathe) idx.push(a, a + 1, b, b, a + 1, b + 1); else idx.push(a, b, a + 1, b, b + 1, a + 1); }
+  if (!lathe) { // end caps of the tile: a fan over the closed cross-section
+    const tri = THREE.ShapeUtils.triangulateShape(pr.P.map(p => new THREE.Vector2(p[0], p[1])), []);
+    for (const side of [0, 1]) { const base = n * (J + 1) + side * n, x = (side - .5) * width;
+      for (let i = 0; i < n; i++) { pos.set([x, pr.P[i][1], pr.P[i][0]], (base + i) * 3); nor.set([side ? 1 : -1, 0, 0], (base + i) * 3); uv.set([side, pr.s[i] / pr.S], (base + i) * 2); }
+      for (const t of tri) side ? idx.push(base + t[0], base + t[1], base + t[2]) : idx.push(base + t[0], base + t[2], base + t[1]); } }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setAttribute('aT', new THREE.BufferAttribute(aT, 1)); g.setAttribute('aG', new THREE.BufferAttribute(aG, 1)); g.setAttribute('aThin', new THREE.BufferAttribute(aThin, 1));
+  g.setIndex(idx); g.computeBoundingSphere(); g.computeBoundingBox();
+  g.userData = { pr, J, n, lathe }; return g;
+}
+// pour a fired glaze onto the geometry: thickness after running, varying around the pot so drips form tongues
+function applyGlaze(g, res, seed = 1) {
+  const { pr, J, n, lathe } = g.userData, aT = g.attributes.aT.array, aG = g.attributes.aG.array, aThin = g.attributes.aThin.array;
+  const run = res ? res.run : 0, app = res ? res.app : 1, foot = run > 1.25;
+  const levels = [.5, 1, 1.7].map(k => flow(pr, run * k, foot && k >= 1));
+  const rnd = K.rngOf('drip' + seed), ph = [0, 0, 0, 0].map(() => rnd() * 6.28);
+  for (let j = 0; j <= J; j++) { const th = j / J * Math.PI * 2;
+    let w = .5 + .22 * Math.sin(3 * th + ph[0]) + .16 * Math.sin(7 * th + ph[1]) + .3 * (Math.pow(.5 + .5 * Math.sin(13 * th + ph[2]), 6) - .2) + .1 * Math.sin(23 * th + ph[3]);
+    if (!lathe) w = .5 + .25 * Math.sin(j / J * 9 + ph[0]) + .25 * (Math.pow(.5 + .5 * Math.sin(j / J * 23 + ph[2]), 6) - .2);
+    w = clamp(w);
+    for (let i = 0; i < n; i++) { const k = j * n + i, h = w < .5 ? levels[0][i] + (levels[1][i] - levels[0][i]) * w * 2 : levels[1][i] + (levels[2][i] - levels[1][i]) * (w - .5) * 2;
+      const glazed = pr.zone[i] > 0 || h > .04; aG[k] = glazed ? clamp(pr.zone[i] > 0 ? 1 : h * 8) : 0; aT[k] = Math.max(.02, h) * .62 * app; aThin[k] = pr.h0[i] > 0 ? clamp((pr.h0[i] - h) / pr.h0[i], -1, 1) : 0; } }
+  if (!lathe) { const base = n * (J + 1); for (let side = 0; side < 2; side++) for (let i = 0; i < n; i++) { const k = base + side * n + i; aG[k] = pr.zone[i] > 0 ? 1 : 0; aT[k] = .2 * app; aThin[k] = .4; } }
+  for (const a of ['aT', 'aG', 'aThin']) g.attributes[a].needsUpdate = true;
+}
+
+// =====================================================================================================
+//  THE GLAZE MATERIAL: three.js physical (clearcoat for the glass) with the chemistry poured into its shader.
+//  Colour comes from a thickness look-up table the chemistry computes; transparent glazes are looked through
+//  at a slant, so they read deeper at grazing angles (Beer-Lambert along the view path). Crystals, crackle,
+//  hare's fur, oil spots, pinholes, crawling and speckle are drawn from 3-D cell noise on the clay's surface.
+// =====================================================================================================
+const GLSL_NOISE = `
+float h31(vec3 p){ p = fract(p * .1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
+vec3 h33(vec3 p){ p = vec3(dot(p, vec3(127.1, 311.7, 74.7)), dot(p, vec3(269.5, 183.3, 246.1)), dot(p, vec3(113.5, 271.9, 124.6))); return fract(sin(p) * 43758.5453123); }
+float vn3(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+  return mix(mix(mix(h31(i), h31(i + vec3(1,0,0)), f.x), mix(h31(i + vec3(0,1,0)), h31(i + vec3(1,1,0)), f.x), f.y), mix(mix(h31(i + vec3(0,0,1)), h31(i + vec3(1,0,1)), f.x), mix(h31(i + vec3(0,1,1)), h31(i + vec3(1,1,1)), f.x), f.y), f.z); }
+float fbm3(vec3 p){ float s = 0., a = .5; for (int i = 0; i < 4; i++) { s += a * vn3(p); p = p * 2.03 + 1.7; a *= .5; } return s; }
+// nearest and second-nearest feature points of a 3-D cell lattice: x = F1, y = F2, z = id of nearest; c = its centre
+vec3 cell3(vec3 p, out vec3 c){ vec3 i = floor(p), f = fract(p); float d1 = 9., d2 = 9., id = 0.; c = vec3(0.);
+  for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) { vec3 g = vec3(x, y, z), o = h33(i + g), r = g + o - f; float d = dot(r, r);
+    if (d < d1) { d2 = d1; d1 = d; id = h31(i + g + 7.7); c = i + g + o; } else if (d < d2) d2 = d; }
+  return vec3(sqrt(d1), sqrt(d2), id); }
+`;
+const VERT_HEAD = `attribute float aT; attribute float aG; attribute float aThin; varying float vT; varying float vG; varying float vThin; varying vec3 vObj; varying vec3 vObjN;`;
+const FRAG_HEAD = `
+uniform sampler2D uLut; uniform float uTM, uMelt, uFur, uVar, uOil, uPin, uCrawl, uSpeck, uCrack, uCrackL, uCrackShow, uGrow, uSeed, uGloss, uBodyRough, uIronLine;
+uniform vec3 uRaw, uGlow, uBodyC, uSpeckC, uCrackC; uniform vec4 uCA, uCB;
+varying float vT; varying float vG; varying float vThin; varying vec3 vObj; varying vec3 vObjN;
+float gH = 0., gCC = 1., gRough = .5, gMetal = 0.;
+vec3 lut(float t, float row){ return texture2D(uLut, vec2(clamp(t / uTM, 0., 1.) * (47. / 48.) + .5 / 48., (row + .5) / 4.)).rgb; }
+${GLSL_NOISE}
+// crystals of one population: 3-D seeds (cell size, radius); returns normalised distance to the nearest crystal and its needle pattern
+vec3 crys(vec3 p, vec3 n, vec4 P){ if (P.x <= 0.) return vec3(9.); vec3 c; vec3 q = p / P.x; vec3 k = cell3(q + uSeed * 3.1, c); if (k.z > P.z) return vec3(9.);
+  vec3 d = (q + uSeed * 3.1 - c) * P.x; d -= n * dot(d, n); float rr = P.y * (.75 + .5 * fract(k.z * 13.7));
+  vec3 T = normalize(cross(n, abs(n.y) < .9 ? vec3(0,1,0) : vec3(1,0,0))), B = cross(n, T); float a = atan(dot(d, B), dot(d, T));
+  float L = length(d) / rr; float needles = pow(abs(sin(a * (18. + 30. * fract(k.z * 7.3)) + 2. * sin(a * 3. + k.z * 20.) + L * 2.)), 6.);
+  return vec3(L, needles, k.z); }
+vec3 perturbH(vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDirection){ vec3 vSigmaX = normalize(dFdx(surf_pos)), vSigmaY = normalize(dFdy(surf_pos)), vN = surf_norm;
+  vec3 R1 = cross(vSigmaY, vN), R2 = cross(vN, vSigmaX); float fDet = dot(vSigmaX, R1) * faceDirection; vec3 vGrad = sign(fDet) * (dHdxy.x * R1 + dHdxy.y * R2); return normalize(abs(fDet) * surf_norm - vGrad); }
+`;
+const FRAG_COLOR = `
+{ float t = vT, g = vG; vec3 P = vObj, N = normalize(vObjN);
+  // crawling: the glaze pulls back into thick beaded islands, leaving bare clay
+  float crawl = 0.;
+  if (uCrawl > .01) { float nn = fbm3(P * .07 + uSeed); float th = .78 - uCrawl * .75; crawl = smoothstep(th - .015, th + .015, nn) * g; float edge = smoothstep(th - .07, th, nn) * (1. - crawl) * g; t += edge * .7; gH += edge * .8 - crawl * .6; }
+  float gg = g * (1. - crawl);
+  vec3 V = normalize(vViewPosition), vnrm = normalize(vNormal); float ndv = clamp(abs(dot(vnrm, V)), .18, 1.);
+  vec4 misc = texture2D(uLut, vec2(clamp(t / uTM, 0., 1.) * (47. / 48.) + .5 / 48., 3.5 / 4.));
+  float tEff = mix(t, t / ndv, misc.g * .85);
+  vec3 col = lut(tEff, 0.); gRough = misc.r;
+  if (uVar > .01) { float nn = fbm3(vec3(P.x * .05, P.y * .016, P.z * .05) + uSeed); float m = smoothstep(.42, .66, nn) * uVar; col = mix(col, lut(t, 1.), m); }
+  if (uFur > .01) { float st = vn3(vec3(P.x * .85, P.y * .022, P.z * .85) + uSeed) * (.5 + .5 * vn3(vec3(P.x * .3, P.y * .01, P.z * .3) + 2.)); float m = smoothstep(.3, .52, st) * uFur * clamp(vThin * 1.6 + .35, 0., 1.); col = mix(col, lut(t, 1.), m); gH += m * .05; }
+  if (uCA.x > 0. && uGrow > 0.) { vec3 a = crys(P, N, uCA), b = crys(P, N, uCB); vec3 k = a.x < b.x ? a : b; float R = k.x / max(uGrow, .001);
+    float m = smoothstep(1.02, .97, R) * gg; float rings = .5 + .5 * sin(R * 40. * uGrow);
+    vec3 cc = lut(t, 2.) * (.82 + .22 * k.y) * (.96 + .06 * rings); col = mix(col, cc, m); gRough = mix(gRough, gRough * .5, m); gH += m * k.y * .12 + smoothstep(.97, 1.04, R) * smoothstep(1.12, 1.04, R) * gg * .3; }
+  vec3 cc; vec3 sc = cell3(P * .65 + uSeed * 5.3, cc);
+  if (uOil > .01) { vec3 oc; vec3 o = cell3(P * .42 + uSeed * 2.1, oc); float r = .2 + .14 * fract(o.z * 9.1); float m = smoothstep(r, r * .55, o.x) * step(1. - uOil * .85, fract(o.z * 3.7)) * gg; col = mix(col, vec3(.42, .38, .34), m); gMetal = mix(gMetal, .9, m); gRough = mix(gRough, .16, m); }
+  if (uPin > .03) { float m = smoothstep(.1, .04, sc.x) * step(1. - uPin * .55, sc.z) * gg; col *= 1. - m * .7; gH -= m * 1.2; }
+  if (uSpeck > .01) { vec3 kc; vec3 k2 = cell3(P * .38 + 9.1, kc); float m = smoothstep(.17, .05, k2.x) * step(1. - uSpeck * .3, k2.z); col = mix(col, uSpeckC, m * mix(1., .75, gg) * smoothstep(2.4, .2, t * gg + .2)); }
+  // the clay body, raw where it is unglazed: grog and a little iron flashing
+  float gn = vn3(P * .9); vec3 body = uBodyC * (.9 + .16 * gn) * (1. - .2 * smoothstep(.82, .95, vn3(P * 3.1)));
+  col = mix(body, col, gg);
+  // before the glaze melts it is a chalky powder
+  vec3 rawc = uRaw * (.94 + .1 * vn3(P * 1.7));
+  col = mix(mix(body, rawc, gg), col, uMelt);
+  // crazing: two networks of hairline cracks (coarse and fine) where the glass was pulled apart as it cooled
+  if (uCrack > .01) { vec3 c1; vec3 k1 = cell3(P / uCrackL + uSeed, c1); vec3 c2; vec3 k2 = cell3(P / (uCrackL * .45) + uSeed * 1.3, c2);
+    float e1 = 1. - smoothstep(0., .045 + .02 * uCrack, k1.y - k1.x), e2 = (1. - smoothstep(0., .05, k2.y - k2.x)) * smoothstep(.3, .9, uCrack);
+    float m = max(e1, e2 * .55) * uCrackShow * gg * uMelt; col = mix(col, uCrackC, m * (.55 + .4 * uIronLine)); gH -= m * .25; }
+  diffuseColor.rgb = col;
+  gRough = mix(uBodyRough, mix(.88, gRough, uMelt), gg);
+  gCC = gg * uGloss * uMelt;
+  gH += gg * fbm3(P * .11) * .18 * uMelt;   // the gentle orange-peel of a melted surface
+}
+`;
+function makeGlazeMaterial() {
+  const U = { uLut: { value: null }, uTM: { value: 2.4 }, uMelt: { value: 0 }, uRaw: { value: new THREE.Color(.8, .78, .74) }, uGlow: { value: new THREE.Color(0, 0, 0) },
+    uFur: { value: 0 }, uVar: { value: 0 }, uOil: { value: 0 }, uPin: { value: 0 }, uCrawl: { value: 0 }, uSpeck: { value: 0 }, uCrack: { value: 0 }, uCrackL: { value: 8 }, uCrackShow: { value: 0 }, uIronLine: { value: 0 },
+    uGrow: { value: 0 }, uSeed: { value: 1.3 }, uGloss: { value: 1 }, uBodyRough: { value: .9 }, uBodyC: { value: new THREE.Color(.8, .78, .74) }, uSpeckC: { value: new THREE.Color(.12, .06, .03) },
+    uCrackC: { value: new THREE.Color(.2, .15, .1) }, uCA: { value: new THREE.Vector4(0, 0, 0, 0) }, uCB: { value: new THREE.Vector4(0, 0, 0, 0) } };
+  const m = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: .5, metalness: 0, clearcoat: 1, clearcoatRoughness: .04, ior: 1.52, envMapIntensity: 1, specularIntensity: .9 });
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, U);
+    sh.vertexShader = VERT_HEAD + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vT = aT; vG = aG; vThin = aThin; vObj = position; vObjN = normal;');
+    sh.fragmentShader = FRAG_HEAD + sh.fragmentShader
+      .replace('#include <color_fragment>', '#include <color_fragment>\n' + FRAG_COLOR)
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = clamp(gRough, .04, 1.);')
+      .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = gMetal;')
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n normal = perturbH(-vViewPosition, normal, vec2(dFdx(gH), dFdy(gH)) * .9, faceDirection);')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n totalEmissiveRadiance += uGlow;')
+      .replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\n material.clearcoat = clearcoat * gCC;');
+  };
+  m.customProgramCacheKey = () => 'kiln-glaze-1';
+  m.userData.U = U; return m;
+}
+// a fired result -> lookup texture and uniforms
+function lutTexture(res, tex) {
+  const N = 48, d = new Uint8Array(N * 4 * 4), enc = c => Math.round(clamp(c <= .0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - .055) * 255);
+  for (let i = 0; i < N; i++) {
+    const c0 = res.lut[i], c1 = res.alt[i] || c0, c2 = res.crys[i] || [.86, .85, .82], t = (i + .5) / N * res.TM;
+    d.set([...c0.map(enc), 255], (0 * N + i) * 4); d.set([...c1.map(enc), 255], (1 * N + i) * 4); d.set([...c2.map(enc), 255], (2 * N + i) * 4);
+    const rough = clamp(res.rough + .45 * (1 - Math.exp(-res.S * t)) * res.matte * .2 + (res.kaki > .2 ? .25 : 0)), trans = Math.exp(-res.S * t) * (res.M > .8 ? 1 : 0);
+    d.set([Math.round(rough * 255), Math.round(trans * 255), 0, 255], (3 * N + i) * 4);
+  }
+  if (tex && tex.image.width === N) { tex.image.data.set(d); tex.needsUpdate = true; return tex; }
+  const t = new THREE.DataTexture(d, N, 4, THREE.RGBAFormat); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.needsUpdate = true; return t;
+}
+function setMaterial(m, res, seed = 1) {
+  const U = m.userData.U;
+  if (!res) { U.uMelt.value = 0; U.uCA.value.set(0, 0, 0, 0); U.uCrack.value = 0; return; }
+  U.uLut.value = lutTexture(res, U.uLut.value); U.uTM.value = res.TM; U.uRaw.value.setRGB(...res.raw); U.uSeed.value = seed % 17 + .37;
+  U.uFur.value = res.fur > .12 ? res.fur : 0; U.uVar.value = res.variegate > .12 ? res.variegate : 0; U.uOil.value = res.oil > .1 ? res.oil : 0;
+  U.uPin.value = res.pin > .08 ? res.pin : 0; U.uCrawl.value = res.crawl > .04 ? res.crawl : 0;
+  const B = K.BODIES[res.body]; U.uSpeck.value = B.speck * (res.s.atm === 'red' ? 1.3 : .8); U.uBodyC.value.setRGB(...res.bodyC);
+  U.uSpeckC.value.setRGB(...(res.s.atm === 'red' ? [.05, .035, .03] : [.18, .08, .03]));
+  U.uGloss.value = clamp(res.gloss * 1.05); U.uBodyRough.value = .92;
+  U.uCrack.value = res.craze > .03 ? res.craze : 0; U.uCrackL.value = 3 + 26 * (1 - res.craze); U.uIronLine.value = sm(.3, 1.5, res.a.add.Fe);
+  const L = K.lab(res.main)[0]; U.uCrackC.value.setRGB(...(L > 45 ? [.16, .12, .09].map(v => v + (1 - sm(.3, 1.5, res.a.add.Fe)) * .45) : [.6, .55, .5]));
+  // crystals: the largest cohort, and the rest averaged, as two populations of seeds
+  const X = res.crystals; U.uCA.value.set(0, 0, 0, 0); U.uCB.value.set(0, 0, 0, 0);
+  if (X && X.cohorts.length) { const co = X.cohorts.slice().sort((a, b) => b[1] - a[1]), a = co[0], rest = co.slice(1).filter(c => c[1] > 1);
+    const cell = n => Math.sqrt(10000 / Math.max(.2, n)) * 1.1;
+    U.uCA.value.set(cell(a[0]), a[1], 1, 0);
+    if (rest.length) { const nb = rest.reduce((s, c) => s + c[0], 0), rb = rest.reduce((s, c) => s + c[0] * c[1], 0) / nb; U.uCB.value.set(cell(nb), rb, 1, 0); } }
+}
+
+// =====================================================================================================
+//  THE KILN: soft insulating brick, a cordierite shelf on posts, coiled elements in their grooves, and a
+//  burner port for the gas kiln. Studio light falls in through the open door.
+// =====================================================================================================
+function canvasTex(w, h, draw, rep) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; if (rep) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(...rep); } return t; }
+function noiseDots(g, w, h, n, col, rmax, rnd) { for (let i = 0; i < n; i++) { g.fillStyle = col(rnd()); g.beginPath(); g.arc(rnd() * w, rnd() * h, .3 + rnd() * rmax, 0, 6.3); g.fill(); } }
+function brickTexture(gas) { const rnd = K.rngOf('bricks' + gas);
+  return canvasTex(1024, 1024, (g, w, h) => {
+    g.fillStyle = gas ? '#c9b8a0' : '#e7dcc8'; g.fillRect(0, 0, w, h);
+    const bw = 256, bh = 128;
+    for (let row = 0; row < h / bh; row++) for (let col = -1; col < w / bw + 1; col++) { const x = col * bw + (row % 2) * bw / 2, y = row * bh, v = rnd();
+      const gr = g.createLinearGradient(x, y, x + bw, y + bh); const base = gas ? [196 - v * 30, 176 - v * 30, 150 - v * 34] : [232 - v * 22, 222 - v * 24, 202 - v * 26];
+      gr.addColorStop(0, `rgb(${base.map(c => c | 0)})`); gr.addColorStop(1, `rgb(${base.map((c, i) => (c - 12 - i * 3) | 0)})`); g.fillStyle = gr; g.fillRect(x + 2, y + 2, bw - 4, bh - 4);
+      // soot and heat-tint blooms
+      if (rnd() < .5) { const r2 = g.createRadialGradient(x + rnd() * bw, y + rnd() * bh, 2, x + bw / 2, y + bh / 2, 120); r2.addColorStop(0, gas ? 'rgba(60,40,25,.35)' : 'rgba(170,120,70,.18)'); r2.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = r2; g.fillRect(x, y, bw, bh); } }
+    // pitted, porous surface of insulating brick
+    noiseDots(g, w, h, 9000, v => `rgba(${90 + v * 40},${70 + v * 30},${50 + v * 20},${.15 + v * .25})`, 1.6, rnd);
+    noiseDots(g, w, h, 3000, v => `rgba(255,250,240,${.15 + v * .2})`, 1.2, rnd);
+    g.strokeStyle = 'rgba(90,70,50,.55)'; g.lineWidth = 3; for (let row = 0; row <= h / bh; row++) { g.beginPath(); g.moveTo(0, row * bh); g.lineTo(w, row * bh); g.stroke(); }
+    for (let row = 0; row < h / bh; row++) for (let col = 0; col <= w / bw + 1; col++) { const x = col * bw + (row % 2) * bw / 2; g.beginPath(); g.moveTo(x, row * bh); g.lineTo(x, row * bh + bh); g.stroke(); }
+  }, [2, 1.4]); }
+function shelfTexture() { const rnd = K.rngOf('shelf');
+  return canvasTex(1024, 1024, (g, w, h) => { const gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, '#b9ad9a'); gr.addColorStop(1, '#a89a85'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 60; i++) { const x = rnd() * w, y = rnd() * h, r = 30 + rnd() * 120, rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, `rgba(${rnd() < .5 ? '235,228,214' : '120,100,80'},${.12 + rnd() * .12})`); rg.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
+    noiseDots(g, w, h, 16000, v => `rgba(${70 + v * 60},${60 + v * 50},${50 + v * 40},${.2 + v * .3})`, 1.3, rnd);
+    noiseDots(g, w, h, 5000, v => `rgba(245,240,230,${.2 + v * .3})`, 1.6, rnd);
+    // old glaze drips from firings long ago
+    for (let i = 0; i < 7; i++) { const x = rnd() * w, y = rnd() * h, r = 8 + rnd() * 26, c = [['70,110,90'], ['40,30,25'], ['150,70,40'], ['60,80,140']][i % 4]; const rg = g.createRadialGradient(x - r * .3, y - r * .3, 1, x, y, r); rg.addColorStop(0, `rgba(${c},.95)`); rg.addColorStop(.8, `rgba(${c},.8)`); rg.addColorStop(1, `rgba(${c},0)`); g.fillStyle = rg; g.beginPath(); g.ellipse(x, y, r, r * (.6 + rnd() * .4), rnd() * 3, 0, 6.3); g.fill(); }
+  }, [1, 1]); }
+// blackbody colour (linear RGB, normalised) for a temperature in °C
+function blackbody(Tc) { const T = (Tc + 273.15) / 100; let r, g, b;
+  r = T <= 66 ? 255 : 329.698727446 * Math.pow(T - 60, -.1332047592); g = T <= 66 ? 99.4708025861 * Math.log(T) - 161.1195681661 : 288.1221695283 * Math.pow(T - 60, -.0755148492);
+  b = T >= 66 ? 255 : T <= 19 ? 0 : 138.5177312231 * Math.log(T - 10) - 305.0447927307;
+  const lin = c => { c = clamp(c / 255); return c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4); }; return [lin(r), lin(g), lin(b)]; }
+const glowI = Tc => Math.pow(Math.max(0, Tc - 480) / 820, 3.2);
+
+
+// =====================================================================================================
+//  SAVE: commissions done, tiles fired (the shelf), each commission's bench, daily records. Everything is
+//  re-checked on load; anything malformed is dropped rather than trusted.
+// =====================================================================================================
+const NC = K.COMMS.length, MAT_IDS = K.MATS.map(m => m.id), BODY_IDS = Object.keys(K.BODIES);
+const isObj = o => o && typeof o === 'object' && !Array.isArray(o);
+const num = (v, lo, hi, d) => (typeof v === 'number' && isFinite(v)) ? clamp(v, lo, hi) : d;
+function cleanRecipe(r) { const o = {}; if (!isObj(r)) return o; for (const k of Object.keys(r)) if (MAT_IDS.includes(k)) { const v = num(r[k], 0, K.M[k].add ? 20 : 100, null); if (v !== null) o[k] = +v.toFixed(2); } return o; }
+function cleanSched(s) { s = isObj(s) ? s : {}; return { peak: num(s.peak, 900, 1320, 1220), ramp: num(s.ramp, 50, 300, 150), hold: num(s.hold, 0, 120, 0), cool: num(s.cool, 50, 400, 400), xt: num(s.xt, 0, 1150, 0), xh: num(s.xh, 0, 6, 0), atm: s.atm === 'red' ? 'red' : 'ox' }; }
+const validCid = id => typeof id === 'string' && (K.COMMS.some(c => c.id === id) || id === 'sandbox' || /^d:\d{4}-\d\d-\d\d$/.test(id));
+function cleanBench(b, cid) { b = isObj(b) ? b : {}; const c = commById(cid);
+  return { A: Object.keys(cleanRecipe(b.A)).length ? cleanRecipe(b.A) : { ...(c && c.start || START) }, B: cleanRecipe(b.B), C: cleanRecipe(b.C), s: cleanSched(b.s), app: num(b.app, .6, 1.6, 1),
+    mode: ['tile', 'line', 'tri', 'pot'].includes(b.mode) ? b.mode : 'tile', body: BODY_IDS.includes(b.body) ? b.body : 'porcelain', form: Object.keys(FORMS).includes(b.form) ? b.form : 'jar' }; }
+function cleanTile(t) { if (!isObj(t) || !validCid(t.c)) return null; const r = cleanRecipe(t.r); if (!Object.keys(r).some(k => !K.M[k].add)) return null;
+  return { c: t.c, r, s: cleanSched(t.s), b: BODY_IDS.includes(t.b) ? t.b : 'porcelain', a: num(t.a, .6, 1.6, 1), l: num(t.l, 0, 100, 0), k: t.k === 'pot' ? 'pot' : 'tile', t: num(t.t, 0, 1e12, 0) }; }
+function cleanSave(s) {
+  const o = { v: 1, done: {}, used: {}, cur: 'clear', benches: {}, shelf: [], daily: {}, seen: 0, hints: {} };
+  if (!isObj(s)) return o;
+  if (isObj(s.done)) for (const k of Object.keys(s.done)) { const d = s.done[k]; if (!validCid(k) || !isObj(d)) continue; const lik = num(d.lik, 0, 100, null); if (lik === null || lik < K.PASS) continue;
+    o.done[k] = { lik, cost: num(d.cost, 0, 999, 99), fuel: num(d.fuel, 0, 9999, 999), tiles: Math.round(num(d.tiles, 1, 9999, 99)) }; }
+  if (isObj(s.used)) for (const k of Object.keys(s.used)) if (validCid(k)) { const v = num(s.used[k], 0, 99999, null); if (v !== null) o.used[k] = Math.round(v); }
+  if (validCid(s.cur)) o.cur = s.cur;
+  if (isObj(s.benches)) for (const k of Object.keys(s.benches)) if (validCid(k)) o.benches[k] = cleanBench(s.benches[k], k);
+  if (Array.isArray(s.shelf)) o.shelf = s.shelf.map(cleanTile).filter(Boolean).slice(-400);
+  if (isObj(s.daily)) for (const k of Object.keys(s.daily)) if (/^\d{4}-\d\d-\d\d$/.test(k) && isObj(s.daily[k])) { const d = s.daily[k], lik = num(d.lik, 0, 100, null); if (lik !== null) o.daily[k] = { lik, tiles: Math.round(num(d.tiles, 0, 9999, 0)), cost: num(d.cost, 0, 999, 0), fuel: num(d.fuel, 0, 9999, 0) }; }
+  o.seen = Math.round(num(s.seen, 0, 99, 0));
+  if (isObj(s.hints)) for (const k of Object.keys(s.hints)) if (validCid(k)) o.hints[k] = 1;
+  // the ladder is sequential: drop any finished commission whose predecessors are not finished
+  let n = 0; for (const c of K.COMMS) { if (o.done[c.id]) n++; else break; } K.COMMS.slice(n).forEach(c => delete o.done[c.id]);
+  if (!commOpen(o.cur, o)) o.cur = K.COMMS[Math.min(n, NC - 1)].id;
+  return o;
+}
+const START = { feldspar: 40, silica: 30, kaolin: 20, whiting: 10 };
+const ladderDone = (S = SAVE) => { let n = 0; for (const c of K.COMMS) { if (S.done[c.id]) n++; else break; } return n; };
+function commOpen(id, S = SAVE) { const n = ladderDone(S); if (id === 'sandbox') return true; if (/^d:/.test(id)) return n >= 6; const i = K.COMMS.findIndex(c => c.id === id); return i >= 0 && i <= n; }
+const todayKey = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const DAILIES = {};
+function commById(id) { if (id === 'sandbox') return SANDBOX; if (/^d:/.test(id || '')) { const k = id.slice(2); return DAILIES[k] || (DAILIES[k] = K.daily(k)); } return K.COMMS.find(c => c.id === id); }
+const SANDBOX = { id: 'sandbox', n: 'Sandbox', who: 'Your own studio', ask: 'No client. Any clay, any glaze, any fire. Share a glaze as a link.', body: null, form: null, T: null };
+let SAVE = cleanSave(RH.load('kiln', null));
+const persist = () => { RH.save('kiln', SAVE); RH.progress('kiln', ladderDone() / NC); };
+
+// =====================================================================================================
+//  SCENE
+// =====================================================================================================
+const cv = document.getElementById('gl');
+let renderer = null, ok3d = !NOGL;
+if (ok3d) try { renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: !LITE, powerPreference: 'high-performance', preserveDrawingBuffer: false }); if (!renderer.getContext()) throw new Error('no gl'); } catch (e) { ok3d = false; renderer = null; }
+let dpr = LITE ? .3 : Math.min(devicePixelRatio || 1, mob ? 1.6 : 2);
+const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(30, 1, 5, 6000);
+const SC = .01; // scene units are 100 mm; the pot is built in mm and scaled
+let keyL, fillL, rimL, hemi, glowL, bricksMat, coilsMat, portMat, shelfGroup, potGroup, tileGroup, composer = null, bloom = null;
+const studio = { k: 1 };
+if (ok3d) {
+  renderer.setPixelRatio(dpr); renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1; renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = !LITE; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  scene.background = new THREE.Color(0x0d0a08);
+  // the studio the glaze reflects: a dim room, a tall window-like softbox, a warm bounce off the kiln bricks
+  const es = new THREE.Scene();
+  es.add(new THREE.Mesh(new THREE.SphereGeometry(30, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide, vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }',
+    fragmentShader: 'varying vec3 vP; void main(){ vec3 n = normalize(vP); vec3 c = mix(vec3(.05,.04,.035), vec3(.16,.14,.12), smoothstep(-.3,.8,n.y)); c += vec3(.35,.22,.13) * smoothstep(.2,-.5,n.y) * .6; c += vec3(.45,.3,.18) * smoothstep(.2,-.9,n.z) * .5; gl_FragColor = vec4(c,1.); }' })));
+  const soft = canvasTex(128, 128, (g, w, h) => { const id = g.createImageData(w, h); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const u = Math.min(x, w - 1 - x) / 34, v = Math.min(y, h - 1 - y) / 34, a = Math.min(1, u) * Math.min(1, v), k = (y * w + x) * 4; id.data[k] = id.data[k + 1] = id.data[k + 2] = 255; id.data[k + 3] = 255 * a * a * (3 - 2 * a); } g.putImageData(id, 0, 0); });
+  const box = (w, h, p, col, k) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(k), alphaMap: soft, transparent: true, side: THREE.DoubleSide, depthWrite: false })); m.position.set(...p); m.lookAt(0, 1, 0); es.add(m); };
+  box(10, 14, [-9, 9, 14], 0xfff1e0, 5);     // tall softbox, front left: the main window in every glaze
+  box(3, 12, [11, 6, 10], 0xffffff, 3.4);    // a strip light, front right, for a crisp second highlight
+  box(16, 4, [0, 18, 2], 0xfff6ea, 1.6);     // ceiling
+  box(14, 5, [0, -6, 12], 0xffb070, .9);     // warm bounce from the bench
+  box(18, 10, [0, 4, -16], 0xc98a5a, .5);    // the kiln's back wall
+  const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(es, .035).texture; pm.dispose();
+  scene.environmentIntensity = .9;
+  // kiln chamber: bricks on five sides, open toward us
+  bricksMat = new THREE.MeshStandardMaterial({ map: brickTexture(false), roughness: .96, metalness: 0, color: 0xffffff, emissive: 0x000000, envMapIntensity: .35 });
+  const ch = new THREE.Group(); scene.add(ch);
+  const W = 9, Hh = 7.5, D = 7.5, wall = (w, h, p, r) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), bricksMat); m.position.set(...p); m.rotation.set(...r); m.receiveShadow = true; ch.add(m); return m; };
+  wall(W, Hh, [0, Hh / 2 - 1.2, -D / 2], [0, 0, 0]);
+  wall(D + 4, Hh, [-W / 2, Hh / 2 - 1.2, 0], [0, Math.PI / 2, 0]); wall(D + 4, Hh, [W / 2, Hh / 2 - 1.2, 0], [0, -Math.PI / 2, 0]);
+  wall(W, D + 4, [0, Hh - 1.2, 0], [Math.PI / 2, 0, 0]); wall(W, D + 4, [0, -1.2, 0], [-Math.PI / 2, 0, 0]);
+  // door frame: thick brick around the opening
+  const frameMat = new THREE.MeshStandardMaterial({ map: brickTexture(true), roughness: .95, color: 0x9a8a78, envMapIntensity: .25 });
+  for (const [w, h, x, y] of [[2.6, Hh + 2, -W / 2 - 1.1, Hh / 2 - 1.2], [2.6, Hh + 2, W / 2 + 1.1, Hh / 2 - 1.2], [W + 5, 1.6, 0, Hh - .4], [W + 5, 1.6, 0, -2]]) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, 1.4), frameMat); m.position.set(x, y, D / 2 + 1.3); ch.add(m); }
+  // heating elements: coiled wire in grooves along the walls
+  coilsMat = new THREE.MeshStandardMaterial({ color: 0x8a8580, roughness: .45, metalness: .7, emissive: 0x000000 });
+  const helix = (len) => { class H extends THREE.Curve { getPoint(t, o = new V3()) { const a = t * len / .13 * Math.PI * 2; return o.set(t * len - len / 2, Math.cos(a) * .07, Math.sin(a) * .07); } } return new THREE.TubeGeometry(new H(), Math.round(len * 90), .012, 5, false); };
+  const coilB = helix(W - .6), coilS = helix(D + 3);
+  for (const y of [.6, 2.6, 4.6]) { const g1 = new THREE.Mesh(coilB, coilsMat); g1.position.set(0, y, -D / 2 + .12); ch.add(g1);
+    for (const sx of [-1, 1]) { const g2 = new THREE.Mesh(coilS, coilsMat); g2.rotation.y = Math.PI / 2; g2.position.set(sx * (W / 2 - .12), y, 0); ch.add(g2); } }
+  // the burner port of the gas kiln, low on the back wall
+  portMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); const port = new THREE.Mesh(new THREE.CircleGeometry(.32, 32), portMat); port.position.set(-2.6, -.6, -D / 2 + .02); ch.add(port); port.visible = false; ch.userData.port = port; ch.userData.coils = ch.children.filter(c => c.material === coilsMat);
+  scene.userData.chamber = ch;
+  // shelf on three posts
+  shelfGroup = new THREE.Group(); scene.add(shelfGroup);
+  const shelfMat = new THREE.MeshStandardMaterial({ map: shelfTexture(), roughness: .9, metalness: 0, envMapIntensity: .4 });
+  const shelf = new THREE.Mesh(new THREE.BoxGeometry(7.6, .22, 5.6), shelfMat); shelf.position.y = -.11; shelf.receiveShadow = true; shelf.castShadow = true; shelfGroup.add(shelf);
+  for (const [x, z] of [[-3, -2], [3, -2], [0, 2.2]]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(.28, .28, 1, 20), shelfMat); p.position.set(x, -.72, z); shelfGroup.add(p); }
+  // lights
+  keyL = new THREE.SpotLight(0xfff0dd, 900, 40, .42, .65, 1.6); keyL.position.set(-4.5, 8, 10); keyL.target.position.set(0, .8, 0);
+  keyL.castShadow = !LITE; keyL.shadow.mapSize.set(mob ? 1024 : 2048, mob ? 1024 : 2048); keyL.shadow.radius = 7; keyL.shadow.bias = -.0002; keyL.shadow.normalBias = .02; keyL.shadow.camera.near = 6; keyL.shadow.camera.far = 22;
+  scene.add(keyL, keyL.target);
+  fillL = new THREE.DirectionalLight(0xcfdcff, .5); fillL.position.set(6, 3, 8); scene.add(fillL);
+  rimL = new THREE.DirectionalLight(0xffd2a8, 1.1); rimL.position.set(3, 5, -6); scene.add(rimL);
+  hemi = new THREE.HemisphereLight(0xfff2e2, 0x3a2a1f, .35); scene.add(hemi);
+  glowL = new THREE.PointLight(0xff8833, 0, 18, 1.3); glowL.position.set(0, 3, -1); scene.add(glowL);
+  potGroup = new THREE.Group(); scene.add(potGroup); tileGroup = new THREE.Group(); scene.add(tileGroup);
+}
+function useGas(on) { if (!ok3d) return; const ch = scene.userData.chamber; ch.userData.coils.forEach(c => c.visible = !on); ch.userData.port.visible = on; bricksMat.color.set(on ? 0xd6c3aa : 0xffffff); needRender(); }
+
+// ---------- pot and tile meshes ----------
+const potCache = {};
+let pot = null; // { form, mesh, mat, geo }
+function showPot(form) { if (!ok3d) return; if (!potCache[form]) { const pr = buildProfile(form, 3), geo = buildGeometry(pr, LITE ? 32 : mob ? 84 : 128), mat = makeGlazeMaterial(); const mesh = new THREE.Mesh(geo, mat); mesh.scale.setScalar(SC); mesh.castShadow = true; mesh.receiveShadow = true; potCache[form] = { form, mesh, mat, geo, pr }; }
+  if (pot && pot.mesh.parent) potGroup.remove(pot.mesh); pot = potCache[form]; potGroup.add(pot.mesh); tileGroup.visible = false; potGroup.visible = true; view.target = 'pot'; frame(); needRender(); }
+let tilePr = null; const tiles = [];
+function showTiles(n) { if (!ok3d) return; if (!tilePr) tilePr = tileProfile();
+  while (tiles.length < n) { const geo = buildGeometry(tilePr, LITE ? 6 : 16), mat = makeGlazeMaterial(), mesh = new THREE.Mesh(geo, mat); mesh.scale.setScalar(SC); mesh.castShadow = true; mesh.receiveShadow = true; tiles.push({ mesh, mat, geo }); }
+  tileGroup.clear(); const pos = tileLayout(n);
+  for (let i = 0; i < n; i++) { const t = tiles[i]; t.mesh.position.set(pos[i][0], 0, pos[i][1]); t.mesh.rotation.y = pos[i][2] || 0; tileGroup.add(t.mesh); }
+  potGroup.visible = false; tileGroup.visible = true; view.target = 'tiles'; frame(); needRender(); }
+function tileLayout(n) { if (n === 1) return [[0, 0, -.25]]; if (n <= 5) return Array.from({ length: n }, (_, i) => [(i - (n - 1) / 2) * .62, 0, -.08]);
+  const out = []; let i = 0; for (let row = 0; row < 4; row++) { const m = 4 - row; for (let k = 0; k < m && i < n; k++, i++) out.push([(k - (m - 1) / 2) * .62, -1.05 + row * .78, 0]); } return out; }
+
+// ---------- camera: turn the pot by dragging, pinch or scroll to zoom, two fingers to pan ----------
+const view = { yaw: -.5, pitch: .2, dist: 6.5, zoom: 1, pan: new V3(), target: 'pot', vyaw: 0, center: new V3(0, 1, 0), size: 2.4 };
+function frame() { if (!ok3d) return; const obj = view.target === 'pot' ? pot && pot.mesh : tileGroup; if (!obj) return;
+  const box = new THREE.Box3().setFromObject(obj); const c = box.getCenter(new V3()), sz = box.getSize(new V3()); view.center.copy(c); view.size = Math.max(sz.y * 1.15, Math.max(sz.x, sz.z) * .9, 1); view.pan.set(0, 0, 0); layoutCamera(); }
+function layoutCamera() { if (!ok3d) return;
+  const W = innerWidth, H = innerHeight, fr = freeRect(), fovV = camera.fov * Math.PI / 180;
+  // fit the piece in the free part of the screen (not under the bench or ticket)
+  const need = view.size / 2 / Math.tan(fovV / 2) * H / Math.max(80, fr.h) * 1.25, needW = view.size / 2 / Math.tan(fovV / 2) / (W / H) * W / Math.max(80, fr.w) * 1.15;
+  view.dist = Math.max(need, needW) / view.zoom;
+  camera.setViewOffset(W, H, W / 2 - (fr.x + fr.w / 2), H / 2 - (fr.y + fr.h / 2), W, H);
+  placeCamera(); }
+function placeCamera() { const p = view.pitch, d = view.dist, c = view.center.clone().add(view.pan);
+  camera.position.set(c.x + Math.sin(view.yawCam || 0) * Math.cos(p) * d, c.y + Math.sin(p) * d, c.z + Math.cos(view.yawCam || 0) * Math.cos(p) * d); camera.lookAt(c); camera.updateMatrixWorld();
+  if (potGroup) potGroup.rotation.y = view.yaw; if (tileGroup) tileGroup.rotation.y = view.target === 'tiles' ? view.yaw * .35 + .5 * 0 : 0; needRender(); }
+function freeRect() { const W = innerWidth, H = innerHeight, b = document.getElementById('bench').getBoundingClientRect(), t = document.getElementById('ticket').getBoundingClientRect();
+  let x = 0, y = 0, w = W, h = H;
+  if (b.width < W * .8) { w = Math.max(100, b.left - 8); } else { h = Math.max(100, b.top); }
+  const top = t.bottom + 6; if (t.width > w * .7 || b.width >= W * .8) { y = Math.min(top, h * .5); h -= y; } else { y = 50; h -= 50; }
+  return { x, y, w, h }; }
+const ptrs = new Map(); let pinch = null, lastTap = 0;
+if (ok3d) {
+  cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); view.vyaw = 0;
+    if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), z: view.zoom, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, pan: view.pan.clone() }; }
+    const now = performance.now(); if (now - lastTap < 300 && ptrs.size === 1) { view.zoom = 1; view.pitch = .2; frame(); } lastTap = now;
+    if (anim) skipAnim(); foldBench(true); });
+  cv.addEventListener('pointermove', e => { const p = ptrs.get(e.pointerId); if (!p) return; const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+    if (ptrs.size === 1) { view.yaw += dx * .008; view.vyaw = dx * .008; view.pitch = clamp(view.pitch + dy * .004, -.05, .95); placeCamera(); wake(); }
+    else if (ptrs.size === 2 && pinch) { const [a, b] = [...ptrs.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y); view.zoom = clamp(pinch.z * d / pinch.d, .6, 3.2);
+      const mx = (a.x + b.x) / 2 - pinch.mx, my = (a.y + b.y) / 2 - pinch.my, k = view.dist / innerHeight * .9; const right = new V3().setFromMatrixColumn(camera.matrixWorld, 0), up = new V3().setFromMatrixColumn(camera.matrixWorld, 1);
+      view.pan.copy(pinch.pan).addScaledVector(right, -mx * k).addScaledVector(up, my * k); view.pan.clampLength(0, view.size * .8); layoutCamera(); } });
+  const up = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; wake(); };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  cv.addEventListener('wheel', e => { e.preventDefault(); view.zoom = clamp(view.zoom * Math.exp(-e.deltaY * .0012), .6, 3.2); layoutCamera(); }, { passive: false });
+}
+
+// ---------- render on demand ----------
+let dirty = true, raf = 0, last = performance.now(), slowF = 0, nFrames = 0;
+const needRender = () => { dirty = true; wake(); };
+function wake() { if (!raf && ok3d) raf = requestAnimationFrame(loop); }
+function loop(now) { raf = 0; const dt = Math.min(.05, (now - last) / 1000); last = now; let busy = false;
+  if (Math.abs(view.vyaw) > 1e-4 && !ptrs.size) { view.yaw += view.vyaw; view.vyaw *= .92; placeCamera(); busy = true; }
+  if (anim) { stepAnim(dt); busy = true; }
+  if (dirty || busy) { render(); dirty = false; nFrames++;
+    // a phone that struggles gets fewer pixels
+    if (!LITE && busy) { slowF = slowF * .9 + (dt > .034 ? .1 : 0); if (slowF > .6 && dpr > 1) { dpr = Math.max(1, dpr - .3); resize(); slowF = 0; } } }
+  if (busy || dirty) raf = requestAnimationFrame(loop); }
+function render() { if (!ok3d) return; if (composer && bloom.enabled) composer.render(); else renderer.render(scene, camera); }
+function resize() { if (!ok3d) return; const w = innerWidth, h = innerHeight; renderer.setPixelRatio(dpr); renderer.setSize(w, h, false); camera.aspect = w / h; camera.fov = w / h < .8 ? 36 : 28; camera.updateProjectionMatrix();
+  if (composer) { composer.setPixelRatio(dpr); composer.setSize(w, h); } layoutCamera(); needRender(); }
+
+// =====================================================================================================
+//  FIRING: time-lapsed. The door shuts, the bricks go from dull red to yellow-white, everything glows the same
+//  colour at the peak, then the kiln cools and the colours come back. Crystals grow during the hold.
+// =====================================================================================================
+let anim = null;
+function timeline(s, xh) { const heat = 1.5, hold = .25 + Math.min(.7, s.hold / 60 * .5), cool1 = 1.1, xhold = s.xt && s.xh ? .5 + Math.min(1.6, s.xh * .35) : 0, cool2 = .9, open = .7;
+  return { heat, hold, cool1, xhold, cool2, open, total: heat + hold + cool1 + xhold + cool2 + open }; }
+function tempAt(a, t) { const s = a.s, L = a.L; if (t < L.heat) return 20 + (s.peak - 20) * FX.ease.inOutQuad(t / L.heat); t -= L.heat; if (t < L.hold) return s.peak; t -= L.hold;
+  const tx = s.xt && s.xh ? s.xt : 900; if (t < L.cool1) return s.peak + (tx - s.peak) * FX.ease.outQuad(t / L.cool1); t -= L.cool1; if (t < L.xhold) return tx; t -= L.xhold;
+  if (t < L.cool2) return tx + (120 - tx) * FX.ease.outQuad(t / L.cool2); return 60; }
+function startAnim(items, s, onDone) {
+  if (!ok3d || LITE || instant) { items.forEach(it => { setMaterial(it.mat, it.res, it.seed); finishMat(it); }); needRender(); onDone(); return; }
+  const L = timeline(s); anim = { t: 0, items, s, L, onDone, pinged: false };
+  items.forEach(it => { setMaterial(it.mat, it.res, it.seed); const U = it.mat.userData.U; U.uMelt.value = 0; U.uGrow.value = 0; U.uCrackShow.value = 0; });
+  useGas(s.atm === 'red'); document.getElementById('led').style.display = 'block'; document.body.classList.add('firing');
+  if (!bloom) { composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: mob ? 0 : 4 })); composer.addPass(new RenderPass(scene, camera)); bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .7, .6, .78); composer.addPass(bloom); composer.addPass(new OutputPass()); resize(); }
+  bloom.enabled = true; FX.sfx('place'); roar(s); wake(); }
+function finishMat(it) { const U = it.mat.userData.U; U.uMelt.value = it.res ? it.res.M * .999 + .001 : 0; U.uGrow.value = 1; U.uCrackShow.value = 1; U.uGlow.value.setRGB(0, 0, 0); }
+function stepAnim(dt) { const a = anim; a.t += dt; const L = a.L, T = tempAt(a, a.t), bb = blackbody(T), I = glowI(T);
+  // studio light fades while the door is shut
+  const doorShut = sm(0, .3, a.t) * (1 - sm(L.total - L.open, L.total, a.t));
+  studio.k = 1 - doorShut * .97; keyL.intensity = 900 * studio.k; fillL.intensity = .5 * studio.k; rimL.intensity = 1.1 * studio.k; hemi.intensity = .35 * studio.k + .05; scene.environmentIntensity = .9 * studio.k + .15 * I;
+  bricksMat.emissive.setRGB(bb[0] * I * 2.2, bb[1] * I * 2.2, bb[2] * I * 2.2); coilsMat.emissive.setRGB(bb[0] * I * 3.4, bb[1] * I * 3.2, bb[2] * I * 3);
+  if (portMat) portMat.color.setRGB(Math.min(1, .2 + I * 2) * (a.s.atm === 'red' ? 1 : 0), .35 * I * 2, .6 * I * 2 * (a.s.atm === 'red' ? 1 : 0));
+  glowL.color.setRGB(...bb); glowL.intensity = I * 60;
+  renderer.toneMappingExposure = 1 / (1 + I * 1.4);
+  const inHold = a.t > L.heat + L.hold + L.cool1 && a.t < L.heat + L.hold + L.cool1 + L.xhold, cooled = a.t > L.heat + L.hold;
+  for (const it of a.items) { const U = it.mat.userData.U, r = it.res; if (!r) continue;
+    U.uMelt.value = clamp(sm(r.Tm - 260, r.Tm - 40, Math.min(T, a.s.peak) + (cooled ? 999 : 0)) * r.M) * .999 + .001;
+    if (cooled) U.uMelt.value = r.M * .999 + .001;
+    U.uGlow.value.setRGB(bb[0] * I * 1.6, bb[1] * I * 1.6, bb[2] * I * 1.6);
+    const gs = L.heat + L.hold + L.cool1 * .4; U.uGrow.value = r.crystals ? clamp((a.t - gs) / (L.cool1 * .6 + L.xhold + L.cool2 * .4)) : 0;
+    U.uCrackShow.value = sm(L.total - L.open * .9, L.total, a.t); }
+  if (!a.pinged && a.t > L.total - L.open * .8) { a.pinged = true; const cz = Math.max(...a.items.map(it => it.res ? it.res.craze : 0)); if (cz > .03) ping(cz); FX.sfx('place'); }
+  const led = document.getElementById('led'), hrs = (a.s.peak - 600) / a.s.ramp + 580 / 220;
+  led.innerHTML = Math.round(T) + '°C' + (inHold ? '<small>HOLD ' + a.s.xt + '°</small>' : a.t < L.heat ? '<small>' + (a.s.atm === 'red' ? 'REDUCTION' : 'RAMP') + '</small>' : a.t < L.heat + L.hold ? '<small>PEAK</small>' : '<small>COOL</small>');
+  if (a.t >= L.total) endAnim(); }
+function skipAnim() { if (!anim) return; anim.t = anim.L.total; }
+function endAnim() { const a = anim; anim = null; studio.k = 1; keyL.intensity = 900; fillL.intensity = .5; rimL.intensity = 1.1; hemi.intensity = .35; scene.environmentIntensity = .9; bricksMat.emissive.setRGB(0, 0, 0); coilsMat.emissive.setRGB(0, 0, 0); glowL.intensity = 0; renderer.toneMappingExposure = 1;
+  if (portMat) portMat.color.setRGB(0, 0, 0); a.items.forEach(finishMat); if (bloom) bloom.enabled = false; document.getElementById('led').style.display = 'none'; document.body.classList.remove('firing'); needRender(); a.onDone(); }
+let roarNode = null;
+function roar(s) { if (FX.muted) return; try { const n = Math.round(4); for (let i = 0; i < n; i++) FX.tone({ noise: 1, f: s.atm === 'red' ? 260 : 140, q: .5, dur: 1.4, vol: s.atm === 'red' ? .14 : .06, attack: .4, delay: i * .9 }); FX.tone({ f: 55, type: 'sine', dur: 3.6, vol: .07, attack: .6 }); } catch (e) {} }
+function ping(cz) { if (FX.muted) return; const n = 3 + Math.round(cz * 9); for (let i = 0; i < n; i++) FX.tone({ f: 2400 + Math.random() * 2600, type: 'sine', dur: .09, vol: .05 + Math.random() * .05, delay: .2 + Math.random() * 1.6 + i * .08 }); }
+let instant = false;
+
+// =====================================================================================================
+//  2-D DRAWINGS: test tiles for the shelf and result card (and the whole pot when WebGL is missing)
+// =====================================================================================================
+const enc = c => Math.round(clamp(c <= .0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - .055) * 255);
+const lutAt = (arr, res, t) => arr[clamp(Math.floor(t / res.TM * arr.length), 0, arr.length - 1)];
+function drawTile(c, res, seed = 1) {
+  const g = c.getContext('2d'), W = c.width, H = c.height; g.clearRect(0, 0, W, H); if (!res) return;
+  const rnd = K.rngOf('tile' + seed), img = g.createImageData(W, H), d = img.data, foot = H * .8, top = H * .06, pad = W * .1;
+  const runK = clamp(res.run, 0, 2.2), app = res.app;
+  for (let y = 0; y < H; y++) { const v = (y - top) / (foot - top);
+    for (let x = 0; x < W; x++) { const k = (y * W + x) * 4, u = (x - pad) / (W - 2 * pad); if (u < 0 || u > 1 || y < top + Math.max(0, (Math.abs(u - .5) > .44 ? (Math.abs(u - .5) - .44) * 40 : 0))) continue;
+      const shade = .86 + .18 * Math.sin(u * Math.PI) - .06 * v;
+      let glz = y < foot + (runK > 1 ? (runK - 1) * 10 * (.5 + .5 * Math.sin(u * 23 + seed)) : 0);
+      if (y >= H * .96) continue;
+      let col;
+      if (!glz) { col = res.bodyC.map(c => c * (.9 + .15 * rnd())); }
+      else {
+        // thickness: thin at the top edge and on the ridge, pooled in the grooves and gathered at the foot by running
+        let t = 1 - .55 * Math.exp(-(((v) / .06) ** 2)); const gv = [.34, .55], rv = .72;
+        for (const gq of gv) t += .9 * Math.exp(-(((v - gq) / .025) ** 2)) - .35 * Math.exp(-(((v - gq + .035) / .015) ** 2));
+        t -= .45 * Math.exp(-(((v - rv) / .02) ** 2));
+        t *= 1 - runK * .22 * (1 - v); t += runK * .5 * Math.exp(-(((v - 1) / .1) ** 2));
+        if (Math.abs(u - .5) > .44) t *= .6;
+        t = Math.max(.08, t) * .62 * app;
+        let cc = lutAt(res.lut, res, t);
+        if (res.variegate > .15) { const n = .5 + .5 * Math.sin(u * 11 + v * 3 + seed) * Math.sin(v * 17 - u * 5); if (n > .62) cc = cc.map((q, i) => q * (1 - res.variegate * .8) + lutAt(res.alt, res, t)[i] * res.variegate * .8); }
+        if (res.fur > .15) { const n = Math.sin(u * 140 + seed * 3) * Math.sin(u * 37 + 1.3) ; if (n > .35 && v > .08) cc = cc.map((q, i) => q * (1 - res.fur * .7) + lutAt(res.alt, res, t)[i] * res.fur * .7); }
+        if (res.M < 1) cc = cc.map((q, i) => q * res.M + res.raw[i] * (1 - res.M) * .95);
+        col = cc.map(q => q * shade);
+        // a glossy surface reflects the window: a soft vertical highlight
+        const hl = Math.exp(-(((u - .3) / .07) ** 2)) * res.gloss * .55 + Math.exp(-(((u - .78) / .025) ** 2)) * res.gloss * .3;
+        col = col.map(q => q + hl * (.9 - q) * .7);
+      }
+      d[k] = enc(col[0]); d[k + 1] = enc(col[1]); d[k + 2] = enc(col[2]); d[k + 3] = 255; } }
+  g.putImageData(img, 0, 0);
+  const sx = W / 46, clip = () => { g.save(); g.beginPath(); g.rect(pad, top, W - 2 * pad, foot - top); g.clip(); };
+  if (res.crystals && res.crystals.r > 1) { clip(); const X = res.crystals, n = Math.max(1, Math.min(30, Math.round(X.n * 46 * 70 / 10000 * 1.5) + 1)); const cc = lutAt(res.crys, res, .62).map(enc);
+    for (let i = 0; i < n; i++) { const x = pad + rnd() * (W - 2 * pad), y = top + rnd() * (foot - top), r = Math.max(2, X.r * sx * (.6 + rnd() * .5));
+      g.fillStyle = `rgba(${cc},.92)`; g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill(); g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = .6;
+      for (let a = 0; a < 6.28; a += .18) { g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); g.stroke(); } }
+    g.restore(); }
+  if (res.craze > .03) { clip(); g.strokeStyle = res.a.add.Fe > .4 ? 'rgba(60,40,25,.55)' : 'rgba(90,80,70,.35)'; g.lineWidth = .7; const cell = (3 + 26 * (1 - res.craze)) * sx;
+    for (let i = 0; i < W * H / (cell * cell) * 1.6; i++) { let x = rnd() * W, y = rnd() * H; g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 3; k++) { const a = rnd() * 6.28; x += Math.cos(a) * cell * .7; y += Math.sin(a) * cell * .7; g.lineTo(x, y); } g.stroke(); } g.restore(); }
+  if (res.pin > .1 || res.oil > .1 || res.crawl > .05) { clip(); for (let i = 0; i < 60; i++) { const x = rnd() * W, y = top + rnd() * (foot - top);
+      if (res.pin > .1 && rnd() < res.pin) { g.fillStyle = 'rgba(20,12,8,.6)'; g.beginPath(); g.arc(x, y, .9, 0, 6.3); g.fill(); }
+      if (res.oil > .1 && rnd() < res.oil) { g.fillStyle = 'rgba(190,180,170,.85)'; g.beginPath(); g.arc(x, y, 1.3, 0, 6.3); g.fill(); }
+      if (res.crawl > .05 && rnd() < res.crawl * .5) { g.fillStyle = `rgb(${res.bodyC.map(enc)})`; g.beginPath(); g.ellipse(x, y, 3 + rnd() * 5, 2 + rnd() * 4, rnd() * 3, 0, 6.3); g.fill(); } }
+    g.restore(); }
+}
+// the whole pot in 2-D: the same thickness model down the profile, shaded as a turned cylinder
+function drawPot2D(c, res, form) {
+  const g = c.getContext('2d'), W = c.width, H = c.height; g.clearRect(0, 0, W, H);
+  const pr = buildProfile(form, 3), h = flow(pr, res ? res.run : 0, res && res.run > 1.25), outer = []; pr.P.forEach((p, i) => { if (pr.zone[i] === 1 || (pr.zone[i] === 0 && p[1] > .5 && i > 4)) outer.push(i); });
+  const sc = Math.min(H * .78 / pr.H, W * .42 / pr.R), cx = W / 2, by = H * .9, img = g.getImageData(0, 0, W, H), d = img.data;
+  const rows = []; for (const i of outer) rows.push([pr.P[i][1], pr.P[i][0], pr.zone[i], h[i]]);
+  rows.sort((a, b) => a[0] - b[0]);
+  for (let py = Math.floor(by - pr.H * sc); py <= by; py++) { const y = (by - py) / sc; let j = rows.findIndex(r => r[0] >= y); if (j < 0) continue; const r = rows[j]; const rad = r[1] * sc;
+    for (let px = Math.floor(cx - rad); px <= cx + rad; px++) { const nx = (px - cx) / rad, nz = Math.sqrt(Math.max(0, 1 - nx * nx)), k = (py * W + px) * 4;
+      let col; const glz = r[2] > 0 || r[3] > .05;
+      if (!res || !glz) col = (res ? res.bodyC : [.8, .78, .74]).map(q => q * (.35 + .65 * nz));
+      else { const t = Math.max(.05, r[3]) * .62 * res.app / Math.max(.3, nz * .8 + .2) ** (.5 * (1 - res.opac)); let cc = lutAt(res.lut, res, t); if (res.M < 1) cc = cc.map((q, i) => q * res.M + res.raw[i] * (1 - res.M));
+        const dif = .3 + .7 * Math.max(0, nz * .8 - nx * .35), spec = Math.pow(Math.max(0, 1 - Math.hypot(nx + .45, (y / pr.H - .6) * .6) * 2.2), 6) * res.gloss;
+        col = cc.map(q => q * dif + spec * .8); }
+      d[k] = enc(col[0]); d[k + 1] = enc(col[1]); d[k + 2] = enc(col[2]); d[k + 3] = 255; } }
+  g.putImageData(img, 0, 0);
+}
+
+
+// =====================================================================================================
+//  THE STUDIO: ticket, bench (recipe card + kiln controller), firing, results, the shelf and the book
+// =====================================================================================================
+const $ = id => document.getElementById(id), esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const st = { comm: null, bench: null, tab: 'A', last: null, results: null, busy: false, picker: false, drawer: null, sel: null };
+const U = () => { const u = K.unlocked(ladderDone()); if (st.comm && st.comm.id === 'sandbox' && ladderDone() >= NC) u.xhold = true; return u; };
+const benchOf = id => SAVE.benches[id] || (SAVE.benches[id] = cleanBench(null, id));
+const bodyOf = () => st.comm.body || st.bench.body, formOf = () => st.comm.form || st.bench.form;
+const hexOf = c => K.lin2hex(c);
+const fmt$ = v => '$' + v.toFixed(2), CONES = [[999, '06'], [1063, '04'], [1101, '03'], [1120, '02'], [1137, '01'], [1154, '1'], [1162, '2'], [1168, '3'], [1186, '4'], [1196, '5'], [1222, '6'], [1240, '7'], [1263, '8'], [1280, '9'], [1305, '10'], [1315, '11'], [1326, '12']];
+const coneOf = Te => { let c = CONES[0][1]; for (const [t, n] of CONES) if (Te >= t - 8) c = n; return Te < 990 ? '<06' : c; };
+const HINTS = {
+  clear: 'From an old notebook: "Glass wants more heat, or more flux. Too much flux and it cracks like ice."',
+  honey: 'From an old notebook: "Rust in the glass gives honey; more rust, darker honey. The electric kiln keeps it amber."',
+  matteblue: 'From an old notebook: "Shine is glass. A dry surface is glass that grew crystals as it cooled, or glass with too much clay to melt smooth. Cool it slowly."',
+  fit: 'From an old notebook: "Soda swells most with heat and shrinks most as it cools. Talc and silica stretch the glass less."',
+  celadon: 'From an old notebook: "Song potters starved the fire of air, and used hardly any iron at all. Thick, very thick."',
+  cugreen: 'From an old notebook: "Copper burns green in a clean fire."',
+  oxblood: 'From an old notebook: "Copper red needs a smoky fire, a runny glaze, a pinch of tin and very little copper. Too much and it turns to liver."',
+  tenmoku: 'From an old notebook: "Iron past what the glass can hold turns it black; where it runs thin, the iron shows its rust."',
+  harefur: 'From an old notebook: "The fur is iron dragged down by glaze that flows. Fire hotter, or hold longer, and lay it on thick."',
+  kaki: 'From an old notebook: "Even more iron, and a slow cool, and the rust crystals bloom across the whole skin."',
+  ge: 'From an old notebook: "Make the glaze shrink more than the clay: soda, and plenty of it. A slow cool for the fat surface."',
+  pink: 'From an old notebook: "Chrome is green. Chrome in tin with lime is pink. Zinc turns it brown. A whisper of chrome only."',
+  rutile: 'From an old notebook: "Rutile in a runny glaze, cooled slowly, breaks into blue streaks. Feed it a little cobalt."',
+  turq: 'From an old notebook: "Copper in a glaze of soda, not lime, is turquoise. Soda glazes craze: the boron frit and lithium swell less."',
+  crysbig: 'From an old notebook: "Zinc, silica, soda, and almost no clay. Fire high to melt the seeds away, then fall quickly and hold hot for hours: few crystals, large."',
+  plum: 'From an old notebook: "Manganese in a soda glaze is purple; in a lime glaze, brown."',
+  crysblue: 'From an old notebook: "Hold lower, and many crystals start at once. Cobalt goes into the crystals."',
+  oil: 'From an old notebook: "Near its peak, iron gives off gas. Stop right there; do not hold; let it fall fast, and the bursts freeze as silver."',
+};
+
+// ---------- the ticket: who wants what ----------
+function wantWords(T) { if (!T) return 'Fire anything.'; const w = [];
+  w.push(T.gloss > .8 ? 'glossy' : T.gloss > .5 ? 'satin' : 'matte');
+  if (T.op != null) w.push(T.op < .45 ? 'see-through' : T.op > .8 ? 'opaque' : 'translucent');
+  if (T.craze === 'none') w.push('no crazing'); if (T.craze === 'want') w.push('crackled');
+  if (T.crys) w.push(T.crys.r > 5 ? 'crystals ≥ ' + Math.round(T.crys.r * 2) + ' mm, few' : 'many small crystals');
+  if (T.fur) w.push('streaked'); if (T.var) w.push('mottled'); if (T.oil) w.push('silver spots');
+  return w.join(' · '); }
+function swatchCSS(T) { if (!T) return 'radial-gradient(circle at 35% 30%,#fff8,transparent 30%),conic-gradient(#9dbdaa,#b37a27,#27170e,#4f6bd0,#9a1d33,#9dbdaa)';
+  const hi = T.gloss > .5 ? `radial-gradient(circle at 34% 28%,rgba(255,255,255,${.25 + .5 * T.gloss}) 0 12%,transparent 30%),` : '';
+  return hi + `radial-gradient(circle at 50% 55%,${T.col} 0 52%,${T.brk || T.col} 80%,${T.brk || T.col})`; }
+function drawTicket() { const c = st.comm, el = $('ticket'), d = SAVE.done[c.id] || (c.daily && SAVE.daily[c.daily]), used = SAVE.used[c.id] || 0;
+  const seals = d ? sealsOf(c, d) : '';
+  el.innerHTML = `<div class="sw" style="background:${swatchCSS(c.T)}"></div><div class="who">${esc(c.who)}${c.body ? ' · ' + K.BODIES[c.body].n.toLowerCase() : ''}</div><div class="tt">${esc(c.n)}</div>
+    <div class="ask">${esc(c.ask)}${SAVE.hints[c.id] && HINTS[c.id] ? '<br><i style="color:#7a5a3a">' + esc(HINTS[c.id]) + '</i>' : ''}</div><div class="want">${esc(wantWords(c.T))}${c.T ? ' · tiles used ' + used + (c.par ? ' (par ' + c.par + ')' : '') : ''}</div>${seals ? `<div class="seals" title="likeness · thrift · fuel · few tiles">${seals}</div>` : ''}`;
+}
+function sealsOf(c, d) { if (!c.ref) return '●'; const p = K.pars(c); return [d.lik >= 90, d.cost <= p.cost, d.fuel <= p.fuel, d.tiles <= p.tiles].map(b => b ? '●' : '○').join(''); }
+$('ticket').onclick = () => { $('ticket').classList.toggle('open'); FX.sfx('tick'); setTimeout(layoutCamera, 30); };
+
+// ---------- the bench ----------
+function openComm(id, opts = {}) { if (!commOpen(id)) return; const c = commById(id); if (!c) return;
+  st.comm = c; SAVE.cur = id; st.bench = benchOf(id); if (c.body) st.bench.body = c.body; if (st.bench.mode !== 'tile' && st.bench.mode !== 'pot' && !U().seger && false) st.bench.mode = 'tile';
+  persist(); drawTicket(); drawBench(); showResult(null);
+  const last = [...SAVE.shelf].reverse().find(t => t.c === id && t.k === 'pot');
+  st.last = last ? K.fire(last.r, last.s, last.b, last.a) : null;
+  showPot(formOf()); if (ok3d) { setMaterial(pot.mat, st.last, 3); applyGlaze(pot.geo, st.last || rawRes(), 3); if (!st.last) setRaw(pot.mat, st.bench.A); else { pot.mat.userData.U.uMelt.value = st.last.M; pot.mat.userData.U.uGrow.value = 1; pot.mat.userData.U.uCrackShow.value = 1; } useGas(st.bench.s.atm === 'red'); }
+  else draw2D();
+  needRender(); }
+function rawRes() { return { run: 0, app: st.bench.app }; }
+function setRaw(m, recipe) { const U2 = m.userData.U; U2.uMelt.value = 0; U2.uRaw.value.setRGB(...K.rawColor(recipe)); const B = K.BODIES[bodyOf()]; U2.uBodyC.value.setRGB(...B.ox); U2.uCA.value.set(0, 0, 0, 0); U2.uCrack.value = 0; U2.uSpeck.value = B.speck * .8; U2.uFur.value = U2.uVar.value = U2.uOil.value = U2.uPin.value = U2.uCrawl.value = 0;
+  if (!U2.uLut.value) setMaterial(m, K.fire(START, K.SCHED0, 'porcelain', 1), 3); U2.uMelt.value = 0; }
+function drawBench() { const u = U(), b = st.bench, mode = b.mode;
+  // tabs: glaze A, B (line blend), C (triaxial), kiln
+  const tabs = $('tabs'); tabs.querySelector('[data-tab=B]').classList.toggle('hide', !(mode === 'line' || mode === 'tri')); tabs.querySelector('[data-tab=C]').classList.toggle('hide', mode !== 'tri');
+  if ((st.tab === 'B' && !(mode === 'line' || mode === 'tri')) || (st.tab === 'C' && mode !== 'tri')) st.tab = 'A';
+  tabs.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('on', x.dataset.tab === st.tab)); tabs.querySelector('[data-tab=A]').textContent = mode === 'line' || mode === 'tri' ? 'A' : 'Glaze';
+  $('glazePane').hidden = st.tab === 'K'; $('kilnPane').hidden = st.tab !== 'K';
+  if (st.tab === 'K') drawKiln(); else drawGlaze(st.tab);
+  const M = [['tile', 'Tile', '1'], ['line', 'Line', '5'], ['tri', 'Triax', '10'], ['pot', st.comm.T ? 'Pot' : 'Pot', st.comm.T ? 'judge' : 'fire']];
+  $('modes').innerHTML = M.map(([k, n, s]) => `<button data-mode="${k}" class="${k === mode ? 'on' : ''}">${n}<small>${s}</small></button>`).join('');
+  drawMini(); }
+function drawMini() { const b = st.bench, r = b.A, s = b.s;
+  $('mini').innerHTML = Object.keys(r).filter(k => r[k] > 0).map(k => `<span class="chip"><span class="jar" style="background:${K.M[k].raw}"></span>${K.M[k].n.split(' ')[0]} ${+r[k].toFixed(2)}</span>`).join('') + `<span class="chip" style="color:#9b3416">${s.peak}° ${s.atm === 'red' ? 'red.' : 'ox.'}</span>`; }
+function drawGlaze(slot) { const u = U(), r = st.bench[slot], pane = $('glazePane'), keys = Object.keys(r);
+  const row = k => { const m = K.M[k], v = r[k], max = m.add ? 15 : 80, step = m.add ? .05 : 1;
+    return `<div class="row2" data-k="${k}"><span class="jar" style="background:${m.raw}"></span><span class="nm">${esc(m.n)}${m.add ? '<small>+%</small>' : ''}</span><input type="range" min="0" max="${max}" step="${step}" value="${v}" aria-label="${esc(m.n)}" style="--thumb:${m.raw}"><span class="v">${fmtAmt(v, m.add)}</span><button class="x" data-del="${k}" title="Take the jar away" aria-label="Remove ${esc(m.n)}">×</button></div>`; };
+  const base = keys.filter(k => !K.M[k].add), add = keys.filter(k => K.M[k].add);
+  let h = (slot !== 'A' ? `<div class="note">Glaze ${slot}: the far ${slot === 'B' ? 'end of the line' : 'corner of the triangle'}. Tiles in between are mixtures.</div>` : '') + base.map(row).join('') + add.map(row).join('');
+  if (!keys.length) h += '<div class="note">An empty bucket. Add jars.</div>';
+  const avail = u.mats.filter(k => !(k in r)), fresh = K.MATS.filter(m => m.tier === ladderDone() && m.tier > 0).map(m => m.id);
+  h += `<div class="addjar"><button class="btn" id="addJar">${st.picker ? '− Close the jars' : '+ Add a jar'}</button>${slot !== 'A' ? '<button class="btn" id="copyA">Copy glaze A</button>' : ''}<span class="note" style="margin-left:auto">base Σ ${base.reduce((s, k) => s + r[k], 0).toFixed(0)}</span></div>`;
+  if (st.picker) h += `<div class="picker">${avail.map(k => `<button data-addm="${k}" class="${fresh.includes(k) ? 'new' : ''}"><span class="jar" style="background:${K.M[k].raw}"></span>${esc(K.M[k].n)}</button>`).join('') || '<span class="note">Every jar you own is in this glaze.</span>'}</div>`;
+  h += unityHTML(r); pane.innerHTML = h; }
+const fmtAmt = (v, add) => add ? (v < 1 ? v.toFixed(2) : v.toFixed(1)) : v.toFixed(0);
+function unityHTML(r) { const u = U(); if (!u.seger) return ''; const a = K.analyze(r); if (!a) return '';
+  const f = v => v.toFixed(2), x = a.u, fl = K.FLUX.filter(o => x[o] > .005).map(o => `${sub(o)} ${f(x[o])}`).join(' · ');
+  let h = `<div class="unity" title="Seger unity formula: moles of each oxide per mole of fluxes">Unity: ${fl}<br>Al₂O₃ <b>${f(x.Al2O3)}</b> · SiO₂ <b>${f(x.SiO2)}</b>${x.B2O3 > .005 ? ' · B₂O₃ <b>' + f(x.B2O3) + '</b>' : ''} · Si:Al <b>${(x.SiO2 / Math.max(.001, x.Al2O3)).toFixed(1)}</b>`;
+  if (u.dil) { const B = K.BODIES[bodyOf()]; h += `<br>Expansion <b>${a.coe.toFixed(2)}</b> · ${esc(B.n.toLowerCase())} <b>${B.coe.toFixed(2)}</b>`; }
+  return h + `<br>${fmt$(a.cost)} a kilo</div>`; }
+const sub = o => o.replace(/(\d)/g, d => '₀₁₂₃₄₅₆₇₈₉'[d]);
+function drawKiln() { const u = U(), b = st.bench, s = b.s, pane = $('kilnPane');
+  const ctl = (k, label, min, max, step, val, show) => `<div class="ctl"><label>${label}</label><input type="range" data-s="${k}" min="${min}" max="${max}" step="${step}" value="${val}" aria-label="${label}"><span class="v" data-sv="${k}">${show}</span></div>`;
+  let h = '<canvas id="curve"></canvas>';
+  h += ctl('peak', 'Peak', 950, 1320, 5, s.peak, s.peak + '°');
+  h += ctl('ramp', 'Climb', 50, 300, 10, s.ramp, s.ramp + '°/h');
+  h += ctl('hold', 'Soak', 0, 120, 5, s.hold, s.hold + ' min');
+  h += ctl('cool', 'Cool', 50, 400, 10, s.cool, s.cool >= 400 ? 'switch off' : s.cool + '°/h');
+  if (u.xhold) { h += ctl('xt', 'Hold at', 900, 1150, 5, s.xt || 1100, s.xt ? s.xt + '°' : 'off'); h += ctl('xh', 'for', 0, 6, .5, s.xh, s.xh ? s.xh + ' h' : 'off'); }
+  h += `<div class="seg" id="atm"><button data-atm="ox" class="${s.atm === 'ox' ? 'on' : ''}">Electric · oxidation</button><button data-atm="red" class="${s.atm === 'red' ? 'on' : ''}" ${u.gas ? '' : 'disabled title="Not yet: you have no gas kiln"'}>${u.gas ? 'Gas · reduction' : 'Gas kiln: not yet'}</button></div>`;
+  h += ctl('app', 'Glaze', .6, 1.6, .1, b.app, appWord(b.app));
+  if (!st.comm.body) { h += `<div class="seg" id="bodies">${u.bodies.map(k => `<button data-body="${k}" class="${b.body === k ? 'on' : ''}">${K.BODIES[k].n.split(' ')[0]}</button>`).join('')}</div>`;
+    h += `<div class="seg" id="forms">${['cup', 'bowl', 'jar', 'vase', 'bottle', 'chawan'].map(k => `<button data-form="${k}" class="${b.form === k ? 'on' : ''}">${k}</button>`).join('')}</div>`; }
+  else h += `<div class="note">Clay: ${esc(K.BODIES[st.comm.body].n.toLowerCase())}, as the client asks.</div>`;
+  h += `<div class="note" id="kfoot"></div>`;
+  pane.innerHTML = h; drawCurve(); kFoot(); }
+const appWord = a => a < .75 ? 'thin' : a < .95 ? 'light' : a < 1.15 ? 'normal' : a < 1.35 ? 'thick' : 'very thick';
+function kFoot() { const s = st.bench.s, el = $('kfoot'); if (!el) return; el.textContent = `≈ cone ${coneOf(K.heatwork(s))} · ${K.hours(s)} h door to door · ${K.fuel(s)} kWh`; }
+function drawCurve() { const c = $('curve'); if (!c) return; const dp = Math.min(2, devicePixelRatio || 1), r = c.getBoundingClientRect(); c.width = Math.max(10, r.width * dp | 0); c.height = Math.max(10, r.height * dp | 0);
+  const g = c.getContext('2d'), W = c.width, H = c.height, s = st.bench.s, path = K.coolPath(s), heatH = (s.peak - 600) / s.ramp + 580 / 220, tot = heatH + s.hold / 60 + path[path.length - 1][1] + .5;
+  const X = t => 8 * dp + t / tot * (W - 16 * dp), Y = T => H - 6 * dp - (T - 20) / 1320 * (H - 14 * dp);
+  const pts = [[0, 20], [580 / 220, 600], [heatH, s.peak], [heatH + s.hold / 60, s.peak], ...path.map(([T, t]) => [heatH + s.hold / 60 + t, T])];
+  g.fillStyle = '#0e0b09'; g.fillRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(255,140,60,.12)'; g.lineWidth = 1; for (const T of [600, 900, 1200]) { g.beginPath(); g.moveTo(0, Y(T)); g.lineTo(W, Y(T)); g.stroke(); }
+  // fill under the curve with the colour of the glow at each temperature
+  const gr = g.createLinearGradient(0, Y(1320), 0, Y(400)); gr.addColorStop(0, 'rgba(255,214,140,.55)'); gr.addColorStop(.3, 'rgba(255,140,50,.45)'); gr.addColorStop(.7, 'rgba(160,40,10,.3)'); gr.addColorStop(1, 'rgba(60,10,0,0)');
+  g.beginPath(); g.moveTo(X(0), Y(20)); for (const [t, T] of pts) g.lineTo(X(t), Y(T)); g.lineTo(X(pts[pts.length - 1][0]), Y(20)); g.closePath(); g.fillStyle = gr; g.fill();
+  g.beginPath(); pts.forEach(([t, T], i) => i ? g.lineTo(X(t), Y(T)) : g.moveTo(X(t), Y(T))); g.strokeStyle = '#ff7a35'; g.lineWidth = 2 * dp; g.shadowColor = '#ff6a20'; g.shadowBlur = 8 * dp; g.stroke(); g.shadowBlur = 0;
+  g.fillStyle = '#c79a74'; g.font = `${10 * dp}px "IBM Plex Mono",monospace`; g.fillText(s.peak + '°', X(heatH) + 4 * dp, Y(s.peak) + 12 * dp); g.fillText(Math.round(tot) + ' h', W - 34 * dp, H - 8 * dp); }
+
+// ---------- bench input ----------
+$('glazePane').addEventListener('input', e => { const row = e.target.closest('[data-k]'); if (!row || e.target.type !== 'range') return; const k = row.dataset.k, r = st.bench[st.tab];
+  r[k] = +e.target.value; row.querySelector('.v').textContent = fmtAmt(r[k], K.M[k].add); const un = $('glazePane').querySelector('.unity'); if (un) un.outerHTML = unityHTML(r) || '<div class="unity"></div>';
+  const sumEl = $('glazePane').querySelector('.addjar .note'); if (sumEl) sumEl.textContent = 'base Σ ' + Object.keys(r).filter(q => !K.M[q].add).reduce((s, q) => s + r[q], 0).toFixed(0);
+  benchChanged(); });
+$('glazePane').addEventListener('click', e => { const t = e.target.closest('button'); if (!t) return; const r = st.bench[st.tab];
+  if (t.id === 'addJar') { st.picker = !st.picker; FX.sfx('tick'); drawGlaze(st.tab); return; }
+  if (t.id === 'copyA') { st.bench[st.tab] = { ...st.bench.A }; FX.sfx('click'); drawGlaze(st.tab); benchChanged(); return; }
+  if (t.dataset.addm) { const m = K.M[t.dataset.addm]; r[m.id] = m.add ? 1 : 10; st.picker = false; FX.sfx('place'); drawGlaze(st.tab); benchChanged(); return; }
+  if (t.dataset.del) { delete r[t.dataset.del]; FX.sfx('tick'); drawGlaze(st.tab); benchChanged(); } });
+$('kilnPane').addEventListener('input', e => { const k = e.target.dataset.s; if (!k) return; const v = +e.target.value, b = st.bench;
+  if (k === 'app') { b.app = v; e.target.parentNode.querySelector('.v').textContent = appWord(v); }
+  else { b.s[k] = v; if (k === 'xt' || k === 'xh') { if (!b.s.xt) b.s.xt = +$('kilnPane').querySelector('[data-s=xt]').value; } const el = $('kilnPane').querySelector(`[data-sv="${k}"]`);
+    el.textContent = k === 'peak' || k === 'xt' ? v + '°' : k === 'ramp' ? v + '°/h' : k === 'hold' ? v + ' min' : k === 'cool' ? (v >= 400 ? 'switch off' : v + '°/h') : k === 'xh' ? (v ? v + ' h' : 'off') : v; }
+  if (b.s.xh <= 0) b.s.xt = 0; else if (!b.s.xt) b.s.xt = 1100;
+  drawCurve(); kFoot(); benchChanged(); });
+$('kilnPane').addEventListener('click', e => { const t = e.target.closest('button'); if (!t || t.disabled) return; const b = st.bench;
+  if (t.dataset.atm) { b.s.atm = t.dataset.atm; FX.sfx('click'); useGas(b.s.atm === 'red'); }
+  if (t.dataset.body) { b.body = t.dataset.body; FX.sfx('click'); if (pot && !st.last) setRaw(pot.mat, b.A); }
+  if (t.dataset.form) { b.form = t.dataset.form; FX.sfx('click'); showPot(b.form); if (ok3d) { applyGlaze(pot.geo, st.last || rawRes(), 3); if (st.last) setMaterial(pot.mat, st.last, 3); else setRaw(pot.mat, b.A); } else draw2D(); }
+  drawKiln(); benchChanged(); });
+$('tabs').onclick = e => { const t = e.target.closest('button'); if (!t) return; if (t.id === 'expBtn') { foldBench(!$('bench').classList.contains('fold')); return; }
+  st.tab = t.dataset.tab; st.picker = false; FX.sfx('tick'); foldBench(false); drawBench(); };
+$('modes').onclick = e => { const t = e.target.closest('[data-mode]'); if (!t) return; st.bench.mode = t.dataset.mode; FX.sfx('click');
+  if ((t.dataset.mode === 'line' || t.dataset.mode === 'tri') && !Object.keys(st.bench.B).length) { st.bench.B = { ...st.bench.A }; RH.toast('Glaze B starts as a copy of A. Change it, and the tiles between will show every mixture.'); }
+  if (t.dataset.mode === 'tri' && !Object.keys(st.bench.C).length) st.bench.C = { ...st.bench.A };
+  drawBench(); benchChanged(); };
+let saveT = 0;
+function benchChanged() { clearTimeout(saveT); saveT = setTimeout(persist, 400); drawMini(); if (pot && !st.last && st.tab === 'A' && ok3d) { pot.mat.userData.U.uRaw.value.setRGB(...K.rawColor(st.bench.A)); needRender(); } }
+function foldBench(fold) { const b = $('bench'); if (!matchMedia('(max-width:899px) and (max-aspect-ratio:1/1)').matches) { b.classList.remove('fold'); return; }
+  if (b.classList.contains('fold') === fold) return; b.classList.toggle('fold', fold); $('expBtn').textContent = fold ? '▴' : '▾'; setBenchH(); layoutCamera(); }
+function setBenchH() { document.documentElement.style.setProperty('--benchH', $('bench').getBoundingClientRect().height + 'px'); }
+
+// ---------- firing ----------
+function mixR(parts) { // weighted mix of recipes, each first normalised to 100 parts of base
+  const out = {}; for (const [r, w] of parts) { if (w <= 0) continue; const base = Object.keys(r).filter(k => !K.M[k].add).reduce((s, k) => s + r[k], 0) || 1;
+    for (const k in r) out[k] = (out[k] || 0) + r[k] / base * 100 * w; }
+  for (const k in out) out[k] = +out[k].toFixed(2); return out; }
+function batch(mode) { const b = st.bench; if (mode === 'line') return [1, .75, .5, .25, 0].map(w => ({ r: mixR([[b.A, w], [b.B, 1 - w]]), lab: Math.round(w * 100) + ':' + Math.round(100 - w * 100) }));
+  if (mode === 'tri') { const out = []; for (let i = 3; i >= 0; i--) for (let j = 3 - i; j >= 0; j--) { const k = 3 - i - j; out.push({ r: mixR([[b.A, i / 3], [b.B, j / 3], [b.C, k / 3]]), lab: `${i}${j}${k}` }); } return out; }
+  return [{ r: { ...b.A }, lab: 'A' }]; }
+function fire() { if (st.busy) return; const b = st.bench, c = st.comm, mode = b.mode, body = bodyOf();
+  if (!Object.keys(b.A).some(k => !K.M[k].add && b.A[k] > 0)) { RH.toast('Glaze A has no base: add feldspar, silica and the like.'); FX.sfx('fail'); return; }
+  if ((mode === 'line' || mode === 'tri') && !Object.keys(b.B).some(k => !K.M[k].add && b.B[k] > 0)) { RH.toast('Glaze B is empty.'); return; }
+  const items = batch(mode).map((x, i) => { const res = K.fire(x.r, b.s, body, b.app); return { ...x, res, j: c.T ? K.judge(res, c.T) : null, seed: i * 7 + 3 }; });
+  const n = items.length, now = Date.now() / 1000 | 0;
+  SAVE.used[c.id] = (SAVE.used[c.id] || 0) + n;
+  for (const it of items) SAVE.shelf.push({ c: c.id, r: it.r, s: { ...b.s }, b: body, a: b.app, l: it.j ? it.j.lik : 0, k: mode === 'pot' ? 'pot' : 'tile', t: now });
+  if (SAVE.shelf.length > 400) SAVE.shelf = SAVE.shelf.slice(-400);
+  if (c.T && !SAVE.done[c.id] && (SAVE.used[c.id] || 0) >= c.par + 6) SAVE.hints[c.id] = 1;
+  persist(); $('shelfN').textContent = SAVE.shelf.length;
+  st.busy = true; $('fireBtn').disabled = true; $('fireBtn').classList.remove('pulse'); foldBench(true); showResult(null); FX.sfx('click');
+  let anItems;
+  if (ok3d) { if (mode === 'pot') { showPot(formOf()); applyGlaze(pot.geo, items[0].res, 3); anItems = [{ mat: pot.mat, res: items[0].res, seed: 3 }]; }
+    else { showTiles(n); anItems = items.map((it, i) => { applyGlaze(tiles[i].geo, it.res, it.seed); return { mat: tiles[i].mat, res: it.res, seed: it.seed }; }); } }
+  const done = () => { st.busy = false; $('fireBtn').disabled = false; st.results = { mode, items }; if (mode === 'pot') { st.last = items[0].res; judgePot(items[0]); } else tileResult(items); if (!ok3d) draw2D(); };
+  if (ok3d) startAnim(anItems, b.s, done); else setTimeout(done, instant ? 0 : 400);
+}
+$('fireBtn').onclick = fire;
+function tileResult(items) { const c = st.comm, best = c.T ? items.reduce((a, b) => b.j.lik > a.j.lik ? b : a) : null;
+  const h = `<button class="x" data-close>×</button><h3>${items.length === 1 ? 'Test tile' : items.length + ' test tiles'}${c.T ? '' : ''}</h3>
+    <div class="tiles">${items.map((it, i) => `<button data-tile="${i}" class="${it === best && items.length > 1 ? 'best' : ''}" title="Load this glaze into A"><canvas width="96" height="128" data-t="${i}"></canvas>${c.T ? it.j.lik + '%' : esc(it.lab)}</button>`).join('')}</div>
+    ${c.T ? `<div class="note" style="color:var(--ink2);font-size:14px">${best.j.pass ? '<b>That would satisfy the client.</b> Fire the pot to deliver it.' : esc(best.j.notes[0] || 'Close.')}</div>` : ''}
+    ${items.length > 1 ? '<div class="note" style="color:var(--ink2)">Tap a tile to load its glaze into A.</div>' : ''}
+    <div class="acts">${c.T && best.j.pass ? '<button class="btn" data-act="pot">Fire the pot</button>' : ''}<button class="btn" data-act="again">Again</button>${shareBtn()}</div>`;
+  showResult(h); items.forEach((it, i) => drawTile($('result').querySelector(`[data-t="${i}"]`), it.res, it.seed));
+  st.sel = best; FX.sfx(best && best.j.pass ? 'chime' : 'tick', best ? Math.round(best.j.lik / 15) : 3); }
+function judgePot(it) { const c = st.comm, res = it.res;
+  if (!c.T) { showResult(`<button class="x" data-close>×</button><h3>Out of the kiln</h3><div class="detail">${esc(describe(res))}</div><div class="acts"><button class="btn" data-act="again">Again</button>${shareBtn()}</div>`); FX.sfx('chime', 4); return; }
+  const j = it.j, used = SAVE.used[c.id] || 1, p = c.ref ? K.pars(c) : { cost: 9, fuel: 999, tiles: 10 };
+  const rec = { lik: j.lik, cost: res.cost, fuel: res.fuel, tiles: used };
+  let first = false;
+  if (j.pass) { if (c.daily) { const o = SAVE.daily[c.daily]; if (!o || o.lik < j.lik) SAVE.daily[c.daily] = { lik: j.lik, tiles: used, cost: res.cost, fuel: res.fuel }; }
+    else { const o = SAVE.done[c.id]; first = !o; SAVE.done[c.id] = o ? { lik: Math.max(o.lik, j.lik), cost: Math.min(o.cost, res.cost), fuel: Math.min(o.fuel, res.fuel), tiles: Math.min(o.tiles, used) } : rec; } persist(); }
+  const ax = (name, v, par, good, unit) => `<div class="${good ? 'good' : ''}">${name}<b>${v}</b>par ${par}${unit || ''}</div>`;
+  const nextC = K.COMMS[ladderDone()], gift = first && c.gift;
+  const h = `<button class="x" data-close>×</button><div class="lik"><canvas class="dial" width="128" height="128" id="dial"></canvas><div><h3>${esc(c.n)}</h3><div class="note" style="color:var(--ink2);font-size:13px">${j.lik}% like what they asked for</div></div><span class="stamp ${j.pass ? '' : 'no'}">${j.pass ? 'ACCEPTED' : 'RETURNED'}</span></div>
+    ${j.notes.length ? `<ul>${j.notes.slice(0, 3).map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : '<p style="margin:6px 0">"Exactly what I hoped for."</p>'}
+    <div class="axes">${ax('glaze', fmt$(res.cost), fmt$(p.cost), res.cost <= p.cost, '/kg')}${ax('fuel', res.fuel, p.fuel, res.fuel <= p.fuel, ' kWh')}${ax('tiles', used, p.tiles, used <= p.tiles)}</div>
+    ${gift ? `<p style="margin:6px 0;font-weight:600">${esc(gift)}</p>` : ''}
+    <div class="acts">${j.pass && !c.daily && !c.id.startsWith('sand') && nextC && commOpen(nextC.id) && nextC.id !== c.id ? `<button class="btn" data-act="next" style="font-weight:800">Next: ${esc(nextC.n)} →</button>` : ''}<button class="btn" data-act="again">Try again</button>${c.daily ? '<button class="btn" data-act="sharedaily">Share</button>' : shareBtn()}</div>`;
+  showResult(h); drawDial($('dial'), j.lik, j.pass);
+  FX.sfx(j.pass ? (first ? 'win' : 'chime') : 'fail', 5); if (first) { FX.shake && FX.shake(.2); drawTicket(); } else drawTicket();
+  if (gift && U().mats.length) setTimeout(() => RH.toast(gift, 4200), 900);
+  if (first && ladderDone() === NC) setTimeout(() => RH.modal('<h2>The last bowl</h2><p>Eighteen commissions, from a cup of clear glass to an oil-spot bowl. The kiln controller now lets you hold at any temperature in the sandbox, and the daily client still calls each morning.</p>', [{ label: 'Open the sandbox', value: 1 }]).then(() => openComm('sandbox')), 2500);
+}
+function drawDial(c, v, pass) { const g = c.getContext('2d'), W = c.width; g.clearRect(0, 0, W, W); g.lineWidth = 12; g.strokeStyle = 'rgba(110,92,73,.25)'; g.beginPath(); g.arc(W / 2, W / 2, W / 2 - 10, 0, 6.283); g.stroke();
+  g.strokeStyle = pass ? '#a8271a' : '#6e5c49'; g.beginPath(); g.arc(W / 2, W / 2, W / 2 - 10, -Math.PI / 2, -Math.PI / 2 + 6.283 * v / 100); g.stroke();
+  g.fillStyle = '#2a2018'; g.font = '800 34px "Shippori Mincho",serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(v, W / 2, W / 2 + 2); }
+function describe(r) { if (!r) return ''; const w = [K.nameColor(r.main), r.gloss > .8 ? 'glossy' : r.gloss > .45 ? 'satin' : 'matte'];
+  if (r.M < .7) w.push('underfired'); if (r.craze > .05) w.push('crazed'); if (r.crystals) w.push(r.crystals.r.toFixed(0) + ' mm crystals'); if (r.fur > .3) w.push('hare\'s fur'); if (r.oil > .3) w.push('oil spots'); if (r.variegate > .3) w.push('mottled'); if (r.run > 1.25) w.push('ran'); if (r.crawl > .06) w.push('crawled'); if (r.pin > .12) w.push('pinholed');
+  return w.join(', ') + '.'; }
+function showResult(h) { const el = $('result'); if (!h) { el.classList.remove('show'); el.innerHTML = ''; return; } el.innerHTML = h; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); }
+$('result').addEventListener('click', e => { const t = e.target.closest('button'); if (!t) return;
+  if (t.dataset.close !== undefined) { showResult(null); return; }
+  if (t.dataset.tile) { const it = st.results.items[+t.dataset.tile]; st.bench.A = { ...it.r }; st.tab = 'A'; FX.sfx('place'); drawBench(); benchChanged(); RH.toast('Loaded into glaze A.'); return; }
+  const a = t.dataset.act;
+  if (a === 'pot') { if (st.sel) st.bench.A = { ...st.sel.r }; st.bench.mode = 'pot'; drawBench(); fire(); }
+  if (a === 'again') { showResult(null); foldBench(false); }
+  if (a === 'next') { openComm(K.COMMS[ladderDone()].id); }
+  if (a === 'share') share();
+  if (a === 'sharedaily') shareDaily(); });
+
+// ---------- sharing: a glaze as a link, the daily as a line ----------
+const b64 = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64 = s => decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/'))));
+function encodeGlaze(r, s, body, app, form) { return b64(JSON.stringify({ r: Object.entries(r).filter(([, v]) => v > 0).map(([k, v]) => [MAT_IDS.indexOf(k), +v.toFixed(2)]), s: [s.peak, s.ramp, s.hold, s.cool, s.xt, s.xh, s.atm === 'red' ? 1 : 0], b: BODY_IDS.indexOf(body), a: app, f: form })); }
+function decodeGlaze(str) { try { const o = JSON.parse(unb64(str)); if (!isObj(o) || !Array.isArray(o.r) || !Array.isArray(o.s) || o.r.length > 24) return null; const r = {};
+    for (const p of o.r) { if (!Array.isArray(p) || !MAT_IDS[p[0]]) return null; r[MAT_IDS[p[0]]] = p[1]; }
+    const rc = cleanRecipe(r); if (!Object.keys(rc).some(k => !K.M[k].add)) return null;
+    const [peak, ramp, hold, cool, xt, xh, atm] = o.s; return { r: rc, s: cleanSched({ peak, ramp, hold, cool, xt, xh, atm: atm ? 'red' : 'ox' }), b: BODY_IDS[o.b] || 'porcelain', a: num(o.a, .6, 1.6, 1), f: Object.keys(FORMS).includes(o.f) ? o.f : 'jar' }; } catch (e) { return null; } }
+const shareBtn = () => '<button class="btn" data-act="share">Share glaze</button>';
+function shareLink() { const b = st.bench; return location.href.split('#')[0].split('?')[0] + '#g=' + encodeGlaze(b.A, b.s, bodyOf(), b.app, formOf()); }
+function share() { const url = shareLink(), r = st.last || (st.results && st.results.items[0].res); const line = 'Kiln · my glaze: ' + (r ? describe(r) : '') + ' ' + url; copy(line); }
+function copy(t) { (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => RH.toast('Copied to the clipboard.')).catch(() => RH.modal('<p>Copy this:</p><textarea style="width:100%;height:90px">' + esc(t) + '</textarea>')); }
+function shareLine(key = todayKey()) { const d = SAVE.daily[key]; if (!d) return null; const c = commById('d:' + key), p = K.pars(c);
+  return `Kiln · daily ${key} · ${d.lik}% · ${d.tiles} tile${d.tiles === 1 ? '' : 's'} · ${[d.lik >= 90, d.cost <= p.cost, d.fuel <= p.fuel, d.tiles <= p.tiles].map(x => x ? '◉' : '○').join('')}`; }
+function shareDaily() { const l = shareLine(); if (l) copy(l + ' ' + location.href.split('#')[0].split('?')[0] + '#daily'); }
+
+// ---------- the drawer: book, shelf, chart ----------
+function openDrawer(tab) { st.drawer = tab; $('drawer').classList.add('show'); const u = U();
+  $('dtabs').innerHTML = [['book', 'Book'], ['shelf', 'Shelf'], ...(u.seger ? [['chart', 'Seger chart']] : [])].map(([k, n]) => `<button class="btn ${k === tab ? 'on' : ''}" data-dt="${k}">${n}</button>`).join('');
+  const body = $('dbody');
+  if (tab === 'book') body.innerHTML = bookHTML();
+  if (tab === 'shelf') { body.innerHTML = shelfHTML(); body.querySelectorAll('canvas[data-sh]').forEach(cv2 => { const t = SAVE.shelf[+cv2.dataset.sh]; drawTile(cv2, K.fire(t.r, t.s, t.b, t.a), +cv2.dataset.sh); }); }
+  if (tab === 'chart') { body.innerHTML = '<canvas id="chart"></canvas><p class="note" style="color:var(--ink2)">Every tile you have fired, placed by its silica and alumina per unit of flux. Filled: glossy. Hollow: matte. Cross: underfired. The ring is glaze A on your bench.</p>'; drawChart(); }
+}
+function bookHTML() { const n = ladderDone();
+  let h = '<ul class="book">' + K.COMMS.map((c, i) => { const d = SAVE.done[c.id], open = i <= n, cur = st.comm.id === c.id;
+    return `<li class="${open ? '' : 'lock'} ${cur ? 'cur' : ''}" data-open="${open ? c.id : ''}"><span class="k">${String(i + 1).padStart(2, '0')}</span><span class="t">${open || i === n + 1 ? esc(c.n) : '· · ·'}<small>${open ? esc(c.who) : i === n + 1 ? 'next' : ''}</small></span><span class="s">${d ? sealsOf(c, d) : open ? '' : ''}</span></li>`; }).join('');
+  const dk = todayKey(), dd = SAVE.daily[dk];
+  h += `<li class="${n >= 6 ? '' : 'lock'}" data-open="${n >= 6 ? 'd:' + dk : ''}"><span class="k">☀</span><span class="t">Today's client<small>${n >= 6 ? (dd ? dd.lik + '% · ' + dd.tiles + ' tiles' : 'a new glaze every day') : 'after six commissions'}</small></span><span class="s">${dd ? '●' : ''}</span></li>`;
+  h += `<li data-open="sandbox"><span class="k">∞</span><span class="t">Sandbox<small>your own studio</small></span><span class="s"></span></li></ul>`;
+  return h; }
+function shelfHTML() { if (!SAVE.shelf.length) return '<p>Nothing fired yet. Every tile you fire is kept here.</p>';
+  const groups = {}; SAVE.shelf.forEach((t, i) => (groups[t.c] = groups[t.c] || []).push(i));
+  return Object.keys(groups).reverse().map(cid => { const c = commById(cid); return `<div class="shelfrow"><h4>${esc(c ? c.n : cid)}</h4><div class="tiles">${groups[cid].slice(-40).reverse().map(i => `<button data-shelf="${i}"><canvas width="96" height="128" data-sh="${i}"></canvas>${SAVE.shelf[i].k === 'pot' ? '⚱ ' : ''}${SAVE.shelf[i].l ? SAVE.shelf[i].l + '%' : ''}</button>`).join('')}</div></div>`; }).join(''); }
+function shelfDetail(i) { const t = SAVE.shelf[i], res = K.fire(t.r, t.s, t.b, t.a), body = $('dbody');
+  body.innerHTML = `<button class="btn" data-dt="shelf">← Shelf</button><div style="display:flex;gap:12px;margin-top:10px"><canvas width="160" height="214" id="bigTile" style="width:120px;flex:0 0 120px"></canvas>
+    <div class="detail">${Object.entries(t.r).map(([k, v]) => `${esc(K.M[k].n)} ${v}${K.M[k].add ? '%' : ''}`).join('<br>')}<br><br>${t.s.peak}° · climb ${t.s.ramp}°/h · soak ${t.s.hold}′ · cool ${t.s.cool >= 400 ? 'off' : t.s.cool + '°/h'}${t.s.xh ? ' · hold ' + t.s.xt + '° ' + t.s.xh + 'h' : ''} · ${t.s.atm === 'red' ? 'reduction' : 'oxidation'}<br>${esc(K.BODIES[t.b].n)} · ${appWord(t.a)}<br><br><i>${esc(describe(res))}</i></div></div>
+    <div class="acts" style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap"><button class="btn" data-load="A" data-i="${i}">Load into A</button><button class="btn" data-load="B" data-i="${i}">into B</button><button class="btn" data-load="C" data-i="${i}">into C</button><button class="btn" data-load="K" data-i="${i}">Use its firing</button></div>`;
+  drawTile($('bigTile'), res, i); }
+function drawChart() { const c = $('chart'), dp = Math.min(2, devicePixelRatio || 1), w = c.getBoundingClientRect().width; c.width = w * dp; c.height = w * .8 * dp; const g = c.getContext('2d'), W = c.width, H = c.height;
+  const X = si => 30 * dp + (si - .5) / 6 * (W - 40 * dp), Y = al => H - 24 * dp - al / 1.1 * (H - 34 * dp);
+  g.fillStyle = '#f3ecdf'; g.fillRect(0, 0, W, H); g.strokeStyle = 'rgba(110,92,73,.25)'; g.fillStyle = '#6e5c49'; g.font = `${10 * dp}px "IBM Plex Mono",monospace`;
+  for (let s = 1; s <= 6; s++) { g.beginPath(); g.moveTo(X(s), Y(0)); g.lineTo(X(s), Y(1.1)); g.stroke(); g.fillText(s, X(s) - 3 * dp, H - 8 * dp); }
+  for (let a = .2; a <= 1.01; a += .2) { g.beginPath(); g.moveTo(X(.5), Y(a)); g.lineTo(X(6.5), Y(a)); g.stroke(); g.fillText(a.toFixed(1), 2 * dp, Y(a) + 3 * dp); }
+  g.fillText('SiO₂ →', W - 52 * dp, H - 8 * dp); g.save(); g.translate(10 * dp, 40 * dp); g.fillText('Al₂O₃ ↑', 0, 0); g.restore();
+  for (const t of SAVE.shelf) { const a = K.analyze(t.r); if (!a) continue; const r = K.fire(t.r, t.s, t.b, t.a), x = X(clamp(a.u.SiO2, .5, 6.5)), y = Y(clamp(a.u.Al2O3, 0, 1.1)), col = hexOf(r.main);
+    g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 2 * dp;
+    if (r.M < .7) { g.beginPath(); g.moveTo(x - 4 * dp, y - 4 * dp); g.lineTo(x + 4 * dp, y + 4 * dp); g.moveTo(x + 4 * dp, y - 4 * dp); g.lineTo(x - 4 * dp, y + 4 * dp); g.stroke(); }
+    else { g.beginPath(); g.arc(x, y, 4.5 * dp, 0, 6.3); r.gloss > .6 ? g.fill() : g.stroke(); } }
+  const a = K.analyze(st.bench.A); if (a) { g.strokeStyle = '#d9572a'; g.lineWidth = 2 * dp; g.beginPath(); g.arc(X(clamp(a.u.SiO2, .5, 6.5)), Y(clamp(a.u.Al2O3, 0, 1.1)), 9 * dp, 0, 6.3); g.stroke(); } }
+$('drawer').addEventListener('click', e => { if (e.target.id === 'drawer') { closeDrawer(); return; } const t = e.target.closest('[data-dt],[data-open],[data-shelf],[data-load]'); if (!t) return;
+  if (t.dataset.dt) { openDrawer(t.dataset.dt); FX.sfx('tick'); }
+  if (t.dataset.open) { openComm(t.dataset.open); closeDrawer(); FX.sfx('click'); }
+  if (t.dataset.shelf) { shelfDetail(+t.dataset.shelf); FX.sfx('tick'); }
+  if (t.dataset.load) { const s = SAVE.shelf[+t.dataset.i]; if (t.dataset.load === 'K') { st.bench.s = { ...s.s }; st.bench.app = s.a; st.tab = 'K'; } else { st.bench[t.dataset.load] = { ...s.r }; st.tab = t.dataset.load; if (t.dataset.load !== 'A' && st.bench.mode !== 'tri') st.bench.mode = t.dataset.load === 'B' ? 'line' : 'tri'; } FX.sfx('place'); closeDrawer(); drawBench(); benchChanged(); foldBench(false); } });
+function closeDrawer() { $('drawer').classList.remove('show'); st.drawer = null; }
+$('dclose').onclick = closeDrawer; $('bookBtn').onclick = () => { openDrawer('book'); FX.sfx('tick'); }; $('shelfBtn').onclick = () => { openDrawer('shelf'); FX.sfx('tick'); };
+$('muteBtn').onclick = e => { FX.setMuted(!FX.muted); e.target.textContent = FX.muted ? '♪̸' : '♪'; };
+addEventListener('keydown', e => { if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return; if (e.key === 'f' || e.key === 'Enter') { e.preventDefault(); fire(); } if (e.key === 'Escape') { closeDrawer(); showResult(null); } });
+
+// ---------- no WebGL: say so, then offer the 2-D studio ----------
+let c2d = null;
+function draw2D() { if (ok3d) return; if (!c2d) { c2d = document.createElement('canvas'); c2d.id = 'c2d'; document.body.insertBefore(c2d, document.body.firstChild); cv.style.display = 'none'; }
+  const dp = Math.min(2, devicePixelRatio || 1), fr = freeRect(); c2d.width = innerWidth * dp | 0; c2d.height = innerHeight * dp | 0; const g = c2d.getContext('2d');
+  const tmp = document.createElement('canvas'); tmp.width = Math.max(50, fr.w * dp | 0); tmp.height = Math.max(50, fr.h * dp | 0);
+  if (st.results && st.results.mode !== 'pot') { const its = st.results.items, n = its.length, cw = Math.min(tmp.width / Math.min(n, 5), 160 * dp); its.forEach((it, i) => { const t = document.createElement('canvas'); t.width = cw * .9 | 0; t.height = cw * 1.2 | 0; drawTile(t, it.res, it.seed); g.drawImage(t, fr.x * dp + (i % 5) * cw + (tmp.width - Math.min(n, 5) * cw) / 2, fr.y * dp + 40 * dp + Math.floor(i / 5) * cw * 1.3); }); }
+  else { drawPot2D(tmp, st.last, formOf()); g.drawImage(tmp, fr.x * dp, fr.y * dp); } }
+
+// ---------- boot ----------
+function boot() {
+  if (!ok3d) { if (!NOGL) { RH.noGL('Kiln'); const ov = document.getElementById('rh-nogl'); if (ov) { const b = document.createElement('button'); b.textContent = 'Fire pots in 2-D instead'; b.style.cssText = 'margin-top:10px;min-height:40px;padding:0 16px;font:16px Georgia,serif;cursor:pointer'; b.onclick = () => ov.remove(); ov.firstChild.appendChild(b); } } }
+  if (matchMedia('(max-width:899px) and (max-aspect-ratio:1/1)').matches) $('bench').classList.add('fold');
+  resize(); addEventListener('resize', () => { resize(); setBenchH(); if (st.drawer === 'chart') drawChart(); if (!ok3d) draw2D(); drawCurve(); });
+  const m = location.hash.match(/g=([^&]+)/), shared = m && decodeGlaze(m[1]);
+  if (shared) { const b = benchOf('sandbox'); b.A = shared.r; b.s = shared.s; b.body = shared.b; b.app = shared.a; b.form = shared.f; b.mode = 'pot'; openComm('sandbox'); RH.toast('A shared glaze is on your bench. Fire it.'); }
+  else if (/daily/.test(location.hash) && commOpen('d:' + todayKey())) openComm('d:' + todayKey());
+  else openComm(SAVE.cur);
+  $('shelfN').textContent = SAVE.shelf.length || '';
+  if (FX.muted) $('muteBtn').textContent = '♪̸';
+  setBenchH(); layoutCamera();
+  if (!SAVE.seen) { SAVE.seen = 1; persist(); }
+  if (SAVE.shelf.length) $('fireBtn').classList.remove('pulse');
+}
+boot();
+window.__kiln = { K, get SAVE() { return SAVE; }, set SAVE(v) { SAVE = v; }, st, openComm, fire, cleanSave, encodeGlaze, decodeGlaze, shareLine, shareLink, mixR, batch, commById, commOpen, ladderDone, todayKey, drawTile, U,
+  set instant(v) { instant = v; }, get anim() { return anim; }, get ok3d() { return ok3d; }, view, camera, renderer, get pot() { return pot; }, tiles, needRender, skipAnim, openDrawer, closeDrawer, foldBench, layoutCamera, HINTS };
+</script>
+</body>
+</html>

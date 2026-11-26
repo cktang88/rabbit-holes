@@ -76,6 +76,20 @@ module.exports = {
       ok(await page.$eval('#result', e => getComputedStyle(e).display !== 'none' && /approved/i.test(e.textContent)), 'result card');
       ok(await page.evaluate(() => __coaster.SAVE.done.first >= 1), 'progress saved');
     },
+    'after a ride, Undo or Reset clears the old verdict and gauge (they described a track that no longer exists); RIDE again hides it too': async ({ page, ok, eq }) => {
+      for (const vp of [{ width: 1280, height: 800 }, phone]) {
+        await page.setViewportSize(vp); await page.waitForTimeout(150);
+        await page.evaluate(() => { __coaster.design = { nodes: __coaster.REF.first(), lift: 1 }; __coaster.ride(); });
+        const shown = () => page.evaluate(() => [getComputedStyle(document.getElementById('result')).display !== 'none', getComputedStyle(document.getElementById('gauge')).display !== 'none']);
+        eq(await shown(), [true, true], 'verdict after the ride');
+        await page.evaluate(() => { __coaster.smooth(); __coaster.ride(); }); eq(await shown(), [true, true], 'a ride after an edit');
+        await page.evaluate(() => document.getElementById('tUndo').click()); eq(await shown(), [false, false], 'undo hides the stale verdict');
+        await page.evaluate(() => { __coaster.ride(); }); eq(await shown(), [true, true]);
+        await page.evaluate(() => document.getElementById('tReset').click()); eq(await shown(), [false, false], 'reset hides the stale verdict');
+        ok(await page.evaluate(() => { const r = document.getElementById('tRide').getBoundingClientRect(), e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return document.getElementById('tRide').contains(e); }), 'RIDE is reachable');
+      }
+      await page.evaluate(() => { __coaster.ride(); document.querySelector('#result #rShare').click(); }); await page.waitForTimeout(100); // a refused clipboard is no page error
+    },
     'speed-up: playback at 1x, 2x and 4x visits every physics sample and gives identical peaks and scores': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; return [1, 2, 4].map(s => K.playback(s)); });
       const [a, b, c] = r;
