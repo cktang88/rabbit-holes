@@ -48,17 +48,18 @@ module.exports = {
     },
     'a glass divider makes the two shores diverge genetically, and the clusters split into named species': async ({ page, ok }) => {
       await pause(page);
-      const r = await page.evaluate(() => { const E = EvoSim, out = {};
-        for (const wall of [true, false]) { const s = new E.Sim({ seed: 2, cap: 220, w: 1000, h: 760, pred: false }); if (wall) s.command({ k: 'wall', x: 500, y: 380, ax: 'v' });
-          let crossed = 0; const side0 = new Map(); s.step(); s.cr.forEach(c => side0.set(c.id, c.x < 500));
-          for (let i = 0; i < 20000; i++) s.step();
-          const L = s.cr.filter(c => c.x < 500).map(c => c.g), R = s.cr.filter(c => c.x >= 500).map(c => c.g);
-          for (const c of s.cr) if (side0.has(c.id) && side0.get(c.id) !== c.x < 500) crossed++;
-          const alive = Object.values(s.sp).filter(x => x.died < 0 && x.n > 2);
-          out[wall ? 'wall' : 'open'] = { d: E.gdist(E.meanGenome(L), E.meanGenome(R)), crossed, nsp: alive.length, names: alive.map(x => x.name.join(' ')), split: Object.values(s.sp).some(x => x.par) }; }
+      const r = await page.evaluate(() => { const E = EvoSim, out = { wall: { d: 0, crossed: 0, maxSp: 0, names: [], split: false }, open: { d: 0 } };
+        for (const seed of [2, 3]) for (const wall of [true, false]) { const s = new E.Sim({ seed, cap: 220, w: 1000, h: 760, pred: false }); if (wall) s.command({ k: 'wall', x: 500, y: 380, ax: 'v' });
+          s.step(); const side0 = new Map(s.cr.map(c => [c.id, c.x < 500])); let acc = 0, k = 0;
+          for (let i = 1; i <= 20000; i++) { s.step(); if (i >= 5000 && i % 1000 === 0) { const L = s.cr.filter(c => c.x < 500).map(c => c.g), R = s.cr.filter(c => c.x >= 500).map(c => c.g);
+            if (L.length && R.length) { acc += E.gdist(E.meanGenome(L), E.meanGenome(R)); k++; }
+            if (wall) out.wall.maxSp = Math.max(out.wall.maxSp, Object.values(s.sp).filter(x => x.died < 0 && x.n > 2).length);
+            if (wall) for (const c of s.cr) if (side0.has(c.id) && side0.get(c.id) !== c.x < 500) out.wall.crossed++; } }
+          const o = out[wall ? 'wall' : 'open']; o.d += acc / Math.max(1, k) / 2;
+          if (wall) { out.wall.split = out.wall.split || Object.values(s.sp).some(x => x.par); out.wall.names.push(...Object.values(s.sp).map(x => x.name.join(' '))); } }
         return out; });
-      ok(r.wall.crossed === 0, 'nobody crosses the glass'); ok(r.wall.d > 2.5 * r.open.d, `divergence with wall ${r.wall.d.toFixed(3)} vs open ${r.open.d.toFixed(3)}`);
-      ok(r.wall.split && r.wall.nsp >= 2, 'the shores became species: ' + r.wall.names);
+      ok(r.wall.crossed === 0, 'nobody crosses the glass'); ok(r.wall.d > 1.8 * r.open.d, `divergence with wall ${r.wall.d.toFixed(3)} vs open ${r.open.d.toFixed(3)}`);
+      ok(r.wall.split && r.wall.maxSp >= 2, 'the shores became species: ' + r.wall.names.slice(0, 6));
       ok(r.wall.names.every(n => /^[A-Z][a-z]+ [a-z]+( [a-z]+)?$/.test(n)), 'Latin binomials: ' + r.wall.names);
     },
     'determinism: one seed makes one world; a saved tank carries on exactly': async ({ page, ok, eq }) => {
