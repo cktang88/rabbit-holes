@@ -74,7 +74,7 @@ module.exports = {
       await page.waitForFunction(() => !__bell.busy, null, { timeout: 30000 });
       const after = await page.evaluate(() => ({ n: __bell.bell().cuts.length, shaves: __bell.bell().shaves, nom: __bell.G.bellModes(__bell.bell()).f.nominal, saved: JSON.parse(localStorage.getItem('rh:bellfounder')).work.c1.bells[0].cuts.length }));
       eq([after.n, after.shaves, after.saved], [1, 1, 1], 'one cut, saved'); ok(after.nom < before.nom - 1, 'nominal should fall: ' + before.nom + ' → ' + after.nom);
-      ok(await page.evaluate(() => !('undo' in __bell) && !/undo/i.test(document.body.innerText)), 'no undo');
+      ok(await page.evaluate(() => __bell.stage === 'tune' && !document.querySelector('[data-a="undo"]') && !/undo/i.test(document.getElementById('panel').innerText) && __bell.undo() === false), 'no undo on the lathe');
       // a drag across the empty air turns the view and cuts nothing
       await page.mouse.move(80, 400); await page.mouse.down(); await page.mouse.move(240, 420, { steps: 5 }); await page.mouse.up(); await page.waitForTimeout(300);
       eq(await page.evaluate(() => __bell.bell().cuts.length), 1, 'orbiting must not cut');

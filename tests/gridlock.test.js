@@ -36,7 +36,7 @@ module.exports = {
       ok(r, 'no shared road found'); ok(r.kept[0] > r.kept[1] + .2, 'couriers should stay, students leave: ' + JSON.stringify(r));
     },
     'a closure that would strand a district is refused': async ({ page, ok }) => {
-      const r = await page.evaluate(() => { const G = __gl.GL, C = G.newCity('strand'); G.startMonth(C); const h = G.homes(C)[0];
+      const r = await page.evaluate(() => { const G = __gl.GL, C = G.newCity('strand'); G.startMonth(C); C.hand.push('close'); const h = G.homes(C)[0];
         const only = C.roads.filter(r => r.a === h || r.b === h); if (only.length !== 1) { for (const x of only.slice(1)) x.closed = 1; }
         return G.act(C, { t: 'close', road: only[0].id }); });
       ok(/cut .* off/.test(r || ''), 'got ' + r);
@@ -61,7 +61,7 @@ module.exports = {
       const seeds = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 'c', 'e', 'h', 'a'];
       const r = await page.evaluate((seeds) => seeds.map(s => ['idle', 'random'].map(b => __gl.GL.playBot(s, b, 36))).map(([i, x]) => [i.months, i.over, x.months, x.over]), seeds);
       r.forEach(([im, io, rm, ro], k) => { ok(io === 'fired' && im <= 4, `idle on ${seeds[k]} lasted ${im} months (${io})`); ok(ro === 'fired', `random on ${seeds[k]} survived`); });
-      ok(r.filter(x => x[2] <= 6).length >= 9, 'random play should usually be dismissed within half a year: ' + r.map(x => x[2]));
+      ok(r.filter(x => x[2] <= 8).length >= 10, 'random play should usually be dismissed within eight months: ' + r.map(x => x[2]));
     },
     'pressure keeps rising: rules set in the first two months and then left alone are dismissed within two years': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const G = __gl.GL; G.BOTS.setForget = (C, R) => C.month <= 2 ? G.BOTS.adaptive(C, R) : { forecast: C.pre.avg };
@@ -85,8 +85,8 @@ module.exports = {
       await page.click('#fcGo'); await page.evaluate(() => __gl.skipAnim()); ok(await waitFor(page, () => __gl.phase === 'result'));
       let t = await page.textContent('#slip'); ok(/Council warning 1 of 3: commutes rose to \d+ min, over the 40 limit\. Place a rule!/.test(t), 'idle month 1 fails clearly: ' + t);
       ok(/WARNING 1\/3/.test(await page.textContent('#stamp')), 'stamp');
-      // redo the month with a bus line and its lane: the slip credits the change
-      await page.click('#sRedo'); await waitFor(page, () => __gl.phase === 'plan');
+      // a fresh start of the same city with a bus line and its lane: the slip credits the change
+      await page.evaluate(() => __gl.newRun(__gl.C.seed)); await waitFor(page, () => __gl.phase === 'plan' && __gl.C.month === 1);
       const okPlace = await page.evaluate(() => { const G = __gl.GL, C = __gl.C; let best = null;
         for (const a of G.legalActions(C).filter(a => a.t === 'bus')) { const D = G.clone(C); G.prepare(D); if (G.act(D, a)) continue; const l = D.lines[D.lines.length - 1];
           for (const e of l.e) { const E = G.clone(D); G.prepare(E); if (G.act(E, { t: 'lane', road: e })) continue; G.settle(E, 40); const v = G.measure(E).avg; if (!best || v < best[0]) best = [v, a, e]; } }
@@ -108,7 +108,7 @@ module.exports = {
     },
     'tap a token then tap a road also places it; picking it up refunds the change': async ({ page, ok, eq }) => {
       const tgt = await page.evaluate(() => { const C = __gl.C, rd = C.roads[3], [x1, y1] = C.pts[rd.a], [x2, y2] = C.pts[rd.b]; const [sx, sy] = __gl.cam.toScreen((x1 + x2) / 2, (y1 + y2) / 2); return { sx, sy, acts: C.acts }; });
-      await page.click('.tok[data-k=close]'); await page.mouse.click(tgt.sx, tgt.sy);
+      await page.click('.tok[data-k=toll]'); await page.mouse.click(tgt.sx, tgt.sy);
       const placed = await page.evaluate(() => __gl.C.roads.filter(r => r.closed).length + __gl.C.roads.filter(r => r.toll).length);
       ok(placed === 1, 'one token on the map');
       eq(await page.evaluate(() => __gl.C.acts), tgt.acts - 1);
