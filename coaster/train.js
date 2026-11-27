@@ -41,7 +41,7 @@ function shellGeometry(T, front, hi) {
   // tail bulkhead (rounded), front bulkhead / footwell (the floor pan is with the seats)
   P.push([sideExtrude(T, [[H - .08, .3], [H, .3], [H + .04, .62, H + .06, .5], [H - .04, 1.0, H + .03, .9], [H - .1, 1.0]], -CAR.w / 2 + .02, CAR.w / 2 - .02, hi ? .02 : 0, seg), livery]);
   if (front) { // the nose: a rounded fibreglass cap, fascia with two headlights in chrome rings, the park's badge, a cream stripe
-    const n = new T.SphereGeometry(1, hi ? 28 : 12, hi ? 14 : 6, 0, Math.PI * 2, 0, Math.PI * .62); n.rotateX(-Math.PI / 2); n.scale(.72, .34, .5); n.translate(0, .52, -H + .02); P.push([n, livery]);
+    const n = new T.SphereGeometry(1, hi ? 28 : 12, hi ? 14 : 6, 0, Math.PI * 2, 0, Math.PI * .62); n.rotateX(-Math.PI / 2); n.scale(.72, .34, .46); n.translate(0, .52, -H + .02); P.push([n, livery]);
     P.push([new T.BoxGeometry(CAR.w - .08, .22, .5), DARK, M4(T, 0, .4, -H - .1)]);
     for (const s of [-1, 1]) { P.push([new T.CircleGeometry(.075, hi ? 18 : 8), 0xfff6d8, M4(T, s * .36, .55, -H - .4, -.25, s * -.5)]); if (hi) P.push([new T.TorusGeometry(.08, .014, 6, 18), CHROME, M4(T, s * .36, .55, -H - .4, -.25, s * -.5)]); }
     P.push([new T.CircleGeometry(.12, hi ? 20 : 8), GOLD, M4(T, 0, .8, -H - .26, -1.05)], [new T.CircleGeometry(.08, hi ? 20 : 8), CREAM, M4(T, 0, .801, -H - .257, -1.05)]); }

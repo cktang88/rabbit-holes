@@ -1,6 +1,6 @@
 # Rabbit Holes
 
-27 browser experiments in the spirit of [neal.fun](https://neal.fun), each built to hold you for an afternoon rather than five minutes, and each set in its own world: a Cold War code office, a 1680 chart table, a harpsichord workshop, a lamplit petri dish.
+28 browser experiments in the spirit of [neal.fun](https://neal.fun), each built to hold you for an afternoon rather than five minutes, and each set in its own world: a Cold War code office, a 1680 chart table, a harpsichord workshop, a lamplit petri dish.
 
 Every experiment is a single static page with no build step, no backend and no accounts. Progress saves to `localStorage`, so you can close the tab and come back. They work on phones, including touch gestures.
 
@@ -37,6 +37,7 @@ The landing page groups everything by tag. Subjects: Physics, Maths, Simulation,
 | 🦆 | [Uncharted Seas](floatees/index.html) | Drop radio drifters on a newly generated planet, read its unknown currents from where they wash up, sketch your own chart, then answer maydays by predicting where the rafts will drift. The true flow is revealed under your ink. Plus the 1992 bath-toy spill that started it all, on an Earth whose currents and winds come from 21 million real drifter fixes and satellite winds. | Earth & water, Physics, Simulation, Real history, Pretty to watch, Chill sandbox | an hour+ | ●○○ |
 | 🌌 | [Universe Seed](universe-seed/index.html) | Every black hole buds a child universe with one law nudged. Tend the family tree, shelter and prune, and find out whether minds can survive a selection that rewards black holes. | Space, Physics, Simulation, Strategy | an hour+ | ●●○ |
 | 💧 | [Watershed](watershed/index.html) | Powell's 1875 survey. You never touch the water: lay soft shale, hard sandstone, lava and rising ground, drop a sea, then let three million years of rain carve the land until one river steals another's headwaters. | Earth & water, Physics, Simulation, Emergence, Pretty to watch | an hour+ | ●●○ |
+| 🌬️ | [Wind Tunnel](wind-tunnel/index.html) | A live smoke tunnel. Drag the outline of a body and the airflow answers at once: vortex streets peel off, wakes close up, the lift and drag recorders swing. Test requests from a brewery chimney to a glider wing, a spinning rotor ship, a bridge deck that must stop shaking and a racer tucked into a slipstream, plus a daily crate and a free bench. | Physics, Simulation, Pretty to watch, Wait, what?, Chill sandbox | an hour+ | ●●○ |
 
 ## How it was made
 

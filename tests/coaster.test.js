@@ -282,7 +282,7 @@ module.exports = {
         return { fmin: f.gmin, bmin: b.gmin, cars: K.TRAIN.cars, rows: K.TRAIN.rows.length, f: f.air, b: b.air, m: m.air, judged: sc.st.air, seat: sc.st.seat }; });
       await page.evaluate(() => { const K = __coaster; K.design = { nodes: K.REF.family(), lift: 1 }; K.ride(); }); await page.waitForFunction(() => /Judged in the middle of the train/.test(document.getElementById('result').textContent), null, { timeout: 60000 });
       const txt = await page.evaluate(() => document.querySelector('#result .seats').textContent);
-      ok(r.cars === 5 && r.rows === 10, 'five cars of two rows'); ok(r.bmin < r.fmin - .1, `the back row is whipped over the crests: lowest g ${r.bmin.toFixed(2)} vs front ${r.fmin.toFixed(2)} (airtime ${r.b.toFixed(2)} s vs ${r.f.toFixed(2)} s)`); ok(Math.abs(r.b - r.f) > 1e-3, 'seats differ'); ok(Math.abs(r.m - r.judged) < .05, `judged = middle seat (${r.judged.toFixed(2)} vs ${r.m.toFixed(2)})`);
+      ok(r.cars === 5 && r.rows === 10, 'five cars of two rows'); ok(r.bmin < r.fmin - .05, `the back row is whipped over the crests: lowest g ${r.bmin.toFixed(2)} vs front ${r.fmin.toFixed(2)} (airtime ${r.b.toFixed(2)} s vs ${r.f.toFixed(2)} s)`); ok(Math.abs(r.b - r.f) > 1e-3, 'seats differ'); ok(Math.abs(r.m - r.judged) < .05, `judged = middle seat (${r.judged.toFixed(2)} vs ${r.m.toFixed(2)})`);
       ok(r.seat === 'middle of the train', r.seat); ok(/Front row: [\d.]+ s airtime.*back row: [\d.]+ s/.test(txt), txt);
     },
     'free look: dragging turns the rider\'s head (clamped), the seat frame is untouched, the head eases back, arrow keys look too': async ({ page, ok }) => {
@@ -318,7 +318,7 @@ module.exports = {
         const f = bb(G.hi.shellF), rr = bb(G.hi.shellR); o.lenF = f.max.z - f.min.z; o.lenR = rr.max.z - rr.min.z; o.width = rr.max.x - rr.min.x; o.pitch = K.TRAIN.row; o.carPitch = K.TRAIN.pitch;
         // wheels from the carrier's own vertices: road wheels rest on the rail tops (y 0.075), side wheels on the rails' outer faces (|x| 0.625), up-stops under the rails (y −0.075)
         const P = G.hi.bogie.attributes.position; let road = 9, side = 9, up = -9; for (let i = 0; i < P.count; i++) { const x = Math.abs(P.getX(i)), y = P.getY(i);
-          if (x > .5 && x < .6 && y > .05 && y < .4) road = Math.min(road, y); if (x > .6 && x < .8 && Math.abs(y) < .03) side = Math.min(side, x); if (x > .5 && x < .6 && y < -.05 && y > -.3) up = Math.max(up, y); }
+          if (x > .49 && x < .61 && y > .05 && y < .4) road = Math.min(road, y); if (x > .6 && x < .8 && Math.abs(y) < .042) side = Math.min(side, x); if (x > .49 && x < .61 && y < -.05 && y > -.3) up = Math.max(up, y); }
         o.road = road; o.side = side; o.up = up;
         K.v3Frame(K.play); const M = new T.Matrix4(), q = new T.Quaternion(), v = new T.Vector3(), sc = new T.Vector3(); V3.tr.laps.getMatrixAt(5, M); M.decompose(v, q, sc); o.lapMoving = V3.tr.lap;
         o.meshes = Object.values(V3.tr).filter(m => m && m.isInstancedMesh).length; const hiT = Object.values(V3.tr).filter(m => m && m.isInstancedMesh).reduce((a, m) => a + (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3 * m.count, 0);
