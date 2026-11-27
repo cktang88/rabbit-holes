@@ -69,12 +69,13 @@ module.exports = {
       eq(r, { id: 'turn', n: 7, bank: 50 }); ok(!p.errs.length, p.errs[0]); await p.close();
     },
     'first minute: press RIDE, it stalls; drag the second hill down with the mouse; ride again and pass': async ({ page, ok, eq }) => {
-      await page.click('#tRide'); await page.click('#tSkip'); await page.waitForTimeout(300);
+      const slow = { timeout: 90000 }; // RIDE opens the 3D park: on software GL under a full suite that frame can take a while
+      await page.click('#tRide', slow); await page.click('#tSkip', slow); await page.waitForTimeout(300);
       ok(await page.evaluate(() => __coaster.last.r.stall >= 0), 'starting design should stall');
       const [x, y] = await page.evaluate(() => { const n = __coaster.design.nodes[5]; return __coaster.screenOf(n.x, n.y); });
       const [, y2] = await page.evaluate(() => __coaster.screenOf(128, 20));
       await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x, (y + y2) / 2); await page.mouse.move(x, y2); await page.mouse.up();
-      await page.click('#tRide'); await page.click('#tSkip'); await page.waitForTimeout(400);
+      await page.click('#tRide', slow); await page.click('#tSkip', slow); await page.waitForTimeout(400);
       eq(await page.evaluate(() => __coaster.last.ok), true, 'after lowering the hill the ride should finish');
       ok(await page.$eval('#result', e => getComputedStyle(e).display !== 'none' && /approved/i.test(e.textContent)), 'result card');
       ok(await page.evaluate(() => __coaster.SAVE.done.first >= 1), 'progress saved');
@@ -224,11 +225,11 @@ module.exports = {
         const cdp = await ctx.newCDPSession(p); await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
         const url = page.url().replace(/[#?].*$/, ''); await page.goto('about:blank'); // nothing else running while we time it
         await p.goto(url); await p.bringToFront(); // a background tab gets no animation frames await p.waitForFunction(() => window.__coaster && __coaster.firstFrame, null, { timeout: 20000 });
-        const first = await p.evaluate(() => __coaster.firstFrame);
+        const first = +(await p.evaluate(() => __coaster.firstFrame)) || 0;
         await p.waitForFunction(() => window.THREE && window.THREE_X !== undefined, null, { timeout: 30000 });
         const r = await p.evaluate(() => new Promise(res => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; K.startRide(); if (!K.V3.on) K.v3Open(); K.play.k = Math.floor(K.last.r.t.length * .4); K.play.simT = K.last.r.t[K.play.k];
           const ts = [], st = []; let last = 0, done = false; setTimeout(() => { done = true; }, 40000); const tick = now => { if (last) ts.push(now - last); last = now; if (K.V3.stats) st.push(K.V3.stats); if (ts.length < 40 && K.play && !done) requestAnimationFrame(tick); else { const s = [...ts].sort((a, b) => a - b);
-            K.V3.noRender = true; const t1 = performance.now(); for (let i = 0; i < 60; i++) { K.play.k = (K.play.k + 3) % K.last.r.t.length; K.v3Frame(K.play); } const js = (performance.now() - t1) / 60; K.V3.noRender = false;
+            K.V3.noRender = true; const t1 = performance.now(); for (let i = 0; i < 60; i++) { K.play.k = (K.play.k + 3) % K.last.r.t.length; K.v3Frame(K.play); } const js = (performance.now() - t1) / 60 || 0; K.V3.noRender = false;
             const pf = K.perf(); res({ programs: pf.programs, inst: pf.instancesDrawn, instAll: pf.instances, js, med: s[s.length >> 1], p95: s[Math.floor(s.length * .95)], n: s.length, calls: Math.max(...st.map(x => x.calls)), tris: Math.max(...st.map(x => x.tris)), dpr: K.V3.dpr, tier: K.V3.tier }); } }; requestAnimationFrame(tick); }));
         console.log(`      phone 4× CPU: first frame ${first.toFixed(0)} ms · ${r.calls} draw calls · ${r.tris} triangles · pixel ratio ${r.dpr} · tier ${r.tier} · our JS ${r.js.toFixed(2)} ms a frame · ${r.programs} shader programs · ${r.inst}/${r.instAll} instances in view (counts only: software GL frame times mean nothing here)`);
         ok(r.tier === 'low', 'phones get the low tier'); ok(r.calls < 150, `${r.calls} draw calls (budget 150)`); ok(r.tris < 300000, `${r.tris} triangles (budget 300k)`); ok(r.dpr <= 1.25, `pixel ratio ${r.dpr}`);
@@ -306,9 +307,9 @@ module.exports = {
         V3.scene.traverse(o => { if (o === V3.ground || o === V3.lot || o === V3.props) mats.push([o === V3.ground ? 'grass' : o === V3.lot ? 'car park' : 'paths', o.material]); });
         const bad = mats.filter(([, m]) => m.roughness < .85 || m.metalness !== 0 || m.envMapIntensity > .5 || m.clearcoat || m.roughnessMap).map(([n, m]) => `${n} r${m.roughness} m${m.metalness} env${m.envMapIntensity}`);
         const L = V3.layout, X = L.cx + 40, Z = L.cz + 60, y = V3.groundAt(X, Z)[0], d = V3.sunDir, h = Math.hypot(d[0], d[2]), cam = V3.cam; cam.position.set(X, y + 1.5, Z); cam.up.set(0, 1, 0); cam.lookAt(X + d[0] / h * 40, y - .4, Z + d[2] / h * 40); cam.updateMatrixWorld();
-        V3.tufts.mesh.visible = false; const ren = V3.r, gl = ren.getContext(); ren.setRenderTarget(null); ren.render(V3.scene, cam); const W = gl.drawingBufferWidth, H = gl.drawingBufferHeight, px = new Uint8Array(4); let max = 0, green = 0, n = 0;
+        if (V3.tufts) V3.tufts.mesh.visible = false; const ren = V3.r, gl = ren.getContext(); ren.setRenderTarget(null); ren.render(V3.scene, cam); const W = gl.drawingBufferWidth, H = gl.drawingBufferHeight, px = new Uint8Array(4); let max = 0, green = 0, n = 0;
         for (let i = 0; i < 40; i++) { gl.readPixels(Math.floor(W * (.05 + .9 * (i % 8) / 7)), Math.floor(H * (.05 + .3 * Math.floor(i / 8) / 4)), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); max = Math.max(max, px[0], px[1], px[2]); if (px[1] >= px[2] && px[1] >= px[0] * .9) green++; n++; }
-        V3.tufts.mesh.visible = true; return { n: mats.length, bad, max, green, total: n, bloom: V3.bloom ? V3.bloom.threshold : null }; });
+        if (V3.tufts) V3.tufts.mesh.visible = true; return { n: mats.length, bad, max, green, total: n, bloom: V3.bloom ? V3.bloom.threshold : null }; });
       ok(r.n === 3 && !r.bad.length, `ground materials: ${r.n}, not matte: ${r.bad.join(', ')}`); ok(r.max < 235, `brightest ground pixel ${r.max} (no glare)`); ok(r.green > r.total * .8, `${r.green}/${r.total} ground pixels read green`);
     },
     'every starting track is a real ride: no kinks, never touches the ground, and all but First Ride (whose stall is the lesson) reach the station': async ({ page, ok }) => {

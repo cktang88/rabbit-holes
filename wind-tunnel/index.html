@@ -635,10 +635,10 @@ function shapeChanged(b) { refresh(b); maskDirty = true; edited(); }
 // measured by the sim. `m` metrics: drag, lift, down (downforce), ld (lift ÷ drag), sway (size of the lift wobble), drive, drag2.
 const LV = [
   { id: 'round', t: 'Round stack', who: 'Mill Lane Brewery', brief: 'Their round flue drags hard in the wind. Reshape it to slip through.',
-    body: { pts: circle(.1) }, keep: { circle: .075 }, re: 300, goal: { m: 'drag', lt: [1.6, 1.35, 1.18] }, hint: 1,
+    body: { pts: circle(.1) }, keep: { circle: .075 }, re: 300, goal: { m: 'drag', lt: [1.6, 1.35, 1.18] }, hint: 1, third: 'sway',
     lesson: 'Most drag is the wake, not the nose: a long gentle tail lets the air close up behind.' },
   { id: 'plate', t: 'Flat plate', who: 'Signal & Sign Co.', brief: 'Same height, a fraction of the drag. Keep the sign board inside.',
-    body: { pts: rrect(.03, .2, .008) }, keep: { rect: [.018, .19] }, re: 400, goal: { m: 'drag', lt: [1.7, 1.35, 1.18] },
+    body: { pts: rrect(.03, .2, .008) }, keep: { rect: [.018, .19] }, re: 400, goal: { m: 'drag', lt: [1.7, 1.35, 1.18] }, third: 'sway',
     lesson: 'A plate and a teardrop of the same height: the plate pays nearly three times as much, almost all of it in the wake.' },
   { id: 'chimney', t: 'Singing chimney', who: 'County Gasworks', brief: 'The stack sways as vortices peel off each side. Stop the wobble.',
     body: { pts: circle(.1) }, keep: { circle: .095 }, re: 300, settle: 5, goal: { m: 'sway', lt: [.4, .26, .17] }, third: 'sway',
@@ -647,7 +647,7 @@ const LV = [
     body: { pts: circle(.1), edit: false }, tools: ['spin'], re: 300, goal: { m: 'lift', gt: [1.5, 3, 5] }, third: 'sway',
     lesson: 'A spinning cylinder drags air round with it: faster on one side, lower pressure there. The Magnus effect.' },
   { id: 'glider', t: 'Glider wing', who: 'Dunstable Gliding Club', brief: 'Lift without much drag. Tilt it, shape it. The spar must fit.',
-    body: { pts: naca(.12), mirror: false, tilt: 0 }, keep: { rect: [.06, .016] }, tools: ['tilt'], re: 800,
+    body: { pts: naca(.12), mirror: false, tilt: 0 }, keep: { rect: [.06, .012], at: [0, .012] }, tools: ['tilt'], re: 800,
     goal: { m: 'ld', gt: [1.8, 2.4, 3] }, need: [{ m: 'lift', gt: .6 }], third: 'ld',
     lesson: 'Lift is cheap; drag is the price. A gentle tilt and a curved back give the most lift per drag.' },
   { id: 'stall', t: 'Stall', who: 'Royal Aircraft Establishment', brief: 'Find the tilt that gives the most lift. Too far and it collapses.',
@@ -716,10 +716,10 @@ function keepDesign() { const b = bodies[0]; if (!b || b.edit === false) return;
 function keepPts(lv) {
   const k = lv.keep; if (!k) return [];
   if (k.circle) return Array.from({ length: 24 }, (_, i) => [k.circle * Math.cos(i * Math.PI / 12), k.circle * Math.sin(i * Math.PI / 12)]);
-  const [w, h] = k.rect, o = [];
+  const [w, h] = k.rect, [ax, ay] = k.at || [0, 0], o = [];
   for (let i = 0; i <= 8; i++) { const x = -w / 2 + w * i / 8; o.push([x, h / 2], [x, -h / 2]); }
   for (let i = 1; i < 4; i++) { const y = -h / 2 + h * i / 4; o.push([-w / 2, y], [w / 2, y]); }
-  return o;
+  return o.map(p => [p[0] + ax, p[1] + ay]);
 }
 function keepOK(b) { return keepPts(cur).every(p => inPoly(b.poly, p[0], p[1])); }
 function areaOK(b) { return !cur.maxArea || polyArea(b.poly) <= cur.maxArea; }
@@ -992,9 +992,10 @@ function drawOverlay(t) {
   // rivets
   c.fillStyle = '#56645f';
   for (let x = .1; x < A; x += .2) for (const y of [-fr / 2, 1 + fr / 2]) { c.beginPath(); c.arc(x, y, .009, 0, 7); c.fill(); }
-  c.fillStyle = '#8fa09a'; c.font = `600 ${.032}px "Saira Condensed",sans-serif`; c.textBaseline = 'middle';
-  c.fillText('TEST SECTION  •  SMOKE TUNNEL No. 2', .1, 1 + fr / 2 + .002);
-  c.textAlign = 'right'; c.fillText('FLOW →', A - .05, -fr / 2); c.textAlign = 'left';
+  { // stencilled labels, drawn in screen pixels so small text stays crisp
+    const fs = Math.max(9, Math.min(15, fr * k * .42)), t1 = scr(.1, 1 + fr / 2), t2 = scr(A - .05, -fr / 2);
+    c.save(); c.setTransform(d, 0, 0, d, 0, 0); c.fillStyle = '#8fa09a'; c.font = `600 ${fs}px "Saira Condensed",sans-serif`; c.textBaseline = 'middle';
+    c.fillText('TEST SECTION  \u2022  SMOKE TUNNEL No. 2', t1[0], t1[1]); c.textAlign = 'right'; c.fillText('FLOW \u2192', t2[0], t2[1]); c.restore(); }
   // the inlet: honeycomb straightener and the smoke rake
   c.fillStyle = '#0d1214'; c.fillRect(0, 0, .022, 1);
   c.strokeStyle = '#2f3b3c'; c.lineWidth = .8 * px; for (let y = 0; y < 1; y += .012) { c.beginPath(); c.moveTo(0, y); c.lineTo(.022, y + .006); c.stroke(); }
@@ -1028,7 +1029,7 @@ function drawOverlay(t) {
     if (bi === 0 && cur && cur.keep) {
       const kp = cur.keep; c.save(); c.beginPath();
       if (kp.circle) { const n = 40; for (let i = 0; i <= n; i++) { const a = i / n * Math.PI * 2, w = toWorld(b, kp.circle * Math.cos(a), kp.circle * Math.sin(a)); i ? c.lineTo(w[0], w[1]) : c.moveTo(w[0], w[1]); } }
-      else { const [w, h] = kp.rect; [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].forEach((p, i) => { const q = toWorld(b, p[0], p[1]); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }); c.closePath(); }
+      else { const [w, h] = kp.rect, [ax, ay] = kp.at || [0, 0]; [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].forEach((p, i) => { const q = toWorld(b, p[0] + ax, p[1] + ay); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }); c.closePath(); }
       const ok = keepOK(b);
       c.fillStyle = ok ? 'rgba(40,46,50,.55)' : 'rgba(255,80,60,.35)'; c.fill();
       c.setLineDash([4 * px, 3 * px]); c.strokeStyle = ok ? 'rgba(255,190,110,.75)' : '#ff5a45'; c.lineWidth = 1.2 * px; c.stroke(); c.setLineDash([]);
@@ -1040,7 +1041,7 @@ function drawOverlay(t) {
     // pivot pin
     c.fillStyle = '#c8a45c'; c.beginPath(); c.arc(b.cx, b.cy, 2.5 * px, 0, 7); c.fill();
     // handles
-    if (b.edit !== false) {
+    if (b.edit !== false && !Q.has('clean')) {
       const hr = handleR() * px;
       if (b.pts.length < 40 && !isTouch) { c.fillStyle = 'rgba(255,190,120,.35)'; for (let i = 0; i < b.pts.length; i++) { const p = b.poly[i * 10 + 5], w = toWorld(b, p[0], p[1]); c.beginPath(); c.arc(w[0], w[1], hr * .45, 0, 7); c.fill(); } }
       if (isTouch && b.pts.length < 40) { c.fillStyle = 'rgba(255,190,120,.3)'; for (let i = 0; i < b.pts.length; i++) { const p = b.poly[i * 10 + 5], w = toWorld(b, p[0], p[1]); c.beginPath(); c.arc(w[0], w[1], hr * .4, 0, 7); c.fill(); } }
@@ -1061,7 +1062,7 @@ function drawOverlay(t) {
     c.font = `600 ${14 * px}px "Saira Condensed"`; c.fillText('BOAT', hx * L0 + 6 * px, hy * L0); c.restore();
   }
   // force arrows: lift (cyan) and drag (orange) from the pivot
-  if (bodies[0]) {
+  if (bodies[0] && !Q.has('clean')) {
     const b = bodies[0], s = .06;
     const arrow = (dx, dy, col) => { const l = Math.hypot(dx, dy); if (l < .01) return; c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 2.2 * px; c.beginPath(); c.moveTo(b.cx, b.cy); c.lineTo(b.cx + dx, b.cy + dy); c.stroke();
       const ux = dx / l, uy = dy / l, hl = Math.min(.025, l * .4); c.beginPath(); c.moveTo(b.cx + dx, b.cy + dy); c.lineTo(b.cx + dx - ux * hl - uy * hl * .5, b.cy + dy - uy * hl + ux * hl * .5); c.lineTo(b.cx + dx - ux * hl + uy * hl * .5, b.cy + dy - uy * hl - ux * hl * .5); c.closePath(); c.fill(); };
