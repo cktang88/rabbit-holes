@@ -14,7 +14,7 @@
   html,body{margin:0;height:100%;overflow:hidden;background:#0d1620;color:var(--ink);font-family:Jost,"Futura","Century Gothic",sans-serif;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
   #gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
   #ov{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
-  #labels{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+  #labels{position:fixed;inset:0;pointer-events:none;overflow:hidden;background:radial-gradient(ellipse at 50% 45%,transparent 55%,rgba(4,10,20,.42) 100%)}
   .lab{position:absolute;left:0;top:0;white-space:nowrap;font:600 italic 17px/1 "Cormorant Garamond",Georgia,serif;color:#fbf3df;letter-spacing:.02em;
     text-shadow:0 1px 2px rgba(0,0,0,.85),0 0 8px rgba(0,0,0,.6);transition:opacity .6s;will-change:transform}
   .lab::before{content:"";position:absolute;left:-9px;top:50%;width:5px;height:5px;margin-top:-3px;border-radius:50%;background:#fbf3df;box-shadow:0 0 6px #fff}
@@ -838,7 +838,7 @@ let composer = null, bloom = null;
 if (POST) { composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera)); bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .55, .5, .9); composer.addPass(bloom); composer.addPass(new OutputPass()); }
 // background: deep space blue, brighter toward the horizon
 { const c = document.createElement('canvas'); c.width = 4; c.height = 256; const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 256);
-  gr.addColorStop(0, '#050a14'); gr.addColorStop(.55, '#0c1b2e'); gr.addColorStop(.8, '#24476b'); gr.addColorStop(1, '#5f8db5'); g.fillStyle = gr; g.fillRect(0, 0, 4, 256);
+  gr.addColorStop(0, '#0a1626'); gr.addColorStop(.45, '#1d3c5c'); gr.addColorStop(.75, '#6f9cc2'); gr.addColorStop(1, '#b9d2e6'); g.fillStyle = gr; g.fillRect(0, 0, 4, 256);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; scene.background = t; }
 
 // ---- data textures ----
@@ -873,25 +873,49 @@ vec4 bsp(sampler2D t, vec2 uv) {
 }
 float disp(float e) { return e > 0. ? e * uExag + .035 : e * uExag * .45 - .035; }
 vec3 sph(vec2 uv, float r) { float lon = (uv.x - .5) * 2. * PI, lat = (.5 - uv.y) * PI; return r * vec3(cos(lat) * sin(lon), sin(lat), cos(lat) * cos(lon)); }
+// ---- mountain relief: anisotropic ridged multifractal, ridges running along the range (across the downhill direction) ----
+float mAmp(float e) { return smoothstep(.45, 3.2, e) * (.55 + .17 * e) + smoothstep(0., .6, e) * .08; }   // km of relief the uplift supports
+float ridge1(float n) { n = clamp((n - .5) * 2.8 + .5, 0., 1.); float r = 1. - abs(2. * n - 1.); return r * r; }
+float relief(vec2 p, vec2 g, int n) {
+  vec2 t = vec2(-g.y, g.x); vec2 qa = vec2(dot(p, t) * .4, dot(p, g) * 1.3) / 70., qi = p / 40. + .23;
+  float s = 0., amp = .6, w = 1.;
+  for (int o = 0; o < 6; o++) { if (o >= n) break; vec2 q = o < 2 ? qa : qi; float r = ridge1(texture(tN, q).r); s += r * amp * w; w = clamp(r * 1.7, .2, 1.); amp *= .48;
+    if (o < 2) qa = qa * 2.07 + vec2(.17, .41); else qi = qi * 2.13 + vec2(.31, .07); if (o == 1) qi = qi * 2.1; }
+  return s - .45;
+}
+vec2 downhill(vec2 grd) { return normalize(grd + vec2(.0021, .0013)); }
+// ---- clouds: two flow-advected phases (no endless shear), domain-warped, plus thin high cirrus ----
+float cLayer(vec2 uv) {
+  vec2 wq = (texture(tN, uv * vec2(3., 1.5) + .11).rg - .5) * .05;
+  vec2 q = uv + wq;
+  return texture(tN, q * vec2(7., 3.5)).r * .58 + texture(tN, q * vec2(19., 9.5) + .3).g * .3 + texture(tN, q * vec2(57., 28.5)).b * .12;
+}
 float cloudD(vec2 uv) {
-  vec2 w = vec2(uTime * .004, 0.);
-  float lat = abs(.5 - uv.y) * 2.;
-  float d = texture(tN, uv * vec2(6., 3.) + w).g * .62 + texture(tN, uv * vec2(18., 9.) - w * 1.7).b * .28 + texture(tN, uv * vec2(54., 27.) + w * 3.).a * .1;
+  float lat = (.5 - uv.y) * 180., a = abs(lat);
+  vec2 w = vec2(a < 30. ? -1. : a < 62. ? 1.3 : -.6, (a < 30. ? .15 : -.1) * sign(lat)) * .05;
+  float ph = uTime * .025, t1 = fract(ph), t2 = fract(ph + .5), k1 = 1. - abs(1. - 2. * t1);
+  float d = cLayer(uv + w * t1) * k1 + cLayer(uv + w * t2 + vec2(.37, .19)) * (1. - k1);
   float wet = texture(tA, uv).g;
-  float cov = .74 - .2 * clamp(wet, 0., 1.5) - .08 * smoothstep(.55, .75, lat) + .1 * smoothstep(.2, .35, lat) * smoothstep(.45, .3, lat);
-  return smoothstep(cov, cov + .2, d) * uCloudA;
+  float cov = .62 - .2 * clamp(wet, 0., 1.5) - .06 * smoothstep(.55, .75, a / 90.) + .1 * smoothstep(18., 24., a) * smoothstep(34., 28., a);
+  float c = smoothstep(cov + .02, cov + .17, d);
+  float ci = texture(tN, (uv + w * 1.7 * t1) * vec2(9., 36.) + .5).a; ci = smoothstep(.55, .8, ci) * .22 * smoothstep(20., 45., a);
+  return clamp(c + ci * (1. - c), 0., 1.) * uCloudA;
 }
 `;
 const terrVS = /* glsl */`
 ${GLSL_COMMON}
 uniform vec4 uQ[${NQ}];
-varying vec2 vUv; varying vec3 vN; varying float vE; varying vec3 vW; varying float vCurv; varying float vQ;
+varying vec2 vUv; varying vec3 vN; varying float vE; varying vec3 vW; varying float vCurv; varying float vQ; varying vec2 vG;
 void main() {
   vec2 wp = vec2(position.x + uShift * (1. - uGlobe), position.z);
   vec2 uv = vec2(wp.x / 360. + .5, wp.y / 180. + .5);
   vec2 d = 1. / uTex;
   float e = bsp(tA, uv).r, eL = bsp(tA, uv - vec2(d.x, 0.)).r, eR = bsp(tA, uv + vec2(d.x, 0.)).r, eU = bsp(tA, uv - vec2(0., d.y)).r, eD = bsp(tA, uv + vec2(0., d.y)).r;
-  float h = disp(e), cs = 360. / uTex.x;
+  float cs = 360. / uTex.x;
+  vec2 g = downhill(vec2(eR - eL, eD - eU)); vG = g;
+  float am = mAmp(e), riv = bsp(tC, uv).r;
+  float eF = e + (am > .02 ? am * relief(vec2(uv.x * 360., uv.y * 180.), g, 2) - riv * am * .7 : 0.);
+  float h = disp(eF);
   // earthquake ripples
   float q = 0.;
   for (int k = 0; k < ${NQ}; k++) { vec4 Q = uQ[k]; float age = uTime - Q.z; if (age < 0. || age > 4.) continue;
@@ -905,7 +929,7 @@ void main() {
   if (uGlobe > .5) {
     float lon = (uv.x - .5) * 2. * PI, lat = (.5 - uv.y) * PI;
     vec3 up = vec3(cos(lat) * sin(lon), sin(lat), cos(lat) * cos(lon)), east = vec3(cos(lon), 0., -sin(lon)), north = cross(up, east);
-    float hh = e > 0. ? e * .28 + .02 : e * .1 - .02; P = up * (uR + hh + q * .2);
+    float hh = eF > 0. ? eF * .28 + .02 : eF * .1 - .02; P = up * (uR + hh + q * .2);
     float k = .28 / .55; Nn = normalize(up - east * gx * k * 1.3 / max(.15, cos(lat)) + north * gz * k * 1.3);
   } else { P = vec3(wp.x, h, wp.y); Nn = normalize(vec3(-gx, 1., -gz)); }
   vUv = uv; vN = Nn; vE = e; vW = P;
@@ -914,23 +938,33 @@ void main() {
 const terrFS = /* glsl */`
 ${GLSL_COMMON}
 uniform int uView; uniform float uSel, uBoundA, uHint;
-varying vec2 vUv; varying vec3 vN; varying float vE; varying vec3 vW; varying float vCurv; varying float vQ;
+varying vec2 vUv; varying vec3 vN; varying float vE; varying vec3 vW; varying float vCurv; varying float vQ; varying vec2 vG;
 vec3 srgb(vec3 c) { return pow(c, vec3(2.2)); }
 vec3 plateCol(float id) { float h = fract(id * .618 + .07); vec3 k = clamp(abs(fract(h + vec3(0., 2., 1.) / 3.) * 6. - 3.) - 1., 0., 1.); return mix(vec3(.85), k, .55); }
 void main() {
   vec4 A = texture(tA, vUv), C = texture(tC, vUv);
   vec4 B = texelFetch(tB, ivec2(mod(floor(vUv.x * uTex.x), uTex.x), clamp(floor(vUv.y * uTex.y), 0., uTex.y - 1.)), 0);
-  float e = vE, lat = (.5 - vUv.y) * 180.;
+  float lat = (.5 - vUv.y) * 180.;
   vec4 nz = texture(tN, vUv * vec2(24., 12.)), nz2 = texture(tN, vUv * vec2(96., 48.)), nz3 = texture(tN, vUv * vec2(384., 192.));
-  // detail normal: ridged noise, stronger on high ground
-  float rug = smoothstep(.2, 2.5, e) * 1.1 + .12;
-  vec2 o = vec2(1. / 256., 0.);
-  float n0 = nz2.r, nX = texture(tN, vUv * vec2(96., 48.) + o).r, nY = texture(tN, vUv * vec2(96., 48.) + o.yx).r;
-  float m0 = nz3.g, mX = texture(tN, vUv * vec2(384., 192.) + o).g, mY = texture(tN, vUv * vec2(384., 192.) + o.yx).g;
-  vec3 N = normalize(vN + vec3((n0 - nX) * 5. + (m0 - mX) * 2.4, 0., (n0 - nY) * 5. + (m0 - mY) * 2.4) * rug * (1. - uGlobe * .5));
   vec3 up = uGlobe > .5 ? normalize(vW) : vec3(0., 1., 0.);
+  // ---- per-pixel relief: full ridged multifractal, carved by the drainage ----
+  vec2 P = vec2(vUv.x * 360., vUv.y * 180.), g = normalize(vG);
+  float am = mAmp(vE), riv = C.r, carve = riv * am * .7;
+  float r0 = 0., dx = 0., dz = 0.;
+  vec3 N = vN;
+  if (am > .02 && vE > -.2) {
+    float ep = .09; r0 = relief(P, g, 6); float rx = relief(P + vec2(ep, 0.), g, 6), rz = relief(P + vec2(0., ep), g, 6);
+    dx = am * (rx - r0) / ep * uExag; dz = am * (rz - r0) / ep * uExag;
+    if (uGlobe > .5) { vec3 east = normalize(vec3(up.z, 0., -up.x) + 1e-5), north = cross(up, east); N = normalize(vN - (east * dx - north * dz) * .55); }
+    else N = normalize(vec3(vN.x / vN.y - dx, 1., vN.z / vN.y - dz));
+  }
+  float e = vE + am * r0 - carve;
+  // fine grain everywhere on land
+  vec2 o = vec2(1. / 256., 0.);
+  float m0 = nz3.g, mX = texture(tN, vUv * vec2(384., 192.) + o).g, mY = texture(tN, vUv * vec2(384., 192.) + o.yx).g;
+  N = normalize(N + vec3((m0 - mX), 0., (m0 - mY)) * 1.4 * smoothstep(0., .3, e));
   float slope = 1. - dot(N, up);
-  float T = 29. - 52. * pow(abs(lat) / 90., 1.45) - 6.5 * max(e, 0.) + (nz.g - .5) * 5.;
+  float T = 29. - 52. * pow(abs(lat) / 90., 1.45) - 6.5 * max(e, 0.) + (nz.g - .5) * 4.;
   float Pw = A.g + (nz.r - .5) * .3;
   vec3 col;
   // ---- land: biomes from rain and temperature (satellite palette) ----
@@ -939,17 +973,28 @@ void main() {
   dry = mix(srgb(vec3(.56, .52, .44)), dry, smoothstep(2., 10., T));
   vec3 grass = mix(srgb(vec3(.58, .57, .32)), srgb(vec3(.46, .52, .27)), nz2.g);
   vec3 forest = T > 19. ? mix(srgb(vec3(.16, .3, .12)), srgb(vec3(.09, .24, .08)), smoothstep(19., 25., T)) : T > 6. ? srgb(vec3(.2, .33, .15)) : srgb(vec3(.15, .24, .17));
-  vec3 tundra = srgb(vec3(.47, .46, .4)), rock = mix(srgb(vec3(.42, .37, .32)), srgb(vec3(.33, .3, .28)), nz3.r), snow = srgb(vec3(.94, .96, 1.));
+  vec3 tundra = srgb(vec3(.47, .46, .4)), snow = srgb(vec3(.95, .97, 1.));
+  vec3 rock = mix(srgb(vec3(.45, .4, .35)), srgb(vec3(.3, .28, .27)), smoothstep(.3, .7, nz3.r)), rockR = srgb(vec3(.5, .38, .3));
+  rock = mix(rock, rockR, smoothstep(.5, .8, nz2.a) * smoothstep(.4, .1, Pw));
+  vec3 foot = mix(srgb(vec3(.52, .42, .3)), srgb(vec3(.45, .4, .3)), nz2.r), alpine = mix(srgb(vec3(.33, .4, .22)), srgb(vec3(.4, .45, .27)), nz3.b);
   col = mix(dry, grass, smoothstep(.14, .32, Pw));
   col = mix(col, forest, smoothstep(.42, .75, Pw));
   col = mix(tundra, col, smoothstep(-3., 4., T));
-  col = mix(col, rock, smoothstep(.10, .32, slope + (nz3.b - .5) * .15) * smoothstep(.3, 1.2, e));
+  // mountains: brown foothills, alpine meadows where wet, bare rock above the tree line and on cliffs
+  float mtn = smoothstep(.7, 2.2, e);
+  col = mix(col, mix(foot, alpine, smoothstep(.35, .85, Pw)), mtn * .75);
+  float treeless = smoothstep(3., -2., T);
+  col = mix(col, rock, max(treeless * smoothstep(.8, 2., e) * .9, smoothstep(.16, .42, slope + (nz3.b - .5) * .12) * smoothstep(.2, 1., e)));
+  // valley floors catch sediment and green
+  col = mix(col, mix(foot, alpine, smoothstep(.2, .6, Pw)), smoothstep(.2, .7, riv) * mtn * .5);
   float volc = A.a;
   col = mix(col, srgb(vec3(.2, .17, .16)), smoothstep(.2, .8, volc) * smoothstep(.6, 2., e) * .7);
-  float sn = smoothstep(-9., -13., T + (nz3.r - .5) * 6. + slope * 14. * (1. - smoothstep(-16., -24., T))) * (1. - smoothstep(.35, .6, slope) * .6);
+  // snow: colder than the line (altitude + latitude), sliding off steep faces, banked on the poleward and shaded sides
+  float shade = dot(N, uSun);
+  float sT = T + (nz3.r - .5) * 5. + (nz2.g - .5) * 3. + slope * 22. - (1. - smoothstep(-.1, .5, shade)) * 3. + (1. - smoothstep(.05, .45, A.g)) * 12.;
+  float sn = smoothstep(-6., -10., sT);
   col = mix(col, snow, sn);
-  // rivers
-  col = mix(col, srgb(vec3(.16, .32, .42)), smoothstep(.35, .9, C.r) * (1. - sn) * .85);
+  col = mix(col, srgb(vec3(.15, .3, .4)), smoothstep(.55, 1., riv) * (1. - sn) * .35);
   // relief tint (hypsometric atlas palette)
   if (uView == 1) { vec3 h0 = srgb(vec3(.42, .6, .38)), h1 = srgb(vec3(.83, .8, .52)), h2 = srgb(vec3(.72, .5, .3)), h3 = srgb(vec3(.55, .38, .3)), h4 = srgb(vec3(.95, .94, .94));
     col = e < .5 ? mix(h0, h1, e / .5) : e < 2. ? mix(h1, h2, (e - .5) / 1.5) : e < 4.5 ? mix(h2, h3, (e - 2.) / 2.5) : mix(h3, h4, smoothstep(4.5, 7., e)); }
@@ -967,7 +1012,7 @@ void main() {
   if (uView == 3) col = mix(col, srgb(plateCol(B.r)), .55);
   // ---- light ----
   vec3 L = uSun; float dif = max(dot(N, L), 0.);
-  float sh = 1. - .55 * cloudD(vUv + vec2(-.004, -.006));
+  float sh = 1. - .32 * cloudD(vUv + vec2(-.004, -.006));
   float ao = clamp(1. + vCurv * 1.8, .55, 1.15);
   vec3 sky = srgb(vec3(.55, .68, .85)), gnd = srgb(vec3(.32, .28, .22));
   vec3 amb = mix(gnd, sky, dot(N, up) * .5 + .5) * .42;
@@ -990,6 +1035,7 @@ void main() {
   float dist = length(vW - cameraPosition);
   float hz = uGlobe > .5 ? 0. : smoothstep(uCamD * .8, uCamD * 3.2, dist) * .45;
   c = mix(c, srgb(vec3(.5, .66, .82)), hz);
+  c = mix(c, srgb(vec3(.78, .84, .9)) * (.5 + .5 * max(dot(up, uSun), 0.)), smoothstep(80., 89.5, abs(lat)) * (1. - uGlobe));
   gl_FragColor = vec4(c, 1.);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -1006,7 +1052,7 @@ varying vec2 vUv; varying vec3 vW;
 vec3 srgb(vec3 c) { return pow(c, vec3(2.2)); }
 void main() {
   if (uView == 2) discard;
-  float e = texture(tA, vUv).r; float d = -e;
+  float e = bsp(tA, vUv).r; float d = -e;
   if (d < -.08) discard;
   float lat = (.5 - vUv.y) * 180.;
   vec3 up = uGlobe > .5 ? normalize(vW) : vec3(0., 1., 0.);
@@ -1014,22 +1060,23 @@ void main() {
   vec2 g = (texture(tN, w1 / 256.).rg - .5) * 1. + (texture(tN, w2 / 256.).ba - .5) * .6;
   vec3 N = normalize(up + vec3(g.x, 0., g.y) * .22);
   vec3 V = normalize(cameraPosition - vW);
-  vec3 shallow = srgb(vec3(.16, .62, .66)), mid = srgb(vec3(.05, .32, .5)), deep = srgb(vec3(.015, .085, .2)), abyss = srgb(vec3(.005, .03, .09));
-  vec3 col = mix(shallow, mid, smoothstep(.0, .5, d)); col = mix(col, deep, smoothstep(.5, 4.5, d)); col = mix(col, abyss, smoothstep(6.5, 9., d));
+  vec3 shallow = srgb(vec3(.16, .62, .66)), mid = srgb(vec3(.05, .32, .5)), deep = srgb(vec3(.03, .13, .27)) * (.85 + .3 * texture(tN, vUv * vec2(12., 6.)).r), abyss = srgb(vec3(.01, .05, .13));
+  vec3 col = mix(shallow, mid, smoothstep(.0, .5, d)); col = mix(col, deep, smoothstep(.5, 4.5, d)); col = mix(col, abyss, smoothstep(7.2, 10., d));
   float fr = pow(1. - max(dot(N, V), 0.), 4.);
   vec3 sky = srgb(vec3(.6, .74, .9));
   float dif = max(dot(up, uSun), 0.) * .6 + .4;
-  float sh = 1. - .45 * cloudD(vUv + vec2(-.004, -.006));
+  float sh = 1. - .12 * cloudD(vUv + vec2(-.004, -.006));
   vec3 c = col * dif * sh + sky * fr * .5;
-  vec3 Hh = normalize(uSun + V); c += vec3(1., .9, .7) * pow(max(dot(N, Hh), 0.), 400.) * .7 * sh;
+  vec3 Hh = normalize(uSun + V); float nh = max(dot(N, Hh), 0.); c += vec3(1., .9, .72) * (pow(nh, 700.) * 1.1 + pow(nh, 90.) * .03) * sh;
   // coastal foam and sea ice
-  float foam = smoothstep(.12, .0, d) * (.5 + .5 * texture(tN, vUv * vec2(400., 200.) + uTime * .02).r);
-  c = mix(c, srgb(vec3(.85, .9, .9)), foam * .55);
+  float fn = texture(tN, vUv * vec2(400., 200.) + vec2(uTime * .01, 0.)).r; float foam = smoothstep(.07, .0, d) * smoothstep(.35, .7, fn + .25 * sin(uTime * 1.5 + d * 80.));
+  c = mix(c, srgb(vec3(.86, .92, .93)), foam * .45);
   float T = 29. - 52. * pow(abs(lat) / 90., 1.45);
   float ice = smoothstep(-4., -9., T + (texture(tN, vUv * vec2(60., 30.)).r - .5) * 8.) * uSeaIce;
   c = mix(c, srgb(vec3(.86, .92, .97)) * (dif * .9 + .2), ice);
   float dist = length(vW - cameraPosition), hz = uGlobe > .5 ? 0. : smoothstep(uCamD * .8, uCamD * 3.2, dist) * .45;
   c = mix(c, srgb(vec3(.5, .66, .82)), hz);
+  c = mix(c, srgb(vec3(.78, .84, .9)) * (.5 + .5 * max(dot(up, uSun), 0.)), smoothstep(80., 89.5, abs(lat)) * (1. - uGlobe));
   gl_FragColor = vec4(c, 1.);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -1068,6 +1115,51 @@ const waterMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: waterVS, 
 const water = new THREE.Mesh(fixBounds(grid(160, 80)), waterMat); water.frustumCulled = false; scene.add(water);
 const cloudMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: cloudVS, fragmentShader: cloudFS, transparent: true, depthWrite: false });
 const clouds = new THREE.Mesh(fixBounds(grid(96, 48)), cloudMat); clouds.frustumCulled = false; clouds.renderOrder = 3; clouds.visible = CLOUDS; scene.add(clouds);
+// ---- rivers: ribbons from the flow routing, wider downstream, fanning into deltas at the coast ----
+const RMAX = 6000;
+const rivGeo = new THREE.BufferGeometry();
+rivGeo.setAttribute('c', new THREE.BufferAttribute(new Float32Array(RMAX * 8), 2)); rivGeo.setAttribute('a', new THREE.BufferAttribute(new Float32Array(RMAX * 4), 1));
+rivGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(RMAX * 12), 3));
+{ const ix = new Uint32Array(RMAX * 6); for (let k = 0; k < RMAX; k++) ix.set([k * 4, k * 4 + 1, k * 4 + 2, k * 4 + 2, k * 4 + 1, k * 4 + 3], k * 6); rivGeo.setIndex(new THREE.BufferAttribute(ix, 1)); }
+fixBounds(rivGeo); rivGeo.setDrawRange(0, 0);
+const rivMat = new THREE.ShaderMaterial({ uniforms: U, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
+  vertexShader: `${GLSL_COMMON}
+attribute vec2 c; attribute float a; varying float vA; varying vec3 vW;
+void main() {
+  float wx = (c.x + .5) / uTex.x * 360. - 180.; wx -= 360. * floor((wx - uShift) / 360. + .5) * (1. - uGlobe);
+  vec2 uv = vec2(wx / 360. + .5, (c.y + .5) / uTex.y);
+  vec2 d = 1. / uTex; float e = bsp(tA, uv).r, eL = bsp(tA, uv - vec2(d.x, 0.)).r, eR = bsp(tA, uv + vec2(d.x, 0.)).r, eU = bsp(tA, uv - vec2(0., d.y)).r, eD = bsp(tA, uv + vec2(0., d.y)).r;
+  float am = mAmp(e), riv = bsp(tC, uv).r; float eF = max(.02, e + (am > .02 ? am * relief(vec2(uv.x * 360., uv.y * 180.), downhill(vec2(eR - eL, eD - eU)), 2) - riv * am * .7 : 0.));
+  vec3 P = uGlobe > .5 ? sph(uv, uR + eF * .28 + .06) : vec3(wx, disp(eF) + .05, uv.y * 180. - 90.);
+  vA = a; vW = P; gl_Position = projectionMatrix * modelViewMatrix * vec4(P, 1.);
+}`,
+  fragmentShader: `uniform float uCamD, uGlobe; varying float vA; varying vec3 vW;
+void main() { float dist = length(vW - cameraPosition), hz = uGlobe > .5 ? 0. : smoothstep(uCamD * .8, uCamD * 3.2, dist);
+  gl_FragColor = vec4(pow(vec3(.14, .3, .4), vec3(2.2)), vA * .85 * (1. - hz * .8));
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}` });
+const rivers = new THREE.Mesh(rivGeo, rivMat); rivers.frustumCulled = false; rivers.renderOrder = 1; scene.add(rivers);
+let riversDirty = true;
+function buildRivers() {
+  const C = rivGeo.attributes.c.array, Aa = rivGeo.attributes.a.array, A = S.A, e = S.e, sea = S.sea, AMIN = 3 * (W / 256);
+  const jit = (i, k) => (PlateSim.hash2(i, k, 55) - .5) * .55;
+  let n = 0;
+  const quad = (x0, y0, x1, y1, w0, w1, a) => { if (n >= RMAX) return; let dx = x1 - x0; const dy = y1 - y0; const L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+    C.set([x0 + nx * w0, y0 + ny * w0, x0 - nx * w0, y0 - ny * w0, x1 + nx * w1, y1 + ny * w1, x1 - nx * w1, y1 - ny * w1], n * 8); Aa.set([a, a, a, a], n * 4); n++; };
+  const wOf = a => Math.min(.34, .025 + .028 * Math.sqrt(a));
+  for (let i = 0; i < N; i++) {
+    if (!(A[i] > AMIN) || e[i] <= sea) continue; const j = S.rcv[i]; if (j === i) continue;
+    const x0 = i % W + jit(i, 1), y0 = ((i / W) | 0) + jit(i, 2); const sea1 = e[j] <= sea;
+    let x1 = j % W + (sea1 ? 0 : jit(j, 1)), y1 = ((j / W) | 0) + (sea1 ? 0 : jit(j, 2)); x1 -= Math.round((x1 - x0) / W) * W;
+    if (sea1) { x1 = x0 + (x1 - x0) * .6; y1 = y0 + (y1 - y0) * .6; }
+    const a = Math.min(.9, (A[i] - AMIN) / (AMIN * 4) + .3), w0 = wOf(A[i]), w1 = sea1 ? w0 * 1.3 : wOf(A[j]);
+    quad(x0, y0, x1, y1, w0, w1, a);
+    if (sea1 && A[i] > AMIN * 5) { const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy) || 1;
+      for (const r of [-.7, -.25, .25, .7]) { const c = Math.cos(r), s2 = Math.sin(r), ux = (dx * c - dy * s2) / L, uy = (dx * s2 + dy * c) / L; quad(x1, y1, x1 + ux * .75, y1 + uy * .75, w0 * .45, .02, a * .8); } }
+  }
+  rivGeo.attributes.c.needsUpdate = rivGeo.attributes.a.needsUpdate = true; rivGeo.setDrawRange(0, n * 6); riversDirty = false;
+}
 const atmo = new THREE.Mesh(new THREE.SphereGeometry(U.uR.value * 1.07, 64, 32), new THREE.ShaderMaterial({ uniforms: { uSun: U.uSun }, vertexShader: atmoVS, fragmentShader: atmoFS, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide }));
 atmo.visible = false; scene.add(atmo);
 const stars = (() => { const n = 1500, p = new Float32Array(n * 3), r = RH.rng(5); for (let i = 0; i < n; i++) { const a = r() * 2 * PI, b = Math.acos(2 * r() - 1), R = 1400; p.set([R * Math.sin(b) * Math.cos(a), R * Math.cos(b), R * Math.sin(b) * Math.sin(a)], i * 3); }
@@ -1120,7 +1212,7 @@ function placeCamera() {
     camera.up.set(0, 1, 0); camera.lookAt(0, 0, 0); camera.position.x += sh[0] * .3; camera.position.y += sh[1] * .3;
     U.uShift.value = 0; U.uCamD.value = cam.gd;
   } else {
-    cam.z = clamp(cam.z, -78, 78); cam.d = clamp(cam.d, 14, 330); cam.tilt = clamp(cam.tilt, 0, 1.15);
+    cam.z = clamp(cam.z, -66, 66); cam.d = clamp(cam.d, 14, 330); cam.tilt = clamp(cam.tilt, 0, 1.15);
     if (cam.x > 180 || cam.x < -180) { const k = Math.round(cam.x / 360) * 360; cam.x -= k; }
     const st = 360 / MESH[0]; U.uShift.value = Math.round(cam.x / st) * st;
     const s = Math.sin(cam.tilt), c = Math.cos(cam.tilt);
@@ -1183,7 +1275,7 @@ function openLevel(id, keepCam) {
   hintOn = !!level.hint && !SAVE.stars[level.id]; hintT0 = performance.now();
   if (level.hint && level.hint[1] === 'rift') { $('tRift').classList.add('pulse'); }
   $('card').classList.remove('on'); clearLabels();
-  setRate(rateIdx || 1); updateScrub(); dirty = true; buildTex();
+  setRate(rateIdx || 1); updateScrub(); dirty = true; riversDirty = true; buildTex();
   showToast(level.name + '<br><span style="font-size:.75em">' + level.tag + '</span>', 2200);
 }
 function updateGauge(ev) {
@@ -1470,7 +1562,7 @@ function drawSeis() { seis.push(seis.pop() * 1); const v = seis.shift(); seis.pu
 // =====================================================================================================
 //  MAIN LOOP
 // =====================================================================================================
-function stepSim(n) { for (let k = 0; k < n; k++) { applyDrag(S.dt); PlateSim.step(S); if (S.stepN % 4 === 0) evalLevel(); } processEvents(); dirty = true; }
+function stepSim(n) { for (let k = 0; k < n; k++) { applyDrag(S.dt); PlateSim.step(S); if (S.stepN % 4 === 0) { evalLevel(); riversDirty = true; } } processEvents(); dirty = true; }
 let last = performance.now(), frames = 0, fpsT = 0, fps = 60, stepCap = mob ? 3 : 5;
 function frame(now) {
   requestAnimationFrame(frame);
@@ -1482,7 +1574,7 @@ function frame(now) {
     stepAcc += dt * rate; let n = 0; while (stepAcc >= S.dt && n < stepCap) { stepAcc -= S.dt; n++; } if (n >= stepCap) stepAcc = 0;
     if (n) { stepSim(n); updateScrub(); }
   }
-  if (dirty) { buildTex(); dirty = false; }
+  if (dirty) { buildTex(); dirty = false; if (riversDirty) buildRivers(); }
   // grinding while a push meets resistance
   if (drag && drag.kind === 'push') { let col = 0; for (const [key, c] of S.pairs) if ((key >> 4) === drag.id || (key & 15) === drag.id) col += c.col + c.sub * .4; setGrind(rate ? Math.min(.45, col / 60) : 0); }
   if (camT) { const k = Math.min(1, (now - camT.t0) / camT.ms), e = FX.ease.outCubic(k); for (const key of ['x', 'z', 'd', 'lon']) cam[key] = lerp(camT.from[key], camT[key], e); if (k >= 1) camT = null; }
@@ -1509,19 +1601,19 @@ if (Q.has('view')) setView(+Q.get('view'));
 if (Q.has('rate')) setRate(+Q.get('rate'));
 // lab: pre-run a scripted push, then pose the camera (?steps=n&push=id,vx,vy&cam=x,z,d,tilt,yaw)
 if (Q.has('steps')) { const pu = (Q.get('push') || '').split(';').filter(Boolean).map(s => s.split(',').map(Number)); for (let k = 0; k < +Q.get('steps'); k++) { for (const [id, vx, vy] of pu) { const p = S.plates[id]; if (p) { p.held = true; p.tvx = PlateSim.cmToCells(S, vx); p.tvy = PlateSim.cmToCells(S, vy); } } PlateSim.step(S); }
-  for (const p of S.plates) p.held = false; S.events.length = 0; evalLevel(); hintOn = false; dirty = true; }
+  for (const p of S.plates) p.held = false; S.events.length = 0; evalLevel(); hintOn = false; dirty = true; riversDirty = true; }
 if (Q.has('cam')) { const [x, z, d, tilt, yaw] = Q.get('cam').split(',').map(Number); Object.assign(cam, { x, z, d, tilt: tilt ?? cam.tilt, yaw: yaw ?? 0, lon: x, lat: -z, gd: d }); }
 if (Q.has('sun')) { const [a, b, c] = Q.get('sun').split(',').map(Number); U.uSun.value.set(a, b, c).normalize(); }
-buildTex(); placeCamera();
+buildTex(); buildRivers(); placeCamera();
 renderer.compile(scene, camera);
 requestAnimationFrame(frame);
 
 // =====================================================================================================
 //  TEST HOOKS
 // =====================================================================================================
-window.__plate = {
+window.__plate = { _riv: () => ({ dr: rivGeo.drawRange, c: Array.from(rivGeo.attributes.c.array.slice(0, 16)), a: Array.from(rivGeo.attributes.a.array.slice(0, 8)), vis: rivers.visible }),
   get state() { return S; }, get level() { return level; }, get run() { return run; }, get lastEval() { return lastEval; }, Sim: PlateSim, LV, cam, SAVE,
-  step(n = 1) { for (let k = 0; k < n; k++) { PlateSim.step(S); if (S.stepN % 4 === 0) evalLevel(); } processEvents(); dirty = true; return S.time; },
+  step(n = 1) { for (let k = 0; k < n; k++) { PlateSim.step(S); if (S.stepN % 4 === 0) evalLevel(); } processEvents(); dirty = true; riversDirty = true; return S.time; },
   push(id, dx, dy) { const p = S.plates[id]; if (!p || !p.alive) return false; p.held = true; p.tvx = PlateSim.cmToCells(S, dx); p.tvy = PlateSim.cmToCells(S, dy); return true; },
   release(id) { const p = S.plates[id]; if (p) p.held = false; },
   rift(pts) { const r = PlateSim.rift(S, pts.map(([u, v]) => [u * W, v * H])); dirty = true; return r; },
