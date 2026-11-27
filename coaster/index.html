@@ -204,7 +204,12 @@ function geometry(design) {
   const S = resample(spline(design.nodes)), nodes = design.nodes;
   let hx = 0, hz = 0, h = 0;
   for (let i = 0; i < S.length; i++) {
-    const p = S[i], nd = nodes[p.seg] || {}, r = nd.r || 0; p.kh = r ? 1 / r : 0; p.bank = (nd.bank || 0) * Math.PI / 180;
+    const p = S[i], nd = nodes[p.seg] || {}, r = nd.r || 0; p.kh = r ? 1 / r : 0; p.bank = (nd.bank || 0) * Math.PI / 180; p.ab = !!nd.ab; p.bt = (nd.bt || 0) * Math.PI / 180; }
+  // a turn's curvature eases in and out over a few metres (a transition curve, as real track is laid), so the heading, the
+  // sideways g and the bank all change smoothly instead of switching on at a node. The total angle turned is kept.
+  { const raw = S.map(p => p.kh), W = 8; for (let i = 0; i < S.length; i++) { if (!raw[i] && !raw[Math.max(0, i - W)] && !raw[Math.min(S.length - 1, i + W)]) continue; let a = 0; for (let k = i - W; k <= i + W; k++) a += raw[clamp(k, 0, S.length - 1)]; S[i].kh = a / (2 * W + 1); } }
+  // the plan: heading integrates the horizontal curvature along the ground distance (so turns really turn in 3D)
+  for (let i = 0; i < S.length; i++) { const p = S[i];
     p.X = hx; p.Z = hz; p.head = h;
     if (i < S.length - 1) { const dxg = S[i + 1].x - p.x; hx += Math.cos(h) * dxg; hz += Math.sin(h) * dxg; h += p.kh * Math.abs(dxg); }
   }
@@ -229,7 +234,10 @@ function ride(design, opt = {}) {
   for (let i = 0; i < S.length - 1; i++) {
     const p = S[i], q = S[i + 1], th = p.th, onLift = p.seg < lift;
     const gv = (v * v * (p.kv || 0) + G * Math.cos(th)) / G, ah = v * v * p.kh;
-    const seat = gv * Math.cos(p.bank) + (ah / G) * Math.sin(p.bank), lat = (ah / G) * Math.cos(p.bank) - gv * Math.sin(p.bank);
+    // auto-bank: tilt so the seat takes the whole push, tan b = (v²κh/g) / (vertical g); then any over/under-bank trim
+    if (p.ab) p.bank = clamp((Math.abs(ah) > 1e-6 ? Math.atan2(Math.abs(ah), G * Math.max(.25, gv)) : 0) + p.bt, 0, 1.45);
+    const bs = p.bank * Math.sign(p.kh || 0); // banked into the turn, left or right
+    const seat = gv * Math.cos(bs) + (ah / G) * Math.sin(bs), lat = (ah / G) * Math.cos(bs) - gv * Math.sin(bs);
     const N = G * Math.hypot(seat, lat);
     let v2 = v * v + 2 * DS * (-G * Math.sin(th) - mu * N - drag * v * v);
     if (onLift) v2 = Math.max(v2, CHAIN * CHAIN);
@@ -355,8 +363,8 @@ let C = COMS[0], site = flatSite(), design = { nodes: [], lift: 1 }, sel = -1, h
 function predict(force) { const now = performance.now(); if (!force && now - liveT < 40) return; liveT = now; try { live = scores(design, site); } catch (e) { live = null; } }
 
 // ================= share codes =================
-const enc = d => d.nodes.map(n => [Math.round(n.x * 2), Math.round(n.y * 2), Math.round(n.r || 0), Math.round(n.bank || 0), ...(n.t ? [Math.round(n.t.x * 100), Math.round(n.t.y * 100)] : [])].map(v => v.toString(36)).join('.')).join('_');
-const dec = s => ({ nodes: s.split('_').map(t => { const [x, y, r, b, tx, ty] = t.split('.').map(v => parseInt(v, 36) || 0), n = N(x / 2, y / 2, r ? { r, bank: b } : {}); if ((tx || ty) && Math.hypot(tx, ty) > 10) n.t = { x: clamp(tx / 100, -3, 3), y: clamp(ty / 100, -3, 3) }; return n; }).filter(n => isFinite(n.x) && isFinite(n.y)).slice(0, 80), lift: 1 });
+const enc = d => d.nodes.map(n => [Math.round(n.x * 2), Math.round(n.y * 2), Math.round(n.r || 0), n.ab ? 200 + Math.round(n.bt || 0) : Math.round(n.bank || 0), ...(n.t ? [Math.round(n.t.x * 100), Math.round(n.t.y * 100)] : [])].map(v => v.toString(36)).join('.')).join('_');
+const dec = s => ({ nodes: s.split('_').map(t => { const [x, y, r, b, tx, ty] = t.split('.').map(v => parseInt(v, 36) || 0), n = N(x / 2, y / 2, r ? (b >= 150 ? { r, ab: 1, bt: clamp(b - 200, -30, 30), bank: 0 } : { r, bank: b }) : {}); if ((tx || ty) && Math.hypot(tx, ty) > 10) n.t = { x: clamp(tx / 100, -3, 3), y: clamp(ty / 100, -3, 3) }; return n; }).filter(n => isFinite(n.x) && isFinite(n.y)).slice(0, 80), lift: 1 });
 
 // ================= view =================
 const cv = $('cv'), g = cv.getContext('2d'); let W = 1, H = 1, dpr = 1, cam = { s: 3, ox: 40, oy: 0 };
