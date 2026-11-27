@@ -140,9 +140,9 @@ module.exports = {
     },
     'phone: the drawing board takes touch drags on its handles': async ({ page, ok, eq }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.evaluate(() => { __bell.S.open = 1; __bell.go('c2'); }); await page.waitForTimeout(800);
+      await page.waitForFunction(() => !__bell.gliding, null, { timeout: 60000 }); await page.waitForTimeout(300);
       const h = await page.evaluate(() => { const h = __bell.handles().find(h => h.kind === 'pt' && h.k === 4 && !h.mirror); return [...__bell.toScreen(h.r, h.y), h.r]; });
       ok(h[0] > 0 && h[0] < 390 && h[1] > 120 && h[1] < 650, 'waist handle on screen and clear of the panels: ' + h);
-      await page.waitForFunction(() => !__bell.gliding, null, { timeout: 60000 }); await page.waitForTimeout(300);
       const cam0 = await page.evaluate(() => __bell.camera.position.toArray());
       await page.evaluate(([x, y]) => { const cv = document.getElementById('gl'), ev = (t, x, y) => cv.dispatchEvent(new PointerEvent(t, { pointerId: 7, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, bubbles: true, cancelable: true }));
         ev('pointerdown', x + 6, y + 4); for (let i = 1; i <= 5; i++) ev('pointermove', x + 6 - i * 6, y + 4); ev('pointerup', x - 24, y + 4); }, h);
