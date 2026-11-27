@@ -88,9 +88,9 @@ module.exports = {
       const m = await page.evaluate(() => ({ t: document.querySelector('.modal').innerText, open: __bell.S.open, rec: __bell.S.rec.c1 }));
       ok(/Delivered/.test(m.t) && /Next order/.test(m.t), m.t); eq(m.open, 1); ok(m.rec && m.rec.acc < 10 && m.rec.shaves >= 1);
       await page.click('.modal button.primary'); await page.waitForTimeout(400);
-      eq(await page.evaluate(() => [__bell.S.cur, __bell.stage]), ['c2', 'tune']);
+      eq(await page.evaluate(() => [__bell.S.cur, __bell.stage]), ['c2', 'design'], 'order 2 opens the drawing board');
       await page.evaluate(() => { __bell.S.open = 3; __bell.go('c4'); }); await page.waitForTimeout(300);
-      eq(await page.evaluate(() => [__bell.stage, __bell.stagesFor(__bell.comm())]), ['cast', ['cast', 'tune']], 'order 4 brings the pit');
+      eq(await page.evaluate(() => [__bell.stage, __bell.stagesFor(__bell.comm()), !!document.getElementById('tin') || (__bell.setStage('cast'), !!document.getElementById('tin'))]), ['design', ['design', 'cast', 'tune'], true], 'order 4 brings mould sizing and metal');
       await page.click('#bookBtn'); const book = await page.evaluate(() => document.querySelector('.ledger').innerText); ok(/Major-Third Bell/.test(book) && /Plain Bob Major/.test(book), 'locked orders are visible by name');
     },
     'casting from the pit: sliders set the mould and metal, the pour animates and lands at the lathe; a tin-poor bell is refused for a bright-bell order': async ({ page, ok, eq }) => {
@@ -102,15 +102,55 @@ module.exports = {
       const v = await page.evaluate(src => { const B = eval(src)(__bell.G, __bell.BP); const b = __bell.bell(); if (b.cast.crack) return 'crack'; B.tune(__bell.comm(), b); return __bell.judgeNow().why; }, botSrc);
       ok(v === 'crack' || v.includes('too little tin'), 'should refuse soft metal: ' + v);
     },
-    'design board: dragging a handle reshapes the bell and melts any casting; Reset restores the pattern': async ({ page, ok, eq }) => {
+    'design board: a spline of points and wall pegs; dragging the waist in raises hum and tierce against the prime, live, then strikes; Reset restores the pattern': async ({ page, ok, eq }) => {
       await page.evaluate(() => { __bell.S.open = 4; __bell.go('c5'); __bell.setStage('design'); }); await page.waitForTimeout(400);
-      const h = await page.evaluate(() => __bell.handles().map(h => ({ ...h, xy: __bell.toScreen(h.r, h.y) })));
-      ok(h.length === 9, 'nine handles'); const w = h.find(x => x.kind === 'pt' && x.k === 3);
-      const t0 = await page.evaluate(() => { const u = __bell.G.unitModes(__bell.bell().des); return u.f.tierce / u.f.prime; });
-      await page.mouse.move(...w.xy); await page.mouse.down(); await page.mouse.move(w.xy[0] + 40, w.xy[1] - 10, { steps: 5 }); await page.mouse.up(); await page.waitForTimeout(300);
-      const after = await page.evaluate(() => { const b = __bell.bell(), u = __bell.G.unitModes(b.des); return { p: b.des.pts[3], r: u.f.tierce / u.f.prime }; });
-      ok(after.p[0] > w.r + .02, 'the waist moved out ' + after.p); ok(Math.abs(after.r - t0) > 1e-4, 'the tierce ratio responds');
-      await page.click('[data-a="reset"]'); eq(await page.evaluate(() => __bell.bell().des.pts[3]), [.6, .8]);
+      const hs = await page.evaluate(() => __bell.handles().map(h => ({ ...h, xy: __bell.toScreen(h.r, h.y) })));
+      ok(hs.filter(h => h.kind === 'pt' && !h.mirror).length >= 6 && hs.filter(h => h.kind === 'th').length >= 6 && ['height', 'flare', 'width'].every(k => hs.some(h => h.kind === k)), 'points, mirrored points, wall pegs and global grips: ' + hs.length);
+      const w = hs.find(x => x.kind === 'pt' && x.k === 4 && !x.mirror);
+      const r0 = await page.evaluate(() => __bell.ratios(__bell.G.unitModes(__bell.bell().des).f));
+      await page.mouse.move(...w.xy); await page.mouse.down();
+      for (let i = 1; i <= 6; i++) { await page.mouse.move(w.xy[0] - i * 4, w.xy[1]); await page.waitForTimeout(150); }
+      const mid = await page.evaluate(() => ({ live: __bell.drag && __bell.drag.live, start: __bell.drag && __bell.drag.start, n: __bell.liveStats.length }));
+      ok(mid.n >= 3, 'the gauge re-solves while dragging: ' + mid.n); ok(mid.live.hum > mid.start.hum + 5, 'live hum should rise as the waist comes in');
+      await page.mouse.up(); await page.waitForTimeout(300);
+      const after = await page.evaluate(() => { const b = __bell.bell(); return { p: b.des.pts[4], r: __bell.ratios(__bell.G.unitModes(b.des).f), undo: __bell.undoStack.length }; });
+      ok(after.p[0] < w.r - .004, 'the waist moved in ' + after.p); ok(after.r.hum > r0.hum + 5 && after.r.tierce > r0.tierce, `hum and tierce rise against the prime: ${r0.hum.toFixed(1)}→${after.r.hum.toFixed(1)}, ${r0.tierce.toFixed(1)}→${after.r.tierce.toFixed(1)}`);
+      eq(after.undo, 1, 'one edit, one undo step');
+      // a wall peg: thicken the soundbow, the nominal rises against the prime
+      const pk = await page.evaluate(() => { const h = __bell.handles().find(x => x.kind === 'th' && x.k === 6); return { xy: __bell.toScreen(h.r, h.y), nx: h.nx, nz: h.nz, th: __bell.bell().des.th[6], nom: __bell.ratios(__bell.G.unitModes(__bell.bell().des).f).nominal }; });
+      const dir = await page.evaluate(([x, y, nx, nz]) => { const a = __bell.toScreen(...__bell.fromScreen(x, y)), p = __bell.fromScreen(x, y), b = __bell.toScreen(p[0] + nx * .1, p[1] + nz * .1); const L = Math.hypot(b[0] - a[0], b[1] - a[1]); return [(b[0] - a[0]) / L, (b[1] - a[1]) / L]; }, [...pk.xy, pk.nx, pk.nz]);
+      await page.mouse.move(...pk.xy); await page.mouse.down(); await page.mouse.move(pk.xy[0] + dir[0] * 40, pk.xy[1] + dir[1] * 40, { steps: 4 }); await page.mouse.up(); await page.waitForTimeout(300);
+      const pk2 = await page.evaluate(() => ({ th: __bell.bell().des.th[6], nom: __bell.ratios(__bell.G.unitModes(__bell.bell().des).f).nominal }));
+      ok(pk2.th > pk.th + .002, 'dragging the soundbow peg inward thickens the wall: ' + pk.th + ' → ' + pk2.th);
+      ok(pk2.nom > pk.nom + 3, `a thicker soundbow lifts the nominal against the prime: ${pk.nom.toFixed(1)} → ${pk2.nom.toFixed(1)}`);
+      await page.click('[data-a="reset"]'); eq(await page.evaluate(() => __bell.bell().des.pts), await page.evaluate(() => __bell.G.sane(__bell.G.PATTERNS.old).pts));
+    },
+    'design board: undo steps back through edits; the live solve stays inside its frame budget; the heat map shows where metal matters': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { __bell.S.open = 1; __bell.go('c2'); }); await page.waitForTimeout(300);
+      const d0 = await page.evaluate(() => JSON.stringify(__bell.bell().des.pts));
+      for (const k of [3, 5]) { const h = await page.evaluate(k => { const h = __bell.handles().find(h => h.kind === 'pt' && h.k === k && !h.mirror); return __bell.toScreen(h.r, h.y); }, k);
+        await page.mouse.move(...h); await page.mouse.down(); await page.mouse.move(h[0] + 25, h[1] + 5, { steps: 4 }); await page.mouse.up(); await page.waitForTimeout(200); }
+      eq(await page.evaluate(() => __bell.undoStack.length), 2);
+      await page.click('[data-a="undo"]'); await page.keyboard.press('Control+z'); await page.waitForTimeout(200);
+      eq(await page.evaluate(() => JSON.stringify(__bell.bell().des.pts)), d0, 'two undos restore the pattern'); eq(await page.evaluate(() => __bell.undoStack.length), 0);
+      const t = await page.evaluate(() => { const { G } = __bell, d = __bell.bell().des, ms = []; for (let i = 0; i < 12; i++) { const dd = { ...d, th: d.th.map(x => x * (1 + .003 * i)) }; ms.push(G.liveModes(dd).ms); } ms.sort((a, b) => a - b); return ms[6]; });
+      ok(t < 30, 'live re-solve median ' + t.toFixed(1) + ' ms (budget 30 ms)');
+      await page.evaluate(() => __bell.computeHeat()); const hd = await page.evaluate(() => __bell.heatData);
+      ok(hd && hd.v.length >= 10 && hd.v.some(([, v]) => v < -1) && hd.v.some(([, v]) => v > 1), 'heat map has places that lower and places that raise the partial');
+    },
+    'phone: the drawing board takes touch drags on its handles': async ({ page, ok, eq }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.evaluate(() => { __bell.S.open = 1; __bell.go('c2'); }); await page.waitForTimeout(800);
+      const h = await page.evaluate(() => { const h = __bell.handles().find(h => h.kind === 'pt' && h.k === 4 && !h.mirror); return [...__bell.toScreen(h.r, h.y), h.r]; });
+      ok(h[0] > 0 && h[0] < 390 && h[1] > 120 && h[1] < 650, 'waist handle on screen and clear of the panels: ' + h);
+      const cam0 = await page.evaluate(() => __bell.camera.position.toArray());
+      await page.evaluate(([x, y]) => { const cv = document.getElementById('gl'), ev = (t, x, y) => cv.dispatchEvent(new PointerEvent(t, { pointerId: 7, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+        ev('pointerdown', x + 6, y + 4); for (let i = 1; i <= 5; i++) ev('pointermove', x + 6 - i * 6, y + 4); ev('pointerup', x - 24, y + 4); }, h);
+      await page.waitForTimeout(400);
+      const r = await page.evaluate(() => ({ r: __bell.bell().des.pts[4][0], u: __bell.undoStack.length, cam: __bell.camera.position.toArray() }));
+      ok(r.r < h[2] - .002, 'a touch drag moved the waist: ' + r.r); eq(r.u, 1);
+      ok(r.cam.every((v, i) => Math.abs(v - cam0[i]) < .05), 'dragging a handle must not turn the view');
+      const cover = await page.evaluate(() => { const a = id => { const e = document.getElementById(id).getBoundingClientRect(); return e.width * e.height / (innerWidth * innerHeight); }; return a('ticket') + a('panel') + a('strip'); });
+      ok(cover < .36, 'design UI covers ' + cover);
     },
     'ringing orders: the band judges your delivered ring; a sour ring is sent back': async ({ page, ok, eq }) => {
       const r = await page.evaluate(src => { const { G } = __bell, B = eval(src)(G, __bell.BP), c10 = G.COMMS.find(c => c.id === 'c10'), p = B.play(c10); __bell.S.rings.c10 = JSON.parse(JSON.stringify(p.bells)); __bell.S.open = 10; __bell.save(); __bell.go('c11'); return [__bell.stage, p.ok]; }, botSrc);
@@ -125,8 +165,8 @@ module.exports = {
     'daily order and share: deterministic, spoiler-free share line, design links round-trip, junk refused': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const { G } = __bell, a = JSON.stringify(G.dailyFor('2026-11-25')), b = JSON.stringify(G.dailyFor('2026-11-25')), c = JSON.stringify(G.dailyFor('2026-11-26'));
         const d = G.sane(G.PATTERNS.old); d.D = .7; const s = G.encodeDesign(d, 24.5), back = G.decodeDesign(s);
-        return { same: a === b, diff: a !== c, back: [back.des.D, back.tin, back.des.pts[3]], bad: ['', 'x', '1_2_3', 'NaN_'.repeat(16), '9'.repeat(400)].map(G.decodeDesign) }; });
-      ok(r.same && r.diff); eq(r.back, [.7, 24.5, [.6, .8]]); ok(r.bad.every(x => x === null), 'junk accepted');
+        return { oldP: G.sane(G.PATTERNS.old).pts[3], same: a === b, diff: a !== c, back: [back.des.D, back.tin, back.des.pts[3]], bad: ['', 'x', '1_2_3', 'NaN_'.repeat(16), '9'.repeat(400)].map(G.decodeDesign) }; });
+      ok(r.same && r.diff); eq(r.back, [.7, 24.5, r.oldP]); ok(r.bad.every(x => x === null), 'junk accepted');
       await page.evaluate(src => { const B = eval(src)(__bell.G, __bell.BP); __bell.S.open = 5; __bell.go('d:' + __bell.G.todayKey()); const c = __bell.comm(), p = B.play(c); __bell.work().bells[0] = p.bells[0]; __bell.setStage('tune'); __bell.deliver(); }, botSrc);
       const line = await page.evaluate(() => __bell.shareLine());
       ok(/^Bellfounder · daily \d{4}-\d\d-\d\d · [✦·][◆·][◉·] · ±\d+\.\d¢ · \d+ kg · \d+ cuts$/.test(line), 'share line: ' + line);
