@@ -114,6 +114,10 @@ module.exports = {
       eq(await page.evaluate(() => __gl.C.acts), tgt.acts - 1);
       await page.click('#chip button[data-do=undo]'); eq(await page.evaluate(() => __gl.C.acts), tgt.acts, 'refunded');
     },
+    'arming a token closes the inspector card, so the next tap reaches the map': async ({ page, eq }) => {
+      await page.evaluate(() => __gl.select({ node: __gl.GL.homes(__gl.C)[0] })); eq(await page.evaluate(() => document.getElementById('chip').classList.contains('on')), true);
+      await page.click('.tok[data-k=lane]'); eq(await page.evaluate(() => document.getElementById('chip').classList.contains('on')), false);
+    },
     'redo month: back to planning in well under 5 s, for one credibility': async ({ page, ok, eq }) => {
       const c0 = await page.evaluate(() => __gl.C.cred);
       await page.evaluate(() => { __gl.run(30); __gl.skipAnim(); });
