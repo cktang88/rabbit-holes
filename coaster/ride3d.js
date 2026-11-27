@@ -77,7 +77,7 @@ function carGeometry(T, front) {
   parts.push([new T.BoxGeometry(1.4, .14, 2.6), dark, M4(T, 0, .36, 0)]);
   for (const sx of [-.68, .68]) parts.push([new T.BoxGeometry(.06, .5, 2.6), red, M4(T, sx, .64, 0)], [new T.BoxGeometry(.08, .05, 2.62), gold, M4(T, sx, .9, 0)]);
   parts.push([new T.BoxGeometry(1.4, .5, .06), red, M4(T, 0, .64, 1.28)]);
-  if (front) { const sh = new T.Shape(); sh.moveTo(0, 0); sh.quadraticCurveTo(.5, 0, .75, .25); sh.lineTo(.6, .62); sh.lineTo(0, .62); sh.closePath();
+  if (front) { const sh = new T.Shape(); sh.moveTo(0, 0); sh.quadraticCurveTo(.5, 0, .72, .2); sh.quadraticCurveTo(.66, .4, .5, .44); sh.lineTo(0, .6); sh.closePath(); // sloping down to the tip so it doesn't fill the front-row view
     const nose = new T.ExtrudeGeometry(sh, { depth: 1.36, bevelEnabled: true, bevelThickness: .03, bevelSize: .03, bevelSegments: 2, curveSegments: 8 }); parts.push([nose, (x, y) => y < .1 ? dark : red, M4(T, -.68, .3, -1.25, 0, Math.PI / 2, 0)]);
     parts.push([new T.CircleGeometry(.16, 16), gold, M4(T, 0, .78, -1.66, -.5)], [new T.CircleGeometry(.1, 16), cream, M4(T, 0, .781, -1.658, -.5)]); }
   else parts.push([new T.BoxGeometry(1.4, .5, .06), red, M4(T, 0, .64, -1.28)]);

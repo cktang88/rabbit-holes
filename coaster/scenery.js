@@ -61,7 +61,7 @@ function buildScenery(T, sc, S, F) {
   // light: a weak sky fill (the HDRI does the real ambient), one shadow-casting sun that follows the train
   V3.hemi = new T.HemisphereLight(0xdcecff, 0x4f6f34, 1.1); sc.add(V3.hemi);
   { const sun = V3.sun = new T.DirectionalLight(0xfff0d2, 2.4), sz = mob ? 1024 : 2048, R = mob ? 30 : 42; sun.castShadow = true; sun.shadow.mapSize.set(sz, sz);
-    Object.assign(sun.shadow.camera, { left: -R, right: R, top: R, bottom: -R, near: 1, far: 420 }); sun.shadow.bias = -.0004; sun.shadow.normalBias = .04; sun.shadow.camera.updateProjectionMatrix(); V3.sunR = R;
+    Object.assign(sun.shadow.camera, { left: -R, right: R, top: R, bottom: -R, near: 1, far: 420 }); sun.shadow.bias = -.0006; sun.shadow.normalBias = .08; sun.shadow.camera.updateProjectionMatrix(); V3.sunR = R;
     sc.add(sun); sc.add(sun.target); }
   sc.fog = new T.Fog(0xdde8e6, 120, 900);
 
