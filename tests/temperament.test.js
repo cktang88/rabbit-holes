@@ -41,6 +41,56 @@ module.exports = {
       const r = await page.evaluate(b0 => { const s = window.__tm.S.ss; return { d: s.tun[7] - b0, moved: s.moved.length, undo: s.undo.length }; }, before);
       ok(r.d > 2, 'G not raised: ' + r.d); ok(r.moved === 1 && r.undo === 1, 'drag should be one peg and one undo step: ' + JSON.stringify(r));
     },
+    'mouse drag: pulling a peg outward sharpens it a useful amount, the peg follows the pointer, and a live readout shows cents and beats': async ({ page, ok }) => {
+      const pt = n => page.evaluate(n => { const r = document.querySelector(`#wheel .node[data-n="${n}"]`).getBoundingClientRect(), w = document.getElementById('wheel').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2, w.x + w.width / 2, w.y + w.height / 2]; }, n);
+      const drag = async (n, f, check) => { const [x, y, cx, cy] = await pt(n), L = Math.hypot(x - cx, y - cy), u = [(x - cx) / L, (y - cy) / L], t0 = await page.evaluate(n => window.__tm.S.ss.tun[n], n);
+        const [dx, dy] = f(u); await page.mouse.move(x, y); await page.mouse.down(); for (let k = 1; k <= 6; k++) await page.mouse.move(x + dx * k / 6, y + dy * k / 6);
+        if (check) await check(x, y); await page.mouse.up(); return (await page.evaluate(n => window.__tm.S.ss.tun[n], n)) - t0; };
+      // G (top right): outward by 45 px
+      const up = await drag(7, u => [u[0] * 45, u[1] * 45], async (x, y) => {
+        const mid = await page.evaluate(() => ({ txt: document.getElementById('wheel').textContent, tr: document.querySelector('#wheel .node[data-n="7"]').getBoundingClientRect() }));
+        ok(/¢/.test(mid.txt) && /beats\/s|no beats/.test(mid.txt), 'no live readout while dragging: ' + mid.txt.slice(-80));
+        ok(Math.hypot(mid.tr.x + mid.tr.width / 2 - x, mid.tr.y + mid.tr.height / 2 - y) > 10, 'the peg does not move with the pointer');
+      });
+      ok(up > 8, 'outward drag barely moved G: ' + up);
+      ok(!/¢/.test(await page.evaluate(() => document.getElementById('wheel').textContent)), 'readout should go away after the drag');
+      // F♯ sits at the bottom: outward there is downward, and inward flattens
+      ok(await drag(6, u => [u[0] * 40, u[1] * 40]) > 6, 'outward on a bottom note should sharpen');
+      ok(await drag(2, u => [-u[0] * 40, -u[1] * 40]) < -6, 'inward should flatten');
+    },
+    'touch drag clockwise along the rim sharpens; the coach says which way to pull': async ({ page, ok }) => {
+      await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(300);
+      ok(/outward/.test(await page.textContent('#coachL')), 'coach does not say which way to drag');
+      const [x, y, cx, cy] = await page.evaluate(() => { const r = document.querySelector('#wheel .node[data-n="7"]').getBoundingClientRect(), w = document.getElementById('wheel').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2, w.x + w.width / 2, w.y + w.height / 2]; });
+      const L = Math.hypot(x - cx, y - cy), t = [-(y - cy) / L, (x - cx) / L]; // clockwise on screen
+      const before = await page.evaluate(() => window.__tm.S.ss.tun[7]), cdp = await page.context().newCDPSession(page);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      for (let k = 1; k <= 8; k++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + t[0] * 5 * k, y: y + t[1] * 5 * k }] });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      const d = await page.evaluate(b => window.__tm.S.ss.tun[7] - b, before); ok(d > 6, 'clockwise touch drag did not sharpen G: ' + d);
+      ok(!/flame calms/.test(await page.textContent('#coachL')) || Math.abs(await page.evaluate(() => window.__tm.dev(window.__tm.S.ss.tun, 0, 7))) >= 7, 'coach state inconsistent');
+    },
+    'first visit explains the circle once (with the comma spiral); tapping a line names it and its beats; legend and all-lines toggle': async ({ page, ok, eq }) => {
+      await page.evaluate(() => localStorage.removeItem('rh:temper3')); await page.reload(); await page.waitForTimeout(600);
+      const m = await page.evaluate(() => ({ t: document.querySelector('.modal')?.textContent || '', sp: !!document.querySelector('.modal .spiral path') }));
+      ok(/circle of fifths/.test(m.t) && /comma/.test(m.t) && m.sp, 'no circle explainer on a first visit');
+      await page.click('.modal .primary'); await page.reload(); await page.waitForTimeout(600);
+      eq(await page.locator('.modal').count(), 0, 'explainer shown again after it was read');
+      ok(/major thirds/.test(await page.textContent('#legendL')), 'no legend');
+      const faint = () => page.evaluate(() => [...document.querySelectorAll('#wheel [data-line]')].filter(p => +p.getAttribute('opacity') < .5).length);
+      ok(await faint() > 6, 'lines outside this week\'s music should be faint');
+      await page.click('#allB'); eq(await faint(), 0, 'All lines shows every line'); await page.click('#allB');
+      await page.evaluate(() => { const h = document.querySelector('#wheel .hit[data-i="0"][data-k="4"]'); const r = h.getBoundingClientRect(); h.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 })); });
+      ok(/C–E major third: (beats [\d.]+×\/s|no beats)/.test(await page.locator('.toast').last().textContent()), 'tapping C–E did not name the interval and its beats');
+    },
+    'the goal names this week\'s sour lines in plain words and marks the same lines on the rose': async ({ page, ok, eq }) => {
+      await page.evaluate(() => { const T = window.__tm; T.S.coach = 9; T.startSeason(1, 'goal'); });
+      const g = await page.evaluate(() => ({ txt: document.getElementById('coachL').textContent, marked: [...document.querySelectorAll('#wheel path.goal')].length }));
+      if (/Before Sunday, make/.test(g.txt)) { const n = (g.txt.match(/[A-G][♯♭]?–[A-G][♯♭]?/g) || []).length; ok(n >= 1, g.txt); eq(g.marked, n, 'marked lines'); }
+      else ok(/smooth/.test(g.txt) && g.marked === 0, 'goal text: ' + g.txt);
+      await page.evaluate(() => { const T = window.__tm, s = T.S.ss; T.setNote(s, 7, s.tun[7] - 25); T.renderAll(); });
+      ok(/Before Sunday, make .*G/.test(await page.textContent('#coachL')), 'a wolf on C–G is not named as the goal: ' + await page.textContent('#coachL'));
+    },
     'mobile: the rose and its controls fit on one 390x844 screen': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(400);
       const r = await page.evaluate(() => { const w = document.getElementById('wheel').getBoundingClientRect(), c = document.getElementById('ctl').getBoundingClientRect(); return { w: [w.top, w.bottom, w.width], c: [c.top, c.bottom], sw: document.documentElement.scrollWidth }; });

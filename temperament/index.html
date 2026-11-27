@@ -99,6 +99,7 @@
   .modal-bg{background:#1a0e06cc}
   .modal{background:#fbf5e4;color:var(--ink);border:0;border-radius:0;box-shadow:0 0 0 4px #2a1a0e,0 0 0 7px #c4932c,0 24px 60px #000}
   .modal h2{font-family:"Cormorant SC",serif;color:#3a2210}
+  .modal .modal-actions{background-color:#fbf5e4} /* the shared sticky button bar defaults to a dark --panel this page never sets */
   @media (max-width:860px){
     body{min-height:0}
     main{display:block}
@@ -340,7 +341,7 @@ function cleanSeason(x) {
 }
 function loadState() {
   let s = RH.load('temper3', null); if (!s || typeof s !== 'object' || Array.isArray(s)) s = {};
-  const out = { v: 3, open: Math.max(0, Math.min(4, s.open | 0)), best: {}, coach: Math.max(0, Math.min(9, s.coach | 0)), cleared: Math.max(0, s.cleared | 0), dailies: {} };
+  const out = { v: 3, open: Math.max(0, Math.min(4, s.open | 0)), best: {}, coach: Math.max(0, Math.min(9, s.coach | 0)), rose: s.rose ? 1 : 0, cleared: Math.max(0, s.cleared | 0), dailies: {} };
   if (s.best && typeof s.best === 'object') for (const k in s.best) { const b = s.best[k]; if (POSTS[k] && b && typeof b === 'object') out.best[k] = { rep: Number.isFinite(b.rep) ? b.rep : 0, coin: Number.isFinite(b.coin) ? b.coin : 0, seal: !!b.seal, ear: Math.max(0, b.ear | 0) }; }
   if (s.dailies && typeof s.dailies === 'object') for (const k of Object.keys(s.dailies).slice(-60)) if (/^\d{4}-\d\d-\d\d$/.test(k) && typeof s.dailies[k] === 'string') out.dailies[k] = s.dailies[k].slice(0, 40);
   try { out.ss = cleanSeason(s.ss); } catch (e) { out.ss = null; }
@@ -441,16 +442,41 @@ function ctlRender() {
   $('undoB').onclick = () => { if (undo(s)) moved(); };
   $('resetB').onclick = () => { resetWeek(s); moved(); };
 }
+function beatWords(b) { return b < .25 ? 'no beats' : `beats ${b < 2 ? b.toFixed(1) : Math.round(b)}×/s`; }
+function sayInterval() { const s = ss(), [i, k] = sel, dark = week(s).dark && s.phase === 'week', q = qual(k, dev(s.tun, i, k));
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  RH.toast(`${ivLab(i, k)} ${IV[k].n}: ${beatWords(beats(s.tun, i, k))}${dark ? '' : ', ' + ['pure', 'tempered', 'sour', 'a wolf'][q]}`, 2600); }
+function legendRender() {
+  const dark = week(ss()).dark && ss().phase === 'week', sw = c => `<span class="sw" style="background:${c}"></span>`;
+  $('legendL').innerHTML = (dark ? '<span>Lines: round the rim are fifths, across are major thirds. In the dark, listen to the beats.</span>'
+    : `<span>Rim: fifths · across: major thirds</span><span>${sw(QCOL[0])}pure ${sw(QCOL[1])}tempered ${sw(QCOL[2])}sour ${sw(QCOL[3])}wolf</span>`)
+    + `<span class="sp"></span><button id="allB" aria-pressed="${showAll}">${showAll ? 'This week\'s lines' : 'All lines'}</button><button id="whyB" title="Why a circle?">Why a circle?</button>`;
+  $('allB').onclick = () => { showAll = !showAll; wheelSVG(); legendRender(); };
+  $('whyB').onclick = explainRose;
+}
+// first visit: why the notes sit in a circle, and the comma that keeps it from closing
+function explainRose() {
+  const pts = []; for (let j = 0; j <= 12; j++) { const a = -Math.PI / 2 + j * (Math.PI / 6 + .012), r = 62 + j * 2.6; pts.push([r * Math.cos(a), r * Math.sin(a)]); }
+  const d = 'M' + pts.map(p => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' L');
+  const lab = ['C', 'G', 'D', 'A', 'E', 'B', 'F♯', 'C♯', 'G♯', 'E♭', 'B♭', 'F', 'C'];
+  const svg = `<svg class="spiral" viewBox="-115 -115 230 230" style="width:min(240px,60vw,38vh);display:block;margin:6px auto">
+    <circle r="62" fill="none" stroke="#c4932c55" stroke-dasharray="3 4"/>
+    <path d="${d}" fill="none" stroke="#8c1c12" stroke-width="2.5" stroke-linejoin="round"/>
+    ${pts.map((p, j) => `<text x="${(p[0] * 1.18).toFixed(1)}" y="${(p[1] * 1.18 + 4).toFixed(1)}" text-anchor="middle" font-size="${j === 12 ? 12 : 11}" fill="#3a2210" font-family="Cormorant SC,serif" font-weight="700">${j === 12 ? '' : lab[j]}</text>`).join('')}
+    <g class="gap"><line x1="${pts[0][0]}" y1="${pts[0][1]}" x2="${pts[12][0]}" y2="${pts[12][1]}" stroke="#8c1c12" stroke-width="1.5" stroke-dasharray="2 2"/><text x="${pts[12][0] + 8}" y="${pts[12][1] - 6}" font-size="11" fill="#8c1c12" font-style="italic">the comma</text></g></svg>`;
+  S.rose = 1; persist();
+  return RH.modal(`<h2>Why a circle?</h2><p>The 12 notes sit in the <b>circle of fifths</b>: each step round the ring is a fifth (C → G → D …). Twelve perfect fifths overshoot seven octaves by a small <b>comma</b>, so they can't all be pure: tuning means deciding where to hide that error.</p>${svg}<p class="tag">Twelve pure fifths, stacked: the spiral does not close (the gap is drawn larger than life). The lines on the rose are intervals: the arcs round the rim are fifths, the chords across are major thirds. Green is pure, red is sour.</p>`, [{ label: 'Tune the organ' }]);
+}
 function hudRender() { const s = ss(), P = P_(s); $('hud').innerHTML = `<span title="Week">${s.phase === 'end' || s.phase === 'broke' ? 'Season over' : `Wk ${s.week + 1}/${P.weeks}`}</span><span title="Purse (florins)">ƒ${Math.round(s.coin)}</span><span class="rep" title="Reputation / needed for promotion">✠<b>${s.rep}</b>/${P.target}</span>`; }
 let marksCache = {};
-function moved() { FX.sfx('tick'); if (drone) retuneDrone(); else if (ss().phase === 'week') startDrone(); marksCache = {}; wheelSVG(); ctlRender(); hudRender(); deskMarks(); coachCheck(); persist(); }
-function renderAll() { wheelSVG(); ctlRender(); hudRender(); renderDesk(); }
+function moved() { refreshGoal(); FX.sfx('tick'); if (drone) retuneDrone(); else if (ss().phase === 'week') startDrone(); marksCache = {}; wheelSVG(); ctlRender(); hudRender(); deskMarks(); coachCheck(); persist(); }
+function renderAll() { wheelSVG(); ctlRender(); hudRender(); renderDesk(); legendRender(); }
 
 // ---------- the wheel: tap an interval to hear it; drag a note up or down to turn its peg ----------
 let drag = null;
 $('wheel').addEventListener('pointerdown', e => {
   if (busy) return; const s = ss(), node = e.target.closest('.node'), hit = e.target.closest('.hit');
-  if (hit) { sel = [+hit.dataset.i, +hit.dataset.k]; lowerPeg = false; startDrone(); FX.sfx('click'); wheelSVG(); ctlRender(); coachCheck(); return; }
+  if (hit) { sel = [+hit.dataset.i, +hit.dataset.k]; lowerPeg = false; startDrone(); FX.sfx('click'); wheelSVG(); ctlRender(); coachCheck(); sayInterval(); return; }
   if (node) { const n = +node.dataset.n;
     if (!(n === sel[0] || n === (sel[0] + sel[1]) % 12)) { sel = [(n + 5) % 12, 7]; lowerPeg = false; } // the fifth that ends on this note
     lowerPeg = n === sel[0] && n !== (sel[0] + sel[1]) % 12;
@@ -512,9 +538,9 @@ function renderDesk() {
       ${s.week === 0 && !s.daily && S.coach > 2 ? `<div class="sub" style="margin:6px 0">${P.rule}</div>` : ''}
       ${letterHTML(W.hymn)}${W.letters.map(l => letterHTML(l)).join('')}
       <div class="bar"><button class="primary" id="perf">Ring for Sunday ▸</button><span class="tag" style="align-self:center">${left ? `${left} more letter${left > 1 ? 's' : ''} may be accepted` : 'the week is full'} · upkeep ƒ${P.upkeep}</span></div>
-      <div class="legend">⛪ hears only wolves · 🎶 hears thirds · 🎻 hears fifths · 🧐 everything · 🎹 everything, everywhere<br>On the rose: <span style="color:#8f6417">gold</span> pure · ochre tempered · <span style="color:#9b2c1f">rust</span> sour · jagged red: a wolf.</div>`;
+      <div class="legend">⛪ hears only wolves · 🎶 hears thirds · 🎻 hears fifths · 🧐 everything · 🎹 everything, everywhere<br>On the rose: arcs round the rim are fifths, chords across are major thirds; <span style="color:#3f8f3a">green</span> pure · <span style="color:#a5761e">amber</span> tempered · <span style="color:#9b2c1f">red</span> sour · jagged: a wolf.</div>`;
     d.querySelectorAll('[data-hear]').forEach(b => b.onclick = () => hear(b.dataset.hear));
-    d.querySelectorAll('[data-acc]').forEach(b => b.onclick = () => { if (toggleAccept(s, b.dataset.acc)) { FX.sfx('place'); persist(); renderDesk(); coachCheck(); } else RH.toast(`Only ${P.slots} letters a week: the organ has no more hours.`); });
+    d.querySelectorAll('[data-acc]').forEach(b => b.onclick = () => { if (toggleAccept(s, b.dataset.acc)) { FX.sfx('place'); persist(); renderDesk(); wheelSVG(); coachCheck(); } else RH.toast(`Only ${P.slots} letters a week: the organ has no more hours.`); });
     $('perf').onclick = sunday;
     deskMarks();
   } else renderResults();
@@ -608,26 +634,37 @@ function renderPosts() {
 
 // ---------- coach: only in the very first weeks ----------
 const COACH = [
-  'The frost has pulled <b>G</b> flat, so C–G is out of tune. Drag the <b>G</b> peg upwards, or tap ♯, until the flame calms.',
+  'The frost has pulled <b>G</b> flat, so the C–G fifth (the red arc at the top) beats. Pull the <b>G</b> peg <b>outward</b>, away from the centre, or tap ♯, until the arc is no longer red and the flame calms.',
   'Better. Tap <b>▶ Hear</b> on the cantor\'s letter to rehearse it on this organ.',
   '<b>Accept</b> the letter, then <b>ring for Sunday</b>.',
 ];
 // the frost-on-G lesson only fits the first week's organ
-function coachHTML() { const s = ss(); return s.seed === 'first' && s.post === 0 && s.week === 0 && s.phase === 'week' && S.coach < COACH.length ? `<div class="coach" id="coach">${COACH[S.coach]}</div>` : ''; }
+function coachHTML() { const s = ss(); return s.seed === 'first' && s.post === 0 && s.week === 0 && s.phase === 'week' && S.coach < COACH.length ? `<div class="coach" id="coach">${COACH[S.coach]}</div>` : `<div class="coach goalL" id="goalL">${goalText()}</div>`; }
+// the week's goal in plain words, with the same lines marked on the rose
+function goalText() {
+  const s = ss(); if (s.phase !== 'week') return 'Sunday is over. Read what they said, then go on to next week.';
+  if (week(s).dark) return 'The chapel is dark: no colours this week. Tap a line to hear it, and tune until the flame is calm.';
+  const g = goalIvs(), names = g.map(x => `<b data-sel="${x.i}:${x.k}" style="cursor:pointer;text-decoration:underline dotted">${ivLab(x.i, x.k)}</b>`), list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
+  if (!g.length) return s.acc.length ? 'Every line this week\'s music uses sounds smooth. <b>Ring for Sunday</b> when ready.' : 'The hymn sounds smooth. <b>Accept</b> a letter or two, then make their lines smooth too.';
+  return `Before Sunday, make ${list} sound smooth (not red): ${g.length > 1 ? 'they are' : 'it is'} in this week's music. Pull a note outward or tap ♯ to sharpen it, inward or ♭ to flatten.`;
+}
+function refreshGoal() { const el = $('goalL'); if (el) el.innerHTML = goalText(); }
 function coachCheck() {
   const s = ss(); if (s.seed !== 'first' || S.coach >= COACH.length) return; const before = S.coach;
   if (S.coach === 0 && A(dev(s.tun, 0, 7)) < 7) S.coach = 1;
   if (S.coach === 1 && s.heard.L0) S.coach = 2;
   if (S.coach === 2 && s.acc.length) S.coach = 3;
-  if (S.coach !== before) { persist(); const c = $('coach'); if (c) { if (S.coach < COACH.length) c.innerHTML = COACH[S.coach]; else c.remove(); } FX.sfx('chime', S.coach); }
+  if (S.coach !== before) { persist(); const c = $('coach'); if (c) { if (S.coach < COACH.length) c.innerHTML = COACH[S.coach]; else $('coachL').innerHTML = coachHTML(); } FX.sfx('chime', S.coach); }
 }
 
+$('coachL').addEventListener('click', e => { const b = e.target.closest('[data-sel]'); if (!b || busy) return; sel = b.dataset.sel.split(':').map(Number); lowerPeg = false; startDrone(); wheelSVG(); ctlRender(); sayInterval(); });
 $('menuBtn').onclick = () => { if (busy) return; view = view === 'posts' ? 'week' : 'posts'; renderAll(); if (view === 'posts') showDesk(); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) stopAll(); });
 // links: #season=<post>:<seed> plays the same weeks someone else played
 { const m = location.hash.match(/season=(\d):([^&]+)/); if (m) { const p = +m[1], sd = decodeURIComponent(m[2]).slice(0, 40); if (POSTS[p] && (p <= S.open || p === 4)) { S.ss = newSeason(p, sd, { daily: /^daily:\d{4}-\d\d-\d\d$/.test(sd) ? sd.slice(6) : 0 }); persist(); } } }
 sel = ss().seed === 'first' && ss().week === 0 ? [0, 7] : selForWeek();
 renderAll();
+if (!S.rose) explainRose();
 window.__tm = { KEY, NM, FIFTHS, P5, M3, SC, PC, LIS, POSTS, START, iv, dev, beats, freq, parts, isWolf, chordS, evalPiece, payOf, genWeek, postFor, newSeason, startWeek, setNote, undo, resetWeek, applyTool, toggleAccept, program, perform, retake, nextWeek, passed, shareGrid, loadState, cleanSeason, S, renderAll, startSeason, get sel() { return sel; }, set sel(v) { sel = v; } };
 </script>
 </body>
