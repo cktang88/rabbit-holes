@@ -417,9 +417,10 @@ function draw() {
   }
   // turns: annotated with the drafter's red pencil
   design.nodes.forEach((n, i) => { if (!n.r || i >= design.nodes.length - 1) return; const m = design.nodes[i + 1];
-    g.fillStyle = '#ff6b57'; g.font = `${12 * dpr}px "Architects Daughter"`; g.textAlign = 'center'; g.fillText(`turn R${Math.abs(n.r)} m · bank ${n.bank || 0}°`, sx((n.x + m.x) / 2), sy((n.y + m.y) / 2) - 12 * dpr); });
+    g.fillStyle = '#ff6b57'; g.font = `${12 * dpr}px "Architects Daughter"`; g.textAlign = 'center'; g.fillText(`turn ${n.r > 0 ? 'left' : 'right'} ${Math.round(turnAngle(i))}° · R${Math.abs(n.r)} m · bank ${n.ab ? 'auto' + (n.bt ? (n.bt > 0 ? '+' : '') + n.bt : '') : (n.bank || 0) + '°'}`, sx((n.x + m.x) / 2), sy((n.y + m.y) / 2) - 12 * dpr); });
   // stall / crash markers
   { let lab = 0; const mark = (i, t, dy) => { const p = S[i]; g.fillStyle = '#ff6b57'; g.font = `700 ${14 * dpr}px "Courier Prime"`; g.textAlign = 'center'; g.fillText(t, sx(p.x), sy(p.y) + (dy - 18 * lab++) * dpr); };
+    if (R && R.gl && !play) { let mi = -1, mv = 1.2; R.gl.forEach((v, k) => { if (Math.abs(v) > mv) { mv = Math.abs(v); mi = R.idx[k]; } }); if (mi >= 0) mark(mi, `SIDEWAYS ${mv.toFixed(1)} g: bank it`, -16); } // riders thrown sideways
     if (R && R.kink >= 0) mark(R.kink, 'KINK', -16); if (R && R.stall >= 0) mark(R.stall, 'STALLED', -16); }
   if (R && R.crash >= 0) { const p = S[R.crash]; g.fillStyle = '#ff6b57'; g.font = `700 ${14 * dpr}px "Courier Prime"`; g.textAlign = 'center'; g.fillText('HITS THE GROUND', sx(p.x), sy(p.y) + 22 * dpr); }
   // hill crests, coloured by the predicted seat g over them: green floats (airtime), yellow nearly, grey no
@@ -478,18 +479,23 @@ function drawStrip(S, R) { // seat g against distance along the track, with the 
   g.strokeStyle = 'rgba(207,230,255,.35)'; g.beginPath(); for (let i = 0; i < n; i += 2) { const y = b - clamp(Math.abs(S[i].k || 0) * 4, 0, 1) * h; i ? g.lineTo(gx(i), y) : g.moveTo(gx(i), y); } g.stroke();
   if (R && R.gs.length) { const lift = design.lift ?? 1; g.fillStyle = 'rgba(63,210,122,.28)'; for (let i = 0; i < R.gs.length; i++) if (R.gs[i] < AIR && S[R.idx[i]].seg >= lift) g.fillRect(gx(R.idx[i]) - 1 * dpr, t, 2 * dpr + (r - l) / n, h); // the moments of airtime
     g.lineWidth = 2 * dpr; for (let i = 1; i < R.gs.length; i++) { const v = R.gs[i]; g.strokeStyle = v > 5 ? '#ff4b3a' : v > 3.5 ? '#ffa25a' : v < .2 ? '#7cf2ff' : '#ffffff'; g.beginPath(); g.moveTo(gx(R.idx[i - 1]), gy(R.gs[i - 1])); g.lineTo(gx(R.idx[i]), gy(v)); g.stroke(); } }
+  if (R && R.gl && R.gl.some(v => Math.abs(v) > .05)) { g.strokeStyle = '#d58cff'; g.lineWidth = 1.5 * dpr; g.setLineDash([4 * dpr, 3 * dpr]); g.beginPath(); R.gl.forEach((v, i) => { const X = gx(R.idx[i]), Y = gy(Math.abs(v)); i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.stroke(); g.setLineDash([]);
+    if (!mini) { g.fillStyle = '#d58cff'; g.textAlign = 'right'; g.font = `${10 * dpr}px "Courier Prime"`; g.fillText('- - sideways g', r - 4 * dpr, t + 24 * dpr); } }
   g.fillStyle = '#cfe6ff'; g.textAlign = 'right'; g.font = `${(mini ? 9 : 11) * dpr}px "Courier Prime"`; g.fillText((R ? 'seat g · curvature' : 'curvature') + (mini ? '  ▴ g' : '  ▾'), r - 4 * dpr, t + (mini ? 9 : 11) * dpr);
   if (play) { g.fillStyle = '#e2493b'; g.fillRect(gx(play.i) - 1 * dpr, t, 2 * dpr, h); }
   if (!play && scrubI >= 0 && scrubI < n) { g.fillStyle = '#f2b33d'; g.fillRect(gx(scrubI) - 1 * dpr, t, 2 * dpr, h); }
   if (sel >= 0 && !play) { const i0 = S.findIndex(p => p.seg >= sel); if (i0 >= 0) { g.fillStyle = '#ff6b57'; g.fillRect(gx(sel >= design.nodes.length - 1 ? n - 1 : i0) - 1 * dpr, t, 2 * dpr, h); } }
 }
 function drawTop(S) { // plan view in the corner
-  const fp = footprint(S), sz = 110 * dpr, k = Math.min(sz / fp.w, sz / fp.d) * .9; let mx = 1e9, mz = 1e9; for (const p of S) { mx = Math.min(mx, p.X); mz = Math.min(mz, p.Z); }
-  const ox = W - sz - 14 * dpr, oy = 14 * dpr + (innerWidth < 860 ? 9999 : 0); if (oy > H) return;
-  if ($('gauge').style.display === 'block') return;
+  const mob = innerWidth < 860, fp = footprint(S), sz = (mob ? 72 : 110) * dpr, k = Math.min(sz / fp.w, sz / fp.d) * .9; let mx = 1e9, mz = 1e9; for (const p of S) { mx = Math.min(mx, p.X); mz = Math.min(mz, p.Z); }
+  // desktop: the top-right corner; phones: bottom-left of the drawing, just above the g diagram (the turns show in plan)
+  const ox = mob ? (playRect().l + 8) * dpr : W - sz - 14 * dpr, oy = mob ? (stripBox().t - 16) * dpr - sz - 28 * dpr : 14 * dpr;
+  if ($('gauge').style.display === 'block' && !mob) return;
   g.fillStyle = 'rgba(13,44,82,.8)'; g.fillRect(ox - 6 * dpr, oy - 6 * dpr, sz + 12 * dpr, sz + 28 * dpr); g.strokeStyle = 'rgba(207,230,255,.5)'; g.strokeRect(ox - 6 * dpr, oy - 6 * dpr, sz + 12 * dpr, sz + 28 * dpr);
   g.strokeStyle = '#ffffff'; g.lineWidth = 2 * dpr; g.beginPath(); S.forEach((p, i) => { const X = ox + (p.X - mx + 2) * k, Y = oy + (p.Z - mz + 2) * k; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.stroke();
-  g.fillStyle = '#cfe6ff'; g.font = `${11 * dpr}px "Courier Prime"`; g.textAlign = 'left'; g.fillText(`plan ${Math.round(fp.w)}×${Math.round(fp.d)} m`, ox, oy + sz + 16 * dpr);
+  const at = i => [ox + (S[i].X - mx + 2) * k, oy + (S[i].Z - mz + 2) * k]; { const [a, b] = at(0); g.fillStyle = '#f2b33d'; g.beginPath(); g.arc(a, b, 3.5 * dpr, 0, 7); g.fill(); }
+  if (play && S[play.i]) { const [a, b] = at(play.i); g.fillStyle = '#e2493b'; g.beginPath(); g.arc(a, b, 4 * dpr, 0, 7); g.fill(); }
+  g.fillStyle = '#cfe6ff'; g.font = `${(mob ? 10 : 11) * dpr}px "Courier Prime"`; g.textAlign = 'left'; g.fillText(`plan ${Math.round(fp.w)}×${Math.round(fp.d)} m`, ox, oy + sz + 16 * dpr);
 }
 
 // ================= POV: the front seat =================
@@ -606,7 +612,7 @@ const ELS = {
   loop:  { n: 'Loop', i: '➰', h: 22, w: .95, H: ['height', v => v.toFixed(0) + ' m'], Wd: ['tightness', v => Math.round(v * 100) + '%'], hr: [10, 45], wr: [0, 1.05], kw: .03 },
   hill:  { n: 'Airtime hill', i: '⌒', h: 10, w: 64, H: ['height', v => v.toFixed(0) + ' m'], Wd: ['length', v => v.toFixed(0) + ' m'], hr: [2, 45], wr: [14, 110], kw: 2 },
   drop:  { n: 'Drop', i: '↘', h: 16, w: 30, H: ['depth', v => v.toFixed(0) + ' m'], Wd: ['length', v => v.toFixed(0) + ' m'], hr: [2, 60], wr: [10, 90], kw: 1, kh: -1 },
-  turn:  { n: 'Banked turn', i: '↩', h: 45, w: 14, H: ['bank', v => v.toFixed(0) + '°'], Wd: ['radius', v => v.toFixed(0) + ' m'], hr: [0, 80], wr: [8, 40], kw: 2 / Math.PI, kh: 3 },
+  turn:  { n: 'Banked turn', i: '↩', h: 0, w: 14, H: ['bank trim', v => (v > 0 ? '+' : '') + v.toFixed(0) + '°'], Wd: ['radius', v => v.toFixed(0) + ' m'], hr: [-20, 20], wr: [8, 40], kw: 2 / Math.PI, kh: 1 },
   helix: { n: 'Helix', i: '🌀', h: 6, w: 12, H: ['descent', v => v.toFixed(0) + ' m'], Wd: ['radius', v => v.toFixed(0) + ' m'], hr: [0, 24], wr: [8, 30], kw: 1 / Math.PI, kh: -1 },
 };
 // a clothoid-style loop: curvature grows steadily with the heading turned, up to the top and back down:
@@ -623,8 +629,8 @@ function build(el, a) {
     const ns = P.map(([x, y]) => N(Math.round((bx + x) * 2) / 2, Math.round((a.y + y) * 2) / 2)); return { nodes: ns, hd: [ns[3].x, ns[3].y], up: 1 }; }
   if (el.t === 'hill') { const ns = [[.25, .5], [.5, 1], [.75, .5], [1, 0]].map(([u, v]) => N(Math.round((a.x + u * w) * 2) / 2, Math.round((a.y + v * h) * 2) / 2)); return { nodes: ns, hd: [ns[1].x, ns[1].y], up: 1 }; }
   if (el.t === 'drop') { const yb = Math.max(ground(a.x + w), a.y - h), d = a.y - yb; const ns = [[.5, .5], [1, 1], [1.45, 1]].map(([u, v]) => N(Math.round((a.x + u * w) * 2) / 2, Math.round((a.y - v * d) * 2) / 2)); return { nodes: ns, hd: [ns[1].x, ns[1].y], up: -1 }; }
-  if (el.t === 'turn') { const x0 = a.x + 6, L = Math.PI * w; return { nodes: [N(x0, a.y, { r: Math.round(w), bank: Math.round(h) }), N(Math.round((x0 + L) * 2) / 2, a.y)], hd: [x0 + L / 2, a.y], up: 1 }; }
-  if (el.t === 'helix') { const x0 = a.x + 6, L = 2 * Math.PI * w, yb = Math.max(ground(x0 + L), a.y - h); return { nodes: [N(x0, a.y, { r: Math.round(w), bank: 55 }), N(Math.round((x0 + L) * 2) / 2, Math.round(yb * 2) / 2)], hd: [x0 + L / 2, (a.y + yb) / 2], up: 1 }; }
+  if (el.t === 'turn') { const x0 = a.x + 6, L = Math.PI * w; return { nodes: [N(x0, a.y, { r: Math.round(w), ab: 1, bt: Math.round(h), bank: 0 }), N(Math.round((x0 + L) * 2) / 2, a.y)], hd: [x0 + L / 2, a.y], up: 1 }; }
+  if (el.t === 'helix') { const x0 = a.x + 6, L = 2 * Math.PI * w, yb = Math.max(ground(x0 + L), a.y - h); return { nodes: [N(x0, a.y, { r: Math.round(w), ab: 1, bt: 0, bank: 0 }), N(Math.round((x0 + L) * 2) / 2, Math.round(yb * 2) / 2)], hd: [x0 + L / 2, (a.y + yb) / 2], up: 1 }; }
 }
 function handleOf(el) { // in screen pixels: a little clear of the element so it never sits on a node
   const ix = groupOf(el.id); if (!ix.length || ix[0] < 1) return null; const B = build(el, design.nodes[ix[0] - 1]); return [sx(B.hd[0]), sy(B.hd[1]) - B.up * 26 * dpr]; }
@@ -679,14 +685,25 @@ function renderInsp() {
   el.innerHTML = `<span>Node ${sel}${sel === 0 ? ' (station)' : ''}</span>
     <button class="t${n.t ? '' : ' on'}" id="iAuto" title="Auto: the curve sets this node's slope smoothly. Drag the arms to pin your own.">${n.t ? 'Tangent: pinned · Auto' : 'Tangent: auto'}</button>
     ${lastN ? '' : `<label>turn R <input id="iR" type="range" min="0" max="60" step="2" value="${Math.abs(n.r || 0)}"><b id="iRv">${n.r ? Math.abs(n.r) + ' m' : 'straight'}</b></label>
-    <label>bank <input id="iB" type="range" min="0" max="80" step="5" value="${n.bank || 0}"><b id="iBv">${n.bank || 0}°</b></label>`}
+    ${n.r ? `<button class="t" id="iDir" title="Turn the other way">${n.r > 0 ? '↰ left' : '↱ right'}</button><label>turns <input id="iA" type="range" min="15" max="360" step="15" value="${Math.round(turnAngle(sel) / 15) * 15}"><b id="iAv">${Math.round(turnAngle(sel))}°</b></label>
+    <button class="t${n.ab ? ' on' : ''}" id="iAuto2" title="Auto: bank each point at atan(v²κ / g) so riders are pushed into the seat, not sideways">${n.ab ? 'Bank: auto' : 'Bank: manual'}</button>
+    ${n.ab ? `<label>trim <input id="iT" type="range" min="-20" max="20" step="5" value="${n.bt || 0}"><b id="iTv">${(n.bt || 0) > 0 ? '+' : ''}${n.bt || 0}°</b></label>` : `<label>bank <input id="iB" type="range" min="0" max="80" step="5" value="${n.bank || 0}"><b id="iBv">${n.bank || 0}°</b></label>`}` : ''}`}
     ${sel > 0 && !lastN ? '<button class="t" id="iDel">Delete node</button>' : ''}`;
   $('iAuto').onclick = () => { if (!n.t) { toast('Drag the round arm ends to pin this node\'s slope.'); return; } snapshot(); delete n.t; changed(); renderInsp(); };
-  if ($('iR')) { $('iR').oninput = e => { const v = +e.target.value; n.r = v >= 8 ? v : 0; $('iRv').textContent = n.r ? n.r + ' m' : 'straight'; touched(); };
-    $('iB').oninput = e => { n.bank = +e.target.value; $('iBv').textContent = n.bank + '°'; touched(); };
-    $('iR').onchange = $('iB').onchange = () => { if (n.g) unGroup(n.g, true); changed(); }; }
+  if ($('iR')) { $('iR').oninput = e => { const v = +e.target.value, sg = n.r < 0 ? -1 : 1, was = !!n.r; n.r = v >= 8 ? v * sg : 0; if (n.r && !was) { n.ab = 1; n.bt = 0; } $('iRv').textContent = n.r ? Math.abs(n.r) + ' m' : 'straight'; touched(); };
+    $('iR').onchange = () => { if (n.g) unGroup(n.g, true); changed(); renderInsp(); };
+    const fin = () => { if (n.g) unGroup(n.g, true); changed(); };
+    if ($('iB')) { $('iB').oninput = e => { n.bank = +e.target.value; $('iBv').textContent = n.bank + '°'; touched(); }; $('iB').onchange = fin; }
+    if ($('iT')) { $('iT').oninput = e => { n.bt = +e.target.value; $('iTv').textContent = (n.bt > 0 ? '+' : '') + n.bt + '°'; touched(); }; $('iT').onchange = fin; }
+    if ($('iDir')) $('iDir').onclick = () => { snapshot(); n.r = -n.r; fin(); renderInsp(); };
+    if ($('iAuto2')) $('iAuto2').onclick = () => { snapshot(); if (n.ab) { n.ab = 0; n.bank = Math.round(autoBankDeg(sel) / 5) * 5; } else { n.ab = 1; n.bt = 0; } fin(); renderInsp(); };
+    if ($('iA')) { $('iA').oninput = e => { setTurnAngle(sel, +e.target.value); $('iAv').textContent = e.target.value + '°'; touched(); }; $('iA').onchange = fin; } }
   if ($('iDel')) $('iDel').onclick = delNode;
 }
+// how far a turn node's segment turns, from its ground length and radius; and setting it by sliding what follows
+function turnAngle(i) { const ns = design.nodes, n = ns[i]; return n && n.r && ns[i + 1] ? (ns[i + 1].x - n.x) / Math.abs(n.r) * 180 / Math.PI : 0; }
+function setTurnAngle(i, deg) { const ns = design.nodes, n = ns[i]; if (!n || !n.r || !ns[i + 1]) return; const want = n.x + deg * Math.PI / 180 * Math.abs(n.r), d = Math.round((want - ns[i + 1].x) * 2) / 2; for (let k = i + 1; k < ns.length; k++) ns[k].x += d; }
+function autoBankDeg(i) { const R = live && live.r, S = design.S || geometry(design); let a = 0, c = 0; S.forEach((p, j) => { if (p.seg === i + 1 && R && R.gs[j] != null && p.ab) { a += p.bank; c++; } }); return c ? a / c * 180 / Math.PI : 45; }
 // the "+" drawer: every element in one place, plus smoothing and snapping
 function openDrawer() { const d = $('drawer'); if (d.style.display === 'flex') { closeDrawer(); return; } d.style.display = 'flex';
   d.innerHTML = Object.entries(ELS).map(([k, E]) => `<button class="t" id="e_${k}" title="Add a ${E.n.toLowerCase()} after the selected node">${E.i}<span class="sl">${E.n.split(' ').pop().replace(/^./, c => c.toUpperCase())}</span></button>`).join('')
@@ -777,7 +794,7 @@ function trackFrames(S) { // per sample: position, forward, up (rolled by the ba
   const Ls = S.map(p => [-Math.sin(p.head), 0, Math.cos(p.head)]), off = sideShift(S.map(p => [p.X, p.y, p.Z]), Ls);
   for (let i = 1; i < n - 1; i++) bk[i] += Math.atan(clamp((off[i + 1] - 2 * off[i] + off[i - 1]) / (DS * DS) * 12, -.35, .35)); // lean into the sideways step
   // a bank is set per node, so on its own it would snap on at the node: the steel twists into it over ~5 m each side
-  for (let i = 0; i < n; i++) { let a = 0, c = 0; for (let k = Math.max(0, i - W); k <= Math.min(n - 1, i + W); k++) { const wt = W + 1 - Math.abs(k - i); a += bk[k] * wt; c += wt; } B[i] = a / c; }
+  for (let i = 0; i < n; i++) { if (S[i].ab) { B[i] = bk[i]; continue; } let a = 0, c = 0; for (let k = Math.max(0, i - W); k <= Math.min(n - 1, i + W); k++) { const wt = W + 1 - Math.abs(k - i); a += bk[k] * wt; c += wt; } B[i] = a / c; } // auto-bank comes smooth from the physics; a manual bank twists in
   const F = S.map((p, i) => {
     const ch = Math.cos(p.head), shh = Math.sin(p.head), ct = Math.cos(p.th), st = Math.sin(p.th);
     const fwd = [ct * ch, st, ct * shh], upE = [-st * ch, ct, -st * shh], L = [-shh, 0, ch];
