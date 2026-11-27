@@ -138,6 +138,7 @@ const GRADE = { uniforms: { tDiffuse: { value: null }, uVig: { value: .28 }, uSp
     void main(){ vec2 d = vUv - .5; vec3 c;
       if (uZoom > .001) { c = vec3(0.); for (int i = 0; i < 6; i++) { float k = 1. - uZoom * float(i) / 6.; c += texture2D(tDiffuse, .5 + d * k).rgb; } c /= 6.; } else c = texture2D(tDiffuse, vUv).rgb;
       if (uCA > .0001) { c.r = texture2D(tDiffuse, .5 + d * (1. + uCA)).r; c.b = texture2D(tDiffuse, .5 + d * (1. - uCA)).b; }
+      float l0 = dot(c, vec3(.2126, .7152, .0722)); c = mix(vec3(l0), c, 1.18); // a little more colour
       float l = dot(c, vec3(.2126, .7152, .0722)); c += uSplit * mix(vec3(-.25, .02, .3), vec3(.35, .1, -.3), smoothstep(.2, .8, l)) * .35; // cool shadows, warm highlights
       c *= 1. - uVig * smoothstep(.35, .95, length(d * vec2(1.25, 1.))); gl_FragColor = vec4(c, 1.); }` };
 const RAYS = { uniforms: { tDiffuse: { value: null }, uSun: { value: null }, uAmt: { value: 0 } },
@@ -156,9 +157,10 @@ function v3Post() {
   c.addPass(new X.OutputPass()); V3.grade = new X.ShaderPass(GRADE); c.addPass(V3.grade);
   // lens flare at the sun: occluded by the track and the trees (three.js tests the pixels behind it each frame)
   const glow = canvasTex(T, 128, 128, (x, w) => { const g = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); g.addColorStop(0, 'rgba(255,250,235,1)'); g.addColorStop(.2, 'rgba(255,230,190,.5)'); g.addColorStop(1, 'rgba(255,200,150,0)'); x.fillStyle = g; x.fillRect(0, 0, w, w); });
-  const ring = canvasTex(T, 64, 64, (x, w) => { const g = x.createRadialGradient(w / 2, w / 2, w * .3, w / 2, w / 2, w / 2); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.7, 'rgba(180,220,255,.1)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, w, w); });
-  const fl = V3.flare = new X.Lensflare(); fl.addElement(new X.LensflareElement(glow, hi ? 420 : 260, 0, new T.Color(1, .95, .85)));
-  if (hi) for (const [s, d] of [[60, .45], [90, .65], [140, .85], [70, 1]]) fl.addElement(new X.LensflareElement(ring, s, d)); else fl.addElement(new X.LensflareElement(ring, 80, .7));
+  const ring = canvasTex(T, 64, 64, (x, w) => { const g = x.createRadialGradient(w / 2, w / 2, w * .3, w / 2, w / 2, w / 2); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.7, 'rgba(180,220,255,.05)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, w, w); });
+  const fl = V3.flare = new X.Lensflare(); fl.addElement(new X.LensflareElement(glow, hi ? 260 : 180, 0, new T.Color(1, .95, .85)));
+  const streak = canvasTex(T, 256, 32, (x, w, h) => { const g = x.createLinearGradient(0, 0, w, 0); g.addColorStop(0, 'rgba(255,220,180,0)'); g.addColorStop(.5, 'rgba(255,236,210,.35)'); g.addColorStop(1, 'rgba(255,220,180,0)'); x.fillStyle = g; const v = x.createLinearGradient(0, 0, 0, h); x.fillRect(0, h / 2 - 2, w, 4); });
+  fl.addElement(new X.LensflareElement(streak, hi ? 520 : 320, 0)); if (hi) fl.addElement(new X.LensflareElement(ring, 50, .6, new T.Color(.6, .7, .8)));
   V3.post = true; v3Size();
 }
 function v3Size() { if (!V3.r) return; V3.r.setPixelRatio(V3.dpr); V3.r.setSize(innerWidth, innerHeight, false); if (V3.comp) { V3.comp.setPixelRatio(V3.dpr); V3.comp.setSize(innerWidth, innerHeight); } V3.cam.aspect = innerWidth / innerHeight; V3.cam.updateProjectionMatrix(); }
@@ -194,9 +196,9 @@ function v3Build(force) {
         if (r2) for (let s = 0; s < sides; s++) { const a = (r2 - 1) * sides + s, b = (r2 - 1) * sides + (s + 1) % sides, c2 = r2 * sides + s, d = r2 * sides + (s + 1) % sides; idx.push(a, c2, b, b, c2, d); } });
       const g2 = new T.BufferGeometry(); g2.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g2.setIndex(idx); g2.computeVertexNormals(); return g2; };
     const sides = V3.tier === 'high' ? 10 : 7, rails = new T.Mesh(mergeParts(T, [[tube([-.55, 0], .075, sides), 0xd8402f], [tube([.55, 0], .075, sides), 0xd8402f]]), new T.MeshStandardMaterial({ vertexColors: true, metalness: .75, roughness: .3 }));
-    const spine = new T.Mesh(tube([0, -.4], .19, sides + 2), new T.MeshStandardMaterial({ color: 0xf1e6cf, metalness: .6, roughness: .4 }));
+    const spine = new T.Mesh(tube([0, -.42], .2, sides + 2), new T.MeshStandardMaterial({ color: 0xb8322a, metalness: .6, roughness: .35 }));
     for (const m of [rails, spine]) { m.castShadow = true; m.receiveShadow = true; sc.add(m); } V3.railMesh = rails; }
-  { const n = Math.ceil(F.length / 3), M = new T.InstancedMesh(new T.BoxGeometry(1.35, .1, .24), new T.MeshStandardMaterial({ color: 0x4a3626, roughness: .7, metalness: .2 }), n), m4 = new T.Matrix4(); let k = 0;
+  { const n = Math.ceil(F.length / 3), M = new T.InstancedMesh(mergeParts(T, [[new T.BoxGeometry(1.2, .07, .09), 0x5c6168, M4(T, 0, .12, 0)], [new T.BoxGeometry(.07, .3, .09), 0x5c6168, M4(T, 0, -.05, 0)], [new T.BoxGeometry(.6, .05, .07), 0x4d5258, M4(T, -.3, -.02, 0, 0, 0, -.55)], [new T.BoxGeometry(.6, .05, .07), 0x4d5258, M4(T, .3, -.02, 0, 0, 0, .55)]]), new T.MeshStandardMaterial({ vertexColors: true, metalness: .6, color: 0xffffff, roughness: .7, metalness: .2 }), n), m4 = new T.Matrix4(); let k = 0;
     for (let i = 0; i < F.length; i += 3) { const f = F[i]; m4.makeBasis(new T.Vector3(...f.side), new T.Vector3(...f.up), new T.Vector3(...f.fwd)); m4.setPosition(f.p[0] - f.up[0] * .2, f.p[1] - f.up[1] * .2, f.p[2] - f.up[2] * .2); M.setMatrixAt(k++, m4); }
     M.count = k; M.castShadow = true; sc.add(M); }
   // supports: vertical columns from under the spine to the ground, on footings; none where another section of track is in the way

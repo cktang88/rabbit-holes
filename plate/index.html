@@ -835,7 +835,7 @@ renderer.setPixelRatio(DPR); renderer.toneMapping = THREE.ACESFilmicToneMapping;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, .5, 3000);
 let composer = null, bloom = null;
-if (POST) { composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera)); bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .75, .55, .82); composer.addPass(bloom); composer.addPass(new OutputPass()); }
+if (POST) { composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera)); bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .55, .5, .9); composer.addPass(bloom); composer.addPass(new OutputPass()); }
 // background: deep space blue, brighter toward the horizon
 { const c = document.createElement('canvas'); c.width = 4; c.height = 256; const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 256);
   gr.addColorStop(0, '#050a14'); gr.addColorStop(.55, '#0c1b2e'); gr.addColorStop(.8, '#24476b'); gr.addColorStop(1, '#5f8db5'); g.fillStyle = gr; g.fillRect(0, 0, 4, 256);
@@ -878,7 +878,7 @@ float cloudD(vec2 uv) {
   float lat = abs(.5 - uv.y) * 2.;
   float d = texture(tN, uv * vec2(6., 3.) + w).g * .62 + texture(tN, uv * vec2(18., 9.) - w * 1.7).b * .28 + texture(tN, uv * vec2(54., 27.) + w * 3.).a * .1;
   float wet = texture(tA, uv).g;
-  float cov = .68 - .22 * clamp(wet, 0., 1.5) - .08 * smoothstep(.55, .75, lat) + .1 * smoothstep(.2, .35, lat) * smoothstep(.45, .3, lat);
+  float cov = .74 - .2 * clamp(wet, 0., 1.5) - .08 * smoothstep(.55, .75, lat) + .1 * smoothstep(.2, .35, lat) * smoothstep(.45, .3, lat);
   return smoothstep(cov, cov + .2, d) * uCloudA;
 }
 `;
@@ -988,7 +988,7 @@ void main() {
   c += vec3(1., .82, .6) * abs(vQ) * .25;
   // aerial haze
   float dist = length(vW - cameraPosition);
-  float hz = uGlobe > .5 ? 0. : smoothstep(uCamD * .5, uCamD * 2.6, dist) * .7;
+  float hz = uGlobe > .5 ? 0. : smoothstep(uCamD * .8, uCamD * 3.2, dist) * .45;
   c = mix(c, srgb(vec3(.5, .66, .82)), hz);
   gl_FragColor = vec4(c, 1.);
   #include <tonemapping_fragment>
@@ -1021,14 +1021,14 @@ void main() {
   float dif = max(dot(up, uSun), 0.) * .6 + .4;
   float sh = 1. - .45 * cloudD(vUv + vec2(-.004, -.006));
   vec3 c = col * dif * sh + sky * fr * .5;
-  vec3 Hh = normalize(uSun + V); c += vec3(1., .9, .7) * pow(max(dot(N, Hh), 0.), 260.) * 2.2 * sh;
+  vec3 Hh = normalize(uSun + V); c += vec3(1., .9, .7) * pow(max(dot(N, Hh), 0.), 400.) * .7 * sh;
   // coastal foam and sea ice
   float foam = smoothstep(.12, .0, d) * (.5 + .5 * texture(tN, vUv * vec2(400., 200.) + uTime * .02).r);
   c = mix(c, srgb(vec3(.85, .9, .9)), foam * .55);
   float T = 29. - 52. * pow(abs(lat) / 90., 1.45);
   float ice = smoothstep(-4., -9., T + (texture(tN, vUv * vec2(60., 30.)).r - .5) * 8.) * uSeaIce;
   c = mix(c, srgb(vec3(.86, .92, .97)) * (dif * .9 + .2), ice);
-  float dist = length(vW - cameraPosition), hz = uGlobe > .5 ? 0. : smoothstep(uCamD * .5, uCamD * 2.6, dist) * .7;
+  float dist = length(vW - cameraPosition), hz = uGlobe > .5 ? 0. : smoothstep(uCamD * .8, uCamD * 3.2, dist) * .45;
   c = mix(c, srgb(vec3(.5, .66, .82)), hz);
   gl_FragColor = vec4(c, 1.);
   #include <tonemapping_fragment>
@@ -1131,7 +1131,8 @@ function placeCamera() {
 }
 function frameLevel(lv, ms = 0) {
   const [u, v, z] = lv.cam || [.5, .5, 1];
-  const tgt = { x: u * 360 - 180, z: v * 180 - 90, d: 70 + 230 * z, lon: u * 360 - 180, lat: 90 - v * 180 };
+  const asp = innerWidth / innerHeight, fit = Math.min(2.2, Math.max(1, 1.4 / asp));
+  const tgt = { x: u * 360 - 180, z: v * 180 - 90, d: Math.min(330, (70 + 230 * z) * fit), lon: u * 360 - 180, lat: 90 - v * 180 };
   if (!ms) { cam.x = tgt.x; cam.z = tgt.z; cam.d = tgt.d; cam.lon = tgt.lon; cam.lat = clamp(tgt.lat, -60, 60); cam.yaw = 0; cam.tilt = .72; }
   else camT = { ...tgt, t0: performance.now(), ms, from: { ...cam } };
 }

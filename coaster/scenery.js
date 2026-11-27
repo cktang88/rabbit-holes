@@ -49,6 +49,7 @@ function vnoise(x, z) { const xi = Math.floor(x), zi = Math.floor(z), fx = x - x
 function blob(T, r, det, rough, seed) { const g = new T.IcosahedronGeometry(r, det), P = g.attributes.position;
   for (let i = 0; i < P.count; i++) { const x = P.getX(i), y = P.getY(i), z = P.getZ(i), k = 1 + rough * (vnoise(x * 1.7 + seed, z * 1.7 + y * 1.3) - .5) * 2; P.setXYZ(i, x * k, y * k, z * k); }
   g.computeVertexNormals(); return g; }
+function noiseTex(T) { const t = canvasTex(T, 128, 128, (x, w, h) => { const im = x.createImageData(w, h); for (let i = 0; i < w * h; i++) { const v = 90 + vnoise((i % w) / 9, Math.floor(i / w) / 9) * 110 + Math.random() * 40; im.data.set([v, v, v, 255], i * 4); } x.putImageData(im, 0, 0); }); t.colorSpace = T.NoColorSpace; t.wrapS = t.wrapT = T.RepeatWrapping; t.userData.keep = true; return t; }
 function stdMat(T, o = {}) { return new T.MeshStandardMaterial({ vertexColors: true, roughness: .85, metalness: 0, ...o }); }
 
 // ---------- the park ----------
@@ -64,7 +65,7 @@ function buildScenery(T, sc, S, F) {
   { const sun = V3.sun = new T.DirectionalLight(0xfff0d2, 2.4), sz = mob ? 1024 : 2048, R = mob ? 30 : 42; sun.castShadow = true; sun.shadow.mapSize.set(sz, sz);
     Object.assign(sun.shadow.camera, { left: -R, right: R, top: R, bottom: -R, near: 1, far: 420 }); sun.shadow.bias = -.0006; sun.shadow.normalBias = .08; sun.shadow.camera.updateProjectionMatrix(); V3.sunR = R;
     sc.add(sun); sc.add(sun.target); }
-  sc.fog = new T.Fog(0xdde8e6, 120, 900);
+  sc.fog = new T.FogExp2(0xdde8e6, .0011); // squared exponential: ~3 % at 150 m, ~45 % at 700 m, so the park stays clear and only the horizon hazes
 
   // where things are: the track's footprint (3D frames, so turns and side-steps count), the plaza, the rides, the car park
   let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const f of F) { x0 = Math.min(x0, f.p[0]); x1 = Math.max(x1, f.p[0]); z0 = Math.min(z0, f.p[2]); z1 = Math.max(z1, f.p[2]); }
@@ -98,10 +99,10 @@ function buildScenery(T, sc, S, F) {
     for (let j = 1; j < rings.length - 1; j++) { const a0 = 1 + (j - 1) * segs, b0 = 1 + j * segs; for (let k = 0; k < segs; k++) { const k1 = (k + 1) % segs; idx.push(a0 + k, a0 + k1, b0 + k, a0 + k1, b0 + k1, b0 + k); } }
     const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new T.Float32BufferAttribute(col, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
     const mat = stdMat(T, { roughness: 1, metalness: 0, envMapIntensity: .25, color: 0x8fae62 }); /* grass is matte: roughness 0.9-1, no metal, weak sky reflection */ if (!V3.grassTex && !FLAGS.notex) { V3.grassTex = new T.TextureLoader().load('assets/grass_1k.jpg', () => { if (V3.on && !play) v3Render(); }); const t = V3.grassTex; t.wrapS = t.wrapT = T.RepeatWrapping; t.colorSpace = T.SRGBColorSpace; t.anisotropy = mob ? 4 : 8; t.userData.keep = true; }
-    mat.map = V3.grassTex; mat.roughness = .95; /* matte everywhere: a roughness map from this texture read as wet */ mat.bumpMap = V3.grassTex; mat.bumpScale = .6; /* low-strength detail relief from the same texture */ const ground = new T.Mesh(g, mat); ground.receiveShadow = true; sc.add(ground); V3.ground = ground; }
+    mat.map = V3.grassTex; mat.roughness = .95; /* grass seen edge-on looks paler and yellower (blade sides catch the light) */ mat.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\n  { float gz = 1. - abs(dot(normalize(vViewPosition), normalize(vNormal))); diffuseColor.rgb *= mix(vec3(1.), vec3(1.1, 1.08, .8), gz * gz * gz); }'); }; /* matte everywhere: a roughness map from this texture read as wet */ mat.bumpMap = V3.grassTex; mat.bumpScale = .6; /* low-strength detail relief from the same texture */ const ground = new T.Mesh(g, mat); ground.receiveShadow = true; sc.add(ground); V3.ground = ground; }
   // grass tufts near the camera: a 64 m patch of instanced blade clumps that follows the rider (snapped to a 2 m grid so
   // they never swim), shrinking to nothing toward its edge (LOD fade); not on the lake, the plaza or the car park
-  if (FLAGS.scenery) { const blades = [], g = new T.BufferGeometry(), p = [], cl = [];
+  if (FLAGS.scenery && /[?&]tufts=1/.test(location.search)) { const blades = [], g = new T.BufferGeometry(), p = [], cl = [];
     for (let k = 0; k < 11; k++) { const a = k / 11 * Math.PI * 2 + hash2(k, 3), r = .07 + hash2(k, 5) * .1, x = Math.cos(a) * r, z = Math.sin(a) * r, tx = x * 2.2 + (hash2(k, 7) - .5) * .2, tz = z * 2.2, h = .16 + hash2(k, 1) * .14;
       p.push(x - z * .45, 0, z + x * .45, x + z * .45, 0, z - x * .45, tx, h, tz); cl.push(.32, .42, .2, .32, .42, .2, .62, .7, .42); }
     g.setAttribute('position', new T.Float32BufferAttribute(p, 3)); g.setAttribute('color', new T.Float32BufferAttribute(cl, 3)); g.computeVertexNormals(); const n = g.attributes.normal; for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0);
@@ -124,6 +125,9 @@ function buildScenery(T, sc, S, F) {
     for (const a of [-8.5, -4.25, 0, 4.25, 8.5]) for (const b of [-3.4, 3.4]) st(new T.CylinderGeometry(.16, .2, tH + 3.4, 8), 0xf4e8cc, a, (tH + 3.4) / 2, b);
     st(new T.BoxGeometry(18, tH + .3, 2.6), 0x9c8f7a, 0, (tH + .3) / 2, 2.1 * side); st(new T.BoxGeometry(18, tH + .3, 2.6), 0x9c8f7a, 0, (tH + .3) / 2, -2.1 * side); // platforms level with the car floor
     st(new T.BoxGeometry(18, .06, .25), 0xf2d24a, 0, tH + .33, .9 * side); /* the yellow line */
+    { const top = tH + .3, n = Math.round(top / .18); /* stairs from the queue up to the loading platform: 18 cm risers, 30 cm treads, with handrails */
+      for (let k = 0; k < n; k++) { const h = top - k * top / n; st(new T.BoxGeometry(.3, h, 1.6), 0xa39886, -9.15 - k * .3, h / 2, 2.1 * side); }
+      if (n > 1) { const run = n * .3, ang = Math.atan2(top, run), len = Math.hypot(top, run); for (const dz of [-.82, .82]) { V.set(-9 - run / 2, 0, 2.1 * side + dz).applyAxisAngle(Yx, stA); props.push([new T.BoxGeometry(len, .05, .05), 0xd8d6cf, new T.Matrix4().makeRotationY(stA).multiply(new T.Matrix4().makeRotationZ(ang)).setPosition(SO[0] + V.x, stY + top / 2 + .9, SO[1] + V.z)]); } } }
     for (let r = 0; r < 4; r++) { const z = (4.4 + r * 1.3) * side; st(new T.BoxGeometry(14, .06, .06), 0xd8d6cf, 0, 1.0, z); for (let x = -7; x <= 7; x += 2) st(new T.CylinderGeometry(.04, .04, 1, 5), 0xd8d6cf, x, .5, z);
       for (let k = 0; k < 7; k++) { const [X, Z] = stW(-6 + k * 2 + rnd() * .6, z - .65 * side); standing.push([X, Z, rnd() * 6]); } }
     for (const [x, z] of [[-9, 0], [9, 0]]) { const [X, Z] = stW(x, z); blobs.push([X, Z, 6]); } take(...stW(0, 7 * side), 8, 'station'); }
@@ -232,8 +236,8 @@ function buildScenery(T, sc, S, F) {
     V3.treeCount = [near.length, farP.length]; }
   // bushes and rocks scattered between the trees
   if (part('park')) { const bush = blob(T, 1, 1, .35, 7), rock = blob(T, 1, 0, .4, 9), sp = []; for (let t = 0; t < 1500 && sp.length < (mob ? 110 : 180); t++) { const X = cx + (rnd() - .5) * half * 1.4, Z = cz + (rnd() - .5) * half * 1.4; if (!free(X, Z, 1.2, 5)) continue; sp.push([X, gy(X, Z), Z, rnd() < .7]); take(X, Z, 1.2); }
-    for (const [geo, isB, mat] of [[bush, true, stdMat(T, { vertexColors: false, roughness: 1 })], [rock, false, stdMat(T, { vertexColors: false, roughness: .9, flatShading: true })]]) { const all2 = sp.filter(q => q[3] === isB), groups = {}; for (const q of all2) (groups[FLAGS.nocull ? 0 : Math.floor(q[0] / 160) + ',' + Math.floor(q[2] / 160)] ||= []).push(q); for (const list of Object.values(groups)) { const Mb = new T.InstancedMesh(geo, mat, list.length);
-      list.forEach(([X, Y, Z], k) => { const s2 = isB ? .6 + rnd() * .7 : .4 + rnd() * .9; V.set(X, Y + (isB ? s2 * .4 : s2 * .1), Z); Q.setFromEuler(new T.Euler(0, rnd() * 6, 0)); Sc.set(s2 * (1 + rnd() * .5), s2 * (isB ? .8 : .6), s2); M.compose(V, Q, Sc); Mb.setMatrixAt(k, M); Mb.setColorAt(k, new T.Color(isB ? [0x3f6a2c, 0x4f7a34, 0x5d8838][k % 3] : [0x9a9488, 0x857f74, 0xaaa396][k % 3])); });
+    for (const [geo, isB, mat] of [[bush, true, stdMat(T, { vertexColors: false, roughness: 1 })], [rock, false, stdMat(T, { vertexColors: false, roughness: .9, bumpMap: V3.noiseTex || (V3.noiseTex = noiseTex(T)), bumpScale: 2 })]]) { const all2 = sp.filter(q => q[3] === isB), groups = {}; for (const q of all2) (groups[FLAGS.nocull ? 0 : Math.floor(q[0] / 160) + ',' + Math.floor(q[2] / 160)] ||= []).push(q); for (const list of Object.values(groups)) { const Mb = new T.InstancedMesh(geo, mat, list.length);
+      list.forEach(([X, Y, Z], k) => { const s2 = isB ? .6 + rnd() * .7 : .4 + rnd() * .9; V.set(X, Y + (isB ? s2 * .4 : -s2 * .25), Z); /* rocks sit a quarter sunk */ Q.setFromEuler(new T.Euler(0, rnd() * 6, 0)); Sc.set(s2 * (1 + rnd() * .5), s2 * (isB ? .8 : .6), s2); M.compose(V, Q, Sc); Mb.setMatrixAt(k, M); Mb.setColorAt(k, new T.Color(isB ? [0x3f6a2c, 0x4f7a34, 0x5d8838][k % 3] : [0x6e655a, 0x7a7266, 0x5d564d, 0x847a6c][k % 4])); });
       Mb.castShadow = true; Mb.computeBoundingSphere(); sc.add(Mb); } } }
 
   // ---------- people: ~1.75 m tall; walkers on the paths and round the plaza, a queue at the station ----------
@@ -259,7 +263,7 @@ function geoErr(T, hi, lo) { const P = hi.attributes.position, Qp = lo.attribute
   let e = 0; for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i); let m = 1e18; for (const t of tris) { t.closestPointToPoint(v, c); const d = c.distanceToSquared(v); if (d < m) m = d; } if (m > e) e = m; } return Math.sqrt(e); }
 // the distance beyond which an error of e metres shows less than px pixels (haze counts: a half-fogged error is half as visible)
 function lodDist(e, px) { if (!e) return 0; const cam = V3.cam, H = innerHeight * (V3.dpr || 1), k = H / (2 * Math.tan((cam ? Math.min(cam.fov, 64) : 64) * Math.PI / 360)), fog = V3.scene && V3.scene.fog;
-  const shown = d => e * k / d * (fog ? 1 - clamp((d - fog.near) / (fog.far - fog.near), 0, 1) : 1); let a = 1, b = 5000; if (shown(b) > px) return b; for (let i = 0; i < 40; i++) { const m = (a + b) / 2; if (shown(m) > px) a = m; else b = m; } return b; }
+  const shown = d => e * k / d * (fog ? (fog.isFogExp2 ? Math.exp(-((fog.density * d) ** 2)) : 1 - clamp((d - fog.near) / (fog.far - fog.near), 0, 1)) : 1); let a = 1, b = 5000; if (shown(b) > px) return b; for (let i = 0; i < 40; i++) { const m = (a + b) / 2; if (shown(m) > px) a = m; else b = m; } return b; }
 // put every tree in the level its distance calls for (with 10 % hysteresis toward coarser), when the camera has moved
 function treeLod(force, p) { const L = V3.treeLod; if (!L) return; p = p || (V3.cam ? V3.cam.position.toArray() : [0, 0, 0]); if (!force && L.at && Math.hypot(p[0] - L.at[0], p[1] - L.at[1], p[2] - L.at[2]) < 4) return; L.at = [...p];
   const px = V3.lodPx || (V3.tier === 'high' ? 1 : 2); L.dist = []; for (const K of L.kinds) { const d1 = lodDist(K.err[1], px), d2 = lodDist(K.err[2], px); L.dist.push([d1, d2]); const n = K.meshes.map(ms => ms.map(() => 0));
