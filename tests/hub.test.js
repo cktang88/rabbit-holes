@@ -53,9 +53,9 @@ module.exports = {
       const b = [...new Set((await cards(page)).map(c => c[0]))]; ok(b.includes('island'), 'wolves should find the island: ' + b);
     },
     'search finds by words in description': async ({ page, eq }) => {
-      await page.fill('#q', 'gravity'); await page.waitForTimeout(300);
+      await page.fill('#q', 'feldspar'); await page.waitForTimeout(300);
       const ids = [...new Set((await cards(page)).map(c => c[0]))];
-      eq(ids.includes('slingshot'), true);
+      eq(ids.includes('kiln'), true);
     },
     'similar view shows the item plus six others with reasons; deep link works': async ({ page, ok, eq }) => {
       await page.goto(page.url().split('#')[0] + '#like=ant-mind'); await page.waitForTimeout(300);

@@ -152,6 +152,29 @@ module.exports = {
       const k = await page.evaluate(() => [__coaster.play.i, __coaster.design.S.length]);
       ok(k[0] > k[1] * .6, 'the train jumped to the tapped point: ' + k);
     },
+    'turns and banking in 3D: a turn really curves in plan, auto-bank is atan(v²κ/g), it zeroes the sideways g that an unbanked turn throws, both directions': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = __coaster, c = X.COMS.find(c => c.id === 'turn'), s = c.site(), out = {};
+        for (const [nm, f] of [['flat', n => ({ ...n, bank: 0 })], ['auto', n => ({ ...n, ab: 1, bt: 0 })], ['right', n => ({ ...n, r: -n.r, ab: 1, bt: 0 })]]) {
+          const d = { nodes: X.REF.turn().map(n => n.r ? f(n) : n), lift: 1 }, sc = X.scores(d, s), S = d.S, R = sc.r, F = X.trackFrames(S); let err = 0, kmax = 0;
+          R.idx.forEach((i, k) => { const p = S[i]; if (p.ab && Math.abs(p.kh) > .05 && Math.abs(R.gs[k] - 1) < 1.5) err = Math.max(err, Math.abs(p.bank - Math.atan(R.v[k] ** 2 * Math.abs(p.kh) / 9.81))); });
+          for (let i = 2; i < F.length - 2; i++) { const a = Math.atan2(F[i - 2].fwd[2], F[i - 2].fwd[0]), b = Math.atan2(F[i + 2].fwd[2], F[i + 2].fwd[0]); let d = b - a; d = Math.atan2(Math.sin(d), Math.cos(d)); kmax = Math.max(kmax, Math.abs(d) / 2); }
+          out[nm] = { lat: sc.st.latmax, err, kh: kmax, head: S[S.length - 1].head, pass: X.checkReq(c, sc).every(r => r[1]) }; }
+        return out; });
+      ok(r.auto.kh > .05 / 2 * .5, 'the 3D centreline curves in plan: ' + r.auto.kh); ok(Math.abs(Math.abs(r.auto.head) - Math.PI) < .4, 'it turns back on itself');
+      ok(r.auto.err < 6 * Math.PI / 180, 'auto-bank within 6° of atan(v²κ/g): ' + (r.auto.err * 57.3).toFixed(1) + '°');
+      ok(r.flat.lat > 1.5 && r.auto.lat < .15 && r.right.lat < .15, `sideways g: unbanked ${r.flat.lat.toFixed(2)}, auto ${r.auto.lat.toFixed(2)}, auto right ${r.right.lat.toFixed(2)}`);
+      ok(r.right.head * r.auto.head < 0, 'right turns the other way'); ok(r.auto.pass && !r.flat.pass, 'the Narrow Lot: auto-bank passes, flat fails');
+    },
+    'the ride camera rolls with the bank, smoothly, through an auto-banked turn': async ({ page, ok }) => {
+      await page.waitForFunction(() => window.THREE, null, { timeout: 10000 });
+      const r = await page.evaluate(() => { const X = __coaster; X.load(3); X.design = { nodes: X.REF.turn().map(n => n.r ? { ...n, ab: 1, bt: 0 } : n), lift: 1 }; X.startRide(); if (!X.V3.on) X.v3Open();
+        const tr = X.trace3d(1 / 60, 6000, false), S = X.design.S; let maxStep = 0, worst = 0, n = 0;
+        for (let i = 1; i < tr.length; i++) { const f = tr[i].f, u = tr[i].u, rt = [f[1] * u[2] - f[2] * u[1], f[2] * u[0] - f[0] * u[2], f[0] * u[1] - f[1] * u[0]], roll = Math.asin(Math.max(-1, Math.min(1, rt[1] / Math.hypot(...rt))));
+          const f0 = tr[i - 1].f, u0 = tr[i - 1].u, rt0 = [f0[1] * u0[2] - f0[2] * u0[1], f0[2] * u0[0] - f0[0] * u0[2], f0[0] * u0[1] - f0[1] * u0[0]], roll0 = Math.asin(Math.max(-1, Math.min(1, rt0[1] / Math.hypot(...rt0))));
+          maxStep = Math.max(maxStep, Math.abs(roll - roll0)); const p = S[X.last.r.idx[tr[i].k]]; if (p && p.ab && Math.abs(p.kh) > .06) { worst = Math.max(worst, Math.abs(Math.abs(roll) - p.bank)); n++; } }
+        X.v3Close(); return { maxStep, worst, n }; });
+      ok(r.n > 20, 'rode through the turn: ' + r.n); ok(r.maxStep < .03, `roll changes at most ${(r.maxStep * 57.3).toFixed(2)}° a frame`); ok(r.worst < .2, `camera roll within ${(r.worst * 57.3).toFixed(1)}° of the bank`);
+    },
     'speed-up: playback at 1x, 2x and 4x visits every physics sample and gives identical peaks and scores': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; return [1, 2, 4].map(s => K.playback(s)); });
       const [a, b, c] = r;
