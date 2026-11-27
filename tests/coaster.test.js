@@ -150,8 +150,8 @@ module.exports = {
       // during a 2D ride a tap jumps the train there
       await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(150);
       const B2 = await page.evaluate(() => { const X = __coaster; X.V3.want = false; X.startRide(); X.cycleSpeed(); X.cycleSpeed(); X.cycleSpeed(); return X.stripBox(); }); // paused, so only the tap moves it
-      await page.waitForTimeout(100); await page.mouse.click(B2.l + B2.ax + (B2.r - B2.l - B2.ax) * .7, B2.t + B2.h / 2); await page.waitForTimeout(100);
-      ok(await page.evaluate(() => { const r = document.getElementById('pov').getBoundingClientRect(), B = __coaster.stripBox(); return r.bottom <= B.t || getComputedStyle(document.getElementById('pov')).display === 'none'; }), 'the front-seat inset is clear of the diagram');
+      ok(await page.waitForFunction(() => { const r = document.getElementById('pov').getBoundingClientRect(), B = __coaster.stripBox(); return r.bottom <= B.t || getComputedStyle(document.getElementById('pov')).display === 'none'; }, null, { timeout: 5000 }).then(() => true, () => false), 'the front-seat inset is clear of the diagram'); // it docks on the next frame, which can be slow under load
+      await page.mouse.click(B2.l + B2.ax + (B2.r - B2.l - B2.ax) * .7, B2.t + B2.h / 2); await page.waitForTimeout(100); await page.waitForFunction(() => __coaster.play && __coaster.play.i > 0, null, { timeout: 5000 }).catch(() => {});
       const k = await page.evaluate(() => [__coaster.play.i, __coaster.design.S.length]);
       ok(k[0] > k[1] * .6, 'the train jumped to the tapped point: ' + k);
     },
