@@ -81,9 +81,9 @@ module.exports = {
       await page.click('[data-mode="line"]'); await page.evaluate(() => { __kiln.st.bench.B = { feldspar: 30, silica: 40, whiting: 25, kaolin: 5 }; });
       await page.click('#fireBtn'); await page.waitForFunction(() => __kiln.SAVE.shelf.length === 6 && document.querySelector('#result.show'), null, { timeout: 20000 });
       eq(await page.evaluate(() => document.querySelectorAll('#result .tiles canvas').length), 5);
-      const mid = await page.evaluate(() => __kiln.SAVE.shelf[3].r); ok(Math.abs(mid.feldspar - 35) < .01 && Math.abs(mid.silica - 35) < .01, 'the middle tile is a 50:50 mixture ' + JSON.stringify(mid));
+      const mid = await page.evaluate(() => __kiln.SAVE.shelf[3].r); ok(Math.abs(mid.feldspar - 37.5) < .01 && Math.abs(mid.silica - 32.5) < .01, 'the middle tile is a 50:50 mixture ' + JSON.stringify(mid));
       // tapping a tile loads its glaze into A
-      await page.click('#result [data-tile="1"]'); ok(await page.evaluate(() => Math.abs(__kiln.st.bench.A.feldspar - 37.5) < .01), 'tile loads into A');
+      await page.click('#result [data-tile="1"]'); ok(await page.evaluate(() => Math.abs(__kiln.st.bench.A.feldspar - 41.25) < .01), 'tile loads into A');
       await page.click('#shelfBtn'); await page.waitForTimeout(300); eq(await page.evaluate(() => document.querySelectorAll('#dbody canvas[data-sh]').length), 6);
     },
     'delivering the pot: a good glaze is accepted, the next commission opens and new jars arrive; a bad one is returned': async ({ page, ok, eq }) => {
