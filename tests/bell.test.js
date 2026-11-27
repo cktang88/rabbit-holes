@@ -142,6 +142,7 @@ module.exports = {
       await page.setViewportSize({ width: 390, height: 844 }); await page.evaluate(() => { __bell.S.open = 1; __bell.go('c2'); }); await page.waitForTimeout(800);
       const h = await page.evaluate(() => { const h = __bell.handles().find(h => h.kind === 'pt' && h.k === 4 && !h.mirror); return [...__bell.toScreen(h.r, h.y), h.r]; });
       ok(h[0] > 0 && h[0] < 390 && h[1] > 120 && h[1] < 650, 'waist handle on screen and clear of the panels: ' + h);
+      await page.waitForFunction(() => !__bell.gliding, null, { timeout: 60000 }); await page.waitForTimeout(300);
       const cam0 = await page.evaluate(() => __bell.camera.position.toArray());
       await page.evaluate(([x, y]) => { const cv = document.getElementById('gl'), ev = (t, x, y) => cv.dispatchEvent(new PointerEvent(t, { pointerId: 7, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, bubbles: true, cancelable: true }));
         ev('pointerdown', x + 6, y + 4); for (let i = 1; i <= 5; i++) ev('pointermove', x + 6 - i * 6, y + 4); ev('pointerup', x - 24, y + 4); }, h);
@@ -182,7 +183,7 @@ module.exports = {
         '{"open":13,"cur":"c11","stage":"weird","rings":{"c10":"no"},"daily":{"2026-01-01":{"acc":"x"},"bad":{"acc":1}},"sandbox":{"des":null,"cast":{"shrink":"x"}}}']) {
         await page.evaluate(j => localStorage.setItem('rh:bellfounder', j), junk); await reopen(page);
         const s = await page.evaluate(() => { const S = __bell.S, b = __bell.bell(); return { open: S.open, cur: S.cur, stage: __bell.stage, card: document.getElementById('ticket').textContent.length,
-          okBells: Object.values(S.work).every(w => w.bells.every(b => b.des.pts.length === 6 && b.des.th.every(Number.isFinite) && b.tin <= 32 && b.cuts.every(c => c.d > 0))),
+          okBells: Object.values(S.work).every(w => w.bells.every(b => b.des.pts.length === __bell.G.NP && b.des.th.every(Number.isFinite) && b.tin <= 32 && b.cuts.every(c => c.d > 0))),
           okRec: Object.values(S.rec).every(r => Number.isFinite(r.acc)) }; });
         ok(s.open >= 0 && s.open < 14 && s.card > 20 && ['design', 'cast', 'tune', 'ring'].includes(s.stage) && s.okBells && s.okRec, 'broken by ' + junk + ' → ' + JSON.stringify(s));
       }
