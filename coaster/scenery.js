@@ -41,6 +41,7 @@ function skyApply() {
 }
 
 // ---------- small helpers ----------
+const _dry = { r: 1.25, g: 1.02, b: .55 }; // the tint of a dry patch (multiplies the grass texture)
 const hash2 = (x, z) => { const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return s - Math.floor(s); };
 function vnoise(x, z) { const xi = Math.floor(x), zi = Math.floor(z), fx = x - xi, fz = z - zi, u = fx * fx * (3 - 2 * fx), w = fz * fz * (3 - 2 * fz);
   const a = hash2(xi, zi), b = hash2(xi + 1, zi), c = hash2(xi, zi + 1), d = hash2(xi + 1, zi + 1); return a + (b - a) * u + (c - a) * w + (a - b - c + d) * u * w; }
@@ -92,13 +93,21 @@ function buildScenery(T, sc, S, F) {
     const pos = [], col = [], uv = [], idx = [], c = new T.Color();
     rings.forEach((R, j) => { const n = j ? segs : 1; for (let k = 0; k < n; k++) { const a = k / segs * Math.PI * 2, X = cx + Math.cos(a) * R, Z = cz + Math.sin(a) * R, far = clamp((R - half) / 300, 0, 1);
       const [hh, lk] = groundAt(X, Z), wet = lk > .5, y = (wet ? Math.min(hh, .9) : hh) - far * far * 12; pos.push(X, y, Z); uv.push(X / 9, Z / 9);
-      const m = vnoise(X / 40, Z / 40), m2 = vnoise(X / 9 + 7, Z / 9); c.setRGB(.84 + m * .22 - m2 * .06, .9 + m * .14, .78 + m2 * .1); if (wet) c.setRGB(.16, .33, .5); col.push(c.r, c.g, c.b); } });
+      const m = vnoise(X / 40, Z / 40), m2 = vnoise(X / 9 + 7, Z / 9); const m3 = vnoise(X / 23 + 31, Z / 23 - 5), dry = clamp((vnoise(X / 55 - 9, Z / 55 + 4) - .62) * 4, 0, 1); /* lush, mid and pale greens, then dry yellow-brown patches */ c.setRGB(.8 + m * .2 - m2 * .08 + m3 * .06, .9 + m * .12 - m3 * .08, .7 + m2 * .1); c.lerp(_dry, dry * .55); if (wet) c.setRGB(.16, .33, .5); col.push(c.r, c.g, c.b); } });
     for (let k = 0; k < segs; k++) idx.push(0, 1 + (k + 1) % segs, 1 + k);
     for (let j = 1; j < rings.length - 1; j++) { const a0 = 1 + (j - 1) * segs, b0 = 1 + j * segs; for (let k = 0; k < segs; k++) { const k1 = (k + 1) % segs; idx.push(a0 + k, a0 + k1, b0 + k, a0 + k1, b0 + k1, b0 + k); } }
     const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new T.Float32BufferAttribute(col, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
-    const mat = stdMat(T, { roughness: 1, color: 0x8fae62 }); if (!V3.grassTex && !FLAGS.notex) { V3.grassTex = new T.TextureLoader().load('assets/grass_1k.jpg', () => { if (V3.on && !play) v3Render(); }); const t = V3.grassTex; t.wrapS = t.wrapT = T.RepeatWrapping; t.colorSpace = T.SRGBColorSpace; t.anisotropy = mob ? 4 : 8; t.userData.keep = true; }
-    mat.map = V3.grassTex; mat.roughnessMap = V3.grassTex; /* rough grass (0.8-1), the rock and soil in it a touch smoother */ mat.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('roughnessFactor *= texelRoughness.g;', 'roughnessFactor *= mix(.8, 1., texelRoughness.g);'); }; const ground = new T.Mesh(g, mat); ground.receiveShadow = true; sc.add(ground); V3.ground = ground; }
-  if (!FLAGS.scenery || FLAGS.lab === 'train' || FLAGS.lab === 'crest') { V3.paths = []; return; } // the ride alone (tests and labs)
+    const mat = stdMat(T, { roughness: 1, metalness: 0, envMapIntensity: .25, color: 0x8fae62 }); /* grass is matte: roughness 0.9-1, no metal, weak sky reflection */ if (!V3.grassTex && !FLAGS.notex) { V3.grassTex = new T.TextureLoader().load('assets/grass_1k.jpg', () => { if (V3.on && !play) v3Render(); }); const t = V3.grassTex; t.wrapS = t.wrapT = T.RepeatWrapping; t.colorSpace = T.SRGBColorSpace; t.anisotropy = mob ? 4 : 8; t.userData.keep = true; }
+    mat.map = V3.grassTex; mat.roughness = .95; /* matte everywhere: a roughness map from this texture read as wet */ mat.bumpMap = V3.grassTex; mat.bumpScale = .6; /* low-strength detail relief from the same texture */ const ground = new T.Mesh(g, mat); ground.receiveShadow = true; sc.add(ground); V3.ground = ground; }
+  // grass tufts near the camera: a 64 m patch of instanced blade clumps that follows the rider (snapped to a 2 m grid so
+  // they never swim), shrinking to nothing toward its edge (LOD fade); not on the lake, the plaza or the car park
+  if (FLAGS.scenery) { const blades = [], g = new T.BufferGeometry(), p = [], cl = [];
+    for (let k = 0; k < 11; k++) { const a = k / 11 * Math.PI * 2 + hash2(k, 3), r = .07 + hash2(k, 5) * .1, x = Math.cos(a) * r, z = Math.sin(a) * r, tx = x * 2.2 + (hash2(k, 7) - .5) * .2, tz = z * 2.2, h = .16 + hash2(k, 1) * .14;
+      p.push(x - z * .45, 0, z + x * .45, x + z * .45, 0, z - x * .45, tx, h, tz); cl.push(.32, .42, .2, .32, .42, .2, .62, .7, .42); }
+    g.setAttribute('position', new T.Float32BufferAttribute(p, 3)); g.setAttribute('color', new T.Float32BufferAttribute(cl, 3)); g.computeVertexNormals(); const n = g.attributes.normal; for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0);
+    const N = V3.mob ? 1000 : 1500, tm = new T.InstancedMesh(g, stdMat(T, { roughness: 1, side: T.DoubleSide, color: 0x9fbf6a }), N); tm.count = 0; tm.receiveShadow = true; sc.add(tm);
+    V3.tufts = { mesh: tm, N, at: null, gy: groundAt }; }
+  if (!FLAGS.scenery || FLAGS.lab === 'train' || FLAGS.lab === 'crest' || FLAGS.lab === 'ground') { V3.paths = []; return; } // the ride alone (tests and labs)
   // distant hills, soft and hazy
   { const geo = blob(T, 1, 1, .35, 3), Mh = new T.InstancedMesh(geo, stdMat(T, { vertexColors: false, color: 0x6f8f62, roughness: 1, flatShading: false }), 34);
     for (let k = 0; k < 34; k++) { const a = k / 34 * Math.PI * 2 + rnd() * .2, R2 = Math.max(half + 260, 520) + rnd() * 260, w = 90 + rnd() * 140, hh = 30 + rnd() * 60; V.set(cx + Math.cos(a) * R2, -hh * .25, cz + Math.sin(a) * R2); Q.setFromAxisAngle(Yx, rnd() * 6); Sc.set(w, hh, w * .8); M.compose(V, Q, Sc); Mh.setMatrixAt(k, M); }
@@ -142,7 +151,7 @@ function buildScenery(T, sc, S, F) {
     const [X, Z] = parkAt, Y = gy(X, Z), a = Math.atan2(fw0[1], fw0[0]);
     const tex = canvasTex(T, 512, 256, (x, w, h) => { x.fillStyle = '#4a4a4c'; x.fillRect(0, 0, w, h); const r = RH.rng(5); for (let k = 0; k < 4000; k++) { x.fillStyle = r() < .5 ? 'rgba(0,0,0,.12)' : 'rgba(255,255,255,.06)'; x.fillRect(r() * w, r() * h, 2, 2); }
       x.strokeStyle = '#e8e8e0'; x.lineWidth = 3; for (const yy of [0, h - 50]) for (let k = 0; k <= 16; k++) { x.beginPath(); x.moveTo(k * w / 16, yy + 2); x.lineTo(k * w / 16, yy + 48); x.stroke(); } });
-    const lot = new T.Mesh(new T.PlaneGeometry(44, 22), new T.MeshStandardMaterial({ map: tex, roughness: .95 })); lot.rotation.set(-Math.PI / 2, 0, -a); lot.position.set(X, Y + .04, Z); lot.receiveShadow = true; sc.add(lot);
+    const lot = V3.lot = new T.Mesh(new T.PlaneGeometry(44, 22), new T.MeshStandardMaterial({ map: tex, roughness: .95, metalness: 0, envMapIntensity: .3 })); lot.rotation.set(-Math.PI / 2, 0, -a); lot.position.set(X, Y + .04, Z); lot.receiveShadow = true; sc.add(lot);
     V3.parked = []; const ca = Math.cos(a), sa = Math.sin(a);
     for (const row of [-1, 1]) for (let k = 0; k < 16; k++) { if (rnd() < .3) continue; const u = -22 + (k + .5) * 44 / 16, w = row * (11 - 2.1), px = X + ca * u - sa * w, pz = Z + sa * u + ca * w; V3.parked.push([px, gy(px, pz), pz, -a + Math.PI / 2 * row + (rnd() - .5) * .06]); }
     for (const [u, w] of [[-22, -11], [22, -11], [-22, 11], [22, 11], [0, 0]]) lamps.push([X + ca * u - sa * w, Z + sa * u + ca * w]);
@@ -152,7 +161,7 @@ function buildScenery(T, sc, S, F) {
   if (C.req.depth) { const r0 = z0 - 3; for (const zz of [r0, r0 + C.req.depth]) for (let X = x0 - 6; X <= x1 + 6; X += 2.5) props.push([new T.BoxGeometry(.1, 1.2, .1), 0xf4e8cc, M4(T, X, gy(X, zz) + .6, zz)]);
     for (const zz of [r0, r0 + C.req.depth]) for (const yy of [.5, 1.05]) props.push([new T.BoxGeometry(x1 - x0 + 12, .06, .06), 0xf4e8cc, M4(T, cx, gy(cx, zz) + yy, zz)]); }
   for (const [X, Z] of lamps) { const y = gy(X, Z); props.push([new T.CylinderGeometry(.07, .1, 4, 6), 0x2c3a36, M4(T, X, y + 2, Z)]); }
-  { const m = new T.Mesh(mergeParts(T, props), stdMat(T)); m.castShadow = m.receiveShadow = true; sc.add(m); }
+  { const m = V3.props = new T.Mesh(mergeParts(T, props), stdMat(T, { envMapIntensity: .5 })); /* paving, paths, platforms: matte (0.85) */ m.castShadow = m.receiveShadow = true; sc.add(m); }
   // lamp heads glow at dusk (their own emissive material)
   if (lamps.length) { V3.lampMat = new T.MeshStandardMaterial({ color: 0xfff2d0, emissive: 0xffc870, emissiveIntensity: 0, roughness: .4 }); const Ml = new T.InstancedMesh(new T.SphereGeometry(.28, 10, 6), V3.lampMat, lamps.length);
     lamps.forEach(([X, Z], k) => { M.makeTranslation(X, gy(X, Z) + 4.1, Z); Ml.setMatrixAt(k, M); }); sc.add(Ml); }
@@ -278,5 +287,13 @@ function sceneryTick(dt) {
   if (V3.carousel) { V3.carAng += dt * .5; V3.carousel.rotation.y = V3.carAng; const [X, Yb, Z] = V3.carBase;
     for (let k = 0; k < 12; k++) { const t = V3.carAng + k / 12 * Math.PI * 2, r = k % 2 ? 4.6 : 5.9; V.set(X + Math.cos(t) * r, Yb + 1.6 + Math.sin(V3.clock * 2.2 + k * 1.3) * .3, Z - Math.sin(t) * r); Q.setFromAxisAngle(Y, t); M.compose(V, Q, Sc); V3.horses.setMatrixAt(k, M); }
     V3.horses.instanceMatrix.needsUpdate = true; }
-  crowdTick(dt); treeLod(false);
+  crowdTick(dt); treeLod(false); tuftTick();
 }
+function tuftTick(force) { const U = V3.tufts; if (!U || !V3.cam) return; const T = window.THREE, c = V3.cam.position, cx = Math.round(c.x / 1.2) * 1.2, cz = Math.round(c.z / 1.2) * 1.2;
+  if (!force && U.at && Math.hypot(cx - U.at[0], cz - U.at[1]) < 4) return; U.at = [cx, cz]; const M = _sc.Mt || (_sc.Mt = new T.Matrix4()), Q = _sc.Qt || (_sc.Qt = new T.Quaternion()), V = _sc.Vt || (_sc.Vt = new T.Vector3()), S = _sc.St || (_sc.St = new T.Vector3()), Y = _sc.Yt || (_sc.Yt = new T.Vector3(0, 1, 0));
+  const L = V3.layout || {}, pl = L.plaza, pk = L.park; let k = 0;
+  for (let i = -20; i <= 20 && k < U.N; i++) for (let j = -20; j <= 20 && k < U.N; j++) { const gx = cx + i * 1.2, gz = cz + j * 1.2, h = hash2(gx, gz); if (h < .15) continue;
+    const X = gx + (hash2(gz, gx) - .5) * 1.1, Z = gz + (h - .5) * 1.1, d = Math.hypot(X - c.x, Z - c.z), f = 1 - clamp((d - 12) / 12, 0, 1); if (f <= 0) continue;
+    if (pl && Math.hypot(X - pl[0], Z - pl[1]) < 16) continue; if (pk && Math.hypot(X - pk[0], Z - pk[1]) < 25) continue; const [y, lk] = U.gy(X, Z); if (lk > .4) continue;
+    V.set(X, y, Z); Q.setFromAxisAngle(Y, h * 9); const s = f * (.7 + hash2(X, Z) * .8); S.set(s, s, s); M.compose(V, Q, S); U.mesh.setMatrixAt(k++, M); }
+  U.mesh.count = k; U.mesh.instanceMatrix.needsUpdate = true; U.mesh.computeBoundingSphere(); }

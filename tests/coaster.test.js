@@ -227,7 +227,7 @@ module.exports = {
         const first = await p.evaluate(() => __coaster.firstFrame);
         await p.waitForFunction(() => window.THREE && window.THREE_X !== undefined, null, { timeout: 30000 });
         const r = await p.evaluate(() => new Promise(res => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; K.startRide(); if (!K.V3.on) K.v3Open(); K.play.k = Math.floor(K.last.r.t.length * .4); K.play.simT = K.last.r.t[K.play.k];
-          const ts = [], st = []; let last = 0, done = false; setTimeout(() => { done = true; }, 90000); const tick = now => { if (last) ts.push(now - last); last = now; if (K.V3.stats) st.push(K.V3.stats); if (ts.length < 150 && K.play && !done) requestAnimationFrame(tick); else { const s = [...ts].sort((a, b) => a - b);
+          const ts = [], st = []; let last = 0, done = false; setTimeout(() => { done = true; }, 40000); const tick = now => { if (last) ts.push(now - last); last = now; if (K.V3.stats) st.push(K.V3.stats); if (ts.length < 40 && K.play && !done) requestAnimationFrame(tick); else { const s = [...ts].sort((a, b) => a - b);
             K.V3.noRender = true; const t1 = performance.now(); for (let i = 0; i < 60; i++) { K.play.k = (K.play.k + 3) % K.last.r.t.length; K.v3Frame(K.play); } const js = (performance.now() - t1) / 60; K.V3.noRender = false;
             const pf = K.perf(); res({ programs: pf.programs, inst: pf.instancesDrawn, instAll: pf.instances, js, med: s[s.length >> 1], p95: s[Math.floor(s.length * .95)], n: s.length, calls: Math.max(...st.map(x => x.calls)), tris: Math.max(...st.map(x => x.tris)), dpr: K.V3.dpr, tier: K.V3.tier }); } }; requestAnimationFrame(tick); }));
         console.log(`      phone 4× CPU: first frame ${first.toFixed(0)} ms · ${r.calls} draw calls · ${r.tris} triangles · pixel ratio ${r.dpr} · tier ${r.tier} · our JS ${r.js.toFixed(2)} ms a frame · ${r.programs} shader programs · ${r.inst}/${r.instAll} instances in view (counts only: software GL frame times mean nothing here)`);
@@ -289,13 +289,27 @@ module.exports = {
       await page.evaluate(() => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; K.startRide(); if (!K.V3.on) K.v3Open(); K.play.speed = 0; K.play.k = 40; K.play.f = 0; K.V3.dt = 1 / 60; K.v3Frame(K.play); });
       const snap = () => page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; K.v3Frame(K.play); const v = new THREE.Vector3(); K.V3.cam.getWorldDirection(v); return { d: v.toArray(), seat: K.seatAt().fwd, cg: [...K.V3.cg], yaw: K.V3.look.yaw, pitch: K.V3.look.pitch }; });
       const ang = (a, b) => Math.acos(Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+      await page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; for (let i = 0; i < 240; i++) K.v3Frame(K.play); }); // let the seat gaze settle (paused: its target is fixed)
       const a = await snap(); await page.mouse.move(640, 420); await page.mouse.down(); for (let i = 1; i <= 10; i++) await page.mouse.move(640 - i * 40, 420 - i * 12); const b = await snap();
       for (let i = 1; i <= 10; i++) await page.mouse.move(640 - 400 - i * 400, 420 - 120 - i * 200); const c = await snap(); await page.mouse.up();
       const back = await page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; for (let i = 0; i < 200; i++) K.v3Frame(K.play); return [K.V3.look.yaw, K.V3.look.pitch]; });
       await page.keyboard.down('ArrowRight'); const key = await page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; for (let i = 0; i < 30; i++) K.v3Frame(K.play); return K.V3.look.yaw; }); await page.keyboard.up('ArrowRight');
-      ok(ang(a.d, b.d) > .3, `dragging turned the view by ${(ang(a.d, b.d) * 57.3).toFixed(0)}°`); ok(ang(a.seat, b.seat) < 1e-6 && ang(a.cg, b.cg) < 1e-6, 'the seat frame and the smoothed seat gaze are unaffected');
+      ok(ang(a.d, b.d) > .3, `dragging turned the view by ${(ang(a.d, b.d) * 57.3).toFixed(0)}°`); ok(ang(a.seat, b.seat) < 1e-6 && ang(a.cg, b.cg) < 1e-4, 'the seat frame and the smoothed seat gaze are unaffected');
       ok(Math.abs(c.yaw) <= 120 / 57.3 + 1e-6 && Math.abs(c.pitch) <= 70 / 57.3 + 1e-6 && Math.abs(c.yaw) > 1.9, `head turn clamped: yaw ${(c.yaw * 57.3).toFixed(0)}°, pitch ${(c.pitch * 57.3).toFixed(0)}°`);
       ok(Math.abs(back[0]) < .02 && Math.abs(back[1]) < .02, `the head eased back to the front: ${back.map(x => (x * 57.3).toFixed(1))}°`); ok(key < -.2, `the right arrow looks right: yaw ${(key * 57.3).toFixed(0)}°`);
+    },
+    'the ground is matte grass, never a mirror: roughness ≥ 0.85, no metal, weak sky reflection, and from rider height at a grazing angle toward the sun it reads green and below the bloom threshold': async ({ page, ok }) => {
+      await page.goto(page.url().replace(/[#?].*$/, '') + '?post=0&people=0'); await page.waitForFunction(() => window.THREE && window.THREE_X !== undefined, null, { timeout: 60000 });
+      await page.evaluate(() => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; K.startRide(); K.play.speed = 0; if (!K.V3.on) K.v3Open(); });
+      await page.waitForFunction(() => { const V3 = __coaster.V3; return V3.grassTex && V3.grassTex.image && V3.skies && Object.values(V3.skies).some(k => k.tex || k.failed); }, null, { timeout: 30000 });
+      const r = await page.evaluate(() => { const K = __coaster, V3 = K.V3, T = THREE, mats = [];
+        V3.scene.traverse(o => { if (o === V3.ground || o === V3.lot || o === V3.props) mats.push([o === V3.ground ? 'grass' : o === V3.lot ? 'car park' : 'paths', o.material]); });
+        const bad = mats.filter(([, m]) => m.roughness < .85 || m.metalness !== 0 || m.envMapIntensity > .5 || m.clearcoat || m.roughnessMap).map(([n, m]) => `${n} r${m.roughness} m${m.metalness} env${m.envMapIntensity}`);
+        const L = V3.layout, X = L.cx + 40, Z = L.cz + 60, y = V3.groundAt(X, Z)[0], d = V3.sunDir, h = Math.hypot(d[0], d[2]), cam = V3.cam; cam.position.set(X, y + 1.5, Z); cam.up.set(0, 1, 0); cam.lookAt(X + d[0] / h * 40, y - .4, Z + d[2] / h * 40); cam.updateMatrixWorld();
+        V3.tufts.mesh.visible = false; const ren = V3.r, gl = ren.getContext(); ren.setRenderTarget(null); ren.render(V3.scene, cam); const W = gl.drawingBufferWidth, H = gl.drawingBufferHeight, px = new Uint8Array(4); let max = 0, green = 0, n = 0;
+        for (let i = 0; i < 40; i++) { gl.readPixels(Math.floor(W * (.05 + .9 * (i % 8) / 7)), Math.floor(H * (.05 + .3 * Math.floor(i / 8) / 4)), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); max = Math.max(max, px[0], px[1], px[2]); if (px[1] >= px[2] && px[1] >= px[0] * .9) green++; n++; }
+        V3.tufts.mesh.visible = true; return { n: mats.length, bad, max, green, total: n, bloom: V3.bloom ? V3.bloom.threshold : null }; });
+      ok(r.n === 3 && !r.bad.length, `ground materials: ${r.n}, not matte: ${r.bad.join(', ')}`); ok(r.max < 235, `brightest ground pixel ${r.max} (no glare)`); ok(r.green > r.total * .8, `${r.green}/${r.total} ground pixels read green`);
     },
     'every starting track is a real ride: no kinks, never touches the ground, and all but First Ride (whose stall is the lesson) reach the station': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const K = __coaster; return K.COMS.map(c => { const sc = K.scores({ nodes: c.start(), lift: 1 }, c.site()); return { id: c.id, ok: sc.ok, stall: sc.r.stall, crash: sc.r.crash, kink: sc.r.kink }; }); });

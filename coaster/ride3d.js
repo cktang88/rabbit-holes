@@ -128,7 +128,8 @@ function v3Init() {
   const n = 40, sp = new Float32Array(n * 6); V3.streak = { n, p: Array.from({ length: n }, () => [0, 0, -40]) };
   const lg = new T.BufferGeometry(); lg.setAttribute('position', new T.BufferAttribute(sp, 3));
   V3.lines = new T.LineSegments(lg, new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, fog: false })); V3.lines.frustumCulled = false; V3.cam.add(V3.lines);
-  if (!FLAGS.post) { /* direct render */ } else if (window.THREE_X) v3Post(); else addEventListener('three-x', () => { v3Post(); if (V3.scene) { skyLoad(V3.tod); v3Build(true); if (V3.on) play ? v3Frame(play) : v3Render(); } }, { once: true });
+  // the post chain (unless ?post=0) and the HDRI loader stream in after the first frame
+  if (window.THREE_X) { if (FLAGS.post) v3Post(); } else addEventListener('three-x', () => { if (FLAGS.post) v3Post(); if (V3.scene) { skyLoad(V3.tod); if (FLAGS.post) v3Build(true); if (V3.on) play ? v3Frame(play) : v3Render(); } }, { once: true });
   return true;
 }
 const GRADE = { uniforms: { tDiffuse: { value: null }, uVig: { value: .28 }, uSplit: { value: .06 }, uCA: { value: 0 }, uZoom: { value: 0 } },

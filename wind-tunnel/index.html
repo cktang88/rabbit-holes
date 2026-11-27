@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Wind Tunnel</title>
+<meta name="description" content="A live smoke tunnel: drag the outline of a body and watch real airflow (a GPU lattice-Boltzmann simulation) curl, shed vortices and settle while lift and drag gauges answer. Twelve engineering test requests, a daily challenge and a free bench.">
+<link rel="stylesheet" href="../shared/common.css">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@400;500;600;700&family=Saira+Stencil+One&display=swap" rel="stylesheet">
+<style>
+  /* ======== World: a 1950s aeronautical laboratory smoke tunnel. A black test section lit by a sheet of light,
+     a smoke rake at the inlet, a painted-steel instrument desk with cream dials and strip-chart recorders.
+     Test requests arrive as manila job tickets; passing is a rubber stamp. ======== */
+  :root{--soot:#07090c;--steel:#1a2126;--steel2:#263036;--paint:#34433f;--paint2:#465a55;--cream:#ece4cf;--cream2:#cfc5ab;--ink:#1d2124;--orange:#ff6a2a;--amber:#ffb057;--smoke:#f1ebdd;--cyan:#86d8ea;--good:#8fd18a;--bad:#ff6450;--dim:#8d9a98}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--soot);color:var(--cream);font-family:"Saira Condensed","Arial Narrow",sans-serif;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+  #stage{position:fixed;inset:0;touch-action:none}
+  #gl,#ov{position:absolute;inset:0;width:100%;height:100%;display:block}
+  #ov{pointer-events:none}
+  button{font-family:inherit}
+  .topbar{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;padding:6px 10px;border:none;background:none;z-index:6;pointer-events:none}
+  .topbar>*{pointer-events:auto}
+  .topbar a.home{color:var(--dim);text-decoration:none;font-size:15px;white-space:nowrap}
+  .topbar h1{margin:0;font:400 21px "Saira Stencil One",sans-serif;letter-spacing:.12em;color:var(--cream);text-shadow:0 0 14px #ff6a2a44;white-space:nowrap}
+  .topbar .spacer{flex:1;pointer-events:none}
+  .tb{background:linear-gradient(#2c383d,#1d2529);border:1px solid #4b5a5c;color:var(--cream);font:600 14px "Saira Condensed",sans-serif;letter-spacing:.08em;min-height:32px;min-width:32px;padding:0 10px;border-radius:3px;cursor:pointer;box-shadow:inset 0 1px 0 #ffffff14,0 2px 4px #0008}
+  .tb:hover{border-color:var(--amber)}
+  .tb.on{border-color:var(--orange);color:#fff;box-shadow:inset 0 0 10px #ff6a2a55}
+  #stars{font:600 15px "Saira Condensed";color:var(--amber);letter-spacing:.05em;white-space:nowrap}
+  /* the job ticket */
+  #card{position:fixed;left:10px;top:46px;width:264px;z-index:5;background:#d9c9a0;color:var(--ink);padding:8px 11px 9px;border-radius:2px;
+    box-shadow:0 10px 24px #000a,inset 0 0 30px #8a6b3a44;transform:rotate(-.5deg);cursor:pointer;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.9' numOctaves='3'/%3E%3CfeColorMatrix values='0 0 0 0 .3 0 0 0 0 .22 0 0 0 0 .1 0 0 0 .16 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E")}
+  #card .no{font:600 11px "Saira Condensed";letter-spacing:.2em;color:#6c5530;text-transform:uppercase;display:flex;justify-content:space-between}
+  #card h2{font:700 19px/1.05 "Saira Condensed";margin:1px 0 2px;letter-spacing:.02em;text-transform:uppercase}
+  #card .brief{font-size:15px;line-height:1.2;color:#3a3226}
+  #card .req{margin-top:5px;display:flex;flex-direction:column;gap:2px}
+  #card .rq{display:flex;align-items:center;gap:6px;font:600 15px "Saira Condensed";font-variant-numeric:tabular-nums}
+  #card .rq .tick{width:16px;height:16px;border:1.5px solid #4a3e2c;border-radius:2px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;flex:none}
+  #card .rq.ok .tick{background:#3d6b3a;color:#e7f3df;border-color:#3d6b3a}
+  #card .rq .v{margin-left:auto;color:#5a4a33;font-weight:500}
+  #card .meas{height:4px;background:#00000022;margin-top:6px;border-radius:2px;overflow:hidden}
+  #card .meas i{display:block;height:100%;width:0;background:#6c5530;transition:width .2s linear}
+  #card .meas.full i{background:#3d6b3a}
+  #card .lesson{font-style:italic;font-size:14.5px;line-height:1.2;margin-top:6px;color:#2f3a2c;display:none}
+  #card.done .lesson{display:block}
+  #card .nextb{display:none;margin-top:6px;min-height:32px;width:100%;border:1.5px solid #2f4a2c;background:#3d6b3a;color:#f0f6e8;font:700 15px "Saira Condensed";letter-spacing:.14em;border-radius:2px;cursor:pointer}
+  #card.done .nextb{display:block}
+  #card .stamp{position:absolute;right:8px;top:6px;font:400 17px "Saira Stencil One";letter-spacing:.08em;color:#a3281b;border:2.5px solid #a3281b;padding:0 6px;border-radius:3px;transform:rotate(9deg) scale(1);opacity:0;pointer-events:none;mix-blend-mode:multiply}
+  #card.done .stamp{opacity:.85;animation:stampIn .35s cubic-bezier(.3,1.6,.5,1)}
+  @keyframes stampIn{from{transform:rotate(-8deg) scale(2.4);opacity:0}}
+  #card.min .brief,#card.min .lesson{display:none}
+  /* the instrument desk */
+  #desk{position:fixed;left:50%;bottom:8px;transform:translateX(-50%);z-index:5;display:flex;gap:8px;align-items:stretch;pointer-events:none;max-width:calc(100vw - 16px)}
+  #desk>*{pointer-events:auto}
+  .gauge{width:150px;background:linear-gradient(170deg,#3a4945,#28322f);border:1px solid #56685f;border-radius:3px;padding:4px 7px 5px;box-shadow:0 8px 18px #000b,inset 0 1px 0 #ffffff18}
+  .gauge .hd{display:flex;align-items:baseline;gap:6px}
+  .gauge .lb{font:600 12px "Saira Condensed";letter-spacing:.2em;color:#b9c6bd;text-transform:uppercase}
+  .gauge .val{margin-left:auto;font:700 22px/1 "Saira Condensed";font-variant-numeric:tabular-nums;color:var(--cream)}
+  .gauge canvas{display:block;width:100%;height:34px;margin-top:3px;border-radius:2px;background:#ece4cf}
+  .ctrls{display:flex;flex-direction:column;gap:2px;justify-content:center;background:linear-gradient(170deg,#3a4945,#28322f);border:1px solid #56685f;border-radius:3px;padding:3px 8px;box-shadow:0 8px 18px #000b}
+  .ctrls:empty{display:none}
+  .sl{display:flex;align-items:center;gap:6px}
+  .sl label{font:600 12px "Saira Condensed";letter-spacing:.16em;color:#b9c6bd;width:38px;text-transform:uppercase}
+  .sl output{font:600 14px "Saira Condensed";font-variant-numeric:tabular-nums;width:34px;text-align:right}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:120px;height:28px;background:none;margin:0;padding:0;border:none}
+  input[type=range]::-webkit-slider-runnable-track{height:4px;background:#11171a;border-radius:2px;box-shadow:inset 0 1px 2px #000}
+  input[type=range]::-moz-range-track{height:4px;background:#11171a;border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:22px;margin-top:-9px;border-radius:2px;background:linear-gradient(#f2eadb,#b8ae96);border:1px solid #1a1f22;box-shadow:0 2px 3px #000a}
+  input[type=range]::-moz-range-thumb{width:16px;height:22px;border-radius:2px;background:linear-gradient(#f2eadb,#b8ae96);border:1px solid #1a1f22}
+  /* tool column */
+  #tools{position:fixed;right:8px;top:50%;transform:translateY(-50%);z-index:5;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+  #tools>*{pointer-events:auto}
+  #tools .tb{width:38px;height:38px;padding:0;font-size:18px;display:flex;align-items:center;justify-content:center}
+  #tools .tb.hide{display:none}
+  #hint{position:fixed;z-index:4;pointer-events:none;font:600 16px "Saira Condensed";letter-spacing:.2em;color:var(--amber);text-shadow:0 0 8px #000,0 0 3px #000;text-transform:uppercase;opacity:0;transition:opacity .4s}
+  /* modal: the request file */
+  .modal-bg{background:#020305c0}
+  .modal{background:#20292c;border:1px solid #4b5a5c;color:var(--cream);border-radius:3px;font-size:16px}
+  .modal h2{font:400 24px "Saira Stencil One";letter-spacing:.1em;margin:0 0 8px;color:var(--cream)}
+  .modal button{font:600 15px "Saira Condensed";letter-spacing:.1em;background:#2c383d;border:1px solid #56685f;color:var(--cream);border-radius:3px;min-height:34px}
+  .modal button.primary{background:var(--orange);border-color:var(--orange);color:#1a0d05}
+  .modal-actions{background-color:#20292c!important}
+  .jobs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+  .job{position:relative;text-align:left;background:#d9c9a0!important;color:var(--ink)!important;border:none!important;border-radius:2px!important;padding:6px 8px 7px!important;min-height:76px!important;cursor:pointer;box-shadow:0 4px 10px #0008}
+  .job .n{font:600 10.5px "Saira Condensed";letter-spacing:.18em;color:#6c5530}
+  .job .t{display:block;font:700 16px/1.05 "Saira Condensed";text-transform:uppercase;letter-spacing:.02em;margin:1px 0 3px}
+  .job .s{font-size:15px;color:#a3281b;letter-spacing:.1em}
+  .job svg{position:absolute;right:6px;bottom:6px;opacity:.55}
+  .job.lock{background:#5a5546!important;color:#2b2922!important;cursor:default}
+  .job.lock .t{color:#2b2922}
+  .job.cur{outline:2px solid var(--orange);outline-offset:2px}
+  .toast{background:#20292c;border:1px solid var(--amber);color:var(--cream);font:600 16px "Saira Condensed";letter-spacing:.05em;border-radius:3px}
+  @media (max-width:640px){
+    .topbar h1{font-size:17px}
+    .hide-s{display:none}
+    #card{width:calc(100vw - 64px);max-width:300px;top:42px;padding:6px 9px 7px}
+    #card h2{font-size:17px}
+    .gauge{width:31vw;max-width:130px;padding:3px 5px 4px}
+    .gauge .val{font-size:18px}
+    .gauge canvas{height:26px}
+    #desk{flex-wrap:wrap;justify-content:center;gap:5px;width:calc(100vw - 12px)}
+    .ctrls{width:100%;flex-direction:row;flex-wrap:wrap;justify-content:center;gap:0 10px}
+    input[type=range]{width:90px}
+  }
+  @media (max-height:500px){
+    #card{width:230px;top:40px}
+    #card .brief{display:none}
+    .gauge{width:118px;padding:2px 5px 3px}
+    .gauge .val{font-size:17px}
+    .gauge canvas{height:22px}
+    #desk{bottom:4px;flex-wrap:nowrap;width:auto}
+    .ctrls{width:auto;flex-direction:column}
+    #tools{top:auto;bottom:4px;transform:none;flex-direction:row}
+    #tools .tb{width:34px;height:34px}
+    #desk{left:8px;transform:none}
+  }
+</style>
+</head>
+<body>
+<div id="stage" data-play aria-label="The test section of a smoke wind tunnel. Drag the round handles on the body to reshape it."><canvas id="gl"></canvas><canvas id="ov"></canvas></div>
+<div class="topbar">
+  <a class="home" href="../index.html">← <span class="hide-s">Rabbit Holes</span></a>
+  <h1>WIND TUNNEL</h1>
+  <span class="spacer"></span>
+  <span id="stars"></span>
+  <button class="tb" id="jobsBtn" title="Test requests" aria-label="Test requests">☰</button>
+  <button class="tb" id="muteBtn" title="Sound" aria-label="Sound">♪</button>
+  <button class="tb" id="helpBtn" title="How it works" aria-label="How it works">?</button>
+</div>
+<div id="card"></div>
+<div id="desk">
+  <div class="gauge" id="gLift"><div class="hd"><span class="lb">Lift</span><span class="val">0.00</span></div><canvas></canvas></div>
+  <div class="gauge" id="gDrag"><div class="hd"><span class="lb">Drag</span><span class="val">0.00</span></div><canvas></canvas></div>
+  <div class="gauge" id="gX"><div class="hd"><span class="lb">Lift ÷ drag</span><span class="val">0.0</span></div><canvas></canvas></div>
+  <div class="ctrls" id="ctrls"></div>
+</div>
+<div id="tools">
+  <button class="tb" id="undoBtn" title="Undo" aria-label="Undo">↶</button>
+  <button class="tb" id="mirBtn" title="Mirror top and bottom" aria-label="Mirror top and bottom">⇅</button>
+  <button class="tb" id="viewBtn" title="Smoke / swirl / pressure" aria-label="Change view">◐</button>
+  <button class="tb" id="resetBtn" title="Start shape" aria-label="Back to the start shape">⟲</button>
+  <button class="tb" id="saveBtn" title="Keep this design" aria-label="Keep this design">✚</button>
+  <button class="tb" id="fitBtn" title="Fit the view" aria-label="Fit the view">⤢</button>
+</div>
+<div id="hint"></div>
+<script src="../shared/common.js"></script>
+<script src="../shared/fx.js"></script>
+<script src="../shared/panzoom.js"></script>
+<script>
+'use strict';
+(() => {
+const Q = new URLSearchParams(location.search);
+const $ = s => document.querySelector(s);
+const stage = $('#stage'), cv = $('#gl'), ov = $('#ov'), octx = ov.getContext('2d');
+const gl = cv.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false, premultipliedAlpha: false, powerPreference: 'high-performance' });
+let FT = null;
+if (gl) {
+  if (!Q.has('half') && gl.getExtension('EXT_color_buffer_float')) FT = { int: gl.RGBA32F, type: gl.FLOAT, half: false };
+  else if (gl.getExtension('EXT_color_buffer_half_float') || gl.getExtension('EXT_color_buffer_float')) FT = { int: gl.RGBA16F, type: gl.HALF_FLOAT, half: true };
+}
+if (!gl || !FT) { RH.noGL('Wind Tunnel'); window.__wt = { nogl: true }; return; }
+
+// ================= grid & units =================
+// The tunnel is A heights long. Shapes live in tunnel-height units (H = 1). Forces are reported as
+// coefficients against a fixed reference length LREF (the starting circle's diameter), so numbers mean the same at any grid size.
+const A = 2.4, LREF = .2, U = .1, WU = 100;
+const phone = (typeof matchMedia === 'function' && matchMedia('(pointer:coarse)').matches) || Math.min(screen.width, screen.height) < 520;
+let NY = Math.max(48, Math.min(256, +Q.get('ny') || (phone ? 108 : 160)));
+let NX = Math.round(NY * A);
+const LC = () => LREF * NY;                       // reference length in cells
+let SPF = Math.max(3, Math.round(NY / 13));        // sim steps per frame
+const SPF0 = SPF;
+const DS = 2;                                       // dye texels per cell
+
+// ================= GL plumbing =================
+let draws = 0;
+const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+const VS = `#version 300 es
+void main(){ vec2 p = vec2(float((gl_VertexID<<1)&2), float(gl_VertexID&2)); gl_Position = vec4(p*2.-1.,0.,1.); }`;
+function prog(fs) {
+  const p = gl.createProgram();
+  for (const [t, s] of [[gl.VERTEX_SHADER, VS], [gl.FRAGMENT_SHADER, fs]]) {
+    const sh = gl.createShader(t); gl.shaderSource(sh, s); gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(sh), s); throw new Error('shader: ' + gl.getShaderInfoLog(sh)); }
+    gl.attachShader(p, sh);
+  }
+  gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error('link: ' + gl.getProgramInfoLog(p));
+  const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i); u[info.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, info.name); }
+  return { p, u };
+}
+function tex(w, h, int, fmt, type, lin) {
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, int, w, h, 0, fmt, type, null);
+  const f = lin ? gl.LINEAR : gl.NEAREST;
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, f); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, f);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  t.w = w; t.h = h; return t;
+}
+const ftex = (w, h, lin) => tex(w, h, FT.int, gl.RGBA, FT.type, lin);
+const htex = (w, h) => tex(w, h, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT, true);
+function fbo(ts) {
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  ts.forEach((t, i) => gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, t, 0));
+  gl.drawBuffers(ts.map((_, i) => gl.COLOR_ATTACHMENT0 + i));
+  const st = gl.checkFramebufferStatus(gl.FRAMEBUFFER); if (st !== gl.FRAMEBUFFER_COMPLETE) throw new Error('fbo ' + st);
+  f.w = ts[0].w; f.h = ts[0].h; return f;
+}
+function run(P, target, tx, un) { // tx: {name: texture}, un: fn(u) sets uniforms
+  gl.useProgram(P.p);
+  let unit = 0;
+  for (const k in tx) { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tx[k]); gl.uniform1i(P.u[k], unit); unit++; }
+  if (un) un(P.u);
+  if (target) { gl.bindFramebuffer(gl.FRAMEBUFFER, target); gl.viewport(0, 0, target.w, target.h); }
+  else { gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, cv.width, cv.height); }
+  gl.drawArrays(gl.TRIANGLES, 0, 3); draws++;
+}
+
+// ================= shaders =================
+const HEAD = `#version 300 es
+precision highp float; precision highp int; precision highp sampler2D;
+const ivec2 C[9] = ivec2[9](ivec2(0,0),ivec2(1,0),ivec2(0,1),ivec2(-1,0),ivec2(0,-1),ivec2(1,1),ivec2(-1,1),ivec2(-1,-1),ivec2(1,-1));
+const float W[9] = float[9](4./9.,1./9.,1./9.,1./9.,1./9.,1./36.,1./36.,1./36.,1./36.);
+const int OPP[9] = int[9](0,3,4,1,2,7,8,5,6);
+const int MY[9] = int[9](0,1,4,3,2,8,7,6,5);
+uniform sampler2D T0, T1, T2, M;
+uniform ivec2 N;
+uniform vec4 ctr; uniform vec2 om;
+int mid(ivec2 p){ return int(texelFetch(M,p,0).g*255.+.5); }
+int mflags(ivec2 p){ return int(texelFetch(M,p,0).r*255.+.5); }
+int madj(ivec2 p){ return int(texelFetch(M,p,0).b*255.+.5); }
+float getF(ivec2 p, int i){
+  if(i==0) return texelFetch(T2,p,0).r + W[0];
+  if(i<5){ vec4 a = texelFetch(T0,p,0); return a[i-1] + W[i]; }
+  vec4 b = texelFetch(T1,p,0); return b[i-5] + W[i];
+}
+vec2 wallVel(int id, vec2 q){ vec2 c = id==1 ? ctr.xy : ctr.zw; float w = id==1 ? om.x : (id==2 ? om.y : 0.); vec2 r = q - c; vec2 v = w*vec2(-r.y, r.x); float s = length(v); return s > .22 ? v*.22/s : v; }
+float feq(int i, float rho, vec2 u){ float cu = dot(vec2(C[i]),u); return W[i]*rho*(1.+3.*cu+4.5*cu*cu-1.5*dot(u,u)); }
+`;
+const FS_INIT = HEAD + `
+uniform float Uin;
+layout(location=0) out vec4 o0; layout(location=1) out vec4 o1; layout(location=2) out vec4 o2;
+void main(){
+  ivec2 x = ivec2(gl_FragCoord.xy);
+  vec2 u = mid(x) > 0 ? vec2(0) : vec2(Uin, Uin*.04*sin(float(x.x)*.07)*sin(float(x.y)*.11));
+  float f[9]; for(int i=0;i<9;i++) f[i] = feq(i,1.,u) - W[i];
+  o0 = vec4(f[1],f[2],f[3],f[4]); o1 = vec4(f[5],f[6],f[7],f[8]); o2 = vec4(f[0], u, 1.);
+}`;
+// one lattice-Boltzmann step: pull-stream from neighbours (bounce-back off bodies, moving-wall correction for spin and
+// the rolling road, free-slip tunnel walls, equilibrium inlet, zero-gradient outlet), then a regularised BGK collision
+// with a Smagorinsky eddy viscosity so high wind speeds stay stable. Populations are stored as f - w (better in half floats).
+// The streaming is unrolled in JS so each direction is straight-line code; the mask texel carries a bit per solid neighbour.
+const CJ = [[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, 1], [-1, -1], [1, -1]], OPPJ = [0, 3, 4, 1, 2, 7, 8, 5, 6], MYJ = [0, 1, 4, 3, 2, 8, 7, 6, 5];
+const own = i => i === 0 ? 'q2.r' : i < 5 ? `q0[${i - 1}]` : `q1[${i - 5}]`;
+const STREAM = [1, 2, 3, 4, 5, 6, 7, 8].map(i => {
+  const [cx, cy] = CJ[i], tx = i < 5 ? 'T0' : 'T1', comp = 'xyzw'[i < 5 ? i - 1 : i - 5], o = OPPJ[i], my = MYJ[i];
+  let code = `  { ivec2 s = x - ivec2(${cx},${cy});\n`;
+  if (cx > 0) code += `    if(s.x < 0) f[${i}] = feq(${i},1.,vec2(Uin,Vin)); else\n`;
+  if (cx < 0) code += `    if(s.x >= N.x) f[${i}] = ${own(i)} + W[${i}]; else\n`;
+  if (cy !== 0) code += `    if(s.y < 0 || s.y >= N.y){ ${cy > 0 ? `if(floorMode==1) f[${i}] = ${own(o)} + W[${o}] + 6.*W[${i}]*${cx.toFixed(1)}*Uin; else ` : ''}f[${i}] = texelFetch(${MYJ[i] < 5 ? 'T0' : 'T1'}, ivec2(clamp(x.x - ${cx}, 0, N.x-1), x.y), 0).${'xyzw'[my < 5 ? my - 1 : my - 5]} + W[${my}]; } else\n`;
+  code += `    if((fl & ${1 << (i - 1)}) != 0){ vec2 uw = wallVel(sid, (vec2(x)+vec2(s))*.5+.5); f[${i}] = ${own(o)} + W[${o}] + 6.*W[${i}]*dot(vec2(${cx}.,${cy}.),uw); }\n`;
+  code += `    else f[${i}] = texelFetch(${tx}, s, 0).${comp} + W[${i}];\n  }\n`;
+  return code;
+}).join('');
+const FS_LBM = HEAD + `
+uniform float tau0, smag, Uin, Vin, omb, R3; uniform int floorMode;
+layout(location=0) out vec4 o0; layout(location=1) out vec4 o1; layout(location=2) out vec4 o2;
+void main(){
+  ivec2 x = ivec2(gl_FragCoord.xy);
+  vec4 mk = texelFetch(M,x,0);
+  int id = int(mk.g*255.+.5), fl = int(mk.r*255.+.5), sid = int(mk.b*255.+.5);
+  if(id > 0){
+    vec2 uw = wallVel(id, vec2(x)+.5);
+    float g[9]; for(int i=0;i<9;i++) g[i] = feq(i,1.,uw) - W[i];
+    o0 = vec4(g[1],g[2],g[3],g[4]); o1 = vec4(g[5],g[6],g[7],g[8]); o2 = vec4(g[0], 0., 0., 1.);
+    return;
+  }
+  vec4 q0 = texelFetch(T0,x,0), q1 = texelFetch(T1,x,0), q2 = texelFetch(T2,x,0);
+  float f[9];
+  f[0] = q2.r + W[0];
+${STREAM}
+  float rho = 0.; vec2 m = vec2(0);
+  for(int i=0;i<9;i++){ rho += f[i]; m += vec2(C[i])*f[i]; }
+  rho = clamp(rho, .5, 1.5);
+  vec2 u = m/rho; float um = length(u); if(um > .3) u *= .3/um;
+  float fe[9]; float pxx=0., pyy=0., pxy=0.;
+  for(int i=0;i<9;i++){ fe[i] = feq(i,rho,u); float d = f[i]-fe[i]; vec2 c = vec2(C[i]); pxx += c.x*c.x*d; pyy += c.y*c.y*d; pxy += c.x*c.y*d; }
+  float Qn = sqrt(pxx*pxx + pyy*pyy + 2.*pxy*pxy);
+  float sp = smoothstep(float(N.x)*.86, float(N.x), float(x.x)), si = 1. - smoothstep(0., float(N.x)*.07, float(x.x));
+  float t0 = tau0 + sp*sp*.6 + si*si*.25;
+  float tau = .5*(t0 + sqrt(t0*t0 + 25.456*smag*Qn/rho));
+  float omg = 1. - 1./tau;
+  float g[9];
+  // shear (traceless) stress relaxes at the physical rate; its trace (sound) is damped hard, which keeps acoustic ringing out of the smoke
+  float tr = .5*(pxx + pyy);
+  float axx = omg*(pxx - tr) + omb*tr, ayy = omg*(pyy - tr) + omb*tr, axy = omg*pxy;
+  // recursive regularisation: third-order Hermite terms rebuilt from the velocity and the (relaxed) stress
+  float bxxy = 2.*u.x*axy + u.y*axx, bxyy = 2.*u.y*axy + u.x*ayy;
+  float e3x = u.x*u.x*u.y, e3y = u.x*u.y*u.y;
+  for(int i=0;i<9;i++){ vec2 c = vec2(C[i]); float hxxy = c.x*c.x*c.y - c.y/3., hxyy = c.x*c.y*c.y - c.x/3.;
+    float fn = W[i]*(4.5*((c.x*c.x-1./3.)*axx + (c.y*c.y-1./3.)*ayy + 2.*c.x*c.y*axy) + R3*13.5*(hxxy*bxxy + hxyy*bxyy));
+    g[i] = fe[i] + R3*W[i]*rho*13.5*(hxxy*e3x + hxyy*e3y) + fn - W[i]; }
+  o0 = vec4(g[1],g[2],g[3],g[4]); o1 = vec4(g[5],g[6],g[7],g[8]); o2 = vec4(g[0], u, rho);
+}`;
+// momentum exchange on every fluid→solid link: the force each body feels, per cell
+const FS_FORCE = HEAD + `
+out vec4 o;
+void main(){
+  ivec2 x = ivec2(gl_FragCoord.xy);
+  vec4 mk = texelFetch(M,x,0);
+  int fl = int(mk.r*255.+.5);
+  if(int(mk.g*255.+.5) > 0 || fl == 0){ o = vec4(0); return; }
+  vec4 F = vec4(0);
+  for(int j=1;j<9;j++){
+    if((fl & (1 << (OPP[j]-1))) == 0) continue;
+    ivec2 s = x + C[j];
+    int sid = mid(s); if(sid == 0 || sid > 2) continue;
+    vec2 uw = wallVel(sid, (vec2(x)+vec2(s))*.5+.5);
+    vec2 c = vec2(C[j]);
+    vec2 dp = c*(2.*getF(x,j) - 6.*W[j]*dot(c,uw));
+    if(sid==1) F.xy += dp; else F.zw += dp;
+  }
+  o = F;
+}`;
+const FS_RED_Y = `#version 300 es
+precision highp float; precision highp sampler2D; uniform sampler2D S; uniform int n; out vec4 o;
+void main(){ int x = int(gl_FragCoord.x); vec4 s = vec4(0); for(int y=0;y<1024;y++){ if(y>=n) break; s += texelFetch(S, ivec2(x,y), 0); } o = s; }`;
+const FS_RED_X = `#version 300 es
+precision highp float; precision highp sampler2D; uniform sampler2D S; uniform int n; out vec4 o;
+void main(){ vec4 s = vec4(0); for(int x=0;x<2048;x++){ if(x>=n) break; s += texelFetch(S, ivec2(x,0), 0); } o = s; }`;
+// derived fields for display: vorticity, pressure coefficient, speed (in units of the wind), solid
+const FS_FIELD = HEAD + `
+uniform float Uin, Lc; out vec4 o;
+vec2 vel(ivec2 p){ p = clamp(p, ivec2(0), N-1); return texelFetch(T2,p,0).gb; }
+void main(){
+  ivec2 x = ivec2(gl_FragCoord.xy);
+  vec4 t = texelFetch(T2,x,0);
+  float w = (vel(x+ivec2(1,0)).y - vel(x-ivec2(1,0)).y - vel(x+ivec2(0,1)).x + vel(x-ivec2(0,1)).x)*.5;
+  float sol = mid(x) > 0 ? 1. : 0.;
+  o = vec4(w*Lc/Uin, sol > 0. ? 0. : (t.a-1.)*2./(3.*Uin*Uin), length(t.gb)/Uin, sol);
+}`;
+// smoke: semi-Lagrangian advection with MacCormack correction (keeps the streaklines crisp)
+const DYEHEAD = HEAD + `
+uniform sampler2D D, H; uniform float dt; uniform vec2 dyeN;
+vec2 vel(vec2 g){ // bilinear velocity at grid position g (cells), from texelFetch (float textures need not be filterable)
+  vec2 q = g - .5; ivec2 i = ivec2(floor(q)); vec2 f = q - vec2(i);
+  ivec2 a = clamp(i, ivec2(0), N-1), b = clamp(i+ivec2(1,0), ivec2(0), N-1), c = clamp(i+ivec2(0,1), ivec2(0), N-1), d = clamp(i+1, ivec2(0), N-1);
+  return mix(mix(texelFetch(T2,a,0).gb, texelFetch(T2,b,0).gb, f.x), mix(texelFetch(T2,c,0).gb, texelFetch(T2,d,0).gb, f.x), f.y);
+}
+vec2 back(vec2 g, float h){ vec2 v1 = vel(g); vec2 v2 = vel(g - .5*h*v1); return g - h*v2; }
+`;
+const FS_ADV1 = DYEHEAD + `
+out vec4 o;
+void main(){ vec2 g = gl_FragCoord.xy/` + DS.toFixed(1) + `; vec2 b = back(g, dt); o = texture(D, b*` + DS.toFixed(1) + `/dyeN); }`;
+const FS_ADV2 = DYEHEAD + `
+uniform float rakeX, rakeGap, rakeW, decay, bodyDye; uniform int rakeOn;
+out vec4 o;
+void main(){
+  vec2 g = gl_FragCoord.xy/` + DS.toFixed(1) + `;
+  ivec2 cell = ivec2(g);
+  if(mid(cell) > 0){ o = vec4(0); return; }
+  vec2 uv = gl_FragCoord.xy/dyeN;
+  vec4 hat = texture(H, uv);
+  vec2 f2 = g + dt*vel(g);
+  vec4 hb = texture(H, f2*` + DS.toFixed(1) + `/dyeN);
+  vec4 cur = texture(D, uv);
+  vec4 r = hat + .5*(cur - hb);
+  // clamp to the neighbourhood of the departure point (keeps MacCormack monotone)
+  vec2 b = back(g, dt)*` + DS.toFixed(1) + ` - .5; vec2 bi = floor(b);
+  vec4 s0 = texelFetch(D, ivec2(bi), 0), s1 = texelFetch(D, ivec2(bi)+ivec2(1,0), 0), s2 = texelFetch(D, ivec2(bi)+ivec2(0,1), 0), s3 = texelFetch(D, ivec2(bi)+ivec2(1,1), 0);
+  r = clamp(r, min(min(s0,s1),min(s2,s3)), max(max(s0,s1),max(s2,s3)));
+  r *= decay;
+  // the smoke rake: thin jets just downstream of the inlet
+  if(rakeOn==1 && g.x > rakeX && g.x < rakeX + 2.){
+    float ph = g.y/rakeGap; float d = abs(fract(ph) - .5)*rakeGap;
+    float k = 1. - smoothstep(rakeW*.5, rakeW, d);
+    r.r = max(r.r, k);
+  }
+  // dye bleeding from the body's skin shows the boundary layer and where it lets go
+  if(mflags(cell) != 0) r.g = max(r.g, bodyDye);
+  o = max(r, vec4(0));
+}`;
+const FS_BRIGHT = `#version 300 es
+precision highp float; precision highp sampler2D; uniform sampler2D D; uniform vec2 res; out vec4 o;
+void main(){ vec4 d = texture(D, gl_FragCoord.xy/res); float s = 1.-exp(-1.6*d.r), b = 1.-exp(-1.4*d.g); o = vec4(vec3(.95,.92,.86)*s*s + vec3(1.,.5,.2)*b*b*.9, 1.); }`;
+const FS_BLUR = `#version 300 es
+precision highp float; precision highp sampler2D; uniform sampler2D S; uniform vec2 res, dir; out vec4 o;
+void main(){ vec2 uv = gl_FragCoord.xy/res; vec2 d = dir/res;
+  vec4 c = texture(S,uv)*.227;
+  c += (texture(S,uv+d*1.38)+texture(S,uv-d*1.38))*.316;
+  c += (texture(S,uv+d*3.23)+texture(S,uv-d*3.23))*.070;
+  o = c; }`;
+const FS_COMP = `#version 300 es
+precision highp float; precision highp sampler2D;
+uniform sampler2D D, F, B; uniform vec2 res; uniform vec3 cam; uniform float dpr, A, time, bloom; uniform int mode; out vec4 o;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
+void main(){
+  vec2 px = vec2(gl_FragCoord.x, res.y - gl_FragCoord.y)/dpr;
+  vec2 t = (px - cam.xy)/cam.z/` + WU.toFixed(1) + `;
+  vec3 col;
+  vec2 scr = gl_FragCoord.xy/res;
+  if(t.x < 0. || t.y < 0. || t.x > A || t.y > 1.){
+    col = mix(vec3(.028,.033,.037), vec3(.05,.058,.062), scr.y);
+  } else {
+    vec2 uv = vec2(t.x/A, 1.-t.y);
+    vec4 d = texture(D, uv); vec4 f = texture(F, uv);
+    float sm = 1.-exp(-1.7*d.r), bd = 1.-exp(-1.5*d.g);
+    // the light sheet: a lamp above the glass, brightest mid-height, fading toward the diffuser
+    float light = (.62 + .38*exp(-pow((uv.y-.55)*2.2,2.))) * (1. - .25*smoothstep(.5,1.,uv.x));
+    vec3 bg = mix(vec3(.012,.018,.026), vec3(.03,.044,.062), uv.y*.7+.15);
+    bg *= .85 + .3*exp(-pow((uv.y-.55)*2.,2.));
+    vec3 sc = vec3(.97,.94,.87);
+    vec3 dc = vec3(1.,.56,.22);
+    if(mode==1){
+      float w = clamp(f.x*.35, -1., 1.);
+      vec3 tint = w > 0. ? vec3(.38,.82,1.) : vec3(1.,.42,.32);
+      sc = mix(sc, tint, abs(w)*.9); dc = mix(dc, tint, abs(w)*.6);
+      bg += tint*abs(w)*.10;
+    } else if(mode==2){
+      float p = clamp(f.y*.8, -1.2, 1.2);
+      bg += p > 0. ? vec3(.30,.07,.03)*p : vec3(.03,.10,.30)*(-p);
+      // schlieren: density gradients shimmer like a knife-edge photograph
+      vec2 e = vec2(1./` + (NX * 1.0).toFixed(1) + `, 0.);
+      float gx = texture(F, uv+e.xy).y - texture(F, uv-e.xy).y, gy = texture(F, uv+e.yx*A).y - texture(F, uv-e.yx*A).y;
+      bg += vec3(.6,.7,.8)*clamp(abs(gx+gy)*.6, 0., .25);
+      sc *= .7; dc *= .7;
+    }
+    col = bg*(1.-sm) + sc*sm*light;
+    col = mix(col, dc*light, bd*.88);
+    col += f.z*vec3(.006,.009,.013);
+    // glass edge glow
+    float ey = min(t.y, 1.-t.y); col += vec3(.12,.16,.2)*exp(-ey*60.)*.35;
+  }
+  col += texture(B, vec2(t.x/A, 1.-t.y)).rgb * bloom * (t.x>=0. && t.x<=A && t.y>=0. && t.y<=1. ? 1. : .0);
+  // vignette and grain
+  vec2 q = scr - .5; col *= 1. - dot(q,q)*.55;
+  col += (hash(gl_FragCoord.xy + fract(time)*91.) - .5)*.018;
+  col = col/(1.+col*.18);
+  o = vec4(pow(max(col,0.), vec3(.95)), 1.);
+}`;
+
+const P = {
+  init: prog(FS_INIT), lbm: prog(FS_LBM), force: prog(FS_FORCE), ry: prog(FS_RED_Y), rx: prog(FS_RED_X), field: prog(FS_FIELD),
+  adv1: prog(FS_ADV1), adv2: prog(FS_ADV2), bright: prog(FS_BRIGHT), blur: prog(FS_BLUR), comp: prog(FS_COMP),
+};
+
+// ================= sim state =================
+let L = null; // lattice buffers
+function buildLattice() {
+  const mk = () => { const t = [ftex(NX, NY), ftex(NX, NY), ftex(NX, NY)]; return { t, f: fbo(t) }; };
+  const maskT = tex(NX, NY, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, false);
+  const fT = ftex(NX, NY), fF = fbo([fT]), ryT = ftex(NX, 1), ryF = fbo([ryT]), rxT = ftex(1, 1), rxF = fbo([rxT]);
+  const fldT = htex(NX, NY), fldF = fbo([fldT]);
+  const dye = [htex(NX * DS, NY * DS), htex(NX * DS, NY * DS), htex(NX * DS, NY * DS)];
+  const dyeF = dye.map(t => fbo([t]));
+  const bl = [htex(NX, NY), htex(NX, NY)], blF = bl.map(t => fbo([t]));
+  const pbos = [0, 1, 2].map(() => { const b = gl.createBuffer(); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, b); gl.bufferData(gl.PIXEL_PACK_BUFFER, 16, gl.STREAM_READ); return { b, sync: null, step: 0 }; });
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+  L = { a: mk(), b: mk(), maskT, mask: new Uint8Array(NX * NY), mrgba: new Uint8Array(NX * NY * 4), fT, fF, ryT, ryF, rxT, rxF, fldT, fldF, dye, dyeF, di: 0, bl, blF, pbos, pi: 0 };
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+}
+let steps = 0, simTime = 0;
+const sim = { re: 300, tau: .5, floor: 0, smag: .025, omb: .25, r3: 1 };
+function setRe(re) { sim.re = re; const nu = U * LC() / re; sim.tau = 3 * nu + .5; }
+function lbUniforms(u) {
+  gl.uniform2i(u.N, NX, NY);
+  const c = bodyCentres(); gl.uniform4f(u.ctr, c[0], c[1], c[2], c[3]);
+  gl.uniform2f(u.om, bodyOmega(0), bodyOmega(1));
+}
+function initField() {
+  run(P.init, L.a.f, { M: L.maskT }, u => { lbUniforms(u); gl.uniform1f(u.Uin, U); });
+  for (const f of L.dyeF) { gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
+  steps = 0; hist.n = 0; lastEdit = 0;
+}
+function lbmStep() {
+  const s = L.a, d = L.b;
+  simTime++;
+  const vin = U * .006 * (Math.sin(simTime * .0131) + Math.sin(simTime * .0077 + 1.3));
+  run(P.lbm, d.f, { T0: s.t[0], T1: s.t[1], T2: s.t[2], M: L.maskT }, u => {
+    lbUniforms(u); gl.uniform1f(u.tau0, sim.tau); gl.uniform1f(u.smag, sim.smag); gl.uniform1f(u.omb, sim.omb); gl.uniform1f(u.R3, sim.r3); gl.uniform1f(u.Uin, U); gl.uniform1f(u.Vin, vin); gl.uniform1i(u.floorMode, sim.floor);
+  });
+  L.a = d; L.b = s; steps++;
+}
+function forcePass() {
+  run(P.force, L.fF, { T0: L.a.t[0], T1: L.a.t[1], T2: L.a.t[2], M: L.maskT }, lbUniforms);
+  run(P.ry, L.ryF, { S: L.fT }, u => gl.uniform1i(u.n, NY));
+  run(P.rx, L.rxF, { S: L.ryT }, u => gl.uniform1i(u.n, NX));
+}
+const fbuf = new Float32Array(4);
+function readForceSync() {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, L.rxF); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, fbuf);
+  pushSample(fbuf, steps);
+}
+function readForceAsync() {
+  // poll earlier reads, then start a new one (no pipeline stall)
+  for (const pb of L.pbos) if (pb.sync) {
+    const r = gl.clientWaitSync(pb.sync, 0, 0);
+    if (r === gl.ALREADY_SIGNALED || r === gl.CONDITION_SATISFIED) {
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pb.b); gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, fbuf); gl.deleteSync(pb.sync); pb.sync = null;
+      if (pb.step > lastEdit) pushSample(fbuf, pb.step);
+    }
+  }
+  const pb = L.pbos[L.pi]; L.pi = (L.pi + 1) % L.pbos.length;
+  if (pb.sync) { gl.deleteSync(pb.sync); pb.sync = null; }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, L.rxF); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pb.b);
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, 0); pb.sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0); pb.step = steps;
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+}
+let smokeOn = 1;
+function dyePass(dt) {
+  const D = L.dye, i = L.di, h = (i + 1) % 3, o = (i + 2) % 3, dn = [NX * DS, NY * DS];
+  const common = u => { gl.uniform2i(u.N, NX, NY); gl.uniform1f(u.dt, dt); gl.uniform2f(u.dyeN, dn[0], dn[1]); };
+  run(P.adv1, L.dyeF[h], { T2: L.a.t[2], M: L.maskT, D: D[i] }, common);
+  run(P.adv2, L.dyeF[o], { T2: L.a.t[2], M: L.maskT, D: D[i], H: D[h] }, u => {
+    common(u); gl.uniform1f(u.rakeX, NX * .012); gl.uniform1f(u.rakeGap, NY / 13); gl.uniform1f(u.rakeW, 1.1);
+    gl.uniform1f(u.decay, Math.pow(.9993, dt)); gl.uniform1f(u.bodyDye, .55); gl.uniform1i(u.rakeOn, smokeOn);
+  });
+  L.di = o;
+}
+function fieldPass() {
+  run(P.field, L.fldF, { T2: L.a.t[2], M: L.maskT }, u => { gl.uniform2i(u.N, NX, NY); gl.uniform1f(u.Uin, U); gl.uniform1f(u.Lc, LC()); });
+  run(P.bright, L.blF[0], { D: L.dye[L.di] }, u => gl.uniform2f(u.res, NX, NY));
+  run(P.blur, L.blF[1], { S: L.bl[0] }, u => { gl.uniform2f(u.res, NX, NY); gl.uniform2f(u.dir, 1, 0); });
+  run(P.blur, L.blF[0], { S: L.bl[1] }, u => { gl.uniform2f(u.res, NX, NY); gl.uniform2f(u.dir, 0, 1); });
+}
+let viewMode = 0, dpr = 1;
+function composite(t) {
+  run(P.comp, null, { D: L.dye[L.di], F: L.fldT, B: L.bl[0] }, u => {
+    gl.uniform2f(u.res, cv.width, cv.height); gl.uniform3f(u.cam, cam.x, cam.y, cam.k); gl.uniform1f(u.dpr, dpr);
+    gl.uniform1f(u.A, A); gl.uniform1f(u.time, t); gl.uniform1f(u.bloom, .55); gl.uniform1i(u.mode, viewMode);
+  });
+}
+
+// ================= force history & measurement =================
+const HN = 4096;
+const hist = { step: new Float64Array(HN), cl: new Float32Array(HN), cd: new Float32Array(HN), cl2: new Float32Array(HN), cd2: new Float32Array(HN), n: 0 };
+let lastEdit = 0;
+const norm = () => .5 * U * U * LC();
+function pushSample(f, st) {
+  if (!isFinite(f[0]) || !isFinite(f[1])) { nanGuard(); return; }
+  const k = hist.n % HN, q = norm();
+  hist.step[k] = st; hist.cd[k] = f[0] / q; hist.cl[k] = f[1] / q; hist.cd2[k] = f[2] / q; hist.cl2[k] = f[3] / q; hist.n++;
+  live.cd += (hist.cd[k] - live.cd) * live.a; live.cl += (hist.cl[k] - live.cl) * live.a; live.cl2 += (hist.cl2[k] - live.cl2) * live.a; live.cd2 += (hist.cd2[k] - live.cd2) * live.a;
+  live.icl = hist.cl[k]; live.icd = hist.cd[k];
+  spark.push([hist.cl[k], hist.cd[k], hist.cl2[k], hist.cd2[k]]); if (spark.length > 240) spark.shift();
+}
+const live = { cd: 0, cl: 0, cd2: 0, cl2: 0, icl: 0, icd: 0, a: .06 };
+const spark = [];
+let nanCount = 0;
+function nanGuard() { nanCount++; initField(); }
+const settleSteps = () => (cur && cur.settle || 3) * LC() / U;
+const windowSteps = () => 8 * LC() / U;
+function measureProgress() { return Math.max(0, Math.min(1, (steps - lastEdit - settleSteps()) / windowSteps())); }
+function stats(from) {
+  // mean and spread over the samples since `from`
+  let n = 0, cl = 0, cd = 0, cl2 = 0, cd2 = 0, cl2s = 0;
+  const lo = Math.max(0, hist.n - HN);
+  for (let j = hist.n - 1; j >= lo; j--) { const k = j % HN; if (hist.step[k] < from) break; n++; cl += hist.cl[k]; cd += hist.cd[k]; cl2 += hist.cl2[k]; cd2 += hist.cd2[k]; cl2s += hist.cl[k] * hist.cl[k]; }
+  if (!n) return null;
+  cl /= n; cd /= n; cl2 /= n; cd2 /= n;
+  const sway = Math.SQRT2 * Math.sqrt(Math.max(0, cl2s / n - cl * cl));
+  return { n, lift: cl, drag: cd, lift2: cl2, drag2: cd2, sway, ld: cl / Math.max(1e-6, cd), down: -cl, drive: .866 * cl - .5 * cd };
+}
+function windowStats() { return stats(Math.max(lastEdit + settleSteps(), steps - windowSteps())); }
+function edited() { lastEdit = steps; passedThis = false; }
+
+// ================= shapes =================
+const circle = (r, n = 8) => Array.from({ length: n }, (_, k) => { const a = Math.PI - k * 2 * Math.PI / n; return [r * Math.cos(a), r * Math.sin(a)]; });
+const rrect = (w, h, r) => { const a = w / 2, b = h / 2; r = Math.min(r, a * .9, b * .9);
+  return [[-a, 0], [-a, b - r], [-a + r, b], [a - r, b], [a, b - r], [a, 0], [a, -(b - r)], [a - r, -b], [-a + r, -b], [-a, -(b - r)]]; };
+function naca(t, c = .45, m = 0, p = .4, xs = [.03, .12, .3, .5, .72, .9], piv = .3) {
+  const yt = x => 5 * t * (.2969 * Math.sqrt(x) - .126 * x - .3516 * x * x + .2843 * x ** 3 - .1036 * x ** 4);
+  const yc = x => m ? (x < p ? m / (p * p) * (2 * p * x - x * x) : m / ((1 - p) ** 2) * (1 - 2 * p + 2 * p * x - x * x)) : 0;
+  const up = xs.map(x => [(x - piv) * c, (yc(x) + Math.max(yt(x), .004)) * c]);
+  const lo = xs.slice().reverse().map(x => [(x - piv) * c, (yc(x) - Math.max(yt(x), .004)) * c]);
+  return [[-piv * c, 0], ...up, [(1 - piv) * c, 0], ...lo];
+}
+function crClosed(P, S) {
+  const n = P.length, out = [];
+  const d = (a, b) => Math.max(1e-4, Math.pow(Math.hypot(b[0] - a[0], b[1] - a[1]), .5));
+  for (let i = 0; i < n; i++) {
+    const p0 = P[(i - 1 + n) % n], p1 = P[i], p2 = P[(i + 1) % n], p3 = P[(i + 2) % n];
+    const t0 = 0, t1 = d(p0, p1), t2 = t1 + d(p1, p2), t3 = t2 + d(p2, p3);
+    for (let k = 0; k < S; k++) {
+      const t = t1 + (t2 - t1) * k / S;
+      const Lx = (a, b, ta, tb) => [((tb - t) * a[0] + (t - ta) * b[0]) / (tb - ta), ((tb - t) * a[1] + (t - ta) * b[1]) / (tb - ta)];
+      const A1 = Lx(p0, p1, t0, t1), A2 = Lx(p1, p2, t1, t2), A3 = Lx(p2, p3, t2, t3), B1 = Lx(A1, A2, t0, t2), B2 = Lx(A2, A3, t1, t3);
+      out.push(Lx(B1, B2, t1, t2));
+    }
+  }
+  return out;
+}
+function inPoly(poly, x, y) { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j]; if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; }
+function polyArea(poly) { let s = 0; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) s += (poly[j][0] + poly[i][0]) * (poly[j][1] - poly[i][1]); return Math.abs(s / 2); }
+
+// a body: control points in local coords (y up, tunnel-height units), placed at (cx, cy) (y down), tilted nose-up by `tilt` (radians)
+const bodies = [];
+function mkBody(o) { return Object.assign({ pts: circle(.1), cx: .62, cy: .5, tilt: 0, spin: 0, edit: true, move: false, mirror: true, poly: null, wpoly: null }, o); }
+function localPoly(b) { return crClosed(b.pts, 10); }
+function toWorld(b, x, y) { const a = -b.tilt, c = Math.cos(a), s = Math.sin(a); return [b.cx + x * c - y * s, b.cy - (x * s + y * c)]; }
+function toLocal(b, wx, wy) { const xr = wx - b.cx, yr = b.cy - wy, a = b.tilt, c = Math.cos(a), s = Math.sin(a); return [xr * c - yr * s, xr * s + yr * c]; }
+function refresh(b) { b.poly = localPoly(b); b.wpoly = b.poly.map(p => toWorld(b, p[0], p[1])); }
+function bodyCentres() { const g = b => b ? [b.cx * NY, (1 - b.cy) * NY] : [-99, -99]; return [...g(bodies[0]), ...g(bodies[1])]; }
+function bodyOmega(i) { const b = bodies[i]; if (!b || !b.spin) return 0; return -b.spin * U / (LC() / 2); } // positive spin = top surface moves downstream... see card
+let maskDirty = true;
+function rasterise() {
+  const m = L.mask; m.fill(0);
+  bodies.forEach((b, bi) => {
+    const P = b.wpoly.map(p => [p[0] * NY, (1 - p[1]) * NY]);
+    let y0 = Infinity, y1 = -Infinity; for (const p of P) { y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
+    const xs = [];
+    for (let j = Math.max(0, Math.floor(y0)); j <= Math.min(NY - 1, Math.ceil(y1)); j++) {
+      const yc = j + .5; xs.length = 0;
+      for (let i = 0, k = P.length - 1; i < P.length; k = i++) { const a = P[i], c = P[k]; if ((a[1] > yc) !== (c[1] > yc)) xs.push(a[0] + (yc - a[1]) / (c[1] - a[1]) * (c[0] - a[0])); }
+      xs.sort((a, c) => a - c);
+      for (let q = 0; q + 1 < xs.length; q += 2) { const i0 = Math.max(1, Math.ceil(xs[q] - .5)), i1 = Math.min(NX - 2, Math.floor(xs[q + 1] - .5)); for (let i = i0; i <= i1; i++) m[j * NX + i] = bi + 1; }
+    }
+  });
+  // per cell: bit i-1 set when the neighbour the population i streams from (x - c_i) is solid; own id; that neighbour's id
+  const o = L.mrgba; o.fill(0);
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+    const k = j * NX + i, id = m[k]; let fl = 0, adj = 0;
+    if (!id) for (let d = 1; d < 9; d++) { const si = i - CJ[d][0], sj = j - CJ[d][1]; if (si < 0 || sj < 0 || si >= NX || sj >= NY) continue; const s2 = m[sj * NX + si]; if (s2) { fl |= 1 << (d - 1); adj = s2; } }
+    o[k * 4] = fl; o[k * 4 + 1] = id; o[k * 4 + 2] = adj; o[k * 4 + 3] = 255;
+  }
+  gl.bindTexture(gl.TEXTURE_2D, L.maskT);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, NX, NY, gl.RGBA, gl.UNSIGNED_BYTE, o);
+  maskDirty = false;
+}
+function shapeChanged(b) { refresh(b); maskDirty = true; edited(); }
+
+// ================= levels =================
+// Each test request: a start shape, what may change, constraints (a region the body must keep inside it), and pass marks
+// measured by the sim. `m` metrics: drag, lift, down (downforce), ld (lift ÷ drag), sway (size of the lift wobble), drive, drag2.
+const LV = [
+  { id: 'round', t: 'Round stack', who: 'Mill Lane Brewery', brief: 'Their round flue drags hard in the wind. Reshape it to slip through.',
+    body: { pts: circle(.1) }, keep: { circle: .075 }, re: 300, goal: { m: 'drag', lt: [1.1, .9, .75] }, hint: 1,
+    lesson: 'Most drag is the wake, not the nose: a long gentle tail lets the air close up behind.' },
+  { id: 'plate', t: 'Flat plate', who: 'Signal & Sign Co.', brief: 'Same height, a tenth of the drag. Keep the sign board inside.',
+    body: { pts: rrect(.03, .2, .008) }, keep: { rect: [.03, .19] }, re: 400, goal: { m: 'drag', lt: [.75, .55, .42] },
+    lesson: 'A plate and a teardrop of the same height: the plate pays several times more, all of it in the wake.' },
+  { id: 'chimney', t: 'Singing chimney', who: 'County Gasworks', brief: 'The stack sways as vortices peel off each side. Stop the wobble.',
+    body: { pts: circle(.1) }, keep: { circle: .095 }, re: 300, settle: 6, goal: { m: 'sway', lt: [.35, .2, .1] }, third: 'sway',
+    lesson: 'A tail splits the wake: the two rows of vortices can no longer feed each other, and the shaking stops.' },
+  { id: 'rotor', t: 'Rotor ship', who: 'Flettner Marine', brief: 'No sails. Spin the cylinder and make the wind push it sideways.',
+    body: { pts: circle(.1), edit: false }, tools: ['spin'], re: 300, goal: { m: 'lift', gt: [1.2, 2, 2.8] }, third: 'sway',
+    lesson: 'A spinning cylinder drags air round with it: faster on one side, lower pressure there. The Magnus effect.' },
+  { id: 'glider', t: 'Glider wing', who: 'Dunstable Gliding Club', brief: 'Lift without much drag. Tilt it, shape it.',
+    body: { pts: naca(.12), mirror: false, tilt: .05 }, keep: { rect: [.08, .025] }, tools: ['tilt'], re: 800,
+    goal: { m: 'ld', gt: [4, 6, 8] }, need: [{ m: 'lift', gt: .8 }], third: 'ld',
+    lesson: 'Lift is cheap; drag is the price. A gentle tilt and a curved back give the most lift per drag.' },
+  { id: 'stall', t: 'Stall', who: 'Royal Aircraft Establishment', brief: 'Find the tilt that gives the most lift. Too far and it collapses.',
+    body: { pts: naca(.12), edit: false, mirror: false }, tools: ['tilt'], re: 800, goal: { m: 'lift', gt: [1.6, 1.9, 2.1] },
+    lesson: 'Past a certain tilt the air cannot follow the top surface; it lets go, and the lift falls away. That is a stall.' },
+  { id: 'lorry', t: 'Removals lorry', who: 'Pickfords', brief: 'A box of furniture. Wrap a body round it with the least drag.',
+    body: { pts: rrect(.32, .16, .01) }, keep: { rect: [.3, .15] }, re: 800, goal: { m: 'drag', lt: [1.3, 1, .8] },
+    lesson: 'Round the front corners and taper the tail (a boat tail): the back of a lorry matters as much as the front.' },
+  { id: 'bridge', t: 'Bridge deck', who: 'Narrows Bridge Authority', brief: 'The deck bucks in a gale. Fair it so it stops shaking.',
+    body: { pts: [[-.25, 0], [-.25, .04], [-.23, .04], [-.23, .02], [.23, .02], [.23, .04], [.25, .04], [.25, 0], [.25, -.03], [-.25, -.03]].map(p => p), mirror: false }, keep: { rect: [.44, .04] },
+    re: 800, settle: 6, goal: { m: 'sway', lt: [.25, .15, .08] }, third: 'sway',
+    lesson: 'Tacoma Narrows, 1940: a bluff deck sheds vortices that rock it. A streamlined box girder lets the air slide past.' },
+  { id: 'racer', t: 'Racing car', who: 'Scuderia Ferro', brief: 'Push down onto the road, without much drag.',
+    body: { pts: rrect(.3, .07, .01), cy: .89 }, keep: { rect: [.26, .045] }, ground: true, tools: ['tilt'], re: 800,
+    goal: { m: 'down', gt: [.4, .8, 1.2] }, need: [{ m: 'drag', lt: .8 }], third: 'ld',
+    lesson: 'Upside-down wing near the road: air squeezed under the car speeds up, its pressure drops, and the car is sucked down.' },
+  { id: 'slip', t: 'Slipstream', who: 'Velodrome', brief: 'Tuck in behind the leader and let them do the work.',
+    body: { pts: rrect(.16, .1, .03), cx: 1.3, move: true }, keep: { rect: [.14, .085] }, lead: { pts: rrect(.16, .1, .03), cx: .55 }, re: 400,
+    goal: { m: 'drag', lt: [.45, .25, .1] }, third: 'drag2',
+    lesson: 'In the leader’s wake the air is already slow. Close enough, and the follower is even pulled forward.' },
+  { id: 'sail', t: 'Into the wind', who: 'Solent Yacht Club', brief: 'The boat heads 60° into the wind. Shape a thin sail that drives it.',
+    body: { pts: naca(.06, .4, .06, .4), mirror: false, tilt: .35 }, maxArea: .012, tools: ['tilt'], re: 800, heading: 60,
+    goal: { m: 'drive', gt: [.4, .7, 1] }, third: 'drive',
+    lesson: 'A sail is a wing standing up. Its lift points across the wind, and part of it points forward, even toward the wind.' },
+  { id: 'gale', t: 'Gale tower', who: 'City Radio Mast', brief: 'At gale force: small sway and small drag, both.',
+    body: { pts: circle(.1) }, keep: { circle: .09 }, re: 2400, settle: 6, goal: { m: 'drag', lt: [1.0, .8, .65] }, need: [{ m: 'sway', lt: .2 }], third: 'sway',
+    lesson: 'Fast wind is messier: the wake is turbulent. A good tail still calms it.' },
+];
+const SANDBOX = { id: 'sandbox', t: 'Free bench', who: 'You', brief: 'Anything goes. Two bodies, any wind, any spin.', body: { pts: circle(.1) }, tools: ['tilt', 'spin', 'wind'], re: 400, free: true, third: 'ld' };
+function dailyLevel(dateStr) {
+  const r = RH.rng('wt-' + dateStr), w = .12 + r() * .3, h = .06 + r() * .1, re = [300, 600, 1200][r.int(3)];
+  const est = boxDrag(w / h) * h / LREF; // drag of the bare box, from the calibration table
+  return { id: 'daily', date: dateStr, t: 'Daily: ' + dateStr.slice(5), who: 'The morning post', brief: 'Today’s crate. Fair it for the least drag.',
+    body: { pts: rrect(w + .015, h + .015, .006) }, keep: { rect: [w, h] }, re, goal: { m: 'drag', lt: [est * .65, est * .5, est * .38].map(v => +v.toFixed(2)) }, third: 'ld',
+    lesson: 'Share your number: the same crate is waiting for everyone today.' };
+}
+function boxDrag(asp) { // drag of a bare rectangle (per its height) against its length ÷ height, measured on this tunnel
+  const T = [[.5, 2.6], [1, 2.3], [2, 1.75], [3, 1.45], [5, 1.25]];
+  if (asp <= T[0][0]) return T[0][1]; for (let i = 1; i < T.length; i++) if (asp <= T[i][0]) { const f = (asp - T[i - 1][0]) / (T[i][0] - T[i - 1][0]); return T[i - 1][1] + f * (T[i][1] - T[i - 1][1]); } return T[T.length - 1][1];
+}
+const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+
+// ================= save =================
+let S = RH.load('wind-tunnel', null) || {};
+S.done = S.done || {}; S.best = S.best || {}; S.designs = S.designs || {}; S.kept = S.kept || []; S.daily = S.daily || {};
+const save = () => { RH.save('wind-tunnel', S); RH.progress('wind-tunnel', Object.keys(S.done).filter(k => LV.find(l => l.id === k)).length / LV.length); };
+const unlocked = i => i === 0 || !!S.done[LV[i - 1].id] || !!S.done[LV[i].id];
+const totalStars = () => LV.reduce((a, l) => a + (S.done[l.id] || 0), 0);
+
+// ================= level loading =================
+let cur = null, passedThis = false, undoStack = [];
+function loadLevel(lv, opts = {}) {
+  cur = lv; passedThis = false; undoStack = [];
+  bodies.length = 0;
+  const saved = !opts.fresh && S.designs[lv.id];
+  const b = mkBody(Object.assign({}, lv.body, { pts: lv.body.pts.map(p => p.slice()) }));
+  if (saved && b.edit !== false) { b.pts = saved.pts.map(p => p.slice()); b.tilt = saved.tilt ?? b.tilt; b.spin = saved.spin ?? b.spin; b.mirror = saved.mirror ?? b.mirror; if (b.move && saved.cx) { b.cx = saved.cx; b.cy = saved.cy; } }
+  bodies.push(b);
+  if (lv.lead) bodies.push(mkBody(Object.assign({ edit: false, move: false }, lv.lead, { pts: lv.lead.pts.map(p => p.slice()) })));
+  if (lv.free && S.second) bodies.push(mkBody({ pts: S.second.pts, cx: S.second.cx, cy: S.second.cy, tilt: S.second.tilt || 0, edit: true, move: true }));
+  bodies.forEach(refresh);
+  sim.floor = lv.ground ? 1 : 0;
+  setRe(lv.free && S.sandRe ? S.sandRe : lv.re);
+  maskDirty = true; rasterise(); initField();
+  live.cd = live.cl = live.cl2 = live.cd2 = 0; spark.length = 0;
+  S.cur = lv.id; if (lv.id !== 'daily') save();
+  buildUI();
+  hintOn = !!lv.hint && !S.done[lv.id] && !saved;
+}
+function levelById(id) { if (id === 'sandbox') return SANDBOX; if (id === 'daily') return dailyLevel(today()); return LV.find(l => l.id === id); }
+function keepDesign() { const b = bodies[0]; if (!b || b.edit === false) return; S.designs[cur.id] = { pts: b.pts.map(p => p.map(v => +v.toFixed(4))), tilt: b.tilt, spin: b.spin, mirror: b.mirror, cx: b.cx, cy: b.cy };
+  if (cur.free && bodies[1]) { const c = bodies[1]; S.second = { pts: c.pts, cx: c.cx, cy: c.cy, tilt: c.tilt }; } save(); }
+
+// constraint checks
+function keepPts(lv) {
+  const k = lv.keep; if (!k) return [];
+  if (k.circle) return Array.from({ length: 24 }, (_, i) => [k.circle * Math.cos(i * Math.PI / 12), k.circle * Math.sin(i * Math.PI / 12)]);
+  const [w, h] = k.rect, o = [];
+  for (let i = 0; i <= 8; i++) { const x = -w / 2 + w * i / 8; o.push([x, h / 2], [x, -h / 2]); }
+  for (let i = 1; i < 4; i++) { const y = -h / 2 + h * i / 4; o.push([-w / 2, y], [w / 2, y]); }
+  return o;
+}
+function keepOK(b) { return keepPts(cur).every(p => inPoly(b.poly, p[0], p[1])); }
+function areaOK(b) { return !cur.maxArea || polyArea(b.poly) <= cur.maxArea; }
+function inBounds(b) {
+  const top = .03, bot = cur.ground ? .985 : .97;
+  return b.wpoly.every(p => p[0] > .2 && p[0] < A - .35 && p[1] > top && p[1] < bot);
+}
+function overlapOK() { if (bodies.length < 2) return true; const [a, c] = bodies; return !a.wpoly.some(p => inPoly(c.wpoly, p[0], p[1])) && !c.wpoly.some(p => inPoly(a.wpoly, p[0], p[1])); }
+function constraintsOK() { const b = bodies[0]; return keepOK(b) && areaOK(b); }
+
+// ================= evaluation =================
+const METRIC = { drag: 'Drag', lift: 'Lift', down: 'Downforce', ld: 'Lift ÷ drag', sway: 'Sway', drive: 'Drive', drag2: 'Leader drag' };
+function metricVal(st, m) { return st ? st[m] : NaN; }
+function meets(v, g, k) { const t = g.lt ? g.lt : g.gt; const th = Array.isArray(t) ? t[k] : t; return g.lt ? v <= th : v >= th; }
+function evaluate() {
+  if (!cur || cur.free) return null;
+  const st = windowStats(), full = measureProgress() >= 1;
+  const v = metricVal(st, cur.goal.m);
+  let stars = 0; if (st) for (let k = 0; k < 3; k++) if (meets(v, cur.goal, k)) stars = k + 1;
+  const needs = (cur.need || []).map(n => ({ n, v: metricVal(st, n.m), ok: st ? meets(metricVal(st, n.m), n, 0) : false }));
+  const cons = constraintsOK();
+  const pass = full && cons && stars > 0 && needs.every(x => x.ok);
+  return { st, full, v, stars, needs, cons, pass };
+}
+let lastEval = null;
+function checkPass() {
+  const e = evaluate(); lastEval = e; if (!e) return;
+  if (e.pass && !passedThis) {
+    passedThis = true;
+    const id = cur.id, prev = cur.id === 'daily' ? (S.daily[cur.date] && S.daily[cur.date].stars || 0) : (S.done[id] || 0);
+    if (cur.id === 'daily') { const d = S.daily[cur.date] || {}; if (!d.best || (cur.goal.lt ? e.v < d.best : e.v > d.best)) d.best = +e.v.toFixed(3); d.stars = Math.max(d.stars || 0, e.stars); S.daily[cur.date] = d; }
+    else { S.done[id] = Math.max(prev, e.stars); const bb = S.best[id]; if (bb == null || (cur.goal.lt ? e.v < bb : e.v > bb)) S.best[id] = +e.v.toFixed(3); }
+    keepDesign(); save(); celebrate(e, prev);
+  }
+}
+
+// ================= camera =================
+const cam = PanZoom(stage, {
+  world: () => worldFit(), button: false, pad: 0, min: .6, max: 8,
+  onChange: () => { needOverlay = true; },
+  canPanFrom: e => !pickAt(e.clientX, e.clientY),
+});
+function worldFit() {
+  const W = innerWidth, H = innerHeight, T = { x: -10, y: -9, w: A * WU + 20, h: WU + 18 };
+  const card = $('#card'), desk = $('#desk');
+  const cr = card.getBoundingClientRect(), dr = desk.getBoundingClientRect();
+  const short = H < 500, narrow = W < 640;
+  let top = 44, bot = 8 + (dr.height || 80) + 6, left = 0, right = short ? 0 : 50;
+  if (narrow && !short) top = Math.max(top, cr.bottom + 6);
+  if (short) bot = (dr.height || 60) + 8;
+  const fw = W - left - right, fh = Math.max(80, H - top - bot), k = Math.min(fw / T.w, fh / T.h);
+  return { x: T.x - (left + (fw - T.w * k) / 2) / k, y: T.y - (top + (fh - T.h * k) / 2) / k, w: W / k, h: H / k };
+}
+
+// ================= input =================
+const isTouch = phone;
+const HR = () => (isTouch ? 26 : 15); // hit radius, CSS px
+const handleR = () => (isTouch ? 10 : 7);
+function scr(wx, wy) { return [wx * WU * cam.k + cam.x, wy * WU * cam.k + cam.y]; }
+function pickAt(cx, cy) {
+  const r = stage.getBoundingClientRect(), x = cx - r.left, y = cy - r.top;
+  let best = null, bd = HR();
+  bodies.forEach((b, bi) => {
+    if (b.edit === false && !b.move) return;
+    if (b.edit !== false) {
+      b.pts.forEach((p, i) => { const w = toWorld(b, p[0], p[1]), s = scr(w[0], w[1]), d = Math.hypot(s[0] - x, s[1] - y); if (d < bd) { bd = d; best = { kind: 'pt', b: bi, i }; } });
+      if (b.pts.length < 40) {
+        const segs = b.pts.length, poly = b.poly;
+        for (let i = 0; i < segs; i++) { const p = poly[i * 10 + 5], w = toWorld(b, p[0], p[1]), s = scr(w[0], w[1]), d = Math.hypot(s[0] - x, s[1] - y); if (d < bd * .8) { bd = d / .8; best = { kind: 'mid', b: bi, i }; } }
+      }
+    }
+  });
+  if (best) return best;
+  const [wx, wy] = cam.toWorld(cx, cy).map(v => v / WU);
+  for (let bi = 0; bi < bodies.length; bi++) { const b = bodies[bi]; if (b.move && inPoly(b.wpoly, wx, wy)) return { kind: 'body', b: bi, ox: wx - b.cx, oy: wy - b.cy }; }
+  return null;
+}
+let drag = null, hintOn = false, lastTap = { t: 0, i: -1 };
+const partner = (b, i) => (b.pts.length - i) % b.pts.length;
+const snap = b => JSON.stringify({ pts: b.pts, cx: b.cx, cy: b.cy, tilt: b.tilt, spin: b.spin, mirror: b.mirror });
+function pushUndo() { const b = bodies[0]; if (!b) return; undoStack.push(bodies.map(snap)); if (undoStack.length > 60) undoStack.shift(); }
+stage.addEventListener('pointerdown', e => {
+  if (cam.gesturing) return;
+  const hit = pickAt(e.clientX, e.clientY); if (!hit) return;
+  e.preventDefault(); try { stage.setPointerCapture(e.pointerId); } catch (_) {}
+  FX.sfx('click'); audio.start();
+  pushUndo();
+  const b = bodies[hit.b];
+  if (hit.kind === 'mid') {
+    // grow a new control point out of the curve
+    const n = b.pts.length, p = b.poly[hit.i * 10 + 5];
+    if (b.mirror) {
+      const j = partner(b, (hit.i + 1) % n); // mirrored segment is (partner(i+1), partner(i))
+      const q = [p[0], -p[1]];
+      const ins = [[hit.i + 1, p], [j === 0 ? n : j, q]].sort((u, v) => v[0] - u[0]);
+      for (const [at, pt] of ins) b.pts.splice(at, 0, pt.slice());
+      hit.i = hit.i + 1 + (ins[1][0] < hit.i + 1 ? 1 : 0);
+      // find index of p again (robust)
+      hit.i = b.pts.findIndex(z => z[0] === p[0] && z[1] === p[1]);
+    } else { b.pts.splice(hit.i + 1, 0, p.slice()); hit.i = hit.i + 1; }
+    hit.kind = 'pt'; FX.sfx('pop');
+  } else if (hit.kind === 'pt') {
+    const now = performance.now();
+    if (now - lastTap.t < 330 && lastTap.i === hit.i && removePoint(b, hit.i)) { lastTap.t = 0; shapeChanged(b); drag = null; return; }
+    lastTap = { t: now, i: hit.i };
+  }
+  drag = Object.assign(hit, { id: e.pointerId, moved: false });
+  hintOn = false;
+}, false);
+function removePoint(b, i) {
+  const n = b.pts.length;
+  if (b.mirror) { const j = partner(b, i); if (j === i || n <= 6) return false; const hi = Math.max(i, j), lo = Math.min(i, j); b.pts.splice(hi, 1); b.pts.splice(lo, 1); }
+  else { if (n <= 4) return false; b.pts.splice(i, 1); }
+  FX.sfx('tick'); return true;
+}
+stage.addEventListener('pointermove', e => {
+  if (!drag || e.pointerId !== drag.id) { hover(e); return; }
+  if (cam.gesturing) { drag = null; return; }
+  const b = bodies[drag.b]; const [wx, wy] = cam.toWorld(e.clientX, e.clientY).map(v => v / WU);
+  const save = snap(b);
+  if (drag.kind === 'pt') {
+    let [lx, ly] = toLocal(b, wx, wy);
+    const n = b.pts.length;
+    if (b.mirror) {
+      const j = partner(b, drag.i);
+      if (j === drag.i) ly = 0;
+      b.pts[drag.i] = [lx, ly]; if (j !== drag.i) b.pts[j] = [lx, -ly];
+    } else b.pts[drag.i] = [lx, ly];
+  } else if (drag.kind === 'body') { b.cx = wx - drag.ox; b.cy = wy - drag.oy; }
+  refresh(b);
+  if (!inBounds(b) || !overlapOK()) { Object.assign(b, JSON.parse(save)); refresh(b); return; }
+  drag.moved = true; maskDirty = true; edited(); needOverlay = true;
+});
+function hover(e) { if (isTouch) return; const h = pickAt(e.clientX, e.clientY); stage.style.cursor = h ? (h.kind === 'body' ? 'move' : 'grab') : 'default'; }
+const endDrag = e => { if (drag && e.pointerId === drag.id) { if (drag.moved) { FX.sfx('place'); keepDesign(); } drag = null; needOverlay = true; } };
+stage.addEventListener('pointerup', endDrag); stage.addEventListener('pointercancel', endDrag);
+
+function undo() { const s = undoStack.pop(); if (!s) return; s.forEach((j, i) => { if (bodies[i]) { Object.assign(bodies[i], JSON.parse(j)); refresh(bodies[i]); } }); maskDirty = true; edited(); syncSliders(); keepDesign(); }
+function symmetrise(b) {
+  // rotate so the leftmost point is first, make the count even, then average each point with its mirror partner
+  let k = 0; b.pts.forEach((p, i) => { if (p[0] < b.pts[k][0]) k = i; }); b.pts = b.pts.slice(k).concat(b.pts.slice(0, k));
+  if (b.pts.length % 2) { const n = b.pts.length, h = n >> 1, a = b.pts[h], c = b.pts[h + 1]; b.pts.splice(h + 1, 0, [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2]); }
+  const n = b.pts.length;
+  if (b.pts[1][1] < 0) b.pts = [b.pts[0], ...b.pts.slice(1).reverse()];
+  for (let i = 1; i < n / 2; i++) { const p = b.pts[i], q = b.pts[n - i]; const m = [(p[0] + q[0]) / 2, (Math.abs(p[1]) + Math.abs(q[1])) / 2]; b.pts[i] = m; b.pts[n - i] = [m[0], -m[1]]; }
+  b.pts[0][1] = 0; b.pts[n / 2][1] = 0;
+}
+
+// ================= UI =================
+function buildUI() {
+  const lv = cur, tools = lv.tools || [];
+  const card = $('#card');
+  const no = lv.id === 'daily' ? 'Daily request' : lv.free ? 'Free bench' : 'Test request ' + (LV.indexOf(lv) + 1) + ' / ' + LV.length;
+  const reqs = lv.goal ? [lv.goal, ...(lv.need || [])] : [];
+  card.className = phone && innerWidth < 640 && S.done[lv.id] ? 'min' : '';
+  card.innerHTML = `<div class="no"><span>${no}</span><span>${lv.who}</span></div><h2>${lv.t}</h2><div class="brief">${lv.brief}</div>
+    <div class="req">${reqs.map((g, i) => `<div class="rq" data-i="${i}"><span class="tick"></span><span>${METRIC[g.m]} ${g.lt ? 'under' : 'over'} ${fmtT(g, 0)}${i === 0 ? '<span class="st"></span>' : ''}</span><span class="v"></span></div>`).join('')}
+    ${lv.keep ? `<div class="rq keep" data-k="1"><span class="tick"></span><span>${lv.keep.circle ? 'Keep the stack inside' : 'Keep the load inside'}</span></div>` : ''}
+    ${lv.maxArea ? `<div class="rq keep" data-k="1"><span class="tick"></span><span>Sailcloth under ${(lv.maxArea * 1000).toFixed(0)}</span><span class="v area"></span></div>` : ''}</div>
+    ${lv.goal ? '<div class="meas"><i></i></div>' : ''}<div class="lesson">${lv.lesson || ''}</div><button class="nextb">NEXT REQUEST ▸</button><div class="stamp">PASSED</div>`;
+  card.querySelector('.nextb').onclick = e => { e.stopPropagation(); nextLevel(); };
+  card.onclick = () => { if (phone) card.classList.toggle('min'); };
+  if (lv.free || !lv.goal) card.querySelector('.req').innerHTML = '';
+  // the third gauge
+  const third = lv.third || 'ld';
+  $('#gX .lb').textContent = { ld: 'Lift ÷ drag', sway: 'Sway', drive: 'Drive', drag2: 'Leader drag', drag: 'Drag' }[third];
+  // sliders
+  const c = $('#ctrls'); c.innerHTML = '';
+  const b = bodies[0];
+  if (tools.includes('tilt')) addSlider(c, 'tilt', 'Tilt', -25, 40, 1, Math.round(b.tilt * 180 / Math.PI), v => { b.tilt = v * Math.PI / 180; shapeChanged(b); }, v => v + '°');
+  if (tools.includes('spin')) addSlider(c, 'spin', 'Spin', -20, 20, 1, Math.round(b.spin * 10), v => { b.spin = v / 10; edited(); }, v => (v / 10).toFixed(1));
+  if (tools.includes('wind')) addSlider(c, 'wind', 'Wind', 0, 50, 1, Math.round(Math.log2(sim.re / 100) * 10), v => { const re = Math.round(100 * Math.pow(2, v / 10)); setRe(re); S.sandRe = re; save(); edited(); }, v => windWord(100 * Math.pow(2, v / 10)));
+  $('#mirBtn').classList.toggle('hide', b.edit === false); $('#mirBtn').classList.toggle('on', !!b.mirror);
+  $('#undoBtn').classList.toggle('hide', b.edit === false && !b.move && !tools.length);
+  $('#resetBtn').classList.toggle('hide', b.edit === false && !tools.length);
+  $('#saveBtn').classList.toggle('hide', !lv.free);
+  $('#saveBtn').textContent = bodies.length > 1 ? '✕' : '✚'; $('#saveBtn').title = bodies.length > 1 ? 'Remove the second body' : 'Add a second body';
+  $('#stars').textContent = '★ ' + totalStars() + ' / ' + LV.length * 3;
+  requestAnimationFrame(() => cam.fit(false));
+}
+const windWord = re => re < 180 ? 'calm' : re < 450 ? 'breeze' : re < 1000 ? 'wind' : re < 2000 ? 'strong' : 'gale';
+function fmtT(g, k) { const t = g.lt || g.gt, v = Array.isArray(t) ? t[k] : t; return (+v).toFixed(2); }
+const sliders = {};
+function addSlider(c, key, label, min, max, st, val, on, fmt) {
+  const d = document.createElement('div'); d.className = 'sl';
+  d.innerHTML = `<label>${label}</label><input type="range" min="${min}" max="${max}" step="${st}" value="${val}" aria-label="${label}"><output>${fmt(val)}</output>`;
+  const inp = d.querySelector('input'), out = d.querySelector('output');
+  inp.addEventListener('pointerdown', () => { pushUndo(); audio.start(); });
+  inp.addEventListener('input', () => { const v = +inp.value; out.textContent = fmt(v); on(v); FX.sfx('tick'); needOverlay = true; });
+  inp.addEventListener('change', () => keepDesign());
+  sliders[key] = { inp, out, fmt }; c.appendChild(d);
+}
+function syncSliders() { const b = bodies[0]; if (!b) return; const s = sliders;
+  if (s.tilt) { s.tilt.inp.value = Math.round(b.tilt * 180 / Math.PI); s.tilt.out.textContent = s.tilt.fmt(+s.tilt.inp.value); }
+  if (s.spin) { s.spin.inp.value = Math.round(b.spin * 10); s.spin.out.textContent = s.spin.fmt(+s.spin.inp.value); } }
+
+function updateCard() {
+  if (!cur || !cur.goal) return;
+  const e = lastEval || evaluate(); if (!e) return;
+  const card = $('#card');
+  const v0 = e.st ? e.v : liveMetric(cur.goal.m);
+  const rows = card.querySelectorAll('.rq[data-i]');
+  if (rows[0]) { rows[0].classList.toggle('ok', e.full && e.stars > 0); rows[0].querySelector('.tick').textContent = e.full && e.stars > 0 ? '✓' : ''; rows[0].querySelector('.v').textContent = isFinite(v0) ? v0.toFixed(2) : '–';
+    const st = rows[0].querySelector('.st'); if (st) st.textContent = ''; }
+  e.needs.forEach((n, i) => { const r = rows[i + 1]; if (!r) return; const vv = e.st ? n.v : liveMetric(n.n.m); r.classList.toggle('ok', e.full && n.ok); r.querySelector('.tick').textContent = e.full && n.ok ? '✓' : ''; r.querySelector('.v').textContent = isFinite(vv) ? vv.toFixed(2) : '–'; });
+  card.querySelectorAll('.rq[data-k]').forEach(r => { r.classList.toggle('ok', e.cons); r.querySelector('.tick').textContent = e.cons ? '✓' : '✕'; });
+  const ar = card.querySelector('.area'); if (ar) ar.textContent = (polyArea(bodies[0].poly) * 1000).toFixed(0);
+  const m = card.querySelector('.meas'); if (m) { const p = measureProgress(); m.querySelector('i').style.width = (p * 100).toFixed(1) + '%'; m.classList.toggle('full', p >= 1); }
+  card.classList.toggle('done', passedThis);
+  const stp = card.querySelector('.stamp'); if (stp && passedThis) stp.textContent = '★'.repeat(Math.max(1, lastEval ? lastEval.stars : 1));
+}
+function liveMetric(m) { const cl = live.cl, cd = live.cd; return { drag: cd, lift: cl, down: -cl, ld: cl / Math.max(1e-6, cd), sway: NaN, drive: .866 * cl - .5 * cd, drag2: live.cd2 }[m]; }
+
+// gauges with strip-chart sparklines
+const G = { lift: $('#gLift'), drag: $('#gDrag'), x: $('#gX') };
+for (const g of Object.values(G)) g.cv = g.querySelector('canvas'), g.cx = g.cv.getContext('2d'), g.val = g.querySelector('.val');
+function drawGauges() {
+  const third = (cur && cur.third) || 'ld';
+  const st = windowStats();
+  const sw = st ? st.sway : 0;
+  const vals = { lift: live.cl, drag: live.cd, x: { ld: live.cl / Math.max(1e-6, live.cd), sway: sw, drive: .866 * live.cl - .5 * live.cd, drag2: live.cd2, drag: live.cd }[third] };
+  G.lift.val.textContent = (vals.lift >= 0 ? '+' : '−') + Math.abs(vals.lift).toFixed(2);
+  G.drag.val.textContent = vals.drag.toFixed(2);
+  G.x.val.textContent = third === 'ld' ? vals.x.toFixed(1) : vals.x.toFixed(2);
+  const idx = { lift: 0, drag: 1, x: third === 'drag2' ? 3 : -1 };
+  const goalLine = key => { if (!cur || !cur.goal) return null; const ms = [cur.goal, ...(cur.need || [])]; const map = { lift: ['lift', 'down'], drag: ['drag'], x: [third] }; const g = ms.find(q => map[key].includes(q.m)); if (!g) return null; const t = g.lt || g.gt; let v = Array.isArray(t) ? t[0] : t; if (g.m === 'down') v = -v; return v; };
+  for (const key of ['lift', 'drag', 'x']) {
+    const g = G[key], c = g.cx, w = g.cv.clientWidth, h = g.cv.clientHeight; if (!w) continue;
+    const d = Math.min(2, devicePixelRatio || 1); if (g.cv.width !== (w * d | 0)) { g.cv.width = w * d | 0; g.cv.height = h * d | 0; }
+    c.setTransform(d, 0, 0, d, 0, 0); c.clearRect(0, 0, w, h);
+    // chart paper
+    c.fillStyle = '#ece4cf'; c.fillRect(0, 0, w, h);
+    c.strokeStyle = '#c9b98f'; c.lineWidth = .5; for (let x = 0; x < w; x += 10) { c.beginPath(); c.moveTo(x + .5, 0); c.lineTo(x + .5, h); c.stroke(); }
+    let ser;
+    if (key === 'x' && idx.x < 0) ser = spark.map(s => third === 'ld' ? s[0] / Math.max(1e-6, s[1]) : third === 'drive' ? .866 * s[0] - .5 * s[1] : third === 'sway' ? s[0] : s[1]);
+    else ser = spark.map(s => s[idx[key]]);
+    if (!ser.length) continue;
+    let lo = Infinity, hi = -Infinity; for (const v of ser) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    const gl0 = goalLine(key); if (gl0 != null) { lo = Math.min(lo, gl0); hi = Math.max(hi, gl0); }
+    if (key === 'lift' || (key === 'x' && third === 'sway')) { const m = Math.max(Math.abs(lo), Math.abs(hi), .2); lo = -m; hi = m; }
+    else { lo = Math.min(lo, 0); hi = Math.max(hi, lo + .2); }
+    const pad = (hi - lo) * .12; lo -= pad; hi += pad;
+    const Y = v => h - (v - lo) / (hi - lo) * h;
+    if (lo < 0 && hi > 0) { c.strokeStyle = '#a69a7a'; c.lineWidth = .8; c.beginPath(); c.moveTo(0, Y(0)); c.lineTo(w, Y(0)); c.stroke(); }
+    if (gl0 != null) { c.strokeStyle = '#3d6b3a'; c.setLineDash([3, 2]); c.lineWidth = 1.2; c.beginPath(); c.moveTo(0, Y(gl0)); c.lineTo(w, Y(gl0)); c.stroke(); c.setLineDash([]); }
+    c.strokeStyle = '#b8261a'; c.lineWidth = 1.4; c.lineJoin = 'round'; c.beginPath();
+    ser.forEach((v, i) => { const x = w - (ser.length - 1 - i) * (w / 239); i ? c.lineTo(x, Y(v)) : c.moveTo(x, Y(v)); }); c.stroke();
+    c.fillStyle = '#b8261a'; c.beginPath(); c.arc(w - 1.5, Y(ser[ser.length - 1]), 2, 0, 7); c.fill();
+  }
+}
+
+// ================= overlay: tunnel frame, bodies, handles =================
+let needOverlay = true;
+const parts = FX.particles(600);
+function drawOverlay(t) {
+  const d = dpr, c = octx;
+  if (ov.width !== cv.width || ov.height !== cv.height) { ov.width = cv.width; ov.height = cv.height; }
+  c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, ov.width, ov.height);
+  const k = cam.k * WU;
+  c.setTransform(d * k, 0, 0, d * k, d * cam.x, d * cam.y); // world: tunnel heights
+  const px = 1 / k; // one CSS pixel in tunnel units
+  // ---- the steel frame around the glass
+  const fr = .07;
+  c.save();
+  c.beginPath(); c.rect(-fr - .02, -fr, A + 2 * fr + .04, 1 + 2 * fr); c.rect(A, 0, -A, 1); // even-odd ring
+  const gF = c.createLinearGradient(0, -fr, 0, 1 + fr); gF.addColorStop(0, '#3e4b4c'); gF.addColorStop(.06, '#29332f'); gF.addColorStop(.94, '#1d2523'); gF.addColorStop(1, '#384443');
+  c.fillStyle = gF; c.fill('evenodd');
+  c.strokeStyle = '#5c6c69'; c.lineWidth = 1.2 * px; c.strokeRect(-fr - .02, -fr, A + 2 * fr + .04, 1 + 2 * fr);
+  c.strokeStyle = '#0a0d0e'; c.lineWidth = 2 * px; c.strokeRect(0, 0, A, 1);
+  // rivets
+  c.fillStyle = '#56645f';
+  for (let x = .1; x < A; x += .2) for (const y of [-fr / 2, 1 + fr / 2]) { c.beginPath(); c.arc(x, y, .009, 0, 7); c.fill(); }
+  c.fillStyle = '#8fa09a'; c.font = `600 ${.032}px "Saira Condensed",sans-serif`; c.textBaseline = 'middle';
+  c.fillText('TEST SECTION  •  SMOKE TUNNEL No. 2', .1, 1 + fr / 2 + .002);
+  c.textAlign = 'right'; c.fillText('FLOW →', A - .05, -fr / 2); c.textAlign = 'left';
+  // the inlet: honeycomb straightener and the smoke rake
+  c.fillStyle = '#0d1214'; c.fillRect(0, 0, .022, 1);
+  c.strokeStyle = '#2f3b3c'; c.lineWidth = .8 * px; for (let y = 0; y < 1; y += .012) { c.beginPath(); c.moveTo(0, y); c.lineTo(.022, y + .006); c.stroke(); }
+  const rx = NX * .012 / NY, gap = 1 / 13;
+  c.fillStyle = '#9aa39d';
+  for (let y = gap / 2; y < 1; y += gap) { c.fillRect(rx - .012, y - .0035, .012, .007); c.beginPath(); c.arc(rx, y, .0045, 0, 7); c.fill(); }
+  c.fillStyle = '#5b6662'; c.fillRect(rx - .016, .01, .004, .98);
+  // rolling road
+  if (cur && cur.ground) {
+    c.fillStyle = '#1b1f20'; c.fillRect(0, .985, A, .015);
+    c.strokeStyle = '#d6c79a'; c.lineWidth = 1.2 * px; c.setLineDash([.03, .03]); c.lineDashOffset = -(simTime * U / NY) % .06; c.beginPath(); c.moveTo(0, .992); c.lineTo(A, .992); c.stroke(); c.setLineDash([]);
+  }
+  c.restore();
+  // ---- bodies
+  bodies.forEach((b, bi) => {
+    const W = b.wpoly;
+    c.beginPath(); W.forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.closePath();
+    let y0 = 1, y1 = 0; for (const p of W) { y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
+    const g = c.createLinearGradient(0, y0, 0, y1);
+    const lead = b.edit === false && bi > 0;
+    const bad = bi === 0 && cur && !cur.free && !constraintsOK();
+    if (lead) { g.addColorStop(0, '#6c7377'); g.addColorStop(.5, '#3b4044'); g.addColorStop(1, '#202427'); }
+    else { g.addColorStop(0, '#eef1f2'); g.addColorStop(.18, '#b9c1c5'); g.addColorStop(.55, '#6f7a80'); g.addColorStop(.85, '#3e464b'); g.addColorStop(1, '#596369'); }
+    c.fillStyle = g; c.fill();
+    c.strokeStyle = bad ? '#ff5a45' : 'rgba(255,250,240,.55)'; c.lineWidth = (bad ? 2.2 : 1) * px; c.stroke();
+    // brushed highlights
+    c.save(); c.clip(); c.globalAlpha = .08; c.strokeStyle = '#fff'; c.lineWidth = .6 * px;
+    for (let y = y0; y < y1; y += 4 * px) { c.beginPath(); c.moveTo(b.cx - .6, y); c.lineTo(b.cx + .6, y + .002); c.stroke(); }
+    c.restore();
+    // the constraint (the load it must carry), drawn inside
+    if (bi === 0 && cur && cur.keep) {
+      const kp = cur.keep; c.save(); c.beginPath();
+      if (kp.circle) { const n = 40; for (let i = 0; i <= n; i++) { const a = i / n * Math.PI * 2, w = toWorld(b, kp.circle * Math.cos(a), kp.circle * Math.sin(a)); i ? c.lineTo(w[0], w[1]) : c.moveTo(w[0], w[1]); } }
+      else { const [w, h] = kp.rect; [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].forEach((p, i) => { const q = toWorld(b, p[0], p[1]); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }); c.closePath(); }
+      const ok = keepOK(b);
+      c.fillStyle = ok ? 'rgba(40,46,50,.55)' : 'rgba(255,80,60,.35)'; c.fill();
+      c.setLineDash([4 * px, 3 * px]); c.strokeStyle = ok ? 'rgba(255,190,110,.75)' : '#ff5a45'; c.lineWidth = 1.2 * px; c.stroke(); c.setLineDash([]);
+      c.restore();
+    }
+    // spin marks
+    if (b.spin) { c.save(); c.translate(b.cx, b.cy); c.rotate(-(simTime * bodyOmega(bi))); c.strokeStyle = 'rgba(255,176,87,.8)'; c.lineWidth = 2 * px;
+      for (let i = 0; i < 3; i++) { c.rotate(Math.PI * 2 / 3); c.beginPath(); c.moveTo(.02, 0); c.lineTo(.085, 0); c.stroke(); } c.restore(); }
+    // pivot pin
+    c.fillStyle = '#c8a45c'; c.beginPath(); c.arc(b.cx, b.cy, 2.5 * px, 0, 7); c.fill();
+    // handles
+    if (b.edit !== false) {
+      const hr = handleR() * px;
+      if (b.pts.length < 40 && !isTouch) { c.fillStyle = 'rgba(255,190,120,.35)'; for (let i = 0; i < b.pts.length; i++) { const p = b.poly[i * 10 + 5], w = toWorld(b, p[0], p[1]); c.beginPath(); c.arc(w[0], w[1], hr * .45, 0, 7); c.fill(); } }
+      if (isTouch && b.pts.length < 40) { c.fillStyle = 'rgba(255,190,120,.3)'; for (let i = 0; i < b.pts.length; i++) { const p = b.poly[i * 10 + 5], w = toWorld(b, p[0], p[1]); c.beginPath(); c.arc(w[0], w[1], hr * .4, 0, 7); c.fill(); } }
+      b.pts.forEach((p, i) => {
+        const w = toWorld(b, p[0], p[1]), on = drag && drag.b === bi && drag.i === i && drag.kind === 'pt';
+        c.beginPath(); c.arc(w[0], w[1], hr * (on ? 1.25 : 1), 0, 7);
+        c.fillStyle = on ? '#ffb057' : 'rgba(245,238,222,.92)'; c.fill();
+        c.lineWidth = 2 * px; c.strokeStyle = b.mirror && partner(b, i) === i ? '#86d8ea' : '#ff6a2a'; c.stroke();
+      });
+    }
+  });
+  // sail: the boat's heading
+  if (cur && cur.heading) {
+    const b = bodies[0], a = cur.heading * Math.PI / 180, hx = -Math.cos(a), hy = -Math.sin(a), L0 = .28;
+    c.save(); c.translate(b.cx, b.cy); c.strokeStyle = 'rgba(134,216,234,.8)'; c.lineWidth = 2 * px; c.setLineDash([6 * px, 4 * px]);
+    c.beginPath(); c.moveTo(-hx * L0 * .6, -hy * L0 * .6); c.lineTo(hx * L0, hy * L0); c.stroke(); c.setLineDash([]);
+    c.beginPath(); c.moveTo(hx * L0, hy * L0); c.lineTo(hx * L0 * .86 - hy * .03, hy * L0 * .86 + hx * .03); c.lineTo(hx * L0 * .86 + hy * .03, hy * L0 * .86 - hx * .03); c.closePath(); c.fillStyle = 'rgba(134,216,234,.9)'; c.fill();
+    c.font = `600 ${14 * px}px "Saira Condensed"`; c.fillText('BOAT', hx * L0 + 6 * px, hy * L0); c.restore();
+  }
+  // force arrows: lift (cyan) and drag (orange) from the pivot
+  if (bodies[0]) {
+    const b = bodies[0], s = .06;
+    const arrow = (dx, dy, col) => { const l = Math.hypot(dx, dy); if (l < .01) return; c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 2.2 * px; c.beginPath(); c.moveTo(b.cx, b.cy); c.lineTo(b.cx + dx, b.cy + dy); c.stroke();
+      const ux = dx / l, uy = dy / l, hl = Math.min(.025, l * .4); c.beginPath(); c.moveTo(b.cx + dx, b.cy + dy); c.lineTo(b.cx + dx - ux * hl - uy * hl * .5, b.cy + dy - uy * hl + ux * hl * .5); c.lineTo(b.cx + dx - ux * hl + uy * hl * .5, b.cy + dy - uy * hl - ux * hl * .5); c.closePath(); c.fill(); };
+    c.globalAlpha = .85; arrow(0, -Math.max(-4, Math.min(4, live.cl)) * s, '#86d8ea'); arrow(Math.max(-4, Math.min(4, live.cd)) * s, 0, '#ff8a4a'); c.globalAlpha = 1;
+  }
+  // first-minute hint: a pulsing ring on the tail handle
+  if (hintOn && bodies[0] && bodies[0].edit !== false) {
+    const b = bodies[0]; let k2 = 0; b.pts.forEach((p, i) => { if (p[0] > b.pts[k2][0]) k2 = i; });
+    const w = toWorld(b, b.pts[k2][0], b.pts[k2][1]), ph = (t * 1.4) % 1;
+    c.strokeStyle = `rgba(255,176,87,${1 - ph})`; c.lineWidth = 2 * px; c.beginPath(); c.arc(w[0], w[1], (14 + ph * 26) * px, 0, 7); c.stroke();
+    const ax = w[0] + 30 * px, ay = w[1]; const off = Math.sin(t * 4) * 6 * px;
+    c.strokeStyle = 'rgba(255,176,87,.9)'; c.lineWidth = 2.5 * px; c.beginPath(); c.moveTo(ax + off, ay); c.lineTo(ax + off + 40 * px, ay); c.moveTo(ax + off + 40 * px, ay); c.lineTo(ax + off + 30 * px, ay - 7 * px); c.moveTo(ax + off + 40 * px, ay); c.lineTo(ax + off + 30 * px, ay + 7 * px); c.stroke();
+    const h = $('#hint'); const s2 = scr(w[0], w[1]); h.textContent = 'drag'; h.style.left = (s2[0] + 40) + 'px'; h.style.top = (s2[1] + 14) + 'px'; h.style.opacity = 1;
+  } else $('#hint').style.opacity = 0;
+  // particles in CSS px
+  if (parts.list.length) { c.setTransform(d, 0, 0, d, 0, 0); parts.draw(c); }
+}
+
+// ================= celebrate =================
+function celebrate(e, prev) {
+  FX.sfx('win'); FX.shake(.25);
+  const b = bodies[0], s = scr(b.cx, b.cy);
+  parts.burst(s[0], s[1], { n: 90, color: ['#ffb057', '#fff3dc', '#86d8ea', '#ff6a2a'], speed: 260, life: .9, size: 3.2 });
+  const n = Math.max(1, e.stars);
+  if (e.stars > prev) RH.toast(cur.id === 'daily' ? `Daily: ${METRIC[cur.goal.m].toLowerCase()} ${e.v.toFixed(2)} ${'★'.repeat(n)}` : `${'★'.repeat(n)}${'☆'.repeat(3 - n)}  ${cur.t}`);
+  $('#stars').textContent = '★ ' + totalStars() + ' / ' + LV.length * 3;
+  const i = LV.indexOf(cur);
+  if (i >= 0 && i + 1 < LV.length && !prev) setTimeout(() => RH.toast('New request unlocked: ' + LV[i + 1].t), 1400);
+  if (i === 2 && !prev) setTimeout(() => RH.toast('The free bench is open (☰)'), 2800);
+}
+function nextLevel() {
+  const i = LV.indexOf(cur);
+  if (i >= 0 && i + 1 < LV.length) loadLevel(LV[i + 1]); else showJobs();
+}
+
+// ================= request file (level select) =================
+function silhouette(lv) {
+  const b = mkBody(Object.assign({}, lv.body, { pts: (S.designs[lv.id] && lv.body.edit !== false ? S.designs[lv.id].pts : lv.body.pts) }));
+  refresh(b); const pts = b.poly; let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; for (const p of pts) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
+  const sc = 26 / Math.max(x1 - x0, y1 - y0);
+  return `<svg width="44" height="30" viewBox="-22 -15 44 30"><path d="${pts.map((p, i) => (i ? 'L' : 'M') + ((p[0] - (x0 + x1) / 2) * sc).toFixed(1) + ' ' + (-(p[1] - (y0 + y1) / 2) * sc).toFixed(1)).join('')}Z" fill="#2b2922"/></svg>`;
+}
+function showJobs() {
+  const d = today(), dl = S.daily[d];
+  const html = `<h2>Test requests</h2><div class="jobs">${LV.map((l, i) => {
+    const ok = unlocked(i), s = S.done[l.id] || 0;
+    return `<button class="job${ok ? '' : ' lock'}${cur && cur.id === l.id ? ' cur' : ''}" data-id="${l.id}" ${ok ? '' : 'disabled'}><span class="n">No. ${i + 1}</span><span class="t">${ok ? l.t : '? ? ?'}</span><span class="s">${'★'.repeat(s)}${'☆'.repeat(3 - s)}</span>${silhouette(l)}</button>`; }).join('')}
+    <button class="job${S.done.chimney ? '' : ' lock'}" data-id="sandbox" ${S.done.chimney ? '' : 'disabled'}><span class="n">Any time</span><span class="t">${S.done.chimney ? 'Free bench' : 'Free bench (after No. 3)'}</span><span class="s">∞</span></button>
+    <button class="job${S.done.glider ? '' : ' lock'}" data-id="daily" ${S.done.glider ? '' : 'disabled'}><span class="n">${d}</span><span class="t">${S.done.glider ? 'Daily crate' : 'Daily (after No. 5)'}</span><span class="s">${dl ? '★'.repeat(dl.stars) + ' ' + dl.best : ''}</span></button></div>
+    ${Object.keys(S.daily).length ? `<p style="margin:10px 0 0;color:#b9c6bd">Today's line to share: <b id="shareLine">${shareLine()}</b></p>` : ''}`;
+  RH.modal(html, [{ label: 'Close' }]);
+  document.querySelectorAll('.job[data-id]').forEach(el => el.onclick = () => { if (el.disabled) return; document.querySelector('.modal-bg').remove(); loadLevel(levelById(el.dataset.id)); FX.sfx('whoosh'); });
+}
+function shareLine() { const d = today(), x = S.daily[d]; return x ? `Wind Tunnel ${d}: drag ${x.best} ${'★'.repeat(x.stars)}${'☆'.repeat(3 - x.stars)}` : ''; }
+function help() {
+  RH.modal(`<h2>The tunnel</h2>
+    <p style="margin:.3em 0">Air flows left to right. Smoke shows where it goes.</p>
+    <p style="margin:.3em 0"><b style="color:var(--amber)">Drag</b> a handle to reshape the body. Pull out a faint dot for a new handle; double-tap one to remove it.</p>
+    <p style="margin:.3em 0">The <b>lift</b> and <b>drag</b> recorders answer at once. When you let go, the strip under the ticket fills while the tunnel takes a steady reading.</p>
+    <p style="margin:.3em 0;color:#b9c6bd">Pinch or scroll to zoom, drag empty space to pan. ◐ swaps smoke for swirl (spin of the air) and pressure.</p>`, [{ label: 'Got it' }]);
+}
+
+// ================= sound: fan roar and the aeolian tone of the shedding vortices =================
+const audio = (() => {
+  let ac, g, flt, osc, og, on = false;
+  return {
+    start() { if (on || FX.muted) return; try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; } on = true;
+      const n = ac.sampleRate * 2, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0); let last = 0; for (let i = 0; i < n; i++) { last = (last + .02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; }
+      const src = ac.createBufferSource(); src.buffer = buf; src.loop = true; flt = ac.createBiquadFilter(); flt.type = 'lowpass'; flt.frequency.value = 500; g = ac.createGain(); g.gain.value = .05;
+      src.connect(flt); flt.connect(g); g.connect(ac.destination); src.start();
+      osc = ac.createOscillator(); osc.type = 'sine'; osc.frequency.value = 220; og = ac.createGain(); og.gain.value = 0; osc.connect(og); og.connect(ac.destination); osc.start(); },
+    update(sway, freq) { if (!on) return; const t = ac.currentTime, m = FX.muted ? 0 : 1;
+      g.gain.setTargetAtTime(.045 * m, t, .3); flt.frequency.setTargetAtTime(300 + Math.log2(sim.re / 100) * 160, t, .5);
+      og.gain.setTargetAtTime(m * Math.min(.035, sway * .05), t, .25); if (freq > 0) osc.frequency.setTargetAtTime(freq, t, .3); },
+  };
+})();
+let zc = { last: 0, sign: 0, t: [], f: 0 };
+function aeolian() { // zero crossings of the lift signal give the shedding frequency, heard as a hum
+  const v = live.icl - live.cl, s = v > 0 ? 1 : -1;
+  if (s !== zc.sign && Math.abs(v) > .01) { zc.sign = s; zc.t.push(steps); if (zc.t.length > 6) zc.t.shift(); }
+  if (zc.t.length > 3) { const per = (zc.t[zc.t.length - 1] - zc.t[0]) / (zc.t.length - 1) * 2; zc.f = per > 0 ? 160 * Math.pow(2, Math.log2(1500 / per * (NY / 160)) * .6) : 0; }
+  const st = windowStats(); audio.update(st ? st.sway : 0, Math.max(90, Math.min(700, zc.f)));
+}
+
+// ================= frame loop =================
+let paused = Q.has('paused'), lastT = performance.now(), frameMs = 16, slowFrames = 0, frameCount = 0, simMs = 0;
+function resize() {
+  dpr = Math.min(phone ? 1.5 : 2, devicePixelRatio || 1);
+  const w = Math.max(1, innerWidth * dpr | 0), h = Math.max(1, innerHeight * dpr | 0);
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  needOverlay = true;
+}
+addEventListener('resize', () => { resize(); if (!cam.touched) cam.fit(false); });
+function advance(n, sync, noDye) {
+  if (maskDirty) rasterise();
+  const t0 = performance.now();
+  for (let i = 0; i < n; i++) lbmStep();
+  forcePass();
+  if (sync) readForceSync(); else readForceAsync();
+  if (!noDye) dyePass(n);
+  simMs = performance.now() - t0;
+}
+function render(t) { fieldPass(); composite(t); drawOverlay(t); }
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(.05, (now - lastT) / 1000); frameMs += ((now - lastT) - frameMs) * .05; lastT = now; frameCount++;
+  if (document.hidden) return;
+  draws = 0;
+  if (!paused) {
+    advance(SPF, false);
+    checkPass();
+    // adaptive: drop sim steps per frame if the device can't keep up, raise them back when it can
+    if (frameMs > 24) { if (++slowFrames > 40 && SPF > Math.max(2, SPF0 >> 1)) { SPF--; slowFrames = 0; } } else if (frameMs < 17.5 && SPF < SPF0) { if (++slowFrames > 120) { SPF++; slowFrames = 0; } } else slowFrames = 0;
+  }
+  parts.update(dt);
+  if (paused && !needOverlay && !parts.list.length) return;
+  needOverlay = false;
+  render(now / 1000);
+  if (frameCount % 6 === 0) { updateCard(); drawGauges(); aeolian(); }
+}
+
+// ================= buttons =================
+$('#jobsBtn').onclick = () => { FX.sfx('click'); showJobs(); };
+$('#helpBtn').onclick = () => { FX.sfx('click'); help(); };
+const muteBtn = $('#muteBtn'); muteBtn.classList.toggle('on', !FX.muted);
+muteBtn.onclick = () => { FX.setMuted(!FX.muted); muteBtn.classList.toggle('on', !FX.muted); audio.start(); audio.update(0, 0); };
+$('#undoBtn').onclick = () => { FX.sfx('click'); undo(); };
+$('#mirBtn').onclick = () => { const b = bodies[0]; if (!b || b.edit === false) return; pushUndo(); b.mirror = !b.mirror; if (b.mirror) symmetrise(b); shapeChanged(b); keepDesign(); $('#mirBtn').classList.toggle('on', b.mirror); FX.sfx('pop'); };
+$('#viewBtn').onclick = () => { viewMode = (viewMode + 1) % 3; $('#viewBtn').textContent = ['◐', '◎', '◍'][viewMode]; RH.toast(['Smoke', 'Swirl: blue spins one way, red the other', 'Pressure: red pushes, blue sucks'][viewMode], 1600); FX.sfx('tick'); };
+$('#resetBtn').onclick = () => { pushUndo(); delete S.designs[cur.id]; const u = undoStack; loadLevel(cur, { fresh: true }); undoStack = u; FX.sfx('whoosh'); };
+$('#saveBtn').onclick = () => { if (!cur.free) return; pushUndo();
+  if (bodies.length > 1) { bodies.length = 1; delete S.second; }
+  else { const a = bodies[0], b = mkBody({ pts: a.pts.map(p => p.slice()), cx: Math.min(A - .7, a.cx + .55), cy: a.cy, tilt: a.tilt, move: true }); refresh(b); if (!inBounds(b)) { b.cx = a.cx + .3; refresh(b); } bodies.push(b); a.move = true; }
+  bodies.forEach(refresh); maskDirty = true; edited(); keepDesign(); buildUI(); };
+$('#fitBtn').onclick = () => cam.fit(true);
+addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); } });
+
+// share a design in the URL hash: #d=<level>:<x,y;...>:<tilt>
+function readHash() {
+  const m = location.hash.match(/^#d=([a-z]+):([-0-9.,;]+)(?::(-?[0-9.]+))?/); if (!m) return;
+  const lv = levelById(m[1]); if (!lv || (LV.indexOf(lv) >= 0 && !unlocked(LV.indexOf(lv)))) return;
+  const pts = m[2].split(';').map(s => s.split(',').map(Number)).filter(p => p.length === 2 && p.every(isFinite));
+  if (pts.length < 3) return;
+  S.designs[lv.id] = { pts, tilt: m[3] ? +m[3] : 0, mirror: false }; S.cur = lv.id;
+}
+
+// ================= boot =================
+buildLattice();
+resize();
+readHash();
+const startId = Q.get('level') || S.cur || 'round';
+loadLevel(levelById(startId) || LV[0]);
+if (Q.get('ui') === '0') document.querySelectorAll('.topbar,#card,#desk,#tools').forEach(e => e.style.display = 'none');
+requestAnimationFrame(frame);
+if (!S.seenHelp) { S.seenHelp = 1; save(); }
+
+// ================= test hooks =================
+window.__wt = {
+  get state() { const e = evaluate(); return { level: cur.id, steps, grid: [NX, NY], re: sim.re, tau: sim.tau, spf: SPF, tilt: bodies[0].tilt, spin: bodies[0].spin, progress: measureProgress(), passed: passedThis, stars: e ? e.stars : 0, eval: e, nan: nanCount, half: FT.half, bodies: bodies.length, mirror: bodies[0].mirror, npts: bodies[0].pts.length }; },
+  get level() { return cur; }, LV, SANDBOX, dailyLevel, levelById,
+  setLevel(id) { loadLevel(typeof id === 'number' ? LV[id] : levelById(id), { fresh: true }); return cur.id; },
+  setShape(points, o = {}) { const b = bodies[o.body || 0]; if (points) b.pts = points.map(p => p.slice()); for (const k of ['tilt', 'spin', 'cx', 'cy', 'mirror']) if (o[k] != null) b[k] = o[k]; shapeChanged(b); rasterise(); syncSliders(); return { keep: keepOK(b), area: polyArea(b.poly), inBounds: inBounds(b) }; },
+  setWind(re) { setRe(re); edited(); },
+  step(n, o = {}) { const ch = o.chunk || 20; let k = 0; while (k < n) { const m = Math.min(ch, n - k); advance(m, true, o.dye === false); k += m; } checkPass(); if (o.dye !== false) { render(performance.now() / 1000); updateCard(); drawGauges(); } return steps; },
+  forces() { const s = windowStats() || stats(lastEdit + settleSteps()) || stats(0); return s ? Object.assign({ inst: { lift: live.icl, drag: live.icd } }, s) : { lift: NaN, drag: NaN }; },
+  statsSince(n) { return stats(steps - n); },
+  history() { const o = []; const lo = Math.max(0, hist.n - HN); for (let j = lo; j < hist.n; j++) { const k = j % HN; o.push([hist.step[k], hist.cl[k], hist.cd[k]]); } return o; },
+  perf() { return { draws, frameMs, simMs, spf: SPF, grid: [NX, NY], cells: NX * NY, dye: [NX * DS, NY * DS], canvas: [cv.width, cv.height], dpr, half: FT.half }; },
+  pause(p = true) { paused = p; }, reset() { initField(); }, evaluate, constraintsOK, save: () => S, keepDesign, cam, bodies, symmetrise, removePoint, pickAt, scr, toWorld,
+  view(m) { viewMode = m; }, sim,
+  readVel() { const a = new Float32Array(NX * NY * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, L.a.f); gl.readBuffer(gl.COLOR_ATTACHMENT2); gl.readPixels(0, 0, NX, NY, gl.RGBA, gl.FLOAT, a); gl.readBuffer(gl.COLOR_ATTACHMENT0); return a; },
+  noise(x0 = .1, x1 = .4) { const a = this.readVel(); let s = 0, n = 0; for (let j = 2; j < NY - 2; j++) for (let i = Math.round(x0 * NX); i < Math.round(x1 * NX); i++) { const k = (j * NX + i) * 4; s += Math.abs(a[k + 2] - .5 * (a[k + 2 - 4] + a[k + 2 + 4])) + Math.abs(a[k + 2] - .5 * (a[k + 2 - 4 * NX] + a[k + 2 + 4 * NX])); n++; } return s / n / U; },
+  circle, rrect, naca,
+};
+})();
+</script>
+</body>
+</html>
