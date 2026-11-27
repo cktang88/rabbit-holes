@@ -1,6 +1,7 @@
 // Kiln potter bots. They see what a player sees: the client's target (colour swatch, surface, crackle/crystal words),
 // the shelf of materials they have, and the likeness each fired test tile scores. None of them reads the commission's ref.
-//  - naive: fire the bench as it starts (or the client's recipe), on the starting schedule
+//  - naive: fire the bench as it starts (the commission's starter recipe and firing), unchanged
+//  - hintFollower: start there and do only what each critique's arrow says ("→ raise PEAK", "→ add more iron")
 //  - random: a handful of random jars in random amounts, on a random schedule
 //  - competent: a potter's rules of thumb pick a starting glaze from the target's look (dark -> saturated iron in reduction,
 //    pale blue-green -> a little iron in reduction, red -> copper with tin in reduction, crystals -> zinc frit glaze with a
@@ -65,10 +66,15 @@ module.exports.botSrc = `
     }
     return { ok: best.j.pass, lik: best.j.lik, tiles, best: best.g, x: best.x };
   }
-  function naive(c) { const x = K.fire(c.start || { feldspar: 40, silica: 30, kaolin: 20, whiting: 10 }, K.SCHED0, c.body, 1); return { ok: K.judge(x, c.T).pass, lik: K.judge(x, c.T).lik }; }
+  function naive(c) { const x = K.fire(c.start || { feldspar: 45, silica: 25, whiting: 15, kaolin: 15 }, { ...K.SCHED0, ...(c.startS || {}) }, c.body, 1); return { ok: K.judge(x, c.T).pass, lik: K.judge(x, c.T).lik }; }
+  // a newcomer who knows nothing and simply does what the last critique told them (the top two suggestions), one pot after another
+  function hintFollower(c, U, max = 4) { const mats = [...U.mats, ...(U.gas ? ['gas'] : [])];
+    const g = { r: { ...(c.start || { feldspar: 45, silica: 25, whiting: 15, kaolin: 15 }) }, s: { ...K.SCHED0, ...(c.startS || {}) }, app: 1 }; let j, n = 0, liks = [];
+    while (n < max) { n++; j = K.judge(K.fire(g.r, g.s, c.body, g.app), c.T); liks.push(j.lik); if (j.pass) break; K.applyAdvice(g, [...(j.acts[0] || []), ...(j.acts[1] || [])], mats); }
+    return { ok: j.pass, firings: n, liks, notes: j.notes }; }
   function random(c, U, rnd) { const r = {}, mats = U.mats; for (let n = 2 + Math.floor(rnd() * 4); n > 0; n--) { const m = mats[Math.floor(rnd() * mats.length)]; r[m] = K.M[m].add ? +(rnd() * 6).toFixed(2) : Math.round(5 + rnd() * 45); }
     if (!Object.keys(r).some(m => !K.M[m].add)) r.feldspar = 50;
     const s = { peak: 5 * Math.round((1000 + rnd() * 320) / 5), ramp: 50 + Math.round(rnd() * 250), hold: Math.round(rnd() * 60), cool: [400, 300, 150, 80][Math.floor(rnd() * 4)], atm: U.gas && rnd() < .5 ? 'red' : 'ox', xt: 0, xh: 0 };
     const x = K.fire(r, s, c.body, .8 + rnd() * .6), j = K.judge(x, c.T); return { ok: j.pass, lik: j.lik }; }
-  return { seed, competent, naive, random };
+  return { seed, competent, naive, random, hintFollower };
 })`;

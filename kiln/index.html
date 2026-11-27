@@ -70,6 +70,17 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 .picker button{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.35);border:1px solid #b5a284;min-height:36px;font-size:13px;text-align:left;padding:2px 6px;cursor:pointer;color:var(--ink)}
 .picker button .jar{flex:0 0 16px;height:18px}
 .picker button.new{box-shadow:0 0 0 2px var(--ember)}
+.strip{display:inline-flex;margin-left:6px;vertical-align:middle;gap:1px}.strip i{display:inline-block;width:9px;height:9px;border-radius:50%;box-shadow:inset 0 -1px 2px rgba(0,0,0,.3),0 0 0 .5px rgba(60,40,25,.35)}
+.picker button .strip{margin-left:4px}
+.row2 .nm,.row2 .jar{cursor:help}
+.info{font-size:13px;line-height:1.35;color:#3b2f24;background:rgba(255,255,255,.45);border-left:3px solid var(--ember);padding:5px 8px;margin:2px 0 4px}
+.prevbox{display:flex;gap:10px;align-items:center;padding:4px 0 8px;border-bottom:1px solid rgba(110,92,73,.3);margin-bottom:4px;font-size:13px}
+.prevbox canvas{width:44px;height:59px;flex:0 0 44px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))}
+.pred{font-size:13px;color:var(--ink);line-height:1.3;margin-top:2px}
+.predrow{display:flex;gap:8px;align-items:center;margin:-2px 0 6px}.predrow canvas{width:28px;height:37px;flex:0 0 28px}.predrow .pred{color:#ffd9b8;font-size:12.5px}
+.why{font-size:11.5px;line-height:1.3;color:#8f7c66;margin:-4px 0 4px 2px;transition:color .2s}
+.why.live{color:#ffd9b8}
+.mini canvas.prev{width:18px;height:24px;flex:0 0 18px;margin-right:6px}
 .unity{font-family:var(--mono);font-size:11.5px;color:var(--ink2);line-height:1.5;margin-top:8px;padding-top:6px;border-top:1px solid rgba(110,92,73,.3)}
 .unity b{color:var(--ink);font-weight:500}
 /* the kiln controller: a black box with LED digits */
@@ -451,45 +462,81 @@ const KILN = (() => {
 
   // ---------- judging: how close is a fired pot to what the client asked for ----------
   // target: { col, brk?, gloss, gtol?, op?, craze: 'none'|'want'|'any', crys?: {r, n:[lo,hi]}, fur?, var?, oil? }
+  // what a colour family is made of, in a potter's plain words, and the change that moves towards it
+  const COLN = { Fe: 'iron', Cu: 'copper', Co: 'cobalt', Mn: 'manganese', Cr: 'chrome' };
+  function family(hex) { const L = lab(hex2lin(hex)), C = Math.hypot(L[1], L[2]), h = hueName(Math.atan2(L[2], L[1]), L[0]);
+    if (L[0] < 24) return { say: 'lots of iron (8-10%), ideally in a gas kiln', col: 'iron', amt: 9, atm: 'red' };
+    if (C < 8) return { say: 'no colourant at all', col: null };
+    if (h === 'blue' || h === 'violet') return { say: 'cobalt (about 1%)', col: 'cobalt', amt: 1 };
+    if (h === 'blue-green' && L[0] > 62) return { say: 'a little iron (about 1%) in a gas kiln (reduction), laid on thick', col: 'iron', amt: 1.2, atm: 'red' };
+    if (h === 'green' || h === 'blue-green') return { say: 'copper (2-3%) in an electric kiln', col: 'copper', amt: 2.5, atm: 'ox' };
+    if (h === 'teal') return { say: 'copper in a soda frit glaze', col: 'copper', amt: 3, atm: 'ox' };
+    if (h === 'red' && L[0] < 50) return { say: 'about 1% copper with a pinch of tin, in a gas kiln (reduction)', col: 'copper', amt: 1, atm: 'red' };
+    if (h === 'rose' || h === 'red') return { say: 'a whisper of chrome (0.2%) with tin (5%) and plenty of whiting', col: 'chrome', amt: .2, atm: 'ox' };
+    if (h === 'plum') return { say: 'manganese in a soda frit glaze', col: 'manganese', amt: 3, atm: 'ox' };
+    if (h === 'rust' || h === 'orange') return { say: 'plenty of iron (10-12%) and a slow cool', col: 'iron', amt: 11 };
+    return { say: 'iron (2-4%) in an electric kiln', col: 'iron', amt: 3, atm: 'ox' }; }
+  function mainCol(r) { let best = null, v = 0; for (const k of ['Fe', 'Cu', 'Co', 'Mn', 'Cr']) { const w = r.a.add[k] * (k === 'Co' ? 4 : k === 'Cr' ? 8 : 1); if (r.a.add[k] > (k === 'Fe' ? .4 : .02) && w > v) { v = w; best = COLN[k]; } } return best; }
+  // the critique: what is wrong, and what to change. acts are the same advice as data (the hint-following bot reads them)
   function judge(r, T) {
-    if (!r) return { lik: 0, notes: ['There is no glaze to fire.'], pass: false };
-    const notes = []; let sc = 100; const pen = (p, why) => { if (p > .5) { sc -= p; notes.push([p, why]); } };
-    if (r.slump) return { lik: 0, pass: false, notes: ['The terracotta slumped and bloated: that clay cannot take this heat.'] };
-    if (r.ranOff) return { lik: 0, pass: false, notes: ['The glaze ran off the foot and welded the pot to the shelf.'] };
-    const tc = hex2lin(T.col), e = dE(r.main, tc);
-    const L1 = lab(r.main), L2 = lab(tc);
-    const cw = T.cw || 1;
-    if (e > 3) { const d = [L1[0] - L2[0], L1[1] - L2[1], L1[2] - L2[2]], why = [];
-      if (Math.abs(d[0]) > 5) why.push(d[0] > 0 ? 'too light' : 'too dark');
-      const C1 = Math.hypot(L1[1], L1[2]), C2 = Math.hypot(L2[1], L2[2]);
+    if (!r) return { lik: 0, notes: ['There is no glaze to fire.'], pass: false, acts: [] };
+    const notes = []; let sc = 100; const pen = (p, why, fix, acts = []) => { if (p > .5) { sc -= p; notes.push([p, why + (fix ? ' → ' + fix : ''), acts]); } };
+    if (r.slump) return { lik: 0, pass: false, notes: ['The ' + BODIES[r.body].n.toLowerCase() + ' slumped and bloated: that clay cannot take this heat. → Keep PEAK under ' + (BODIES[r.body].max - 10) + '°.'], acts: [[['peak', -120]]] };
+    if (r.ranOff) return { lik: 0, pass: false, notes: ['The glaze ran off the foot and welded the pot to the shelf. → Lower PEAK, or lay the glaze on thinner.'], acts: [[['peak', -30], ['app', -.2]]] };
+    const tc = hex2lin(T.col), e = dE(r.main, tc), L1 = lab(r.main), L2 = lab(tc), cw = T.cw || 1, fam = family(T.col), mc = mainCol(r), red = r.s.atm === 'red';
+    if (e > 3) { const d = L1[0] - L2[0], why = [], C1 = Math.hypot(L1[1], L1[2]), C2 = Math.hypot(L2[1], L2[2]); let fix = '', acts = [];
+      const hueOff = Math.min(C1, C2) > 6 && Math.abs(Math.atan2(Math.sin(Math.atan2(L1[2], L1[1]) - Math.atan2(L2[2], L2[1])), Math.cos(Math.atan2(L1[2], L1[1]) - Math.atan2(L2[2], L2[1])))) > .22;
+      const wrongFam = fam.col !== mc && fam.col !== null && !(fam.col === 'chrome' && mc === 'chrome');
+      if (Math.abs(d) > 5) why.push(d > 0 ? 'too light' : 'too dark');
       if (C2 - C1 > 7) why.push('too dull, not enough colour'); else if (C1 - C2 > 9) why.push('too strong a colour');
-      const hd = Math.atan2(L1[2], L1[1]) - Math.atan2(L2[2], L2[1]), hw = Math.atan2(Math.sin(hd), Math.cos(hd));
-      if (Math.min(C1, C2) > 6 && Math.abs(hw) > .22) { const h2 = Math.atan2(L2[2], L2[1]); why.push(hueWord(Math.atan2(L1[2], L1[1]), h2)); }
-      pen(e * 1.25 * cw, 'The colour is off: ' + (why.join(', ') || 'not quite the shade') + '.'); }
-    if (T.brk) { const e2 = dE(r.brk, hex2lin(T.brk)); if (e2 > 6) pen(e2 * .5, 'The edges should break to ' + nameColor(hex2lin(T.brk)) + '; yours go ' + nameColor(r.brk) + '.'); }
-    const gt = T.gtol ?? .18; const gd = r.gloss - T.gloss;
-    if (Math.abs(gd) > gt) pen((Math.abs(gd) - gt) * 110, gd > 0 ? 'Too glossy: they wanted ' + (T.gloss < .3 ? 'a dry, stony matte' : 'a soft satin') + '.' : (r.M < .7 ? 'Underfired: the glaze never fully melted. It feels like sandpaper.' : 'Too dull: they wanted ' + (T.gloss > .8 ? 'a glassy shine' : 'more sheen') + '.'));
-    if (T.op != null) { const od = r.opac - T.op; if (Math.abs(od) > .2) pen((Math.abs(od) - .2) * 70, od > 0 ? 'Too opaque: they wanted to see depth, into the glaze.' : 'Too transparent: they wanted it to hide the clay.'); }
-    if (T.craze === 'none' && r.craze > .04) pen(12 + r.craze * 60, 'It crazed: a web of fine cracks. It will leak and stain.');
-    if (T.craze === 'want' && r.craze < .45) pen((.45 - r.craze) * 110, r.craze > .05 ? 'The crackle is too sparse and too fine.' : 'They wanted a crackled surface, and yours is whole.');
-    if (r.shiver > .05) pen(15 + r.shiver * 60, 'Shivering: slivers of glaze flaked off the rim.');
-    if (r.crawl > .06) pen(10 + r.crawl * 70, 'The glaze crawled, pulling back into beads and leaving bare clay.');
-    if (r.pin > .12) pen(r.pin * 40, 'Pinholes: the surface is pocked.');
-    if (r.run > 1.25 && !T.runOK) pen((r.run - 1.25) * 30, 'It ran: thick drips gather at the foot.');
+      if (hueOff) why.push(hueWord(Math.atan2(L1[2], L1[1]), Math.atan2(L2[2], L2[1])));
+      if (fam.col === null && mc) { fix = 'Leave out the ' + mc + '.'; acts = [['col', mc, 0]]; }
+      else if (wrongFam && (hueOff || !mc || C2 - C1 > 7)) { fix = 'That colour comes from ' + fam.say + '.'; acts = [['col', fam.col, fam.amt], ...(fam.atm ? [['atm', fam.atm]] : [])]; }
+      else if (fam.atm && (fam.atm === 'red') !== red && hueOff) { fix = fam.atm === 'red' ? 'Fire it in the gas kiln (reduction).' : 'Fire it in the electric kiln (oxidation).'; acts = [['atm', fam.atm]]; }
+      else if (mc && (d > 5 || C2 - C1 > 7)) { fix = 'Add more ' + mc + (mc === 'iron' && fam.atm === 'red' && !red ? ', and fire in reduction' : '') + ', or lay the glaze on thicker.'; acts = [['colx', mc, 1.5]]; }
+      else if (mc && (d < -5 || C1 - C2 > 9)) { fix = 'Use less ' + mc + '.'; acts = [['colx', mc, .65]]; }
+      else if (!mc && d < -5) { fix = 'Something is darkening it: fire hotter, or use fewer jars.'; acts = [['peak', 15]]; }
+      else if (hueOff && fam.atm && fam.atm === 'red' && !red) { fix = 'Try the gas kiln (reduction).'; acts = [['atm', 'red']]; }
+      else if (hueOff) { fix = 'That colour comes from ' + fam.say + '.'; acts = fam.col ? [['colx', fam.col, 1.3]] : []; }
+      else if (mc) { fix = d > 0 ? 'Close: a touch more ' + mc + '.' : 'Close: a touch less ' + mc + '.'; acts = [['colx', mc, d > 0 ? 1.2 : .85]]; }
+      pen(e * 1.25 * cw, 'The colour is off: ' + (why.join(', ') || 'not quite the shade') + '.', fix, acts); }
+    if (T.brk) { const e2 = dE(r.brk, hex2lin(T.brk)); if (e2 > 6) pen(e2 * .5, 'The edges should break to ' + nameColor(hex2lin(T.brk)) + '; yours go ' + nameColor(r.brk) + '.', 'Edges show the glaze thin: a different amount of colourant or thickness changes them.'); }
+    const gt = T.gtol ?? .18, gd = r.gloss - T.gloss;
+    if (Math.abs(gd) > gt) { const p = (Math.abs(gd) - gt) * 110;
+      if (gd > 0) pen(p, 'Too glossy: they wanted ' + (T.gloss < .3 ? 'a dry, stony matte' : 'a soft satin') + '.', (r.s.cool > 120 ? 'Cool it slowly (COOL about 90°/h) so crystals grow and dull it, and a' : 'A') + 'dd kaolin and whiting, with less silica: a matte is glass too stiff to flow smooth.', [...(r.s.cool > 120 ? [['cool', 90]] : []), ['add', 'kaolin', 10], ['add', 'whiting', 6], ['add', 'silica', -12]]);
+      else if (r.M < .7) pen(p, 'Underfired: the glaze never fully melted. It feels like sandpaper.', r.s.peak < 1300 ? 'Raise PEAK (about 30° more), or add a SOAK.' : 'It needs more flux: add whiting or feldspar, less silica.', r.s.peak < 1300 ? [['peak', 30], ['hold', 10]] : [['add', 'whiting', 6], ['add', 'silica', -6]]);
+      else pen(p, 'Too dull: they wanted ' + (T.gloss > .8 ? 'a glassy shine' : 'more sheen') + '.', r.s.cool < 300 ? 'Cool it fast (COOL: kiln off) so it stays glassy.' : r.s.peak < 1290 ? 'Fire a little hotter or soak longer.' : 'Less kaolin, more silica.', r.s.cool < 300 ? [['cool', 400]] : r.s.peak < 1290 ? [['peak', 15], ['hold', 10]] : [['add', 'kaolin', -6], ['add', 'silica', 6]]); }
+    if (T.op != null) { const od = r.opac - T.op; if (Math.abs(od) > .2) pen((Math.abs(od) - .2) * 70, od > 0 ? 'Too opaque: they wanted to see depth, into the glaze.' : 'Too transparent: they wanted it to hide the clay.', od > 0 ? 'Fire a little hotter so the tiny bubbles clear, or use less tin or kaolin.' : 'Lay it on thicker.', od > 0 ? [['peak', 10], ['hold', 10]] : [['app', .2]]); }
+    if (T.craze === 'none' && r.craze > .04) pen(12 + r.craze * 60, 'It crazed: a web of fine cracks. It will leak and stain.', 'The glaze shrinks too much: add silica (or talc), and use less nepheline or soda frit.', [['add', 'silica', 10], ['add', 'neph', -10]]);
+    if (T.craze === 'want' && r.craze < .45) pen((.45 - r.craze) * 110, r.craze > .05 ? 'The crackle is too sparse and too fine.' : 'They wanted a crackled surface, and yours is whole.', 'Make the glaze shrink more than the clay: more nepheline syenite or soda, less silica.', [['add', 'neph', 10], ['add', 'silica', -8]]);
+    if (r.shiver > .05) pen(15 + r.shiver * 60, 'Shivering: slivers of glaze flaked off the rim.', 'Too little shrink: less silica and talc, more feldspar.', [['add', 'silica', -8], ['add', 'feldspar', 8]]);
+    if (r.crawl > .06) pen(10 + r.crawl * 70, 'The glaze crawled, pulling back into beads and leaving bare clay.', 'Less kaolin (raw clay shrinks), and a thinner coat.', [['add', 'kaolin', -8], ['app', -.2]]);
+    if (r.pin > .12) pen(r.pin * 40, 'Pinholes: the surface is pocked.', 'Climb more slowly (CLIMB lower), or add a SOAK so the bubbles heal.', [['ramp', -50], ['hold', 15]]);
+    if (r.run > 1.25 && !T.runOK) pen((r.run - 1.25) * 30, 'It ran: thick drips gather at the foot.', 'Lower PEAK, or lay the glaze on thinner.', [['peak', -20], ['app', -.2]]);
     if (T.crys) { const c = r.crystals;
-      if (!c || c.r < 1) pen(55, 'They wanted crystals, and there are none to see.');
-      else { if (c.r < T.crys.r) pen((T.crys.r - c.r) / T.crys.r * 45, 'The crystals are too small.');
-        if (c.n > T.crys.n[1]) pen(Math.min(40, (c.n - T.crys.n[1]) / T.crys.n[1] * 25), 'Too many crystals: they crowd each other into a mat.');
-        if (c.n < T.crys.n[0]) pen(Math.min(40, (T.crys.n[0] - c.n) / T.crys.n[0] * 40), 'Too few crystals: they wanted a field of them.'); } }
-    else if (r.crystals && r.crystals.r > 2 && r.crystals.cover > .08) pen(14, 'Odd crystals have bloomed all over it.');
-    if (T.fur) { if (r.fur < T.fur) pen((T.fur - r.fur) * 70, 'No hare\'s fur: the streaks never came.'); } else if (r.fur > .35) pen((r.fur - .35) * 25, 'Unwanted brown streaks run down it.');
-    if (T.var) { if (r.variegate < T.var) pen((T.var - r.variegate) * 70, 'It should be mottled and streaky, and it is flat.'); }
-    if (T.oil) { if (r.oil < T.oil) pen((T.oil - r.oil) * 80, 'No oil spots: they wanted silver spots scattered over the black.'); }
+      if (!c || c.r < 1) pen(55, 'They wanted crystals, and there are none to see.', 'Crystals need zinc and soda frit with almost no kaolin, then a HOLD around 1100° for a few hours as it cools.', [['xhold', 1100, 3]]);
+      else { if (c.r < T.crys.r) pen((T.crys.r - c.r) / T.crys.r * 45, 'The crystals are too small.', 'HOLD longer, and nearer 1100°.', [['xh', 1]]);
+        if (c.n > T.crys.n[1]) pen(Math.min(40, (c.n - T.crys.n[1]) / T.crys.n[1] * 25), 'Too many crystals: they crowd each other into a mat.', 'HOLD hotter (1100° or more): fewer crystals start, and grow bigger.', [['xt', 20]]);
+        if (c.n < T.crys.n[0]) pen(Math.min(40, (T.crys.n[0] - c.n) / T.crys.n[0] * 40), 'Too few crystals: they wanted a field of them.', 'HOLD cooler (about 1040°): many more crystals start.', [['xt', -30]]); } }
+    else if (r.crystals && r.crystals.r > 2 && r.crystals.cover > .08) pen(14, 'Odd crystals have bloomed all over it.', 'Less zinc, or no HOLD.', [['add', 'zinc', -8]]);
+    if (T.fur) { if (r.fur < T.fur) pen((T.fur - r.fur) * 70, 'No hare\'s fur: the streaks never came.', 'The fur is iron dragged down by flowing glaze: lots of iron (9%), fire hotter or soak longer, and lay it on thick.', [['peak', 15], ['hold', 15], ['app', .2]]); } else if (r.fur > .35) pen((r.fur - .35) * 25, 'Unwanted brown streaks run down it.', 'Fire a little cooler, or less iron.', [['peak', -15]]);
+    if (T.var) { if (r.variegate < T.var) pen((T.var - r.variegate) * 70, 'It should be mottled and streaky, and it is flat.', 'Rutile (about 6%) in a runny glaze, cooled slowly.', [['col', 'rutile', 6], ['cool', 120]]); }
+    if (T.oil) { if (r.oil < T.oil) pen((T.oil - r.oil) * 80, 'No oil spots: they wanted silver spots scattered over the black.', 'Fire to about 1300° with no SOAK, then switch the kiln off to cool fast.', [['peak', 15], ['hold', -60], ['cool', 400]]); }
     const lik = Math.round(clamp(sc, 0, 100));
     notes.sort((x, y) => y[0] - x[0]);
-    return { lik, pass: lik >= PASS, notes: notes.map(n => n[1]) };
+    return { lik, pass: lik >= PASS, notes: notes.map(n => n[1]), acts: notes.map(n => n[2]) };
   }
   const PASS = 75;
+  // carry out a critique's advice on a bench { r, s, app }, using only jars the studio has
+  function applyAdvice(g, acts, mats) { const r = g.r, s = g.s, has = m => !mats || mats.includes(m), lim = (k, v, lo, hi) => { s[k] = clamp(v, lo, hi); };
+    for (const [k, a, b] of acts) {
+      if (k === 'peak') lim('peak', s.peak + a, 950, 1320); if (k === 'hold') lim('hold', s.hold + a, 0, 120); if (k === 'ramp') lim('ramp', s.ramp + a, 50, 300);
+      if (k === 'cool') s.cool = a; if (k === 'atm' && (a === 'ox' || has('gas'))) s.atm = a; if (k === 'app') g.app = clamp(g.app + a, .6, 1.6);
+      if (k === 'add' && has(a) && (b > 0 || r[a])) { r[a] = Math.max(0, (r[a] || 0) + b); if (!r[a]) delete r[a]; }
+      if (k === 'col' && has(a)) { for (const m of ['iron', 'copper', 'cobalt', 'manganese', 'chrome']) if (m !== a) delete r[m]; if (b) r[a] = b; else delete r[a]; if (a === 'chrome' && has('tin')) r.tin = Math.max(r.tin || 0, 5); if (a === 'copper' && s.atm === 'red' && has('tin')) r.tin = Math.max(r.tin || 0, 1); }
+      if (k === 'colx' && r[a]) r[a] = +(r[a] * b).toFixed(2);
+      if (k === 'xhold') { s.xt = a; s.xh = b; } if (k === 'xh') s.xh = clamp((s.xh || 0) + a, 0, 6); if (k === 'xt') s.xt = clamp((s.xt || 1100) + a, 900, 1150);
+    } return g; }
   const HUES = [[.12, 'rose'], [.5, 'red'], [.9, 'rust'], [1.3, 'amber'], [1.65, 'yellow'], [2.4, 'green'], [2.9, 'blue-green'], [-2.7, 'teal'], [-1.4, 'blue'], [-.8, 'violet'], [-.35, 'plum']];
   const hueName = (h, L = 50) => { let best = HUES[0], bd = 9; for (const n of HUES) { const dd = Math.abs(Math.atan2(Math.sin(h - n[0]), Math.cos(h - n[0]))); if (dd < bd) { bd = dd; best = n; } }
     return best[1] === 'rust' && L > 55 ? 'orange' : best[1]; };
@@ -504,22 +551,22 @@ const KILN = (() => {
   // ref: a known answer (used only to set the cost and fuel pars, and by the tests).
   const C10 = { peak: 1285, ramp: 100, hold: 15, cool: 400, atm: 'ox' }, C10R = { ...C10, atm: 'red' };
   const COMMS = [
-    { id: 'clear', n: 'A clear glaze', who: 'A tea merchant', ask: 'A glass-clear glaze for my porcelain cups. It must not craze: cracks hold old tea.', body: 'porcelain', form: 'cup',
+    { id: 'clear', n: 'A clear glaze', who: 'A tea merchant', ask: 'A glass-clear glaze for my porcelain cups. It must not craze: cracks hold old tea.', body: 'porcelain', form: 'cup', start: { feldspar: 45, silica: 25, whiting: 15, kaolin: 15 }, startS: { peak: 1220 },
       T: { col: '#efebe3', gloss: .95, op: .3, craze: 'none' }, par: 5, gift: 'Red iron oxide and talc arrive on the shelf.',
       ref: [{ feldspar: 35, silica: 35, whiting: 20, kaolin: 10 }, { peak: 1290, ramp: 100, hold: 20 }, 1] },
-    { id: 'honey', n: 'Honey', who: 'A beekeeper', ask: 'A jar the colour of dark honey held up to a window: amber, clear, glossy, paler where it thins.', body: 'porcelain', form: 'jar',
+    { id: 'honey', n: 'Honey', who: 'A beekeeper', ask: 'A jar the colour of dark honey held up to a window: amber, clear, glossy, paler where it thins.', body: 'porcelain', form: 'jar', start: { feldspar: 40, silica: 30, whiting: 20, kaolin: 10, iron: 1.5 }, startS: { peak: 1285, ramp: 100, hold: 15 },
       T: { col: '#b37a27', brk: '#d6b46a', gloss: .95, craze: 'none' }, par: 6, gift: 'Cobalt and dolomite arrive. You start Seger\'s notebook: the unity formula of every glaze you mix.',
       ref: [{ feldspar: 40, silica: 30, whiting: 20, kaolin: 10, iron: 4 }, C10, 1] },
-    { id: 'matteblue', n: 'Matte blue', who: 'An architect', ask: 'Lamp bases in a deep blue that does not shine. Stone, not glass. No crazing, no crawling.', body: 'buff', form: 'cylinder',
-      T: { col: '#4f6bd0', gloss: .35, gtol: .14, craze: 'none' }, par: 12, gift: 'Nepheline syenite and a boron frit arrive. A dilatometer now reads each glaze\'s expansion.',
+    { id: 'matteblue', n: 'Matte blue', who: 'An architect', ask: 'Lamp bases in a deep blue that does not shine. Stone, not glass. No crazing, no crawling.', body: 'buff', form: 'cylinder', start: { feldspar: 40, silica: 30, whiting: 20, kaolin: 10, cobalt: 1 }, startS: { peak: 1285, ramp: 100, hold: 15 },
+      T: { col: '#4f6bd0', gloss: .35, gtol: .18, craze: 'none' }, par: 12, gift: 'Nepheline syenite and a boron frit arrive. A dilatometer now reads each glaze\'s expansion.',
       ref: [{ feldspar: 40, silica: 15, whiting: 26, kaolin: 22, talc: 4, cobalt: 1.2 }, { ...C10, cool: 90 }, 1] },
     { id: 'fit', n: 'Make it fit', who: 'A restaurant', ask: 'Our clear glaze crazes on these porcelain bowls and the health inspector is unhappy. Keep it clear and glossy; stop the cracks. Here is our recipe.', body: 'porcelain', form: 'bowl',
-      start: { neph: 50, silica: 20, whiting: 15, kaolin: 15 }, T: { col: '#eeeae0', gloss: .95, op: .35, craze: 'none' }, par: 6, gift: 'The gas kiln is yours: fire in reduction, starving the flame of air.',
+      start: { neph: 50, silica: 20, whiting: 15, kaolin: 15 }, startS: { peak: 1285, ramp: 100, hold: 15 }, T: { col: '#eeeae0', gloss: .95, op: .35, craze: 'none' }, par: 6, gift: 'The gas kiln is yours: fire in reduction, starving the flame of air.',
       ref: [{ neph: 30, silica: 30, whiting: 15, kaolin: 15, talc: 10 }, C10, 1] },
-    { id: 'celadon', n: 'Song celadon', who: 'A museum shop', ask: 'A copy of a Longquan vase: the soft blue-green of jade, glassy but deep, as though you could see into it. Thick, so it pools.', body: 'porcelain', form: 'vase',
+    { id: 'celadon', n: 'Song celadon', who: 'A museum shop', ask: 'A copy of a Longquan vase: the soft blue-green of jade, glassy but deep, as though you could see into it. Thick, so it pools.', body: 'porcelain', form: 'vase', start: { feldspar: 40, silica: 30, whiting: 20, kaolin: 10, iron: 1.2 }, startS: { peak: 1285, ramp: 100, hold: 15 },
       T: { col: '#9dbdaa', brk: '#c4d6cc', gloss: .9, op: .5, craze: 'none' }, par: 10, gift: 'Copper carbonate and tin oxide arrive.',
       ref: [{ feldspar: 40, silica: 30, whiting: 20, kaolin: 10, iron: 1.2 }, C10R, 1.4] },
-    { id: 'cugreen', n: 'Copper green', who: 'A garden centre', ask: 'Planters in a fresh leaf green, glossy, a little darker where it pools.', body: 'buff', form: 'jar',
+    { id: 'cugreen', n: 'Copper green', who: 'A garden centre', ask: 'Planters in a fresh leaf green, glossy, a little darker where it pools.', body: 'buff', form: 'jar', start: { feldspar: 40, silica: 30, whiting: 20, kaolin: 10, copper: 1 }, startS: { peak: 1285, ramp: 100, hold: 15 },
       T: { col: '#4d9f6d', gloss: .9, craze: 'none' }, par: 6, gift: 'A dark iron-bearing stoneware body arrives from the clay merchant.',
       ref: [{ feldspar: 40, silica: 30, whiting: 20, kaolin: 10, copper: 2.5 }, C10, 1] },
     { id: 'oxblood', n: 'Oxblood', who: 'A collector', ask: 'Sang de boeuf: the deep red of the Qing imperial kilns, glossy, the rim gone pale where the glaze ran thin.', body: 'porcelain', form: 'meiping',
@@ -587,7 +634,7 @@ const KILN = (() => {
   const daily = key => { for (let i = 0; i < 20; i++) { const d = dailyComm(i ? key + '#' + i : key); if (d.ok) { d.id = 'd:' + key; d.daily = key; return d; } } return dailyComm(key); };
   function rngOf(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } let a = h >>> 0;
     return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-  return { COMMS, unlocked, pars, daily, rngOf, MATS, M, MW, OX, FLUX, BODIES, SCHED0, analyze, tMature, heatwork, coolPath, fuel, hours, fire, judge, PASS, hex2lin, lin2hex, lab, dE, nameColor, clamp, sm, rawColor };
+  return { applyAdvice, family, mainCol, COMMS, unlocked, pars, daily, rngOf, MATS, M, MW, OX, FLUX, BODIES, SCHED0, analyze, tMature, heatwork, coolPath, fuel, hours, fire, judge, PASS, hex2lin, lin2hex, lab, dE, nameColor, clamp, sm, rawColor };
 })();
 </script>
 <script type="importmap">{"imports":{"three":"../shared/vendor/three/build/three.module.min.js","three/addons/":"../shared/vendor/three/addons/"}}</script>
@@ -905,7 +952,7 @@ function cleanRecipe(r) { const o = {}; if (!isObj(r)) return o; for (const k of
 function cleanSched(s) { s = isObj(s) ? s : {}; return { peak: num(s.peak, 900, 1320, 1220), ramp: num(s.ramp, 50, 300, 150), hold: num(s.hold, 0, 120, 0), cool: num(s.cool, 50, 400, 400), xt: num(s.xt, 0, 1150, 0), xh: num(s.xh, 0, 6, 0), atm: s.atm === 'red' ? 'red' : 'ox' }; }
 const validCid = id => typeof id === 'string' && (K.COMMS.some(c => c.id === id) || id === 'sandbox' || /^d:\d{4}-\d\d-\d\d$/.test(id));
 function cleanBench(b, cid) { b = isObj(b) ? b : {}; const c = commById(cid);
-  return { A: Object.keys(cleanRecipe(b.A)).length ? cleanRecipe(b.A) : { ...(c && c.start || START) }, B: cleanRecipe(b.B), C: cleanRecipe(b.C), s: cleanSched(b.s), app: num(b.app, .6, 1.6, 1),
+  return { A: Object.keys(cleanRecipe(b.A)).length ? cleanRecipe(b.A) : { ...(c && c.start || START) }, B: cleanRecipe(b.B), C: cleanRecipe(b.C), s: cleanSched(isObj(b.s) ? b.s : { ...K.SCHED0, ...(c && c.startS || {}) }), app: num(b.app, .6, 1.6, 1),
     mode: ['tile', 'line', 'tri', 'pot'].includes(b.mode) ? b.mode : 'tile', body: BODY_IDS.includes(b.body) ? b.body : 'porcelain', form: Object.keys(FORMS).includes(b.form) ? b.form : 'jar' }; }
 function cleanTile(t) { if (!isObj(t) || !validCid(t.c)) return null; const r = cleanRecipe(t.r); if (!Object.keys(r).some(k => !K.M[k].add)) return null;
   return { c: t.c, r, s: cleanSched(t.s), b: BODY_IDS.includes(t.b) ? t.b : 'porcelain', a: num(t.a, .6, 1.6, 1), l: num(t.l, 0, 100, 0), k: t.k === 'pot' ? 'pot' : 'tile', t: num(t.t, 0, 1e12, 0) }; }
@@ -926,7 +973,7 @@ function cleanSave(s) {
   if (!commOpen(o.cur, o)) o.cur = K.COMMS[Math.min(n, NC - 1)].id;
   return o;
 }
-const START = { feldspar: 40, silica: 30, kaolin: 20, whiting: 10 };
+const START = { feldspar: 45, silica: 25, whiting: 15, kaolin: 15 };
 const ladderDone = (S = SAVE) => { let n = 0; for (const c of K.COMMS) { if (S.done[c.id]) n++; else break; } return n; };
 function commOpen(id, S = SAVE) { const n = ladderDone(S); if (id === 'sandbox') return true; if (/^d:/.test(id)) return n >= 6; const i = K.COMMS.findIndex(c => c.id === id); return i >= 0 && i <= n; }
 const todayKey = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
@@ -1210,6 +1257,58 @@ const HINTS = {
   oil: 'From an old notebook: "Near its peak, iron gives off gas. Stop right there; do not hold; let it fall fast, and the bursts freeze as silver."',
 };
 
+// ---------- what each jar does, in a line (tap a jar to read it); colourants carry a strip of what they typically give ----------
+const JARS = {
+  feldspar: ['Feldspar: the main glass-maker. Melts on its own at stoneware heat.'],
+  whiting: ['Whiting (lime): a strong flux when hot. More melts lower; lots of it, cooled slowly, goes matte.'],
+  kaolin: ['Kaolin (clay): stiffens the glass and holds it on the pot. Too much: matte, dry, and it can crawl.'],
+  silica: ['Silica: the glass itself. More is harder to melt and shinier once melted, and crazes less.'],
+  talc: ['Talc (magnesia): silky mattes and less crazing. Turns cobalt violet.'],
+  dolomite: ['Dolomite (lime and magnesia): buttery mattes.'],
+  neph: ['Nepheline syenite: a soda feldspar. Melts lower, shines brighter, crazes more.'],
+  fritB: ['Boron frit: ready-melted glass with boron. Melts low and smooth, and crazes less.'],
+  fritS: ['Soda frit: ready-melted soda glass. For low fire and bright colours (turquoise copper). Crazes.'],
+  wollast: ['Wollastonite: lime and silica together, with no gas to escape.'],
+  strontium: ['Strontium: a flux like lime, for satin surfaces.'],
+  zinc: ['Zinc: a flux. Lots of it, with no clay and a hold while cooling, grows crystals. Spoils chrome pink.'],
+  lithium: ['Lithium: a powerful flux that shrinks little, so it cures crazing.'],
+  iron: ['Iron: amber to brown in the electric kiln, celadon green in the gas kiln (reduction). More iron is darker; 8-10% goes black (tenmoku).', ['#c99a4a', '#8f5a22', '#9dbdaa', '#4a6a57', '#24170f']],
+  copper: ['Copper: green in the electric kiln (turquoise in soda glazes), red in the gas kiln (reduction). 1-3% is plenty.', ['#7ab88a', '#3f8a5c', '#36b3a0', '#b33a4a', '#7a1424']],
+  cobalt: ['Cobalt: blue in any kiln, and very strong: 0.25-2%. In talc or dolomite glazes it turns violet.', ['#a9b8e8', '#4f6bd0', '#1d2b8a', '#7a5aa8']],
+  manganese: ['Manganese: brown in lime glazes, plum purple in soda frit glazes. 2-5%.', ['#9a6a48', '#5e3a28', '#a86a98', '#622445']],
+  chrome: ['Chrome: green. Rose pink with 5% tin and plenty of whiting; brown with zinc. Only 0.1-0.3%.', ['#5f8a4a', '#2f5a2a', '#c35d75', '#6b4a2a']],
+  tin: ['Tin: turns a glaze opaque white (5-10%). Helps copper reds and chrome pinks.', ['#f3f1ec']],
+  zircon: ['Zircopax: a cheaper opaque white (8-12%).', ['#f1efea']],
+  rutile: ['Rutile: mottled, streaky breaks; blue in runny glazes cooled slowly. 4-8%.', ['#c2a77a', '#8a7a62', '#7988b4']],
+  titanium: ['Titanium: opal and matte from 5%; in zinc glazes it seeds crystals.', ['#efece2', '#dcd8c8']],
+};
+const strip = k => JARS[k] && JARS[k][1] ? `<span class="strip">${JARS[k][1].map(c => `<i style="background:${c}"></i>`).join('')}</span>` : '';
+// ---------- the kiln controls, in a line each ----------
+const WHY = {
+  peak: 'How hot. Too low: a dry, rough, unmelted glaze. Too high: it runs off the pot.',
+  ramp: 'How fast it heats. Fast climbs trap gas: pinholes and bubbles.',
+  hold: 'Time held at the peak: smooths the glaze and melts it further.',
+  cool: 'Slow cooling grows crystals and makes mattes; fast (kiln off) keeps it glossy.',
+  xt: 'Parks the kiln at this temperature while it cools: this is where crystals grow. Hotter: fewer, bigger.',
+  xh: 'How long it is parked. Longer: bigger crystals.',
+  atm: 'Electric is oxygen-rich. Gas starves the flame (reduction): it turns copper red and iron green.',
+  app: 'How thick the glaze goes on. Thick: deeper colour, more pooling, more running and crawling. Thin: paler, breaks at edges.',
+};
+// a rough look ahead: the same chemistry without the surprises (crystals, crackle, streaks), described in words
+function predict(r = st.bench.A) { const x = K.fire(r, st.bench.s, bodyOf(), st.bench.app); if (!x) return { x: null, line: 'Prediction: no glaze yet.' };
+  const w = [];
+  if (x.slump) return { x, line: 'Prediction: the clay will slump; it cannot take this heat.' };
+  if (x.M < .5) w.push('under-fired: dry and rough'); else if (x.M < .97) w.push('not quite melted: rough satin');
+  else { w.push(x.gloss > .8 ? 'glossy' : x.gloss > .45 ? 'satin' : 'matte'); w.push('fully melted'); }
+  if (x.ranOff) w.push('will run off onto the shelf!'); else if (x.run > 1.25) w.push('may run, drips at the foot');
+  if (x.pin > .12) w.push('pinholes likely'); if (x.crawl > .06) w.push('may crawl');
+  return { x, line: 'Prediction: ' + K.nameColor(x.main) + ', ' + w.join(', ') + '.' }; }
+function previewRes(x) { return x && { ...x, crystals: null, craze: 0, fur: 0, oil: 0, variegate: 0, pin: 0, crawl: 0 }; }
+let prevRaf = 0;
+function updatePreview() { if (prevRaf) return; prevRaf = requestAnimationFrame(() => { prevRaf = 0; const p = predict();
+  document.querySelectorAll('.pred').forEach(el => el.textContent = p.line);
+  document.querySelectorAll('canvas.prev').forEach(c => drawTile(c, previewRes(p.x), 1)); }); }
+
 // ---------- the ticket: who wants what ----------
 function wantWords(T) { if (!T) return 'Fire anything.'; const w = [];
   w.push(T.gloss > .8 ? 'glossy' : T.gloss > .5 ? 'satin' : 'matte');
@@ -1252,17 +1351,17 @@ function drawBench() { const u = U(), b = st.bench, mode = b.mode;
   $('modes').innerHTML = M.map(([k, n, s]) => `<button data-mode="${k}" class="${k === mode ? 'on' : ''}">${n}<small>${s}</small></button>`).join('');
   drawMini(); }
 function drawMini() { const b = st.bench, r = b.A, s = b.s;
-  $('mini').innerHTML = Object.keys(r).filter(k => r[k] > 0).map(k => `<span class="chip"><span class="jar" style="background:${K.M[k].raw}"></span>${K.M[k].n.split(' ')[0]} ${+r[k].toFixed(2)}</span>`).join('') + `<span class="chip" style="color:#9b3416">${s.peak}° ${s.atm === 'red' ? 'red.' : 'ox.'}</span>`; }
+  $('mini').innerHTML = '<canvas class="prev" width="24" height="32"></canvas>' + Object.keys(r).filter(k => r[k] > 0).map(k => `<span class="chip"><span class="jar" style="background:${K.M[k].raw}"></span>${K.M[k].n.split(' ')[0]} ${+r[k].toFixed(2)}</span>`).join('') + `<span class="chip" style="color:#9b3416">${s.peak}° ${s.atm === 'red' ? 'red.' : 'ox.'}</span>`; }
 function drawGlaze(slot) { const u = U(), r = st.bench[slot], pane = $('glazePane'), keys = Object.keys(r);
   const row = k => { const m = K.M[k], v = r[k], max = m.add ? 15 : 80, step = m.add ? .05 : 1;
-    return `<div class="row2" data-k="${k}"><span class="jar" style="background:${m.raw}"></span><span class="nm">${esc(m.n)}${m.add ? '<small>+%</small>' : ''}</span><input type="range" min="0" max="${max}" step="${step}" value="${v}" aria-label="${esc(m.n)}" style="--thumb:${m.raw}"><span class="v">${fmtAmt(v, m.add)}</span><button class="x" data-del="${k}" title="Take the jar away" aria-label="Remove ${esc(m.n)}">×</button></div>`; };
+    return `<div class="row2" data-k="${k}"><span class="jar" data-info="${k}" style="background:${m.raw}"></span><span class="nm" data-info="${k}">${esc(m.n)}${m.add ? '<small>+%</small>' : ''}${strip(k)}</span><input type="range" min="0" max="${max}" step="${step}" value="${v}" aria-label="${esc(m.n)}" style="--thumb:${m.raw}"><span class="v">${fmtAmt(v, m.add)}</span><button class="x" data-del="${k}" title="Take the jar away" aria-label="Remove ${esc(m.n)}">×</button></div>${st.info === k ? `<div class="info">${esc(JARS[k] ? JARS[k][0] : m.n)}</div>` : ''}`; };
   const base = keys.filter(k => !K.M[k].add), add = keys.filter(k => K.M[k].add);
-  let h = (slot !== 'A' ? `<div class="note">Glaze ${slot}: the far ${slot === 'B' ? 'end of the line' : 'corner of the triangle'}. Tiles in between are mixtures.</div>` : '') + base.map(row).join('') + add.map(row).join('');
+  let h = `<div class="prevbox"><canvas class="prev" width="66" height="88" title="A rough preview: the real firing can still surprise you"></canvas><div><b>Preview</b> <span class="note">(rough: crystals, crackle and streaks only show in the kiln)</span><div class="pred"></div><div class="note">Tap a jar to see what it does.</div></div></div>` + (slot !== 'A' ? `<div class="note">Glaze ${slot}: the far ${slot === 'B' ? 'end of the line' : 'corner of the triangle'}. Tiles in between are mixtures.</div>` : '') + base.map(row).join('') + add.map(row).join('');
   if (!keys.length) h += '<div class="note">An empty bucket. Add jars.</div>';
   const avail = u.mats.filter(k => !(k in r)), fresh = K.MATS.filter(m => m.tier === ladderDone() && m.tier > 0).map(m => m.id);
   h += `<div class="addjar"><button class="btn" id="addJar">${st.picker ? '− Close the jars' : '+ Add a jar'}</button>${slot !== 'A' ? '<button class="btn" id="copyA">Copy glaze A</button>' : ''}<span class="note" style="margin-left:auto">base Σ ${base.reduce((s, k) => s + r[k], 0).toFixed(0)}</span></div>`;
-  if (st.picker) h += `<div class="picker">${avail.map(k => `<button data-addm="${k}" class="${fresh.includes(k) ? 'new' : ''}"><span class="jar" style="background:${K.M[k].raw}"></span>${esc(K.M[k].n)}</button>`).join('') || '<span class="note">Every jar you own is in this glaze.</span>'}</div>`;
-  h += unityHTML(r); pane.innerHTML = h; }
+  if (st.picker) h += `<div class="picker">${avail.map(k => `<button data-addm="${k}" class="${fresh.includes(k) ? 'new' : ''}" title="${esc(JARS[k] ? JARS[k][0] : '')}"><span class="jar" style="background:${K.M[k].raw}"></span><span>${esc(K.M[k].n)}${strip(k)}</span></button>`).join('') || '<span class="note">Every jar you own is in this glaze.</span>'}</div>`;
+  h += unityHTML(r); pane.innerHTML = h; updatePreview(); }
 const fmtAmt = (v, add) => add ? (v < 1 ? v.toFixed(2) : v.toFixed(1)) : v.toFixed(0);
 function unityHTML(r) { const u = U(); if (!u.seger) return ''; const a = K.analyze(r); if (!a) return '';
   const f = v => v.toFixed(2), x = a.u, fl = K.FLUX.filter(o => x[o] > .005).map(o => `${sub(o)} ${f(x[o])}`).join(' · ');
@@ -1271,20 +1370,20 @@ function unityHTML(r) { const u = U(); if (!u.seger) return ''; const a = K.anal
   return h + `<br>${fmt$(a.cost)} a kilo</div>`; }
 const sub = o => o.replace(/(\d)/g, d => '₀₁₂₃₄₅₆₇₈₉'[d]);
 function drawKiln() { const u = U(), b = st.bench, s = b.s, pane = $('kilnPane');
-  const ctl = (k, label, min, max, step, val, show) => `<div class="ctl"><label>${label}</label><input type="range" data-s="${k}" min="${min}" max="${max}" step="${step}" value="${val}" aria-label="${label}"><span class="v" data-sv="${k}">${show}</span></div>`;
-  let h = '<canvas id="curve"></canvas>';
+  const ctl = (k, label, min, max, step, val, show) => `<div class="ctl"><label>${label}</label><input type="range" data-s="${k}" min="${min}" max="${max}" step="${step}" value="${val}" aria-label="${label}"><span class="v" data-sv="${k}">${show}</span></div><div class="why" data-why="${k}">${WHY[k]}</div>`;
+  let h = '<canvas id="curve"></canvas><div class="predrow"><canvas class="prev" width="42" height="56"></canvas><div class="pred"></div></div>';
   h += ctl('peak', 'Peak', 950, 1320, 5, s.peak, s.peak + '°');
   h += ctl('ramp', 'Climb', 50, 300, 10, s.ramp, s.ramp + '°/h');
   h += ctl('hold', 'Soak', 0, 120, 5, s.hold, s.hold + ' min');
   h += ctl('cool', 'Cool', 50, 400, 10, s.cool, s.cool >= 400 ? 'kiln off' : s.cool + '°/h');
   if (u.xhold) { h += ctl('xt', 'Hold at', 900, 1150, 5, s.xt || 1100, s.xt ? s.xt + '°' : 'off'); h += ctl('xh', 'for', 0, 6, .5, s.xh, s.xh ? s.xh + ' h' : 'off'); }
-  h += `<div class="seg" id="atm"><button data-atm="ox" class="${s.atm === 'ox' ? 'on' : ''}">Electric · oxidation</button><button data-atm="red" class="${s.atm === 'red' ? 'on' : ''}" ${u.gas ? '' : 'disabled title="Not yet: you have no gas kiln"'}>${u.gas ? 'Gas · reduction' : 'Gas kiln: not yet'}</button></div>`;
+  h += `<div class="seg" id="atm"><button data-atm="ox" class="${s.atm === 'ox' ? 'on' : ''}">Electric · oxidation</button><button data-atm="red" class="${s.atm === 'red' ? 'on' : ''}" ${u.gas ? '' : 'disabled title="Not yet: you have no gas kiln"'}>${u.gas ? 'Gas · reduction' : 'Gas kiln: not yet'}</button></div><div class="why" data-why="atm">${WHY.atm}</div>`;
   h += ctl('app', 'Glaze', .6, 1.6, .1, b.app, appWord(b.app));
   if (!st.comm.body) { h += `<div class="seg" id="bodies">${u.bodies.map(k => `<button data-body="${k}" class="${b.body === k ? 'on' : ''}">${K.BODIES[k].n.split(' ')[0]}</button>`).join('')}</div>`;
     h += `<div class="seg" id="forms">${['cup', 'bowl', 'jar', 'vase', 'bottle', 'chawan'].map(k => `<button data-form="${k}" class="${b.form === k ? 'on' : ''}">${k}</button>`).join('')}</div>`; }
   else h += `<div class="note">Clay: ${esc(K.BODIES[st.comm.body].n.toLowerCase())}, as the client asks.</div>`;
   h += `<div class="note" id="kfoot"></div>`;
-  pane.innerHTML = h; drawCurve(); kFoot(); }
+  pane.innerHTML = h; drawCurve(); kFoot(); updatePreview(); }
 const appWord = a => a < .75 ? 'thin' : a < .95 ? 'light' : a < 1.15 ? 'normal' : a < 1.35 ? 'thick' : 'very thick';
 function kFoot() { const s = st.bench.s, el = $('kfoot'); if (!el) return; el.textContent = `≈ cone ${coneOf(K.heatwork(s))} · ${K.hours(s)} h door to door · ${K.fuel(s)} kWh`; }
 function drawCurve() { const c = $('curve'); if (!c) return; const dp = Math.min(2, devicePixelRatio || 1), r = c.getBoundingClientRect(); c.width = Math.max(10, r.width * dp | 0); c.height = Math.max(10, r.height * dp | 0);
@@ -1293,6 +1392,9 @@ function drawCurve() { const c = $('curve'); if (!c) return; const dp = Math.min
   const pts = [[0, 20], [580 / 220, 600], [heatH, s.peak], [heatH + s.hold / 60, s.peak], ...path.map(([T, t]) => [heatH + s.hold / 60 + t, T])];
   g.fillStyle = '#0e0b09'; g.fillRect(0, 0, W, H);
   g.strokeStyle = 'rgba(255,140,60,.12)'; g.lineWidth = 1; for (const T of [600, 900, 1200]) { g.beginPath(); g.moveTo(0, Y(T)); g.lineTo(W, Y(T)); g.stroke(); }
+  // zones: where this glaze melts, and where crystals grow while it cools
+  const an = K.analyze(st.bench.A); if (an) { const Tm = K.tMature(an, s.atm); g.fillStyle = 'rgba(255,190,90,.13)'; g.fillRect(0, Y(Math.min(1320, Tm)), W, Y(Tm - 95) - Y(Math.min(1320, Tm))); g.fillStyle = 'rgba(255,200,120,.75)'; g.font = `${9 * dp}px "IBM Plex Mono",monospace`; g.fillText(Tm > 1320 ? 'melts above 1320°!' : 'melting', 10 * dp, Math.max(10 * dp, Y(Tm) + 10 * dp)); }
+  g.fillStyle = 'rgba(140,190,255,.10)'; g.fillRect(0, Y(1150), W, Y(1000) - Y(1150)); g.fillStyle = 'rgba(170,205,255,.7)'; g.fillText('crystal growth', 10 * dp, Y(1000) - 3 * dp);
   // fill under the curve with the colour of the glow at each temperature
   const gr = g.createLinearGradient(0, Y(1320), 0, Y(400)); gr.addColorStop(0, 'rgba(255,214,140,.55)'); gr.addColorStop(.3, 'rgba(255,140,50,.45)'); gr.addColorStop(.7, 'rgba(160,40,10,.3)'); gr.addColorStop(1, 'rgba(60,10,0,0)');
   g.beginPath(); g.moveTo(X(0), Y(20)); for (const [t, T] of pts) g.lineTo(X(t), Y(T)); g.lineTo(X(pts[pts.length - 1][0]), Y(20)); g.closePath(); g.fillStyle = gr; g.fill();
@@ -1304,12 +1406,13 @@ $('glazePane').addEventListener('input', e => { const row = e.target.closest('[d
   r[k] = +e.target.value; row.querySelector('.v').textContent = fmtAmt(r[k], K.M[k].add); const un = $('glazePane').querySelector('.unity'); if (un) un.outerHTML = unityHTML(r) || '<div class="unity"></div>';
   const sumEl = $('glazePane').querySelector('.addjar .note'); if (sumEl) sumEl.textContent = 'base Σ ' + Object.keys(r).filter(q => !K.M[q].add).reduce((s, q) => s + r[q], 0).toFixed(0);
   benchChanged(); });
-$('glazePane').addEventListener('click', e => { const t = e.target.closest('button'); if (!t) return; const r = st.bench[st.tab];
+$('glazePane').addEventListener('click', e => { const inf = e.target.closest('[data-info]'); if (inf) { st.info = st.info === inf.dataset.info ? null : inf.dataset.info; FX.sfx('tick'); drawGlaze(st.tab); return; } const t = e.target.closest('button'); if (!t) return; const r = st.bench[st.tab];
   if (t.id === 'addJar') { st.picker = !st.picker; FX.sfx('tick'); drawGlaze(st.tab); return; }
   if (t.id === 'copyA') { st.bench[st.tab] = { ...st.bench.A }; FX.sfx('click'); drawGlaze(st.tab); benchChanged(); return; }
   if (t.dataset.addm) { const m = K.M[t.dataset.addm]; r[m.id] = m.add ? 1 : 10; st.picker = false; FX.sfx('place'); drawGlaze(st.tab); benchChanged(); return; }
   if (t.dataset.del) { delete r[t.dataset.del]; FX.sfx('tick'); drawGlaze(st.tab); benchChanged(); } });
 $('kilnPane').addEventListener('input', e => { const k = e.target.dataset.s; if (!k) return; const v = +e.target.value, b = st.bench;
+  $('kilnPane').querySelectorAll('.why').forEach(w => w.classList.toggle('live', w.dataset.why === k));
   if (k === 'app') { b.app = v; e.target.parentNode.querySelector('.v').textContent = appWord(v); }
   else { b.s[k] = v; if (k === 'xt' || k === 'xh') { if (!b.s.xt) b.s.xt = +$('kilnPane').querySelector('[data-s=xt]').value; } const el = $('kilnPane').querySelector(`[data-sv="${k}"]`);
     el.textContent = k === 'peak' || k === 'xt' ? v + '°' : k === 'ramp' ? v + '°/h' : k === 'hold' ? v + ' min' : k === 'cool' ? (v >= 400 ? 'kiln off' : v + '°/h') : k === 'xh' ? (v ? v + ' h' : 'off') : v; }
@@ -1327,7 +1430,7 @@ $('modes').onclick = e => { const t = e.target.closest('[data-mode]'); if (!t) r
   if (t.dataset.mode === 'tri' && !Object.keys(st.bench.C).length) st.bench.C = { ...st.bench.A };
   drawBench(); benchChanged(); };
 let saveT = 0;
-function benchChanged() { clearTimeout(saveT); saveT = setTimeout(persist, 400); drawMini(); if (pot && !st.last && st.tab === 'A' && ok3d) { pot.mat.userData.U.uRaw.value.setRGB(...K.rawColor(st.bench.A)); needRender(); } }
+function benchChanged() { clearTimeout(saveT); saveT = setTimeout(persist, 400); drawMini(); updatePreview(); if (pot && !st.last && st.tab === 'A' && ok3d) { pot.mat.userData.U.uRaw.value.setRGB(...K.rawColor(st.bench.A)); needRender(); } }
 function foldBench(fold) { const b = $('bench'); if (!matchMedia('(max-width:899px) and (max-aspect-ratio:1/1)').matches) { b.classList.remove('fold'); return; }
   if (b.classList.contains('fold') === fold) return; b.classList.toggle('fold', fold); $('expBtn').textContent = fold ? '▴' : '▾'; setBenchH(); layoutCamera(); }
 function setBenchH() { document.documentElement.style.setProperty('--benchH', $('bench').getBoundingClientRect().height + 'px'); }
