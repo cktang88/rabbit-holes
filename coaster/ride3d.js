@@ -80,33 +80,7 @@ function canvasTex(T, w, h, paint) { const c = document.createElement('canvas');
 // Car frame: x right, y up, −z forward, origin on the track centreline at the car's middle. Gauge 1.1 m (rails at ±0.55),
 // car 2.6 m long and 1.4 m wide, seat cushions 0.7 m above the rails, so a seated rider's eyes are 1.5 m up (EYE).
 const SEAT_X = .32, ROW_Z = [-TRAIN.row / 2, TRAIN.row / 2], BOGIE = .9;
-function carGeometry(T, front) {
-  const red = 0xc8382b, dark = 0x7d1a14, gold = 0xe8b84a, cream = 0xf4e8cc, chrome = 0xd8d6cf, seat = 0x3a2418, parts = [];
-  // tub: floor and sides, open on top; a sculpted nose on the front car
-  parts.push([new T.BoxGeometry(1.4, .14, 2.6), dark, M4(T, 0, .36, 0)]);
-  for (const sx of [-.68, .68]) parts.push([new T.BoxGeometry(.06, .5, 2.6), red, M4(T, sx, .64, 0)], [new T.BoxGeometry(.08, .05, 2.62), gold, M4(T, sx, .9, 0)]);
-  parts.push([new T.BoxGeometry(1.4, .5, .06), red, M4(T, 0, .64, 1.28)]);
-  if (front) { const sh = new T.Shape(); sh.moveTo(0, 0); sh.quadraticCurveTo(.5, 0, .72, .2); sh.quadraticCurveTo(.66, .4, .5, .44); sh.lineTo(0, .6); sh.closePath(); // sloping down to the tip so it doesn't fill the front-row view
-    const nose = new T.ExtrudeGeometry(sh, { depth: 1.36, bevelEnabled: true, bevelThickness: .03, bevelSize: .03, bevelSegments: 2, curveSegments: 8 }); parts.push([nose, (x, y) => y < .1 ? dark : red, M4(T, -.68, .3, -1.25, 0, Math.PI / 2, 0)]);
-    parts.push([new T.CircleGeometry(.16, 16), gold, M4(T, 0, .78, -1.66, -.5)], [new T.CircleGeometry(.1, 16), cream, M4(T, 0, .781, -1.658, -.5)]); }
-  else parts.push([new T.BoxGeometry(1.4, .5, .06), red, M4(T, 0, .64, -1.28)]);
-  // per row: a padded seat and back with headrests, a lap bar on a post for each rider
-  for (const z of ROW_Z) { parts.push([new T.BoxGeometry(1.24, .16, .5), seat, M4(T, 0, .62, z + .05)], [new T.BoxGeometry(1.24, .62, .12), seat, M4(T, 0, 1.0, z + .32, -.12)]);
-    for (const sx of [-SEAT_X, SEAT_X]) { parts.push([new T.CylinderGeometry(.13, .13, .14, 10), 0x4a2e1e, M4(T, sx, 1.42, z + .38, Math.PI / 2 - .12)]);
-      parts.push([new T.TorusGeometry(.18, .03, 6, 12, Math.PI), chrome, M4(T, sx, .92, z - .2, -Math.PI / 2 + .5)], [new T.CylinderGeometry(.03, .03, .34, 6), chrome, M4(T, sx, .74, z - .34)]); } }
-  return mergeParts(T, parts);
-}
-// a wheel assembly: chassis across both rails, road wheels on top of each rail, side-friction wheels outside it, up-stops below
-function bogieGeometry(T) {
-  const parts = [[new T.BoxGeometry(1.5, .12, .5), 0x444444, M4(T, 0, .3, 0)]];
-  for (const s of [-1, 1]) { parts.push([new T.BoxGeometry(.1, .52, .44), 0x555555, M4(T, s * .72, .08, 0)]);
-    for (const z of [-.16, .16]) parts.push([new T.CylinderGeometry(.15, .15, .1, 12), 0x222222, M4(T, s * .55, .225, z, 0, 0, Math.PI / 2)]);
-    parts.push([new T.CylinderGeometry(.09, .09, .09, 10), 0x222222, M4(T, s * .55, -.165, 0, 0, 0, Math.PI / 2)], [new T.CylinderGeometry(.08, .08, .09, 10), 0x222222, M4(T, s * .705, 0, 0)]); }
-  return mergeParts(T, parts);
-}
-// a seated rider (torso, head, hair) and their arms (pivoting at the shoulders, raised on drops and in airtime)
-function riderGeometry(T) { return mergeParts(T, [[new T.CylinderGeometry(.19, .17, .58, 8), 0xffffff, M4(T, 0, 1.0, .08)], [new T.SphereGeometry(.115, 10, 8), 0xe8c4a0, M4(T, 0, 1.47, .06)], [new T.SphereGeometry(.12, 10, 6, 0, 6.3, 0, 1.4), 0x3a2a1e, M4(T, 0, 1.5, .08)], [new T.BoxGeometry(.32, .14, .42), 0x2e3440, M4(T, 0, .76, -.12)]]); }
-function armsGeometry(T) { return mergeParts(T, [-1, 1].map(s => [new T.CylinderGeometry(.05, .045, .6, 6), 0xe8c4a0, M4(T, s * .24, -.3, 0, 0, 0, s * .1)])); }
+// the train's geometry and meshes are in train.js
 
 // ---------- renderer, quality tier, post-processing ----------
 // Tiers: phones and small screens 'low' (pixel ratio ≤ 1.25, 1024 shadow map, half-res bloom, a cheap flare, grading only),
@@ -122,7 +96,7 @@ function v3Init() {
   // 5. the shadow map is drawn only when asked (see v3Frame), not every frame
   V3.r.shadowMap.autoUpdate = false; V3.shadowRenders = 0; V3.frames3 = 0;
   V3.cam = new T.PerspectiveCamera(72, 1, .08, 2400);
-  V3.carGeo = [carGeometry(T, true), carGeometry(T, false)]; V3.bogieGeo = bogieGeometry(T); V3.riderGeo = riderGeometry(T); V3.armGeo = armsGeometry(T);
+
   V3.tod = SAVE.tod === 'dusk' ? 'dusk' : 'day'; V3.seat = SAVE.seat >= 0 && SAVE.seat < 6 ? SAVE.seat : 0; V3.ft = [];
   // speed streaks ride with the camera
   const n = 40, sp = new Float32Array(n * 6); V3.streak = { n, p: Array.from({ length: n }, () => [0, 0, -40]) };
@@ -182,7 +156,7 @@ const _r3 = {};
 function v3Build(force) {
   const T = window.THREE, S = design.S || (design.S = geometry(design)), key = enc(design) + '|' + C.id + '|' + V3.tod;
   if (V3.key === key && V3.scene && !force) return; V3.key = key;
-  const keep = new Set([V3.lines.geometry, ...V3.carGeo, V3.bogieGeo, V3.riderGeo, V3.armGeo]);
+  const keep = new Set([V3.lines.geometry, ...(V3.trainGeo ? ['hi', 'lo'].flatMap(k => Object.values(V3.trainGeo[k])) : [])]);
   if (V3.scene) { V3.scene.remove(V3.cam); V3.scene.traverse(o => { if (o === V3.lines || keep.has(o.geometry)) return; if (o.geometry) o.geometry.dispose(); const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : []; for (const m of ms) { if (m.map && !m.map.userData.keep) m.map.dispose(); m.dispose(); } }); if (V3.flare) V3.scene.remove(V3.flare); }
   const sc = V3.scene = new T.Scene(), F = V3.frames = trackFrames(S), terr = site.terrain;
   V3.wheel = V3.carousel = V3.crowd = V3.lampMat = null; V3.paths = []; V3.parked = null;
@@ -209,16 +183,10 @@ function v3Build(force) {
       if (blocked) continue;
       m4.compose(new T.Vector3(f.p[0], gnd + hh / 2, f.p[2]), new T.Quaternion(), new T.Vector3(1, hh, 1)); col.setMatrixAt(k, m4); m4.makeTranslation(f.p[0], gnd + .1, f.p[2]); foot.setMatrixAt(k, m4); V3.supports.push([f.p[0], gnd, f.p[2], top]); k++; }
     col.count = foot.count = k; col.castShadow = true; foot.receiveShadow = true; sc.add(col); sc.add(foot); }
-  // the train
-  { const nc = TRAIN.cars, mat = new T.MeshPhysicalMaterial({ vertexColors: true, metalness: .1, roughness: .45, clearcoat: 1, clearcoatRoughness: .08 }); // lacquered paint
-    V3.trainF = new T.InstancedMesh(V3.carGeo[0], mat, 1); V3.train = V3.trainF; V3.trainR = new T.InstancedMesh(V3.carGeo[1], mat, nc - 1); V3.bogies = new T.InstancedMesh(V3.bogieGeo, new T.MeshStandardMaterial({ vertexColors: true, metalness: .6, roughness: .5 }), nc * 2);
-    V3.coup = new T.InstancedMesh(new T.CylinderGeometry(.06, .06, 1, 6).rotateX(Math.PI / 2), new T.MeshStandardMaterial({ color: 0x333333, metalness: .7, roughness: .4 }), nc - 1);
-    const nr = nc * 4; V3.riders = new T.InstancedMesh(V3.riderGeo, new T.MeshStandardMaterial({ vertexColors: true, roughness: .8 }), nr); V3.arms = new T.InstancedMesh(V3.armGeo, new T.MeshStandardMaterial({ vertexColors: true, roughness: .8 }), nr);
-    const rr = RH.rng(5), shirt = [0xd8402f, 0x2f6fb8, 0xe8b84a, 0x3c9a5c, 0xf4e8cc, 0x8a4fb8, 0x333333, 0xe07a30]; V3.riderState = [];
-    for (let k = 0; k < nr; k++) { V3.riders.setColorAt(k, new T.Color(shirt[(rr() * shirt.length) | 0])); V3.riderState.push({ arm: 0, lean: 0, brave: rr() < .65 }); }
-    for (const m of [V3.trainF, V3.trainR, V3.bogies, V3.coup, V3.riders, V3.arms]) { m.frustumCulled = false; m.castShadow = true; sc.add(m); } }
+  // the train (train.js)
+  trainBuild(T, sc);
   sc.add(V3.cam); if (V3.flare) sc.add(V3.flare);
-  V3.riders.visible = V3.arms.visible = FLAGS.people;
+  V3.tr.body.visible = V3.tr.rest.visible = V3.tr.arms.visible = FLAGS.people;
   // a placeholder environment (the painted dome) so every lit program compiles with its env map now; the HDRI swaps in later
   // under the same defines (both PMREMs are 256 px cube-UV), so its arrival compiles nothing
   if (!V3.envFallback) { const s2 = new T.Scene(), d = V3.skyDome.clone(); d.scale.setScalar(.05); s2.add(d); const pm = new T.PMREMGenerator(V3.r); V3.envFallback = pm.fromScene(s2, 0, .1, 100).texture; V3.envFallback.userData.keep = true; pm.dispose(); }
@@ -290,20 +258,26 @@ function basis(M, fw, up, p) { // M from forward/up (re-orthogonalised) at p; ca
   const ux = ry * fw[2] - rz * fw[1], uy = rz * fw[0] - rx * fw[2], uz = rx * fw[1] - ry * fw[0];
   M.set(rx, ux, -fw[0], p[0], ry, uy, -fw[1], p[1], rz, uz, -fw[2], p[2], 0, 0, 0, 1); return M; }
 function placeTrain(T, uFront, R, p, seatG) {
-  const M = _r3.M || (_r3.M = new T.Matrix4()), A = _r3.A || (_r3.A = new T.Matrix4()), cars = []; let rk = 0;
+  const M = _r3.M || (_r3.M = new T.Matrix4()), A = _r3.A || (_r3.A = new T.Matrix4()), W = _r3.W || (_r3.W = new T.Matrix4()), Ar = _r3.Ar || (_r3.Ar = new T.Matrix4()), Z = _r3.Z || (_r3.Z = new T.Matrix4().makeScale(0, 0, 0)), tr = V3.tr, cars = []; let rk = 0;
+  // lap bars come down once the train moves off and go up again at the end
+  const moving = !!play && play.k > 1 && play.k < R.t.length - 2; tr.lap += ((moving ? 0 : -1.05) - tr.lap) * Math.min(1, V3.dt * 3);
   for (let c = 0; c < TRAIN.cars; c++) { const uc = uFront - (c * TRAIN.pitch + TRAIN.row / 2) / DS, a = frameAt(uc + BOGIE / DS), b = frameAt(uc - BOGIE / DS);
     const mid = [(a.p[0] + b.p[0]) / 2, (a.p[1] + b.p[1]) / 2, (a.p[2] + b.p[2]) / 2], fw = nrm([a.p[0] - b.p[0], a.p[1] - b.p[1], a.p[2] - b.p[2]]), up = nrm([a.up[0] + b.up[0], a.up[1] + b.up[1], a.up[2] + b.up[2]]);
-    basis(M, fw, up, mid); if (c) V3.trainR.setMatrixAt(c - 1, M); else V3.trainF.setMatrixAt(0, M); cars.push([mid, fw, up, a, b]);
-    V3.bogies.setMatrixAt(c * 2, basis(A, a.fwd, a.up, a.p)); V3.bogies.setMatrixAt(c * 2 + 1, basis(A, b.fwd, b.up, b.p));
-    // riders: torso and head, hidden for the seat the camera is in; arms pivot at the shoulders
-    for (let r = 0; r < 2; r++) for (const sd of [-1, 1]) { const st = V3.riderState[rk], row = c * 2 + r, g = seatG[row], lat = seatG.lat[row];
-      const tgt = st.brave ? clamp((.85 - g) / .6, 0, 1) : 0, isCam = !V3.chase && SEATS[V3.seat][1] === row && SEATS[V3.seat][2] === sd; st.arm += (tgt - st.arm) * Math.min(1, V3.dt * 4); st.lean += (clamp(-lat * .35, -.35, .35) - st.lean) * Math.min(1, V3.dt * 5);
-      const lx = sd * SEAT_X, lz = ROW_Z[r]; A.makeRotationZ(st.lean); A.setPosition(lx, 0, lz); const W = _r3.W || (_r3.W = new T.Matrix4()); W.multiplyMatrices(M, A);
-      if (isCam) { const Z = _r3.Z || (_r3.Z = new T.Matrix4().makeScale(0, 0, 0)); V3.riders.setMatrixAt(rk, Z); } else V3.riders.setMatrixAt(rk, W);
-      const Ar = _r3.Ar || (_r3.Ar = new T.Matrix4()); Ar.makeRotationX(.35 + st.arm * 2.5); Ar.setPosition(0, 1.28, .08); W.multiply(Ar); V3.arms.setMatrixAt(rk, W); rk++; } }
-  for (let c = 0; c + 1 < TRAIN.cars; c++) { const a = cars[c][4].p, b = cars[c + 1][3].p, mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + .3, (a[2] + b[2]) / 2], d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]], L = Math.hypot(...d) || 1;
-    basis(M, [d[0] / L, d[1] / L, d[2] / L], cars[c][2], mid); A.makeScale(1, 1, L); M.multiply(A); V3.coup.setMatrixAt(c, M); }
-  for (const m of [V3.trainF, V3.trainR, V3.bogies, V3.coup, V3.riders, V3.arms]) m.instanceMatrix.needsUpdate = true;
+    basis(M, fw, up, mid); if (c) tr.shellR.setMatrixAt(c - 1, M); else tr.shellF.setMatrixAt(0, M); tr.seats.setMatrixAt(c, M); tr.chassis.setMatrixAt(c, M); cars.push([mid, fw, up, a, b]);
+    tr.bogies.setMatrixAt(c * 2, basis(A, a.fwd, a.up, a.p)); tr.bogies.setMatrixAt(c * 2 + 1, basis(A, b.fwd, b.up, b.p));
+    // per seat: the lap bar on its hinge; the rider (hidden in the camera's own seat, arms kept), leaning with sideways g, arms up when floating
+    for (let r = 0; r < 2; r++) for (const sd of [-1, 1]) { const st = V3.riderState[rk], row = c * 2 + r, g = seatG[row], lat = seatG.lat[row], lx = sd * SEAT_X, lz = ROW_Z[r];
+      A.makeRotationX(tr.lap); A.setPosition(lx + LAP_HINGE[0], LAP_HINGE[1], lz + LAP_HINGE[2]); W.multiplyMatrices(M, A); tr.laps.setMatrixAt(rk, W);
+      const tgt = st.brave && moving ? clamp((.85 - g) / .6, 0, 1) : 0, isCam = !V3.chase && SEATS[V3.seat][1] === row && SEATS[V3.seat][2] === sd; st.arm += (tgt - st.arm) * Math.min(1, V3.dt * 4); st.lean += (clamp(-lat * .35, -.35, .35) - st.lean) * Math.min(1, V3.dt * 5);
+      A.makeRotationZ(st.lean); A.setPosition(lx, 0, lz); W.multiplyMatrices(M, A);
+      if (isCam) { tr.body.setMatrixAt(rk, Z); tr.rest.setMatrixAt(rk, Z); } else { tr.body.setMatrixAt(rk, W); tr.rest.setMatrixAt(rk, W); }
+      Ar.makeRotationX(.55 + st.arm * 2.3); Ar.setPosition(0, 1.28, .08); W.multiply(Ar); tr.arms.setMatrixAt(rk, W); rk++; } }
+  // drawbars: from the rear carrier of one car to the front carrier of the next, at chassis height
+  for (let c = 0; c + 1 < TRAIN.cars; c++) { const a = cars[c][4].p, b = cars[c + 1][3].p, u = cars[c][2], mid = [(a[0] + b[0]) / 2 + u[0] * .3, (a[1] + b[1]) / 2 + u[1] * .3, (a[2] + b[2]) / 2 + u[2] * .3], d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]], L = Math.hypot(...d) || 1;
+    basis(M, [d[0] / L, d[1] / L, d[2] / L], u, mid); A.makeScale(1, 1, L); M.multiply(A); tr.coup.setMatrixAt(c, M); }
+  for (const k of ['shellF', 'shellR', 'seats', 'chassis', 'bogies', 'laps', 'coup', 'body', 'rest', 'arms']) tr[k].instanceMatrix.needsUpdate = true;
+  // the far LOD when the train is small on screen: chase view, or the camera 40 m away
+  const cp = V3.cam.position, cm = cars[(TRAIN.cars / 2) | 0][0]; trainLod(V3.chase || Math.hypot(cp.x - cm[0], cp.y - cm[1], cp.z - cm[2]) > 40);
   return cars;
 }
 function v3Frame(p) {

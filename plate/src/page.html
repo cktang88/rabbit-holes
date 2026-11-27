@@ -190,7 +190,7 @@ if (POST) { composer = new EffectComposer(renderer); composer.addPass(new Render
 // background: deep space blue, brighter toward the horizon
 { const c = document.createElement('canvas'); c.width = 4; c.height = 256; const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 256);
   gr.addColorStop(0, '#0a1626'); gr.addColorStop(.45, '#1d3c5c'); gr.addColorStop(.75, '#6f9cc2'); gr.addColorStop(1, '#b9d2e6'); g.fillStyle = gr; g.fillRect(0, 0, 4, 256);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; scene.background = t; }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; scene.background = t; window.__skyTex = t; }
 
 // ---- data textures ----
 const mkTex = (linear) => { const t = new THREE.DataTexture(new Float32Array(N * 4), W, H, THREE.RGBAFormat, THREE.FloatType); t.internalFormat = 'RGBA16F';
@@ -250,7 +250,7 @@ float cloudD(vec2 uv) {
   float cov = .62 - .2 * clamp(wet, 0., 1.5) - .06 * smoothstep(.55, .75, a / 90.) + .1 * smoothstep(18., 24., a) * smoothstep(34., 28., a);
   float c = smoothstep(cov + .02, cov + .17, d);
   float ci = texture(tN, (uv + w * 1.7 * t1) * vec2(9., 36.) + .5).a; ci = smoothstep(.55, .8, ci) * .22 * smoothstep(20., 45., a);
-  return clamp(c + ci * (1. - c), 0., 1.) * uCloudA;
+  return clamp(c + ci * (1. - c), 0., 1.) * uCloudA * smoothstep(88., 76., a);
 }
 `;
 const terrVS = /* glsl */`
@@ -320,7 +320,7 @@ void main() {
   vec3 col;
   // ---- land: biomes from rain and temperature (satellite palette) ----
   vec3 sand = mix(srgb(vec3(.80, .64, .43)), srgb(vec3(.88, .76, .55)), nz2.b), redsand = srgb(vec3(.70, .43, .27));
-  vec3 dry = mix(sand, redsand, smoothstep(.55, .75, nz.b) * smoothstep(18., 26., T));
+  vec3 dry = mix(sand, redsand, smoothstep(.45, .8, nz.b) * smoothstep(18., 26., T) * .55);
   dry = mix(srgb(vec3(.56, .52, .44)), dry, smoothstep(2., 10., T));
   vec3 grass = mix(srgb(vec3(.58, .57, .32)), srgb(vec3(.46, .52, .27)), nz2.g);
   vec3 forest = T > 19. ? mix(srgb(vec3(.16, .3, .12)), srgb(vec3(.09, .24, .08)), smoothstep(19., 25., T)) : T > 6. ? srgb(vec3(.2, .33, .15)) : srgb(vec3(.15, .24, .17));
@@ -444,8 +444,9 @@ void main() {
   float d = cloudD(vUv); if (d < .01) discard;
   vec3 up = uGlobe > .5 ? normalize(vW) : vec3(0., 1., 0.);
   float lit = .75 + .25 * dot(up, uSun);
-  float near = uGlobe > .5 ? 1. : smoothstep(35., 140., uCamD);
-  float dist = length(vW - cameraPosition), hz = uGlobe > .5 ? 0. : smoothstep(uCamD * .5, uCamD * 2.6, dist) * .5;
+  float dist = length(vW - cameraPosition);
+  float near = uGlobe > .5 ? 1. : smoothstep(35., 140., uCamD) * smoothstep(uCamD * .45, uCamD * 1.05, dist);
+  float dist2 = dist, hz = uGlobe > .5 ? 0. : smoothstep(uCamD * .5, uCamD * 2.6, dist) * .5;
   vec3 c = mix(vec3(1.) * lit, vec3(.62, .74, .86), hz);
   gl_FragColor = vec4(c * 1.05, d * .82 * near);
   #include <tonemapping_fragment>
@@ -511,6 +512,19 @@ function buildRivers() {
   }
   rivGeo.attributes.c.needsUpdate = rivGeo.attributes.a.needsUpdate = true; rivGeo.setDrawRange(0, n * 6); riversDirty = false;
 }
+// ---- polar skirts: the ice sheet runs on past the map's edge and dissolves into the horizon haze (flat view only) ----
+const skirt = (() => { const g = new THREE.BufferGeometry(), L = 700, X = 900;
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-X, 0, -90 - L, X, 0, -90 - L, -X, 0, -89.6, X, 0, -89.6, -X, 0, 89.6, X, 0, 89.6, -X, 0, 90 + L, X, 0, 90 + L]), 3));
+  g.setIndex([0, 2, 1, 1, 2, 3, 4, 6, 5, 5, 6, 7]);
+  const m = new THREE.ShaderMaterial({ uniforms: U, transparent: true, depthWrite: false, side: THREE.DoubleSide, vertexShader: `varying vec3 vW; uniform float uShift; void main(){ vec3 P = position + vec3(uShift, .05, 0.); vW = P; gl_Position = projectionMatrix * modelViewMatrix * vec4(P, 1.); }`,
+    fragmentShader: `varying vec3 vW; uniform float uCamD; uniform vec3 uSun; void main(){ float k = abs(vW.z) - 90.; float d = length(vW - cameraPosition);
+      vec3 ice = pow(vec3(.78, .84, .9), vec3(2.2)) * (.5 + .5 * max(uSun.y, 0.)), haze = pow(vec3(.62, .74, .86), vec3(2.2));
+      vec3 c = mix(ice, haze, smoothstep(0., 60., k)); float a = 1. - smoothstep(uCamD * 1.2, uCamD * 3.5, d) * smoothstep(10., 80., k);
+      gl_FragColor = vec4(c, a);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }` });
+  const mesh = new THREE.Mesh(fixBounds(g), m); mesh.frustumCulled = false; mesh.renderOrder = 2; scene.add(mesh); return mesh; })();
 const atmo = new THREE.Mesh(new THREE.SphereGeometry(U.uR.value * 1.07, 64, 32), new THREE.ShaderMaterial({ uniforms: { uSun: U.uSun }, vertexShader: atmoVS, fragmentShader: atmoFS, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide }));
 atmo.visible = false; scene.add(atmo);
 const stars = (() => { const n = 1500, p = new Float32Array(n * 3), r = RH.rng(5); for (let i = 0; i < n; i++) { const a = r() * 2 * PI, b = Math.acos(2 * r() - 1), R = 1400; p.set([R * Math.sin(b) * Math.cos(a), R * Math.cos(b), R * Math.sin(b) * Math.sin(a)], i * 3); }
@@ -542,7 +556,7 @@ function buildTex() {
     b[k] = o[i]; b[k + 1] = S.f[i] < .5 ? PlateSim.polarity(S.birth[i]) : .5; b[k + 2] = S.f[i]; b[k + 3] = S.kind[i];
     const bt = S.bnd[i]; c[k] = S.A[i] > 0 && e[i] > sea ? clamp((Math.log(S.A[i]) - 2.6) / 2.2, 0, 1) : 0;
     c[k + 1] = bt === 1 ? 1 : bt === -1 ? 0 : .5; c[k + 3] = bt !== 0 || (x < W - 1 && o[i + 1] !== o[i]) ? 1 : 0;
-    c[k + 2] = level && level.target ? clamp(1.5 - LV.inTarget(S, level, i), 0, 1) : 0;
+    c[k + 2] = level && level.target && !document.body.classList.contains('nohud') ? clamp(1.5 - LV.inTarget(S, level, i), 0, 1) : 0;
   }
   // boundary type needs to survive the linear filter: spread it a cell so neighbours agree
   tA.needsUpdate = tB.needsUpdate = tC.needsUpdate = true;
@@ -834,7 +848,7 @@ $('scrub').addEventListener('change', e => { scrubbing = false; const k = +e.tar
 // =====================================================================================================
 document.querySelectorAll('.vb[data-v]').forEach(b => b.onclick = () => { setView(+b.dataset.v); FX.sfx('click'); });
 function setView(v) { U.uView.value = v; SAVE.view = v; persist(); document.querySelectorAll('.vb[data-v]').forEach(b => b.classList.toggle('on', +b.dataset.v === v)); clouds.visible = CLOUDS && v !== 2 && v !== 3; }
-function toggleGlobe(on = !cam.globe) { cam.globe = on ? 1 : 0; U.uGlobe.value = cam.globe; atmo.visible = stars.visible = !!cam.globe; $('globeB').classList.toggle('on', !!cam.globe); SAVE.globe = cam.globe; persist();
+function toggleGlobe(on = !cam.globe) { cam.globe = on ? 1 : 0; U.uGlobe.value = cam.globe; atmo.visible = stars.visible = !!cam.globe; skirt.visible = !cam.globe; scene.background = cam.globe ? new THREE.Color(0x03060c) : window.__skyTex; $('globeB').classList.toggle('on', !!cam.globe); SAVE.globe = cam.globe; persist();
   if (cam.globe) { cam.lon = cam.x; cam.lat = clamp(-cam.z, -60, 60); } else { cam.x = cam.lon; cam.z = -cam.lat; } }
 $('globeB').onclick = () => { toggleGlobe(); FX.sfx('whoosh'); };
 const sndUI = () => { $('sndW').style.display = FX.muted ? 'none' : ''; $('sndB').classList.toggle('on', FX.muted); };
@@ -962,7 +976,7 @@ requestAnimationFrame(frame);
 // =====================================================================================================
 //  TEST HOOKS
 // =====================================================================================================
-window.__plate = { _riv: () => ({ dr: rivGeo.drawRange, c: Array.from(rivGeo.attributes.c.array.slice(0, 16)), a: Array.from(rivGeo.attributes.a.array.slice(0, 8)), vis: rivers.visible }),
+window.__plate = {
   get state() { return S; }, get level() { return level; }, get run() { return run; }, get lastEval() { return lastEval; }, Sim: PlateSim, LV, cam, SAVE,
   step(n = 1) { for (let k = 0; k < n; k++) { PlateSim.step(S); if (S.stepN % 4 === 0) evalLevel(); } processEvents(); dirty = true; riversDirty = true; return S.time; },
   push(id, dx, dy) { const p = S.plates[id]; if (!p || !p.alive) return false; p.held = true; p.tvx = PlateSim.cmToCells(S, dx); p.tvy = PlateSim.cmToCells(S, dy); return true; },

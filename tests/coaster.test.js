@@ -246,7 +246,7 @@ module.exports = {
         // scale: people, trees, the car, the rider's eye
         const cr = V3.crowd, hb = bb(cr.rest.geometry); o.people = [Math.min(...cr.s) * hb.max.y, Math.max(...cr.s) * hb.max.y];
         o.trees = [99, 0]; for (const m of V3.trees) { const h = bb(m.geometry).max.y; for (let k = 0; k < m.count; k++) { m.getMatrixAt(k, M); M.decompose(v, q, sc); o.trees[0] = Math.min(o.trees[0], h * sc.y); o.trees[1] = Math.max(o.trees[1], h * sc.y); } }
-        const cb = bb(V3.carGeo[1]); o.car = [cb.max.z - cb.min.z, cb.max.x - cb.min.x];
+        const cb = bb(V3.trainGeo.hi.shellR); o.car = [cb.max.z - cb.min.z, cb.max.x - cb.min.x];
         // the train on its rails: every wheel assembly exactly at its point on the track, cars a coupling pitch apart along the 3D track
         const s = K.seatAt(), uF = s.uc + K.TRAIN.mid / .5; o.bogie = 0; o.pitch = [];
         for (let c = 0; c < K.TRAIN.cars; c++) { const uc = uF - (c * K.TRAIN.pitch + K.TRAIN.row / 2) / .5; for (const [j, du] of [[0, .9], [1, -.9]]) { V3.bogies.getMatrixAt(c * 2 + j, M); v.setFromMatrixPosition(M); const f = K.frameAt(uc + du / .5); o.bogie = Math.max(o.bogie, v.distanceTo(new T.Vector3(...f.p))); }
@@ -269,7 +269,7 @@ module.exports = {
         o.sky = !!(V3.skies[V3.tod] && V3.skies[V3.tod].tex); K.v3Close(); return o; });
       console.log('      audit: ' + JSON.stringify(r, (k, v) => typeof v === 'number' ? +v.toFixed(3) : v));
       ok(r.people[0] > 1.6 && r.people[1] < 1.9, `people ${r.people.map(x => x.toFixed(2))} m tall`); ok(r.trees[0] > 5 && r.trees[1] < 24, `trees ${r.trees.map(x => x.toFixed(1))} m`);
-      ok(Math.abs(r.car[0] - 2.6) < .25 && r.car[1] > 1.3 && r.car[1] < 1.6, `car ${r.car.map(x => x.toFixed(2))} m`);
+      ok(r.car[0] > 2.55 && r.car[0] < 3.2 && r.car[1] > 1.3 && r.car[1] < 1.6, `car ${r.car.map(x => x.toFixed(2))} m`);
       ok(r.bogie < .005, `wheel assemblies sit on the track (worst ${(r.bogie * 1000).toFixed(1)} mm)`); ok(r.pitch.every(L => Math.abs(L - 2.9) < .06), `cars 2.9 m apart along the 3D track: ${r.pitch.map(x => x.toFixed(2))}`);
       ok(Math.abs(r.len[0] / r.len[1] - 1) < .01, `the 3D track is as long as the ride the physics measured (${r.len[0].toFixed(1)} vs ${r.len[1].toFixed(1)} m), so friction acts over the 3D length`);
       ok(r.sup.n > 10 && r.sup.ground < .05 && r.sup.pierce === 0, `supports: ${JSON.stringify(r.sup)}`); ok(r.under > 0, `track above the ground everywhere (lowest ${r.under.toFixed(2)} m)`);
@@ -311,6 +311,24 @@ module.exports = {
         for (let i = 0; i < 40; i++) { gl.readPixels(Math.floor(W * (.05 + .9 * (i % 8) / 7)), Math.floor(H * (.05 + .3 * Math.floor(i / 8) / 4)), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); max = Math.max(max, px[0], px[1], px[2]); if (px[1] >= px[2] && px[1] >= px[0] * .9) green++; n++; }
         if (V3.tufts) V3.tufts.mesh.visible = true; return { n: mats.length, bad, max, green, total: n, bloom: V3.bloom ? V3.bloom.threshold : null }; });
       ok(r.n === 3 && !r.bad.length, `ground materials: ${r.n}, not matte: ${r.bad.join(', ')}`); ok(r.max < 235, `brightest ground pixel ${r.max} (no glare)`); ok(r.green > r.total * .8, `${r.green}/${r.total} ground pixels read green`);
+    },
+    'the train is modelled to scale: car length, seat pitch, wheels touching the rails, lap bars down on the move, a far LOD, and the whole train in a few draws': async ({ page, ok }) => {
+      await page.goto(page.url().replace(/[#?].*$/, '') + '?lab=crest&post=0'); await page.waitForFunction(() => window.__coaster && __coaster.labReady, null, { timeout: 60000 });
+      const r = await page.evaluate(() => { const K = __coaster, V3 = K.V3, T = THREE, G = V3.trainGeo, o = {}, bb = g => { g.computeBoundingBox(); return g.boundingBox; };
+        const f = bb(G.hi.shellF), rr = bb(G.hi.shellR); o.lenF = f.max.z - f.min.z; o.lenR = rr.max.z - rr.min.z; o.width = rr.max.x - rr.min.x; o.pitch = K.TRAIN.row; o.carPitch = K.TRAIN.pitch;
+        // wheels from the carrier's own vertices: road wheels rest on the rail tops (y 0.075), side wheels on the rails' outer faces (|x| 0.625), up-stops under the rails (y −0.075)
+        const P = G.hi.bogie.attributes.position; let road = 9, side = 9, up = -9; for (let i = 0; i < P.count; i++) { const x = Math.abs(P.getX(i)), y = P.getY(i);
+          if (x > .5 && x < .6 && y > .05 && y < .4) road = Math.min(road, y); if (x > .6 && x < .8 && Math.abs(y) < .03) side = Math.min(side, x); if (x > .5 && x < .6 && y < -.05 && y > -.3) up = Math.max(up, y); }
+        o.road = road; o.side = side; o.up = up;
+        K.v3Frame(K.play); const M = new T.Matrix4(), q = new T.Quaternion(), v = new T.Vector3(), sc = new T.Vector3(); V3.tr.laps.getMatrixAt(5, M); M.decompose(v, q, sc); o.lapMoving = V3.tr.lap;
+        o.meshes = Object.values(V3.tr).filter(m => m && m.isInstancedMesh).length; const hiT = Object.values(V3.tr).filter(m => m && m.isInstancedMesh).reduce((a, m) => a + (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3 * m.count, 0);
+        V3.chase = true; K.v3Frame(K.play); o.lod = V3.tr.lod; const loT = Object.values(V3.tr).filter(m => m && m.isInstancedMesh).reduce((a, m) => a + (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3 * m.count, 0); V3.chase = false; K.v3Frame(K.play); o.tris = [hiT, loT]; o.back = V3.tr.lod; return o; });
+      console.log('      train: ' + JSON.stringify(r, (k, v) => typeof v === 'number' ? +v.toFixed(3) : v));
+      ok(r.lenF >= 2.6 && r.lenF <= 3.2 && r.lenR >= 2.6 && r.lenR <= 3.2, `car lengths ${r.lenF.toFixed(2)} (front) and ${r.lenR.toFixed(2)} m`); ok(r.width > 1.3 && r.width < 1.6, `car width ${r.width.toFixed(2)} m`);
+      ok(r.pitch >= .75 && r.pitch <= .95, `seat pitch ${r.pitch} m`); ok(r.carPitch > r.lenR, 'cars clear each other');
+      ok(Math.abs(r.road - .075) < .005 && Math.abs(r.side - .625) < .005 && Math.abs(r.up + .075) < .005, `wheels on the rails: road ${r.road.toFixed(3)}, side ${r.side.toFixed(3)}, up-stop ${r.up.toFixed(3)}`);
+      ok(Math.abs(r.lapMoving) < .05, 'lap bars down while the train moves'); ok(r.meshes <= 12, `${r.meshes} instanced meshes for the whole train`);
+      ok(r.lod === 'lo' && r.back === 'hi' && r.tris[1] < r.tris[0] * .6, `far LOD in the chase view: ${r.tris.map(Math.round)} triangles`);
     },
     'every starting track is a real ride: no kinks, never touches the ground, and all but First Ride (whose stall is the lesson) reach the station': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const K = __coaster; return K.COMS.map(c => { const sc = K.scores({ nodes: c.start(), lift: 1 }, c.site()); return { id: c.id, ok: sc.ok, stall: sc.r.stall, crash: sc.r.crash, kink: sc.r.kink }; }); });

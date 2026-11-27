@@ -6,7 +6,7 @@
 // train's centre (its centre of mass), TRAIN.mid metres behind the front row. Gravity acts on every row where it is on the
 // track, so a long train is dragged over a crest by the cars already going down, and the chain holds the whole train
 // until its last row is off the lift.
-const TRAIN = { cars: 5, pitch: 2.9, row: 1.1, carLen: 2.6 };
+const TRAIN = { cars: 5, pitch: 2.9, row: .9, carLen: 2.66 }; // a 0.9 m seat pitch, as on modern sit-down trains
 TRAIN.rows = []; for (let c = 0; c < TRAIN.cars; c++) TRAIN.rows.push(c * TRAIN.pitch, c * TRAIN.pitch + TRAIN.row);
 TRAIN.mid = TRAIN.rows[TRAIN.rows.length - 1] / 2; TRAIN.len = TRAIN.rows[TRAIN.rows.length - 1];
 function ride(design, opt = {}) {
