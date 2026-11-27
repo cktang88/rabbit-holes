@@ -223,11 +223,11 @@ module.exports = {
       try {
         const cdp = await ctx.newCDPSession(p); await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
         const url = page.url().replace(/[#?].*$/, ''); await page.goto('about:blank'); // nothing else running while we time it
-        await p.goto(url); await p.waitForFunction(() => window.__coaster && __coaster.firstFrame, null, { timeout: 20000 });
+        await p.goto(url); await p.bringToFront(); // a background tab gets no animation frames await p.waitForFunction(() => window.__coaster && __coaster.firstFrame, null, { timeout: 20000 });
         const first = await p.evaluate(() => __coaster.firstFrame);
         await p.waitForFunction(() => window.THREE && window.THREE_X !== undefined, null, { timeout: 30000 });
         const r = await p.evaluate(() => new Promise(res => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; K.startRide(); if (!K.V3.on) K.v3Open(); K.play.k = Math.floor(K.last.r.t.length * .4); K.play.simT = K.last.r.t[K.play.k];
-          const ts = [], st = []; let last = 0; const tick = now => { if (last) ts.push(now - last); last = now; if (K.V3.stats) st.push(K.V3.stats); if (ts.length < 150 && K.play) requestAnimationFrame(tick); else { const s = [...ts].sort((a, b) => a - b);
+          const ts = [], st = []; let last = 0, done = false; setTimeout(() => { done = true; }, 90000); const tick = now => { if (last) ts.push(now - last); last = now; if (K.V3.stats) st.push(K.V3.stats); if (ts.length < 150 && K.play && !done) requestAnimationFrame(tick); else { const s = [...ts].sort((a, b) => a - b);
             K.V3.noRender = true; const t1 = performance.now(); for (let i = 0; i < 60; i++) { K.play.k = (K.play.k + 3) % K.last.r.t.length; K.v3Frame(K.play); } const js = (performance.now() - t1) / 60; K.V3.noRender = false;
             res({ js, med: s[s.length >> 1], p95: s[Math.floor(s.length * .95)], n: s.length, calls: Math.max(...st.map(x => x.calls)), tris: Math.max(...st.map(x => x.tris)), dpr: K.V3.dpr, tier: K.V3.tier }); } }; requestAnimationFrame(tick); }));
         console.log(`      phone 4× CPU: first frame ${first.toFixed(0)} ms · frame median ${r.med.toFixed(1)} ms, p95 ${r.p95.toFixed(1)} ms over ${r.n} frames · ${r.calls} draw calls · ${r.tris} triangles · pixel ratio ${r.dpr} · tier ${r.tier} · our JS ${r.js.toFixed(2)} ms a frame (software GL here: frame times are CPU+SwiftShader, not a phone GPU)`);
@@ -283,6 +283,19 @@ module.exports = {
       const txt = await page.evaluate(() => document.querySelector('#result .seats').textContent);
       ok(r.cars === 5 && r.rows === 10, 'five cars of two rows'); ok(r.bmin < r.fmin - .1, `the back row is whipped over the crests: lowest g ${r.bmin.toFixed(2)} vs front ${r.fmin.toFixed(2)} (airtime ${r.b.toFixed(2)} s vs ${r.f.toFixed(2)} s)`); ok(Math.abs(r.b - r.f) > 1e-3, 'seats differ'); ok(Math.abs(r.m - r.judged) < .05, `judged = middle seat (${r.judged.toFixed(2)} vs ${r.m.toFixed(2)})`);
       ok(r.seat === 'middle of the train', r.seat); ok(/Front row: [\d.]+ s airtime.*back row: [\d.]+ s/.test(txt), txt);
+    },
+    'free look: dragging turns the rider\'s head (clamped), the seat frame is untouched, the head eases back, arrow keys look too': async ({ page, ok }) => {
+      await page.waitForFunction(() => window.THREE);
+      await page.evaluate(() => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; K.startRide(); if (!K.V3.on) K.v3Open(); K.play.speed = 0; K.play.k = 40; K.play.f = 0; K.V3.dt = 1 / 60; K.v3Frame(K.play); });
+      const snap = () => page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; K.v3Frame(K.play); const v = new THREE.Vector3(); K.V3.cam.getWorldDirection(v); return { d: v.toArray(), seat: K.seatAt().fwd, cg: [...K.V3.cg], yaw: K.V3.look.yaw, pitch: K.V3.look.pitch }; });
+      const ang = (a, b) => Math.acos(Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+      const a = await snap(); await page.mouse.move(640, 420); await page.mouse.down(); for (let i = 1; i <= 10; i++) await page.mouse.move(640 - i * 40, 420 - i * 12); const b = await snap();
+      for (let i = 1; i <= 10; i++) await page.mouse.move(640 - 400 - i * 400, 420 - 120 - i * 200); const c = await snap(); await page.mouse.up();
+      const back = await page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; for (let i = 0; i < 200; i++) K.v3Frame(K.play); return [K.V3.look.yaw, K.V3.look.pitch]; });
+      await page.keyboard.down('ArrowRight'); const key = await page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; for (let i = 0; i < 30; i++) K.v3Frame(K.play); return K.V3.look.yaw; }); await page.keyboard.up('ArrowRight');
+      ok(ang(a.d, b.d) > .3, `dragging turned the view by ${(ang(a.d, b.d) * 57.3).toFixed(0)}°`); ok(ang(a.seat, b.seat) < 1e-6 && ang(a.cg, b.cg) < 1e-6, 'the seat frame and the smoothed seat gaze are unaffected');
+      ok(Math.abs(c.yaw) <= 120 / 57.3 + 1e-6 && Math.abs(c.pitch) <= 70 / 57.3 + 1e-6 && Math.abs(c.yaw) > 1.9, `head turn clamped: yaw ${(c.yaw * 57.3).toFixed(0)}°, pitch ${(c.pitch * 57.3).toFixed(0)}°`);
+      ok(Math.abs(back[0]) < .02 && Math.abs(back[1]) < .02, `the head eased back to the front: ${back.map(x => (x * 57.3).toFixed(1))}°`); ok(key < -.2, `the right arrow looks right: yaw ${(key * 57.3).toFixed(0)}°`);
     },
     'every starting track is a real ride: no kinks, never touches the ground, and all but First Ride (whose stall is the lesson) reach the station': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const K = __coaster; return K.COMS.map(c => { const sc = K.scores({ nodes: c.start(), lift: 1 }, c.site()); return { id: c.id, ok: sc.ok, stall: sc.r.stall, crash: sc.r.crash, kink: sc.r.kink }; }); });

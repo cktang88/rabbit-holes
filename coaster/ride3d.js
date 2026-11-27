@@ -180,7 +180,7 @@ function v3Build(force) {
         for (let s = 0; s < sides; s++) { const a = s / sides * Math.PI * 2, ca = Math.cos(a) * rad, sa = Math.sin(a) * rad; pos.push(c[0] + f.side[0] * ca + f.up[0] * sa, c[1] + f.side[1] * ca + f.up[1] * sa, c[2] + f.side[2] * ca + f.up[2] * sa); }
         if (r2) for (let s = 0; s < sides; s++) { const a = (r2 - 1) * sides + s, b = (r2 - 1) * sides + (s + 1) % sides, c2 = r2 * sides + s, d = r2 * sides + (s + 1) % sides; idx.push(a, c2, b, b, c2, d); } });
       const g2 = new T.BufferGeometry(); g2.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g2.setIndex(idx); g2.computeVertexNormals(); return g2; };
-    const sides = V3.tier === 'high' ? 10 : 7, rails = new T.Mesh(mergeParts(T, [[tube([-.55, 0], .075, sides), 0xd8402f], [tube([.55, 0], .075, sides), 0xd8402f]]), new T.MeshStandardMaterial({ vertexColors: true, metalness: .75, roughness: .32 }));
+    const sides = V3.tier === 'high' ? 10 : 7, rails = new T.Mesh(mergeParts(T, [[tube([-.55, 0], .075, sides), 0xd8402f], [tube([.55, 0], .075, sides), 0xd8402f]]), new T.MeshStandardMaterial({ vertexColors: true, metalness: .75, roughness: .3 }));
     const spine = new T.Mesh(tube([0, -.4], .19, sides + 2), new T.MeshStandardMaterial({ color: 0xf1e6cf, metalness: .6, roughness: .4 }));
     for (const m of [rails, spine]) { m.castShadow = true; m.receiveShadow = true; sc.add(m); } V3.railMesh = rails; }
   { const n = Math.ceil(F.length / 3), M = new T.InstancedMesh(new T.BoxGeometry(1.35, .1, .24), new T.MeshStandardMaterial({ color: 0x4a3626, roughness: .7, metalness: .2 }), n), m4 = new T.Matrix4(); let k = 0;
@@ -195,7 +195,7 @@ function v3Build(force) {
       m4.compose(new T.Vector3(f.p[0], gnd + hh / 2, f.p[2]), new T.Quaternion(), new T.Vector3(1, hh, 1)); col.setMatrixAt(k, m4); m4.makeTranslation(f.p[0], gnd + .1, f.p[2]); foot.setMatrixAt(k, m4); V3.supports.push([f.p[0], gnd, f.p[2], top]); k++; }
     col.count = foot.count = k; col.castShadow = true; foot.receiveShadow = true; sc.add(col); sc.add(foot); }
   // the train
-  { const nc = TRAIN.cars, mat = new T.MeshStandardMaterial({ vertexColors: true, metalness: .25, roughness: .45 });
+  { const nc = TRAIN.cars, mat = new T.MeshPhysicalMaterial({ vertexColors: true, metalness: .1, roughness: .45, clearcoat: 1, clearcoatRoughness: .08 }); // lacquered paint
     V3.trainF = new T.InstancedMesh(V3.carGeo[0], mat, 1); V3.train = V3.trainF; V3.trainR = new T.InstancedMesh(V3.carGeo[1], mat, nc - 1); V3.bogies = new T.InstancedMesh(V3.bogieGeo, new T.MeshStandardMaterial({ vertexColors: true, metalness: .6, roughness: .5 }), nc * 2);
     V3.coup = new T.InstancedMesh(new T.CylinderGeometry(.06, .06, 1, 6).rotateX(Math.PI / 2), new T.MeshStandardMaterial({ color: 0x333333, metalness: .7, roughness: .4 }), nc - 1);
     const nr = nc * 4; V3.riders = new T.InstancedMesh(V3.riderGeo, new T.MeshStandardMaterial({ vertexColors: true, roughness: .8 }), nr); V3.arms = new T.InstancedMesh(V3.armGeo, new T.MeshStandardMaterial({ vertexColors: true, roughness: .8 }), nr);
@@ -208,7 +208,7 @@ function v3Build(force) {
 
 // ---------- open / close ----------
 function v3Open() {
-  if (!v3Init()) return false; V3.chaseP = null; V3.chaseD = null; V3.cg = null; v3Build(); v3Size();
+  if (!v3Init()) return false; V3.look.yaw = V3.look.pitch = 0; V3.chaseP = null; V3.chaseD = null; V3.cg = null; v3Build(); v3Size();
   V3.on = true; $('v3').classList.add('on'); $('v3fx').classList.add('on'); document.body.classList.add('ride3'); pv.style.display = 'none'; $('povL').style.display = 'none'; wakeTools();
   if (play) v3Frame(play); else v3Render(); return true;
 }
@@ -224,6 +224,27 @@ let toolsT = 0; function wakeTools() { $('tools').classList.remove('idle'); clea
 addEventListener('pointermove', () => V3.on && wakeTools()); addEventListener('pointerdown', () => V3.on && wakeTools());
 // pause the 3D view's clock while the tab is hidden (requestAnimationFrame stops too), so it doesn't jump on return
 document.addEventListener('visibilitychange', () => { V3.lastR = 0; V3.ft.length = 0; });
+
+// ---------- free look: the rider turns their head (drag, arrows/WASD, or the phone's gyro if switched on) ----------
+// Yaw ±120° and pitch ±70° relative to the seat, layered on top of the smoothed seat camera; the seat frame itself is
+// untouched. Unless 'look stays' is chosen, the head eases back to forward a moment after you let go.
+const LOOK_Y = 120 * Math.PI / 180, LOOK_P = 70 * Math.PI / 180;
+V3.look = { yaw: 0, pitch: 0, t: 0, drag: null, keys: new Set(), mode: 0, gyro: null }; // mode 0: returns, 1: stays, 2: gyro
+function lookBy(dy, dp) { const L = V3.look; L.yaw = clamp(L.yaw + dy, -LOOK_Y, LOOK_Y); L.pitch = clamp(L.pitch + dp, -LOOK_P, LOOK_P); L.t = 0; }
+function lookTick(dt) { const L = V3.look, k = L.keys, r = 1.6 * dt;
+  if (k.size) lookBy(((k.has('ArrowLeft') || k.has('a')) - (k.has('ArrowRight') || k.has('d'))) * r, ((k.has('ArrowUp') || k.has('w')) - (k.has('ArrowDown') || k.has('s'))) * r);
+  if (L.mode === 2 && L.gyro) { L.yaw = clamp(L.gyro[0], -LOOK_Y, LOOK_Y); L.pitch = clamp(L.gyro[1], -LOOK_P, LOOK_P); return; }
+  L.t += dt; if (L.mode === 0 && !L.drag && !k.size && L.t > .8) { const e = Math.exp(-dt * 3); L.yaw *= e; L.pitch *= e; } }
+$('v3').addEventListener('pointerdown', e => { if (!V3.on || V3.chase) return; V3.look.drag = [e.clientX, e.clientY, e.pointerId]; try { $('v3').setPointerCapture(e.pointerId); } catch (_) {} });
+$('v3').addEventListener('pointermove', e => { const d = V3.look.drag; if (!d || d[2] !== e.pointerId) return; const s = 2.4 / Math.max(innerWidth, innerHeight) * (V3.cam ? V3.cam.fov / 70 : 1); lookBy((e.clientX - d[0]) * s, (e.clientY - d[1]) * s); d[0] = e.clientX; d[1] = e.clientY; if (play && !play.speed) v3Frame(play); });
+for (const ev of ['pointerup', 'pointercancel']) $('v3').addEventListener(ev, () => { V3.look.drag = null; V3.look.t = 0; });
+addEventListener('keydown', e => { if (!V3.on || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return; const k = e.key.length === 1 ? e.key.toLowerCase() : e.key; if (/^(Arrow(Left|Right|Up|Down)|[wasd])$/.test(k)) { V3.look.keys.add(k); e.preventDefault(); kick(); } });
+addEventListener('keyup', e => { const k = e.key.length === 1 ? e.key.toLowerCase() : e.key; V3.look.keys.delete(k); V3.look.t = 0; });
+function cycleLook() { const L = V3.look, gyroOK = 'DeviceOrientationEvent' in window && matchMedia('(pointer:coarse)').matches; L.mode = (L.mode + 1) % (gyroOK ? 3 : 2);
+  if (L.mode === 2) { const on = () => { L.base = null; addEventListener('deviceorientation', onGyro); }; const P = DeviceOrientationEvent.requestPermission; if (typeof P === 'function') P().then(r => r === 'granted' ? on() : (L.mode = 0, renderTools())).catch(() => { L.mode = 0; renderTools(); }); else on(); }
+  else removeEventListener('deviceorientation', onGyro);
+  toast(['Look about: the head turns back to the front', 'Look about: the head stays where you put it', 'Look about with the phone (gyro)'][L.mode]); renderTools(); }
+function onGyro(e) { const L = V3.look; if (e.alpha == null) return; const a = e.alpha * Math.PI / 180, b = e.beta * Math.PI / 180; if (!L.base) L.base = [a, b]; let dy = a - L.base[0]; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); L.gyro = [dy, -(b - L.base[1])]; }
 
 // ---------- where the chosen seat is at playback position (sample k plus fraction f), interpolated between samples ----------
 // The physics point is the train's middle; a seat `off` metres behind the front row sits (TRAIN.mid − off) ahead of it.
@@ -287,6 +308,9 @@ function v3Frame(p) {
     camE.position.set(s.p[0] + s.up[0] * e + s.tfwd[0] * fe + j(0), s.p[1] + s.up[1] * e + s.tfwd[1] * fe + j(1), s.p[2] + s.up[2] * e + s.tfwd[2] * fe + j(2));
     const right = _r3.rt || (_r3.rt = new T.Vector3()); right.copy(gaze).cross(upS); if (right.lengthSq() < 1e-6) right.copy(gaze).cross(up0); right.normalize(); const up = _r3.up || (_r3.up = new T.Vector3()); up.crossVectors(right, gaze).normalize();
     const B = _r3.B || (_r3.B = new T.Matrix4()), ng = _r3.ng || (_r3.ng = new T.Vector3()); ng.copy(gaze).negate(); camE.quaternion.setFromRotationMatrix(B.makeBasis(right, up, ng));
+    // the rider's own head turn, on top of the smoothed seat view: yaw about the seat's up, then pitch about the head's right
+    lookTick(dt); const L = V3.look; if (L.yaw || L.pitch) { const qy = _r3.qy || (_r3.qy = new T.Quaternion()), qp = _r3.qp || (_r3.qp = new T.Quaternion()), ax = _r3.ax || (_r3.ax = new T.Vector3());
+      qy.setFromAxisAngle(ax.set(0, 1, 0), L.yaw); qp.setFromAxisAngle(ax.set(1, 0, 0), L.pitch); camE.quaternion.multiply(qy).multiply(qp); }
   } else {
     const back = F[Math.max(0, s.i - 30)], dx0 = s.p[0] - back.p[0], dz0 = s.p[2] - back.p[2], hz0 = Math.hypot(dx0, dz0);
     if (hz0 > 3 || !V3.chaseD) V3.chaseD = hz0 > .1 ? [dx0 / hz0, dz0 / hz0] : [Math.cos(design.S[s.i].head), Math.sin(design.S[s.i].head)]; // behind the train's recent travel, so loops don't swing it round

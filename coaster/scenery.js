@@ -97,7 +97,7 @@ function buildScenery(T, sc, S, F) {
     for (let j = 1; j < rings.length - 1; j++) { const a0 = 1 + (j - 1) * segs, b0 = 1 + j * segs; for (let k = 0; k < segs; k++) { const k1 = (k + 1) % segs; idx.push(a0 + k, a0 + k1, b0 + k, a0 + k1, b0 + k1, b0 + k); } }
     const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new T.Float32BufferAttribute(col, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
     const mat = stdMat(T, { roughness: 1, color: 0x8fae62 }); if (!V3.grassTex) { V3.grassTex = new T.TextureLoader().load('assets/grass_1k.jpg', () => { if (V3.on && !play) v3Render(); }); const t = V3.grassTex; t.wrapS = t.wrapT = T.RepeatWrapping; t.colorSpace = T.SRGBColorSpace; t.anisotropy = mob ? 4 : 8; t.userData.keep = true; }
-    mat.map = V3.grassTex; const ground = new T.Mesh(g, mat); ground.receiveShadow = true; sc.add(ground); V3.ground = ground; }
+    mat.map = V3.grassTex; mat.roughnessMap = V3.grassTex; /* rock and soil in the texture read a little smoother than the grass */ const ground = new T.Mesh(g, mat); ground.receiveShadow = true; sc.add(ground); V3.ground = ground; }
   // distant hills, soft and hazy
   { const geo = blob(T, 1, 1, .35, 3), Mh = new T.InstancedMesh(geo, stdMat(T, { vertexColors: false, color: 0x6f8f62, roughness: 1, flatShading: false }), 34);
     for (let k = 0; k < 34; k++) { const a = k / 34 * Math.PI * 2 + rnd() * .2, R2 = Math.max(half + 260, 520) + rnd() * 260, w = 90 + rnd() * 140, hh = 30 + rnd() * 60; V.set(cx + Math.cos(a) * R2, -hh * .25, cz + Math.sin(a) * R2); Q.setFromAxisAngle(Yx, rnd() * 6); Sc.set(w, hh, w * .8); M.compose(V, Q, Sc); Mh.setMatrixAt(k, M); }
@@ -194,7 +194,10 @@ function buildScenery(T, sc, S, F) {
       (far ? farP : near).push([X, gy(X, Z), Z, sc2, pine2, rnd() * 6, pine2 ? pines[(rnd() * 3) | 0] : rnd() < .08 ? autumn[(rnd() * 2) | 0] : green[(rnd() * 5) | 0]]); };
     for (let t = 0; t < 2200 && near.length < (mob ? 120 : 190); t++) tryTree(cx + (rnd() - .5) * half * 1.6, cz + (rnd() - .5) * half * 1.6, false);
     for (let t = 0; t < 3000 && farP.length < (mob ? 260 : 420); t++) { const a = rnd() * Math.PI * 2, R2 = half * .85 + rnd() * 140; tryTree(cx + Math.cos(a) * R2, cz + Math.sin(a) * R2, true); }
-    for (const [geo, isPine] of [[broad, false], [pine, true]]) { const list = near.filter(t => t[4] === isPine); if (!list.length) continue; const Mt = new T.InstancedMesh(geo, stdMat(T, { roughness: .9 }), list.length);
+    const broadLo = mergeParts(T, [[new T.CylinderGeometry(.22, .38, 4, 5), 0x6b4a32, M4(T, 0, 2, 0)], [blob(T, 2.6, 0, .25, 1), 0xffffff, M4(T, 0, 5.6, 0)], [blob(T, 2.1, 0, .3, 2), 0xffffff, M4(T, 1.2, 4.9, .5)], [blob(T, 1.9, 0, .3, 3), 0xffffff, M4(T, -1.1, 5.1, -.6)]]);
+    const pineLo = mergeParts(T, [[new T.CylinderGeometry(.18, .3, 3, 4), 0x5a3e2a, M4(T, 0, 1.5, 0)], ...[0, 1, 2].map(k => [new T.ConeGeometry(2.3 - k * .6, 3.8, 6), 0xffffff, M4(T, 0, 3.6 + k * 2.4, 0)])]);
+    const lodR = Math.max(60, half * .45); // the ride stays near the middle of the park: beyond this, trees are seen from 40 m and more
+    for (const [geo, isPine, lo] of [[broad, false, 0], [pine, true, 0], [broadLo, false, 1], [pineLo, true, 1]]) { const list = near.filter(t => t[4] === isPine && (Math.hypot(t[0] - cx, t[2] - cz) > lodR) === !!lo); if (!list.length) continue; const Mt = new T.InstancedMesh(geo, stdMat(T, { roughness: .9 }), list.length);
       list.forEach(([X, Y, Z, s2, , r, c], k) => { V.set(X, Y - .2, Z); Q.setFromAxisAngle(Yx, r); Sc.set(s2, s2 * (.9 + hash2(X, Z) * .3), s2); M.compose(V, Q, Sc); Mt.setMatrixAt(k, M); Mt.setColorAt(k, new T.Color(c)); blobs.push([X, Z, 5 * s2]); });
       Mt.castShadow = true; Mt.receiveShadow = true; sc.add(Mt); V3.trees.push(Mt); }
     // impostors: two crossed quads with a painted tree (alpha-tested), two kinds in one texture
