@@ -20,16 +20,16 @@ module.exports = {
       ok(b.tick > a.tick + 100, 'time passes: ' + a.tick + ' -> ' + b.tick); ok(b.ns >= b.sum.pop && b.na >= b.sum.pop, 'every creature is drawn as segments and appendages');
       ok(b.sum.gen > 0, 'a new generation hatched');
     },
-    'real evolution: founders get faster and smaller under selection, in every seed, well beyond neutral drift': async ({ page, ok }) => {
+    'real evolution: founders get faster and grow eyes under selection, in every seed, well beyond neutral drift': async ({ page, ok }) => {
       await pause(page);
       const r = await page.evaluate(() => { const E = EvoSim, G = E.GENE, out = [];
         for (const seed of [11, 12, 13]) { const s = new E.Sim({ seed, cap: 160, w: 820, h: 640, pred: false }), f = s.cr[0].g;
-          const f0 = { spd: f[G.SPEED], size: f[G.SIZE], osc: f[G.OSC] };
+          const f0 = { spd: f[G.SPEED], eyes: f[G.EYES], osc: f[G.OSC] };
           for (let i = 0; i < 15000; i++) s.step();
           const m = k => s.cr.reduce((a, c) => a + c.g[k], 0) / s.cr.length;
           // the pulse-rate gene does almost nothing for a founder's brain, so it mostly drifts: a yardstick for chance
-          out.push({ f0, spd: m(G.SPEED), size: m(G.SIZE), osc: m(G.OSC), gen: s.cr.reduce((a, c) => a + c.gen, 0) / s.cr.length }); } return out; });
-      for (const x of r) { ok(x.spd > x.f0.spd + .04, `mean speed ${x.f0.spd.toFixed(2)} -> ${x.spd.toFixed(2)}`); ok(x.size < x.f0.size - .03, `body size gene ${x.f0.size.toFixed(2)} -> ${x.size.toFixed(2)}`); ok(x.gen > 30, 'generations ' + x.gen); }
+          out.push({ f0, spd: m(G.SPEED), eyes: m(G.EYES), osc: m(G.OSC), gen: s.cr.reduce((a, c) => a + c.gen, 0) / s.cr.length }); } return out; });
+      for (const x of r) { ok(x.spd > x.f0.spd + .04, `mean speed ${x.f0.spd.toFixed(2)} -> ${x.spd.toFixed(2)}`); ok(x.eyes > x.f0.eyes + .06, `eyes ${x.f0.eyes.toFixed(2)} -> ${x.eyes.toFixed(2)}`); ok(x.gen > 30, 'generations ' + x.gen); }
       const dS = r.reduce((a, x) => a + x.spd - x.f0.spd, 0) / 3, dN = r.reduce((a, x) => a + Math.abs(x.osc - x.f0.osc), 0) / 3;
       ok(dS > .12, 'mean speed gain ' + dS.toFixed(3)); ok(dS > 2 * dN, `selected change ${dS.toFixed(3)} vs drift ${dN.toFixed(3)}`);
     },
