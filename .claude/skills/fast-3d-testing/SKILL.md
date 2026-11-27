@@ -39,3 +39,16 @@ This sandbox has **no GPU** (SwiftShader software WebGL) and its CPUs are shared
   - Use one shared error budget per asset, and rebuild crease normals afterwards.
   - Use impostors or billboards for far trees and props.
   - Avoid three.js `SimplifyModifier` at runtime on big meshes; pre-simplify offline (meshoptimizer).
+
+## Stock-three perf fixes that pay (from cktang88/fastrender `three-game-perf`)
+
+Fix the largest bucket first; name it (GPU fill, draws, JS, compile hitch) before changing code. Every fix gets a URL off switch so it can be A/B'd by counts.
+
+1. **No dark/padding lights.** A point/spot light at intensity 0 still costs every lit fragment. Keep light counts fixed for the session (never toggle `light.visible` or add/remove lights: every lit program recompiles = freeze). Fake lamps with emissive + bloom.
+2. **InstancedMesh is drawn whole.** Chunk instances spatially, one InstancedMesh per chunk with a recomputed bounding sphere, so the frustum culls per chunk.
+3. **Discard draws last.** alphaTest/alphaHash materials defeat phone-GPU hidden-surface removal; use `renderer.setOpaqueSort` to put them after plain opaque draws, nearest first. Few alpha cards, impostors far.
+4. **Freeze static subtrees.** `matrixAutoUpdate=false` + one `updateMatrix()`, and a no-op `updateMatrixWorld` on static group roots (`matrixWorldAutoUpdate=false` alone still walks the children).
+5. **Shadows:** `shadowMap.autoUpdate=false`; set `needsUpdate` only when the light or casters move.
+6. **No compile hitches:** build all materials/defines up front, `renderer.compile(scene, camera)` at load, never set a define/map after the first draw; keep `renderer.info.programs.length` small.
+7. **LODs/triangles matter less than draws** on tile-based phone GPUs unless the triangles are on screen. Merge static geometry by material; measure draws first.
+8. **Fill:** cap `pixelRatio` (≤1.5 on phones, adaptive if slow); short post chain.
