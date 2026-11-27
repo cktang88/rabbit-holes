@@ -244,7 +244,16 @@ const GL = (() => {
     ensureConnected(C);
     C.unlock = { toll: 2, close: 1 };
     rebuildGroups(C);
+    calibrate(C);
     return C;
+  }
+  // month 1 is already a problem: size the two first districts so that, left alone, the drivers settle a little over the council's limit
+  const OPEN_T = 43;
+  function calibrate(C) {
+    const H = homes(C), base = H.map(h => C.nodes[h].pop);
+    const idleAvg = (s) => { const D = clone(C); H.forEach((h, i) => { D.nodes[h].pop = Math.round(base[i] * s); }); rebuildGroups(D); settle(D, SWEEPS); return measure(D).avg; };
+    let lo = .8, hi = 4; for (let k = 0; k < 14; k++) { const mid = (lo + hi) / 2; if (idleAvg(mid) < OPEN_T) lo = mid; else hi = mid; }
+    H.forEach((h, i) => { C.nodes[h].pop = Math.round(base[i] * hi); }); rebuildGroups(C);
   }
   const crosses = (C, a, b) => { // does the lattice edge a-b cross the river?
     const side = i => colOf(i) <= C.river[rowOf(i)] ? 0 : 1; return side(a) !== side(b);
@@ -584,7 +593,7 @@ const GL = (() => {
     else C.cred = Math.max(0, C.cred - 1);
     const okT = m.avg <= LIMIT_T, okB = m.worstB <= LIMIT_B, broke = C.treasury < -1;
     const bad = !okT || !okB || broke;
-    C.strikes = bad && C.month > 3 ? C.strikes + 1 : 0; // the first quarter is probation
+    C.strikes = bad ? C.strikes + 1 : 0; // no probation: three bad months in a row and the council lets you go
     const rep = { month: C.month, avg: m.avg, worstB: m.worstB, cls: m.cls, rev: m.rev, upkeep: upkeep(C), treasury: C.treasury, riders: m.riders, pop: Math.round(m.n), okT, okB, broke, strikes: C.strikes, fc, found, days, frames, event: C.event };
     C.hist.push({ m: C.month, avg: +m.avg.toFixed(2), b: +m.worstB.toFixed(1), pop: Math.round(m.n), fc: fc ? fc.grade : -1, bad: bad ? 1 : 0 });
     if (C.strikes >= 3) C.over = 'fired'; else if (C.month >= 36 && !C.endless) C.over = 'retired';
