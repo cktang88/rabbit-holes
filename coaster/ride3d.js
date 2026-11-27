@@ -46,10 +46,11 @@ function trackFrames(S) { // per sample: position, forward, up (rolled by the ba
   return F;
 }
 // a frame anywhere along the track: u is a fractional sample index; positions and directions interpolate between samples
-// the track frame at fractional sample u; beyond either end the track runs on straight (the station run-in and run-out),
+// the track frame at fractional sample u; before the start the track runs level through the station, past the end it runs on straight,
 // so the rows of a train that hang off the ends still sit on rails
 function frameAt(u) { const F = V3.frames, n = F.length;
-  if (u < 0 || u > n - 1) { const e = u < 0 ? F[0] : F[n - 1], d = (u < 0 ? u : u - (n - 1)) * DS; return { p: [e.p[0] + e.fwd[0] * d, e.p[1] + e.fwd[1] * d, e.p[2] + e.fwd[2] * d], fwd: e.fwd, up: e.up }; }
+  if (u < 0) { const e = F[0], h = nrm([e.fwd[0], 0, e.fwd[2]]), d = u * DS; return { p: [e.p[0] + h[0] * d, e.p[1], e.p[2] + h[2] * d], fwd: h, up: [0, 1, 0] }; } // the station's level run-in
+  if (u > n - 1) { const e = F[n - 1], d = (u - (n - 1)) * DS; return { p: [e.p[0] + e.fwd[0] * d, e.p[1] + e.fwd[1] * d, e.p[2] + e.fwd[2] * d], fwd: e.fwd, up: e.up }; }
   const i = clamp(Math.floor(u), 0, n - 1), j = Math.min(n - 1, i + 1), t = clamp(u - i, 0, 1), L = (a, b) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
   return { p: L(F[i].p, F[j].p), fwd: nrm(L(F[i].fwd, F[j].fwd)), up: nrm(L(F[i].up, F[j].up)) }; }
 const nrm = u => { const l = Math.hypot(u[0], u[1], u[2]) || 1; return [u[0] / l, u[1] / l, u[2] / l]; };
@@ -131,8 +132,8 @@ const RAYS = { uniforms: { tDiffuse: { value: null }, uSun: { value: null }, uAm
   fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 uSun; uniform float uAmt; varying vec2 vUv;
     void main(){ vec4 base = texture2D(tDiffuse, vUv); if (uAmt < .001) { gl_FragColor = base; return; }
       vec2 st = (uSun - vUv) / 28.; vec2 p = vUv; vec3 acc = vec3(0.); float w = 1.;
-      for (int i = 0; i < 28; i++) { p += st; vec3 s = texture2D(tDiffuse, p).rgb; acc += max(s - 1.2, 0.) * w; w *= .94; } // only the bright sky between the leaves and the track glows
-      gl_FragColor = vec4(base.rgb + acc * uAmt * .06, base.a); }` };
+      for (int i = 0; i < 28; i++) { p += st; vec3 s = min(texture2D(tDiffuse, p).rgb, vec3(4.)); acc += max(s - 1.2, 0.) * w; w *= .94; } // only the bright sky between the leaves and the track glows
+      gl_FragColor = vec4(base.rgb + acc * uAmt * .012, base.a); }` };
 function v3Post() {
   const T = window.THREE, X = window.THREE_X; if (!X || !X.EffectComposer || V3.comp) return;
   const hi = V3.tier === 'high', c = V3.comp = new X.EffectComposer(V3.r); c.setPixelRatio(V3.dpr);
@@ -142,7 +143,7 @@ function v3Post() {
   c.addPass(new X.OutputPass()); V3.grade = new X.ShaderPass(GRADE); c.addPass(V3.grade);
   // lens flare at the sun: occluded by the track and the trees (three.js tests the pixels behind it each frame)
   const glow = canvasTex(T, 128, 128, (x, w) => { const g = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); g.addColorStop(0, 'rgba(255,250,235,1)'); g.addColorStop(.2, 'rgba(255,230,190,.5)'); g.addColorStop(1, 'rgba(255,200,150,0)'); x.fillStyle = g; x.fillRect(0, 0, w, w); });
-  const ring = canvasTex(T, 64, 64, (x, w) => { const g = x.createRadialGradient(w / 2, w / 2, w * .3, w / 2, w / 2, w / 2); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.7, 'rgba(180,220,255,.35)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, w, w); });
+  const ring = canvasTex(T, 64, 64, (x, w) => { const g = x.createRadialGradient(w / 2, w / 2, w * .3, w / 2, w / 2, w / 2); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.7, 'rgba(180,220,255,.1)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, w, w); });
   const fl = V3.flare = new X.Lensflare(); fl.addElement(new X.LensflareElement(glow, hi ? 420 : 260, 0, new T.Color(1, .95, .85)));
   if (hi) for (const [s, d] of [[60, .45], [90, .65], [140, .85], [70, 1]]) fl.addElement(new X.LensflareElement(ring, s, d)); else fl.addElement(new X.LensflareElement(ring, 80, .7));
   V3.post = true; v3Size();

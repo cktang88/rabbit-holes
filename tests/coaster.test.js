@@ -9,8 +9,8 @@ module.exports = {
   tests: {
     'energy is conserved with friction and drag off: v²/2 + g·h (h = the whole train\'s mean height) stays constant once the train is off the lift': async ({ page, ok }) => {
       const r = await page.evaluate(() => { const K = __coaster, d = { nodes: K.REF.thrill(), lift: 1 }; d.S = K.geometry(d); const R = K.simulate(d, { mu: 0, drag: 0 });
-        // the train's potential energy is its rows' mean height (rows before the start or past the end sit on the straight run-out)
-        const S = d.S, n1 = S.length - 1, yAt = u => u < 0 ? S[0].y + u * .5 * Math.sin(S[0].th) : u > n1 ? S[n1].y + (u - n1) * .5 * Math.sin(S[n1 - 1].th) : S[u].y;
+        // the train's potential energy is its rows' mean height (rows before the start sit in the level station, rows past the end on the straight run-out)
+        const S = d.S, n1 = S.length - 1, yAt = u => u < 0 ? S[0].y : u > n1 ? S[n1].y + (u - n1) * .5 * Math.sin(S[n1 - 1].th) : S[u].y;
         const offs = K.TRAIN.rows.map(o => Math.round((K.TRAIN.mid - o) / .5)), rearN = Math.round(K.TRAIN.mid / .5);
         let lo = 1e9, hi = -1e9; R.v.forEach((v, k) => { const i = R.idx[k] + 1; if (S[Math.max(0, i - rearN)].seg < 1 || S[i].seg < 1) return; let h = 0; for (const o of offs) h += yAt(i + o); h /= offs.length; const E = v * v / 2 + 9.81 * h; lo = Math.min(lo, E); hi = Math.max(hi, E); });
         const F = K.simulate(d); return { spread: hi - lo, E: hi, done: R.done, vEndFric: F.vEnd, vEnd: R.vEnd }; });

@@ -18,7 +18,7 @@ function ride(design, opt = {}) {
   const n1 = S.length - 1, rowN = opt.point ? [0] : TRAIN.rows.map(o => Math.round((TRAIN.mid - o) / DS)), rearN = opt.point ? 0 : Math.round(TRAIN.mid / DS);
   for (let i = 0; i < S.length - 1; i++) {
     const p = S[i], q = S[i + 1], th = p.th, rear = S[Math.max(0, i - rearN)], onLift = p.seg < lift || rear.seg < lift;
-    let sinA = 0; for (const o of rowN) sinA += Math.sin(S[clamp(i + o, 0, n1)].th); sinA /= rowN.length; // the whole train's weight along the track
+    let sinA = 0; for (const o of rowN) sinA += i + o < 0 ? 0 : Math.sin(S[Math.min(i + o, n1)].th); /* rows still in the level station: no pull */ sinA /= rowN.length; // the whole train's weight along the track
     const gv = (v * v * (p.kv || 0) + G * Math.cos(th)) / G, ah = v * v * p.kh;
     // auto-bank: tilt so the seat takes the whole push, tan b = (v²κh/g) / (vertical g); then any over/under-bank trim
     if (p.ab) p.bank = clamp((Math.abs(ah) > 1e-6 ? Math.atan2(Math.abs(ah), G * Math.max(.25, gv)) : 0) + p.bt, 0, 1.45);

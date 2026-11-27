@@ -13,6 +13,11 @@ function skyAnalyse(T, tex) {
   // texture rows run top (sky) to bottom with flipY; three.js maps u = atan2(z, x)/2π + .5, v = asin(y)/π + .5
   const el = (.5 - (br + .5) / H) * Math.PI, ph = ((bc + .5) / W - .5) * Math.PI * 2;
   const i = (br * W + bc) * ch, sc = [rd(i), rd(i + 1), rd(i + 2)], m = Math.max(...sc) || 1;
+  // then clip the sun's disc to a bright-but-sane radiance: the directional light carries the sun's real power, and an
+  // unclipped disc (thousands at dusk) would bloom across the whole frame and speckle the reflections
+  const CAP = 24, wr = half ? (i, x) => { d[i] = T.DataUtils.toHalfFloat(x); } : (i, x) => { d[i] = x; };
+  for (let k = 0; k < W * H; k++) { const i = k * ch, R = rd(i), Gg = rd(i + 1), B = rd(i + 2), l = .2126 * R + .7152 * Gg + .0722 * B; if (l > CAP) { const f = CAP / l; wr(i, R * f); wr(i + 1, Gg * f); wr(i + 2, B * f); } }
+  tex.needsUpdate = true;
   return { dir: [Math.cos(ph) * Math.cos(el), Math.sin(el), Math.sin(ph) * Math.cos(el)], el, sunCol: sc.map(x => x / m), haze: hz.map(x => x / hn) };
 }
 function skyLoad(tod) {
@@ -70,11 +75,11 @@ function buildScenery(T, sc, S, F) {
   const taken = []; const free = (X, Z, r, trackR = r + 4) => !nearTrack(X, Z, trackR) && groundAt(X, Z)[1] < .4 && taken.every(([a, b, q]) => (a - X) ** 2 + (b - Z) ** 2 > (q + r) ** 2);
   const take = (X, Z, r, tag) => taken.push([X, Z, r, tag]); // tag 'station': beside the track on purpose
   V3.taken = taken;
-  const f0 = F[0], h0 = S[0].head, L0 = [-Math.sin(h0), Math.cos(h0)], fw0 = [Math.cos(h0), Math.sin(h0)], stY = terr(S[0].x), stA = -h0;
+  const f0 = F[0], h0 = S[0].head, L0 = [-Math.sin(h0), Math.cos(h0)], fw0 = [Math.cos(h0), Math.sin(h0)], stA = -h0;
   // the station platform sits beside the track on the side away from the plaza
   let plaza = null; for (const d of [-22, 22, -32, 32, -44, 44, -58, 58]) { const X = f0.p[0] + L0[0] * d + fw0[0] * 6, Z = f0.p[2] + L0[1] * d + fw0[1] * 6; if (!nearTrack(X, Z, 15)) { plaza = [X, Z, Math.sign(d)]; break; } }
   if (!plaza) plaza = [f0.p[0] - fw0[0] * 34, f0.p[2] - fw0[1] * 34, -1];
-  take(f0.p[0], f0.p[2], 10); take(plaza[0], plaza[1], 15);
+  take(f0.p[0] - fw0[0] * 7, f0.p[2] - fw0[1] * 7, 10); take(plaza[0], plaza[1], 15);
   const site2 = (r, tries) => { for (const [a, d] of tries) { const X = plaza[0] + L0[0] * a + fw0[0] * d, Z = plaza[1] + L0[1] * a + fw0[1] * d; if (free(X, Z, r)) { take(X, Z, r); return [X, Z]; } } return null; };
   const s = plaza[2];
   V3.wheelAt = site2(12, [[28 * s, 0], [28 * s, 22], [28 * s, -22], [0, 34], [0, -34], [-28 * s, 30]]);
@@ -100,13 +105,15 @@ function buildScenery(T, sc, S, F) {
 
   // ---------- static props, merged into one mesh (one draw call): station + queue, plaza, stalls, benches, fences, lamp posts, car park ----------
   const props = [], lamps = [], blobs = [], standing = [];
-  const st = (geo, colr, x, y, z, ry = 0) => { V.set(x, 0, z).applyAxisAngle(Yx, stA); props.push([geo, colr, M4(T, f0.p[0] + V.x, stY + y, f0.p[2] + V.z, 0, stA + ry)]); };
-  const stW = (x, z) => { V.set(x, 0, z).applyAxisAngle(Yx, stA); return [f0.p[0] + V.x, f0.p[2] + V.z]; };
+  // the station stands on the level run-in behind the first point of the track (the train starts in it, nose out toward the lift)
+  const SO = [f0.p[0] - fw0[0] * 7, f0.p[2] - fw0[1] * 7], stY = gy(SO[0], SO[1]), tH = Math.max(0, f0.p[1] - stY);
+  const st = (geo, colr, x, y, z, ry = 0) => { V.set(x, 0, z).applyAxisAngle(Yx, stA); props.push([geo, colr, M4(T, SO[0] + V.x, stY + y, SO[1] + V.z, 0, stA + ry)]); };
+  const stW = (x, z) => { V.set(x, 0, z).applyAxisAngle(Yx, stA); return [SO[0] + V.x, SO[1] + V.z]; };
   { // station: platform both sides, a red roof on cream posts, gold trim, a queue maze on the plaza side (people walk from the plaza into it) with people waiting in it
-    const side = s; st(new T.BoxGeometry(18, .35, 7.6), 0xb8302a, 0, 4.6, 0); st(new T.BoxGeometry(18.4, .55, .3), 0xe8b84a, 0, 4.3, 3.8); st(new T.BoxGeometry(18.4, .55, .3), 0xe8b84a, 0, 4.3, -3.8);
-    for (const a of [-8.5, -4.25, 0, 4.25, 8.5]) for (const b of [-3.4, 3.4]) st(new T.CylinderGeometry(.16, .2, 4.4, 8), 0xf4e8cc, a, 2.2, b);
-    st(new T.BoxGeometry(18, .7, 2.6), 0x9c8f7a, 0, .35, 2.1 * side); st(new T.BoxGeometry(18, .7, 2.6), 0x9c8f7a, 0, .35, -2.1 * side);
-    st(new T.BoxGeometry(18, .06, .25), 0xf2d24a, 0, .73, .9 * side); // the yellow line
+    const side = s; st(new T.BoxGeometry(18, .35, 7.6), 0xb8302a, 0, tH + 3.6, 0); st(new T.BoxGeometry(18.4, .55, .3), 0xe8b84a, 0, tH + 3.3, 3.8); st(new T.BoxGeometry(18.4, .55, .3), 0xe8b84a, 0, tH + 3.3, -3.8);
+    for (const a of [-8.5, -4.25, 0, 4.25, 8.5]) for (const b of [-3.4, 3.4]) st(new T.CylinderGeometry(.16, .2, tH + 3.4, 8), 0xf4e8cc, a, (tH + 3.4) / 2, b);
+    st(new T.BoxGeometry(18, tH + .3, 2.6), 0x9c8f7a, 0, (tH + .3) / 2, 2.1 * side); st(new T.BoxGeometry(18, tH + .3, 2.6), 0x9c8f7a, 0, (tH + .3) / 2, -2.1 * side); // platforms level with the car floor
+    st(new T.BoxGeometry(18, .06, .25), 0xf2d24a, 0, tH + .33, .9 * side); /* the yellow line */
     for (let r = 0; r < 4; r++) { const z = (4.4 + r * 1.3) * side; st(new T.BoxGeometry(14, .06, .06), 0xd8d6cf, 0, 1.0, z); for (let x = -7; x <= 7; x += 2) st(new T.CylinderGeometry(.04, .04, 1, 5), 0xd8d6cf, x, .5, z);
       for (let k = 0; k < 7; k++) { const [X, Z] = stW(-6 + k * 2 + rnd() * .6, z - .65 * side); standing.push([X, Z, rnd() * 6]); } }
     for (const [x, z] of [[-9, 0], [9, 0]]) { const [X, Z] = stW(x, z); blobs.push([X, Z, 6]); } take(...stW(0, 7 * side), 8, 'station'); }
@@ -114,7 +121,7 @@ function buildScenery(T, sc, S, F) {
     const [X, Z] = plaza, Y = gy(X, Z); props.push([new T.CylinderGeometry(15, 15.3, .3, 40), (x, y, z) => ((Math.floor(Math.hypot(x, z) / 1.5) % 2) ? 0xd9c49a : 0xcdb88c), M4(T, X, Y - .08, Z)]);
     props.push([new T.CylinderGeometry(3, 3.2, .7, 24), 0xb9b2a4, M4(T, X, Y + .35, Z)], [new T.CylinderGeometry(.3, .4, 2.2, 10), 0xb9b2a4, M4(T, X, Y + 1.1, Z)], [new T.CylinderGeometry(1, .6, .4, 14), 0xb9b2a4, M4(T, X, Y + 2.1, Z)]);
     V3.water = [X, Y + .62, Z];
-    const sx0 = f0.p[0] + L0[0] * 4.5 * s, sz0 = f0.p[2] + L0[1] * 4.5 * s, dx = X - sx0, dz = Z - sz0, len = Math.hypot(dx, dz);
+    const sx0 = SO[0] + L0[0] * 4.5 * s, sz0 = SO[1] + L0[1] * 4.5 * s, dx = X - sx0, dz = Z - sz0, len = Math.hypot(dx, dz);
     props.push([new T.BoxGeometry(3.4, .12, len), 0xd9c49a, new T.Matrix4().compose(new T.Vector3((X + sx0) / 2, gy((X + sx0) / 2, (Z + sz0) / 2) + .02, (Z + sz0) / 2), new T.Quaternion().setFromAxisAngle(Yx, Math.atan2(dx, dz)), new T.Vector3(1, 1, 1))]);
     V3.paths = [[[sx0, sz0], [X - dx / len * 14, Z - dz / len * 14]]];
     const awn = [0xd8402f, 0x2f6fb8, 0xe8b84a, 0x3c9a5c, 0x8a4fb8, 0xe07a30];
