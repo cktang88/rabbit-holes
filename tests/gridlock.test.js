@@ -83,7 +83,7 @@ module.exports = {
       ok(/If nothing changes: about \d+–\d+ min, over the 40 limit\. Place a rule!/.test(w[0]) && w[1] === 'bad', 'warning before Run: ' + w[0]);
       await page.click('#runBtn'); ok(await page.waitForSelector('.toast', { timeout: 2000 }).then(() => true, () => false), 'nudge when opening the forecast with nothing placed');
       await page.click('#fcGo'); await page.evaluate(() => __gl.skipAnim()); ok(await waitFor(page, () => __gl.phase === 'result'));
-      let t = await page.textContent('#slip'); ok(/Council warning 1 of 3: commutes rose to \d+ min, over the 40 limit\. Place a rule!/.test(t), 'idle month 1 fails clearly: ' + t);
+      let t = await page.textContent('#slip'); ok(/Council warning 1 of 3: commutes settled at \d+ min, over the 40 limit\. Place a rule!/.test(t), 'idle month 1 fails clearly: ' + t);
       ok(/WARNING 1\/3/.test(await page.textContent('#stamp')), 'stamp');
       // a fresh start of the same city with a bus line and its lane: the slip credits the change
       await page.evaluate(() => __gl.newRun(__gl.C.seed)); await waitFor(page, () => __gl.phase === 'plan' && __gl.C.month === 1);
@@ -93,7 +93,7 @@ module.exports = {
         if (G.act(C, best[1]) || G.act(C, { t: 'lane', road: best[2] })) return false; __gl.persist(); return true; });
       ok(okPlace, 'placed a bus line and lane');
       await page.evaluate(() => { __gl.run(30); __gl.skipAnim(); }); ok(await waitFor(page, () => __gl.phase === 'result'));
-      t = await page.textContent('#slip'); ok(/Your 2 changes cut [\d.]+ min from the average: without it, this month would have gone over the limit\./.test(t) && /The council is satisfied/.test(t), 'credited: ' + t);
+      t = await page.textContent('#slip'); ok(/Your 2 changes cut [\d.]+ min from the average: without them, this month would have gone over the limit\./.test(t) && /The council is satisfied/.test(t), 'credited: ' + t);
     },
     'drag a toll booth from the tray onto the busiest road, forecast, run, and read the result': async ({ page, ok, eq }) => {
       const tgt = await page.evaluate(() => { const C = __gl.C, rd = C.roads.slice().sort((a, b) => C._x[b.id] - C._x[a.id])[0], [x1, y1] = C.pts[rd.a], [x2, y2] = C.pts[rd.b];

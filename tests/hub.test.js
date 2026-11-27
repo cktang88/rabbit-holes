@@ -17,9 +17,9 @@ module.exports = {
           ...RH_TAGLIST.filter(t => RH_CATALOG.filter(x => x.tags.includes(t.id)).length < 3).map(t => t.id + ':fewer than 3 experiments')]; });
       eq(bad, []);
     },
-    'tags have subject (incl. physics, maths, simulation, language, art) and vibe groups': async ({ page, ok }) => {
+    'tags have subject (incl. physics, maths, simulation, history, art) and vibe groups': async ({ page, ok }) => {
       const g = await page.evaluate(() => ({ s: RH_TAGLIST.filter(t => t.g === 'subject').map(t => t.id), v: RH_TAGLIST.filter(t => t.g === 'vibe').length }));
-      for (const t of ['physics', 'maths', 'simulation', 'language', 'art']) ok(g.s.includes(t), 'missing subject ' + t);
+      for (const t of ['physics', 'maths', 'simulation', 'history', 'art']) ok(g.s.includes(t), 'missing subject ' + t);
       ok(g.s.length >= 10 && g.v >= 5);
       ok(await page.evaluate(() => RH_CATALOG.every(x => x.tags.some(t => RH_TAGLIST.find(g => g.id === t).g === 'subject'))), 'every experiment needs a subject');
     },

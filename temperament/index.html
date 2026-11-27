@@ -35,6 +35,17 @@
   #wheel .hit{stroke:transparent;stroke-width:22;cursor:pointer;fill:none}
   #wheel .node{cursor:ns-resize}
   #coachL{width:100%;max-width:520px}
+  #legendL{width:100%;max-width:520px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;font-size:14px;color:#e7d4a0;margin:8px 0 0}
+  #legendL .sw{display:inline-block;width:18px;height:4px;border-radius:2px;vertical-align:3px;margin-right:4px}
+  #legendL button{min-height:30px;font-size:14px;padding:0 8px}
+  #legendL .sp{flex:1}
+  .goalL b{color:#f8e08e}
+  #wheel .goal{stroke-dasharray:6 7;animation:goalDash 1.2s linear infinite}
+  @keyframes goalDash{to{stroke-dashoffset:-26}}
+  .spiral path{stroke-dasharray:1400;stroke-dashoffset:1400;animation:spiral 3.2s ease-out .3s forwards}
+  .spiral .gap{opacity:0;animation:gapIn .6s ease-out 3.4s forwards}
+  @keyframes spiral{to{stroke-dashoffset:0}}
+  @keyframes gapIn{to{opacity:1}}
   #coachL .coach{margin:0 0 6px}
   #ctl{width:100%;max-width:520px;display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:center;background:var(--grain),linear-gradient(#24150a,#3a2210);padding:8px 10px;box-shadow:0 0 0 2px #8f6417,0 4px 10px #000a}
   #ivName{font-family:"Cormorant SC",serif;font-size:19px;color:#f8e08e;line-height:1.1}
@@ -104,13 +115,14 @@
     body{height:100vh;overflow:hidden}
     main{display:grid;grid-template-columns:auto 1fr}
     #loft{display:grid;grid-template-columns:auto 230px;grid-template-rows:auto 1fr;gap:6px;padding:4px;align-items:start;overflow:auto}
-    #wheel{width:calc(100vh - 60px);grid-row:1 / span 2}
+    #wheel{width:calc(100vh - 60px);grid-row:1 / span 3}
+    #legendL{grid-column:2;max-width:none;font-size:13px}
     #coachL{grid-column:2;max-width:none}#coachL .coach{font-size:14px;padding:5px 8px}
     #ctl{width:auto;grid-column:2;grid-row:2;align-self:start}
     .nud{justify-content:flex-start}
     .nud button{min-width:36px}
   }
-  @media (prefers-reduced-motion:reduce){.seal{animation:none}}
+  @media (prefers-reduced-motion:reduce){.seal,#wheel .goal{animation:none}.spiral path{animation:none;stroke-dashoffset:0}.spiral .gap{animation:none;opacity:1}}
 </style>
 </head>
 <body>
@@ -125,6 +137,7 @@
       <div class="nud" id="nud" style="grid-column:1 / -1"></div>
       <div id="pegs"></div>
     </div>
+    <div id="legendL"></div>
   </div>
   <div id="desk"></div>
 </main>
@@ -376,9 +389,18 @@ let sel = [0, 7], lowerPeg = false, busy = false, view = 'week';
 const R0 = 172, NODE = 20;
 const pos = n => { const j = FIFTHS.indexOf(n), a = -Math.PI / 2 + j * Math.PI / 6; return [R0 * Math.cos(a), R0 * Math.sin(a)]; };
 function qual(k, d) { d = A(d); if (k === 7) return d <= 1.2 ? 0 : d <= 6.5 ? 1 : d <= 12 ? 2 : 3; return d <= 3 ? 0 : d <= 11 ? 1 : d <= 24 ? 2 : 3; }
-const QCOL = ['#f1cf6d', '#c99a3a', '#b4532c', '#7a1c12'], QW = [5, 4, 4, 6], QN = ['pure', 'tempered', 'sour', 'a wolf'];
+const QCOL = ['#3f8f3a', '#d29a2a', '#c0442c', '#7a1c12'], QW = [5, 4, 4, 6], QN = ['pure', 'tempered', 'sour', 'a wolf'];
+// The rose draws two kinds of interval: fifths round the rim (neighbours on the circle) and major thirds as chords across it.
+// The ones this week's music actually uses (the hymn and the accepted letters) are the task; the rest are faint unless "all lines" is on.
+let showAll = false;
+function chordIvs(name) { const { r, t, minor } = parseCh(name); return [[r, 7], minor ? [t, 4] : [r, 4]]; }
+function taskIvs() { const set = new Set(); for (const pc of program(ss())) for (const ch of pc.chords) for (const [i, k] of chordIvs(ch)) set.add(i + ':' + k); return set; }
+function goalIvs() { // the task lines that sound bad now, worst first (at most three)
+  const c = ss().tun, out = []; for (const key of taskIvs()) { const [i, k] = key.split(':').map(Number), q = qual(k, dev(c, i, k)); if (q >= 2) out.push({ i, k, w: A(dev(c, i, k)) / (k === 7 ? 1 : 2.5) }); }
+  return out.sort((a, b) => b.w - a.w).slice(0, 3); }
+const ivLab = (i, k) => `${NM[i]}–${NM[(i + k) % 12]}`;
 function wheelSVG() {
-  const c = ss().tun, dark = week(ss()).dark && ss().phase === 'week', P = P_(ss());
+  const c = ss().tun, dark = week(ss()).dark && ss().phase === 'week', P = P_(ss()), task = taskIvs(), goal = new Set(dark || ss().phase !== 'week' ? [] : goalIvs().map(g => g.i + ':' + g.k));
   let h = `<defs><radialGradient id="rose" cx="50%" cy="45%"><stop offset="0" stop-color="#f6e3b0"/><stop offset=".7" stop-color="#d9b46a"/><stop offset="1" stop-color="#8f6417"/></radialGradient>
     <radialGradient id="peg" cx="35%" cy="30%"><stop offset="0" stop-color="#fff2c0"/><stop offset=".5" stop-color="#c4932c"/><stop offset="1" stop-color="#6e4c14"/></radialGradient>
     <radialGradient id="pegL" cx="35%" cy="30%"><stop offset="0" stop-color="#fff"/><stop offset=".4" stop-color="#f1cf6d"/><stop offset="1" stop-color="#b88a1a"/></radialGradient></defs>
@@ -389,12 +411,18 @@ function wheelSVG() {
     let path; if (k === 7) { const j = FIFTHS.indexOf(i), a1 = -Math.PI / 2 + j * Math.PI / 6, a2 = a1 + Math.PI / 6, rr = R0;
       path = q === 3 && !dark ? `M${x1} ${y1} ` + [1, 2, 3, 4, 5, 6, 7].map(s => { const a = a1 + (a2 - a1) * s / 8, rj = rr + (s % 2 ? 9 : -9); return `L${rj * Math.cos(a)} ${rj * Math.sin(a)}`; }).join(' ') + ` L${x2} ${y2}` : `M${x1} ${y1} A${rr} ${rr} 0 0 1 ${x2} ${y2}`; }
     else path = `M${x1} ${y1} L${x2} ${y2}`;
-    return `<path d="${path}" fill="none" stroke="${on ? '#2a1a0e' : 'none'}" stroke-width="${w + 4}" stroke-linecap="round"/><path d="${path}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round" opacity="${k === 4 ? .9 : 1}"/><path class="hit" data-i="${i}" data-k="${k}" d="${path}"/>`; };
+    const rel = showAll || on || task.has(i + ':' + k), gl = goal.has(i + ':' + k);
+    return `<path d="${path}" fill="none" stroke="${on ? '#2a1a0e' : 'none'}" stroke-width="${w + 4}" stroke-linecap="round"/><path d="${path}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round" opacity="${rel ? (k === 4 ? .9 : 1) : .14}" data-line="${i}:${k}"/>${gl ? `<path class="goal" d="${path}" fill="none" stroke="#fff3c8" stroke-width="2"/>` : ''}<path class="hit" data-i="${i}" data-k="${k}" d="${path}"/>`; };
   for (let i = 0; i < 12; i++) h += line(i, 4);
   for (let i = 0; i < 12; i++) h += line(i, 7);
   for (let n = 0; n < 12; n++) { const [x, y] = pos(n), on = n === sel[0] || n === (sel[0] + sel[1]) % 12, lk = P.locked.includes(n) || n === 0, mv = ss().moved.includes(n);
-    h += `<g class="node" data-n="${n}" transform="translate(${x} ${y})"><circle r="${NODE + 3}" fill="${on ? '#2a1a0e' : '#2a1a0e88'}"/><circle r="${NODE}" fill="url(#${lk ? 'pegL' : 'peg'})" stroke="${mv ? '#8c1c12' : '#3a2210'}" stroke-width="${mv ? 3 : 1.5}"/><text y="7" text-anchor="middle" font-size="21" fill="#2a1a0e">${NM[n]}</text>${lk ? `<text y="-24" text-anchor="middle" font-size="12" fill="#f8e08e">${n === 0 ? 'fork' : 'fixed'}</text>` : ''}</g>`; }
+    const off = drag && drag.n === n && drag.off ? drag.off : [0, 0];
+    h += `<g class="node" data-n="${n}" transform="translate(${x + off[0]} ${y + off[1]})"><circle r="${NODE + 3}" fill="${on ? '#2a1a0e' : '#2a1a0e88'}"/><circle r="${NODE}" fill="url(#${lk ? 'pegL' : 'peg'})" stroke="${mv ? '#8c1c12' : '#3a2210'}" stroke-width="${mv ? 3 : 1.5}"/><text y="7" text-anchor="middle" font-size="21" fill="#2a1a0e">${NM[n]}</text>${lk ? `<text y="-24" text-anchor="middle" font-size="12" fill="#f8e08e">${n === 0 ? 'fork' : 'fixed'}</text>` : ''}</g>`; }
   h += `<text y="-6" text-anchor="middle" font-size="15" fill="#5a3e12">${dark ? 'by ear alone' : ''}</text><text y="14" text-anchor="middle" font-size="12" fill="#6e4c14">${dark ? 'the chapel is dark' : ''}</text>`;
+  if (drag && drag.live) { // live readout while a peg is turned: how far the note has moved, and how fast the selected interval now beats
+    const [x, y] = pos(drag.n), lx = x * .58, ly = y * .58, dc = c[drag.n] - drag.v0, b = beats(c, sel[0], sel[1]);
+    const l1 = dark ? NM[drag.n] : `${NM[drag.n]} ${dc >= 0 ? '+' : '−'}${A(dc).toFixed(1)}¢`, l2 = `${ivLab(sel[0], sel[1])}: ${b < .1 ? 'no beats' : b.toFixed(1) + ' beats/s'}`;
+    h += `<g pointer-events="none"><rect x="${lx - 78}" y="${ly - 24}" width="156" height="46" rx="6" fill="#2a1a0ee8"/><text x="${lx}" y="${ly - 4}" text-anchor="middle" font-size="17" fill="#f8e08e">${l1}</text><text x="${lx}" y="${ly + 15}" text-anchor="middle" font-size="14" fill="#f6ecd2">${l2}</text></g>`; }
   $('wheel').innerHTML = h;
 }
 function ctlRender() {
@@ -427,16 +455,22 @@ $('wheel').addEventListener('pointerdown', e => {
     if (!(n === sel[0] || n === (sel[0] + sel[1]) % 12)) { sel = [(n + 5) % 12, 7]; lowerPeg = false; } // the fifth that ends on this note
     lowerPeg = n === sel[0] && n !== (sel[0] + sel[1]) % 12;
     if (!drone) startDrone();
-    if (canMove(s, n) && s.phase === 'week') { drag = { n, y: e.clientY, v: s.tun[n], pid: e.pointerId, first: true }; try { $('wheel').setPointerCapture(e.pointerId); } catch (_) {} }
+    if (canMove(s, n) && s.phase === 'week') { drag = { n, p0: toWorld(e), v: s.tun[n], v0: s.weekStart[n], pid: e.pointerId, first: true, off: null, live: false }; try { $('wheel').setPointerCapture(e.pointerId); } catch (_) {} }
     else RH.toast(n === 0 ? 'C is set to the tuning fork.' : 'That peg is gilded: the cornettist will not move.');
     wheelSVG(); ctlRender(); }
 });
+// Turning a peg: pull the note OUTWARD (away from the centre) or CLOCKWISE round the rim to sharpen it, inward or anticlockwise to flatten.
+// Whichever of the two the finger mostly does counts. The peg follows the finger a little, and springs back when let go.
+const DRAG_GAIN = .35; // cents per rose unit (the rose is 414 units across): about 15 cents for a 50 px pull on a phone
+function toWorld(e) { const r = $('wheel').getBoundingClientRect(); return [(e.clientX - r.left) * 414 / r.width - 207, (e.clientY - r.top) * 414 / r.height - 207]; }
+function dragAmount(n, d) { const [x, y] = pos(n), L = Math.hypot(x, y), u = [x / L, y / L], t = [-u[1], u[0]], dr = d[0] * u[0] + d[1] * u[1], dt = d[0] * t[0] + d[1] * t[1]; return A(dr) >= A(dt) ? dr : dt; }
 $('wheel').addEventListener('pointermove', e => {
-  if (!drag || e.pointerId !== drag.pid) return; const r = $('wheel').getBoundingClientRect(), k = 414 / r.width;
-  const v = drag.v + (drag.y - e.clientY) * k * .08;
-  if (setNote(ss(), drag.n, v, !drag.first)) { drag.first = false; retuneDrone(); wheelSVG(); ctlRender(); hudRender(); }
+  if (!drag || e.pointerId !== drag.pid) return; const w = toWorld(e), d = [w[0] - drag.p0[0], w[1] - drag.p0[1]], L = Math.hypot(d[0], d[1]);
+  if (!drag.live && L < 3) return; drag.live = true; drag.off = L > 26 ? [d[0] * 26 / L, d[1] * 26 / L] : d;
+  if (setNote(ss(), drag.n, drag.v + dragAmount(drag.n, d) * DRAG_GAIN, !drag.first)) drag.first = false;
+  retuneDrone(); wheelSVG(); ctlRender(); hudRender();
 });
-const endDrag = e => { if (!drag) return; drag = null; moved(); };
+const endDrag = e => { if (!drag) return; const was = drag.live; drag = null; if (was) moved(); else wheelSVG(); };
 $('wheel').addEventListener('pointerup', endDrag); $('wheel').addEventListener('pointercancel', endDrag);
 
 // ---------- the candle: the flame trembles at the beat rate of the selected interval ----------

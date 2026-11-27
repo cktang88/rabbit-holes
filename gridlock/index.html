@@ -1130,7 +1130,7 @@ function hookToken(el, k) {
   const end = e => {
     if (!start) return; const wasDrag = dragging; start = null; dragging = false; ghost.className = '';
     if (wasDrag) { const h = hover; hover = null; if (h) place(k, h); return; }
-    armed = armed === k ? null : k; renderTray(); if (armed) RH.toast(TIP[k], 3200);
+    armed = armed === k ? null : k; renderTray(); if (armed) { if (sel) select(null); RH.toast(TIP[k], 3200); } // an armed token needs the map clear of the last inspector card
   };
   el.addEventListener('pointerup', end); el.addEventListener('pointercancel', () => { start = null; dragging = false; ghost.className = ''; hover = null; });
 }
@@ -1212,7 +1212,7 @@ cv.addEventListener('pointermove', e => { if (armed && e.pointerType === 'mouse'
 // ---------- forecast and run ----------
 function openForecast() {
   if (phase !== 'plan') return;
-  const pre = GL.measure(C).avg; $('fcR').min = Math.max(5, Math.floor(pre - 20)); $('fcR').max = Math.ceil(pre + 20); $('fcR').value = Math.round(pre * 2) / 2; showFc();
+  const pre = GL.measure(C).avg; $('fcR').min = Math.max(5, Math.floor(Math.min(pre, GL.LIMIT_T) - 25)); $('fcR').max = Math.ceil(Math.max(pre, GL.LIMIT_T) + 20); $('fcR').value = GL.LIMIT_T; showFc(); // the slider starts at the council's limit: where it ends is your call
   $('fc').classList.add('on'); select(null); snd.key();
   const o = currentOutlook(), t = o && !C.placed.length ? outlookText(o) : ''; if (t) RH.toast(t + ' You have not changed anything yet.', 4200);
 }
@@ -1241,8 +1241,8 @@ function showResult() {
   h += `<h2>Month ${r.month}: ${r.avg.toFixed(1)} min</h2>`;
   if (fc) h += `<p>You forecast <b>${fc.guess.toFixed(1)}</b>. ${fc.grade === 2 ? '<b>Spot on.</b>' : fc.grade === 1 ? '<b>Close.</b>' : `<b>Off by ${fc.err.toFixed(1)}.</b>`} ${fc.dc > 0 ? `Credibility +${fc.dc}.` : fc.dc < 0 ? 'Credibility −1.' : 'Nothing moved much, so nothing earned.'}</p>`;
   const worst = Object.entries(r.cls).sort((a, b) => b[1].burden - a[1].burden)[0];
-  const why = []; if (!r.okT) why.push(`commutes rose to ${r.avg.toFixed(0)} min, over the ${GL.LIMIT_T} limit`); if (!r.okB && worst) why.push(`${GL.CLSNAME[worst[0]].toLowerCase()} carry a burden of ${worst[1].burden.toFixed(0)}`); if (r.broke) why.push('the treasury is in the red');
-  if (r.credit) { const c = r.credit, cut = c.min >= .5, add = c.min <= -.5; h += `<p class="credit">${c.who.replace(/^./, x => x.toUpperCase())} ${cut ? `cut <b>${c.min.toFixed(1)} min</b> from the average` : add ? `added <b>${(-c.min).toFixed(1)} min</b> to the average` : 'made little difference to the average'}${!bad && c.wasBad ? ': without it, this month would have gone over the limit.' : '.'}</p>`; }
+  const why = []; if (!r.okT) why.push(`commutes settled at ${r.avg.toFixed(0)} min, over the ${GL.LIMIT_T} limit`); if (!r.okB && worst) why.push(`${GL.CLSNAME[worst[0]].toLowerCase()} carry a burden of ${worst[1].burden.toFixed(0)}`); if (r.broke) why.push('the treasury is in the red');
+  if (r.credit) { const c = r.credit, cut = c.min >= .5, add = c.min <= -.5; h += `<p class="credit">${c.who.replace(/^./, x => x.toUpperCase())} ${cut ? `cut <b>${c.min.toFixed(1)} min</b> from the average` : add ? `added <b>${(-c.min).toFixed(1)} min</b> to the average` : 'made little difference to the average'}${!bad && c.wasBad ? `: without ${/^your \d+ changes/.test(c.who) ? 'them' : 'it'}, this month would have gone over the limit.` : '.'}</p>`; }
   h += `<p>${bad ? `<b style="color:var(--red)">Council warning ${r.strikes} of 3</b>: ` + why.join(' and ') + '.' + (C.over ? '' : C.placed.length ? ' Try something stronger.' : ' <b>Place a rule!</b>') : 'The council is satisfied.'} Treasury ${r.rev - r.upkeep >= 0 ? '+' : '−'}$${Math.abs(r.rev - r.upkeep).toFixed(2)}M${r.riders > 20 ? ` · ${Math.round(r.riders).toLocaleString('en')} bus riders` : ''}.</p>`;
   for (const [k, why2] of r.found) { const cs = GL.CASES.find(c => c[0] === k); const fresh = !META.cases[k]; if (fresh) META.cases[k] = C.month; h += `<div class="case"><b>${fresh ? 'New in the casebook' : 'Casebook'}: ${cs[1]}</b>${cs[2]} ${why2}</div>`; }
   if (C.over === 'fired') h += `<p><b>Three bad months in a row: the council has let you go</b> after ${C.month} months.</p>`;
