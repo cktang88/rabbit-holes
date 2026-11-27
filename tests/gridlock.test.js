@@ -4,12 +4,13 @@
 const plant = async (page, raw) => { await page.addInitScript(raw => localStorage.setItem('rh:gridlock', raw), raw); await page.reload(); await page.waitForTimeout(500); };
 const waitFor = async (page, fn, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await page.evaluate(fn)) return true; await page.waitForTimeout(80); } return false; };
 
+const G_LIMIT = 40;
 module.exports = {
   page: 'gridlock/index.html#city=test-a',
   tests: {
     'opens on a playable city: two districts, Downtown, toll and barrier tokens, nothing placed': async ({ page, eq, ok }) => {
       const r = await page.evaluate(() => { const C = __gl.C; return { month: C.month, homes: __gl.GL.homes(C).length, jobs: __gl.GL.jobs(C).length, hand: C.hand.slice().sort(), acts: C.acts, seed: C.seed, groups: C.groups.length }; });
-      eq(r.month, 1); eq(r.homes, 2); eq(r.jobs, 1); eq(r.hand, ['close', 'toll']); eq(r.seed, 'test-a'); ok(r.acts >= 2); ok(r.groups === 2, 'both districts commute');
+      eq(r.month, 1); eq(r.homes, 2); eq(r.jobs, 1); eq(r.hand, ['bus', 'lane', 'toll']); eq(r.seed, 'test-a'); ok(r.acts >= 2); ok(r.groups === 2, 'both districts commute');
     },
     'Wardrop: after a month every commuter class only uses its cheapest routes, and no unused route is cheaper': async ({ page, ok }) => {
       const bad = await page.evaluate(() => { const G = __gl.GL, C = G.newCity('wardrop');
@@ -49,20 +50,50 @@ module.exports = {
         return { same: JSON.stringify(a) === JSON.stringify(b), A: S.hist.map(h => h.avg), B: H.hist.map(h => h.avg), diff: JSON.stringify(G.playBot('det-3', 'random', 8).hist) !== JSON.stringify(G.playBot('det-4', 'random', 8).hist) }; });
       eq(r.same, true); eq(r.A, r.B); eq(r.diff, true, 'different seeds should differ');
     },
-    'naive play fails: idle and random councils are always dismissed, typically within a year and a half': async ({ page, ok }) => {
-      const r = await page.evaluate(() => ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'].flatMap(s => ['idle', 'random'].map(b => { const x = __gl.GL.playBot(s, b, 36); return [s, b, x.months, x.over]; })));
-      for (const [s, b, m, over] of r) ok(over === 'fired' && m < 30, `${b} on ${s} lasted ${m} months (${over})`);
-      const ms = r.map(x => x[2]).sort((a, b) => a - b); ok(ms[ms.length >> 1] <= 18, 'median ' + ms[ms.length >> 1]);
+    'month 1 is already a problem: left alone, drivers settle over the 40-minute limit, and a bus line with its lane can fix it': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const G = __gl.GL; return ['s1', 's2', 's3', 'c', 'e', 'h'].map(seed => { const C = G.newCity(seed); G.startMonth(C);
+        const idle = G.outlook(G.serialize(C)); let best = 1e9; const L = G.legalActions(C).filter(a => a.t === 'bus');
+        for (const a of L) { const D = G.clone(C); G.prepare(D); if (G.act(D, a)) continue; const l = D.lines[D.lines.length - 1]; for (const e of l.e) { const E = G.clone(D); G.prepare(E); if (G.act(E, { t: 'lane', road: e })) continue; G.settle(E, 40); best = Math.min(best, G.measure(E).avg); } }
+        return [seed, idle.avg, best]; }); });
+      for (const [seed, idle, best] of r) { ok(idle > G_LIMIT && idle < 46, `${seed}: idle month 1 settles at ${idle.toFixed(1)}`); ok(best < G_LIMIT - 2, `${seed}: best bus + lane gives ${best.toFixed(1)}`); }
+    },
+    'naive play fails fast: an idle council is dismissed by month 4 on every city, random play usually fails early': async ({ page, ok }) => {
+      const seeds = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 'c', 'e', 'h', 'a'];
+      const r = await page.evaluate((seeds) => seeds.map(s => ['idle', 'random'].map(b => __gl.GL.playBot(s, b, 36))).map(([i, x]) => [i.months, i.over, x.months, x.over]), seeds);
+      r.forEach(([im, io, rm, ro], k) => { ok(io === 'fired' && im <= 4, `idle on ${seeds[k]} lasted ${im} months (${io})`); ok(ro === 'fired', `random on ${seeds[k]} survived`); });
+      ok(r.filter(x => x[2] <= 6).length >= 9, 'random play should usually be dismissed within half a year: ' + r.map(x => x[2]));
+    },
+    'pressure keeps rising: rules set in the first two months and then left alone are dismissed within two years': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const G = __gl.GL; G.BOTS.setForget = (C, R) => C.month <= 2 ? G.BOTS.adaptive(C, R) : { forecast: C.pre.avg };
+        return ['s1', 's3', 'c', 'h'].map(s => { const x = G.playBot(s, 'setForget', 36); return [s, x.months, x.over]; }); });
+      for (const [s, m, over] of r) ok(over === 'fired' && m < 24, `set-and-forget on ${s} lasted ${m} (${over})`);
     },
     'fixed recipes fail: each single strategy is dismissed on some seed': async ({ page, ok }) => {
       const r = await page.evaluate(() => ['tollJam', 'busAll', 'closeExpress'].map(b => [b, ['s1', 's2', 's3', 's4'].map(s => __gl.GL.playBot(s, b, 36)).filter(x => x.over === 'fired').length]));
       for (const [b, fails] of r) ok(fails >= 1, `${b} survived every seed`);
     },
     'a competent adaptive planner lasts two terms (24 months) on most cities': async ({ page, ok }) => {
-      const r = await page.evaluate(() => ['c', 'e', 'h', 'a'].map(s => { const x = __gl.GL.playBot(s, 'adaptive', 30); return [s, x.months, x.over, x.cases.length]; }));
+      const r = await page.evaluate(() => ['s1', 's3', 'c', 'e', 'h', 'a'].map(s => { const x = __gl.GL.playBot(s, 'adaptive', 30); return [s, x.months, x.over, x.cases.length]; }));
       const good = r.filter(x => x[1] >= 24);
-      ok(good.length >= 3, JSON.stringify(r));
+      ok(good.length >= 5, JSON.stringify(r));
       ok(r.some(x => x[3] >= 4), 'an adaptive run should witness several casebook effects ' + JSON.stringify(r));
+    },
+    'stakes before Run and credit after: doing nothing warns, fails and says so; a bus line with its lane is credited by name': async ({ page, ok }) => {
+      const w = await page.evaluate(() => [document.getElementById('warn').textContent, document.getElementById('warn').className]);
+      ok(/If nothing changes: about \d+–\d+ min, over the 40 limit\. Place a rule!/.test(w[0]) && w[1] === 'bad', 'warning before Run: ' + w[0]);
+      await page.click('#runBtn'); ok(await page.waitForSelector('.toast', { timeout: 2000 }).then(() => true, () => false), 'nudge when opening the forecast with nothing placed');
+      await page.click('#fcGo'); await page.evaluate(() => __gl.skipAnim()); ok(await waitFor(page, () => __gl.phase === 'result'));
+      let t = await page.textContent('#slip'); ok(/Council warning 1 of 3: commutes rose to \d+ min, over the 40 limit\. Place a rule!/.test(t), 'idle month 1 fails clearly: ' + t);
+      ok(/WARNING 1\/3/.test(await page.textContent('#stamp')), 'stamp');
+      // redo the month with a bus line and its lane: the slip credits the change
+      await page.click('#sRedo'); await waitFor(page, () => __gl.phase === 'plan');
+      const okPlace = await page.evaluate(() => { const G = __gl.GL, C = __gl.C; let best = null;
+        for (const a of G.legalActions(C).filter(a => a.t === 'bus')) { const D = G.clone(C); G.prepare(D); if (G.act(D, a)) continue; const l = D.lines[D.lines.length - 1];
+          for (const e of l.e) { const E = G.clone(D); G.prepare(E); if (G.act(E, { t: 'lane', road: e })) continue; G.settle(E, 40); const v = G.measure(E).avg; if (!best || v < best[0]) best = [v, a, e]; } }
+        if (G.act(C, best[1]) || G.act(C, { t: 'lane', road: best[2] })) return false; __gl.persist(); return true; });
+      ok(okPlace, 'placed a bus line and lane');
+      await page.evaluate(() => { __gl.run(30); __gl.skipAnim(); }); ok(await waitFor(page, () => __gl.phase === 'result'));
+      t = await page.textContent('#slip'); ok(/Your 2 changes cut [\d.]+ min from the average: without it, this month would have gone over the limit\./.test(t) && /The council is satisfied/.test(t), 'credited: ' + t);
     },
     'drag a toll booth from the tray onto the busiest road, forecast, run, and read the result': async ({ page, ok, eq }) => {
       const tgt = await page.evaluate(() => { const C = __gl.C, rd = C.roads.slice().sort((a, b) => C._x[b.id] - C._x[a.id])[0], [x1, y1] = C.pts[rd.a], [x2, y2] = C.pts[rd.b];

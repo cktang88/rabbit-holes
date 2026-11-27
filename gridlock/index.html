@@ -43,6 +43,10 @@
   .dots i{display:inline-block;width:8px;height:8px;border-radius:50%;border:1.5px solid var(--navy);margin-left:2px;vertical-align:0}
   .dots i.on{background:var(--navy)}
   .strike{color:var(--red)}
+  #warn{margin-top:8px;font:600 14px/1.25 "Barlow",sans-serif;padding:6px 8px;border-left:4px solid var(--navy);background:rgba(36,70,110,.07)}
+  #warn:empty{display:none}
+  #warn.bad{border-left-color:var(--red);background:rgba(200,49,43,.09);color:#7a1c17}
+  .credit{font-weight:600}
   #spark{display:block;width:100%;height:34px;margin-top:8px}
   .mbtn{border:1.5px solid var(--ink);background:var(--memo);font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:2px 8px;min-height:30px}
   #more{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
@@ -157,6 +161,7 @@
         <div class="scale"><div id="avgBar"></div><i id="avgTick"></i></div><div class="lim"><span id="avgNote">today</span><span>council limit 40</span></div></div>
       <div id="cls"></div>
     </div>
+    <div id="warn" role="status"></div>
     <div id="books"></div>
     <svg id="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"></svg>
     <div id="more"><button class="mbtn" id="caseBtn">Casebook</button><button class="mbtn" id="cityBtn">City ▾</button></div>
@@ -248,7 +253,7 @@ const GL = (() => {
     return C;
   }
   // month 1 is already a problem: size the two first districts so that, left alone, the drivers settle a little over the council's limit
-  let OPEN_T = 41.5; let GROW = .5; // monthly growth, relative to the city's opening size (which is already at the limit)
+  let OPEN_T = 42; let GROW = .3; // monthly growth, relative to the city's opening size (which is already at the limit)
   function calibrate(C) {
     const H = homes(C), base = H.map(h => C.nodes[h].pop);
     const idleAvg = (s) => { const D = clone(C); H.forEach((h, i) => { D.nodes[h].pop = Math.round(base[i] * s); }); rebuildGroups(D); settle(D, SWEEPS); return measure(D).avg; };
@@ -387,7 +392,7 @@ const GL = (() => {
     const worstB = Math.max(0, ...Object.values(cls).map(c => c.burden));
     return { avg: N ? T / N : 0, n: N, cls, worstB, rev: rev * 40 / 1e6, riders, avgH };
   }
-  let BUSUP = .3; const upkeep = C => C.lines.filter(l => !l.gone).length * BUSUP + C.roads.filter(r => r.lane).length * .05 + C.roads.filter(r => r.sig === 1).length * .03;
+  let BUSUP = .15; const upkeep = C => C.lines.filter(l => !l.gone).length * BUSUP + C.roads.filter(r => r.lane).length * .05 + C.roads.filter(r => r.sig === 1).length * .03;
   // drivers settle: returns daily averages
   function settle(C, sweeps = SWEEPS, frames) {
     prepare(C); const days = [];
@@ -454,13 +459,25 @@ const GL = (() => {
       if (!busy.length) return null; const rd = busy[R.int(busy.length)]; rd.works = 1;
       return { t: 'works', road: rd.id, text: `Water-main works on <b>${rd.name}</b> halve its capacity this month.` };
     },
+    stadium(C, R) { // a big new employer with shifts: a stadium and its event-day staff
+      const spot = freeSpot(C, R); if (spot < 0) return EVENTS.boom(C, R);
+      C.nodes[spot] = { kind: 'job', name: 'the Stadium', w: .25, mix: { c: .3, o: .4, s: .3 } }; connectAll(C); ensureConnected(C);
+      return { t: 'stadium', node: spot, text: `<b>The Stadium</b> opens and hires a small army of staff.` }; },
+    shift(C, R) { // a factory shift: one employer takes on a second shift, pulling more commuters its way
+      const J = jobs(C), j = J[R.int(J.length)]; C.nodes[j].w = Math.round(C.nodes[j].w * 1.15 * 100) / 100;
+      return { t: 'shift', node: j, text: `<b>${C.nodes[j].name.replace(/^the /, 'The ')}</b> adds a second shift: more people commute its way.` }; },
+    closure(C, R) { // a bridge shut for repairs this month
+      const br = C.roads.filter(r => r.type === 'bridge' && !r.closed); if (br.length < 2) return EVENTS.works(C, R);
+      const rd = br.sort((a, b) => (C._x[b.id] || 0) - (C._x[a.id] || 0))[R.int(Math.min(2, br.length))]; rd.works = 1;
+      return { t: 'works', road: rd.id, text: `<b>${rd.name}</b> is down to one lane for repairs this month.` }; },
     boom(C, R) { const H = homes(C); const h = H[R.int(H.length)]; C.nodes[h].pop = Math.round(C.nodes[h].pop * 1.35);
       return { t: 'boom', node: h, text: `New flats in <b>${C.nodes[h].name}</b>: its population jumps by a third.` }; },
   };
+  let SCHED2 = 'boom', SCHED3 = 'works', GFLOOR = .01; // months 2 and 3 only add pressure: newcomers, then roadworks
   function scheduleFor(m) { // the structural event of month m
-    if (m === 2) return 'district'; if (m === 3) return 'ministry'; if (m === 4) return 'couriers'; if (m === 5) return 'campus';
-    if (m === 6) return 'boom'; if (m === 7) return 'district'; if (m === 8) return 'docks';
-    const cyc = ['district', 'ministry', 'boom', 'district', 'works', 'bridge'];
+    if (m === 2) return SCHED2; if (m === 3) return SCHED3; if (m === 4) return 'couriers'; if (m === 5) return 'campus';
+    if (m === 6) return 'ministry'; if (m === 7) return 'district'; if (m === 8) return 'docks';
+    const cyc = ['district', 'ministry', 'stadium', 'bridge', 'closure', 'district', 'shift', 'ministry'];
     return cyc[(m - 9) % cyc.length];
   }
   // hand: three tokens offered this month, drawn from the rulebook
@@ -476,7 +493,7 @@ const GL = (() => {
     C.month++;
     const R = rng('gl:' + C.seed + ':m' + C.month);
     // growth: districts with quick commutes attract newcomers
-    if (C.month > 1) for (const h of homes(C)) { const a = C.avgH[h] ?? 30, g = GROW * (.035 + .06 * Math.max(-.6, Math.min(1, (LIMIT_T - a) / 20))); C.nodes[h].pop = Math.round(Math.min(5000, C.nodes[h].pop * (1 + g))); }
+    if (C.month > 1) for (const h of homes(C)) { const a = C.avgH[h] ?? 30, g = Math.max(GFLOOR, GROW * (.035 + .06 * Math.max(-.6, Math.min(1, (LIMIT_T - a) / 20)))); C.nodes[h].pop = Math.round(Math.min(5000, C.nodes[h].pop * (1 + g))); }
     let ev = null; if (C.month > 1) { prepare(C); const k = scheduleFor(C.month); ev = EVENTS[k](C, R) || EVENTS.boom(C, R); }
     if (ev && (ev.t === 'campus')) { C.unlock.bus = Math.max(C.unlock.bus || 0, 1); C.unlock.lane = Math.max(C.unlock.lane || 0, 1); }
     if (ev && ev.t === 'couriers') { C.unlock.toll = Math.max(C.unlock.toll || 0, 2); }
@@ -598,9 +615,20 @@ const GL = (() => {
     const rep = { month: C.month, avg: m.avg, worstB: m.worstB, cls: m.cls, rev: m.rev, upkeep: upkeep(C), treasury: C.treasury, riders: m.riders, pop: Math.round(m.n), okT, okB, broke, strikes: C.strikes, fc, found, days, frames, event: C.event };
     C.hist.push({ m: C.month, avg: +m.avg.toFixed(2), b: +m.worstB.toFixed(1), pop: Math.round(m.n), fc: fc ? fc.grade : -1, bad: bad ? 1 : 0 });
     if (C.strikes >= 3) C.over = 'fired'; else if (C.month >= 36 && !C.endless) C.over = 'retired';
+    // credit where it is due: the same month without this month's changes
+    if (opts.credit && C.placed.length) { const cf = outlook(opts.credit); if (cf) { const who = C.placed.length === 1 ? describe(C, C.placed[0]) : `your ${C.placed.length} changes`;
+      rep.credit = { who, min: cf.avg - m.avg, b: cf.worstB - m.worstB, wasBad: cf.bad }; } }
     C.last = rep;
     return rep;
   }
+  // if nothing changes this month: settle a copy of the month as it opened (the forecast warning shown before Run)
+  function outlook(snapStr) { const D = restore(snapStr); if (!D) return null; settle(D, SWEEPS); const m = measure(D); return { avg: m.avg, worstB: m.worstB, cls: m.cls, bad: m.avg > LIMIT_T || m.worstB > LIMIT_B }; }
+  function describe(C, a) { const rd = a.road != null ? C.roads[a.road] : null, nm = n => C.nodes[n] ? C.nodes[n].name : 'there';
+    if (a.t === 'toll' && rd) return `your $${rd.toll || a.level || 2} toll on ${rd.name}`; if (a.t === 'close' && rd) return `your barrier on ${rd.name}`;
+    if (a.t === 'signal' && rd) return `your signal on ${rd.name}`; if (a.t === 'lane' && rd) return `your bus lane on ${rd.name}`; if (a.t === 'widen' && rd) return `widening ${rd.name}`;
+    if (a.t === 'bus') return `your ${nm(a.node)} bus line`; if (a.t === 'cordon') return `your cordon charge on ${nm(a.node).replace(/^the /, '')}`;
+    if (a.t === 'remove') return rd ? `lifting the ${a.what === 'close' ? 'barrier' : a.what} on ${rd.name}` : 'what you took away';
+    return 'your change'; }
   const lineRiders = C => C.lines.map(l => l.riders || 0);
   const roadRev = C => { const o = {}; if (C._x) C.roads.forEach(r => { if (r.toll) o[r.id] = C._x[r.id] * r.toll; }); return o; };
 
@@ -677,7 +705,7 @@ const GL = (() => {
   }
 
   return { VOT, CLS, CLSNAME, COLS, ROWS, SP, LIMIT_T, LIMIT_B, FARE, CAR, RULES, CASES, rng, hash, newCity, startMonth, runMonth, act, measure, settle, prepare, rebuildGroups,
-    setGrow: v => { GROW = v; }, setOpen: v => { OPEN_T = v; }, setBusUp: v => { BUSUP = v; }, serialize, restore, clone, strip, legalActions, BOTS, playBot, used, busTime, busWait, pathTime, pathMoney, tm, kEff, jobs, homes, lineFor, actionsFor, upkeep, dijkstra, nearestJob };
+    outlook, describe, serialize, restore, clone, strip, legalActions, BOTS, playBot, used, busTime, busWait, pathTime, pathMoney, tm, kEff, jobs, homes, lineFor, actionsFor, upkeep, dijkstra, nearestJob };
 })();
 // ENGINE END
 
@@ -1043,12 +1071,22 @@ function onCityChanged(refit) {
   sel = null; armed = null; $('chip').classList.remove('on');
   renderMemo(); renderTray();
 }
+// before Run: what happens if nothing changes this month, worked out once per month from its opening (a band, so the forecast is still yours to make)
+let outlookFor = '', outlookV = null;
+function currentOutlook() { const k = C.seed + ':' + C.month + ':' + C.hist.length; if (k !== outlookFor) { outlookFor = k; try { outlookV = snap ? GL.outlook(snap) : null; } catch (e) { outlookV = null; } } return outlookV; }
+function outlookText(o) { const e = Math.round(o.avg), worst = Object.entries(o.cls).sort((a, b) => b[1].burden - a[1].burden)[0];
+  if (o.avg > GL.LIMIT_T) return `If nothing changes: about ${e - 2}–${e + 2} min, over the ${GL.LIMIT_T} limit.`;
+  if (worst && worst[1].burden > GL.LIMIT_B) return `If nothing changes: ${GL.CLSNAME[worst[0]].toLowerCase()} carry a burden of about ${Math.round(worst[1].burden / 2) * 2}, over the ${GL.LIMIT_B} limit.`;
+  return ''; }
+function renderWarn() { const el = $('warn'); if (phase !== 'plan' || C.over) { el.textContent = ''; return; } const o = currentOutlook(); if (!o) { el.textContent = ''; return; }
+  const t = outlookText(o); el.className = t ? 'bad' : ''; el.innerHTML = t ? `${t} ${C.placed.length ? 'Will your change be enough?' : '<b>Place a rule!</b>'}` + (C.strikes ? ` <small>(warning ${C.strikes} of 3 already)</small>` : '') : 'If nothing changes, the council should be satisfied this month.'; }
 function renderMemo() {
   const m = phase === 'result' && report ? null : GL.measure(C);
   const avg = report && phase === 'result' ? report.avg : m.avg, cls = report && phase === 'result' ? report.cls : m.cls;
-  $('monthL').textContent = `Month ${C.month}` + (C.month > 3 ? '' : ' · probation');
+  $('monthL').textContent = `Month ${C.month}`;
+  renderWarn();
   $('seedL').textContent = C.seed === todaySeed() ? "Today's city" : 'City ' + C.seed;
-  $('ev').innerHTML = C.month === 1 ? 'You cannot build roads, only <b>rules</b>. Thousands of commuters each take whatever is quickest <i>for them</i>. Drag a token from the tray onto a road, then run the month.' : (C.event ? C.event.text : 'A quiet month.');
+  $('ev').innerHTML = C.month === 1 ? 'You cannot build roads, only <b>rules</b>, and the council\'s limit is <b>40 minutes</b>. Left alone, today\'s drivers will settle over it. Drag a token from the tray onto the map, then run the month. A bus line only pulls drivers once it beats the car: give it a bus lane.' : (C.event ? C.event.text : 'A quiet month.');
   $('avg').textContent = avg.toFixed(1);
   $('avgBar').style.width = Math.min(100, avg / 60 * 100) + '%'; $('avgBar').style.background = avg > GL.LIMIT_T ? 'var(--red)' : 'var(--navy)'; $('avgTick').style.left = (GL.LIMIT_T / 60 * 100) + '%';
   $('avgNote').textContent = phase === 'result' ? 'settled' : 'today, before drivers react';
@@ -1056,7 +1094,7 @@ function renderMemo() {
   for (const k of GL.CLS) { const c = cls[k]; if (!c) continue; h += `<span><i class="sw" style="background:${CCOL[k]}"></i>${GL.CLSNAME[k]}</span><span class="bar" title="time plus charges, valued at their own rate"><div style="width:${Math.min(100, c.burden / 90 * 100)}%;background:${c.burden > GL.LIMIT_B ? 'var(--red)' : CCOL[k]}"></div><i style="left:${GL.LIMIT_B / 90 * 100}%"></i></span><span class="n">${c.burden.toFixed(0)}</span>`; }
   $('cls').innerHTML = h ? h + `<span></span><span class="lim" style="grid-column:2/4"><span>burden: time + charges</span><span>limit ${GL.LIMIT_B}</span></span>` : '';
   const dots = n => '<span class="dots">' + Array.from({ length: 10 }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('') + '</span>';
-  $('books').innerHTML = `<span>Treasury <b>$${C.treasury.toFixed(1)}M</b></span><span title="Good forecasts earn credibility; credibility buys more changes per month">Credibility ${dots(C.cred)}</span>` + (C.strikes ? `<span class="strike">Over the limit ${'✕'.repeat(C.strikes)} <small>(3 in a row: out)</small></span>` : '');
+  $('books').innerHTML = `<span>Treasury <b>$${C.treasury.toFixed(1)}M</b></span><span title="Good forecasts earn credibility; credibility buys more changes per month">Credibility ${dots(C.cred)}</span>` + (C.strikes ? `<span class="strike">Council warnings ${'✕'.repeat(C.strikes)} <small>(3 in a row: out)</small></span>` : '');
   // history sparkline
   const H = C.hist.slice(-24); if (H.length > 1) { const mx = Math.max(60, ...H.map(x => x.avg)); const pts = H.map((x, i) => `${(i / (H.length - 1) * 100).toFixed(1)},${(30 - x.avg / mx * 30).toFixed(1)}`).join(' ');
     $('spark').innerHTML = `<line x1="0" x2="100" y1="${30 - GL.LIMIT_T / mx * 30}" y2="${30 - GL.LIMIT_T / mx * 30}" stroke="#c8312b" stroke-width="1" stroke-dasharray="2 2" vector-effect="non-scaling-stroke"/><polyline points="${pts}" fill="none" stroke="#24466e" stroke-width="1.6" vector-effect="non-scaling-stroke"/>` + H.map((x, i) => x.bad ? `<circle cx="${i / (H.length - 1) * 100}" cy="${30 - x.avg / mx * 30}" r="1.6" fill="#c8312b"/>` : '').join(''); }
@@ -1066,7 +1104,7 @@ function renderTray() {
   const hand = $('hand'); hand.innerHTML = '';
   for (const k of C.hand) {
     const left = (C.unlock[k] || 0) - GL.used(C, k), el = document.createElement('button');
-    el.className = 'tok' + (left <= 0 || C.acts <= 0 || phase !== 'plan' ? ' dead' : '') + (armed === k ? ' armed' : '') + (C.month === 1 && !C.placed.length && k === 'toll' ? ' pulse' : '');
+    el.className = 'tok' + (left <= 0 || C.acts <= 0 || phase !== 'plan' ? ' dead' : '') + (armed === k ? ' armed' : '') + (C.month === 1 && !C.placed.length && k === 'bus' ? ' pulse' : '');
     el.innerHTML = ICON[k] + `<span>${GL.RULES[k].n}</span><i>${Math.max(0, left)}</i>`; el.title = TIP[k]; el.dataset.k = k; el.setAttribute('aria-label', `${GL.RULES[k].n} token, ${left} left. ${TIP[k]}`);
     hookToken(el, k); hand.appendChild(el);
   }
@@ -1174,6 +1212,7 @@ function openForecast() {
   if (phase !== 'plan') return;
   const pre = GL.measure(C).avg; $('fcR').min = Math.max(5, Math.floor(pre - 20)); $('fcR').max = Math.ceil(pre + 20); $('fcR').value = Math.round(pre * 2) / 2; showFc();
   $('fc').classList.add('on'); select(null); snd.key();
+  const o = currentOutlook(), t = o && !C.placed.length ? outlookText(o) : ''; if (t) RH.toast(t + ' You have not changed anything yet.', 4200);
 }
 function showFc() { $('fcV').innerHTML = (+$('fcR').value).toFixed(1) + '<small> min</small>'; }
 $('fcR').oninput = () => { showFc(); snd.tick(); };
@@ -1183,7 +1222,7 @@ function run(forecast) {
   phase = 'run'; renderTray();
   snap = snap || GL.serialize(C);
   const startX = Float64Array.from(flowX);
-  report = GL.runMonth(C, forecast, { frames: true });
+  report = GL.runMonth(C, forecast, { frames: true, credit: snap });
   // animate the days: drivers learning, one day per frame-step
   anim = { t0: performance.now(), dur: 2600, frames: report.frames, startX };
   persist();
@@ -1200,14 +1239,15 @@ function showResult() {
   h += `<h2>Month ${r.month}: ${r.avg.toFixed(1)} min</h2>`;
   if (fc) h += `<p>You forecast <b>${fc.guess.toFixed(1)}</b>. ${fc.grade === 2 ? '<b>Spot on.</b>' : fc.grade === 1 ? '<b>Close.</b>' : `<b>Off by ${fc.err.toFixed(1)}.</b>`} ${fc.dc > 0 ? `Credibility +${fc.dc}.` : fc.dc < 0 ? 'Credibility −1.' : 'Nothing moved much, so nothing earned.'}</p>`;
   const worst = Object.entries(r.cls).sort((a, b) => b[1].burden - a[1].burden)[0];
-  const why = []; if (!r.okT) why.push(`the average is over ${GL.LIMIT_T}`); if (!r.okB && worst) why.push(`${GL.CLSNAME[worst[0]].toLowerCase()} carry a burden of ${worst[1].burden.toFixed(0)}`); if (r.broke) why.push('the treasury is in the red');
-  h += `<p>${bad ? (C.month <= 3 ? 'On probation, the council lets it pass: ' : `<b style="color:var(--red)">Strike ${r.strikes} of 3</b>: `) + why.join(' and ') + '.' : 'The council is satisfied.'} Treasury ${r.rev - r.upkeep >= 0 ? '+' : '−'}$${Math.abs(r.rev - r.upkeep).toFixed(2)}M${r.riders > 20 ? ` · ${Math.round(r.riders).toLocaleString('en')} bus riders` : ''}.</p>`;
+  const why = []; if (!r.okT) why.push(`commutes rose to ${r.avg.toFixed(0)} min, over the ${GL.LIMIT_T} limit`); if (!r.okB && worst) why.push(`${GL.CLSNAME[worst[0]].toLowerCase()} carry a burden of ${worst[1].burden.toFixed(0)}`); if (r.broke) why.push('the treasury is in the red');
+  if (r.credit) { const c = r.credit, cut = c.min >= .5, add = c.min <= -.5; h += `<p class="credit">${c.who.replace(/^./, x => x.toUpperCase())} ${cut ? `cut <b>${c.min.toFixed(1)} min</b> from the average` : add ? `added <b>${(-c.min).toFixed(1)} min</b> to the average` : 'made little difference to the average'}${!bad && c.wasBad ? ': without it, this month would have gone over the limit.' : '.'}</p>`; }
+  h += `<p>${bad ? `<b style="color:var(--red)">Council warning ${r.strikes} of 3</b>: ` + why.join(' and ') + '.' + (C.over ? '' : C.placed.length ? ' Try something stronger.' : ' <b>Place a rule!</b>') : 'The council is satisfied.'} Treasury ${r.rev - r.upkeep >= 0 ? '+' : '−'}$${Math.abs(r.rev - r.upkeep).toFixed(2)}M${r.riders > 20 ? ` · ${Math.round(r.riders).toLocaleString('en')} bus riders` : ''}.</p>`;
   for (const [k, why2] of r.found) { const cs = GL.CASES.find(c => c[0] === k); const fresh = !META.cases[k]; if (fresh) META.cases[k] = C.month; h += `<div class="case"><b>${fresh ? 'New in the casebook' : 'Casebook'}: ${cs[1]}</b>${cs[2]} ${why2}</div>`; }
   if (C.over === 'fired') h += `<p><b>Three bad months in a row: the council has let you go</b> after ${C.month} months.</p>`;
   if (C.over === 'retired') h += `<p><b>Thirty-six months. The city gives you its freedom.</b></p>`;
   h += `<div class="acts">${C.over ? `<button class="go ghost" id="sAgain">This city again</button><button class="go" id="sEnd">${C.over === 'retired' ? 'Keep going' : 'Summary'}</button>` : `<button class="go ghost" id="sRedo" title="Replan this month (−1 credibility)">↺ Redo</button><button class="go" id="sNext">Month ${C.month + 1} ▸</button>`}</div>`;
   select(null); $('slip').innerHTML = h; $('slip').classList.add('on');
-  const st = $('stamp'); st.className = ''; void st.offsetWidth; st.textContent = bad ? (C.month <= 3 ? 'NOTED' : 'OVER LIMIT') : fc && fc.grade === 2 ? 'CALLED IT' : 'APPROVED'; st.className = 'slam' + (bad ? '' : ' navy'); setTimeout(() => { snd.stamp(); FX.shake(.25); }, 150);
+  const st = $('stamp'); st.className = ''; void st.offsetWidth; st.textContent = bad ? `WARNING ${r.strikes}/3` : fc && fc.grade === 2 ? 'CALLED IT' : 'APPROVED'; st.className = 'slam' + (bad ? '' : ' navy'); setTimeout(() => { snd.stamp(); FX.shake(.25); }, 150);
   if (r.found.length) setTimeout(() => snd.till(), 500);
   const best = META.best[C.seed] || 0; if (C.month > best && (!bad || C.over)) META.best[C.seed] = C.hist.filter(x => true).length;
   persist();

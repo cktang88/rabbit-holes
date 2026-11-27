@@ -25,10 +25,12 @@ function BOTS(G, BP) {
     return G.verdict(c, b, slot);
   }
   // design: Levenberg-Marquardt on the profile so the ratios are right, then size for the note
-  const P = d => [d.pts[1][0], d.pts[2][0], d.pts[2][1], d.pts[3][0], d.pts[3][1], d.pts[4][0], d.pts[4][1], d.pts[1][1], d.th[1], d.th[2], d.th[3], d.th[4], d.th[5]];
-  const U = (d, p) => G.sane({ D: d.D, pts: [[.1, p[7]], [p[0], p[7]], [p[1], p[2]], [p[3], p[4]], [p[5], p[6]], [1, 0]], th: [p[8], p[8], p[9], p[10], p[11], p[12]] });
-  function design(d0, tierce = 1.2, tin = 23, massW = 0, its = 14) {
-    const T = { hum: .5, tierce, quint: 1.5, nominal: 2 }; let d = G.sane(d0), p = P(d), lam = .01;
+  // the profile as a parameter vector: crown radius and height, each inner point (r, z), and every wall thickness
+  const N = G.NP;
+  const P = d => [d.pts[1][0], d.pts[1][1], ...d.pts.slice(2, N - 1).flat(), ...d.th.slice(1)];
+  const U = (d, p) => { const H = p[1], pts = [[.1, H], [p[0], H]]; let k = 2; for (let i = 2; i < N - 1; i++, k += 2) pts.push([p[k], p[k + 1]]); pts.push([1, 0]); const th = p.slice(k); return G.sane({ D: d.D, pts, th: [th[0], ...th] }); };
+  function design(d0, tierce = 1.2, tin = 23, massW = 0, its = 14, T0 = null) {
+    const T = T0 || { hum: .5, tierce, quint: 1.5, nominal: 2 }; let d = G.sane(d0), p = P(d), lam = .01;
     const res = q => { const dd = U(d, q), m = G.unitModes(dd, tin); return Object.keys(T).map(k => BP.cents(m.f[k] / m.f.prime, T[k])).concat(massW ? [massW * Math.log(m.mass / G.unitModes(d0, tin).mass) * 100] : []); };
     let r = res(p);
     for (let it = 0; it < its; it++) {
@@ -52,7 +54,7 @@ function BOTS(G, BP) {
       const b = G.freshBell(c, slot), note = c.kind === 'ring' ? c.notes[slot] : c.note;
       if (!c.pre) {
         b.tin = c.minTin ? c.minTin + .5 : 23; b.cool = c.minTin ? .25 : .45;
-        if (!pat) { pat = G.sane(b.des); if (opt.design !== false && (c.tierce || c.pattern === 'old' || c.maxKg)) { if (c.maxKg) pat.th = pat.th.map((t, i) => i >= 2 ? t * .8 : t * .55); pat = design(pat, c.tierce || 1.2, b.tin, 0); } }
+        if (!pat) { pat = G.sane(b.des); if (opt.design !== false && (c.tierce || (c.pattern && c.pattern !== 'simpson') || c.maxKg)) { if (c.maxKg) pat.th = pat.th.map((t, i) => i >= 2 ? t * .8 : t * .55); pat = design(pat, c.tierce || 1.2, b.tin, 0); } }
         b.des = G.sane({ ...pat, D: G.diameterFor(pat, G.noteHz(note), b.tin) / Math.pow(2, (opt.sharp ?? 22) / 1200) });
       }
       let v; for (let tries = 0; tries < 8; tries++) {
