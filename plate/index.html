@@ -1,0 +1,1535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mantle</title>
+<meta name="description" content="You are the mantle. Grab a tectonic plate and shove it: continents crumple into Himalayas, oceans dive into trenches, rifts tear open new seas with magnetic stripes, and rain wears it all down.">
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600&family=Cormorant+Garamond:ital,wght@1,500;1,600&display=swap" rel="stylesheet">
+<style>
+  /* Lamont-Doherty, 1959: the Heezen–Tharp physiographic map. Chrome is cartographer's stock: cream map labels,
+     india-ink rules, a sounding-line gauge and a seismograph drum. Feature names in atlas italics. */
+  :root{--paper:#efe6cf;--paper2:#e2d6b6;--ink:#1f2a30;--ink2:#56616a;--red:#b8412c;--sea:#24506e;--gold:#c99a3a;--glow:#ff9b4a}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:#0d1620;color:var(--ink);font-family:Jost,"Futura","Century Gothic",sans-serif;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+  #gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
+  #ov{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
+  #labels{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+  .lab{position:absolute;left:0;top:0;white-space:nowrap;font:600 italic 17px/1 "Cormorant Garamond",Georgia,serif;color:#fbf3df;letter-spacing:.02em;
+    text-shadow:0 1px 2px rgba(0,0,0,.85),0 0 8px rgba(0,0,0,.6);transition:opacity .6s;will-change:transform}
+  .lab::before{content:"";position:absolute;left:-9px;top:50%;width:5px;height:5px;margin-top:-3px;border-radius:50%;background:#fbf3df;box-shadow:0 0 6px #fff}
+  .lab.big{font-size:21px}
+  /* map-label chips */
+  .chip{position:fixed;z-index:5;background:linear-gradient(#f3ebd6,#e6dabc);border:1px solid #2a3338;box-shadow:inset 0 0 0 2px #f3ebd6,inset 0 0 0 3px rgba(31,42,48,.35),0 6px 16px -8px rgba(0,0,0,.7);color:var(--ink)}
+  #hud{left:10px;top:10px;padding:7px 10px 8px;min-width:210px;max-width:min(330px,calc(100vw - 150px))}
+  #hud .row{display:flex;align-items:center;gap:8px}
+  .home{color:var(--ink2);font-size:13px;text-decoration:none;white-space:nowrap}
+  #lvName{font:600 15px/1.1 Jost;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:none;border:0;padding:0;text-align:left;color:var(--ink)}
+  #lvName:after{content:" ▾";font-size:11px;color:var(--ink2)}
+  #lvTag{font:italic 500 15px/1.15 "Cormorant Garamond",serif;color:var(--ink2);margin-top:1px}
+  #gauge{margin-top:6px;position:relative;height:16px;border:1.5px solid var(--ink);background:repeating-linear-gradient(90deg,transparent 0 9px,rgba(31,42,48,.18) 9px 10px),#f6efdc}
+  #gFill{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#4e7f9a,#24506e);transition:width .25s}
+  #gauge.pass #gFill{background:linear-gradient(90deg,#d8a945,#b07a22)}
+  .mk{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--red)}
+  .mk i{position:absolute;top:-13px;left:-5px;font:normal 10px Jost;color:var(--red)}
+  #gText{display:flex;justify-content:space-between;align-items:baseline;margin-top:3px;font-size:13px;color:var(--ink2);gap:8px}
+  #gText b{font:600 17px Jost;color:var(--ink)}
+  #stars{color:var(--gold);letter-spacing:2px;font-size:16px}
+  #views{right:10px;top:10px;display:flex;flex-direction:column;gap:0;padding:3px}
+  .vb{width:44px;height:40px;border:0;border-bottom:1px solid rgba(31,42,48,.25);background:none;font:600 10px/1 Jost;letter-spacing:.08em;color:var(--ink);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:0}
+  .vb:last-child{border-bottom:0}
+  .vb svg{width:20px;height:20px}
+  .vb.on{background:var(--ink);color:var(--paper)}
+  .vb.locked{opacity:.3;pointer-events:none}
+  #bar{left:50%;bottom:10px;transform:translateX(-50%);display:flex;align-items:center;gap:6px;padding:5px 8px;max-width:calc(100vw - 20px)}
+  .tb{min-width:40px;height:40px;border:1.5px solid var(--ink);background:#f6efdc;font:600 15px Jost;color:var(--ink);cursor:pointer;padding:0 8px;display:flex;align-items:center;justify-content:center}
+  .tb.on{background:var(--ink);color:var(--paper)}
+  .tb.pulse{animation:pulse 1.3s ease-in-out infinite}
+  @keyframes pulse{50%{box-shadow:0 0 0 5px rgba(255,155,74,.65)}}
+  .tb svg{width:20px;height:20px}
+  #clock{font:600 14px Jost;min-width:70px;text-align:center;line-height:1.05}
+  #clock small{display:block;font:400 10px Jost;color:var(--ink2);letter-spacing:.08em}
+  #seis{width:120px;height:36px;border:1px solid rgba(31,42,48,.5);background:repeating-linear-gradient(0deg,transparent 0 8px,rgba(184,65,44,.13) 8px 9px),#fbf6e7}
+  #scrub{width:110px;accent-color:#24506e;height:28px}
+  #tools{left:10px;bottom:10px;display:flex;gap:6px;padding:5px}
+  #toast{position:fixed;left:50%;top:22%;transform:translate(-50%,-50%) scale(.9);z-index:8;padding:10px 16px;opacity:0;pointer-events:none;transition:opacity .3s,transform .35s cubic-bezier(.2,1.4,.4,1);
+    font:italic 600 22px "Cormorant Garamond",serif;color:#fbf3df;text-shadow:0 2px 6px rgba(0,0,0,.9);text-align:center;max-width:90vw}
+  #toast.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  #card{left:50%;top:50%;transform:translate(-50%,-50%) rotate(-1deg);width:min(360px,calc(100vw - 24px));padding:16px 18px 14px;display:none;z-index:9}
+  #card.on{display:block;animation:cardin .45s cubic-bezier(.2,1.3,.4,1)}
+  @keyframes cardin{from{transform:translate(-50%,-40%) rotate(-4deg);opacity:0}}
+  #card h2{margin:0;font:600 13px Jost;letter-spacing:.22em;text-transform:uppercase;color:var(--ink2)}
+  #card .big{font:600 30px/1.05 Jost;margin:4px 0 2px}
+  #card .st{font-size:30px;color:var(--gold);letter-spacing:4px}
+  #card p{margin:6px 0 0;font:italic 500 18px/1.25 "Cormorant Garamond",serif}
+  #card .acts{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
+  .go{border:2px solid var(--ink);background:var(--ink);color:var(--paper);font:600 14px Jost;letter-spacing:.1em;text-transform:uppercase;padding:8px 14px;min-height:40px;cursor:pointer}
+  .go.ghost{background:transparent;color:var(--ink)}
+  #stamp{position:absolute;right:14px;top:10px;padding:3px 8px;border:3px double var(--red);color:var(--red);font:600 13px Jost;letter-spacing:.2em;transform:rotate(9deg);opacity:.85}
+  #menu{position:fixed;inset:0;z-index:10;background:rgba(8,14,20,.72);display:none;align-items:center;justify-content:center;padding:12px}
+  #menu.on{display:flex}
+  #menu .chip{position:relative;width:min(560px,100%);max-height:calc(100vh - 24px);overflow:auto;padding:14px 16px}
+  #menu h2{margin:0 0 2px;font:600 14px Jost;letter-spacing:.24em;text-transform:uppercase}
+  #menu .sub{font:italic 500 17px "Cormorant Garamond",serif;color:var(--ink2);margin-bottom:8px}
+  #list{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+  .lv{border:1.5px solid var(--ink);background:#f7f0de;padding:7px 9px;text-align:left;cursor:pointer;min-height:58px;font:inherit;color:var(--ink);position:relative}
+  .lv b{display:block;font:600 13px Jost;letter-spacing:.08em;text-transform:uppercase}
+  .lv span{display:block;font:italic 500 15px/1.1 "Cormorant Garamond",serif;color:var(--ink2);margin-top:2px}
+  .lv i{position:absolute;right:6px;top:5px;font-style:normal;color:var(--gold);font-size:12px;letter-spacing:1px}
+  .lv.locked{opacity:.38;pointer-events:none}
+  .lv.cur{background:#e9dcb8}
+  #closeM{position:absolute;right:8px;top:6px;border:0;background:none;font:24px Jost;cursor:pointer;color:var(--ink);min-width:36px;min-height:36px}
+  #hint{position:fixed;z-index:4;pointer-events:none;font:italic 600 19px "Cormorant Garamond",serif;color:#fff4dc;text-shadow:0 0 8px rgba(0,0,0,.95),0 1px 2px #000;white-space:nowrap;opacity:0;transition:opacity .5s}
+  body.nohud .chip,body.nohud #hint,body.nohud #labels{display:none!important}
+  @media (max-width:640px){
+    #hud{min-width:0;max-width:calc(100vw - 72px);padding:5px 8px 6px}
+    #lvTag{display:none} #lvName{font-size:13px} #gauge{height:12px;margin-top:4px} #gText{font-size:12px} #gText b{font-size:15px}
+    .vb{width:40px;height:36px}
+    #seis{display:none} #scrub{width:70px} .tb{min-width:36px;height:36px} #clock{min-width:56px;font-size:13px}
+    #bar{left:auto;right:8px;transform:none;bottom:8px;gap:4px;padding:4px} #tools{bottom:8px;left:8px;padding:4px;gap:4px}
+  }
+  @media (max-height:460px){ #lvTag{display:none} .vb{height:32px} #views{flex-direction:row} #seis{display:none} }
+</style>
+</head>
+<body>
+<canvas id="gl" aria-label="The planet's crust: drag a plate to push it" data-play></canvas>
+<canvas id="ov"></canvas>
+<div id="labels"></div>
+<div id="hint"></div>
+<div id="toast"></div>
+<div id="hud" class="chip">
+  <div class="row"><a class="home" href="../index.html">← Rabbit Holes</a></div>
+  <div class="row"><button id="lvName" aria-label="Commissions">Crumple</button></div>
+  <div id="lvTag"></div>
+  <div id="gauge"><div id="gFill"></div></div>
+  <div id="gText"><span id="gLabel">highest peak</span><span><b id="gVal">0</b> <span id="gUnit">km</span></span><span id="stars">☆☆☆</span></div>
+</div>
+<div id="views" class="chip">
+  <button class="vb on" data-v="0" title="Satellite"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4 8c3 1 4-2 7-1s3 3 5 2M5 13c2-1 4 1 6 0" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>sat</button>
+  <button class="vb" data-v="1" title="Relief (hypsometric)"><svg viewBox="0 0 20 20"><path d="M2 16l5-8 3 4 3-6 5 10z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>relief</button>
+  <button class="vb locked" data-v="2" id="vMag" title="Magnetic stripes"><svg viewBox="0 0 20 20"><path d="M3 3v14M6 3v14M10 3v14M14 3v14M17 3v14" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 1"/></svg>mag</button>
+  <button class="vb" data-v="3" title="Plates"><svg viewBox="0 0 20 20"><path d="M2 6l7 2 2 9M9 8l9-3M11 17l7-5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>plates</button>
+  <button class="vb" id="globeB" title="Globe"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/><ellipse cx="10" cy="10" rx="3.2" ry="7.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M2.5 10h15" stroke="currentColor" stroke-width="1.2"/></svg>globe</button>
+  <button class="vb" id="sndB" title="Sound"><svg viewBox="0 0 20 20"><path d="M3 8h3l4-4v12l-4-4H3z" fill="currentColor"/><path id="sndW" d="M13 7c1.5 1.5 1.5 4.5 0 6M15 5c3 3 3 7 0 10" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>sound</button>
+</div>
+<div id="tools" class="chip">
+  <button class="tb on" id="tPush" title="Push a plate (drag it)"><svg viewBox="0 0 20 20"><path d="M7 17V8.5a1.3 1.3 0 012.6 0V7a1.3 1.3 0 012.6 0v1a1.3 1.3 0 012.6 0v.7a1.3 1.3 0 012.4.6V13c0 2.5-2 4-4.5 4z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 11L4.6 9.4a1.2 1.2 0 00-1.6 1.7L7 16" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
+  <button class="tb" id="tRift" title="Rift: draw a line to split a plate"><svg viewBox="0 0 20 20"><path d="M10 2l-2 4 3 2-3 4 2 3-1 3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+  <button class="tb" id="tHot" title="Hotspot: tap to place or remove"><svg viewBox="0 0 20 20"><path d="M10 2c1 4 5 5 5 10a5 5 0 01-10 0c0-3 2-4 2-6 1 1 2 2 2 3 1-2 1-4 1-7z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
+  <button class="tb" id="tFit" title="Fit view"><svg viewBox="0 0 20 20"><path d="M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+</div>
+<div id="bar" class="chip">
+  <button class="tb" id="bPause" title="Pause (space)">❚❚</button>
+  <button class="tb on" id="bPlay" title="Play">▶</button>
+  <button class="tb" id="bFast" title="Fast">▶▶</button>
+  <div id="clock"><span id="myr">0</span> Myr<small>since start</small></div>
+  <input type="range" id="scrub" min="0" max="0" value="0" step="1" aria-label="Rewind through geologic time" title="Rewind">
+  <canvas id="seis" width="240" height="72" aria-label="Seismograph"></canvas>
+</div>
+<div id="card" class="chip"><div id="stamp">SURVEYED</div><h2 id="cH">Commission met</h2><div class="big" id="cBig"></div><div class="st" id="cStars"></div><p id="cP"></p>
+  <div class="acts"><button class="go ghost" id="cKeep">Keep pushing</button><button class="go ghost" id="cShare" style="display:none">Copy result</button><button class="go" id="cNext">Next</button></div></div>
+<div id="menu"><div class="chip"><button id="closeM" aria-label="Close">×</button><h2>Commissions</h2><div class="sub">Each one a planet. Push its plates until the survey reads true.</div><div id="list"></div></div></div>
+
+<script src="../shared/common.js"></script>
+<script src="../shared/fx.js"></script>
+<script>
+// ============================================================================================
+//  PLATE SIM: rigid plates on a wrapping lat-lon grid, crust carried cell by cell.
+//  Every world cell belongs to exactly one plate after each step. Plates move by whole cells
+//  (sub-cell remainder kept in an accumulator); where two plates land on one cell the crust
+//  decides: continents collide and thicken, ocean subducts (the older ocean when both are ocean),
+//  where none lands new crust is made (ocean, or stretched continent first). Elevation is isostatic.
+// ============================================================================================
+const PlateSim = (() => {
+  const DT = .25, EARTH_KM = 40000, VMAX_KM = 400, SLAB_KM = 75;
+  const NONE = 255, MAXP = 15, COLW = [[1, .2], [2, .16], [3, .12], [4, .1]];
+  const iso = (h, f, age) => -2.6 - .35 * Math.sqrt(age < 0 ? 0 : age > 90 ? 90 : age) * (1 - f) + .13 * (h - 7);
+  // ---- noise ----
+  function hash2(x, y, s) { let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(s | 0, 1442695041)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; }
+  function vnoise(x, y, px, s) {
+    const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi, ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+    const x0 = ((xi % px) + px) % px, x1 = (x0 + 1) % px;
+    const a = hash2(x0, yi, s), b = hash2(x1, yi, s), c = hash2(x0, yi + 1, s), d = hash2(x1, yi + 1, s);
+    return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+  }
+  function fbm(u, v, base, oct, s) { let sum = 0, amp = .5, norm = 0; for (let o = 0; o < oct; o++) { const p = base << o; sum += amp * vnoise(u * p, v * p * .5, p, s + o * 101); norm += amp; amp *= .5; } return sum / norm; }
+  function rng(seed) { let a = seed >>> 0; return () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  // geomagnetic reversals: a fixed random sequence of chrons, 1.5–5 Myr long (compressed for a game)
+  const REV = (() => { const r = []; let t = -900, k = 0; while (t < 9000) { r.push(t); t += 1.5 + 3.5 * hash2(k++, 7, 99); } return Float64Array.from(r); })();
+  function polarity(t) { let lo = 0, hi = REV.length; while (lo < hi) { const m = (lo + hi) >> 1; if (REV[m] <= t) lo = m + 1; else hi = m; } return lo & 1; }
+
+  function create(o = {}) {
+    const W = o.W || 256, H = W >> 1, N = W * H, cellKm = EARTH_KM / W;
+    const F = () => new Float32Array(N), U = () => new Uint8Array(N);
+    const S = { W, H, N, cellKm, dt: DT, time: 0, t0: 0, stepN: 0, seed: o.seed || 1, rand: rng(o.seed || 1),
+      vmax: VMAX_KM / cellKm, slab: SLAB_KM / cellKm,
+      owner: U(), h: F(), f: F(), birth: F(), vt: F(), kind: U(), ghost: U(),
+      _o: U(), _h: F(), _f: F(), _birth: F(), _vt: F(), _kind: U(), _ghost: U(),
+      addSub: F(), addCol: F(), addP: U(), e: F(), trench: F(), volc: F(), swell: F(), arcN: F(),
+      P: F(), P0: F(), T: F(), A: F(), Er: F(), Dr: F(), rcv: new Int32Array(N), bnd: new Int8Array(N), bndV: F(),
+      lat: new Float32Array(H), wl: new Float32Array(H),
+      plates: [], hot: [], sea: 0, water: 0, events: [], qc: { transform: 0, subduction: 0, collision: 0, rift: 0, total: 0 },
+      pairs: new Map(), acc: new Map(), stress: new Map(), dec: new Map(), snaps: [], volcList: [], firsts: {}, frozen: false };
+    for (let y = 0; y < H; y++) { const la = 90 - (y + .5) * 180 / H; S.lat[y] = la; S.wl[y] = Math.cos(la * Math.PI / 180); }
+    for (let i = 0; i < N; i++) { const x = i % W, y = (i / W) | 0; S.arcN[i] = .25 + 1.5 * fbm(x / W, y / H, 48, 2, 777); }
+    return S;
+  }
+  const cmToCells = (S, cm) => cm * 10 / S.cellKm, cellsToCm = (S, v) => v * S.cellKm / 10;
+
+  // ---------------------------------------------------------------------------------------
+  //  World generation from a level spec (positions: u east 0..1 wrapping, v from north 0..1; sizes in km)
+  // ---------------------------------------------------------------------------------------
+  function gen(S, spec) {
+    const { W, H, N, cellKm } = S, sd = spec.seed || 1;
+    S.rand = rng(sd * 7919 + 13);
+    S.plates = spec.plates.map((p, k) => ({ id: k, alive: true, name: p.name || '', vx: cmToCells(S, (p.v || [0, 0])[0]), vy: cmToCells(S, (p.v || [0, 0])[1]), ax: 0, ay: 0, sx: 0, sy: 0, tvx: 0, tvy: 0, held: false,
+      mass: 0, cmass: 0, cx: 0, cy: 0, subN: 0, subDX: 0, subDY: 0, cminY: 0, cmaxY: 0, fixed: !!p.fixed }));
+    const conts = (spec.conts || []).map(c => ({ ...c, cs: Math.cos((c.rot || 0) * Math.PI / 180), sn: Math.sin((c.rot || 0) * Math.PI / 180) }));
+    const dKm = (u0, v0, x, y) => { let dx = x - u0 * W; dx -= Math.round(dx / W) * W; const dy = y - v0 * H; return [dx * cellKm, dy * cellKm]; };
+    const rOf = (c, x, y) => { const [dx, dy] = dKm(c.u, c.v, x + .5, y + .5); const a = (dx * c.cs + dy * c.sn) / c.rx, b = (-dx * c.sn + dy * c.cs) / c.ry;
+      let r = Math.hypot(a, b); if (c.shape) r = c.shape(a, b, r); r *= 1 + (c.rough ?? .35) * (fbm(x / W, y / H, 6, 4, sd + 31 + (c.ns || 0)) - .5); return r; };
+    for (let i = 0; i < N; i++) {
+      const x = i % W, y = (i / W) | 0;
+      let best = 1e18, bp = 0, ch = 0, cf = 0, inC = -1, minR = 9;
+      const rs = conts.map(c => rOf(c, x, y));
+      conts.forEach((c, k) => { if (rs[k] < minR) { minR = rs[k]; inC = k; } });
+      S.plates.forEach((P, k) => {
+        const ps = spec.plates[k]; let d = 1e18;
+        for (const s of ps.seeds || []) { const [a, b] = dKm(s[0], s[1], x + .5, y + .5); d = Math.min(d, Math.hypot(a, b) * (s[2] || 1)); }
+        conts.forEach((c, j) => { if (c.plate === k && !c.add) d = Math.min(d, Math.max(0, rs[j] - 1) * Math.min(c.rx, c.ry) * 1.4); });
+        d += (spec.warp ?? 380) * (fbm(x / W, y / H, 5, 3, sd + k * 17) - .5);
+        if (d < best) { best = d; bp = k; }
+      });
+      let h = 7, f = 0, kd = 0;
+      conts.forEach((c, k) => { if (c.add) return; const r = rs[k]; if (r < 1.18) { const t = Math.min(1, Math.max(0, (1.18 - r) / .3)), sm = t * t * (3 - 2 * t);
+        const H0 = (c.h || 33) + 5 * (fbm(x / W, y / H, 10, 3, sd + 5) - .5); const hh = 7 + (H0 - 7) * sm; if (hh > h) { h = hh; f = Math.min(1, Math.max(0, (1.12 - r) / .17)); } } });
+      if (inC >= 0 && !conts[inC].add && minR < 1) bp = conts[inC].plate;
+      conts.forEach((c, k) => { if (!c.add) return; const r = rs[k]; if (r < 1) { const t = 1 - r; h += c.add * t * t * (3 - 2 * t); kd = c.kind ?? 2; } });
+      if (spec.plates[bp].force) { const fp = spec.plates[bp].force(x / W, y / H); if (fp != null) bp = fp; }
+      S.owner[i] = bp; S.h[i] = h; S.f[i] = f; S.kind[i] = kd; S.vt[i] = kd ? -5 : -1e4;
+      const pa = spec.plates[bp], ag = typeof pa.age === 'function' ? pa.age(x / W, y / H) : (pa.age ?? 80);
+      S.birth[i] = -(ag * (.75 + .5 * fbm(x / W, y / H, 4, 2, sd + 91 + bp))) - 20 * f;
+    }
+    S.hot = (spec.hot || []).map((h, k) => ({ x: Math.floor(h[0] * W), y: Math.floor(h[1] * H), ph: k * .7 }));
+    calcSwell(S); S.time = 0; S.t0 = 0; S.stepN = 0; S.events = []; S.qc = { transform: 0, subduction: 0, collision: 0, rift: 0, total: 0 };
+    S.pairs.clear(); S.acc.clear(); S.stress.clear(); S.snaps = []; S.firsts = {}; S.trench.fill(0); S.volc.fill(0);
+    massPass(S); elev(S); climate(S, true); snapshot(S);
+    return S;
+  }
+  function calcSwell(S) { const { W, H } = S; S.swell.fill(0); for (const hs of S.hot) for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) { const y = hs.y + dy; if (y < 0 || y >= H) continue; const x = (hs.x + dx + W) % W; S.swell[y * W + x] += .9 * Math.exp(-(dx * dx + dy * dy) / 5); } }
+
+  // ---------------------------------------------------------------------------------------
+  //  helpers
+  // ---------------------------------------------------------------------------------------
+  function at(S, t, dx, dy, k) { const { W, H } = S; let x = t % W + Math.round(dx * k), y = ((t / W) | 0) + Math.round(dy * k); x = ((x % W) + W) % W; if (y < 0) y = 0; else if (y >= H) y = H - 1; return y * W + x; }
+  function pair(S, key) { let c = S.pairs.get(key); if (!c) { c = { col: 0, sub: 0, nx: 0, ny: 0, cell: -1 }; S.pairs.set(key, c); } return c; }
+  function copyIn(S, t, i) { S._ghost[t] = 0; S._o[t] = S.owner[i]; S._h[t] = S.h[i]; S._f[t] = S.f[i]; S._birth[t] = S.birth[i]; S._vt[t] = S.vt[i]; S._kind[t] = S.kind[i]; }
+  function emit(S, ev) { if (S.events.length < 200) S.events.push(ev); }
+  function first(S, k, cell, extra) { if (!S.firsts[k]) { S.firsts[k] = S.time + .001; emit(S, { t: 'label', k, cell, ...extra }); } }
+
+  // ---------------------------------------------------------------------------------------
+  //  one fixed step of 0.25 Myr
+  // ---------------------------------------------------------------------------------------
+  function step(S) {
+    const dt = S.dt;
+    for (const p of S.plates) {
+      if (!p.alive) continue;
+      if (p.fixed) { p.vx = p.vy = 0; continue; }
+      if (p.held) { const k = 1 - Math.exp(-dt / .45); p.vx += (p.tvx - p.vx) * k; p.vy += (p.tvy - p.vy) * k; }
+      else { const k = Math.exp(-dt / 30); p.vx *= k; p.vy *= k; }
+      if (p.subN > 0) { const L = Math.hypot(p.subDX, p.subDY) || 1, dx = p.subDX / L, dy = p.subDY / L, vs = Math.min(1, p.subN / 14) * S.slab, al = p.vx * dx + p.vy * dy;
+        if (al < vs) { const k = 1 - Math.exp(-dt / 5); p.vx += dx * (vs - al) * k; p.vy += dy * (vs - al) * k; } }
+    }
+    for (const [key, c] of S.pairs) {
+      if (c.col <= 0) continue; const a = S.plates[key >> 4], b = S.plates[key & 15]; const L = Math.hypot(c.nx, c.ny); if (L < 1e-6) continue;
+      const nx = c.nx / L, ny = c.ny / L, vr = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+      if (vr > 0) { const beta = Math.min(.9, .12 * Math.pow(c.col, .75)), ma = a.fixed ? 1e9 : (a.mass + 50) * (a.held ? 1 : 5), mb = b.fixed ? 1e9 : (b.mass + 50) * (b.held ? 1 : 5), J = beta * vr * ma * mb / (ma + mb);
+        if (!a.fixed) { a.vx -= J / ma * nx; a.vy -= J / ma * ny; } if (!b.fixed) { b.vx += J / mb * nx; b.vy += J / mb * ny; } }
+    }
+    let any = false;
+    for (const p of S.plates) {
+      if (!p.alive) continue;
+      const sp = Math.hypot(p.vx, p.vy); if (sp > S.vmax) { p.vx *= S.vmax / sp; p.vy *= S.vmax / sp; }
+      if (p.cmass > 0 && ((p.cminY < 3 && p.vy < 0) || (p.cmaxY > S.H - 4 && p.vy > 0))) p.vy *= .6;
+      p.ax += p.vx * dt; p.ay += p.vy * dt;
+      p.sx = p.ax >= 1 ? 1 : p.ax <= -1 ? -1 : 0; p.ax -= p.sx; p.sy = p.ay >= 1 ? 1 : p.ay <= -1 ? -1 : 0; p.ay -= p.sy;
+      if (p.sx || p.sy) any = true;
+      p.subN = 0; p.subDX = 0; p.subDY = 0;
+    }
+    S.pairs.clear();
+    if (any) { scatter(S); massPass(S); }
+    hotspots(S); spread(S); surface(S);
+    const kt = Math.exp(-dt / 2.5), kv = Math.exp(-dt / 1.3); for (let i = 0; i < S.N; i++) { if (S.trench[i] > .01) S.trench[i] *= kt; else S.trench[i] = 0; S.volc[i] *= kv; }
+    elev(S); bounds(S);
+    S.time += dt; S.stepN++;
+    if (S.stepN % 4 === 0) climate(S, false);
+    if (S.stepN % 20 === 0) snapshot(S);
+  }
+
+  function scatter(S) {
+    const { W, H, N } = S, o = S.owner, no = S._o; no.fill(NONE); S._ghost.fill(0);
+    for (let pass = 0; pass < 2; pass++) for (let i = 0; i < N; i++) {
+      const p = o[i]; if (p === NONE || S.ghost[i]) continue; const P = S.plates[p], mv = P.sx !== 0 || P.sy !== 0; if ((pass === 0) === mv) continue;
+      let x = i % W + P.sx, y = ((i / W) | 0) + P.sy; if (x < 0) x += W; else if (x >= W) x -= W;
+      if (y < 0 || y >= H) { if (S.f[i] < .5) continue; y = y < 0 ? 0 : H - 1; }
+      const t = y * W + x;
+      if (no[t] === NONE) copyIn(S, t, i); else resolve(S, t, i);
+    }
+    fillGaps(S);
+    let a;
+    a = S.owner; S.owner = S._o; S._o = a; a = S.h; S.h = S._h; S._h = a; a = S.f; S.f = S._f; S._f = a;
+    a = S.birth; S.birth = S._birth; S._birth = a; a = S.vt; S.vt = S._vt; S._vt = a; a = S.kind; S.kind = S._kind; S._kind = a; a = S.ghost; S.ghost = S._ghost; S._ghost = a;
+    applyAdds(S); collapse(S);
+  }
+
+  function resolve(S, t, i) {
+    const po = S._o[t], pi = S.owner[i];
+    if (po === pi) { S._h[t] = Math.max(S._h[t], S.h[i]) + .3 * Math.min(S._h[t], S.h[i]); return; }
+    const A = S.plates[pi], B = S.plates[po];
+    let rx = A.vx - B.vx, ry = A.vy - B.vy, L = Math.hypot(rx, ry);
+    if (L < 1e-5) { rx = A.sx - B.sx; ry = A.sy - B.sy; L = Math.hypot(rx, ry) || 1; }
+    const nx = rx / L, ny = ry / L, fo = S._f[t], fi = S.f[i];
+    const key = pi < po ? (pi << 4 | po) : (po << 4 | pi), sg = pi < po ? 1 : -1, c = pair(S, key);
+    c.nx += nx * sg; c.ny += ny * sg; c.cell = t;
+    if (fo > .5 && fi > .5) {                                       // continent meets continent: neither sinks
+      c.col++;
+      const sI = A.vx * nx + A.vy * ny, sO = -(B.vx * nx + B.vy * ny);
+      let hh, sx = nx, sy = ny, ov = po;
+      if (sI >= sO) { hh = S.h[i]; } else { hh = S._h[t]; copyIn(S, t, i); sx = -nx; sy = -ny; ov = pi; }
+      S._h[t] += .3 * hh; S._kind[t] = 2; S._vt[t] = S.time;
+      for (const [k, w] of COLW) { const j = at(S, t, sx, sy, k); S.addCol[j] += w * hh; S.addP[j] = ov; }
+      const l1 = at(S, at(S, t, -sy, sx, 1), sx, sy, 1), l2 = at(S, at(S, t, sy, -sx, 1), sx, sy, 1); S.addCol[l1] += .06 * hh; S.addCol[l2] += .06 * hh; S.addP[l1] = S.addP[l2] = ov;
+      if (S.rand() < .02) first(S, 'collision', t);
+      return;
+    }
+    let inSub;
+    if (fo > .5) inSub = true; else if (fi > .5) inSub = false; else inSub = S.birth[i] <= S._birth[t];   // the older (earlier-born) ocean sinks
+    c.sub++;
+    const oceanOver = inSub ? fo < .5 : fi < .5;
+    if (inSub) {
+      A.subN++; A.subDX += nx; A.subDY += ny;
+      const a2 = at(S, t, nx, ny, 2), a1 = at(S, t, nx, ny, 1);
+      S.addSub[a2] += 5 * S.arcN[a2]; S.addSub[a1] += 2; S.addP[a2] = S.addP[a1] = po;
+      const tr = at(S, t, -nx, -ny, 1); S.trench[tr] = Math.max(S.trench[tr], 3.2); S.trench[t] = Math.max(S.trench[t], 1.4);
+      if (S.rand() < .05) { first(S, 'trench', tr); first(S, oceanOver ? 'islandarc' : 'arc', a2); }
+    } else {
+      B.subN++; B.subDX -= nx; B.subDY -= ny;
+      copyIn(S, t, i);
+      const a2 = at(S, t, -nx, -ny, 2), a1 = at(S, t, -nx, -ny, 1);
+      S.addSub[a2] += 5 * S.arcN[a2]; S.addSub[a1] += 2; S.addP[a2] = S.addP[a1] = pi;
+      const tr = at(S, t, nx, ny, 1); S.trench[tr] = Math.max(S.trench[tr], 3.2); S.trench[t] = Math.max(S.trench[t], 1.4);
+      if (S.rand() < .05) { first(S, 'trench', tr); first(S, oceanOver ? 'islandarc' : 'arc', a2); }
+    }
+  }
+
+  function fillGaps(S) {
+    const { W, H, N } = S, no = S._o; let gaps = [];
+    for (let t = 0; t < N; t++) if (no[t] === NONE) gaps.push(t);
+    if (!gaps.length) return;
+    S.dec.clear();
+    const nb = [0, 0, 0, 0];
+    for (let pass = 0; pass < 8 && gaps.length; pass++) {
+      const asg = [], rest = [];
+      for (const g of gaps) {
+        const x = g % W, y = (g / W) | 0; let n = 0;
+        nb[n++] = y * W + (x + 1) % W; nb[n++] = y * W + (x + W - 1) % W; if (y > 0) nb[n++] = g - W; if (y < H - 1) nb[n++] = g + W;
+        let a = NONE, b = NONE, ca = 0, cb = 0, sh = 0, sf = 0, sb = 0, m = 0, best = -1e9, bj = -1, close = 0;
+        for (let k = 0; k < n; k++) { const j = nb[k], p = no[j]; if (p === NONE || S._ghost[j]) continue; m++; sh += S._h[j]; sf += S._f[j]; sb += S._birth[j];
+          const P = S.plates[p], dx = k === 0 ? 1 : k === 1 ? -1 : 0, dy = k < 2 ? 0 : (j < g ? -1 : 1), tow = -(P.vx * dx + P.vy * dy); close += tow; if (tow > best) { best = tow; bj = j; }
+          if (p === a) ca++; else if (p === b) cb++; else if (a === NONE) { a = p; ca = 1; } else if (b === NONE) { b = p; cb = 1; } }
+        if (!m) { rest.push(g); continue; }
+        if (close > .02 * m && best > .02) { asg.push(g, -1, bj, 0, 0); continue; }   // the follower will fill this next shift: a placeholder, not new crust
+        let pl = a;
+        if (b !== NONE) { const lo = Math.min(a, b), hi = Math.max(a, b), key = lo << 4 | hi; let d = S.dec.get(key);
+          if (d === undefined) { const ac = S.acc.get(key) || [0, 0]; d = ac[0] <= ac[1] ? lo : hi; ac[d === lo ? 0 : 1]++; S.acc.set(key, ac); S.dec.set(key, d); } pl = d; }
+        asg.push(g, pl, sh / m, sf / m, sb / m);
+      }
+      for (let k = 0; k < asg.length; k += 5) {
+        const g = asg[k], pl = asg[k + 1], mh = asg[k + 2], mf = asg[k + 3];
+        if (pl < 0) { const j = mh; no[g] = no[j]; S._h[g] = S._h[j]; S._f[g] = S._f[j]; S._birth[g] = S._birth[j]; S._vt[g] = S._vt[j]; S._kind[g] = S._kind[j]; S._ghost[g] = 1; continue; }
+        no[g] = pl;
+        if (mf > .5 && mh > 15.5) { S._h[g] = mh * (mh > 29 ? .86 : .75); S._f[g] = mf; S._birth[g] = asg[k + 4]; S._kind[g] = 4; S._vt[g] = S.time;
+          if (S.rand() < .1) first(S, mh > 26 ? 'rift' : 'narrowsea', g); }
+        else { S._h[g] = 7; S._f[g] = 0; S._birth[g] = S.time; S._kind[g] = 0; S._vt[g] = -1e4; if (mf > .2 && S.rand() < .1) first(S, 'ridge', g); }
+      }
+      gaps = rest;
+    }
+    for (const g of gaps) { no[g] = 0; S._h[g] = 7; S._f[g] = 0; S._birth[g] = S.time; S._kind[g] = 0; S._vt[g] = -1e4; }
+  }
+
+  function applyAdds(S) {
+    const { N } = S, h = S.h, f = S.f;
+    for (let t = 0; t < N; t++) {
+      const a = S.addSub[t];
+      if (a > 0 && S.owner[t] !== S.addP[t]) S.addSub[t] = 0;
+      else if (a > 0) {
+        S.addSub[t] = 0;
+        const e0 = iso(h[t], f[t], S.time - S.birth[t]) - S.sea, cap = f[t] > .75 ? 5.5 + .5 * S.arcN[t] : .6 + 4.6 * (S.arcN[t] - 1);
+        let amt = a; const allowed = Math.max(0, (cap - e0) / .13); if (amt > allowed) amt = allowed + (amt - allowed) * .03;
+        f[t] = (f[t] * h[t] + .8 * amt) / (h[t] + amt); if (f[t] < .78 && f[t] > .76) f[t] = .76; h[t] += amt;
+        if (a > 1.5) { if (S.kind[t] !== 2) S.kind[t] = 1; S.vt[t] = S.time; S.volc[t] = 1; S.volcList.push(t); }
+      }
+      const c = S.addCol[t];
+      if (c > 0) { S.addCol[t] = 0; if (S.owner[t] === S.addP[t] || S.f[t] > .5) { h[t] += c; S.kind[t] = 2; S.vt[t] = S.time; } else { h[t] += c * .3; } }
+    }
+  }
+
+  function massPass(S) {
+    const { W, N } = S; const P = S.plates, n = P.length;
+    const cs = new Float64Array(n), sn = new Float64Array(n), sy = new Float64Array(n);
+    for (const p of P) { p.mass = 0; p.cmass = 0; p.cminY = 1e9; p.cmaxY = -1; }
+    for (let i = 0; i < N; i++) { const k = S.owner[i]; if (k === NONE || S.ghost[i]) continue; const p = P[k], x = i % W, y = (i / W) | 0; p.mass++; const a = (x + .5) / W * 6.283185; cs[k] += Math.cos(a); sn[k] += Math.sin(a); sy[k] += y;
+      if (S.f[i] > .5) { p.cmass++; if (y < p.cminY) p.cminY = y; if (y > p.cmaxY) p.cmaxY = y; } }
+    P.forEach((p, k) => { if (p.mass === 0) { if (p.alive) { p.alive = false; p.held = false; } return; } let a = Math.atan2(sn[k], cs[k]); if (a < 0) a += 6.283185; p.cx = a / 6.283185 * W - .5; p.cy = sy[k] / p.mass; });
+  }
+
+  function hotspots(S) {
+    const { W, N, dt } = S;
+    for (const hs of S.hot) {
+      const ph = ((S.time + hs.ph) / 3.2) % 1; if (ph > .42) continue;
+      const c = hs.y * W + hs.x, er = S.e[c] - S.sea, ocean = S.f[c] < .5;
+      if (er < (ocean ? 4 : 2.2)) { S.h[c] += (ocean ? 70 : 20) * dt; S.vt[c] = S.time; if (S.kind[c] !== 2) S.kind[c] = 3; }
+      S.volc[c] = 1;
+      for (const d of [1, -1, W, -W]) { const j = (c + d + N) % N; if (S.owner[j] === S.owner[c] && S.e[j] - S.sea < -.4) { S.h[j] += 10 * dt; if (S.kind[j] !== 2) S.kind[j] = 3; S.vt[j] = S.time; } }
+      if (er > 0 && S.rand() < .15) first(S, 'hotspot', c);
+    }
+    for (let i = 0; i < N; i++) if (S.kind[i] === 3 && S.f[i] < .5 && S.h[i] > 7) S.h[i] -= (S.h[i] - 7) * dt / 60;
+  }
+
+  function spread(S) {
+    const { W, H } = S, o = S.owner, h = S.h, f = S.f, e = S.e, sea = S.sea;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      for (let d = 0; d < 2; d++) {
+        let j; if (d === 0) j = y * W + (x + 1) % W; else { if (y === H - 1) continue; j = i + W; }
+        const cc = f[i] > .5 && f[j] > .5; if (o[i] !== o[j] && !cc) continue;
+        const em = (e[i] > e[j] ? e[i] : e[j]) - sea; let c = cc ? .004 : 0;
+        if (em > 4.5) c += .009 * Math.pow(em - 4.5, 1.6); if (c <= 0) continue; if (c > .12) c = .12;
+        const fl = c * (h[i] - h[j]); h[i] -= fl; h[j] += fl;
+      }
+    }
+    collapse(S);
+  }
+  // gravitational collapse: crust much over ~9 km high flows out sideways (why no peak on Earth tops ~9 km)
+  function collapse(S) {
+    const { W, H, N } = S, h = S.h, f = S.f, sea = S.sea, t = S.time; const lim = 8.4;
+    for (let it = 0; it < 3; it++) { let n = 0;
+      for (let i = 0; i < N; i++) {
+        if (h[i] < 80) continue; const er = iso(h[i], f[i], t - S.birth[i]) - S.trench[i] + S.swell[i] - sea; if (er < lim) continue;
+        n++; const x = i % W, y = (i / W) | 0, ex = (er - lim) / .13 * (.35 + .15 * Math.min(2, er - lim));
+        const nb = [y * W + (x + 1) % W, y * W + (x + W - 1) % W, y > 0 ? i - W : i + W, y < H - 1 ? i + W : i - W];
+        h[i] -= ex; for (const j of nb) h[j] += ex / 4;
+      }
+      if (!n) break; }
+  }
+
+  function surface(S) {
+    const { N, dt } = S, h = S.h, f = S.f;
+    for (let i = 0; i < N; i++) {
+      const er = S.Er[i]; if (er > 0 && S.e[i] > S.sea) { h[i] -= er * dt; if (h[i] < 7) h[i] = 7; }
+      const dr = S.Dr[i]; if (dr > 0) { const a = dr * dt, f0 = f[i]; let nf = (f0 * h[i] + .6 * a) / (h[i] + a); if (f0 < .5 && nf > .45) nf = Math.max(f0, .45); f[i] = nf; h[i] += a; }
+    }
+  }
+
+  function elev(S) { const { N } = S, t = S.time; for (let i = 0; i < N; i++) S.e[i] = iso(S.h[i], S.f[i], t - S.birth[i]) - S.trench[i] + S.swell[i]; }
+
+  function bounds(S) {
+    const { W, H, N, dt } = S, o = S.owner, P = S.plates; S.bnd.fill(0); S.bndV.fill(0);
+    for (const st of S.stress.values()) { st.n = 0; st.v = 0; st.tc = 0; }
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      for (let d = 0; d < 2; d++) {
+        let j, nx, ny; if (d === 0) { j = y * W + (x + 1) % W; nx = 1; ny = 0; } else { if (y === H - 1) continue; j = i + W; nx = 0; ny = 1; }
+        const a = o[i], b = o[j]; if (a === b) continue;
+        const A = P[a], B = P[b], rx = A.vx - B.vx, ry = A.vy - B.vy, conv = rx * nx + ry * ny, sh = Math.abs(rx * ny - ry * nx), sp = Math.hypot(rx, ry);
+        const ty = sh > 1.6 * Math.abs(conv) && sp > .05 ? 2 : conv > .02 ? 1 : conv < -.02 ? -1 : 0;
+        if (S.bnd[i] !== 2) S.bnd[i] = ty; if (S.bnd[j] !== 2) S.bnd[j] = ty; S.bndV[i] = Math.max(S.bndV[i], sp); S.bndV[j] = Math.max(S.bndV[j], sp);
+        const key = a < b ? (a << 4 | b) : (b << 4 | a); let st = S.stress.get(key); if (!st) { st = { s: 0, n: 0, v: 0, cell: -1, ty: 0, thr: 2 + 3 * S.rand(), tc: 0 }; S.stress.set(key, st); }
+        st.v += sp; st.n++; if (ty === 2) st.tc++; if (S.rand() * st.n < 1) { st.cell = i; st.ty = ty; }
+        if (ty === 2 && sp > .3 && S.rand() < .002) first(S, 'transform', i);
+      }
+    }
+    let fired = 0;
+    for (const [key, st] of S.stress) {
+      if (st.n === 0) { st.s *= .9; continue; }
+      st.s += st.v / st.n * dt * .45 * Math.sqrt(st.n / 20);
+      if (st.s > st.thr && fired < 2) {
+        fired++;
+        const cv = S.pairs.get(key), ty = st.ty === 2 ? 'transform' : cv && cv.col ? 'collision' : cv && cv.sub ? 'subduction' : st.ty === -1 ? 'rift' : st.ty === 1 ? 'subduction' : 'transform';
+        const mag = Math.min(9.3, 5.6 + .9 * Math.log10(1 + st.s * 3) + .6 * S.rand());
+        S.qc[ty]++; S.qc.total++; emit(S, { t: 'quake', cell: st.cell, ty, mag, key });
+        st.s = 0; st.thr = 2 + 3 * S.rand();
+      }
+    }
+    // eruptions on active volcanoes
+    if (S.volcList.length > 400) S.volcList = S.volcList.slice(-200);
+    for (const hs of S.hot) if (S.e[hs.y * W + hs.x] > S.sea && S.rand() < .08) emit(S, { t: 'erupt', cell: hs.y * W + hs.x });
+    if (S.volcList.length && S.rand() < .25) { const c = S.volcList[(S.rand() * S.volcList.length) | 0]; if (S.volc[c] > .4 && S.e[c] > S.sea + .5) emit(S, { t: 'erupt', cell: c }); }
+  }
+
+  // ---------------------------------------------------------------------------------------
+  //  climate, rivers, erosion, sea level: every 1 Myr
+  // ---------------------------------------------------------------------------------------
+  const band = la => { const a = Math.abs(la); return .3 + 1.05 * Math.exp(-((a / 12) ** 2)) + .8 * Math.exp(-(((a - 52) / 13) ** 2)) - .22 * Math.exp(-(((a - 25) / 7) ** 2)); };
+  function climate(S, init) {
+    const { W, H, N } = S, e = S.e;
+    if (!init) seaLevel(S); else { S.sea = 0; S.water = vol(S, 0); }
+    const sea = S.sea;
+    for (let y = 0; y < H; y++) {
+      const la = S.lat[y], a = Math.abs(la), Tl = 29 - 52 * Math.pow(a / 90, 1.45), b = band(la), dir = a < 30 || a > 62 ? -1 : 1;
+      for (let x = 0; x < W; x++) { const i = y * W + x, er = e[i] - sea; S.T[i] = Tl - 6.5 * (er > 0 ? er : 0); }
+      for (let pass = 0; pass < 2; pass++) {
+        const oro = pass === 0, out = oro ? S.P : S.P0; let m = .55, pe = 0;
+        for (let k = 0; k < 2 * W; k++) {
+          const x = dir > 0 ? k % W : W - 1 - (k % W), i = y * W + x, er = e[i] - sea;
+          if (er <= 0) { m += (1 - m) * .35; if (k >= W) out[i] = b * m; pe = 0; continue; }
+          const ee = oro ? er : .3, rise = Math.max(0, ee - pe); pe = ee;
+          const r = Math.min(.85, .045 + .42 * rise + .012 * ee);
+          let p = b * m * (.8 + 5 * Math.min(1.5, rise)); if (p > 2.6) p = 2.6;
+          if (k >= W) out[i] = p; m *= 1 - r; m += .015 * (1 - m);
+        }
+      }
+    }
+    // gentle north–south mixing of rain
+    for (const arr of [S.P, S.P0]) for (let y = 1; y < H - 1; y++) for (let x = 0; x < W; x++) { const i = y * W + x; arr[i] = arr[i] * .6 + (arr[i - W] + arr[i + W]) * .2; }
+    if (init) return;
+    // drainage: steepest descent on land, accumulated from the top down
+    const land = [];
+    for (let i = 0; i < N; i++) { S.Er[i] = 0; S.Dr[i] = 0; S.A[i] = 0; if (e[i] > sea) land.push(i); }
+    for (const i of land) {
+      const x = i % W, y = (i / W) | 0; let best = i, be = e[i];
+      for (let dy = -1; dy <= 1; dy++) { const yy = y + dy; if (yy < 0 || yy >= H) continue; for (let dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; const j = yy * W + (x + dx + W) % W, de = (e[j] - e[i]) / (dx && dy ? 1.414 : 1) + e[i]; if (de < be) { be = de; best = j; } } }
+      S.rcv[i] = best; S.A[i] = Math.max(.05, S.P[i]);
+    }
+    land.sort((a, b) => e[b] - e[a]);
+    for (const i of land) { const r = S.rcv[i]; if (r !== i && e[r] > sea) S.A[r] += S.A[i]; }
+    const Qs = S._h; // scratch (free between steps)
+    for (const i of land) { const er = e[i] - sea; S.Er[i] = .07 * (.25 + Math.min(1.3, S.P[i])) * Math.pow(er, 1.5) * (1 + .12 * Math.log(1 + S.A[i])); Qs[i] = S.Er[i]; }
+    for (const i of land) {
+      const r = S.rcv[i], q = Qs[i];
+      if (r === i) { S.Dr[i] += q * .85; continue; }
+      if (e[r] > sea) { Qs[r] += q; continue; }
+      S.Dr[r] += q * .45; const x = r % W, y = (r / W) | 0; const nn = [y * W + (x + 1) % W, y * W + (x + W - 1) % W, y > 0 ? r - W : r, y < H - 1 ? r + W : r];
+      for (const j of nn) if (e[j] <= sea) S.Dr[j] += q * .13; else S.Dr[r] += q * .13;
+    }
+  }
+  function vol(S, s) { const { W, N } = S; let v = 0; for (let i = 0; i < N; i++) { const d = s - S.e[i]; if (d > 0) v += d * S.wl[(i / W) | 0]; } return v; }
+  function seaLevel(S) { let lo = -2, hi = 2; for (let k = 0; k < 24; k++) { const m = (lo + hi) / 2; if (vol(S, m) < S.water) lo = m; else hi = m; } S.sea = (lo + hi) / 2; }
+
+  // ---------------------------------------------------------------------------------------
+  //  snapshots (rewind)
+  // ---------------------------------------------------------------------------------------
+  function snapshot(S) {
+    const s = { time: S.time, stepN: S.stepN, owner: S.owner.slice(), h: S.h.slice(), f: S.f.slice(), birth: S.birth.slice(), vt: S.vt.slice(), kind: S.kind.slice(),
+      plates: S.plates.map(p => ({ ...p, held: false })), sea: S.sea, water: S.water, acc: [...S.acc].map(([k, v]) => [k, v.slice()]), qc: { ...S.qc }, firsts: { ...S.firsts }, hot: S.hot.map(h => ({ ...h })) };
+    S.snaps.push(s); if (S.snaps.length > (S.N > 20000 ? 30 : 45)) S.snaps.splice(1, 1);   // keep the level's first frame
+  }
+  function restore(S, k, truncate = true) {
+    const s = S.snaps[k]; if (!s) return false;
+    S.owner.set(s.owner); S.h.set(s.h); S.f.set(s.f); S.birth.set(s.birth); S.vt.set(s.vt); S.kind.set(s.kind);
+    S.plates = s.plates.map(p => ({ ...p })); S.sea = s.sea; S.water = s.water; S.acc = new Map(s.acc.map(([k, v]) => [k, v.slice()])); S.qc = { ...s.qc }; S.firsts = { ...s.firsts };
+    S.hot = s.hot.map(h => ({ ...h })); calcSwell(S);
+    S.time = s.time; S.stepN = s.stepN; if (truncate) S.snaps.length = k + 1; S.trench.fill(0); S.volc.fill(0); S.addSub.fill(0); S.addCol.fill(0); S.pairs.clear(); S.stress.clear(); S.events = [];
+    massPass(S); elev(S); climate(S, false); return true;
+  }
+
+  // ---------------------------------------------------------------------------------------
+  //  rift: cut a plate along a stroke (cell coords). The stroke is extended at both ends until it leaves the plate.
+  // ---------------------------------------------------------------------------------------
+  function rift(S, pts) {
+    const { W, H, N } = S; if (!pts || pts.length < 2) return { ok: false, why: 'short' };
+    const free = S.plates.findIndex(p => !p.alive); const slot = free >= 0 ? free : S.plates.length; if (slot >= MAXP) return { ok: false, why: 'plates' };
+    const idx = (x, y) => { const yy = Math.floor(y); if (yy < 0 || yy >= H) return -1; return yy * W + ((Math.floor(x) % W) + W) % W; };
+    const cnt = new Map(); for (const [x, y] of pts) { const i = idx(x, y); if (i >= 0) cnt.set(S.owner[i], (cnt.get(S.owner[i]) || 0) + 1); }
+    let p = -1, bc = 0; for (const [k, v] of cnt) if (v > bc) { bc = v; p = k; } if (p < 0) return { ok: false, why: 'none' };
+    const line = pts.map(q => q.slice());
+    const ext = (a, b) => { let [x, y] = a; const dx = a[0] - b[0], dy = a[1] - b[1], L = Math.hypot(dx, dy) || 1, ux = dx / L * .5, uy = dy / L * .5; const out = []; let miss = 0;
+      for (let k = 0; k < 4 * W && miss < 4; k++) { x += ux; y += uy; const i = idx(x, y); if (i < 0) break; out.push([x, y]); if (S.owner[i] !== p) miss++; else miss = 0; } return out; };
+    const head = ext(line[0], line[1]).reverse(), tail = ext(line[line.length - 1], line[line.length - 2]);
+    const all = [...head, ...line, ...tail];
+    const bar = new Uint8Array(N), cells = [];
+    for (let k = 0; k < all.length - 1; k++) { const [x0, y0] = all[k], [x1, y1] = all[k + 1]; const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / .3) + 1;
+      for (let j = 0; j <= n; j++) { const i = idx(x0 + (x1 - x0) * j / n, y0 + (y1 - y0) * j / n); if (i >= 0 && !bar[i] && S.owner[i] === p) { bar[i] = 1; cells.push(i); } } }
+    const lab = new Int32Array(N).fill(-1); let nc = 0; const sizes = [];
+    for (let s = 0; s < N; s++) {
+      if (S.owner[s] !== p || bar[s] || lab[s] >= 0) continue; const st = [s]; lab[s] = nc; let sz = 0;
+      while (st.length) { const i = st.pop(); sz++; const x = i % W, y = (i / W) | 0; const nn = [y * W + (x + 1) % W, y * W + (x + W - 1) % W, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1];
+        for (const j of nn) if (j >= 0 && S.owner[j] === p && !bar[j] && lab[j] < 0) { lab[j] = nc; st.push(j); } }
+      sizes.push(sz); nc++;
+    }
+    const big = sizes.map((s, k) => [s, k]).filter(([s]) => s >= 12).sort((a, b) => b[0] - a[0]);
+    if (big.length < 2) return { ok: false, why: 'uncut', cells: cells.length };
+    const keep = big[0][1], go = big[1][1];
+    let mx = 0, my = 0, n2 = 0, ox = 0, oy = 0, n1 = 0; const P0 = S.plates[p];
+    for (let i = 0; i < N; i++) { if (lab[i] < 0) continue; let x = i % W; const y = (i / W) | 0; x -= Math.round((x - P0.cx) / W) * W;
+      if (lab[i] === go) { mx += x; my += y; n2++; } else if (lab[i] === keep) { ox += x; oy += y; n1++; } }
+    const NP = { ...P0, id: slot, alive: true, held: false, ax: P0.ax, ay: P0.ay, subN: 0, subDX: 0, subDY: 0, name: P0.name ? P0.name + ' II' : '' };
+    S.plates[slot] = NP;
+    for (let i = 0; i < N; i++) if (lab[i] === go) S.owner[i] = slot;
+    for (const i of cells) { const x = i % W, y = (i / W) | 0; let c2 = 0, c1 = 0; for (const j of [y * W + (x + 1) % W, y * W + (x + W - 1) % W, y > 0 ? i - W : i, y < H - 1 ? i + W : i]) { if (lab[j] === go) c2++; else if (lab[j] >= 0) c1++; }
+      if (c2 > c1) S.owner[i] = slot; if (S.f[i] > .5) { S.h[i] *= .9; S.kind[i] = 4; S.vt[i] = S.time; } }
+    let dx = mx / Math.max(1, n2) - ox / Math.max(1, n1), dy = my / Math.max(1, n2) - oy / Math.max(1, n1); const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+    const kick = cmToCells(S, 1.5); NP.vx = P0.vx + dx * kick; NP.vy = P0.vy + dy * kick; P0.vx -= dx * kick; P0.vy -= dy * kick;
+    massPass(S); elev(S); bounds(S);
+    const mid = cells[(cells.length / 2) | 0];
+    emit(S, { t: 'rifted', a: p, b: slot, cell: mid });
+    return { ok: true, a: p, b: slot, cells: cells.length, dx, dy };
+  }
+
+  // ---------------------------------------------------------------------------------------
+  //  measurements
+  // ---------------------------------------------------------------------------------------
+  function comps(S, test, conn8 = true) {
+    const { W, H, N } = S, lab = new Int32Array(N).fill(-1), out = []; let nc = 0;
+    for (let s = 0; s < N; s++) {
+      if (lab[s] >= 0 || !test(s)) continue; const st = [s], cells = []; lab[s] = nc;
+      while (st.length) { const i = st.pop(); cells.push(i); const x = i % W, y = (i / W) | 0;
+        for (let dy = -1; dy <= 1; dy++) { const yy = y + dy; if (yy < 0 || yy >= H) continue; for (let dx = -1; dx <= 1; dx++) { if ((!dx && !dy) || (!conn8 && dx && dy)) continue; const j = yy * W + (x + dx + W) % W; if (lab[j] < 0 && test(j)) { lab[j] = nc; st.push(j); } } } }
+      out.push(cells); nc++;
+    }
+    return { lab, list: out };
+  }
+  function stats(S, o = {}) {
+    const { W, H, N, cellKm } = S, e = S.e, sea = S.sea, A = cellKm * cellKm;
+    let peak = -99, peakCell = 0, peakCol = -99, peakSub = -99, trench = 99, land = 0, volcN = 0, desert = 0, shadow = 0, cont = 0;
+    for (let i = 0; i < N; i++) {
+      const er = e[i] - sea, wl = S.wl[(i / W) | 0];
+      if (er > peak) { peak = er; peakCell = i; } if (er < trench) trench = er;
+      if (S.kind[i] === 2 && er > peakCol) peakCol = er; if ((S.kind[i] === 1 || (S.volc[i] > .2 && S.kind[i] !== 3)) && er > peakSub) peakSub = er;
+      if (S.f[i] > .5) cont += wl;
+      if (er > 0) { land += wl; if (S.volc[i] > .5) volcN++; if (S.P[i] < .22 && S.T[i] > -2) { desert += wl; if (S.P0[i] > .3) shadow += wl; } }
+    }
+    // new ocean: crust born since the level began; width = diameter of the widest disc that fits inside it
+    const isNew = i => S.f[i] < .5 && S.birth[i] > S.t0 + .01;
+    const dist = new Float32Array(N); let nNew = 0;
+    for (let i = 0; i < N; i++) { dist[i] = isNew(i) ? 1e6 : 0; if (dist[i]) nNew++; }
+    let maxD = 0, maxCell = -1;
+    if (nNew) {
+      for (let pass = 0; pass < 2; pass++) {
+        const fw = pass === 0;
+        for (let k = 0; k < N; k++) { const i = fw ? k : N - 1 - k; if (!dist[i]) continue; const x = i % W, y = (i / W) | 0; let d = dist[i];
+          const ys = fw ? -1 : 1; const yy = y + ys;
+          const xp = fw ? (x + W - 1) % W : (x + 1) % W; d = Math.min(d, dist[y * W + xp] + 1);
+          if (yy >= 0 && yy < H) { d = Math.min(d, dist[yy * W + x] + 1, dist[yy * W + (x + 1) % W] + 1.414, dist[yy * W + (x + W - 1) % W] + 1.414); } else d = Math.min(d, 1);
+          dist[i] = d; }
+      }
+      // second sweep pair to fix wrap-around at x seam
+      for (let pass = 0; pass < 2; pass++) { const fw = pass === 0; for (let k = 0; k < N; k++) { const i = fw ? k : N - 1 - k; if (!dist[i]) continue; const x = i % W, y = (i / W) | 0; let d = dist[i];
+        d = Math.min(d, dist[y * W + (x + W - 1) % W] + 1, dist[y * W + (x + 1) % W] + 1); if (y > 0) d = Math.min(d, dist[i - W] + 1); if (y < H - 1) d = Math.min(d, dist[i + W] + 1); dist[i] = d; } }
+      for (let i = 0; i < N; i++) if (dist[i] > maxD) { maxD = dist[i]; maxCell = i; }
+    }
+    const oceanWidth = maxD > 0 ? Math.max(0, (2 * maxD - 1)) * cellKm : 0;
+    // islands: small land masses, classed by what built them
+    const isl = comps(S, i => e[i] > sea);
+    const islands = [], hot = [], arcs = [];
+    let bigLand = 0;
+    for (const cells of isl.list) {
+      if (cells.length > 70) { bigLand = Math.max(bigLand, cells.length); continue; }
+      let k1 = 0, k3 = 0, vt = 0, mx = 0, my = 0, top = -9; const x0 = cells[0] % W;
+      for (const i of cells) { if (S.kind[i] === 1) k1++; if (S.kind[i] === 3) { k3++; vt += S.vt[i]; } let x = i % W; x -= Math.round((x - x0) / W) * W; mx += x; my += (i / W) | 0; top = Math.max(top, e[i] - sea); }
+      const it = { n: cells.length, x: ((mx / cells.length) % W + W) % W, y: my / cells.length, top, kind: k3 >= k1 && k3 > 0 ? 'hotspot' : k1 > 0 ? 'arc' : 'other' };
+      if (it.kind === 'hotspot') { it.age = S.time - vt / k3; hot.push(it); } else if (it.kind === 'arc') arcs.push(it);
+      islands.push(it);
+    }
+    const cc = comps(S, i => S.f[i] > .5);
+    let biggest = 0, tot = 0; for (const cells of cc.list) { let a = 0; for (const i of cells) a += S.wl[(i / W) | 0]; tot += a; if (a > biggest) biggest = a; }
+    // passive margins: no trench next to the new ocean
+    // passive margins: the continental coasts facing the widest new ocean have no trench beside them
+    let activeMargin = 0, coastN = 0;
+    if (maxCell >= 0) {
+      const comp = new Uint8Array(N), st = [maxCell]; comp[maxCell] = 1;
+      while (st.length) { const i = st.pop(), x = i % W, y = (i / W) | 0; for (const j of [y * W + (x + 1) % W, y * W + (x + W - 1) % W, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1]) if (j >= 0 && !comp[j] && dist[j] > 0) { comp[j] = 1; st.push(j); } }
+      for (let i = 0; i < N; i++) { if (S.f[i] <= .85) continue; const x = i % W, y = (i / W) | 0; let c = false;
+        for (let dy = -1; dy <= 1 && !c; dy++) { const yy = y + dy; if (yy < 0 || yy >= H) continue; for (let dx = -1; dx <= 1; dx++) if (comp[yy * W + (x + dx + W) % W]) { c = true; break; } }
+        if (!c) continue; coastN++; let tr = false;
+        for (let dy = -2; dy <= 2 && !tr; dy++) { const yy = y + dy; if (yy < 0 || yy >= H) continue; for (let dx = -2; dx <= 2; dx++) if (S.trench[yy * W + (x + dx + W) % W] > 1) { tr = true; break; } }
+        if (tr) activeMargin++; }
+    }
+    return {
+      time: S.time - S.t0, peak, peakCell, peakCol, peakSub, trench, sea: S.sea * 1000,
+      landKm2: land * A, desertKm2: desert * A, shadowKm2: shadow * A, volcanoes: volcN,
+      oceanWidth, oceanCell: maxCell, newOceanKm2: nNew * A, activeMargin, activeFrac: coastN ? activeMargin / coastN : 0,
+      islands: islands.length, hotIslands: hot.length, arcIslands: arcs.length, hot, arcs,
+      superFrac: tot ? biggest / tot : 0, contPieces: cc.list.filter(c => c.length > 20).length,
+      quakes: { ...S.qc }, plates: S.plates.filter(p => p.alive).length,
+    };
+  }
+
+  // ---------------------------------------------------------------------------------------
+  //  checks
+  // ---------------------------------------------------------------------------------------
+  function sane(S) { for (let i = 0; i < S.N; i++) { if (!isFinite(S.h[i]) || !isFinite(S.e[i]) || !isFinite(S.f[i]) || S.owner[i] === NONE || S.plates[S.owner[i]] == null) return 'bad cell ' + i; } for (const p of S.plates) if (!isFinite(p.vx) || !isFinite(p.vy)) return 'bad plate ' + p.id; return ''; }
+
+  return { create, gen, step, rift, stats, snapshot, restore, polarity, iso, fbm, hash2, cmToCells, cellsToCm, sane, comps, DT, NONE, MAXP };
+})();
+if (typeof module !== 'undefined') module.exports = PlateSim;
+
+// ============================================================================================
+//  COMMISSIONS: each one a world, a measured goal with three pass marks, and a hint.
+//  u: east 0..1 (wraps), v: from the north pole 0..1. Sizes in km. Plate speeds in cm/yr.
+// ============================================================================================
+const PlateLevels = (() => {
+  const polar = (age = 90) => [{ seeds: [[.25, .02], [.75, .02]], age, name: 'Arctic' }, { seeds: [[.25, .98], [.75, .98]], age, name: 'Antarctic' }];
+  const M = {
+    peak: { name: 'highest peak', unit: 'km', get: s => s.peak, fmt: v => v.toFixed(1) },
+    arcPeak: { name: 'volcanic arc', unit: 'km', get: s => s.peakSub, fmt: v => Math.max(0, v).toFixed(1) },
+    oceanWidth: { name: 'new ocean', unit: 'km', get: s => s.oceanWidth, fmt: v => Math.round(v / 10) * 10 },
+    atlantic: { name: 'passive ocean', unit: 'km', get: s => s.activeFrac > .08 ? 0 : s.oceanWidth, fmt: v => Math.round(v / 10) * 10 },
+    hotIslands: { name: 'hotspot islands', unit: '', get: s => s.hotIslands, fmt: v => v | 0 },
+    arcIslands: { name: 'arc islands', unit: '', get: s => s.arcs.filter(a => a.n >= 2).length, fmt: v => v | 0 },
+    transform: { name: 'fault quakes', unit: '', get: s => s.quakes.transform, fmt: v => v | 0 },
+    shadow: { name: 'rain-shadow desert', unit: 'M km²', get: s => s.shadowKm2 / 1e6, fmt: v => v.toFixed(2) },
+    superFrac: { name: 'land joined', unit: '%', get: s => s.superFrac * 100, fmt: v => v | 0 },
+    hold: { name: 'held over 4 km', unit: 'Myr', get: (s, run) => run.hold, fmt: v => v | 0 },
+    dock: { name: 'on the mark', unit: '%', get: (s, run) => run.iou * 100, fmt: v => v | 0 },
+    wilson: { name: 'cycle', unit: '%', get: (s, run) => run.wil, fmt: v => v | 0 },
+    sea: { name: 'sea level', unit: 'm', get: s => s.sea - (s.sea0 || 0), fmt: v => (v > 0 ? '+' : '') + Math.round(v) },
+  };
+  const L = [
+    { id: 'crumple', name: 'Crumple', tag: 'continent meets continent',
+      spec: { seed: 11, plates: [{ seeds: [[.3, .45]], name: 'West' }, { seeds: [[.7, .45]], name: 'East' }, ...polar()], conts: [{ u: .435, v: .45, rx: 2500, ry: 2300, plate: 0 }, { u: .565, v: .45, rx: 2500, ry: 2300, plate: 1, ns: 3 }] },
+      goal: { m: 'peak', marks: [3, 5, 7] }, hint: [0, 1], cam: [.5, .45, .55], tools: ['push'] },
+    { id: 'andes', name: 'Andes', tag: 'ocean dives under a continent',
+      spec: { seed: 12, plates: [{ seeds: [[.3, .5]], age: 70, name: 'Nazca' }, { seeds: [[.66, .5]], name: 'South America' }, ...polar()], conts: [{ u: .64, v: .52, rx: 2200, ry: 3400, plate: 1, rot: 8 }] },
+      goal: { m: 'arcPeak', marks: [4.5, 5.3, 6] }, hint: [0, 1], cam: [.56, .5, .6], tools: ['push'] },
+    { id: 'roof', name: 'Roof of the World', tag: 'subduction stalls; collision does not',
+      spec: { seed: 13, plates: [{ seeds: [[.5, .74], [.5, .56]], age: 90, name: 'India' }, { seeds: [[.5, .25], [.25, .3], [.75, .3]], name: 'Asia' }, { seeds: [[.1, .7], [.9, .7]], age: 80, name: 'Africa' }, ...polar(90).slice(0, 1)],
+        conts: [{ u: .5, v: .72, rx: 1500, ry: 1700, plate: 0 }, { u: .5, v: .24, rx: 6500, ry: 2400, plate: 1 }] },
+      goal: { m: 'peak', marks: [8, 8.8, 9.5] }, hint: [0, 1], cam: [.5, .45, .65], tools: ['push'] },
+    { id: 'arc', name: 'Island Arc', tag: 'ocean meets ocean: the older one sinks',
+      spec: { seed: 14, plates: [{ seeds: [[.36, .45]], age: 130, name: 'Pacific' }, { seeds: [[.62, .45]], age: 20, name: 'Philippine' }, { seeds: [[.5, .1], [.0, .2]], age: 70 }, { seeds: [[.5, .85], [0, .8]], age: 70 }] },
+      goal: { m: 'arcIslands', marks: [6, 12, 18] }, hint: [0, 1], cam: [.5, .45, .6], tools: ['push'] },
+    { id: 'rift', name: 'Great Rift', tag: 'tear a continent open', unlock: 'rift',
+      spec: { seed: 15, plates: [{ seeds: [[.5, .45]], name: 'Gondwana' }, { seeds: [[.15, .45]], age: 100 }, { seeds: [[.85, .45]], age: 100 }, ...polar()], conts: [{ u: .5, v: .45, rx: 3400, ry: 2600, plate: 0 }] },
+      goal: { m: 'oceanWidth', marks: [1000, 1800, 2600] }, hint: [0, 'rift'], cam: [.5, .45, .6], tools: ['push', 'rift'] },
+    { id: 'hawaii', name: 'Hotspot', tag: 'a plume stays put; the plate moves', unlock: 'stripes',
+      spec: { seed: 16, plates: [{ seeds: [[.5, .45]], age: 80, name: 'Pacific' }, { seeds: [[.1, .45]], age: 60 }, ...polar()], hot: [[.56, .44]] },
+      goal: { m: 'hotIslands', marks: [5, 7, 9] }, hint: [0, 'drift'], cam: [.54, .44, .5], tools: ['push'] },
+    { id: 'fault', name: 'Transform', tag: 'slide, do not crash',
+      spec: { seed: 17, warp: 120, plates: [{ seeds: [[.4, .3], [.4, .6]], age: 40, name: 'Pacific' }, { seeds: [[.6, .3], [.6, .6]], name: 'America' }, ...polar()], conts: [{ u: .6, v: .43, rx: 2200, ry: 3600, plate: 1 }] },
+      goal: { m: 'transform', marks: [12, 20, 30] }, hint: [0, 'slide'], cam: [.5, .43, .55], tools: ['push'] },
+    { id: 'shadow', name: 'Rain Shadow', tag: 'mountains steal the rain',
+      spec: { seed: 18, plates: [{ seeds: [[.3, .3]], age: 60, name: 'Pacific' }, { seeds: [[.62, .3]], name: 'Patagonia' }, { seeds: [[.5, .75]], age: 80 }, ...polar().slice(0, 1)], conts: [{ u: .63, v: .29, rx: 3000, ry: 1800, plate: 1 }] },
+      goal: { m: 'shadow', marks: [1, 2, 3] }, hint: [0, 1], cam: [.6, .3, .55], tools: ['push'] },
+    { id: 'wilson', name: 'Wilson Cycle', tag: 'open an ocean, then shut it', timed: true,
+      spec: { seed: 19, plates: [{ seeds: [[.5, .45]], name: 'Pangaea' }, { seeds: [[.05, .45], [.95, .45]], age: 120, name: 'Panthalassa' }, ...polar()], conts: [{ u: .5, v: .46, rx: 4600, ry: 3000, plate: 0 }] },
+      goal: { m: 'wilson', marks: [100, 100, 100], par: [0, 50, 32] }, hint: [0, 'rift'], cam: [.5, .45, .7], tools: ['push', 'rift'] },
+    { id: 'india', name: 'India Hits Asia', tag: 'dock a continent on the mark',
+      spec: { seed: 20, plates: [{ seeds: [[.45, .8], [.47, .62], [.5, .42, .55], [.4, .44, .7], [.6, .44, .7]], age: 90, name: 'India' }, { seeds: [[.5, .22], [.2, .28], [.8, .28]], name: 'Eurasia' }, { seeds: [[.15, .7], [.85, .72]], age: 80, name: 'Africa' }, ...polar().slice(0, 1)],
+        conts: [{ u: .45, v: .8, rx: 1300, ry: 1600, plate: 0, rot: -20, shape: (a, b, r) => r * (1 + .45 * Math.max(0, b)) }, { u: .5, v: .2, rx: 7000, ry: 2300, plate: 1 }] },
+      target: { u: .5, v: .445, rx: 1300, ry: 1600, rot: -20 }, need: { m: 'peak', pass: 6 },
+      goal: { m: 'dock', marks: [50, 65, 78] }, hint: [0, 'target'], cam: [.5, .55, .7], tools: ['push'] },
+    { id: 'pangaea', name: 'Pangaea', tag: 'gather every continent', timed: true,
+      spec: { seed: 21, plates: [{ seeds: [[.1, .35]], name: 'A' }, { seeds: [[.32, .62]], name: 'B' }, { seeds: [[.52, .3]], name: 'C' }, { seeds: [[.72, .62]], name: 'D' }, { seeds: [[.9, .3]], name: 'E' }, { seeds: [[.5, .02]], age: 90 }, { seeds: [[.5, .98]], age: 90 }],
+        conts: [{ u: .1, v: .35, rx: 1700, ry: 1500, plate: 0 }, { u: .32, v: .62, rx: 1600, ry: 1700, plate: 1 }, { u: .52, v: .32, rx: 1900, ry: 1500, plate: 2 }, { u: .72, v: .62, rx: 1500, ry: 1400, plate: 3 }, { u: .9, v: .32, rx: 1500, ry: 1300, plate: 4 }] },
+      goal: { m: 'superFrac', marks: [85, 85, 85], par: [0, 100, 65] }, hint: [0, 2], cam: [.5, .45, 1], tools: ['push', 'rift'] },
+    { id: 'old', name: 'Old Mountains', tag: 'rain wears ranges down',
+      spec: { seed: 22, plates: [{ seeds: [[.46, .5]], name: 'Laurentia' }, { seeds: [[.56, .5]], name: 'Baltica' }, { seeds: [[.15, .5]], age: 80 }, { seeds: [[.85, .5]], age: 80 }, ...polar()],
+        conts: [{ u: .45, v: .5, rx: 1600, ry: 2200, plate: 0 }, { u: .55, v: .5, rx: 1600, ry: 2200, plate: 1, ns: 4 }, { u: .5, v: .5, rx: 500, ry: 1800, add: 34, plate: 0 }] },
+      goal: { m: 'hold', marks: [50, 80, 120] }, hint: [0, 1], cam: [.5, .5, .55], tools: ['push', 'rift'] },
+  ];
+  // the daily: a seeded world and one of the measurable goals, marked harder
+  function daily(dateStr) {
+    let h = 2166136261; for (let i = 0; i < dateStr.length; i++) { h ^= dateStr.charCodeAt(i); h = Math.imul(h, 16777619); }
+    let a = h >>> 0; const r = () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+    const np = 6 + (r() * 3 | 0), plates = [], conts = [];
+    for (let k = 0; k < np; k++) plates.push({ seeds: [[(k + .2 + .6 * r()) / np, .25 + .5 * r()]], age: 40 + 90 * r() });
+    plates.push(...polar());
+    const nc = 3 + (r() * 2 | 0);
+    for (let k = 0; k < nc; k++) { const p = (k * 2 + (r() * 2 | 0)) % np, s = plates[p].seeds[0]; conts.push({ u: s[0], v: s[1], rx: 1300 + 1300 * r(), ry: 1200 + 1100 * r(), rot: 60 * (r() - .5), plate: p, ns: k }); }
+    const oceanPlates = plates.map((_, i) => i).filter(i => i < np && !conts.some(c => c.plate === i));
+    const hp = oceanPlates.length ? oceanPlates[0] : 0;
+    const hot = [[plates[hp].seeds[0][0] + .02, plates[hp].seeds[0][1]]];
+    const goals = [{ m: 'peak', marks: [7.5, 8.5, 9.3] }, { m: 'oceanWidth', marks: [1500, 2300, 3100] }, { m: 'hotIslands', marks: [5, 7, 9] }, { m: 'arcPeak', marks: [5, 5.6, 6.1] }];
+    const g = goals[(r() * goals.length) | 0];
+    return { id: 'daily', name: 'Daily ' + dateStr, tag: 'the same planet for everyone today', daily: true, spec: { seed: h & 0xffff, plates, conts, hot }, goal: g, hint: null, cam: [.5, .45, 1], tools: ['push', 'rift'] };
+  }
+  function sandbox(seed = 7) {
+    const d = daily('sandbox-' + seed); return { ...d, id: 'sandbox', name: 'Sandbox', tag: 'your planet', daily: false, sandbox: true, goal: null, tools: ['push', 'rift', 'hotspot'] };
+  }
+  // ---- goal evaluation ----
+  function newRun(lv) { return { hold: 0, holdNow: 0, iou: 0, phase: 0, wil: 0, best: 0, passedAt: null, stars: 0, lastT: 0 }; }
+  function iou(S, lv) {
+    const t = lv.target; if (!t) return 0; const { W, H, N, cellKm } = S, cs = Math.cos((t.rot || 0) * Math.PI / 180), sn = Math.sin((t.rot || 0) * Math.PI / 180);
+    let inter = 0, uni = 0;
+    for (let i = 0; i < N; i++) {
+      const x = i % W, y = (i / W) | 0; let dx = x + .5 - t.u * W; dx -= Math.round(dx / W) * W; const dy = y + .5 - t.v * H;
+      const a = (dx * cellKm * cs + dy * cellKm * sn) / t.rx, b = (-dx * cellKm * sn + dy * cellKm * cs) / t.ry, inT = a * a + b * b < 1;
+      const inI = S.owner[i] === 0 && S.f[i] > .85;
+      if (inT && inI) inter++; if (inT || inI) uni++;
+    }
+    return uni ? inter / uni : 0;
+  }
+  function inTarget(S, lv, i) { const t = lv.target; if (!t) return 0; const { W, H, cellKm } = S, cs = Math.cos((t.rot || 0) * Math.PI / 180), sn = Math.sin((t.rot || 0) * Math.PI / 180);
+    const x = i % W, y = (i / W) | 0; let dx = x + .5 - t.u * W; dx -= Math.round(dx / W) * W; const dy = y + .5 - t.v * H;
+    const a = (dx * cellKm * cs + dy * cellKm * sn) / t.rx, b = (-dx * cellKm * sn + dy * cellKm * cs) / t.ry; return Math.sqrt(a * a + b * b); }
+  // call about once per simulated Myr; returns {value, frac (0..1 to pass), stars, passed}
+  function evaluate(lv, S, st, run) {
+    if (!lv.goal) return null;
+    const g = lv.goal, m = M[g.m], T = S.time - S.t0, dT = Math.max(0, T - run.lastT); run.lastT = T;
+    if (g.m === 'hold') { if (st.peak >= 4) run.holdNow += dT; else run.holdNow = 0; run.hold = Math.max(run.hold, run.holdNow); }
+    if (g.m === 'dock') run.iou = iou(S, lv);
+    if (g.m === 'wilson') { if (!run.phase && st.oceanWidth >= 1500) run.phase = 1; run.wil = run.phase ? 50 + 50 * Math.min(1, Math.max(0, st.peakCol) / 6) : 50 * Math.min(1, st.oceanWidth / 1500); }
+    let v = m.get(st, run);
+    let needOk = true; if (lv.need) { needOk = M[lv.need.m].get(st, run) >= lv.need.pass; }
+    let stars = 0;
+    if (g.par) { if (v >= g.marks[0] && needOk) { stars = 1; if (T <= g.par[1]) stars = 2; if (T <= g.par[2]) stars = 3; } }
+    else for (let k = 0; k < 3; k++) if (v >= g.marks[k] && needOk) stars = k + 1;
+    if (stars > run.stars) run.stars = stars;
+    if (stars && run.passedAt == null) run.passedAt = T;
+    run.best = Math.max(run.best, v);
+    return { value: v, frac: Math.max(0, Math.min(1, v / g.marks[0])), stars, passed: stars > 0, needOk, T };
+  }
+  return { LEVELS: L, M, daily, sandbox, newRun, evaluate, iou, inTarget };
+})();
+if (typeof module !== 'undefined') module.exports = PlateLevels;
+
+</script>
+<script type="importmap">{"imports":{"three":"../shared/vendor/three/build/three.module.min.js","three/addons/":"../shared/vendor/three/addons/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+// =====================================================================================================
+//  FLAGS
+// =====================================================================================================
+const Q = new URLSearchParams(location.search), flag = (k, d) => Q.has(k) ? (Q.get(k) === '' ? 1 : +Q.get(k) || Q.get(k)) : d;
+const BOT = navigator.webdriver && !Q.has('full');
+const FAST = flag('fast', BOT ? 1 : 0) == 1;
+const mob = Math.min(innerWidth, innerHeight) < 600 || /Android|iPhone|iPad/.test(navigator.userAgent);
+const GRID = +flag('grid', mob ? 192 : 256);
+const POST = flag('post', FAST || mob ? 0 : 1) == 1, CLOUDS = flag('clouds', FAST ? 0 : 1) == 1;
+const MESH = FAST ? [192, 96] : mob ? [288, 144] : [416, 208];
+if (flag('hud', 1) == 0) document.body.classList.add('nohud');
+const PI = Math.PI, clamp = (x, a, b) => Math.max(a, Math.min(b, x)), lerp = (a, b, t) => a + (b - a) * t;
+const $ = id => document.getElementById(id);
+
+// =====================================================================================================
+//  SAVE
+// =====================================================================================================
+const SAVE = Object.assign({ v: 1, stars: {}, best: {}, view: 0, globe: 0, rate: 1, seen: {}, cur: 'crumple', daily: {} }, RH.load('plate', {}));
+const persist = () => RH.save('plate', SAVE);
+const LV = PlateLevels, LEVELS = LV.LEVELS;
+const unlockedIdx = () => { let k = 0; while (k < LEVELS.length - 1 && SAVE.stars[LEVELS[k].id]) k++; return k; };
+
+// =====================================================================================================
+//  SIMULATION STATE
+// =====================================================================================================
+const S = PlateSim.create({ W: GRID, seed: 1 });
+const { W, H, N } = S;
+let level = null, run = null, lastEval = null, sea0 = 0, rate = [0, 2, 6][SAVE.rate] ?? 2, rateIdx = SAVE.rate ?? 1, stepAcc = 0, dirty = true;
+const RATES = [0, 2, 6];
+
+// =====================================================================================================
+//  RENDERER
+// =====================================================================================================
+const cv = $('gl');
+let renderer;
+try { if (Q.has('nogl')) throw 0; renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: !FAST && !mob, powerPreference: 'high-performance', preserveDrawingBuffer: Q.has('shot') }); if (!renderer.getContext() || !renderer.capabilities.isWebGL2) throw 0; }
+catch (e) { RH.noGL('Mantle'); throw e; }
+let DPR = FAST ? .6 : Math.min(devicePixelRatio || 1, mob ? 1.5 : 2);
+renderer.setPixelRatio(DPR); renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05; renderer.outputColorSpace = THREE.SRGBColorSpace;
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, .5, 3000);
+let composer = null, bloom = null;
+if (POST) { composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera)); bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .75, .55, .82); composer.addPass(bloom); composer.addPass(new OutputPass()); }
+// background: deep space blue, brighter toward the horizon
+{ const c = document.createElement('canvas'); c.width = 4; c.height = 256; const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 256);
+  gr.addColorStop(0, '#050a14'); gr.addColorStop(.55, '#0c1b2e'); gr.addColorStop(.8, '#24476b'); gr.addColorStop(1, '#5f8db5'); g.fillStyle = gr; g.fillRect(0, 0, 4, 256);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; scene.background = t; }
+
+// ---- data textures ----
+const mkTex = (linear) => { const t = new THREE.DataTexture(new Float32Array(N * 4), W, H, THREE.RGBAFormat, THREE.FloatType); t.internalFormat = 'RGBA16F';
+  t.magFilter = t.minFilter = linear ? THREE.LinearFilter : THREE.NearestFilter; t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping; t.generateMipmaps = false; t.needsUpdate = true; return t; };
+const tA = mkTex(true), tB = mkTex(false), tC = mkTex(true);
+// tileable value-noise texture (4 independent octave channels)
+const tN = (() => { const n = 256, d = new Uint8Array(n * n * 4); const g = (p, s) => { const r = []; for (let i = 0; i < p * p; i++) r.push(PlateSim.hash2(i % p, (i / p) | 0, s)); return r; };
+  const oct = [[8, 1], [16, 2], [32, 3], [64, 4]].map(([p, s]) => ({ p, v: g(p, s) }));
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) for (let c = 0; c < 4; c++) { let s = 0, a = .5, na = 0;
+    for (let o = c; o < 4; o++) { const { p, v } = oct[o], fx = x / n * p, fy = y / n * p, x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0, ux = tx * tx * (3 - 2 * tx), uy = ty * ty * (3 - 2 * ty);
+      const q = (i, j) => v[((j % p + p) % p) * p + ((i % p + p) % p)]; s += a * (q(x0, y0) * (1 - ux) * (1 - uy) + q(x0 + 1, y0) * ux * (1 - uy) + q(x0, y0 + 1) * (1 - ux) * uy + q(x0 + 1, y0 + 1) * ux * uy); na += a; a *= .5; }
+    d[(y * n + x) * 4 + c] = s / na * 255 | 0; }
+  const t = new THREE.DataTexture(d, n, n, THREE.RGBAFormat); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true; t.needsUpdate = true; return t; })();
+
+// ---- shared uniforms ----
+const NQ = 6;
+const U = { tA: { value: tA }, tB: { value: tB }, tC: { value: tC }, tN: { value: tN }, uTex: { value: new THREE.Vector2(W, H) }, uGlobe: { value: 0 }, uShift: { value: 0 }, uExag: { value: .55 },
+  uR: { value: 360 / (2 * PI) }, uTime: { value: 0 }, uSun: { value: new THREE.Vector3(-.55, .62, -.5).normalize() }, uView: { value: 0 }, uSel: { value: -1 }, uBoundA: { value: .35 }, uCam: { value: new THREE.Vector3() },
+  uQ: { value: Array.from({ length: NQ }, () => new THREE.Vector4(0, 0, -99, 0)) }, uCloudA: { value: CLOUDS ? 1 : 0 }, uSeaIce: { value: 1 }, uHint: { value: -1 }, uCamD: { value: 200 } };
+
+const GLSL_COMMON = /* glsl */`
+uniform sampler2D tA, tB, tC, tN; uniform vec2 uTex; uniform float uGlobe, uShift, uExag, uR, uTime, uCloudA, uCamD; uniform vec3 uSun, uCam;
+#define PI 3.14159265
+// cubic B-spline from 4 bilinear taps (hardware filtered half floats)
+vec4 bsp(sampler2D t, vec2 uv) {
+  vec2 p = uv * uTex - .5, f = fract(p), i = floor(p);
+  vec2 w0 = (1. - f) * (1. - f) * (1. - f) / 6., w1 = (4. - 6. * f * f + 3. * f * f * f) / 6., w2 = (1. + 3. * f + 3. * f * f - 3. * f * f * f) / 6., w3 = f * f * f / 6.;
+  vec2 g0 = w0 + w1, g1 = w2 + w3, h0 = (w1 / g0) - 1. + i + .5, h1 = (w3 / g1) + 1. + i + .5;
+  h0 /= uTex; h1 /= uTex;
+  return g0.y * (g0.x * texture(t, vec2(h0.x, h0.y)) + g1.x * texture(t, vec2(h1.x, h0.y))) + g1.y * (g0.x * texture(t, vec2(h0.x, h1.y)) + g1.x * texture(t, vec2(h1.x, h1.y)));
+}
+float disp(float e) { return e > 0. ? e * uExag + .035 : e * uExag * .45 - .035; }
+vec3 sph(vec2 uv, float r) { float lon = (uv.x - .5) * 2. * PI, lat = (.5 - uv.y) * PI; return r * vec3(cos(lat) * sin(lon), sin(lat), cos(lat) * cos(lon)); }
+float cloudD(vec2 uv) {
+  vec2 w = vec2(uTime * .004, 0.);
+  float lat = abs(.5 - uv.y) * 2.;
+  float d = texture(tN, uv * vec2(6., 3.) + w).g * .62 + texture(tN, uv * vec2(18., 9.) - w * 1.7).b * .28 + texture(tN, uv * vec2(54., 27.) + w * 3.).a * .1;
+  float wet = texture(tA, uv).g;
+  float cov = .68 - .22 * clamp(wet, 0., 1.5) - .08 * smoothstep(.55, .75, lat) + .1 * smoothstep(.2, .35, lat) * smoothstep(.45, .3, lat);
+  return smoothstep(cov, cov + .2, d) * uCloudA;
+}
+`;
+const terrVS = /* glsl */`
+${GLSL_COMMON}
+uniform vec4 uQ[${NQ}];
+varying vec2 vUv; varying vec3 vN; varying float vE; varying vec3 vW; varying float vCurv; varying float vQ;
+void main() {
+  vec2 wp = vec2(position.x + uShift * (1. - uGlobe), position.z);
+  vec2 uv = vec2(wp.x / 360. + .5, wp.y / 180. + .5);
+  vec2 d = 1. / uTex;
+  float e = bsp(tA, uv).r, eL = bsp(tA, uv - vec2(d.x, 0.)).r, eR = bsp(tA, uv + vec2(d.x, 0.)).r, eU = bsp(tA, uv - vec2(0., d.y)).r, eD = bsp(tA, uv + vec2(0., d.y)).r;
+  float h = disp(e), cs = 360. / uTex.x;
+  // earthquake ripples
+  float q = 0.;
+  for (int k = 0; k < ${NQ}; k++) { vec4 Q = uQ[k]; float age = uTime - Q.z; if (age < 0. || age > 4.) continue;
+    float du = uv.x - Q.x; du -= floor(du + .5); float lat = (.5 - uv.y) * PI; vec2 dv = vec2(du * 360. * cos(lat), (uv.y - Q.y) * 180.);
+    float r = length(dv), front = age * 9.;
+    q += Q.w * exp(-pow((r - front) / 1.6, 2.)) * exp(-age * .9) * sin((r - front) * 2.2) * smoothstep(0., .3, age); }
+  h += q * .55; vQ = q;
+  vCurv = e - (eL + eR + eU + eD) * .25;
+  float gx = (disp(eR) - disp(eL)) / (2. * cs), gz = (disp(eD) - disp(eU)) / (2. * cs);
+  vec3 P, Nn;
+  if (uGlobe > .5) {
+    float lon = (uv.x - .5) * 2. * PI, lat = (.5 - uv.y) * PI;
+    vec3 up = vec3(cos(lat) * sin(lon), sin(lat), cos(lat) * cos(lon)), east = vec3(cos(lon), 0., -sin(lon)), north = cross(up, east);
+    float hh = e > 0. ? e * .28 + .02 : e * .1 - .02; P = up * (uR + hh + q * .2);
+    float k = .28 / .55; Nn = normalize(up - east * gx * k * 1.3 / max(.15, cos(lat)) + north * gz * k * 1.3);
+  } else { P = vec3(wp.x, h, wp.y); Nn = normalize(vec3(-gx, 1., -gz)); }
+  vUv = uv; vN = Nn; vE = e; vW = P;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(P, 1.);
+}`;
+const terrFS = /* glsl */`
+${GLSL_COMMON}
+uniform int uView; uniform float uSel, uBoundA, uHint;
+varying vec2 vUv; varying vec3 vN; varying float vE; varying vec3 vW; varying float vCurv; varying float vQ;
+vec3 srgb(vec3 c) { return pow(c, vec3(2.2)); }
+vec3 plateCol(float id) { float h = fract(id * .618 + .07); vec3 k = clamp(abs(fract(h + vec3(0., 2., 1.) / 3.) * 6. - 3.) - 1., 0., 1.); return mix(vec3(.85), k, .55); }
+void main() {
+  vec4 A = texture(tA, vUv), C = texture(tC, vUv);
+  vec4 B = texelFetch(tB, ivec2(mod(floor(vUv.x * uTex.x), uTex.x), clamp(floor(vUv.y * uTex.y), 0., uTex.y - 1.)), 0);
+  float e = vE, lat = (.5 - vUv.y) * 180.;
+  vec4 nz = texture(tN, vUv * vec2(24., 12.)), nz2 = texture(tN, vUv * vec2(96., 48.)), nz3 = texture(tN, vUv * vec2(384., 192.));
+  // detail normal: ridged noise, stronger on high ground
+  float rug = smoothstep(.2, 2.5, e) * 1.1 + .12;
+  vec2 o = vec2(1. / 256., 0.);
+  float n0 = nz2.r, nX = texture(tN, vUv * vec2(96., 48.) + o).r, nY = texture(tN, vUv * vec2(96., 48.) + o.yx).r;
+  float m0 = nz3.g, mX = texture(tN, vUv * vec2(384., 192.) + o).g, mY = texture(tN, vUv * vec2(384., 192.) + o.yx).g;
+  vec3 N = normalize(vN + vec3((n0 - nX) * 5. + (m0 - mX) * 2.4, 0., (n0 - nY) * 5. + (m0 - mY) * 2.4) * rug * (1. - uGlobe * .5));
+  vec3 up = uGlobe > .5 ? normalize(vW) : vec3(0., 1., 0.);
+  float slope = 1. - dot(N, up);
+  float T = 29. - 52. * pow(abs(lat) / 90., 1.45) - 6.5 * max(e, 0.) + (nz.g - .5) * 5.;
+  float Pw = A.g + (nz.r - .5) * .3;
+  vec3 col;
+  // ---- land: biomes from rain and temperature (satellite palette) ----
+  vec3 sand = mix(srgb(vec3(.80, .64, .43)), srgb(vec3(.88, .76, .55)), nz2.b), redsand = srgb(vec3(.70, .43, .27));
+  vec3 dry = mix(sand, redsand, smoothstep(.55, .75, nz.b) * smoothstep(18., 26., T));
+  dry = mix(srgb(vec3(.56, .52, .44)), dry, smoothstep(2., 10., T));
+  vec3 grass = mix(srgb(vec3(.58, .57, .32)), srgb(vec3(.46, .52, .27)), nz2.g);
+  vec3 forest = T > 19. ? mix(srgb(vec3(.16, .3, .12)), srgb(vec3(.09, .24, .08)), smoothstep(19., 25., T)) : T > 6. ? srgb(vec3(.2, .33, .15)) : srgb(vec3(.15, .24, .17));
+  vec3 tundra = srgb(vec3(.47, .46, .4)), rock = mix(srgb(vec3(.42, .37, .32)), srgb(vec3(.33, .3, .28)), nz3.r), snow = srgb(vec3(.94, .96, 1.));
+  col = mix(dry, grass, smoothstep(.14, .32, Pw));
+  col = mix(col, forest, smoothstep(.42, .75, Pw));
+  col = mix(tundra, col, smoothstep(-3., 4., T));
+  col = mix(col, rock, smoothstep(.10, .32, slope + (nz3.b - .5) * .15) * smoothstep(.3, 1.2, e));
+  float volc = A.a;
+  col = mix(col, srgb(vec3(.2, .17, .16)), smoothstep(.2, .8, volc) * smoothstep(.6, 2., e) * .7);
+  float sn = smoothstep(-.5, -3., T + (nz3.r - .5) * 4. + slope * 6. * (1. - smoothstep(-6., -12., T)));
+  col = mix(col, snow, sn);
+  // rivers
+  col = mix(col, srgb(vec3(.16, .32, .42)), smoothstep(.35, .9, C.r) * (1. - sn) * .85);
+  // relief tint (hypsometric atlas palette)
+  if (uView == 1) { vec3 h0 = srgb(vec3(.42, .6, .38)), h1 = srgb(vec3(.83, .8, .52)), h2 = srgb(vec3(.72, .5, .3)), h3 = srgb(vec3(.55, .38, .3)), h4 = srgb(vec3(.95, .94, .94));
+    col = e < .5 ? mix(h0, h1, e / .5) : e < 2. ? mix(h1, h2, (e - .5) / 1.5) : e < 4.5 ? mix(h2, h3, (e - 2.) / 2.5) : mix(h3, h4, smoothstep(4.5, 7., e)); }
+  // ---- sea floor (seen in the magnetic view) ----
+  if (e <= 0.) {
+    float d = -e; col = mix(srgb(vec3(.55, .55, .5)), srgb(vec3(.26, .3, .34)), smoothstep(0., 5., d));
+  }
+  if (uView == 2) {
+    float pol = texture(tB, vUv).g; // nearest; soften with neighbours
+    float p2 = (texture(tB, vUv + vec2(.35, 0.) / uTex).g + texture(tB, vUv - vec2(.35, 0.) / uTex).g + texture(tB, vUv + vec2(0., .35) / uTex).g + texture(tB, vUv - vec2(0., .35) / uTex).g) * .25;
+    float f = B.b;
+    vec3 st = mix(srgb(vec3(.14, .23, .45)), srgb(vec3(.86, .36, .22)), smoothstep(.35, .65, p2));
+    col = mix(st, srgb(vec3(.7, .68, .62)) * (.75 + .25 * nz.r), smoothstep(.45, .55, f));
+  }
+  if (uView == 3) col = mix(col, srgb(plateCol(B.r)), .55);
+  // ---- light ----
+  vec3 L = uSun; float dif = max(dot(N, L), 0.);
+  float sh = 1. - .55 * cloudD(vUv + vec2(-.004, -.006));
+  float ao = clamp(1. + vCurv * 1.8, .55, 1.15);
+  vec3 sky = srgb(vec3(.55, .68, .85)), gnd = srgb(vec3(.32, .28, .22));
+  vec3 amb = mix(gnd, sky, dot(N, up) * .5 + .5) * .42;
+  vec3 c = col * (amb * ao + srgb(vec3(1., .93, .8)) * dif * 1.25 * sh * mix(1., ao, .5));
+  // highlights: plate under the finger, boundaries, the target mark
+  float sel = step(abs(B.r - uSel), .3);
+  c *= 1. + sel * .18;
+  float bnd = C.a; float line = smoothstep(.32, .5, bnd) * (1. - smoothstep(.62, .95, bnd) * .6);
+  float ty = C.g; vec3 bc = ty > .7 ? vec3(1., .35, .18) : ty < .3 ? vec3(.25, .85, 1.) : vec3(1., .85, .3);
+  float bA = uView == 3 ? .9 : uBoundA;
+  c = mix(c, bc * 1.4, line * bA * (.55 + .45 * sin(uTime * 3. + vUv.x * 300.)) * .8);
+  float tg = C.b; float ring = smoothstep(.38, .5, tg) * (1. - smoothstep(.5, .62, tg)); float dash = step(.5, fract((vUv.x + vUv.y) * 160. - uTime * .5));
+  c = mix(c, vec3(1., .95, .75) * 1.6, ring * (.45 + .55 * dash));
+  if (uHint >= 0. && abs(B.r - uHint) < .3) c += vec3(1., .7, .35) * .12 * (.5 + .5 * sin(uTime * 4.));
+  // ---- emissive: arc volcanoes and hotspots ----
+  float glow = volc * smoothstep(.3, 1.6, e) * (.75 + .25 * sin(uTime * 7. + nz.r * 40.));
+  float lavaC = smoothstep(.55, .9, nz3.g) * glow; c += vec3(1.6, .55, .15) * (glow * .25 + lavaC * 1.8);
+  c += vec3(1., .82, .6) * abs(vQ) * .25;
+  // aerial haze
+  float dist = length(vW - cameraPosition);
+  float hz = uGlobe > .5 ? 0. : smoothstep(uCamD * .5, uCamD * 2.6, dist) * .7;
+  c = mix(c, srgb(vec3(.5, .66, .82)), hz);
+  gl_FragColor = vec4(c, 1.);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+const waterVS = /* glsl */`
+${GLSL_COMMON}
+varying vec2 vUv; varying vec3 vW;
+void main() { vec2 wp = vec2(position.x + uShift * (1. - uGlobe), position.z); vec2 uv = vec2(wp.x / 360. + .5, wp.y / 180. + .5);
+  vec3 P = uGlobe > .5 ? sph(uv, uR) : vec3(wp.x, 0., wp.y); vUv = uv; vW = P; gl_Position = projectionMatrix * modelViewMatrix * vec4(P, 1.); }`;
+const waterFS = /* glsl */`
+${GLSL_COMMON}
+uniform int uView; uniform float uSeaIce;
+varying vec2 vUv; varying vec3 vW;
+vec3 srgb(vec3 c) { return pow(c, vec3(2.2)); }
+void main() {
+  if (uView == 2) discard;
+  float e = texture(tA, vUv).r; float d = -e;
+  if (d < -.08) discard;
+  float lat = (.5 - vUv.y) * 180.;
+  vec3 up = uGlobe > .5 ? normalize(vW) : vec3(0., 1., 0.);
+  vec2 w1 = vUv * vec2(720., 360.) + vec2(uTime * .05, uTime * .03), w2 = vUv * vec2(1500., 750.) - vec2(uTime * .07, -uTime * .02);
+  vec2 g = (texture(tN, w1 / 256.).rg - .5) * 1. + (texture(tN, w2 / 256.).ba - .5) * .6;
+  vec3 N = normalize(up + vec3(g.x, 0., g.y) * .22);
+  vec3 V = normalize(cameraPosition - vW);
+  vec3 shallow = srgb(vec3(.16, .62, .66)), mid = srgb(vec3(.05, .32, .5)), deep = srgb(vec3(.015, .085, .2)), abyss = srgb(vec3(.005, .03, .09));
+  vec3 col = mix(shallow, mid, smoothstep(.0, .5, d)); col = mix(col, deep, smoothstep(.5, 4.5, d)); col = mix(col, abyss, smoothstep(6.5, 9., d));
+  float fr = pow(1. - max(dot(N, V), 0.), 4.);
+  vec3 sky = srgb(vec3(.6, .74, .9));
+  float dif = max(dot(up, uSun), 0.) * .6 + .4;
+  float sh = 1. - .45 * cloudD(vUv + vec2(-.004, -.006));
+  vec3 c = col * dif * sh + sky * fr * .5;
+  vec3 Hh = normalize(uSun + V); c += vec3(1., .9, .7) * pow(max(dot(N, Hh), 0.), 260.) * 2.2 * sh;
+  // coastal foam and sea ice
+  float foam = smoothstep(.12, .0, d) * (.5 + .5 * texture(tN, vUv * vec2(400., 200.) + uTime * .02).r);
+  c = mix(c, srgb(vec3(.85, .9, .9)), foam * .55);
+  float T = 29. - 52. * pow(abs(lat) / 90., 1.45);
+  float ice = smoothstep(-4., -9., T + (texture(tN, vUv * vec2(60., 30.)).r - .5) * 8.) * uSeaIce;
+  c = mix(c, srgb(vec3(.86, .92, .97)) * (dif * .9 + .2), ice);
+  float dist = length(vW - cameraPosition), hz = uGlobe > .5 ? 0. : smoothstep(uCamD * .5, uCamD * 2.6, dist) * .7;
+  c = mix(c, srgb(vec3(.5, .66, .82)), hz);
+  gl_FragColor = vec4(c, 1.);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+const cloudVS = /* glsl */`
+${GLSL_COMMON}
+varying vec2 vUv; varying vec3 vW;
+void main() { vec2 wp = vec2(position.x + uShift * (1. - uGlobe), position.z); vec2 uv = vec2(wp.x / 360. + .5, wp.y / 180. + .5);
+  vec3 P = uGlobe > .5 ? sph(uv, uR + 2.2) : vec3(wp.x, 7.5, wp.y); vUv = uv; vW = P; gl_Position = projectionMatrix * modelViewMatrix * vec4(P, 1.); }`;
+const cloudFS = /* glsl */`
+${GLSL_COMMON}
+varying vec2 vUv; varying vec3 vW;
+void main() {
+  float d = cloudD(vUv); if (d < .01) discard;
+  vec3 up = uGlobe > .5 ? normalize(vW) : vec3(0., 1., 0.);
+  float lit = .75 + .25 * dot(up, uSun);
+  float near = uGlobe > .5 ? 1. : smoothstep(35., 140., uCamD);
+  float dist = length(vW - cameraPosition), hz = uGlobe > .5 ? 0. : smoothstep(uCamD * .5, uCamD * 2.6, dist) * .5;
+  vec3 c = mix(vec3(1.) * lit, vec3(.62, .74, .86), hz);
+  gl_FragColor = vec4(c * 1.05, d * .82 * near);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+const atmoFS = /* glsl */`
+varying vec3 vN; varying vec3 vP; uniform vec3 uSun;
+void main() { vec3 V = normalize(cameraPosition - vP); float f = 1. - abs(dot(normalize(vN), V)); float a = pow(f, 3.2) * 1.4;
+  float day = .45 + .55 * max(dot(normalize(vN), uSun), 0.);
+  gl_FragColor = vec4(vec3(.35, .62, 1.) * a * day * 1.4, a * day); }`;
+const atmoVS = `varying vec3 vN; varying vec3 vP; void main(){ vN = normalMatrix * normal; vN = normal; vP = (modelMatrix * vec4(position,1.)).xyz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }`;
+
+const grid = (sx, sy) => { const g = new THREE.PlaneGeometry(360, 180, sx, sy); g.rotateX(-PI / 2); return g; };   // x: lon, z: from north (−90) to south (+90)
+const fixBounds = g => { g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1e5); return g; };
+const terrMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: terrVS, fragmentShader: terrFS });
+const terrain = new THREE.Mesh(fixBounds(grid(MESH[0], MESH[1])), terrMat); terrain.frustumCulled = false; scene.add(terrain);
+const waterMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: waterVS, fragmentShader: waterFS });
+const water = new THREE.Mesh(fixBounds(grid(160, 80)), waterMat); water.frustumCulled = false; scene.add(water);
+const cloudMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: cloudVS, fragmentShader: cloudFS, transparent: true, depthWrite: false });
+const clouds = new THREE.Mesh(fixBounds(grid(96, 48)), cloudMat); clouds.frustumCulled = false; clouds.renderOrder = 3; clouds.visible = CLOUDS; scene.add(clouds);
+const atmo = new THREE.Mesh(new THREE.SphereGeometry(U.uR.value * 1.07, 64, 32), new THREE.ShaderMaterial({ uniforms: { uSun: U.uSun }, vertexShader: atmoVS, fragmentShader: atmoFS, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide }));
+atmo.visible = false; scene.add(atmo);
+const stars = (() => { const n = 1500, p = new Float32Array(n * 3), r = RH.rng(5); for (let i = 0; i < n; i++) { const a = r() * 2 * PI, b = Math.acos(2 * r() - 1), R = 1400; p.set([R * Math.sin(b) * Math.cos(a), R * Math.cos(b), R * Math.sin(b) * Math.sin(a)], i * 3); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3)); return new THREE.Points(g, new THREE.PointsMaterial({ color: 0xcfe0ff, size: 2, sizeAttenuation: false })); })();
+stars.visible = false; scene.add(stars);
+// eruption particles: glowing sparks (additive) and ash (soft grey)
+const mkParts = (n, add) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('a', new THREE.BufferAttribute(new Float32Array(n), 1));
+  const m = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending, uniforms: { uPx: { value: DPR * innerHeight * .5 } },
+    vertexShader: `attribute float a; varying float vA; uniform float uPx; void main(){ vA = a; vec4 mv = modelViewMatrix * vec4(position,1.); gl_Position = projectionMatrix * mv; gl_PointSize = ${add ? '1.1' : '3.2'} * uPx / -mv.z * (${add ? '1.' : '.6 + (1.-a)*1.2'}); if (a <= 0.) gl_PointSize = 0.; }`,
+    fragmentShader: `varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float r = length(q); if (r > .5) discard; float k = smoothstep(.5, 0., r);
+      ${add ? 'gl_FragColor = vec4(vec3(1.8,.7,.2) * k * vA * 1.4, 1.);' : 'gl_FragColor = vec4(vec3(.42,.4,.38) * (.8+.2*vA), k * .55 * vA);'} }` });
+  const p = new THREE.Points(g, m); p.frustumCulled = false; p.renderOrder = 4; scene.add(p); return { p, g, n, list: [] }; };
+const sparks = mkParts(500, true), ash = mkParts(300, false);
+
+// =====================================================================================================
+//  TEXTURES FROM THE SIM
+// =====================================================================================================
+function buildTex() {
+  const a = tA.image.data, b = tB.image.data, c = tC.image.data, sea = S.sea, e = S.e, o = S.owner, P = S.plates;
+  for (let i = 0; i < N; i++) {
+    const x = i % W, y = (i / W) | 0, p = P[o[i]];
+    // slide the picture by the plate's sub-cell offset so motion reads smoothly between whole-cell shifts
+    let v = e[i];
+    if (p && (p.ax || p.ay)) { const ax = p.ax, ay = p.ay;
+      const jx = ax > 0 ? y * W + (x + W - 1) % W : y * W + (x + 1) % W, jy = ay > 0 ? (y > 0 ? i - W : i) : (y < H - 1 ? i + W : i);
+      const ex = o[jx] === o[i] ? e[jx] : v, ey = o[jy] === o[i] ? e[jy] : v; v = v + (ex - v) * Math.abs(ax) + (ey - v) * Math.abs(ay); }
+    const k = i * 4;
+    a[k] = v - sea; a[k + 1] = S.P[i]; a[k + 2] = S.T[i]; a[k + 3] = Math.min(1, S.volc[i]);
+    b[k] = o[i]; b[k + 1] = S.f[i] < .5 ? PlateSim.polarity(S.birth[i]) : .5; b[k + 2] = S.f[i]; b[k + 3] = S.kind[i];
+    const bt = S.bnd[i]; c[k] = S.A[i] > 0 && e[i] > sea ? clamp((Math.log(S.A[i]) - 2.6) / 2.2, 0, 1) : 0;
+    c[k + 1] = bt === 1 ? 1 : bt === -1 ? 0 : .5; c[k + 3] = bt !== 0 || (x < W - 1 && o[i + 1] !== o[i]) ? 1 : 0;
+    c[k + 2] = level && level.target ? clamp(1.5 - LV.inTarget(S, level, i), 0, 1) : 0;
+  }
+  // boundary type needs to survive the linear filter: spread it a cell so neighbours agree
+  tA.needsUpdate = tB.needsUpdate = tC.needsUpdate = true;
+}
+
+// =====================================================================================================
+//  CAMERA: flat map (wrapping) or globe
+// =====================================================================================================
+const cam = { x: 0, z: 0, d: 220, yaw: 0, tilt: .72, globe: 0, lon: 0, lat: 15, gd: 230 };
+let camT = null;  // tween target
+const cellToWorld = (cx, cy) => [(cx + .5) / W * 360 - 180, (cy + .5) / H * 180 - 90];
+const nearX = x => x - Math.round((x - cam.x) / 360) * 360;
+function placeCamera() {
+  const sh = FX.shakeOffset(1.4);
+  if (cam.globe) {
+    const la = cam.lat * PI / 180, lo = cam.lon * PI / 180;
+    camera.position.set(cam.gd * Math.cos(la) * Math.sin(lo), cam.gd * Math.sin(la), cam.gd * Math.cos(la) * Math.cos(lo));
+    camera.up.set(0, 1, 0); camera.lookAt(0, 0, 0); camera.position.x += sh[0] * .3; camera.position.y += sh[1] * .3;
+    U.uShift.value = 0; U.uCamD.value = cam.gd;
+  } else {
+    cam.z = clamp(cam.z, -78, 78); cam.d = clamp(cam.d, 14, 330); cam.tilt = clamp(cam.tilt, 0, 1.15);
+    if (cam.x > 180 || cam.x < -180) { const k = Math.round(cam.x / 360) * 360; cam.x -= k; }
+    const st = 360 / MESH[0]; U.uShift.value = Math.round(cam.x / st) * st;
+    const s = Math.sin(cam.tilt), c = Math.cos(cam.tilt);
+    camera.position.set(cam.x + cam.d * s * Math.sin(cam.yaw) + sh[0] * cam.d * .01, cam.d * c + .5, cam.z + cam.d * s * Math.cos(cam.yaw) + sh[1] * cam.d * .01);
+    camera.up.set(0, 1, 0); camera.lookAt(cam.x, 0, cam.z); U.uCamD.value = cam.d;
+  }
+  U.uCam.value.copy(camera.position);
+}
+function frameLevel(lv, ms = 0) {
+  const [u, v, z] = lv.cam || [.5, .5, 1];
+  const tgt = { x: u * 360 - 180, z: v * 180 - 90, d: 70 + 230 * z, lon: u * 360 - 180, lat: 90 - v * 180 };
+  if (!ms) { cam.x = tgt.x; cam.z = tgt.z; cam.d = tgt.d; cam.lon = tgt.lon; cam.lat = clamp(tgt.lat, -60, 60); cam.yaw = 0; cam.tilt = .72; }
+  else camT = { ...tgt, t0: performance.now(), ms, from: { ...cam } };
+}
+const ray = new THREE.Raycaster(), v2 = new THREE.Vector2();
+// screen → [cellX (float), cellY (float)] or null
+function pick(cx, cy) {
+  const r = cv.getBoundingClientRect(); v2.set((cx - r.left) / r.width * 2 - 1, -(cy - r.top) / r.height * 2 + 1); ray.setFromCamera(v2, camera);
+  const o = ray.ray.origin, d = ray.ray.direction;
+  if (cam.globe) { const R = U.uR.value, b = o.dot(d), c = o.dot(o) - R * R, disc = b * b - c; if (disc < 0) return null; const t = -b - Math.sqrt(disc), p = o.clone().addScaledVector(d, t);
+    const lat = Math.asin(clamp(p.y / R, -1, 1)), lon = Math.atan2(p.x, p.z); return [((lon / (2 * PI) + .5) * W + W) % W, (.5 - lat / PI) * H]; }
+  if (d.y > -1e-4) return null; const t = -o.y / d.y, x = o.x + d.x * t, z = o.z + d.z * t;
+  return [(((x + 180) / 360 * W) % W + W) % W, (z + 90) / 180 * H];
+}
+const tmpV = new THREE.Vector3();
+function worldOf(cx, cy, elevKm = 0) {
+  const u = (cx + .5) / W, v = (cy + .5) / H;
+  if (cam.globe) { const lon = (u - .5) * 2 * PI, lat = (.5 - v) * PI, r = U.uR.value + Math.max(0, elevKm) * .28; return tmpV.set(r * Math.cos(lat) * Math.sin(lon), r * Math.sin(lat), r * Math.cos(lat) * Math.cos(lon)); }
+  return tmpV.set(nearX(u * 360 - 180), Math.max(0, elevKm) * U.uExag.value + .04, v * 180 - 90);
+}
+function toScreen(cx, cy, elevKm = 0) {
+  const p = worldOf(cx, cy, elevKm); const vis = cam.globe ? p.clone().normalize().dot(camera.position.clone().normalize()) > .15 : true;
+  p.project(camera); return [(p.x + 1) / 2 * innerWidth, (1 - p.y) / 2 * innerHeight, vis && p.z < 1];
+}
+const elevAt = (cx, cy) => { const i = (Math.floor(cy) * W + ((Math.floor(cx) % W) + W) % W); return i >= 0 && i < N ? S.e[i] - S.sea : 0; };
+
+// =====================================================================================================
+//  LEVELS
+// =====================================================================================================
+const today = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })();
+function levelById(id) { if (id === 'daily') return LV.daily(today); if (id === 'sandbox') return LV.sandbox(SAVE.sandSeed || 7); return LEVELS.find(l => l.id === id) || LEVELS[0]; }
+let hintOn = false, hintT0 = 0, grabbed = false, passShown = false, featureSeen = {};
+function openLevel(id, keepCam) {
+  level = levelById(id); run = LV.newRun(level); passShown = false; featureSeen = {}; grabbed = false;
+  PlateSim.gen(S, level.spec); sea0 = S.sea; lastEval = null; stepAcc = 0;
+  SAVE.cur = level.id; persist();
+  $('lvName').textContent = level.name; $('lvTag').textContent = level.tag;
+  const g = level.goal; $('gauge').style.display = g ? '' : 'none'; $('gText').style.display = g ? '' : 'none';
+  $('gauge').querySelectorAll('.mk').forEach(m => m.remove()); $('gauge').classList.remove('pass');
+  if (g) { const m = LV.M[g.m]; $('gLabel').textContent = m.name; $('gUnit').textContent = m.unit;
+    const top = g.par ? g.marks[0] : g.marks[2] * 1.12; g.marks.forEach((v, k) => { if (g.par && k) return; const d = document.createElement('div'); d.className = 'mk'; d.style.left = (v / top * 100) + '%'; d.innerHTML = '<i>' + '★'.repeat(k + 1) + '</i>'; $('gauge').appendChild(d); }); }
+  updateGauge(null);
+  const tools = level.tools || ['push']; $('tRift').style.display = tools.includes('rift') || SAVE.unlockRift ? '' : 'none'; $('tHot').style.display = tools.includes('hotspot') ? '' : 'none';
+  setTool('push');
+  if (level.unlock === 'rift') SAVE.unlockRift = 1;
+  if (level.unlock === 'stripes' || SAVE.stars.rift) SAVE.unlockMag = 1;
+  $('vMag').classList.toggle('locked', !SAVE.unlockMag);
+  if (!keepCam) frameLevel(level);
+  hintOn = !!level.hint && !SAVE.stars[level.id]; hintT0 = performance.now();
+  if (level.hint && level.hint[1] === 'rift') { $('tRift').classList.add('pulse'); }
+  $('card').classList.remove('on'); clearLabels();
+  setRate(rateIdx || 1); updateScrub(); dirty = true; buildTex();
+  showToast(level.name + '<br><span style="font-size:.75em">' + level.tag + '</span>', 2200);
+}
+function updateGauge(ev) {
+  const g = level && level.goal; if (!g) return; const m = LV.M[g.m];
+  const v = ev ? ev.value : 0, top = g.par ? g.marks[0] : g.marks[2] * 1.12;
+  $('gFill').style.width = clamp(v / top * 100, 0, 100) + '%'; $('gVal').textContent = m.fmt(v);
+  const s = run ? run.stars : 0; $('stars').textContent = '★'.repeat(s) + '☆'.repeat(3 - s);
+  $('gauge').classList.toggle('pass', s > 0);
+}
+function evalLevel() {
+  const st = PlateSim.stats(S); st.sea0 = sea0 * 1000; window.__lastStats = st;
+  // labels the stats can see (deserts, stalls)
+  if (st.shadowKm2 > 2e5 && !featureSeen.desert) { featureSeen.desert = 1; let bi = -1, bp = 9; for (let i = 0; i < N; i++) if (S.e[i] > S.sea && S.P[i] < bp && S.P0[i] > .3 && S.T[i] > 0) { bp = S.P[i]; bi = i; } if (bi >= 0) addLabel('rain-shadow desert', bi % W, (bi / W) | 0); }
+  if (level.id === 'roof' && st.peak > 5.3 && st.peak < 6.6 && st.peakCol < 5 && !featureSeen.stall) { run.stallT = (run.stallT || 0) + 1; if (run.stallT > 10) { featureSeen.stall = 1; addLabel('subduction stalls near 6 km', st.peakCell % W, (st.peakCell / W) | 0, true); } }
+  if (!level.goal) return;
+  const prevStars = run.stars; const ev = LV.evaluate(level, S, st, run); lastEval = ev; updateGauge(ev);
+  if (run.stars > prevStars) onStar(run.stars, prevStars, st);
+}
+function onStar(s, prev, st) {
+  const id = level.id, was = SAVE.stars[id] || 0; if (s > was) SAVE.stars[id] = s;
+  const m = LV.M[level.goal.m]; SAVE.best[id] = Math.max(SAVE.best[id] || 0, run.best);
+  if (level.daily) SAVE.daily[today] = Math.max(SAVE.daily[today] || 0, s);
+  persist(); RH.progress('plate', LEVELS.filter(l => SAVE.stars[l.id]).length / LEVELS.length);
+  FX.hitstop(prev ? 60 : 160); FX.shake(prev ? .25 : .5);
+  if (!prev) { FX.sfx('win'); burstAt(st.peakCell, 120); } else FX.sfx('chime', 3 + s);
+  if (!prev && !passShown) { passShown = true; setTimeout(() => showCard(), 650); }
+  else showToast('★'.repeat(s) + '<br><span style="font-size:.7em">' + m.fmt(run.best) + ' ' + m.unit + '</span>', 1800);
+}
+function showCard() {
+  const g = level.goal, m = LV.M[g.m], s = run.stars;
+  $('cH').textContent = level.name + ' · surveyed'; $('cBig').textContent = m.fmt(run.best) + ' ' + m.unit;
+  $('cStars').textContent = '★'.repeat(s) + '☆'.repeat(3 - s);
+  const nextMark = g.par ? (s < 3 ? 'Faster: ★' + '★'.repeat(s) + ' within ' + g.par[s] + ' Myr.' : '') : (s < 3 ? 'Push on: ★' + '★'.repeat(s) + ' at ' + m.fmt(g.marks[s]) + ' ' + m.unit + '.' : '');
+  $('cP').textContent = (LESSON[level.id] || '') + (nextMark ? ' ' + nextMark : '');
+  $('cShare').style.display = level.daily ? '' : 'none';
+  const idx = LEVELS.findIndex(l => l.id === level.id); $('cNext').textContent = idx >= 0 && idx < LEVELS.length - 1 ? 'Next' : 'Commissions';
+  $('card').classList.add('on');
+}
+const LESSON = {
+  crumple: 'Two continents are too light to sink, so the crust stacks up instead.',
+  andes: 'Dense ocean floor dives under the continent; melt rises behind the trench and builds a volcanic arc.',
+  roof: 'Subduction alone tops out near 6 km. Only a continent arriving at the trench doubles the crust.',
+  arc: 'When ocean meets ocean, the older, colder, denser plate sinks. Its arc of islands is the seed of a continent.',
+  rift: 'Stretched crust sags into a rift valley, floods into a narrow sea, then splits along a mid-ocean ridge.',
+  hawaii: 'The plume stays put while the plate slides over it: the youngest island sits over the hotspot, the oldest sinks away.',
+  fault: 'Plates sliding past each other build no mountains and open no sea, but they lock, load and slip.',
+  shadow: 'Wind rises over the range and rains out; the air that comes down the far side is dry.',
+  wilson: 'Oceans open and close. The mountains where one closes are made of the margins it once had.',
+  india: 'India crossed the Tethys at up to 18 cm/yr. When it docked, Asia buckled into the Himalaya and Tibet.',
+  pangaea: 'Every few hundred million years the continents gather into one. Then it breaks apart again.',
+  old: 'Rain grinds ranges down in tens of millions of years. A mountain that lasts is one that is still being pushed.',
+};
+function nextLevel() { const idx = LEVELS.findIndex(l => l.id === level.id); if (idx >= 0 && idx < LEVELS.length - 1) openLevel(LEVELS[idx + 1].id); else openMenu(); }
+
+// =====================================================================================================
+//  LABELS, TOASTS, HINT
+// =====================================================================================================
+const LABELS = { collision: 'collision: crust doubles', trench: 'trench', arc: 'volcanic arc', islandarc: 'island arc', rift: 'rift valley', narrowsea: 'narrow sea', ridge: 'mid-ocean ridge', hotspot: 'hotspot island', transform: 'transform fault' };
+const labels = [];
+function addLabel(text, cx, cy, big) { if (labels.length > 8) labels.shift().el.remove(); const el = document.createElement('div'); el.className = 'lab' + (big ? ' big' : ''); el.textContent = text; $('labels').appendChild(el); labels.push({ el, cx, cy, t0: performance.now(), life: 6500 }); }
+function clearLabels() { labels.forEach(l => l.el.remove()); labels.length = 0; }
+let toastT = 0; function showToast(html, ms = 1800) { const t = $('toast'); t.innerHTML = html; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), ms); }
+
+// =====================================================================================================
+//  EVENTS FROM THE SIM: quakes, eruptions, labels
+// =====================================================================================================
+let qk = 0; const seis = []; for (let i = 0; i < 120; i++) seis.push(0);
+function processEvents() {
+  for (const ev of S.events) {
+    const cx = ev.cell % W, cy = (ev.cell / W) | 0;
+    if (ev.t === 'label' && LABELS[ev.k]) addLabel(LABELS[ev.k], cx, cy);
+    else if (ev.t === 'quake') {
+      const q = U.uQ.value[qk++ % NQ]; q.set((cx + .5) / W, (cy + .5) / H, U.uTime.value, clamp((ev.mag - 5.2) * .35, .15, 1.2));
+      seisKick(ev.mag); rumble(ev.mag); if (ev.mag > 7.2) FX.shake(.18 + (ev.mag - 7) * .12);
+      if (ev.ty === 'transform' && level && level.goal && level.goal.m === 'transform') addFlash(cx, cy, 'M' + ev.mag.toFixed(1));
+    } else if (ev.t === 'erupt') erupt(cx, cy);
+    else if (ev.t === 'rifted') addLabel('new plate', cx, cy);
+  }
+  S.events.length = 0;
+}
+const flashes = []; function addFlash(cx, cy, txt) { flashes.push({ cx, cy, txt, t0: performance.now() }); if (flashes.length > 6) flashes.shift(); }
+function seisKick(m) { seis[seis.length - 1] += (m - 4.5) * 3; }
+function erupt(cx, cy) {
+  const e = elevAt(cx, cy); if (e < .3) return; const p = worldOf(cx, cy, e).clone();
+  for (let k = 0; k < 14; k++) sparks.list.push({ p: p.clone(), v: new THREE.Vector3((Math.random() - .5) * 1.6, 2 + Math.random() * 3, (Math.random() - .5) * 1.6).multiplyScalar(cam.globe ? .5 : 1), a: 1, life: .6 + Math.random() * .6, g: 5 });
+  for (let k = 0; k < 6; k++) ash.list.push({ p: p.clone(), v: new THREE.Vector3((Math.random() - .5) * .6 + .5, 1.6 + Math.random(), (Math.random() - .5) * .6), a: 1, life: 2.2 + Math.random() * 1.5, g: -.2 });
+  if (sparks.list.length > sparks.n) sparks.list.splice(0, sparks.list.length - sparks.n); if (ash.list.length > ash.n) ash.list.splice(0, ash.list.length - ash.n);
+  if (Math.random() < .35) rumble(5.8, true);
+}
+function burstAt(cell, n) { const cx = cell % W, cy = (cell / W) | 0, p = worldOf(cx, cy, elevAt(cx, cy)).clone();
+  for (let k = 0; k < n; k++) { const a = Math.random() * 2 * PI, s = 2 + Math.random() * 5; sparks.list.push({ p: p.clone(), v: new THREE.Vector3(Math.cos(a) * s, 3 + Math.random() * 5, Math.sin(a) * s), a: 1, life: .8 + Math.random() * .8, g: 6, gold: 1 }); }
+  if (sparks.list.length > sparks.n) sparks.list.splice(0, sparks.list.length - sparks.n); }
+function updateParts(dt) {
+  for (const P of [sparks, ash]) { const pos = P.g.attributes.position.array, aa = P.g.attributes.a.array; let j = 0;
+    for (let i = P.list.length - 1; i >= 0; i--) { const q = P.list[i]; q.a -= dt / q.life; if (q.a <= 0) { P.list.splice(i, 1); continue; } q.v.y -= q.g * dt; q.p.addScaledVector(q.v, dt); }
+    for (const q of P.list) { pos[j * 3] = q.p.x; pos[j * 3 + 1] = q.p.y; pos[j * 3 + 2] = q.p.z; aa[j] = q.a; j++; }
+    for (let k = j; k < P.n; k++) aa[k] = 0; P.g.attributes.position.needsUpdate = true; P.g.attributes.a.needsUpdate = true; P.g.setDrawRange(0, Math.max(1, j)); }
+}
+
+// ---- sound: grinding crust and quakes ----
+let ac = null, grind = null;
+function audio() { if (FX.muted) return null; if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+  const n = ac.sampleRate * 2, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0); let b = 0; for (let i = 0; i < n; i++) { b = b * .985 + (Math.random() * 2 - 1) * .15; d[i] = b; }
+  const src = ac.createBufferSource(); src.buffer = buf; src.loop = true; const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180; const g = ac.createGain(); g.gain.value = 0;
+  src.connect(lp); lp.connect(g); g.connect(ac.destination); src.start(); grind = { g, lp }; }
+  if (ac.state === 'suspended') ac.resume(); return ac; }
+function rumble(mag, soft) { const a = audio(); if (!a) return; const t = a.currentTime, g = a.createGain(), o = a.createOscillator(), k = clamp((mag - 5) / 3, .1, 1) * (soft ? .4 : 1);
+  o.type = 'sine'; o.frequency.setValueAtTime(48 + Math.random() * 8, t); o.frequency.exponentialRampToValueAtTime(26, t + .9); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.32 * k, t + .03); g.gain.exponentialRampToValueAtTime(.001, t + 1.1 + k);
+  o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + 2.2); FX.tone({ noise: 1, f: 140, q: .5, dur: .5 + k * .5, vol: .18 * k }); }
+function setGrind(x) { if (!grind || !ac) return; grind.g.gain.setTargetAtTime(clamp(x, 0, .5), ac.currentTime, .15); grind.lp.frequency.setTargetAtTime(120 + 260 * clamp(x, 0, 1), ac.currentTime, .2); }
+
+// =====================================================================================================
+//  INPUT: one finger pushes a plate (or draws a rift); two fingers pan, pinch and twist; wheel zooms
+// =====================================================================================================
+let tool = 'push';
+function setTool(t) { tool = t; $('tPush').classList.toggle('on', t === 'push'); $('tRift').classList.toggle('on', t === 'rift'); $('tHot').classList.toggle('on', t === 'hotspot'); if (t === 'rift') $('tRift').classList.remove('pulse'); }
+$('tPush').onclick = () => { setTool('push'); FX.sfx('click'); }; $('tRift').onclick = () => { setTool(tool === 'rift' ? 'push' : 'rift'); FX.sfx('click'); }; $('tHot').onclick = () => { setTool(tool === 'hotspot' ? 'push' : 'hotspot'); FX.sfx('click'); };
+$('tFit').onclick = () => { if (level) frameLevel(level, 500); FX.sfx('click'); };
+const ptrs = new Map(); let drag = null, gest = null;
+function plateAt(c) { if (!c) return -1; const i = Math.floor(c[1]) * W + Math.floor(c[0]); return i >= 0 && i < N ? S.owner[i] : -1; }
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('pointerdown', e => {
+  cv.focus(); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+  audio();
+  if (ptrs.size >= 2) { endDrag(true); const [a, b] = [...ptrs.values()]; gest = { mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y), ang: Math.atan2(b.y - a.y, b.x - a.x) }; return; }
+  if (e.button === 2 || e.button === 1 || e.shiftKey || e.altKey) { drag = { kind: e.button === 2 && !e.shiftKey ? 'pan' : 'orbit', x: e.clientX, y: e.clientY }; return; }
+  const c = pick(e.clientX, e.clientY);
+  if (tool === 'rift') { drag = { kind: 'rift', pts: c ? [c] : [], sx: e.clientX, sy: e.clientY }; FX.sfx('tick'); return; }
+  if (tool === 'hotspot') { if (c) toggleHot(c); return; }
+  const id = plateAt(c);
+  if (id < 0) { drag = { kind: 'pan', x: e.clientX, y: e.clientY }; return; }
+  const p = S.plates[id]; drag = { kind: 'push', id, anchor: c.slice(), cur: c.slice(), sx: e.clientX, sy: e.clientY, t0: performance.now(), moved: false };
+  U.uSel.value = id; FX.sfx('place'); grabbed = true;
+});
+cv.addEventListener('pointermove', e => {
+  if (!ptrs.has(e.pointerId)) return; const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (gest && ptrs.size >= 2) { const [a, b] = [...ptrs.values()], mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, d = Math.hypot(a.x - b.x, a.y - b.y), ang = Math.atan2(b.y - a.y, b.x - a.x);
+    panBy(mx - gest.mx, my - gest.my); zoomBy(gest.d / Math.max(10, d)); if (!cam.globe) cam.yaw += ang - gest.ang; gest = { mx, my, d, ang }; return; }
+  if (!drag) return;
+  if (drag.kind === 'pan') { panBy(e.clientX - drag.x, e.clientY - drag.y); drag.x = e.clientX; drag.y = e.clientY; return; }
+  if (drag.kind === 'orbit') { if (cam.globe) panBy(e.clientX - drag.x, e.clientY - drag.y); else { cam.yaw -= (e.clientX - drag.x) * .006; cam.tilt += (e.clientY - drag.y) * .005; } drag.x = e.clientX; drag.y = e.clientY; return; }
+  const c = pick(e.clientX, e.clientY); if (!c) return;
+  if (drag.kind === 'rift') { const l = drag.pts[drag.pts.length - 1]; if (!l || Math.hypot(c[0] - l[0], c[1] - l[1]) > .6) drag.pts.push(c); return; }
+  if (drag.kind === 'push') { drag.cur = c; if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 8) drag.moved = true; }
+});
+const endPtr = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) gest = null; if (!ptrs.size) endDrag(false); };
+cv.addEventListener('pointerup', endPtr); cv.addEventListener('pointercancel', endPtr);
+function endDrag(cancel) {
+  if (!drag) return; const d = drag; drag = null;
+  if (d.kind === 'push') { const p = S.plates[d.id]; if (p) { p.held = false;
+    if (!d.moved && performance.now() - d.t0 < 300 && !cancel) { p.vx *= .1; p.vy *= .1; showToast('anchored', 900); FX.sfx('pop'); } } U.uSel.value = -1; setGrind(0); }
+  if (d.kind === 'rift' && !cancel) doRift(d.pts);
+}
+function doRift(pts) {
+  if (pts.length < 2) return; const L = Math.hypot(pts[pts.length - 1][0] - pts[0][0], pts[pts.length - 1][1] - pts[0][1]); if (L < 3) { showToast('draw a longer line across a plate', 1500); return; }
+  // unwrap the stroke across the seam
+  for (let k = 1; k < pts.length; k++) { const d = pts[k][0] - pts[k - 1][0]; if (d > W / 2) pts[k][0] -= W; else if (d < -W / 2) pts[k][0] += W; }
+  const r = PlateSim.rift(S, pts);
+  if (r.ok) { FX.sfx('zap'); FX.shake(.3); rumble(6.5); showToast('rifted', 1000); riftFlash = { pts, t0: performance.now(), ok: 1 }; setTool('push'); dirty = true; buildTex();
+    if (hintOn && level.hint && level.hint[1] === 'rift') { level.hintStage = 1; } }
+  else { FX.sfx('fail'); riftFlash = { pts, t0: performance.now(), ok: 0 }; showToast(r.why === 'plates' ? 'too many plates already' : 'the rift must cut the plate in two', 1600); }
+}
+let riftFlash = null;
+function toggleHot(c) { const x = Math.floor(c[0]), y = Math.floor(c[1]); const k = S.hot.findIndex(h => Math.hypot(h.x - x, h.y - y) < 4);
+  if (k >= 0) S.hot.splice(k, 1); else if (S.hot.length < 5) S.hot.push({ x, y, ph: Math.random() * 3 }); else { showToast('five plumes at most'); return; }
+  recalcSwell(); FX.sfx(k >= 0 ? 'pop' : 'place'); }
+function recalcSwell() { S.swell.fill(0); for (const hs of S.hot) for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) { const y = hs.y + dy; if (y < 0 || y >= H) continue; const x = (hs.x + dx + W) % W; S.swell[y * W + x] += .9 * Math.exp(-(dx * dx + dy * dy) / 5); } }
+function panBy(dx, dy) {
+  if (cam.globe) { cam.lon -= dx * .25 * cam.gd / 230; cam.lat = clamp(cam.lat + dy * .25 * cam.gd / 230, -80, 80); return; }
+  const k = cam.d * .0021 * (900 / Math.max(500, innerHeight)), c = Math.cos(cam.yaw), s = Math.sin(cam.yaw);
+  cam.x -= (dx * c + dy * s / Math.max(.4, Math.cos(cam.tilt * .7))) * k; cam.z -= (-dx * s + dy * c / Math.max(.4, Math.cos(cam.tilt * .7))) * k;
+}
+function zoomBy(f) { if (cam.globe) cam.gd = clamp(cam.gd * f, 80, 420); else cam.d = clamp(cam.d * f, 14, 330); }
+cv.addEventListener('wheel', e => { e.preventDefault(); zoomBy(Math.exp(e.deltaY * (e.ctrlKey ? .01 : .0012))); }, { passive: false });
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === ' ') { e.preventDefault(); setRate(rateIdx ? 0 : 1); }
+  else if (e.key === '1') setRate(1); else if (e.key === '2') setRate(2); else if (e.key === 'r' || e.key === 'R') setTool(tool === 'rift' ? 'push' : 'rift');
+  else if (e.key === 'ArrowLeft') panBy(40, 0); else if (e.key === 'ArrowRight') panBy(-40, 0); else if (e.key === 'ArrowUp') panBy(0, 40); else if (e.key === 'ArrowDown') panBy(0, -40);
+  else if (e.key === 'q') cam.yaw += .15; else if (e.key === 'e') cam.yaw -= .15; else if (e.key === 'g') toggleGlobe();
+});
+// drag → target velocity: the plate chases the finger, a rubber band from where you grabbed it
+function applyDrag(dtMyr) {
+  if (!drag || drag.kind !== 'push') return; const p = S.plates[drag.id]; if (!p || !p.alive) { drag = null; return; }
+  drag.anchor[0] += p.vx * dtMyr; drag.anchor[1] += p.vy * dtMyr;
+  let dx = drag.cur[0] - drag.anchor[0]; dx -= Math.round(dx / W) * W; const dy = drag.cur[1] - drag.anchor[1], L = Math.hypot(dx, dy);
+  const full = 7 * (GRID / 256) * Math.max(.4, (cam.globe ? cam.gd / 230 : cam.d / 220));   // cells of drag for top speed (scaled with zoom)
+  const sp = Math.min(1, L / full) * S.vmax;
+  p.held = true; if (L > .05) { p.tvx = dx / L * sp; p.tvy = dy / L * sp; } else { p.tvx = p.tvy = 0; }
+}
+
+// =====================================================================================================
+//  TIME: pause / play / fast, and rewind through snapshots
+// =====================================================================================================
+function setRate(k) { rateIdx = k; rate = RATES[k]; SAVE.rate = k; ['bPause', 'bPlay', 'bFast'].forEach((b, i) => $(b).classList.toggle('on', i === k)); }
+$('bPause').onclick = () => { setRate(0); FX.sfx('click'); }; $('bPlay').onclick = () => { setRate(1); FX.sfx('click'); }; $('bFast').onclick = () => { setRate(2); FX.sfx('click'); };
+function updateScrub() { const s = $('scrub'); s.max = Math.max(0, S.snaps.length - 1); if (!scrubbing) s.value = s.max; }
+let scrubbing = false;
+$('scrub').addEventListener('input', e => { scrubbing = true; const k = +e.target.value; PlateSim.restore(S, k, false); run.lastT = S.time - S.t0; setRate(0); dirty = true; buildTex(); evalLevel(); });
+$('scrub').addEventListener('change', e => { scrubbing = false; const k = +e.target.value; S.snaps.length = Math.min(S.snaps.length, k + 1); updateScrub(); showToast('rewound to ' + Math.round(S.time - S.t0) + ' Myr', 1200); });
+
+// =====================================================================================================
+//  VIEWS, GLOBE, SOUND, MENU, CARD
+// =====================================================================================================
+document.querySelectorAll('.vb[data-v]').forEach(b => b.onclick = () => { setView(+b.dataset.v); FX.sfx('click'); });
+function setView(v) { U.uView.value = v; SAVE.view = v; persist(); document.querySelectorAll('.vb[data-v]').forEach(b => b.classList.toggle('on', +b.dataset.v === v)); clouds.visible = CLOUDS && v !== 2 && v !== 3; }
+function toggleGlobe(on = !cam.globe) { cam.globe = on ? 1 : 0; U.uGlobe.value = cam.globe; atmo.visible = stars.visible = !!cam.globe; $('globeB').classList.toggle('on', !!cam.globe); SAVE.globe = cam.globe; persist();
+  if (cam.globe) { cam.lon = cam.x; cam.lat = clamp(-cam.z, -60, 60); } else { cam.x = cam.lon; cam.z = -cam.lat; } }
+$('globeB').onclick = () => { toggleGlobe(); FX.sfx('whoosh'); };
+const sndUI = () => { $('sndW').style.display = FX.muted ? 'none' : ''; $('sndB').classList.toggle('on', FX.muted); };
+$('sndB').onclick = () => { FX.setMuted(!FX.muted); if (FX.muted && grind) setGrind(0); sndUI(); }; sndUI();
+function openMenu() {
+  const L = $('list'); L.innerHTML = ''; const ul = unlockedIdx();
+  const add = (lv, locked, extra) => { const b = document.createElement('button'); b.className = 'lv' + (locked ? ' locked' : '') + (level && level.id === lv.id ? ' cur' : ''); const s = SAVE.stars[lv.id] || 0;
+    b.innerHTML = `<b>${lv.name}</b><span>${extra || lv.tag}</span>${lv.goal ? `<i>${'★'.repeat(s)}${'☆'.repeat(3 - s)}</i>` : ''}`; b.onclick = () => { closeMenu(); openLevel(lv.id); FX.sfx('pop'); }; L.appendChild(b); };
+  LEVELS.forEach((lv, i) => add(lv, i > ul, i > ul ? '···' : null));
+  add(LV.daily(today), false, 'a new planet every day'); add({ id: 'sandbox', name: 'Sandbox', tag: 'your own planet: plumes, rifts, no survey' }, false);
+  $('menu').classList.add('on');
+}
+function closeMenu() { $('menu').classList.remove('on'); }
+$('lvName').onclick = () => { openMenu(); FX.sfx('click'); }; $('closeM').onclick = closeMenu; $('menu').onclick = e => { if (e.target.id === 'menu') closeMenu(); };
+$('cKeep').onclick = () => { $('card').classList.remove('on'); FX.sfx('click'); }; $('cNext').onclick = () => { $('card').classList.remove('on'); nextLevel(); FX.sfx('pop'); };
+$('cShare').onclick = () => { const m = LV.M[level.goal.m], s = run.stars; const txt = `Mantle · ${level.name} · ${'★'.repeat(s)}${'☆'.repeat(3 - s)} · ${m.fmt(run.best)} ${m.unit} in ${Math.round(S.time - S.t0)} Myr`;
+  try { navigator.clipboard.writeText(txt); showToast('copied'); } catch (e) { showToast(txt, 4000); } };
+
+// =====================================================================================================
+//  OVERLAY: plate arrows, the rubber band, the rift stroke, the first hint
+// =====================================================================================================
+const ov = $('ov'), og = ov.getContext('2d');
+function fitOv() { const d = Math.min(2, devicePixelRatio || 1); ov.width = innerWidth * d; ov.height = innerHeight * d; og.setTransform(d, 0, 0, d, 0, 0); }
+function arrow(x0, y0, x1, y1, w, col) { const a = Math.atan2(y1 - y0, x1 - x0), L = Math.hypot(x1 - x0, y1 - y0); if (L < 3) return; og.strokeStyle = col; og.fillStyle = col; og.lineWidth = w; og.lineCap = 'round';
+  og.beginPath(); og.moveTo(x0, y0); og.lineTo(x1 - Math.cos(a) * w * 2, y1 - Math.sin(a) * w * 2); og.stroke(); og.beginPath(); og.moveTo(x1, y1); og.lineTo(x1 - Math.cos(a - .45) * w * 4, y1 - Math.sin(a - .45) * w * 4); og.lineTo(x1 - Math.cos(a + .45) * w * 4, y1 - Math.sin(a + .45) * w * 4); og.closePath(); og.fill(); }
+function drawOverlay(now) {
+  og.clearRect(0, 0, innerWidth, innerHeight);
+  const hud = !document.body.classList.contains('nohud');
+  // plate motion arrows at each plate's centre (a big round grip to grab)
+  if (hud) for (const p of S.plates) {
+    if (!p.alive || p.mass < 30) continue; const e = 0; const [sx, sy, vis] = toScreen(p.cx, p.cy, e); if (!vis) continue;
+    const sp = Math.hypot(p.vx, p.vy), cm = PlateSim.cellsToCm(S, sp); const held = drag && drag.kind === 'push' && drag.id === p.id;
+    og.globalAlpha = held ? .95 : .55; og.fillStyle = 'rgba(20,28,34,.35)'; og.strokeStyle = held ? '#ffd9a0' : 'rgba(255,248,230,.75)'; og.lineWidth = 1.5;
+    og.beginPath(); og.arc(sx, sy, 17, 0, 2 * PI); og.fill(); og.stroke();
+    if (sp > .02) { const [ex, ey] = toScreen(p.cx + p.vx * 6, p.cy + p.vy * 6, e); const dx = ex - sx, dy = ey - sy, L = Math.hypot(dx, dy) || 1, len = clamp(10 + cm * 2.2, 14, 70);
+      arrow(sx, sy, sx + dx / L * len, sy + dy / L * len, 3, held ? '#ffd9a0' : 'rgba(255,248,230,.85)'); }
+    if (cm > .5) { og.font = '600 11px Jost'; og.fillStyle = 'rgba(255,248,230,.9)'; og.textAlign = 'center'; og.fillText(cm.toFixed(0) + ' cm/yr', sx, sy + 30); }
+    og.globalAlpha = 1;
+  }
+  // the rubber band while pushing
+  if (drag && drag.kind === 'push') { const [ax, ay] = toScreen(drag.anchor[0], drag.anchor[1]), [bx, by] = toScreen(drag.cur[0] + Math.round((drag.anchor[0] - drag.cur[0]) / W) * W, drag.cur[1]);
+    og.setLineDash([6, 5]); og.strokeStyle = 'rgba(255,220,170,.9)'; og.lineWidth = 2; og.beginPath(); og.moveTo(ax, ay); og.lineTo(bx, by); og.stroke(); og.setLineDash([]);
+    og.fillStyle = 'rgba(255,200,140,.9)'; og.beginPath(); og.arc(bx, by, 9, 0, 2 * PI); og.fill(); }
+  // rift stroke
+  const rs = drag && drag.kind === 'rift' ? { pts: drag.pts, live: 1 } : riftFlash && now - riftFlash.t0 < 900 ? riftFlash : null;
+  if (rs && rs.pts.length > 1) { og.strokeStyle = rs.live ? 'rgba(255,170,90,.95)' : rs.ok ? `rgba(255,220,140,${1 - (now - rs.t0) / 900})` : `rgba(255,70,50,${1 - (now - rs.t0) / 900})`; og.lineWidth = rs.live ? 3 : 4; og.setLineDash(rs.live ? [8, 6] : []);
+    og.beginPath(); rs.pts.forEach((c, k) => { const [x, y] = toScreen(c[0], c[1]); k ? og.lineTo(x, y) : og.moveTo(x, y); }); og.stroke(); og.setLineDash([]); }
+  // quake magnitude flashes
+  for (const f of flashes) { const a = 1 - (now - f.t0) / 1800; if (a <= 0) continue; const [x, y, vis] = toScreen(f.cx, f.cy); if (!vis) continue; og.globalAlpha = a; og.font = 'italic 600 16px "Cormorant Garamond"'; og.fillStyle = '#ffe9b0'; og.textAlign = 'center'; og.fillText(f.txt, x, y - 14 - (1 - a) * 20); og.globalAlpha = 1; }
+  // first-minute hint: a glowing arrow from one plate to the other
+  const hint = $('hint');
+  if (hud && hintOn && level && level.hint) {
+    const [a, b] = level.hint, P = S.plates[a]; let tx, ty, txt = '';
+    if (P && P.alive) {
+      const [sx, sy] = toScreen(P.cx, P.cy);
+      if (typeof b === 'number' && S.plates[b]) { const Q2 = S.plates[b]; let dx = Q2.cx - P.cx; dx -= Math.round(dx / W) * W; [tx, ty] = toScreen(P.cx + dx * .8, P.cy + (Q2.cy - P.cy) * .8); txt = grabbed ? 'keep pushing' : 'drag this plate into that one'; }
+      else if (b === 'rift') { txt = level.hintStage ? 'now push the two halves apart' : 'pick ✂ and draw a line across the continent'; }
+      else if (b === 'drift') { [tx, ty] = toScreen(P.cx - 12, P.cy); txt = 'push the plate over the glowing plume'; }
+      else if (b === 'slide') { [tx, ty] = toScreen(P.cx, P.cy + 14); txt = 'slide it along the coast, not into it'; }
+      else if (b === 'target') { const t = level.target; [tx, ty] = toScreen(t.u * W, t.v * H); txt = 'dock India on the dashed outline'; }
+      if (tx != null) { const k = (Math.sin(now / 260) + 1) / 2; og.globalAlpha = .55 + .45 * k; og.shadowColor = '#ff9b4a'; og.shadowBlur = 16; arrow(sx, sy, tx, ty, 5, '#ffcf8a'); og.shadowBlur = 0; og.globalAlpha = 1; }
+      hint.style.opacity = txt ? 1 : 0; hint.textContent = txt; hint.style.left = clamp(sx - 90, 8, innerWidth - 260) + 'px'; hint.style.top = clamp(sy + 26, 90, innerHeight - 110) + 'px';
+    }
+    U.uHint.value = a;
+  } else { hint.style.opacity = 0; U.uHint.value = -1; }
+  // labels
+  for (let i = labels.length - 1; i >= 0; i--) { const l = labels[i], age = now - l.t0; if (age > l.life) { l.el.remove(); labels.splice(i, 1); continue; }
+    const [x, y, vis] = toScreen(l.cx, l.cy, elevAt(l.cx, l.cy)); l.el.style.transform = `translate(${x + 10}px,${y - 9}px)`; l.el.style.opacity = vis ? (age < 300 ? age / 300 : age > l.life - 800 ? (l.life - age) / 800 : 1) : 0; }
+}
+// seismograph drum
+const sg = $('seis').getContext('2d');
+function drawSeis() { seis.push(seis.pop() * 1); const v = seis.shift(); seis.push(0); const c = sg, w = 240, h = 72; c.clearRect(0, 0, w, h); c.strokeStyle = '#a3321f'; c.lineWidth = 1.4; c.beginPath();
+  for (let i = 0; i < seis.length; i++) { const a = seis[i], y = h / 2 + (a ? Math.sin(i * 2.7) * Math.min(32, a) : (Math.random() - .5) * 1.2); i ? c.lineTo(i * 2, y) : c.moveTo(0, y); } c.stroke();
+  for (let i = 0; i < seis.length; i++) seis[i] *= .93; }
+
+// =====================================================================================================
+//  MAIN LOOP
+// =====================================================================================================
+function stepSim(n) { for (let k = 0; k < n; k++) { applyDrag(S.dt); PlateSim.step(S); if (S.stepN % 4 === 0) evalLevel(); } processEvents(); dirty = true; }
+let last = performance.now(), frames = 0, fpsT = 0, fps = 60, stepCap = mob ? 3 : 5;
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(.05, (now - last) / 1000); last = now; frames++;
+  if (now - fpsT > 1000) { fps = frames * 1000 / (now - fpsT); frames = 0; fpsT = now;
+    if (!FAST && fps < 28 && DPR > .75) { DPR = Math.max(.75, DPR - .2); renderer.setPixelRatio(DPR); if (composer) composer.setPixelRatio(DPR); } }
+  U.uTime.value += dt;
+  if (!FX.frozen() && level) {
+    stepAcc += dt * rate; let n = 0; while (stepAcc >= S.dt && n < stepCap) { stepAcc -= S.dt; n++; } if (n >= stepCap) stepAcc = 0;
+    if (n) { stepSim(n); updateScrub(); }
+  }
+  if (dirty) { buildTex(); dirty = false; }
+  // grinding while a push meets resistance
+  if (drag && drag.kind === 'push') { let col = 0; for (const [key, c] of S.pairs) if ((key >> 4) === drag.id || (key & 15) === drag.id) col += c.col + c.sub * .4; setGrind(rate ? Math.min(.45, col / 60) : 0); }
+  if (camT) { const k = Math.min(1, (now - camT.t0) / camT.ms), e = FX.ease.outCubic(k); for (const key of ['x', 'z', 'd', 'lon']) cam[key] = lerp(camT.from[key], camT[key], e); if (k >= 1) camT = null; }
+  if (hintOn && grabbed && level.hint && typeof level.hint[1] === 'number' && lastEval && lastEval.frac > .35) hintOn = false;
+  if (hintOn && level.hint && level.hint[1] === 'rift' && level.hintStage && lastEval && lastEval.frac > .4) hintOn = false;
+  if (hintOn && level.hint && typeof level.hint[1] === 'string' && level.hint[1] !== 'rift' && grabbed && now - hintT0 > 9000) hintOn = false;
+  placeCamera(); updateParts(dt);
+  $('myr').textContent = Math.round(S.time - S.t0);
+  drawOverlay(now); if (frames % 2 === 0) drawSeis();
+  if (composer) composer.render(); else renderer.render(scene, camera);
+}
+function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); if (composer) composer.setSize(innerWidth, innerHeight);
+  fitOv(); [sparks, ash].forEach(P => P.p.material.uniforms.uPx.value = DPR * innerHeight * .5); }
+addEventListener('resize', resize); resize();
+
+// =====================================================================================================
+//  BOOT
+// =====================================================================================================
+setView(SAVE.view === 2 && !SAVE.unlockMag ? 0 : SAVE.view || 0);
+const startId = Q.get('level') || SAVE.cur || 'crumple';
+openLevel(LEVELS.some(l => l.id === startId) || startId === 'daily' || startId === 'sandbox' ? startId : 'crumple');
+if (SAVE.globe || Q.get('globe') == '1') toggleGlobe(true);
+if (Q.has('view')) setView(+Q.get('view'));
+if (Q.has('rate')) setRate(+Q.get('rate'));
+// lab: pre-run a scripted push, then pose the camera (?steps=n&push=id,vx,vy&cam=x,z,d,tilt,yaw)
+if (Q.has('steps')) { const pu = (Q.get('push') || '').split(';').filter(Boolean).map(s => s.split(',').map(Number)); for (let k = 0; k < +Q.get('steps'); k++) { for (const [id, vx, vy] of pu) { const p = S.plates[id]; if (p) { p.held = true; p.tvx = PlateSim.cmToCells(S, vx); p.tvy = PlateSim.cmToCells(S, vy); } } PlateSim.step(S); }
+  for (const p of S.plates) p.held = false; S.events.length = 0; evalLevel(); hintOn = false; dirty = true; }
+if (Q.has('cam')) { const [x, z, d, tilt, yaw] = Q.get('cam').split(',').map(Number); Object.assign(cam, { x, z, d, tilt: tilt ?? cam.tilt, yaw: yaw ?? 0, lon: x, lat: -z, gd: d }); }
+if (Q.has('sun')) { const [a, b, c] = Q.get('sun').split(',').map(Number); U.uSun.value.set(a, b, c).normalize(); }
+buildTex(); placeCamera();
+renderer.compile(scene, camera);
+requestAnimationFrame(frame);
+
+// =====================================================================================================
+//  TEST HOOKS
+// =====================================================================================================
+window.__plate = {
+  get state() { return S; }, get level() { return level; }, get run() { return run; }, get lastEval() { return lastEval; }, Sim: PlateSim, LV, cam, SAVE,
+  step(n = 1) { for (let k = 0; k < n; k++) { PlateSim.step(S); if (S.stepN % 4 === 0) evalLevel(); } processEvents(); dirty = true; return S.time; },
+  push(id, dx, dy) { const p = S.plates[id]; if (!p || !p.alive) return false; p.held = true; p.tvx = PlateSim.cmToCells(S, dx); p.tvy = PlateSim.cmToCells(S, dy); return true; },
+  release(id) { const p = S.plates[id]; if (p) p.held = false; },
+  rift(pts) { const r = PlateSim.rift(S, pts.map(([u, v]) => [u * W, v * H])); dirty = true; return r; },
+  stats() { const s = PlateSim.stats(S); return { maxElev: s.peak, peakCollision: s.peakCol, peakArc: s.peakSub, trench: s.trench, oceanWidth: s.oceanWidth, islands: s.islands, hotIslands: s.hotIslands, arcIslands: s.arcs.filter(a => a.n >= 2).length,
+    hot: s.hot, superFrac: s.superFrac, shadowKm2: s.shadowKm2, quakes: s.quakes, volcanoes: s.volcanoes, sea: s.sea, plates: s.plates, time: s.time, activeFrac: s.activeFrac, raw: s }; },
+  open: id => openLevel(id), setRate, setView, toggleGlobe, pick, toScreen, frameLevel, buildTex: () => buildTex(),
+  contCentroid(id) { let n = 0, sx = 0, sy = 0; const p = S.plates[id]; if (!p || !p.alive) return null; for (let i = 0; i < N; i++) if (S.owner[i] === id && S.f[i] > .85) { let x = i % W; x -= Math.round((x - p.cx) / W) * W; sx += x; sy += (i / W) | 0; n++; } return n ? [sx / n, sy / n] : null; },
+  perf() { renderer.render(scene, camera); const i = renderer.info; return { calls: i.render.calls, triangles: i.render.triangles, points: i.render.points, programs: i.programs.length, textures: i.memory.textures, geometries: i.memory.geometries, grid: [W, H], mesh: MESH, dpr: DPR, post: POST }; },
+  ready: true,
+};
+</script>
+</body>
+</html>

@@ -287,15 +287,15 @@ module.exports = {
     'free look: dragging turns the rider\'s head (clamped), the seat frame is untouched, the head eases back, arrow keys look too': async ({ page, ok }) => {
       await page.waitForFunction(() => window.THREE);
       await page.evaluate(() => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; K.startRide(); if (!K.V3.on) K.v3Open(); K.play.speed = 0; K.play.k = 40; K.play.f = 0; K.V3.dt = 1 / 60; K.v3Frame(K.play); });
-      const snap = () => page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; K.v3Frame(K.play); const v = new THREE.Vector3(); K.V3.cam.getWorldDirection(v); return { d: v.toArray(), seat: K.seatAt().fwd, cg: [...K.V3.cg], yaw: K.V3.look.yaw, pitch: K.V3.look.pitch }; });
+      const snap = () => page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; K.V3.noRender = true; K.v3Frame(K.play); K.V3.noRender = false; const v = new THREE.Vector3(); K.V3.cam.getWorldDirection(v); return { d: v.toArray(), seat: K.seatAt().fwd, cg: [...K.V3.cg], yaw: K.V3.look.yaw, pitch: K.V3.look.pitch }; });
       const ang = (a, b) => Math.acos(Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
-      await page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; for (let i = 0; i < 240; i++) K.v3Frame(K.play); }); // let the seat gaze settle (paused: its target is fixed)
+      await page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; K.V3.noRender = true; for (let i = 0; i < 240; i++) K.v3Frame(K.play); K.V3.noRender = false; }); // let the seat gaze settle (paused: its target is fixed)
       const a = await snap(); await page.mouse.move(640, 420); await page.mouse.down(); for (let i = 1; i <= 10; i++) await page.mouse.move(640 - i * 40, 420 - i * 12); const b = await snap();
       for (let i = 1; i <= 10; i++) await page.mouse.move(640 - 400 - i * 400, 420 - 120 - i * 200); const c = await snap(); await page.mouse.up();
-      const back = await page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; for (let i = 0; i < 200; i++) K.v3Frame(K.play); return [K.V3.look.yaw, K.V3.look.pitch]; });
-      await page.keyboard.down('ArrowRight'); const key = await page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; for (let i = 0; i < 30; i++) K.v3Frame(K.play); return K.V3.look.yaw; }); await page.keyboard.up('ArrowRight');
+      const back = await page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; K.V3.noRender = true; for (let i = 0; i < 200; i++) K.v3Frame(K.play); K.V3.noRender = false; return [K.V3.look.yaw, K.V3.look.pitch]; });
+      await page.keyboard.down('ArrowRight'); const key = await page.evaluate(() => { const K = __coaster; K.V3.dt = 1 / 60; K.V3.noRender = true; for (let i = 0; i < 30; i++) K.v3Frame(K.play); K.V3.noRender = false; return K.V3.look.yaw; }); await page.keyboard.up('ArrowRight');
       ok(ang(a.d, b.d) > .3, `dragging turned the view by ${(ang(a.d, b.d) * 57.3).toFixed(0)}°`); ok(ang(a.seat, b.seat) < 1e-6 && ang(a.cg, b.cg) < 1e-4, 'the seat frame and the smoothed seat gaze are unaffected');
-      ok(Math.abs(c.yaw) <= 120 / 57.3 + 1e-6 && Math.abs(c.pitch) <= 70 / 57.3 + 1e-6 && Math.abs(c.yaw) > 1.9, `head turn clamped: yaw ${(c.yaw * 57.3).toFixed(0)}°, pitch ${(c.pitch * 57.3).toFixed(0)}°`);
+      ok(Math.abs(c.yaw) <= 120 * Math.PI / 180 + 1e-6 && Math.abs(c.pitch) <= 70 * Math.PI / 180 + 1e-6 && Math.abs(c.yaw) > 1.9, `head turn clamped: yaw ${(c.yaw * 57.3).toFixed(0)}°, pitch ${(c.pitch * 57.3).toFixed(0)}°`);
       ok(Math.abs(back[0]) < .02 && Math.abs(back[1]) < .02, `the head eased back to the front: ${back.map(x => (x * 57.3).toFixed(1))}°`); ok(key < -.2, `the right arrow looks right: yaw ${(key * 57.3).toFixed(0)}°`);
     },
     'the ground is matte grass, never a mirror: roughness ≥ 0.85, no metal, weak sky reflection, and from rider height at a grazing angle toward the sun it reads green and below the bloom threshold': async ({ page, ok }) => {
