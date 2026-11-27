@@ -52,7 +52,7 @@ function shellGeometry(T, front, hi) {
 }
 // bucket seats for both rows (upholstery), with blue piping
 function seatGeometry(T, hi) {
-  const P = [], seg = hi ? 6 : 2;
+  const P = [], seg = hi ? 3 : 2;
   // the floor pan with a ribbed rubber mat (matte, so it sits with the upholstery rather than the lacquered shell)
   P.push([new T.BoxGeometry(CAR.w - .1, .05, CAR.len - .04), 0x34363b, M4(T, 0, CAR.floorY - .025, 0)]); // floor above the road wheels (their tops are at 0.355)
   if (hi) for (let z = -1.1; z < 1.2; z += .12) P.push([new T.BoxGeometry(1.2, .012, .04), 0x1e2024, M4(T, 0, CAR.floorY + .005, z)]);
@@ -60,9 +60,9 @@ function seatGeometry(T, hi) {
     const x0 = sx - .22, x1 = sx + .22;
     P.push([sideExtrude(T, [[z + .22, CAR.floorY], [z - .28, CAR.floorY], [z - .3, .66, z - .32, .6], [z - .24, .72, z - .28, .72], [z + .2, .68, z, .66]], x0, x1, hi ? .025 : 0, seg), UPH]); // cushion, raised at the knees
     P.push([sideExtrude(T, [[z + .2, .66], [z + .3, .66], [z + .36, 1.3], [z + .27, 1.32, z + .33, 1.34]], x0, x1, hi ? .025 : 0, seg), UPH]); // back, raked 10°
-    if (hi) { for (const s of [-1, 1]) P.push([new T.CapsuleGeometry(.05, .42, 3, 8), UPH, M4(T, sx + s * .21, 1.0, z + .24, -.15)]); // side bolsters
+    if (hi) { for (const s of [-1, 1]) P.push([new T.CapsuleGeometry(.05, .42, 2, 6), UPH, M4(T, sx + s * .21, 1.0, z + .24, -.15)]); // side bolsters
       P.push([new T.BoxGeometry(.05, .5, .01), PIPE, M4(T, sx, 1.02, z + .245, -.15)]); }
-    P.push([hi ? new T.CapsuleGeometry(.085, .2, 4, 10).rotateZ(Math.PI / 2) : new T.BoxGeometry(.36, .17, .12), UPH, M4(T, sx, 1.42, z + .34, -.1)]); } // headrest
+    P.push([hi ? new T.CapsuleGeometry(.085, .2, 2, 8).rotateZ(Math.PI / 2) : new T.BoxGeometry(.36, .17, .12), UPH, M4(T, sx, 1.42, z + .34, -.1)]); } // headrest
   return mergeParts(T, P);
 }
 // steel under the body: frame rails, cross members, bogie pivots, the brake fin, chain dog, anti-rollback dog; grab handles
@@ -80,7 +80,7 @@ function chassisGeometry(T, hi) {
 }
 // a wheel carrier at the track frame: per rail two road wheels on top, a side guide wheel outside, an up-stop beneath
 function bogieGeometry(T, hi) {
-  const P = [], rs = hi ? 18 : 8, wheel = (r, w, m, axisY) => { P.push([new T.CylinderGeometry(r, r, w, rs), TYRE, axisY ? m : m.clone().multiply(new T.Matrix4().makeRotationZ(Math.PI / 2))]);
+  const P = [], rs = hi ? 12 : 6, wheel = (r, w, m, axisY) => { P.push([new T.CylinderGeometry(r, r, w, rs), TYRE, axisY ? m : m.clone().multiply(new T.Matrix4().makeRotationZ(Math.PI / 2))]);
     if (hi) P.push([new T.CylinderGeometry(r * .55, r * .55, w + .012, rs), CHROME, axisY ? m : m.clone().multiply(new T.Matrix4().makeRotationZ(Math.PI / 2))], [new T.CylinderGeometry(r * .18, r * .18, w + .03, 6), DSTEEL, axisY ? m : m.clone().multiply(new T.Matrix4().makeRotationZ(Math.PI / 2))]); };
   P.push([new T.BoxGeometry(1.36, .08, .14), STEEL, M4(T, 0, .2, 0)]); // the axle beam the car pivots on, under the floor
   for (const s of [-1, 1]) { const X = s * CAR.railX;
@@ -95,7 +95,7 @@ function lapBarGeometry(T, hi) {
   const P = [], d = new T.Vector3(0, .5, .43), L = d.length(), q = new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), d.clone().normalize());
   P.push([new T.BoxGeometry(.06, L, .04), STEEL, new T.Matrix4().compose(d.clone().multiplyScalar(.5), q, new T.Vector3(1, 1, 1))]);
   P.push([new T.CylinderGeometry(.04, .04, .12, hi ? 10 : 5), DSTEEL, M4(T, 0, 0, 0, 0, 0, Math.PI / 2)]); // the hinge
-  P.push([hi ? new T.CapsuleGeometry(.075, .24, 4, 10).rotateZ(Math.PI / 2) : new T.BoxGeometry(.38, .14, .14), PAD, M4(T, 0, .5, .43)]); // padded bar over the lap
+  P.push([hi ? new T.CapsuleGeometry(.075, .24, 2, 8).rotateZ(Math.PI / 2) : new T.BoxGeometry(.38, .14, .14), PAD, M4(T, 0, .5, .43)]); // padded bar over the lap
   if (hi) for (const s of [-1, 1]) P.push([new T.CylinderGeometry(.022, .022, .12, 6), PAD, M4(T, s * .13, .56, .36, .6)]);
   return mergeParts(T, P);
 }
@@ -113,9 +113,9 @@ function trainBuild(T, sc) {
   for (const [k, hi] of [['hi', true], ['lo', false]]) if (!G[k].shellF) Object.assign(G[k], { shellF: shellGeometry(T, true, hi), shellR: shellGeometry(T, false, hi), seats: seatGeometry(T, hi), chassis: chassisGeometry(T, hi), bogie: bogieGeometry(T, hi), lap: lapBarGeometry(T, hi), body: riderGeometry(T, hi), rest: riderRestGeometry(T, hi), arms: armsGeometry(T, hi) });
   const nc = TRAIN.cars, ns = nc * 4, h = G.hi, paint = new T.MeshPhysicalMaterial({ vertexColors: true, metalness: .15, roughness: .38, clearcoat: 1, clearcoatRoughness: .06 }); // lacquered fibreglass
   const steel = new T.MeshStandardMaterial({ vertexColors: true, metalness: .75, roughness: .38 }), cloth = new T.MeshStandardMaterial({ vertexColors: true, roughness: .85 }), skin = new T.MeshStandardMaterial({ vertexColors: true, roughness: .7 });
-  const I = (geo, mat, n) => { const m = new T.InstancedMesh(geo, mat, n); m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true; sc.add(m); return m; };
-  const tr = V3.tr = { shellF: I(h.shellF, paint, 1), shellR: I(h.shellR, paint, nc - 1), seats: I(h.seats, cloth, nc), chassis: I(h.chassis, steel, nc), bogies: I(h.bogie, steel, nc * 2), laps: I(h.lap, steel, ns),
-    coup: I(new T.CylinderGeometry(.05, .05, 1, 8).rotateX(Math.PI / 2), steel, nc - 1), body: I(h.body, cloth, ns), rest: I(h.rest, skin, ns), arms: I(h.arms, skin, ns), lod: 'hi', lap: 0 };
+  const I = (geo, mat, n, small) => { const m = new T.InstancedMesh(geo, mat, n); m.frustumCulled = false; m.castShadow = !small || V3.tier === 'high'; /* small parts cast no shadow on phones */ m.receiveShadow = true; sc.add(m); return m; };
+  const tr = V3.tr = { shellF: I(h.shellF, paint, 1), shellR: I(h.shellR, paint, nc - 1), seats: I(h.seats, cloth, nc, 1), chassis: I(h.chassis, steel, nc, 1), bogies: I(h.bogie, steel, nc * 2, 1), laps: I(h.lap, steel, ns, 1),
+    coup: I(new T.CylinderGeometry(.05, .05, 1, 8).rotateX(Math.PI / 2), steel, nc - 1), body: I(h.body, cloth, ns), rest: I(h.rest, skin, ns, 1), arms: I(h.arms, skin, ns, 1), lod: 'hi', lap: 0 };
   V3.trainF = V3.train = tr.shellF; V3.trainR = tr.shellR; V3.bogies = tr.bogies; V3.coup = tr.coup; V3.riders = tr.body; V3.arms = tr.arms;
   const rr = RH.rng(5), shirt = [0xd8402f, 0x2f6fb8, 0xe8b84a, 0x3c9a5c, 0xf4e8cc, 0x8a4fb8, 0x333333, 0xe07a30, 0x40a0b0, 0xc0c4c8]; V3.riderState = [];
   for (let k = 0; k < ns; k++) { const c = new T.Color(shirt[(rr() * shirt.length) | 0]); tr.body.setColorAt(k, c); V3.riderState.push({ arm: 0, lean: 0, brave: rr() < .65 }); }
