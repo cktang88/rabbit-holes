@@ -4,6 +4,15 @@
 // from the turns, roll from the banks. Budgets (phones): < 150 draw calls, < 300k triangles, pixel ratio 0.75-1.25
 // adapting to hold the frame rate. Static props are merged, trees, people, cars and the train instanced; the park itself
 // is in scenery.js.
+// Test and lab flags (URL): ?fast=1 is notex + post=0 + shadows=0 + people=0 + low quality; each can also be given alone
+// (?notex=1 ?post=0 ?shadows=0 ?people=0 ?scenery=0 ?q=low|high). ?lab=train|station|tree|crest builds only that piece,
+// with the camera at &cam=x,y,z looking at &look=x,y,z. Explicit flags win over the fast preset.
+// Perf off-switches, for A/B counts: ?nocull=1 (one instanced mesh per kind instead of spatial chunks), ?nosort=1 (no
+// alpha-tested-last opaque sort), ?nofreeze=1 (per-frame matrix walk over the static scenery), ?shadowEvery=1 (shadow map
+// re-rendered every frame instead of when the light moves or every other frame on phones).
+const FLAGS = (() => { const q = new URLSearchParams(location.search), g = k => q.get(k), fast = g('fast') === '1', on = (k, d) => g(k) == null ? d : g(k) !== '0', v = k => g(k) ? g(k).split(',').map(Number) : null;
+  return { fast, notex: on('notex', fast), post: on('post', !fast), shadows: on('shadows', !fast), people: on('people', !fast), scenery: on('scenery', true), nosort: g('nosort') === '1', nocull: g('nocull') === '1', nofreeze: g('nofreeze') === '1', shadowEvery: +(g('shadowEvery') || 0), lab: g('lab'), cam: v('cam'), look: v('look'), q: g('q') || (fast ? 'low' : null) }; })();
+const part = k => !FLAGS.lab || FLAGS.lab === k || (Array.isArray(k) && k.includes(FLAGS.lab)); // which pieces a lab builds
 const V3 = { on: false, want: true, chase: false, frames: null, key: '', bob: 0, dt: 1 / 60 };
 // The design is a side profile, so in 3-D a loop's exit would run straight through its entry (and any part of the ride that
 // comes back over itself would cross it). A real loop steps sideways by a track width and some clearance: wherever the track
@@ -104,11 +113,14 @@ function armsGeometry(T) { return mergeParts(T, [-1, 1].map(s => [new T.Cylinder
 // otherwise 'high' (ratio ≤ 2, 2048 soft shadows, god rays, chromatic aberration and zoom blur at speed). ?q=low|high overrides.
 function v3Init() {
   const T = window.THREE; if (!T) return false; if (V3.r) return true;
-  const mob = V3.mob = innerWidth < 860 || matchMedia('(pointer:coarse)').matches, q = /[?&]q=(low|high)/.exec(location.search);
-  V3.tier = q ? q[1] : mob ? 'low' : 'high'; const hi = V3.tier === 'high';
+  const mob = V3.mob = innerWidth < 860 || matchMedia('(pointer:coarse)').matches, q = FLAGS.q;
+  V3.tier = q === 'low' || q === 'high' ? q : mob ? 'low' : 'high'; const hi = V3.tier === 'high';
   V3.r = new T.WebGLRenderer({ canvas: $('v3'), antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: false });
-  V3.dprMax = Math.min(devicePixelRatio || 1, hi ? 2 : 1.25); V3.dprMin = hi ? 1 : .75; V3.dpr = V3.dprMax; V3.r.setPixelRatio(V3.dpr);
-  V3.r.toneMapping = T.ACESFilmicToneMapping; V3.r.outputColorSpace = T.SRGBColorSpace; V3.r.shadowMap.enabled = true; V3.r.shadowMap.type = hi ? T.PCFSoftShadowMap : T.PCFShadowMap;
+  V3.dprMax = FLAGS.fast ? 1 : Math.min(devicePixelRatio || 1, hi ? 2 : 1.25); V3.dprMin = hi ? 1 : .75; V3.dpr = V3.dprMax; V3.r.setPixelRatio(V3.dpr);
+  V3.r.toneMapping = T.ACESFilmicToneMapping; V3.r.outputColorSpace = T.SRGBColorSpace; V3.r.shadowMap.enabled = FLAGS.shadows; V3.r.shadowMap.type = hi ? T.PCFSoftShadowMap : T.PCFShadowMap;
+  if (!FLAGS.nosort) V3.r.setOpaqueSort((a, b) => { const ta = a.material.alphaTest > 0, tb = b.material.alphaTest > 0; return (ta - tb) || (a.groupOrder - b.groupOrder) || (a.renderOrder - b.renderOrder) || (!ta && a.material.id !== b.material.id ? a.material.id - b.material.id : a.z - b.z) || (a.id - b.id); });
+  // 5. the shadow map is drawn only when asked (see v3Frame), not every frame
+  V3.r.shadowMap.autoUpdate = false; V3.shadowRenders = 0; V3.frames3 = 0;
   V3.cam = new T.PerspectiveCamera(72, 1, .08, 2400);
   V3.carGeo = [carGeometry(T, true), carGeometry(T, false)]; V3.bogieGeo = bogieGeometry(T); V3.riderGeo = riderGeometry(T); V3.armGeo = armsGeometry(T);
   V3.tod = SAVE.tod === 'dusk' ? 'dusk' : 'day'; V3.seat = SAVE.seat >= 0 && SAVE.seat < 6 ? SAVE.seat : 0; V3.ft = [];
@@ -116,7 +128,7 @@ function v3Init() {
   const n = 40, sp = new Float32Array(n * 6); V3.streak = { n, p: Array.from({ length: n }, () => [0, 0, -40]) };
   const lg = new T.BufferGeometry(); lg.setAttribute('position', new T.BufferAttribute(sp, 3));
   V3.lines = new T.LineSegments(lg, new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, fog: false })); V3.lines.frustumCulled = false; V3.cam.add(V3.lines);
-  if (window.THREE_X) v3Post(); else addEventListener('three-x', () => { v3Post(); if (V3.scene) { skyLoad(V3.tod); v3Build(true); if (V3.on) play ? v3Frame(play) : v3Render(); } }, { once: true });
+  if (!FLAGS.post) { /* direct render */ } else if (window.THREE_X) v3Post(); else addEventListener('three-x', () => { v3Post(); if (V3.scene) { skyLoad(V3.tod); v3Build(true); if (V3.on) play ? v3Frame(play) : v3Render(); } }, { once: true });
   return true;
 }
 const GRADE = { uniforms: { tDiffuse: { value: null }, uVig: { value: .28 }, uSplit: { value: .06 }, uCA: { value: 0 }, uZoom: { value: 0 } },
@@ -203,7 +215,17 @@ function v3Build(force) {
     for (let k = 0; k < nr; k++) { V3.riders.setColorAt(k, new T.Color(shirt[(rr() * shirt.length) | 0])); V3.riderState.push({ arm: 0, lean: 0, brave: rr() < .65 }); }
     for (const m of [V3.trainF, V3.trainR, V3.bogies, V3.coup, V3.riders, V3.arms]) { m.frustumCulled = false; m.castShadow = true; sc.add(m); } }
   sc.add(V3.cam); if (V3.flare) sc.add(V3.flare);
-  skyLoad(V3.tod); skyApply();
+  V3.riders.visible = V3.arms.visible = FLAGS.people;
+  // a placeholder environment (the painted dome) so every lit program compiles with its env map now; the HDRI swaps in later
+  // under the same defines (both PMREMs are 256 px cube-UV), so its arrival compiles nothing
+  if (!V3.envFallback) { const s2 = new T.Scene(), d = V3.skyDome.clone(); d.scale.setScalar(.05); s2.add(d); const pm = new T.PMREMGenerator(V3.r); V3.envFallback = pm.fromScene(s2, 0, .1, 100).texture; V3.envFallback.userData.keep = true; pm.dispose(); }
+  // static scenery: matrices computed once, the whole static subtree skipped by the per-frame matrix walk
+  V3.frozen = 0; if (!FLAGS.nofreeze) { const dyn = new Set([V3.cam, V3.wheel, V3.carousel, V3.flare, V3.sun, V3.sun.target, V3.skyDome].filter(Boolean)), st = new T.Group(); st.name = 'statics';
+    for (const o of [...sc.children]) if (!dyn.has(o) && !o.isLight) { st.add(o); o.traverse(q => { q.matrixAutoUpdate = false; q.updateMatrix(); V3.frozen++; }); }
+    sc.add(st); st.updateMatrixWorld(true); st.matrixAutoUpdate = false; st.updateMatrixWorld = () => {}; V3.statics = st; }
+  if (FLAGS.notex) sc.traverse(o => { const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : []; for (const m of ms) if (m.map || m.roughnessMap) { m.map = m.roughnessMap = null; m.alphaTest = 0; m.needsUpdate = true; if (o === V3.skyDome) m.color.set(0x9cc9e6); } });
+  skyLoad(V3.tod); skyApply(); V3.r.shadowMap.needsUpdate = true;
+  try { V3.r.compile(sc, V3.cam); } catch (e) { /* compiles lazily instead */ }
 }
 
 // ---------- open / close ----------
@@ -289,7 +311,11 @@ function v3Frame(p) {
   const cars = placeTrain(T, s.uc + TRAIN.mid / DS, R, p, rows);
   // the sun's shadow box follows the train, snapped to whole shadow texels so the edges don't crawl
   { const c = cars[(TRAIN.cars / 2) | 0][0], d = V3.sunDir || [-.5, .72, .48], tx = 2 * V3.sunR / V3.sun.shadow.mapSize.x, X = Math.round(c[0] / tx) * tx, Z = Math.round(c[2] / tx) * tx;
-    V3.sun.target.position.set(X, c[1], Z); V3.sun.position.set(X + d[0] * 200, c[1] + d[1] * 200, Z + d[2] * 200); V3.sun.target.updateMatrixWorld(); }
+    V3.sun.target.position.set(X, c[1], Z); V3.sun.position.set(X + d[0] * 200, c[1] + d[1] * 200, Z + d[2] * 200); V3.sun.target.updateMatrixWorld(); V3.sun.updateMatrixWorld();
+    // the only moving casters are the train and the wheel: redraw the shadow map every frame on the high tier, every other
+    // frame on phones, and at once whenever the light box jumps 2 m
+    const moved = !V3.shAt || Math.hypot(X - V3.shAt[0], Z - V3.shAt[1]) > 2; V3.frames3++;
+    if (moved || FLAGS.shadowEvery === 1 || V3.tier === 'high' || V3.frames3 % 2 === 0) { V3.r.shadowMap.needsUpdate = true; V3.shadowRenders++; if (moved) V3.shAt = [X, Z]; } }
   // floating up off the seat in airtime, pressed down under high g
   const bobT = gg < .4 ? (.4 - gg) * .28 : -Math.max(0, gg - 1.5) * .04; V3.bob += (bobT - V3.bob) * Math.min(1, dt * 8);
   if (!V3.chase) {
@@ -319,6 +345,7 @@ function v3Frame(p) {
     const mid = cars[(TRAIN.cars / 2) | 0][0]; camE.position.set(...V3.chaseP); camE.up.set(0, 1, 0); camE.lookAt(mid[0], mid[1] + 1, mid[2]);
   }
   const fov = (64 + Math.min(36, v * 1.15)) * (camE.aspect < 1 ? 1.15 : 1); if (Math.abs(camE.fov - fov) > .2) { camE.fov = fov; camE.updateProjectionMatrix(); }
+  if (FLAGS.cam) { camE.position.set(...FLAGS.cam); camE.up.set(0, 1, 0); camE.lookAt(...(FLAGS.look || [0, 0, 0])); }
   V3.skyDome.position.copy(camE.position);
   sceneryTick(play && play.speed === 0 ? 0 : dt);
   // speed streaks: faint lines rushing past once the train is quick

@@ -22,7 +22,7 @@ function skyAnalyse(T, tex) {
 }
 function skyLoad(tod) {
   const T = window.THREE, X = window.THREE_X; V3.skies = V3.skies || {};
-  if (V3.skies[tod] || !X || !X.RGBELoader || !V3.r) return V3.skies[tod];
+  if (FLAGS.notex || V3.skies[tod] || !X || !X.RGBELoader || !V3.r) return V3.skies[tod];
   V3.skies[tod] = { loading: true };
   new X.RGBELoader().load(SKIES[tod].file, tex => {
     tex.mapping = T.EquirectangularReflectionMapping; const a = skyAnalyse(T, tex), pm = new T.PMREMGenerator(V3.r);
@@ -33,7 +33,7 @@ function skyLoad(tod) {
 // put the loaded sky on the scene: background, environment light, haze colour, sun direction and colour
 function skyApply() {
   const T = window.THREE, sc = V3.scene, k = V3.skies && V3.skies[V3.tod], cfg = SKIES[V3.tod]; if (!sc) return;
-  if (!k || !k.tex) { V3.skyDome.visible = true; sc.background = null; sc.environment = null; V3.sunDir = [-.5, .72, .48]; V3.hemi.intensity = 1.1; sc.fog.color.setRGB(.72, .8, .82); V3.sun.color.setRGB(1, .94, .82); V3.sun.intensity = 2.4; V3.r.toneMappingExposure = 1; return; }
+  if (!k || !k.tex) { V3.skyDome.visible = true; sc.background = null; sc.environment = V3.envFallback || null; sc.environmentIntensity = .6; V3.sunDir = [-.5, .72, .48]; V3.hemi.intensity = 1.1; sc.fog.color.setRGB(.72, .8, .82); V3.sun.color.setRGB(1, .94, .82); V3.sun.intensity = 2.4; V3.r.toneMappingExposure = 1; return; }
   V3.skyDome.visible = false; sc.background = k.tex; sc.environment = k.env; sc.environmentIntensity = .9; sc.backgroundIntensity = 1;
   V3.hemi.intensity = .15; V3.sunDir = k.el > .03 ? k.dir : [k.dir[0], .03, k.dir[2]];
   sc.fog.color.setRGB(...k.haze); V3.sun.color.setRGB(...k.sunCol); V3.sun.intensity = cfg.sun; V3.r.toneMappingExposure = cfg.exp;
@@ -96,8 +96,9 @@ function buildScenery(T, sc, S, F) {
     for (let k = 0; k < segs; k++) idx.push(0, 1 + (k + 1) % segs, 1 + k);
     for (let j = 1; j < rings.length - 1; j++) { const a0 = 1 + (j - 1) * segs, b0 = 1 + j * segs; for (let k = 0; k < segs; k++) { const k1 = (k + 1) % segs; idx.push(a0 + k, a0 + k1, b0 + k, a0 + k1, b0 + k1, b0 + k); } }
     const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new T.Float32BufferAttribute(col, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
-    const mat = stdMat(T, { roughness: 1, color: 0x8fae62 }); if (!V3.grassTex) { V3.grassTex = new T.TextureLoader().load('assets/grass_1k.jpg', () => { if (V3.on && !play) v3Render(); }); const t = V3.grassTex; t.wrapS = t.wrapT = T.RepeatWrapping; t.colorSpace = T.SRGBColorSpace; t.anisotropy = mob ? 4 : 8; t.userData.keep = true; }
-    mat.map = V3.grassTex; mat.roughnessMap = V3.grassTex; /* rock and soil in the texture read a little smoother than the grass */ const ground = new T.Mesh(g, mat); ground.receiveShadow = true; sc.add(ground); V3.ground = ground; }
+    const mat = stdMat(T, { roughness: 1, color: 0x8fae62 }); if (!V3.grassTex && !FLAGS.notex) { V3.grassTex = new T.TextureLoader().load('assets/grass_1k.jpg', () => { if (V3.on && !play) v3Render(); }); const t = V3.grassTex; t.wrapS = t.wrapT = T.RepeatWrapping; t.colorSpace = T.SRGBColorSpace; t.anisotropy = mob ? 4 : 8; t.userData.keep = true; }
+    mat.map = V3.grassTex; mat.roughnessMap = V3.grassTex; /* rough grass (0.8-1), the rock and soil in it a touch smoother */ mat.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('roughnessFactor *= texelRoughness.g;', 'roughnessFactor *= mix(.8, 1., texelRoughness.g);'); }; const ground = new T.Mesh(g, mat); ground.receiveShadow = true; sc.add(ground); V3.ground = ground; }
+  if (!FLAGS.scenery || FLAGS.lab === 'train' || FLAGS.lab === 'crest') { V3.paths = []; return; } // the ride alone (tests and labs)
   // distant hills, soft and hazy
   { const geo = blob(T, 1, 1, .35, 3), Mh = new T.InstancedMesh(geo, stdMat(T, { vertexColors: false, color: 0x6f8f62, roughness: 1, flatShading: false }), 34);
     for (let k = 0; k < 34; k++) { const a = k / 34 * Math.PI * 2 + rnd() * .2, R2 = Math.max(half + 260, 520) + rnd() * 260, w = 90 + rnd() * 140, hh = 30 + rnd() * 60; V.set(cx + Math.cos(a) * R2, -hh * .25, cz + Math.sin(a) * R2); Q.setFromAxisAngle(Yx, rnd() * 6); Sc.set(w, hh, w * .8); M.compose(V, Q, Sc); Mh.setMatrixAt(k, M); }
@@ -117,7 +118,7 @@ function buildScenery(T, sc, S, F) {
     for (let r = 0; r < 4; r++) { const z = (4.4 + r * 1.3) * side; st(new T.BoxGeometry(14, .06, .06), 0xd8d6cf, 0, 1.0, z); for (let x = -7; x <= 7; x += 2) st(new T.CylinderGeometry(.04, .04, 1, 5), 0xd8d6cf, x, .5, z);
       for (let k = 0; k < 7; k++) { const [X, Z] = stW(-6 + k * 2 + rnd() * .6, z - .65 * side); standing.push([X, Z, rnd() * 6]); } }
     for (const [x, z] of [[-9, 0], [9, 0]]) { const [X, Z] = stW(x, z); blobs.push([X, Z, 6]); } take(...stW(0, 7 * side), 8, 'station'); }
-  { // plaza: paving, a fountain, stalls with striped awnings, benches, bins, lamps
+  if (part('park')) { // plaza: paving, a fountain, stalls with striped awnings, benches, bins, lamps
     const [X, Z] = plaza, Y = gy(X, Z); props.push([new T.CylinderGeometry(15, 15.3, .3, 40), (x, y, z) => ((Math.floor(Math.hypot(x, z) / 1.5) % 2) ? 0xd9c49a : 0xcdb88c), M4(T, X, Y - .08, Z)]);
     props.push([new T.CylinderGeometry(3, 3.2, .7, 24), 0xb9b2a4, M4(T, X, Y + .35, Z)], [new T.CylinderGeometry(.3, .4, 2.2, 10), 0xb9b2a4, M4(T, X, Y + 1.1, Z)], [new T.CylinderGeometry(1, .6, .4, 14), 0xb9b2a4, M4(T, X, Y + 2.1, Z)]);
     V3.water = [X, Y + .62, Z];
@@ -137,7 +138,7 @@ function buildScenery(T, sc, S, F) {
     for (let k = 0; k < 64; k++) { const a = k / 64 * Math.PI * 2, fx = X + Math.cos(a) * 16, fz = Z + Math.sin(a) * 16; if (Math.abs(Math.atan2(Math.sin(a - Math.atan2(-dz, -dx)), Math.cos(a - Math.atan2(-dz, -dx)))) < .2) continue; if (nearTrack(fx, fz, 2)) continue;
       props.push([new T.BoxGeometry(.08, 1, .08), 0xf4e8cc, M4(T, fx, gy(fx, fz) + .5, fz)], [new T.BoxGeometry(.05, .05, 1.6), 0xf4e8cc, M4(T, fx, gy(fx, fz) + .85, fz, 0, -a)]); }
     for (let t = .2; t < 1; t += .3) lamps.push([sx0 + dx * t + dz / len * 2.4, sz0 + dz * t - dx / len * 2.4]); }
-  if (parkAt) { // the car park: asphalt with painted bays, cars in about two thirds of them, a path to the plaza
+  if (parkAt && part('park')) { // the car park: asphalt with painted bays, cars in about two thirds of them, a path to the plaza
     const [X, Z] = parkAt, Y = gy(X, Z), a = Math.atan2(fw0[1], fw0[0]);
     const tex = canvasTex(T, 512, 256, (x, w, h) => { x.fillStyle = '#4a4a4c'; x.fillRect(0, 0, w, h); const r = RH.rng(5); for (let k = 0; k < 4000; k++) { x.fillStyle = r() < .5 ? 'rgba(0,0,0,.12)' : 'rgba(255,255,255,.06)'; x.fillRect(r() * w, r() * h, 2, 2); }
       x.strokeStyle = '#e8e8e0'; x.lineWidth = 3; for (const yy of [0, h - 50]) for (let k = 0; k <= 16; k++) { x.beginPath(); x.moveTo(k * w / 16, yy + 2); x.lineTo(k * w / 16, yy + 48); x.stroke(); } });
@@ -163,7 +164,7 @@ function buildScenery(T, sc, S, F) {
     Mc.castShadow = true; sc.add(Mc); }
 
   // ---------- rides that move: the Ferris wheel (40 m class: 24 m across) and a carousel ----------
-  if (V3.wheelAt) { const [X, Z] = V3.wheelAt, Y = gy(X, Z), hub = 14, a = Math.atan2(L0[1], L0[0]), legs = [];
+  if (V3.wheelAt && part(['park', 'rides'])) { const [X, Z] = V3.wheelAt, Y = gy(X, Z), hub = 14, a = Math.atan2(L0[1], L0[0]), legs = [];
     for (const sd of [-1.4, 1.4]) for (const t of [-1, 1]) { const bx = X + Math.cos(a + Math.PI / 2) * sd * 2.2 + Math.cos(a) * 6 * t, bz = Z + Math.sin(a + Math.PI / 2) * sd * 2.2 + Math.sin(a) * 6 * t, tx = X + Math.cos(a + Math.PI / 2) * sd, tz = Z + Math.sin(a + Math.PI / 2) * sd;
       const L = Math.hypot(tx - bx, Y + hub - Y, tz - bz), dir = new T.Vector3(tx - bx, hub, tz - bz).normalize(); legs.push([new T.CylinderGeometry(.22, .3, L, 8), 0xf4e8cc, new T.Matrix4().compose(new T.Vector3((bx + tx) / 2, Y + hub / 2, (bz + tz) / 2), new T.Quaternion().setFromUnitVectors(Yx, dir), new T.Vector3(1, 1, 1))]); }
     legs.push([new T.BoxGeometry(6, .4, 4), 0x9c8f7a, M4(T, X, Y + .2, Z, 0, -a)]); const lm = new T.Mesh(mergeParts(T, legs), stdMat(T, { roughness: .5, metalness: .3 })); lm.castShadow = true; sc.add(lm);
@@ -175,7 +176,7 @@ function buildScenery(T, sc, S, F) {
     const gg = mergeParts(T, [[new T.CylinderGeometry(.9, 1.1, 1.4, 10), 0xffffff, M4(T, 0, -1.4, 0)], [new T.ConeGeometry(1.1, .6, 10), 0xffffff, M4(T, 0, -.4, 0)], [new T.CylinderGeometry(.04, .04, 1, 4), 0x999999, M4(T, 0, -.2, 0)]]);
     V3.gond = new T.InstancedMesh(gg, stdMat(T, { roughness: .5 }), 16); const gc = [0xc8382b, 0x2f6fb8, 0xe8b84a, 0x3c9a5c]; for (let k = 0; k < 16; k++) V3.gond.setColorAt(k, new T.Color(gc[k % 4])); V3.gond.castShadow = true; V3.gond.frustumCulled = false; sc.add(V3.gond);
     V3.wheelAng = 0; V3.wheelBase = [X, Y + hub, Z, a]; blobs.push([X, Z, 9]); }
-  if (carouselAt) { const [X, Z] = carouselAt, Y = gy(X, Z), parts = [];
+  if (carouselAt && part(['park', 'rides'])) { const [X, Z] = carouselAt, Y = gy(X, Z), parts = [];
     parts.push([new T.CylinderGeometry(7, 7.2, .5, 32), 0xe8d8b8, M4(T, 0, .25, 0)], [new T.CylinderGeometry(.5, .5, 4.6, 12), 0xe8b84a, M4(T, 0, 2.5, 0)]);
     parts.push([new T.ConeGeometry(7.6, 2.4, 24, 1, true), (x, y, z) => (Math.floor((Math.atan2(z, x) + Math.PI) / (Math.PI / 12)) % 2 ? 0xc8382b : 0xf6efe0), M4(T, 0, 5.8, 0)], [new T.CylinderGeometry(7.6, 7.6, .6, 24, 1, true), 0xe8b84a, M4(T, 0, 4.4, 0)], [new T.SphereGeometry(.5, 10, 6), 0xe8b84a, M4(T, 0, 7.2, 0)]);
     V3.carousel = new T.Mesh(mergeParts(T, parts), stdMat(T, { side: T.DoubleSide, roughness: .6 })); V3.carousel.position.set(X, Y, Z); V3.carousel.castShadow = true; sc.add(V3.carousel);
@@ -185,8 +186,8 @@ function buildScenery(T, sc, S, F) {
     V3.carBase = [X, Y, Z]; V3.carAng = 0; blobs.push([X, Z, 9]); }
 
   // ---------- trees: broadleaf and pine near the park (full geometry), cross-quad impostors far out ----------
-  V3.trees = [];
-  { const broad = mergeParts(T, [[new T.CylinderGeometry(.22, .38, 4, 7), 0x6b4a32, M4(T, 0, 2, 0)], [blob(T, 2.6, 1, .25, 1), 0xffffff, M4(T, 0, 5.6, 0)], [blob(T, 2, 1, .3, 2), 0xffffff, M4(T, 1.4, 4.8, .6)], [blob(T, 1.9, 1, .3, 3), 0xffffff, M4(T, -1.2, 5, -.7)], ...(mob ? [] : [[blob(T, 1.6, 1, .3, 4), 0xffffff, M4(T, .2, 7.2, -.3)]])]);
+  V3.trees = []; V3.treeLod = null;
+  if (part(['park', 'tree'])) { const broad = mergeParts(T, [[new T.CylinderGeometry(.22, .38, 4, 7), 0x6b4a32, M4(T, 0, 2, 0)], [blob(T, 2.6, 1, .25, 1), 0xffffff, M4(T, 0, 5.6, 0)], [blob(T, 2, 1, .3, 2), 0xffffff, M4(T, 1.4, 4.8, .6)], [blob(T, 1.9, 1, .3, 3), 0xffffff, M4(T, -1.2, 5, -.7)], ...(mob ? [] : [[blob(T, 1.6, 1, .3, 4), 0xffffff, M4(T, .2, 7.2, -.3)]])]);
     const pine = mergeParts(T, [[new T.CylinderGeometry(.18, .3, 3, 6), 0x5a3e2a, M4(T, 0, 1.5, 0)], ...[0, 1, 2, 3].map(k => [new T.ConeGeometry(2.4 - k * .5, 3.4, 9), 0xffffff, M4(T, 0, 3.4 + k * 2, 0)])]);
     // trunk colours are baked dark; canopies take the instance tint
     const near = [], farP = [], green = [0x3f6e2e, 0x4c7d34, 0x5a8a3a, 0x355f2a, 0x6b8f3a], autumn = [0xb07a2c, 0x9a4a24], pines = [0x2f5232, 0x284a2c, 0x3a5e38];
@@ -196,46 +197,66 @@ function buildScenery(T, sc, S, F) {
     for (let t = 0; t < 3000 && farP.length < (mob ? 260 : 420); t++) { const a = rnd() * Math.PI * 2, R2 = half * .85 + rnd() * 140; tryTree(cx + Math.cos(a) * R2, cz + Math.sin(a) * R2, true); }
     const broadLo = mergeParts(T, [[new T.CylinderGeometry(.22, .38, 4, 5), 0x6b4a32, M4(T, 0, 2, 0)], [blob(T, 2.6, 0, .25, 1), 0xffffff, M4(T, 0, 5.6, 0)], [blob(T, 2.1, 0, .3, 2), 0xffffff, M4(T, 1.2, 4.9, .5)], [blob(T, 1.9, 0, .3, 3), 0xffffff, M4(T, -1.1, 5.1, -.6)]]);
     const pineLo = mergeParts(T, [[new T.CylinderGeometry(.18, .3, 3, 4), 0x5a3e2a, M4(T, 0, 1.5, 0)], ...[0, 1, 2].map(k => [new T.ConeGeometry(2.3 - k * .6, 3.8, 6), 0xffffff, M4(T, 0, 3.6 + k * 2.4, 0)])]);
-    const lodR = Math.max(60, half * .45); // the ride stays near the middle of the park: beyond this, trees are seen from 40 m and more
-    for (const [geo, isPine, lo] of [[broad, false, 0], [pine, true, 0], [broadLo, false, 1], [pineLo, true, 1]]) { const list = near.filter(t => t[4] === isPine && (Math.hypot(t[0] - cx, t[2] - cz) > lodR) === !!lo); if (!list.length) continue; const Mt = new T.InstancedMesh(geo, stdMat(T, { roughness: .9 }), list.length);
-      list.forEach(([X, Y, Z, s2, , r, c], k) => { V.set(X, Y - .2, Z); Q.setFromAxisAngle(Yx, r); Sc.set(s2, s2 * (.9 + hash2(X, Z) * .3), s2); M.compose(V, Q, Sc); Mt.setMatrixAt(k, M); Mt.setColorAt(k, new T.Color(c)); blobs.push([X, Z, 5 * s2]); });
-      Mt.castShadow = true; Mt.receiveShadow = true; sc.add(Mt); V3.trees.push(Mt); }
-    // impostors: two crossed quads with a painted tree (alpha-tested), two kinds in one texture
+    // three levels per kind: full (icosphere blobs), a pre-decimated variant, and a crossed-card impostor. Each level's
+    // geometric error is measured once (how far the coarser mesh lies from the full one), and every tree switches where
+    // that error, projected to the screen and faded by the haze, drops under V3.lodPx pixels (screen-space-error LOD).
     const tex = canvasTex(T, 256, 256, (x, w, h) => { const paint = (ox, isPine) => { x.fillStyle = '#4a3424'; x.fillRect(ox + 60, 180, 8, 76);
       if (isPine) for (let k = 0; k < 5; k++) { x.fillStyle = k % 2 ? '#2c4a2e' : '#33553a'; x.beginPath(); x.moveTo(ox + 64, 20 + k * 30); x.lineTo(ox + 64 - (22 + k * 9), 80 + k * 34); x.lineTo(ox + 64 + (22 + k * 9), 80 + k * 34); x.fill(); }
       else { const r = RH.rng(ox + 1); for (let k = 0; k < 26; k++) { const px = ox + 64 + (r() - .5) * 56, py = 92 + (r() - .5) * 90, rr = 14 + r() * 13, g2 = x.createRadialGradient(px - 5, py - 6, 2, px, py, rr); g2.addColorStop(0, '#6f9a48'); g2.addColorStop(1, '#3a6128'); x.fillStyle = g2; x.beginPath(); x.arc(px, py, rr, 0, 7); x.fill(); } } };
       paint(0, false); paint(128, true); });
     tex.colorSpace = T.SRGBColorSpace;
     const quad = (u0) => { const g = new T.BufferGeometry(), p = [], uv = [], id = []; for (let q = 0; q < 2; q++) { const a = q * Math.PI / 2, c = Math.cos(a), s2 = Math.sin(a), b = q * 4;
-      p.push(-3 * c, 0, -3 * s2, 3 * c, 0, 3 * s2, 3 * c, 12, 3 * s2, -3 * c, 12, -3 * s2); /* 12 m: the painted tree fills ~11 m of it */ uv.push(u0, 0, u0 + .5, 0, u0 + .5, 1, u0, 1); id.push(b, b + 1, b + 2, b, b + 2, b + 3); }
-      g.setAttribute('position', new T.Float32BufferAttribute(p, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(id); g.computeVertexNormals(); const n = g.attributes.normal; for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0); return g; };
-    const imat = new T.MeshStandardMaterial({ map: tex, alphaTest: .5, side: T.DoubleSide, roughness: 1 });
-    for (const [u0, isPine] of [[0, false], [.5, true]]) { const list = farP.filter(t => t[4] === isPine); if (!list.length) continue; const Mi = new T.InstancedMesh(quad(u0), imat, list.length);
-      list.forEach(([X, Y, Z, s2, , r, c], k) => { V.set(X, Y - .3, Z); Q.setFromAxisAngle(Yx, r); Sc.set(s2, s2 * (isPine ? 1.15 : .85), s2); M.compose(V, Q, Sc); Mi.setMatrixAt(k, M); Mi.setColorAt(k, new T.Color(c).lerp(new T.Color(0xffffff), .6)); });
-      sc.add(Mi); V3.trees.push(Mi); }
+      p.push(-3 * c, 0, -3 * s2, 3 * c, 0, 3 * s2, 3 * c, 11, 3 * s2, -3 * c, 11, -3 * s2); uv.push(u0, 0, u0 + .5, 0, u0 + .5, 1, u0, 1); id.push(b, b + 1, b + 2, b, b + 2, b + 3); }
+      g.setAttribute('position', new T.Float32BufferAttribute(p, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(id); g.computeVertexNormals(); const n = g.attributes.normal; for (let k = 0; k < n.count; k++) n.setXYZ(k, 0, 1, 0); return g.toNonIndexed(); };
+    const imat = new T.MeshStandardMaterial({ map: tex, alphaTest: .5, side: T.DoubleSide, roughness: 1 }), tmat = stdMat(T, { roughness: .9 });
+    const all = near.concat(farP), lod = V3.treeLod = { kinds: [], list: all, at: null };
+    for (const [isPine, geos] of [[false, [broad, broadLo, quad(0)]], [true, [pine, pineLo, quad(.5)]]]) {
+      const trees = all.filter(t => t[4] === isPine); if (!trees.length) continue;
+      const cell = t => FLAGS.nocull ? '0' : Math.floor(t[0] / 160) + ',' + Math.floor(t[2] / 160), keys = [...new Set(trees.map(cell))], chunk = Int16Array.from(trees, t => keys.indexOf(cell(t))), cap = keys.map((_, c) => chunk.filter(x => x === c).length);
+      const err = [0, geoErr(T, geos[0], geos[1]), geoErr(T, geos[0], geos[2])], meshes = geos.map((g, l) => keys.map((_, c) => { const m = new T.InstancedMesh(g, l === 2 ? imat : tmat, cap[c]); m.count = 0; m.castShadow = l < 2; m.receiveShadow = true; sc.add(m); V3.trees.push(m); return m; }));
+      const mats = new Float32Array(trees.length * 16), cols = new Float32Array(trees.length * 3), col = new T.Color();
+      trees.forEach(([X, Y, Z, s2, , r, c], k) => { V.set(X, Y - .2, Z); Q.setFromAxisAngle(Yx, r); Sc.set(s2, s2 * (.9 + hash2(X, Z) * .3), s2); M.compose(V, Q, Sc); M.toArray(mats, k * 16); col.set(c).toArray(cols, k * 3); blobs.push([X, Z, 5 * s2]); });
+      lod.kinds.push({ trees, err, meshes, mats, cols, chunk, level: new Int8Array(trees.length).fill(-1) }); }
+    // pre-filled colours never change; only which mesh each tree is in
+    for (const K of lod.kinds) for (const m of K.meshes.flat()) { m.instanceColor = new T.InstancedBufferAttribute(new Float32Array(K.trees.length * 3), 3); }
+    treeLod(true, [cx, 0, cz]);
     V3.treeCount = [near.length, farP.length]; }
   // bushes and rocks scattered between the trees
-  { const bush = blob(T, 1, 1, .35, 7), rock = blob(T, 1, 0, .4, 9), sp = []; for (let t = 0; t < 1500 && sp.length < (mob ? 110 : 180); t++) { const X = cx + (rnd() - .5) * half * 1.4, Z = cz + (rnd() - .5) * half * 1.4; if (!free(X, Z, 1.2, 5)) continue; sp.push([X, gy(X, Z), Z, rnd() < .7]); take(X, Z, 1.2); }
-    for (const [geo, isB, mat] of [[bush, true, stdMat(T, { vertexColors: false, roughness: 1 })], [rock, false, stdMat(T, { vertexColors: false, roughness: .9, flatShading: true })]]) { const list = sp.filter(q => q[3] === isB); if (!list.length) continue; const Mb = new T.InstancedMesh(geo, mat, list.length);
+  if (part('park')) { const bush = blob(T, 1, 1, .35, 7), rock = blob(T, 1, 0, .4, 9), sp = []; for (let t = 0; t < 1500 && sp.length < (mob ? 110 : 180); t++) { const X = cx + (rnd() - .5) * half * 1.4, Z = cz + (rnd() - .5) * half * 1.4; if (!free(X, Z, 1.2, 5)) continue; sp.push([X, gy(X, Z), Z, rnd() < .7]); take(X, Z, 1.2); }
+    for (const [geo, isB, mat] of [[bush, true, stdMat(T, { vertexColors: false, roughness: 1 })], [rock, false, stdMat(T, { vertexColors: false, roughness: .9, flatShading: true })]]) { const all2 = sp.filter(q => q[3] === isB), groups = {}; for (const q of all2) (groups[FLAGS.nocull ? 0 : Math.floor(q[0] / 160) + ',' + Math.floor(q[2] / 160)] ||= []).push(q); for (const list of Object.values(groups)) { const Mb = new T.InstancedMesh(geo, mat, list.length);
       list.forEach(([X, Y, Z], k) => { const s2 = isB ? .6 + rnd() * .7 : .4 + rnd() * .9; V.set(X, Y + (isB ? s2 * .4 : s2 * .1), Z); Q.setFromEuler(new T.Euler(0, rnd() * 6, 0)); Sc.set(s2 * (1 + rnd() * .5), s2 * (isB ? .8 : .6), s2); M.compose(V, Q, Sc); Mb.setMatrixAt(k, M); Mb.setColorAt(k, new T.Color(isB ? [0x3f6a2c, 0x4f7a34, 0x5d8838][k % 3] : [0x9a9488, 0x857f74, 0xaaa396][k % 3])); });
-      Mb.castShadow = true; sc.add(Mb); } }
+      Mb.castShadow = true; Mb.computeBoundingSphere(); sc.add(Mb); } } }
 
   // ---------- people: ~1.75 m tall; walkers on the paths and round the plaza, a queue at the station ----------
-  { const body = mergeParts(T, [[new T.CylinderGeometry(.2, .17, .62, 6), 0xffffff, M4(T, 0, 1.17, 0)], [new T.CylinderGeometry(.1, .1, .5, 5), 0xffffff, M4(T, -.26, 1.12, 0, 0, 0, .12)], [new T.CylinderGeometry(.1, .1, .5, 5), 0xffffff, M4(T, .26, 1.12, 0, 0, 0, -.12)]]);
+  if (FLAGS.people && part(['park', 'station'])) { const body = mergeParts(T, [[new T.CylinderGeometry(.2, .17, .62, 6), 0xffffff, M4(T, 0, 1.17, 0)], [new T.CylinderGeometry(.1, .1, .5, 5), 0xffffff, M4(T, -.26, 1.12, 0, 0, 0, .12)], [new T.CylinderGeometry(.1, .1, .5, 5), 0xffffff, M4(T, .26, 1.12, 0, 0, 0, -.12)]]);
     const rest = mergeParts(T, [[new T.CylinderGeometry(.16, .13, .86, 6), 0x2e3440, M4(T, 0, .43, 0)], [new T.SphereGeometry(.12, 7, 5), 0xe8c4a0, M4(T, 0, 1.61, 0)], [new T.SphereGeometry(.125, 7, 3, 0, 6.3, 0, 1.4), 0x3a2a1e, M4(T, 0, 1.64, .01)]]);
     const paths = V3.paths || [], wk = [], [PX, PZ] = plaza;
-    for (let k = 0; k < (mob ? 70 : 110); k++) { const kind = rnd(); if (kind < .45 || !paths.length) { const r = 4 + rnd() * 9.5; wk.push({ c: 1, a: rnd() * 6.28, r, w: (rnd() < .5 ? -1 : 1) * (.9 + rnd() * .5) / r }); }
+    for (let k = 0; k < (FLAGS.lab ? 0 : mob ? 70 : 110); k++) { const kind = rnd(); if (kind < .45 || !paths.length) { const r = 4 + rnd() * 9.5; wk.push({ c: 1, a: rnd() * 6.28, r, w: (rnd() < .5 ? -1 : 1) * (.9 + rnd() * .5) / r }); }
       else { const P = paths[(rnd() * paths.length) | 0]; wk.push({ c: 0, P, t: rnd(), w: (rnd() < .5 ? -1 : 1) * (1.1 + rnd() * .4) / Math.max(1, Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1])), side: (rnd() - .5) * 2.2 }); } }
     const n = wk.length + standing.length, shirt = [0xd8402f, 0x2f6fb8, 0xe8b84a, 0x3c9a5c, 0xf4e8cc, 0x8a4fb8, 0x333333, 0xe07a30, 0x40a0b0];
     V3.crowd = { wk, standing, n, body: new T.InstancedMesh(body, stdMat(T), n), rest: new T.InstancedMesh(rest, stdMat(T), n), plaza: [PX, PZ], gy, s: [] };
     for (let k = 0; k < n; k++) { V3.crowd.body.setColorAt(k, new T.Color(shirt[(rnd() * shirt.length) | 0])); V3.crowd.s.push(.95 + rnd() * .1); }
-    for (const m of [V3.crowd.body, V3.crowd.rest]) { m.castShadow = V3.tier === 'high'; m.frustumCulled = false; sc.add(m); }
+    for (const m of [V3.crowd.body, V3.crowd.rest]) { m.castShadow = V3.tier === 'high'; sc.add(m); }
     crowdTick(0); }
   // contact shadows: soft dark blobs under trees, stalls and rides, baked once (one draw call)
   if (blobs.length) { const tex = canvasTex(T, 64, 64, (x, w) => { const g3 = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); g3.addColorStop(0, 'rgba(0,0,0,.42)'); g3.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g3; x.fillRect(0, 0, w, w); });
     const Mb = new T.InstancedMesh(new T.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new T.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }), blobs.length);
     blobs.forEach(([X, Z, r], k) => { V.set(X, gy(X, Z) + .05, Z); Q.identity(); Sc.set(r, 1, r); M.compose(V, Q, Sc); Mb.setMatrixAt(k, M); }); Mb.renderOrder = 1; sc.add(Mb); }
 }
+
+// one-sided Hausdorff distance from the full mesh to a coarser one (metres): the worst gap a viewer could see between them
+function geoErr(T, hi, lo) { const P = hi.attributes.position, Qp = lo.attributes.position, tris = [], v = new T.Vector3(), c = new T.Vector3();
+  for (let i = 0; i + 2 < Qp.count; i += 3) tris.push(new T.Triangle(new T.Vector3().fromBufferAttribute(Qp, i), new T.Vector3().fromBufferAttribute(Qp, i + 1), new T.Vector3().fromBufferAttribute(Qp, i + 2)));
+  let e = 0; for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i); let m = 1e18; for (const t of tris) { t.closestPointToPoint(v, c); const d = c.distanceToSquared(v); if (d < m) m = d; } if (m > e) e = m; } return Math.sqrt(e); }
+// the distance beyond which an error of e metres shows less than px pixels (haze counts: a half-fogged error is half as visible)
+function lodDist(e, px) { if (!e) return 0; const cam = V3.cam, H = innerHeight * (V3.dpr || 1), k = H / (2 * Math.tan((cam ? Math.min(cam.fov, 64) : 64) * Math.PI / 360)), fog = V3.scene && V3.scene.fog;
+  const shown = d => e * k / d * (fog ? 1 - clamp((d - fog.near) / (fog.far - fog.near), 0, 1) : 1); let a = 1, b = 5000; if (shown(b) > px) return b; for (let i = 0; i < 40; i++) { const m = (a + b) / 2; if (shown(m) > px) a = m; else b = m; } return b; }
+// put every tree in the level its distance calls for (with 10 % hysteresis toward coarser), when the camera has moved
+function treeLod(force, p) { const L = V3.treeLod; if (!L) return; p = p || (V3.cam ? V3.cam.position.toArray() : [0, 0, 0]); if (!force && L.at && Math.hypot(p[0] - L.at[0], p[1] - L.at[1], p[2] - L.at[2]) < 4) return; L.at = [...p];
+  const px = V3.lodPx || (V3.tier === 'high' ? 1 : 2); L.dist = []; for (const K of L.kinds) { const d1 = lodDist(K.err[1], px), d2 = lodDist(K.err[2], px); L.dist.push([d1, d2]); const n = K.meshes.map(ms => ms.map(() => 0));
+    for (let k = 0; k < K.trees.length; k++) { const t = K.trees[k], s = t[3], d = Math.hypot(t[0] - p[0], t[1] - p[1], t[2] - p[2]), was = K.level[k], h = l => was >= 0 && was < l ? 1.1 : 1;
+      const l = d > d2 * s * h(2) ? 2 : d > d1 * s * h(1) ? 1 : 0; K.level[k] = l; const c = K.chunk[k], m = K.meshes[l][c], j = n[l][c]++; m.instanceMatrix.array.set(K.mats.subarray(k * 16, k * 16 + 16), j * 16); m.instanceColor.array.set(K.cols.subarray(k * 3, k * 3 + 3), j * 3); }
+    K.meshes.forEach((ms, l) => ms.forEach((m, c) => { m.count = n[l][c]; m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; m.computeBoundingSphere(); })); K.count = n.map(a => a.reduce((x, y) => x + y, 0)); } }
 
 // ---------- per-frame animation (no allocations: scratch objects are reused) ----------
 const _sc = {};
@@ -247,7 +268,7 @@ function crowdTick(dt) {
     else { w.t += w.w * dt; if (w.t > 1 || w.t < 0) { w.w = -w.w; w.t = clamp(w.t, 0, 1); } const [a, b] = w.P, dx = b[0] - a[0], dz = b[1] - a[1], L = Math.hypot(dx, dz) || 1; X = a[0] + dx * w.t - dz / L * w.side * .6; Z = a[1] + dz * w.t + dx / L * w.side * .6; yaw = Math.atan2(dx, dz) * 1 + (w.w > 0 ? 0 : Math.PI) + Math.PI; }
     put(X, Z, yaw, Math.abs(Math.sin(t * 9 + k)) * .04); }
   for (const [X, Z, r] of cr.standing) put(X, Z, r, 0);
-  cr.body.instanceMatrix.needsUpdate = cr.rest.instanceMatrix.needsUpdate = true;
+  cr.body.instanceMatrix.needsUpdate = cr.rest.instanceMatrix.needsUpdate = true; if ((cr.bs = (cr.bs || 0) + 1) % 30 === 1) { cr.body.computeBoundingSphere(); cr.rest.boundingSphere = cr.body.boundingSphere; }
 }
 function sceneryTick(dt) {
   const T = window.THREE; V3.clock = (V3.clock || 0) + dt; const M = _sc.M2 || (_sc.M2 = new T.Matrix4()), V = _sc.V2 || (_sc.V2 = new T.Vector3()), Q = _sc.Q2 || (_sc.Q2 = new T.Quaternion()), Sc = _sc.S2 || (_sc.S2 = new T.Vector3(1, 1, 1)), Y = _sc.Y2 || (_sc.Y2 = new T.Vector3(0, 1, 0));
@@ -257,5 +278,5 @@ function sceneryTick(dt) {
   if (V3.carousel) { V3.carAng += dt * .5; V3.carousel.rotation.y = V3.carAng; const [X, Yb, Z] = V3.carBase;
     for (let k = 0; k < 12; k++) { const t = V3.carAng + k / 12 * Math.PI * 2, r = k % 2 ? 4.6 : 5.9; V.set(X + Math.cos(t) * r, Yb + 1.6 + Math.sin(V3.clock * 2.2 + k * 1.3) * .3, Z - Math.sin(t) * r); Q.setFromAxisAngle(Y, t); M.compose(V, Q, Sc); V3.horses.setMatrixAt(k, M); }
     V3.horses.instanceMatrix.needsUpdate = true; }
-  crowdTick(dt);
+  crowdTick(dt); treeLod(false);
 }

@@ -217,7 +217,7 @@ module.exports = {
         ok(Math.abs(r.d - 1.5) < .3, `camera ${r.d.toFixed(2)} m from the seat`); ok(r.dot > .8, `looking along the track (${r.dot.toFixed(2)})`); ok(r.gap < 1, `seat ${r.gap.toFixed(2)} m from the physics sample`);
       }
     },
-    'performance on a phone (390×844, 4× CPU throttle): draw calls and triangles within budget, frame times reported, first interactive frame under 2 s': async ({ page, ok }) => {
+    'performance on a phone (390×844, 4× CPU throttle): draw calls, triangles and our JS per frame within budget, first interactive frame under 2 s': async ({ page, ok }) => {
       const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 }), p = await ctx.newPage(), errs = [];
       p.on('pageerror', e => errs.push(e.message));
       try {
@@ -229,10 +229,10 @@ module.exports = {
         const r = await p.evaluate(() => new Promise(res => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; K.startRide(); if (!K.V3.on) K.v3Open(); K.play.k = Math.floor(K.last.r.t.length * .4); K.play.simT = K.last.r.t[K.play.k];
           const ts = [], st = []; let last = 0, done = false; setTimeout(() => { done = true; }, 90000); const tick = now => { if (last) ts.push(now - last); last = now; if (K.V3.stats) st.push(K.V3.stats); if (ts.length < 150 && K.play && !done) requestAnimationFrame(tick); else { const s = [...ts].sort((a, b) => a - b);
             K.V3.noRender = true; const t1 = performance.now(); for (let i = 0; i < 60; i++) { K.play.k = (K.play.k + 3) % K.last.r.t.length; K.v3Frame(K.play); } const js = (performance.now() - t1) / 60; K.V3.noRender = false;
-            res({ js, med: s[s.length >> 1], p95: s[Math.floor(s.length * .95)], n: s.length, calls: Math.max(...st.map(x => x.calls)), tris: Math.max(...st.map(x => x.tris)), dpr: K.V3.dpr, tier: K.V3.tier }); } }; requestAnimationFrame(tick); }));
-        console.log(`      phone 4× CPU: first frame ${first.toFixed(0)} ms · frame median ${r.med.toFixed(1)} ms, p95 ${r.p95.toFixed(1)} ms over ${r.n} frames · ${r.calls} draw calls · ${r.tris} triangles · pixel ratio ${r.dpr} · tier ${r.tier} · our JS ${r.js.toFixed(2)} ms a frame (software GL here: frame times are CPU+SwiftShader, not a phone GPU)`);
+            const pf = K.perf(); res({ programs: pf.programs, inst: pf.instancesDrawn, instAll: pf.instances, js, med: s[s.length >> 1], p95: s[Math.floor(s.length * .95)], n: s.length, calls: Math.max(...st.map(x => x.calls)), tris: Math.max(...st.map(x => x.tris)), dpr: K.V3.dpr, tier: K.V3.tier }); } }; requestAnimationFrame(tick); }));
+        console.log(`      phone 4× CPU: first frame ${first.toFixed(0)} ms · ${r.calls} draw calls · ${r.tris} triangles · pixel ratio ${r.dpr} · tier ${r.tier} · our JS ${r.js.toFixed(2)} ms a frame · ${r.programs} shader programs · ${r.inst}/${r.instAll} instances in view (counts only: software GL frame times mean nothing here)`);
         ok(r.tier === 'low', 'phones get the low tier'); ok(r.calls < 150, `${r.calls} draw calls (budget 150)`); ok(r.tris < 300000, `${r.tris} triangles (budget 300k)`); ok(r.dpr <= 1.25, `pixel ratio ${r.dpr}`);
-        ok(r.js < 4, `JS per frame ${r.js.toFixed(2)} ms at 4× CPU (budget 4 ms of the 16.7)`); ok(first < 2000, `first interactive frame at ${first.toFixed(0)} ms`); ok(r.p95 < 1000, `p95 frame ${r.p95.toFixed(0)} ms`); ok(!errs.length, errs.join('; '));
+        ok(r.js < 4, `JS per frame ${r.js.toFixed(2)} ms at 4× CPU (budget 4 ms of the 16.7)`); ok(first < 2000, `first interactive frame at ${first.toFixed(0)} ms`); ok(!errs.length, errs.join('; '));
       } finally { await ctx.close(); }
     },
     'correctly modelled: real-world scale, the train on its rails, supports, collisions, the chain lift, and the sun where the sky says': async ({ page, ok }) => {

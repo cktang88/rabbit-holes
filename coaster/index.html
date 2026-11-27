@@ -149,7 +149,12 @@ addEventListener('resize', () => { resize(); kick(); });
 addEventListener('keydown', e => { if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return; if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); startRide(); } else if (e.key === 'z') undo(); else if (e.key === 'Delete' || e.key === 'Backspace') delNode(); });
 
 // ================= debug / test handle =================
-window.__coaster = { v3Frame, TRAIN, seatSeries, setTod, cycleSeat, v3Render, SEATS, seatName, frameAt, spline, resample, geometry, simulate: ride, scores, footprint, costOf, checkReq, siteFrom, COMS, REF, enc, dec, dailySeed, histogram, dailyScore,
+window.__coaster = { FLAGS, treeLod, lodDist, geoErr,
+  // counts for the budgets (software GL here, so frame times mean nothing): draw calls, triangles, shader programs, memory
+  perf() { if (!V3.r || !V3.scene) return null; v3Render(); const i = V3.r.info; const T = THREE, cam = V3.cam, fr = new T.Frustum().setFromProjectionMatrix(new T.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse)), sp = new T.Sphere(); let inst = 0, instSent = 0, meshes = 0;
+    V3.scene.traverse(o => { if (!o.isMesh || !o.visible) return; meshes++; if (!o.isInstancedMesh || !o.count) return; instSent += o.count; if (!o.frustumCulled) { inst += o.count; return; } if (!o.boundingSphere) o.computeBoundingSphere(); sp.copy(o.boundingSphere).applyMatrix4(o.matrixWorld); if (fr.intersectsSphere(sp)) inst += o.count; });
+    return { instancesDrawn: inst, instances: instSent, meshes, frozen: V3.frozen, shadowRenders: V3.shadowRenders, frames: V3.frames3, lights: V3.scene.children.concat(V3.statics ? V3.statics.children : []).filter(o => o.isLight).length, flags: FLAGS, calls: V3.stats.calls, tris: V3.stats.tris, programs: (i.programs || []).length, geometries: i.memory.geometries, textures: i.memory.textures, tier: V3.tier, dpr: V3.dpr, trees: V3.treeLod && V3.treeLod.kinds.map(k => k.count), lodDist: V3.treeLod && V3.treeLod.dist, lodErr: V3.treeLod && V3.treeLod.kinds.map(k => k.err) }; },
+  v3Frame, TRAIN, seatSeries, setTod, cycleSeat, v3Render, SEATS, seatName, frameAt, spline, resample, geometry, simulate: ride, scores, footprint, costOf, checkReq, siteFrom, COMS, REF, enc, dec, dailySeed, histogram, dailyScore,
   get design() { return design; }, set design(d) { design = d; changed(); }, get site() { return site; }, get last() { return last; }, get C() { return C; }, load: i => loadCom(i), ride: () => { startRide(); play.fast = 1e6; stepRide(performance.now()); return last; },
   nodesOnScreen: () => design.nodes.map(n => [sx(n.x) / dpr, sy(n.y) / dpr]),
   startRide, get play() { return play; }, V3, v3Open, v3Close, toggle3D, cycleSpeed, seatAt: () => play && V3.frames && seatAt(play),
@@ -166,6 +171,10 @@ performance.mark('boot'); resize();
 { const m = /#c=([a-z]+)&d=([0-9a-z._-]+)/.exec(location.hash), ci = m ? COMS.findIndex(c => c.id === m[1]) : -1;
   if (ci >= 0) { loadCom(ci, dec(m[2])); toast('A shared design. Press RIDE.'); }
   else loadCom(Math.min(COMS.length - 1, Math.max(0, +SAVE.cur || 0))); }
+// lab views: one piece of the 3D scene, posed (see FLAGS in ride3d.js)
+if (FLAGS.lab) { const go = () => { const c = FLAGS.lab === 'crest' ? 'family' : 'thrill'; loadCom(COMS.findIndex(q => q.id === c)); design = { nodes: REF[c](), lift: 1 }; changed(); startRide(); play.speed = 0; if (!V3.on) v3Open();
+  const R = last.r; let k = 0, b = 9; if (FLAGS.lab === 'crest') R.gs.forEach((g, i) => { if (R.v[i] > 5 && g < b) { b = g; k = i; } }); play.k = k; play.f = 0; play.simT = R.t[k]; V3.cg = null; v3Frame(play); __coaster.labReady = true; };
+  window.THREE ? go() : addEventListener('three-ready', go, { once: true }); }
 performance.mark('booted'); requestAnimationFrame(() => { __coaster.firstFrame = performance.now(); }); // the designer is drawn and answers input from here
 if (document.fonts) document.fonts.ready.then(() => { fit(); kick(); });
 </script>
