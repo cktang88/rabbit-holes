@@ -116,7 +116,7 @@ module.exports = {
       for (const [id, v] of Object.entries(r.out)) { ok(v.m >= r.need && v.m >= r.W - .05, `${id}: closest approach ${v.m.toFixed(2)} m (needs ${r.need})`); ok(v.kink < .15, `${id}: no kink where the track steps sideways (${v.kink.toFixed(3)} rad per 0.5 m)`); }
     },
     'airtime is taught: the tip shows on an airtime commission, a big drop into a tight crest shows green, tapping it explains, and the ride records it': async ({ page, ok, eq }) => {
-      await page.evaluate(() => __coaster.load(2)); // Family Coaster needs 0.8 s of airtime
+      await page.evaluate(() => __coaster.load(2)); // Family Coaster needs 0.5 s of airtime
       ok(await page.evaluate(() => { const e = document.getElementById('airTip'); return !!e && e.offsetHeight > 0 && /float/.test(e.textContent); }), 'the airtime line is visible');
       ok(await page.evaluate(() => __coaster.crests().every(c => !c.air)), 'the starting hump does not float');
       await page.evaluate(() => { __coaster.design = { nodes: __coaster.REF.family(), lift: 1 }; });
@@ -127,6 +127,28 @@ module.exports = {
       ok(await page.evaluate(() => /km\/h|tighter/.test(document.getElementById('toastC').textContent)), 'a grey crest says what it needs');
       await page.evaluate(() => { __coaster.design = { nodes: __coaster.REF.family(), lift: 1 }; __coaster.ride(); });
       ok(await page.evaluate(() => __coaster.last.st.air >= .8 && /s of airtime ✓/.test(document.getElementById('result').textContent)), 'the result names the airtime');
+    },
+    'follow the tips: the starting family ride plus one drop and two airtime-hill stamps passes the Family Coaster': async ({ page, ok }) => {
+      const r = await page.evaluate(() => { const X = __coaster, C = X.COMS[2]; X.load(2); X.design = { nodes: C.start(), lift: 1 };
+        const before = X.scores(X.design, X.site); X.sel = 1; X.stamp('drop'); X.sel = -1; X.stamp('hill'); X.sel = -1; X.stamp('hill');
+        const sc = X.scores(X.design, X.site), rows = X.checkReq(C, sc); return { before: before.st.air, air: sc.st.air, gmin: sc.st.gmin, gmax: sc.st.gmax, cost: sc.cost, green: X.crests().filter(c => c.air).length, fails: rows.filter(r => !r[1]).map(r => r[0]) }; });
+      ok(r.before === 0, 'the starting drawing has no airtime: ' + r.before);
+      ok(!r.fails.length, 'drop + 2 airtime hills passes: ' + JSON.stringify(r)); ok(r.green >= 2, 'both stamped hills show green');
+      ok(r.gmin > -.5, 'a gentle float, not an ejector: ' + r.gmin);
+    },
+    'the g diagram is big enough to read, folds away, and a tap scrubs to that point of the track': async ({ page, ok, eq }) => {
+      for (const [vp, minH] of [[{ width: 1280, height: 800 }, 140], [phone, 100]]) {
+        await page.setViewportSize(vp); await page.waitForTimeout(200); await page.evaluate(() => { __coaster.SAVE.stripMin = false; __coaster.load(2); __coaster.design = { nodes: __coaster.REF.family(), lift: 1 }; });
+        const B = await page.evaluate(() => __coaster.stripBox()); ok(B.h >= minH, `diagram ${B.h}px tall at ${vp.width}px`);
+        ok(await page.evaluate(() => { const B = __coaster.stripBox(); return __coaster.nodesOnScreen().every(([, y]) => y < B.t - 8); }), 'no node sits under the diagram');
+        await page.mouse.click(B.l + B.ax + (B.r - B.l - B.ax) * .5, B.t + B.h * .6); ok(await page.evaluate(() => __coaster.scrubI) > 0, 'tap scrubs');
+        await page.mouse.click(B.r - 20, B.t + 6); ok(await page.evaluate(() => __coaster.stripBox().h) < 30, 'folds'); await page.mouse.click(B.r - 20, (await page.evaluate(() => __coaster.stripBox().t)) + 6); ok(await page.evaluate(() => __coaster.stripBox().h) >= minH, 'unfolds');
+      }
+      // during a 2D ride a tap jumps the train there
+      await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(150);
+      const k = await page.evaluate(() => { const X = __coaster; X.V3.want = false; X.startRide(); const B = X.stripBox(); const cv = document.getElementById('cv'), x = B.l + B.ax + (B.r - B.l - B.ax) * .7, y = B.t + B.h / 2;
+        cv.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 9, clientX: x, clientY: y, bubbles: true, button: 0, buttons: 1 })); cv.dispatchEvent(new PointerEvent('pointerup', { pointerId: 9, clientX: x, clientY: y, bubbles: true })); return [X.play.i, X.design.S.length]; });
+      ok(k[0] > k[1] * .6, 'the train jumped to the tapped point: ' + k);
     },
     'speed-up: playback at 1x, 2x and 4x visits every physics sample and gives identical peaks and scores': async ({ page, ok, eq }) => {
       const r = await page.evaluate(() => { const K = __coaster; K.load(5); K.design = { nodes: K.REF.thrill(), lift: 1 }; return [1, 2, 4].map(s => K.playback(s)); });

@@ -282,8 +282,8 @@ const COMS = [
     story: 'The park wants an inversion. This loop is a perfect <b>circle</b>: fast enough to stay pressed in at the top means a crushing squeeze at the bottom. Keep riders under <b>5 g</b>. Real loops are not circles.',
     req: { done: 1, inv: 1, gmax: 5 } },
   { id: 'family', n: 'Family Coaster', site: flatSite, start: () => [N(0, 2), N(30, 18), N(50, 8), N(70, 3), N(95, 10), N(120, 3), N(150, 3)],
-    story: 'For the under-tens: nothing above <b>3 g</b>, nothing that throws them out of the seat, but at least <b>0.8 s of airtime</b> on a hump. Budget £160k.',
-    req: { done: 1, gmax: 3, gmin: -.5, air: .8, cost: 160 } },
+    story: 'For the under-tens: nothing above <b>3.5 g</b>, nothing that throws them out of the seat (a gentle float is fine), but at least <b>0.5 s of airtime</b> on the humps. Budget £350k.',
+    req: { done: 1, gmax: 3.5, gmin: -.5, air: .5, cost: 350 } },
   { id: 'turn', n: 'The Narrow Lot', site: flatSite, start: () => [N(0, 2), N(30, 22), N(50, 12), N(70, 5), N(80, 5, { r: 14, bank: 0 }), N(110, 5), N(140, 4)],
     story: 'The lot is only <b>40 m deep</b>, so the ride must turn back on itself. A flat turn throws riders sideways; <b>bank</b> it so the seat takes the push. Select the node before the turn to set its radius and bank.',
     req: { done: 1, lat: 1.2, depth: 40, turn: 1 } },
@@ -365,7 +365,10 @@ function playRect() { // the part of the screen the drawing can use
   const b = $('brief').getBoundingClientRect(), t = $('tools').getBoundingClientRect(), mob = innerWidth < 860, land = mob && innerHeight < 520;
   return { l: land || !mob ? b.right + 10 : 8, r: innerWidth - 10, t: land || !mob ? 20 : b.bottom + 10, b: t.top - 24 - stripH() };
 }
-const stripH = () => innerHeight < 520 ? 30 : innerWidth < 860 ? 38 : 48; // the g strip under the drawing
+// the g diagram, docked under the drawing (the drawing is fitted above it, so it never covers the track); tap ▾ to fold it
+const stripMin = () => SAVE.stripMin ?? innerHeight < 520; // a landscape phone starts folded
+const stripH = () => stripMin() ? 30 : innerHeight < 520 ? 90 : innerWidth < 860 ? 110 : 160;
+function stripBox() { const PR = playRect(), b = PR.b + stripH() + 14, h = stripH() - 8; return { l: PR.l + 4, r: PR.r - 4, t: b - h, b, h, ax: stripMin() ? 0 : 34 }; } // CSS px; ax: room for the g labels
 function fit() {
   // while the 3D ride covers the screen the brief and toolbar measure 0×0, so fitting now would aim the blueprint at nothing: refit when the ride view closes
   if (V3.on || $('tools').getBoundingClientRect().height === 0) { V3.needFit = true; return; }
@@ -444,23 +447,31 @@ function draw() {
   // scale bar and top view
   g.fillStyle = '#cfe6ff'; g.font = `${12 * dpr}px "Courier Prime"`; g.textAlign = 'left'; const bx = W - 140 * dpr, by = (playRect().b - 30) * dpr;
   g.fillRect(bx, by, 10 * cam.s, 2 * dpr); g.fillText('10 m', bx, by - 5 * dpr);
+  if (!play && scrubI >= 0 && S[scrubI]) { const p = S[scrubI], X = sx(p.x), Y = sy(p.y); g.strokeStyle = '#f2b33d'; g.lineWidth = 2.5 * dpr; g.beginPath(); g.arc(X, Y, 9 * dpr, 0, 7); g.stroke();
+    if (R && R.gs[scrubI] != null) { g.fillStyle = '#f2b33d'; g.font = `700 ${12 * dpr}px "Courier Prime"`; g.textAlign = 'center'; g.fillText(`${R.gs[scrubI].toFixed(1)} g · ${Math.round(R.v[scrubI] * 3.6)} km/h`, X, Y - 16 * dpr); } }
   drawStrip(S, R);
   drawTop(S);
 }
 function drawStrip(S, R) { // seat g against distance along the track, with the curvature faintly behind; node ticks; the train's place
-  const PR = playRect(), l = (PR.l + 4) * dpr, r = (PR.r - 4) * dpr, b = (PR.b + stripH() + 14) * dpr, h = (stripH() - 8) * dpr, t = b - h, n = S.length;
-  g.fillStyle = 'rgba(13,44,82,.85)'; g.fillRect(l, t - 2 * dpr, r - l, h + 4 * dpr); g.strokeStyle = 'rgba(207,230,255,.35)'; g.lineWidth = 1 * dpr; g.strokeRect(l, t - 2 * dpr, r - l, h + 4 * dpr);
-  const gx = i => l + (r - l) * i / Math.max(1, n - 1), gy = v => b - (clamp(v, -2, 6) + 2) / 8 * h;
-  g.font = `${9 * dpr}px "Courier Prime"`; g.textAlign = 'left';
-  for (const [v, c] of [[0, 'rgba(124,242,255,.5)'], [1, 'rgba(207,230,255,.25)'], [3.5, 'rgba(255,162,90,.45)'], [5, 'rgba(255,75,58,.6)']]) { g.fillStyle = c; g.fillRect(l, gy(v), r - l, 1 * dpr); if (v === 0 || v === 5) g.fillText(v + 'g', l + 2 * dpr, gy(v) + (v ? 9 : -2) * dpr); }
+  const B = stripBox(), L0 = B.l * dpr, l = (B.l + B.ax) * dpr, r = B.r * dpr, b = B.b * dpr, h = B.h * dpr, t = b - h, n = S.length, mini = stripMin();
+  g.fillStyle = 'rgba(13,44,82,.9)'; g.fillRect(L0, t - 2 * dpr, r - L0, h + 4 * dpr); g.strokeStyle = 'rgba(207,230,255,.35)'; g.lineWidth = 1 * dpr; g.strokeRect(L0, t - 2 * dpr, r - L0, h + 4 * dpr);
+  const lo = -2, hi = 6, gx = i => l + (r - l) * i / Math.max(1, n - 1), gy = v => b - (clamp(v, lo, hi) - lo) / (hi - lo) * h;
+  // bands: airtime (green) and what this commission forbids (red)
+  g.fillStyle = 'rgba(63,210,122,.16)'; g.fillRect(l, gy(AIR), r - l, b - gy(AIR));
+  const q = C.req || {}, top = q.gmax || 5, bot = q.gmin; g.fillStyle = 'rgba(255,75,58,.18)'; g.fillRect(l, t, r - l, gy(top) - t); if (bot != null) g.fillRect(l, gy(bot), r - l, b - gy(bot));
+  const fs = mini ? 9 : 11; g.font = `${fs * dpr}px "Courier Prime"`; g.textAlign = 'right';
+  for (const [v, c, lab] of [[0, 'rgba(124,242,255,.6)', '0 g'], [1, 'rgba(207,230,255,.3)', '+1 g'], [3.5, 'rgba(255,162,90,.5)', '+3.5'], [5, 'rgba(255,75,58,.6)', '+5 g'], [-1, 'rgba(124,242,255,.3)', '−1 g']]) {
+    g.fillStyle = c; g.fillRect(l, gy(v), r - l, 1 * dpr); if (!mini || v === 0) { g.fillStyle = '#cfe6ff'; g.fillText(lab, mini ? l + 26 * dpr : l - 4 * dpr, gy(v) + 4 * dpr); } }
+  if (!mini) { g.textAlign = 'left'; g.font = `${10 * dpr}px "Courier Prime"`; g.fillStyle = '#3fd27a'; g.fillText('airtime', l + 4 * dpr, b - 4 * dpr); if (q.gmax) { g.fillStyle = '#ff8a7a'; g.fillText(`over ${q.gmax} g: too much for this ride`, l + 4 * dpr, gy(top) - 4 * dpr); } }
   // node ticks
   g.fillStyle = 'rgba(207,230,255,.5)'; let seg = -1; for (let i = 0; i < n; i++) if (S[i].seg !== seg) { seg = S[i].seg; g.fillRect(gx(i), b - 4 * dpr, 1 * dpr, 4 * dpr); }
   // curvature (faint): |κ| scaled so a 4 m radius fills the strip
   g.strokeStyle = 'rgba(207,230,255,.35)'; g.beginPath(); for (let i = 0; i < n; i += 2) { const y = b - clamp(Math.abs(S[i].k || 0) * 4, 0, 1) * h; i ? g.lineTo(gx(i), y) : g.moveTo(gx(i), y); } g.stroke();
   if (R && R.gs.length) { const lift = design.lift ?? 1; g.fillStyle = 'rgba(63,210,122,.28)'; for (let i = 0; i < R.gs.length; i++) if (R.gs[i] < AIR && S[R.idx[i]].seg >= lift) g.fillRect(gx(R.idx[i]) - 1 * dpr, t, 2 * dpr + (r - l) / n, h); // the moments of airtime
     g.lineWidth = 2 * dpr; for (let i = 1; i < R.gs.length; i++) { const v = R.gs[i]; g.strokeStyle = v > 5 ? '#ff4b3a' : v > 3.5 ? '#ffa25a' : v < .2 ? '#7cf2ff' : '#ffffff'; g.beginPath(); g.moveTo(gx(R.idx[i - 1]), gy(R.gs[i - 1])); g.lineTo(gx(R.idx[i]), gy(v)); g.stroke(); } }
-  g.fillStyle = '#cfe6ff'; g.textAlign = 'right'; g.fillText(R ? 'seat g · curvature' : 'curvature', r - 4 * dpr, t + 9 * dpr);
+  g.fillStyle = '#cfe6ff'; g.textAlign = 'right'; g.font = `${(mini ? 9 : 11) * dpr}px "Courier Prime"`; g.fillText((R ? 'seat g · curvature' : 'curvature') + (mini ? '  ▴ g' : '  ▾'), r - 4 * dpr, t + (mini ? 9 : 11) * dpr);
   if (play) { g.fillStyle = '#e2493b'; g.fillRect(gx(play.i) - 1 * dpr, t, 2 * dpr, h); }
+  if (!play && scrubI >= 0 && scrubI < n) { g.fillStyle = '#f2b33d'; g.fillRect(gx(scrubI) - 1 * dpr, t, 2 * dpr, h); }
   if (sel >= 0 && !play) { const i0 = S.findIndex(p => p.seg >= sel); if (i0 >= 0) { g.fillStyle = '#ff6b57'; g.fillRect(gx(sel >= design.nodes.length - 1 ? n - 1 : i0) - 1 * dpr, t, 2 * dpr, h); } }
 }
 function drawTop(S) { // plan view in the corner
@@ -499,7 +510,7 @@ function drawPOV(i) {
 
 // ================= editing =================
 function snapshot() { history.push(JSON.stringify(design.nodes)); if (history.length > 50) history.shift(); }
-function changed() { design.S = null; design.T = null; last = null; if (!play) { $('result').style.display = 'none'; $('gauge').style.display = 'none'; } /* the last ride's verdict no longer describes this track */ predict(true); SAVE.designs[C.id] = enc(design); persist(); renderReq(); renderTools(); kick(); }
+function changed() { design.S = null; design.T = null; last = null; scrubI = -1; if (!play) { $('result').style.display = 'none'; $('gauge').style.display = 'none'; } /* the last ride's verdict no longer describes this track */ predict(true); SAVE.designs[C.id] = enc(design); persist(); renderReq(); renderTools(); kick(); }
 const touched = () => { design.S = null; design.T = null; last = null; predict(); kick(); };
 const ptrs = new Map(); let dragN = -1, dragA = null, dragH = null, pan = null, pinch = null, selG = 0, guides = [];
 const snapOn = () => SAVE.snap !== false;
@@ -516,7 +527,16 @@ const groupOf = id => { const ix = []; design.nodes.forEach((n, i) => { if (n.g 
 const groups = () => design.nodes.filter(n => n.el && n.g).map(n => n.el);
 function unGroup(id, quiet) { let any = false; for (const n of design.nodes) if (n.g === id) { delete n.g; delete n.el; any = true; } if (any && !quiet) toast('Converted to plain nodes: shape it point by point.'); if (selG === id) selG = 0; return any; }
 function hitHandle(px, py) { for (const el of groups()) { const H = handleOf(el); if (H && Math.hypot(H[0] - px, H[1] - py) < 20 * dpr) return el; } return null; }
+let scrubI = -1, scrubbing = false;
+function stripAt(cx, cy) { const B = stripBox(); return cx >= B.l && cx <= B.r && cy >= B.t - 4 && cy <= B.b + 4 ? B : null; }
+function scrubTo(cx) { const B = stripBox(), S = design.S || (design.S = geometry(design)), i = Math.round(clamp((cx - B.l - B.ax) / (B.r - B.l - B.ax), 0, 1) * (S.length - 1));
+  if (play) { const R = last.r, k = R.idx.findIndex(x => x >= i); if (k >= 0) { play.k = k; play.simT = R.t[k]; play.f = 0; play.i = R.idx[k]; V3.cg = null; } } // the ride jumps there
+  else { scrubI = i; follow(S[i].x); } kick(); }
 cv.addEventListener('pointerdown', e => {
+  { const B = stripAt(e.clientX, e.clientY); if (B) { // the g diagram: ▾ folds it; elsewhere a tap (or drag) scrubs to that point of the track
+      if (e.clientX > B.r - 70 && e.clientY < B.t + 16) { SAVE.stripMin = !stripMin(); persist(); fit(); kick(); return; }
+      scrubbing = true; cv.setPointerCapture(e.pointerId); scrubTo(e.clientX); return; } }
+  scrubI = -1;
   if (play) return; cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX * dpr, y: e.clientY * dpr });
   if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: cam.s, ox: cam.ox, oy: cam.oy, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }; dragN = -1; dragA = dragH = null; pan = null; return; }
   const px = e.clientX * dpr, py = e.clientY * dpr, arm = sel >= 0 ? hitArm(px, py) : null;
@@ -539,6 +559,7 @@ function snapNode(i, x, y) {
   return [x, y];
 }
 cv.addEventListener('pointermove', e => {
+  if (scrubbing) { scrubTo(e.clientX); return; }
   const p = ptrs.get(e.pointerId); if (!p) return; p.x = e.clientX * dpr; p.y = e.clientY * dpr;
   if (pinch && ptrs.size >= 2) { const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y), s = clamp(pinch.s * d / pinch.d, .4 * dpr, 12 * dpr);
     const wx0 = (pinch.cx - pinch.ox) / pinch.s, wy0 = (pinch.oy - pinch.cy) / pinch.s; cam.s = s; cam.ox = pinch.cx - wx0 * s; cam.oy = pinch.cy + wy0 * s; kick(); return; }
@@ -549,7 +570,7 @@ cv.addEventListener('pointermove', e => {
     [x, y] = snapNode(dragN, x, y); n.x = x; n.y = y; if (dragN === 0) n.x = Math.min(n.x, design.nodes[1].x - 4); touched(); return; }
   if (pan) { cam.ox = pan.ox + p.x - pan.x; cam.oy = pan.oy + p.y - pan.y; kick(); }
 });
-const up = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (dragN >= 0 || dragA || dragH) { dragN = -1; dragA = dragH = null; guides = []; changed(); renderInsp(); } pan = null; };
+const up = e => { scrubbing = false; ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (dragN >= 0 || dragA || dragH) { dragN = -1; dragA = dragH = null; guides = []; changed(); renderInsp(); } pan = null; };
 cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
 cv.addEventListener('wheel', e => { e.preventDefault(); const s = clamp(cam.s * Math.exp(-e.deltaY * .0015), .4 * dpr, 12 * dpr), px = e.clientX * dpr, py = e.clientY * dpr, x = wx(px), y = wy(py); cam.s = s; cam.ox = px - x * s; cam.oy = py + y * s; kick(); }, { passive: false });
 // a tangent arm sets the node's own direction and strength (a pinned tangent); snaps level and plumb
@@ -606,11 +627,21 @@ function place(i, el, fresh) { // (re)write the group after anchor i; the nodes 
   ns.splice(i + 1, j - i - 1, ...B.nodes);
 }
 let gidN = 1;
+// an airtime hill sized for where it goes: about 40% of the height the train's speed there can climb, rounded just tightly
+// enough over the top for a gentle float (seat g ≈ −0.1). A cosine hump of height h and length w has crest radius w²/(2π²h).
+function hillFor(a) {
+  const R = live && live.r, S = design.S || geometry(design); let v = 0;
+  if (R) { const j = S.findIndex(p => p.x >= a.x); if (j >= 0 && R.v[j] != null) v = R.v[j]; }
+  if (v < 4) return {}; // the train never gets here (or barely moves): the plain default
+  const E = ELS.hill, h = clamp(.4 * v * v / (2 * G), E.hr[0], 12), vt2 = Math.max(4, (v * v - 2 * G * h) * .9);
+  return { h: Math.round(h * 2) / 2, w: Math.round(clamp(Math.sqrt(2 * Math.PI * Math.PI * h * vt2 / (1.1 * G)), E.wr[0], E.wr[1])) };
+}
 function stamp(t) {
   if (play) return; const ns = design.nodes; let i = sel >= 0 && sel < ns.length - 1 ? sel : ns.length - 2;
   while (i > 0 && ns[i].g && ns[i + 1] && ns[i + 1].g === ns[i].g) i++; // never inside another element: after it
   if (ns[i].g && ns[i + 1] && ns[i + 1].g === ns[i].g) i = ns.length - 2;
   snapshot(); gidN = Math.max(gidN, ...ns.map(n => n.g || 0)) + 1; const E = ELS[t], el = { t, id: gidN, h: E.h, w: E.w };
+  if (t === 'hill') Object.assign(el, hillFor(ns[i]));
   place(i, el, true); sel = -1; selG = el.id; closeDrawer(); changed(); renderInsp(); FX.sfx('whoosh');
 }
 function reshape(D, x, y) { const el = D.el, E = ELS[el.t], ix = groupOf(el.id); if (!ix.length) return;
@@ -1077,7 +1108,7 @@ window.__coaster = { spline, resample, geometry, simulate: ride, scores, footpri
   trace3d(dt = 1 / 60, max = 6000, render = true) { if (!play || !V3.on) return null; const out = []; V3.noRender = !render; play.speed = play.speed || 1; for (let k = 0; k < max; k++) { const end = advance(play, last.r, dt * play.speed); V3.dt = dt; v3Frame(play); const c = V3.cam; c.updateMatrixWorld(); const e = c.matrixWorld.elements;
       out.push({ p: [c.position.x, c.position.y, c.position.z], f: [-e[8], -e[9], -e[10]], u: [e[4], e[5], e[6]], fov: c.fov, k: play.k, g: last.r.gs[play.k] }); if (end) break; } V3.noRender = false; return out; },
   bench3d(n = 60) { if (!play || !V3.on) return null; const t0 = performance.now(); for (let k = 0; k < n; k++) { advance(play, last.r, 1 / 60 * (play.speed || 1)); v3Frame(play); V3.r.getContext().finish(); } return { ms: (performance.now() - t0) / n, tris: V3.r.info.render.triangles, calls: V3.r.info.render.calls, pr: V3.r.getPixelRatio() }; },
-  get live() { return live; }, get sel() { return sel; }, set sel(v) { sel = v; renderInsp(); kick(); }, get selG() { return selG; }, tangents, crests: () => crests(design.S || geometry(design), (last && last.r) || (live && live.r)), crestsOnScreen: () => crests(design.S || geometry(design), (last && last.r) || (live && live.r)).map(c => ({ ...c, sx: sx(c.x) / dpr, sy: (sy(c.y) - 20 * dpr) / dpr })), AIR, trackFrames, LOOP_W, TRACK_W, stamp, smooth, groups, groupOf, handleOf, arms, ELS, loopShape, openDrawer, guests, dailyStart, screenOf: (x, y) => [sx(x) / dpr, sy(y) / dpr], SAVE };
+  get live() { return live; }, get sel() { return sel; }, set sel(v) { sel = v; renderInsp(); kick(); }, get selG() { return selG; }, stripBox, get scrubI() { return scrubI; }, tangents, crests: () => crests(design.S || geometry(design), (last && last.r) || (live && live.r)), crestsOnScreen: () => crests(design.S || geometry(design), (last && last.r) || (live && live.r)).map(c => ({ ...c, sx: sx(c.x) / dpr, sy: (sy(c.y) - 20 * dpr) / dpr })), AIR, trackFrames, LOOP_W, TRACK_W, stamp, smooth, groups, groupOf, handleOf, arms, ELS, loopShape, openDrawer, guests, dailyStart, screenOf: (x, y) => [sx(x) / dpr, sy(y) / dpr], SAVE };
 
 // ================= boot =================
 resize();
