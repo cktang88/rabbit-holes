@@ -146,6 +146,40 @@ module.exports = {
       await page.evaluate(() => { const k = __kiln; k.SAVE.done = { clear: { lik: 90, cost: 1, fuel: 1, tiles: 1 }, honey: { lik: 90, cost: 1, fuel: 1, tiles: 1 } }; k.openComm('matteblue'); });
       ok(await page.evaluate(() => /Unity/.test(document.querySelector('#glazePane .unity').textContent)), 'unity readout after two commissions');
     },
+    'the critique says what to change, and a newcomer who only follows it passes commissions 1-6 within four firings': async ({ page, ok }) => {
+      const r = await page.evaluate(src => { const K = __kiln.K, B = eval(src)(K);
+        const runs = K.COMMS.slice(0, 6).map((c, i) => ({ id: c.id, ...B.hintFollower(c, K.unlocked(i), 4) }));
+        const j = K.judge(K.fire({ feldspar: 45, silica: 25, whiting: 15, kaolin: 15 }, { peak: 1150 }), K.COMMS[0].T);
+        const pale = K.judge(K.fire({ feldspar: 40, silica: 30, whiting: 20, kaolin: 10, iron: 1 }, { peak: 1285, hold: 15 }), K.COMMS[1].T);
+        const wrongKiln = K.judge(K.fire({ feldspar: 40, silica: 30, whiting: 20, kaolin: 10, iron: 1.2 }, { peak: 1285, hold: 15 }), K.COMMS[4].T);
+        const ran = K.judge(K.fire({ feldspar: 30, silica: 15, whiting: 25, kaolin: 5, fritB: 25 }, { peak: 1300, hold: 40 }), K.COMMS[0].T);
+        const noX = K.judge(K.fire({ fritS: 50, zinc: 25, silica: 20, titanium: 5 }, { peak: 1250 }), K.COMMS[14].T);
+        return { runs, under: j.notes[0], pale: pale.notes.join(' '), wrongKiln: wrongKiln.notes.join(' '), ran: ran.notes.join(' '), noX: noX.notes.join(' '), allArrows: [j, pale, wrongKiln].every(x => x.notes.every(n => n.includes('→'))) }; }, BOTS);
+      for (const x of r.runs) ok(x.ok && x.firings <= 4, `${x.id}: ${x.firings} firings ${x.liks} ${x.notes[0] || ''}`);
+      ok(/Raise PEAK/.test(r.under), r.under); ok(/more iron/.test(r.pale), r.pale); ok(/gas kiln/.test(r.wrongKiln), r.wrongKiln);
+      ok(/Lower PEAK|thinner/.test(r.ran), r.ran); ok(/HOLD around 1100/.test(r.noX), r.noX); ok(r.allArrows, 'every critique line carries a suggestion');
+    },
+    'kiln sliders explain themselves; the curve shows the zones; a prediction updates before firing': async ({ page, ok, eq }) => {
+      await page.click('[data-tab="K"]'); await page.waitForTimeout(200);
+      const w = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('#kilnPane .why')].map(e => [e.dataset.why, e.textContent])));
+      ok(/too low.*rough/i.test(w.peak) && /runs off/.test(w.peak), 'peak: ' + w.peak); ok(/pinholes/.test(w.ramp), 'climb: ' + w.ramp); ok(/melts/.test(w.hold), 'soak: ' + w.hold);
+      ok(/crystals/.test(w.cool) && /glossy/.test(w.cool), 'cool: ' + w.cool); ok(/copper red/.test(w.atm) && /iron green/.test(w.atm), 'atmosphere: ' + w.atm); ok(w.app && /thick/i.test(w.app), 'thickness');
+      const pred = () => page.evaluate(() => document.querySelector('#kilnPane .pred').textContent);
+      ok(/under-fired: dry and rough/.test(await pred()), 'at the starting 1220°: ' + await pred());
+      const sl = await page.$('[data-s="peak"]'), bb = await sl.boundingBox(); await page.mouse.click(bb.x + bb.width * .9, bb.y + bb.height / 2); await page.waitForTimeout(150);
+      ok(/glossy, fully melted/.test(await pred()), 'hotter: ' + await pred()); eq(await page.evaluate(() => document.querySelector('.why.live').dataset.why), 'peak', 'the dragged slider\'s line lights up');
+      ok(await page.evaluate(() => { const K = __kiln.K, b = __kiln.st.bench; b.A = { fritS: 60, fritB: 30, kaolin: 5, silica: 5 }; b.s.peak = 1300; b.s.hold = 60; __kiln.foldBench(false); return true; }));
+      await page.click('[data-tab="A"]'); await page.click('[data-tab="K"]'); await page.waitForTimeout(150); ok(/run off/.test(await pred()), 'a runny glaze, too hot: ' + await pred());
+      ok(await page.evaluate(() => { const c = document.querySelector('#kilnPane canvas.prev'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n > c.width * c.height * .3; }), 'preview swatch is drawn');
+    },
+    'jars say what they do: colourants carry a swatch strip, and a tap shows one line': async ({ page, ok }) => {
+      await page.evaluate(() => { const k = __kiln; k.SAVE.done = { clear: { lik: 90, cost: 1, fuel: 1, tiles: 1 } }; k.openComm('honey'); });
+      const s = await page.evaluate(() => ({ A: __kiln.st.bench.A, strip: document.querySelectorAll('#glazePane [data-k="iron"] .strip i').length, pred: document.querySelector('#glazePane .pred').textContent }));
+      ok(s.A.iron > 0, 'the first colour commission starts with iron in the bucket'); ok(s.strip >= 3, 'iron shows its colours'); ok(/amber|yellow/.test(s.pred), 'and the preview shows colour: ' + s.pred);
+      await page.click('#glazePane [data-info="iron"]'); await page.waitForTimeout(100);
+      const info = await page.evaluate(() => document.querySelector('#glazePane .info').textContent); ok(/gas kiln/.test(info) && /amber/.test(info) && /darker/.test(info), info);
+      await page.click('#addJar'); ok(await page.evaluate(() => [...document.querySelectorAll('.picker button')].every(b => b.title.length > 10)), 'every jar in the picker has its line');
+    },
     'phone (390x844): the kiln fills the screen; the folded bench covers under a third; no tiny buttons': async ({ page, ok }) => {
       await page.setViewportSize({ width: 390, height: 844 }); await reopen(page); await page.waitForTimeout(300);
       const r = await page.evaluate(() => { const b = document.getElementById('bench').getBoundingClientRect(), g = document.getElementById('gl').getBoundingClientRect(), t = document.getElementById('ticket').getBoundingClientRect();
